@@ -12,6 +12,7 @@ export type {
   ValidationError,
 } from './errors.js';
 export { compileInlineSchema, createSpecRegistry, loadSpecRegistry } from './registry.js';
+export { SchemaCompileBudgetError } from './compile-budget.js';
 export { ALLOW_UNION_TYPES, compileJsonSchema, jsonSchemaDialect } from './dialect.js';
 export type { CompileJsonSchemaOptions, JsonSchemaDialect } from './dialect.js';
 export type { CompiledInlineSchema, SpecRegistry, ValidationErrorLike } from './registry.js';

@@ -25,6 +25,10 @@ const ALLOWED: Readonly<Record<string, { readonly sites: number; readonly why: s
     sites: 1,
     why: "a pack's discovery globs, in the pack's own process",
   },
+  'schema/src/bounded.ts': {
+    sites: 1,
+    why: "ajv-formats' url format, written without backtracking",
+  },
   'sdk/src/webhook-events.ts': { sites: 1, why: "Kindgi's generated event shapes, in a client" },
 };
 
@@ -93,6 +97,7 @@ describe('no tenant pattern skips compileTenantPattern', () => {
       'api/src/middleware/public-run-routes.ts: listed, but has none',
       'capabilities/src/tool-names.ts: listed, but has none',
       'handler-runtime/src/discovery.ts: listed, but has none',
+      'schema/src/bounded.ts: listed, but has none',
       'sdk/src/webhook-events.ts: listed, but has none',
     ]);
   });

@@ -1101,6 +1101,9 @@ importers:
 
   packages/schema:
     dependencies:
+      '@kindgi/bounds':
+        specifier: workspace:*
+        version: link:../bounds
       '@kindgi/types':
         specifier: workspace:*
         version: link:../types

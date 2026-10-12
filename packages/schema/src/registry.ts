@@ -5,25 +5,13 @@ import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { ValidateFunction } from 'ajv';
-import * as addFormatsModule from 'ajv-formats';
-// Ajv 8's `/dist/2020` entry exports the Ajv2020 class as a named export.
-// The named-import form is stable across ESM/CJS/bundler interop; the default form is not.
-import { Ajv2020 } from 'ajv/dist/2020.js';
 
 import type { Result } from '@kindgi/types';
 
+import { boundedAjv, compileTenantSchema } from './bounded.js';
+import { SchemaCompileBudgetError } from './compile-budget.js';
 import { ALLOW_UNION_TYPES } from './dialect.js';
 import type { SchemaError } from './errors.js';
-
-// ajv-formats uses CJS `export = fn` style. In ESM with esModuleInterop, the
-// module namespace holds the function either directly or under `.default`
-// depending on the resolver. Runtime-check to unwrap regardless of shape.
-type AddFormatsFn = (ajv: InstanceType<typeof Ajv2020>, opts?: unknown) => unknown;
-const addFormatsRaw = addFormatsModule as unknown;
-const addFormats: AddFormatsFn =
-  typeof addFormatsRaw === 'function'
-    ? (addFormatsRaw as AddFormatsFn)
-    : (addFormatsRaw as { default: AddFormatsFn }).default;
 
 /**
  * A registry of loaded and compiled JSON Schemas, keyed by `$id`.
@@ -128,7 +116,10 @@ function extractId(schema: unknown): Result<string, SchemaError> {
 }
 
 /**
- * Build a SpecRegistry from an array of already-parsed schema documents.
+ * Build a SpecRegistry from an array of already-parsed schema documents:
+ * Kindgi's own (`@kindgi/specs`), whose patterns run on V8 as the rest of
+ * Kindgi's code does. A tenant's schema goes through `compileJsonSchema`
+ * or `compileInlineSchema`, under the bounds.
  *
  * All schemas are registered with the Ajv instance FIRST (so cross-schema
  * `$ref`s can resolve), then validators are compiled and cached.
@@ -137,12 +128,11 @@ function extractId(schema: unknown): Result<string, SchemaError> {
  * spec is broken, downstream validators are meaningless.
  */
 export function createSpecRegistry(schemas: readonly unknown[]): Result<SpecRegistry, SchemaError> {
-  const ajv = new Ajv2020({
-    strict: true,
-    allErrors: true,
-    allowUnionTypes: ALLOW_UNION_TYPES,
-  });
-  addFormats(ajv);
+  const ajv = boundedAjv(
+    '2020-12',
+    { strict: true, allErrors: true, allowUnionTypes: ALLOW_UNION_TYPES },
+    { schemasFrom: 'kindgi' },
+  );
 
   const schemaMap = new Map<string, unknown>();
 
@@ -235,35 +225,34 @@ export interface ValidationErrorLike {
 }
 
 /**
- * Compile a single anonymous JSON Schema (draft 2020-12) into a reusable
- * validator. Returns `err` if the schema itself is malformed (Ajv rejects
- * it), which is how the flow loader surfaces `LoopOutputSchemaError` and
- * similar load-time diagnostics.
- *
- * Design note: this is intentionally decoupled from `SpecRegistry` — inline
- * schemas don't have a `$id` and don't need cross-schema `$ref` resolution.
- */
-/**
  * Keywords an inline schema may carry for Kindgi to read, with no effect
  * on validation: `x-kindgi-tunable` marks a settings key an improvement
  * pass may search.
  */
 export const INLINE_ANNOTATIONS: readonly string[] = ['x-kindgi-tunable'];
 
+/**
+ * Compile a single anonymous JSON Schema (draft 2020-12) into a reusable
+ * validator. Returns `err` if the schema itself is malformed (Ajv rejects
+ * it), which is how the flow loader surfaces `LoopOutputSchemaError` and
+ * similar load-time diagnostics. Throws `SchemaCompileBudgetError` when the
+ * compile counts against a tenant that has spent its budget: that isn't
+ * the schema's fault, and the caller answers it as a limit, not an issue.
+ *
+ * Design note: this is intentionally decoupled from `SpecRegistry` — inline
+ * schemas don't have a `$id` and don't need cross-schema `$ref` resolution.
+ */
 export function compileInlineSchema(schema: unknown): Result<CompiledInlineSchema, SchemaError> {
-  const ajv = new Ajv2020({
-    strict: true,
-    allErrors: true,
-    allowUnionTypes: ALLOW_UNION_TYPES,
-  });
-  addFormats(ajv);
-  // Annotations Kindgi reads off a schema, which validate nothing.
-  for (const keyword of INLINE_ANNOTATIONS) ajv.addKeyword(keyword);
-
   let validator: ValidateFunction;
   try {
-    validator = ajv.compile(schema as object);
+    validator = compileTenantSchema(schema, {
+      dialect: '2020-12',
+      options: { strict: true, allErrors: true, allowUnionTypes: ALLOW_UNION_TYPES },
+      // Annotations Kindgi reads off a schema, which validate nothing.
+      annotations: INLINE_ANNOTATIONS,
+    });
   } catch (cause) {
+    if (cause instanceof SchemaCompileBudgetError) throw cause;
     return {
       kind: 'err',
       error: {
