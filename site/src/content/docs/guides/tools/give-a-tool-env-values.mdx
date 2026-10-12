@@ -152,8 +152,9 @@ uv run kindgi env set ORDERS_REGION us --scope=project:<project-id> --env=local
 </TabItem>
 </Tabs>
 
-Each command prints the value's env, scope, name and revision as JSON, then
-a line that confirms it. The first ends with:
+Each command prints JSON with the value's env, scope, key and revision, and
+whether it replaced a value, then a line that confirms it. The first ends
+with:
 
 ```text
 …
