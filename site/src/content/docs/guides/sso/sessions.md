@@ -50,6 +50,15 @@ so another site can't act through your session. A runtime without
 `KINDGI_PUBLIC_URL` accepts such a request only from an `https` origin, or
 `http` on `localhost`.
 
+Under `kindgi dev`, from 0.1.7, the console works at `localhost`,
+`127.0.0.1` or `[::1]` on the runtime's port: a browser takes each for a
+different address. Anywhere else is refused, and the refusal names the
+address to open the console at. Here, from another port:
+
+```json
+{"error":{"code":"csrf-origin-mismatch","message":"A request signed in by the session cookie can't come from http://localhost:18097; open the console at http://localhost:18096","requestId":"…"}}
+```
+
 ## Sessions and API tokens
 
 API tokens are for the API, the CLI and the SDKs, and they don't expire with
