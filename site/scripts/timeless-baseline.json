@@ -1,8 +1,5 @@
 {
   "concepts/security": 3,
-  "deploy/authorization": 4,
-  "deploy/azure-container-apps": 1,
-  "deploy/people-and-keys": 2,
   "guides/agents/choose-a-model": 1,
   "guides/agents/conversations": 1,
   "guides/agents/typed-answer": 2,

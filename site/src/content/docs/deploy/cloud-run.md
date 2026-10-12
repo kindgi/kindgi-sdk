@@ -580,7 +580,7 @@ A new grant can take a minute or two to apply.
   record per line, and Cloud Logging reads each record's `severity`. Filter
   by `jsonPayload.traceId` to follow one request or run. The startup lines are
   the `lines` of its `boot` record, as in
-  [Operate](../operate/#the-startup-log). See [Logs](../logs/).
+  [Operate](../restart-and-check-health/#the-startup-log). See [Logs](../logs/).
 
 ## Tear it down
 
