@@ -66,6 +66,7 @@ All `@kindgi/*` packages share one version.
 | [`@kindgi/audit-events-inmemory`](./packages/audit-events-inmemory) | Reference in-memory `AuditEventBinding` adapter for dev + tests. |
 | [`@kindgi/authz`](./packages/authz) | Kindgi™ authorization shape. |
 | [`@kindgi/blob-binding`](./packages/blob-binding) | Kindgi™ blob storage binding contract. |
+| [`@kindgi/bounds`](./packages/bounds) | The limits a Kindgi server puts on what a tenant sends it: pattern length and engine (V8, or linear-time RE2 when hosted), schema size and depth, template limits, and the size and idle time of bodies read from tenant-named endpoints. |
 | [`@kindgi/capabilities`](./packages/capabilities) | Capability declarations + provider router for Kindgi™. |
 | [`@kindgi/cli`](./packages/cli) | Command-line interface for Kindgi™. |
 | [`@kindgi/compliance`](./packages/compliance) | Kindgi™ compliance evidence contract. |
