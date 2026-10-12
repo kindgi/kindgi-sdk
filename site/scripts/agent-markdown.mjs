@@ -8,7 +8,8 @@
  *   also `/start/install.md`. Its links are absolute, and a link to another
  *   page points at that page's Markdown. Notes keep their box (a quote that
  *   starts with the note's title), tabs keep their labels, and code blocks
- *   keep their language and file name.
+ *   keep their language and file name. A block that isn't a whole file says
+ *   so after its language (```` ```ts excerpt ````).
  * - **`llms.txt`:** every page's Markdown, by sidebar section and in sidebar
  *   order, the generated references under "Optional".
  * - **`llms-full.txt`** (every page), **`llms-small.txt`** (every page but
@@ -16,6 +17,11 @@
  *   `_llms-txt/`, each made of the pages' Markdown, so headings and notes
  *   survive.
  * - **A `<link rel="alternate" type="text/markdown">`** in each page's head.
+ *
+ * Each `llms*.txt` file names the version it describes (`llms.txt` below its
+ * description, the others in their `<SYSTEM>` heading): an agent that fetched
+ * one from a versioned build (`/v0.1.7/llms.txt`) knows which Kindgi it reads
+ * about.
  *
  * It reads the built HTML, so every page gets a Markdown version, the HTTP
  * API's included, and the version fixes (`versioned-pages.mjs`, listed
@@ -101,12 +107,19 @@ function hasClass(node, name) {
   return Array.isArray(classes) && classes.includes(name);
 }
 
-/** Expressive Code's frame, as a code block with its language and file name. */
+/**
+ * Expressive Code's frame, as a code block with its language and file name.
+ * Only the code and the title are read, so an excerpt's label (`div.excerpt`,
+ * beside the code) stays out; `markExcerpts` marks its fence instead.
+ */
 function codeFrame(frame) {
   const pre = select('pre', frame);
   const code = select('code', frame);
   if (!pre || !code) return [frame];
-  const language = pre.properties.dataLanguage;
+  // Expressive Code always names one (`plaintext` by default); an excerpt
+  // needs one, since a fence's meta follows its language.
+  const language =
+    pre.properties.dataLanguage ?? (hasClass(frame, 'is-excerpt') ? 'plaintext' : undefined);
   const lines = selectAll('.ec-line', code);
   const changed =
     language !== 'diff' && lines.some((line) => hasClass(line, 'ins') || hasClass(line, 'del'));
@@ -126,8 +139,35 @@ function codeFrame(frame) {
   const block = element('pre', [
     element('code', [text(body)], lang ? { className: [`language-${lang}`] } : {}),
   ]);
+  // The frame's place in the page, which the code block's mdast node keeps.
+  block.position = pre.position;
   const title = textOf(select('figcaption .title', frame) ?? text('')).trim();
   return title ? [element('p', [element('code', [text(title)])]), block] : [block];
+}
+
+/**
+ * Where each excerpt's code sits in the page (`figure.is-excerpt`, a code
+ * block that isn't a whole runnable file): the offset of its `pre`.
+ */
+function excerptOffsets(content) {
+  return new Set(
+    selectAll('figure.is-excerpt pre', content)
+      .map((pre) => pre.position?.start.offset)
+      .filter((offset) => offset !== undefined),
+  );
+}
+
+/**
+ * Writes `excerpt` after the language of each code block from an excerpt's
+ * frame (```` ```ts excerpt ````), so an agent knows it isn't a whole file.
+ * hast-util-to-mdast's code handler always sets `meta` to null and has no
+ * option for it, so this sets it on the mdast tree after the conversion,
+ * finding each block by the position its code node keeps from the frame's
+ * `pre` (`codeFrame`).
+ */
+function markExcerpts(node, offsets) {
+  if (node.type === 'code' && offsets.has(node.position?.start.offset)) node.meta = 'excerpt';
+  for (const child of node.children ?? []) markExcerpts(child, offsets);
 }
 
 /** Starlight's tabs, as a list: each item the tab's label, then its panel. */
@@ -214,6 +254,7 @@ export function pageToMarkdown(html, { pageUrl, pages, base, siteDescription }) 
       hasClass(node, 'sr-only') ||
       hasClass(node, 'copy'),
   );
+  const excerpts = excerptOffsets(content);
   replace(
     content,
     (node) => hasClass(node, 'expressive-code'),
@@ -245,9 +286,9 @@ export function pageToMarkdown(html, { pageUrl, pages, base, siteDescription }) 
     image.properties.src = markdownLink(image.properties.src, { pageUrl, pages: new Set(), base });
   }
 
-  const body = String(
-    toMarkdown.stringify(toMdast.runSync({ type: 'root', children: content.children })),
-  ).trim();
+  const mdast = toMdast.runSync({ type: 'root', children: content.children });
+  markExcerpts(mdast, excerpts);
+  const body = String(toMarkdown.stringify(mdast)).trim();
   const own = description && description !== siteDescription ? description : undefined;
   const head = own ? `# ${title}\n\n> ${own}` : `# ${title}`;
   return { title, description: own, markdown: `${head}\n\n${body}\n` };
@@ -356,12 +397,12 @@ function referenceOf(page) {
 }
 
 /**
- * `llms.txt`: what the docs are, how to get any page as Markdown, the
- * combined files, then every page: a section per sidebar group and a
- * subsection per group inside it, the generated references under
- * "Optional", as llmstxt.org names it.
+ * `llms.txt`: what the docs are and which version, how to get any page as
+ * Markdown, the combined files, then every page: a section per sidebar
+ * group and a subsection per group inside it, the generated references
+ * under "Optional", as llmstxt.org names it.
  */
-function llmsIndex(ordered, { origin, base, title, description, details }) {
+function llmsIndex(ordered, { origin, base, title, version, description, details }) {
   const at = (rel) => `${origin}${base}${rel}`;
   const howTo = [
     "Every page of these docs has a Markdown version: replace the slash at the end of the page's URL with `.md`",
@@ -402,7 +443,8 @@ function llmsIndex(ordered, { origin, base, title, description, details }) {
       ]),
     ].join('\n'),
   );
-  return `${[`# ${title}`, `> ${description}`, details, howTo, files, ...lists].join('\n\n')}\n`;
+  const which = `These are the docs for ${title} ${version}.`;
+  return `${[`# ${title}`, `> ${description}`, which, details, howTo, files, ...lists].join('\n\n')}\n`;
 }
 
 /** `: <description>` for a list entry, or nothing. */
@@ -410,32 +452,37 @@ function described({ description }) {
   return description ? `: ${description}` : '';
 }
 
-/** Pages in one file: a heading for the file, then each page with its URL. */
-function combinedFile(list, heading) {
-  return `${[`<SYSTEM>${heading}</SYSTEM>`, ...list.map(combined)].join('\n\n')}\n`;
+/**
+ * Pages in one file: a heading for the file, with the release it describes
+ * (`Kindgi 0.1.7`), then each page with its URL.
+ */
+function combinedFile(list, heading, release) {
+  return `${[`<SYSTEM>${heading} (${release})</SYSTEM>`, ...list.map(combined)].join('\n\n')}\n`;
 }
 
 /**
  * Writes every page's Markdown and the `llms*.txt` files into the build at
- * `root`, for the docs served at `origin` + `base`. Returns how many pages
- * got a Markdown version.
+ * `root`, for the docs of `version` served at `origin` + `base`. Returns
+ * how many pages got a Markdown version.
  */
-export function writeAgentMarkdown(root, { origin, base, title, description, details }) {
+export function writeAgentMarkdown(root, { origin, base, title, version, description, details }) {
   const { pages, sidebar } = writePages(root, { origin, base, description });
   const ordered = readingOrder(pages, sidebar, { origin, base });
+  const release = `${title} ${version}`;
   writeFileSync(
     join(root, 'llms.txt'),
-    llmsIndex(ordered, { origin, base, title, description, details }),
+    llmsIndex(ordered, { origin, base, title, version, description, details }),
   );
   writeFileSync(
     join(root, 'llms-full.txt'),
-    combinedFile(ordered, `${title}: the complete documentation`),
+    combinedFile(ordered, `${title}: the complete documentation`, release),
   );
   writeFileSync(
     join(root, 'llms-small.txt'),
     combinedFile(
       ordered.filter((page) => !referenceOf(page)),
       `${title}: the documentation without the generated references`,
+      release,
     ),
   );
   mkdirSync(join(root, '_llms-txt'), { recursive: true });
@@ -444,20 +491,36 @@ export function writeAgentMarkdown(root, { origin, base, title, description, det
     const heading = section.description
       ? `${section.label}: ${section.description}`
       : section.label;
-    writeFileSync(join(root, '_llms-txt', `${section.slug}.txt`), combinedFile(list, heading));
+    writeFileSync(
+      join(root, '_llms-txt', `${section.slug}.txt`),
+      combinedFile(list, heading, release),
+    );
   }
   return pages.size;
 }
 
-/** The integration: writes the agents' Markdown once the build is done. */
-export function agentMarkdown({ site, base, title, description, details }) {
+/**
+ * The integration: writes the agents' Markdown once the build is done.
+ * `version` is the release the build describes (`docsVersion()`).
+ */
+export function agentMarkdown({ site, base, title, version, description, details }) {
+  if (!version) {
+    throw new Error('agentMarkdown: no version: each llms*.txt file names the one it describes.');
+  }
   return {
     name: 'kindgi-agent-markdown',
     hooks: {
       'astro:build:done': ({ dir, logger }) => {
         const root = fileURLToPath(dir);
         const origin = new URL(site).origin;
-        const count = writeAgentMarkdown(root, { origin, base, title, description, details });
+        const count = writeAgentMarkdown(root, {
+          origin,
+          base,
+          title,
+          version,
+          description,
+          details,
+        });
         logger.info(`${count} page(s) written as Markdown, with llms.txt and the section files.`);
       },
     },

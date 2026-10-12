@@ -356,6 +356,9 @@ importers:
       '@kindgi/authz':
         specifier: workspace:*
         version: link:../authz
+      '@kindgi/bounds':
+        specifier: workspace:*
+        version: link:../bounds
       '@kindgi/capabilities':
         specifier: workspace:*
         version: link:../capabilities
