@@ -10,6 +10,7 @@
  * on the in-memory `TurnContext`.
  */
 
+import { TenantBudgetError } from '@kindgi/bounds';
 import { route } from '@kindgi/capabilities';
 import type { TenantPolicy } from '@kindgi/capabilities';
 import type { HitlSpec, ToolErrorsSpec } from '@kindgi/policy-contract';
@@ -194,6 +195,8 @@ export async function resolveTurnHitlPolicy(ctx: TurnContext): Promise<Effective
         HitlSpec | undefined
       >('hitl', { tenantId: ctx.input.tenantId });
     } catch (cause) {
+      // Work a budget kept per tenant refused isn't the policy's failure: the turn answers for it.
+      if (cause instanceof TenantBudgetError) throw cause;
       throwAgentTurnFailure({
         code: 'tenant-policy-unavailable',
         message: `The tenant's hitl policy could not be applied: ${cause instanceof Error ? cause.message : String(cause)}`,

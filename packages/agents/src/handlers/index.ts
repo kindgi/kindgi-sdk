@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { TenantBudgetError } from '@kindgi/bounds';
 import type { HandlerRegistry, NodeHandler } from '@kindgi/handler';
 import type { NodeId } from '@kindgi/types';
 
@@ -25,6 +26,7 @@ import { buildBuildInitialMessagesHandler } from './build-initial-messages.js';
 import { buildComposeResultHandler } from './compose-result.js';
 import type { TurnContext } from './context.js';
 import { buildDispatchToolsHandler } from './dispatch-tools.js';
+import { throwAgentTurnFailure } from './errors.js';
 import { buildEvaluateGuardrailsHandler } from './evaluate-guardrails.js';
 import { buildModelCallHandler } from './model-call.js';
 import { buildPersistFinalMessageHandler } from './persist-final-message.js';
@@ -57,7 +59,9 @@ export function buildHandlers(ctx: TurnContext): HandlerRegistry {
   if (entries.some(([id]) => id === (AGENT_LOOP_NODE as NodeId))) {
     throw new Error('agent-loop must not have a handler — it is dispatched by the kernel');
   }
-  return new Map(entries.map(([id, handler]) => [id, followingTheRun(ctx, handler)]));
+  return new Map(
+    entries.map(([id, handler]) => [id, followingTheRun(ctx, refusalsAnswered(handler))]),
+  );
 }
 
 export type { TurnContext };
@@ -80,5 +84,30 @@ function followingTheRun(ctx: TurnContext, handler: NodeHandler): NodeHandler {
       else run.addEventListener('abort', stop, { once: true });
     }
     return handler(input, kctx);
+  };
+}
+
+/**
+ * The handler, with a budget kept per tenant answered for: the one place
+ * in a turn where work refused by one (a template render, a schema
+ * compile; `TenantBudgetError`) becomes the turn's failure,
+ * `rate-limit-exceeded` with the budget and the wait. Every node's work
+ * passes through here, and the catches inside a node pass the refusal
+ * on, so it never reads as the model's failure or the template's.
+ */
+function refusalsAnswered(handler: NodeHandler): NodeHandler {
+  return async (input, kctx) => {
+    try {
+      return await handler(input, kctx);
+    } catch (cause) {
+      if (!(cause instanceof TenantBudgetError)) throw cause;
+      return throwAgentTurnFailure({
+        code: 'rate-limit-exceeded',
+        message: cause.message,
+        limit: cause.limit,
+        budgetMs: cause.budgetMs,
+        retryAfterMs: cause.retryAfterMs,
+      });
+    }
   };
 }

@@ -26,6 +26,8 @@ import {
   toValue,
 } from 'liquidjs';
 
+import { chargeRender } from './render-budget.js';
+
 /** What a template that uses a partial is told, at a publish and at a render alike. */
 export const NO_PARTIALS = "templates can't use include, render or layout";
 
@@ -194,10 +196,12 @@ export function tenantLiquid(): Liquid {
 /**
  * A template rendered under the bounds' limits: what its filters and
  * ranges make, and what it writes (its output and its captures), count
- * toward `memoryLimit` as they're made.
+ * toward `memoryLimit` as they're made. As a tenant's work, its time
+ * counts toward the tenant's `templateRenderBudgetMs`, and a tenant past
+ * that is refused with `TemplateRenderBudgetError`.
  */
 export function renderTenantTemplate(template: string, scope: object): string {
-  return tenantLiquid().parseAndRenderSync(template, scope);
+  return chargeRender(() => tenantLiquid().parseAndRenderSync(template, scope));
 }
 
 /**

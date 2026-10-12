@@ -59,7 +59,8 @@ export interface RateLimitedError {
   readonly retryAfterSeconds?: number;
   /**
    * Which of the tenant's limits refused it (the wire's `details.limit`),
-   * such as `schema-compile-time`; absent for a limit the server doesn't name.
+   * such as `schema-compile-time` or `template-render-time`; absent for a
+   * limit the server doesn't name.
    */
   readonly limit?: string;
 }

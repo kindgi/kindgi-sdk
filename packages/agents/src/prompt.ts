@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { TenantBudgetError } from '@kindgi/bounds';
+
 import type { PromptBlockContent } from './blocks.js';
 import { liquidProblem, renderTenantTemplate } from './liquid.js';
 import type { Agent, PromptParameter, PromptRef } from './types.js';
@@ -100,6 +102,9 @@ export interface RenderFailureError {
  * When the instructions come from a prompt block, `prompt` is the
  * version the turn runs (its template and declared parameters); an
  * agent whose instructions are a prompt block can't render without it.
+ *
+ * Throws `TemplateRenderBudgetError` (a `TenantBudgetError`) when the
+ * tenant has spent its render budget: that's no fault of the template's.
  */
 export function renderInstructions(
   agent: Agent,
@@ -129,6 +134,9 @@ export function renderInstructions(
     const rendered = renderTenantTemplate(template, merged);
     return { ok: true, value: { rendered, context: merged } };
   } catch (cause) {
+    // A tenant past its render budget: not the template's failure, and
+    // retryable. The turn answers for it.
+    if (cause instanceof TenantBudgetError) throw cause;
     // LiquidJS throws UndefinedVariableError for unresolved refs — surface
     // as missing-parameter so callers get one consistent error code.
     const message = cause instanceof Error ? cause.message : String(cause);

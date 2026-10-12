@@ -1431,6 +1431,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`).',
       ),
       '422': ErrorResponse('Guardrail violation or budget exceeded.'),
+      '429': ErrorResponse(
+        "`rate-limit-exceeded`, on a server with budgets kept per tenant (Kindgi hosted): work the agent's turn needed was refused, because this tenant's work of that kind took `details.budgetMs` in the last 60 seconds. `details.limit` names the budget: `template-render-time` (rendering instructions templates) or `schema-compile-time` (compiling schemas). The turn's run failed with this error (`details.runId`); `Retry-After` says when to start the turn again.",
+      ),
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body; or an erasure of the turn's person (its conversation or its `participantId`) is in progress (`erasure-in-progress`): no new turn starts for them until it completes.",
       ),

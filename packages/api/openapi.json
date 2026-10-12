@@ -1624,7 +1624,7 @@
           "code",
           "message"
         ],
-        "description": "Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …); any other failure is `run-failed`, with the run's failure message.",
+        "description": "Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …; `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed, its `message` naming the budget and when the tenant is under it again); any other failure is `run-failed`, with the run's failure message.",
         "properties": {
           "code": {
             "type": "string"
@@ -3386,7 +3386,7 @@
             ]
           },
           "resume": {
-            "description": "How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.",
+            "description": "How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.",
             "oneOf": [
               {
                 "type": "object",
@@ -20730,6 +20730,16 @@
           },
           "422": {
             "description": "Guardrail violation or budget exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate-limit-exceeded`, on a server with budgets kept per tenant (Kindgi hosted): work the agent's turn needed was refused, because this tenant's work of that kind took `details.budgetMs` in the last 60 seconds. `details.limit` names the budget: `template-render-time` (rendering instructions templates) or `schema-compile-time` (compiling schemas). The turn's run failed with this error (`details.runId`); `Retry-After` says when to start the turn again.",
             "content": {
               "application/json": {
                 "schema": {

@@ -290,6 +290,7 @@ export type {
   InvokeAgentError,
   ModelInvocationError,
   OutputSchemaViolationError,
+  RateLimitExceededError,
   RunSnapshotError,
   SemanticUnavailableError,
   ToolInvocationError,

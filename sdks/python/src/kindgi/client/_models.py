@@ -569,7 +569,7 @@ class UnpinBody(BaseModel):
 
 class RunFailure(BaseModel):
     """
-    Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …); any other failure is `run-failed`, with the run's failure message.
+    Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …; `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed, its `message` naming the budget and when the tenant is under it again); any other failure is `run-failed`, with the run's failure message.
     """
 
     model_config = ConfigDict(
@@ -1193,7 +1193,7 @@ class CompleteApprovalBody(BaseModel):
 
 class Resume(BaseModel):
     """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
     """
 
     model_config = ConfigDict(
@@ -1205,7 +1205,7 @@ class Resume(BaseModel):
 
 class Resume1(BaseModel):
     """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
     """
 
     model_config = ConfigDict(
@@ -11374,7 +11374,7 @@ class CompleteApprovalResult(BaseModel):
     ] = None
     resume: Resume | Resume1 | None = None
     """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
     """
 
 
