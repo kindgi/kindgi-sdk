@@ -111,8 +111,8 @@ test('a note keeps its box: a quote that starts with its kind and title', () => 
  * Expressive Code's frame. An excerpt's (`is-excerpt`) has its label beside
  * the code, and no copy button.
  */
-const codeFrame = (title, language, lines, { excerpt = false } = {}) =>
-  `<div class="expressive-code"><link rel="stylesheet" href="/_astro/ec.css"><script type="module" src="/_astro/ec.js"></script><figure class="frame${excerpt ? ' is-excerpt' : ''}"><figcaption class="header"><span class="title">${title}</span><span class="sr-only">Terminal window</span></figcaption><pre data-language="${language}"><code>${lines
+const codeFrame = (title, language, lines, { excerpt = false, signature = false } = {}) =>
+  `<div class="expressive-code"><link rel="stylesheet" href="/_astro/ec.css"><script type="module" src="/_astro/ec.js"></script><figure class="frame${excerpt ? ' is-excerpt' : ''}${signature ? ' is-signature' : ''}"><figcaption class="header"><span class="title">${title}</span><span class="sr-only">Terminal window</span></figcaption><pre data-language="${language}"><code>${lines
     .map(
       (line) =>
         `<div class="ec-line"><div class="code">${line === '' ? '\n' : `<span>${line}</span>`}</div></div>`,
@@ -120,7 +120,9 @@ const codeFrame = (title, language, lines, { excerpt = false } = {}) =>
     .join('')}</code></pre>${
     excerpt
       ? '<div class="excerpt">Excerpt</div>'
-      : '<div class="copy"><button title="Copy to clipboard" data-code="x"></button></div>'
+      : signature
+        ? '<div class="signature">Signature</div>'
+        : '<div class="copy"><button title="Copy to clipboard" data-code="x"></button></div>'
   }</figure></div>`;
 
 test('code keeps its language, its file name and its empty lines, without the copy button', () => {
@@ -148,6 +150,17 @@ test('an excerpt says so after its language, and its label stays out', () => {
     '# Quickstart\n\n`tools/echo/index.ts`\n\n```ts excerpt\nreturn { echo: input };\n```\n',
   );
   assert.doesNotMatch(md.markdown, /Excerpt/);
+});
+
+test('a signature says so after its language, and its label stays out', () => {
+  const md = convert(
+    codeFrame('', 'python', ['get(agent_id: str, /) -> Agent'], { signature: true }),
+  );
+  assert.equal(
+    md.markdown,
+    '# Quickstart\n\n```python signature\nget(agent_id: str, /) -> Agent\n```\n',
+  );
+  assert.doesNotMatch(md.markdown, /Signature\n/);
 });
 
 test('beside an excerpt, a whole file keeps its plain fence', () => {
