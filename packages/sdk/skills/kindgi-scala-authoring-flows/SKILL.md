@@ -229,10 +229,11 @@ object TriageTicket {
   `any-succeed` (the first success wins), or `settle-all` (wait for every
   branch and report each).
   Every branch gets the fanout's whole input: the output of the step
-  before it. A case class refuses properties it doesn't name, so when a branch
-  tool takes only some of them, its input case class says
-  `@JsonIgnoreProperties(ignoreUnknown = true)`
-  (`com.fasterxml.jackson.annotation`). Without it, the branch fails.
+  before it (the run input after `$start`). A case class refuses
+  properties it doesn't name, so when a branch tool takes only some of
+  them, its input case class says `@JsonIgnoreProperties(ignoreUnknown = true)`
+  (`com.fasterxml.jackson.annotation`). Without it, the branch fails with
+  `input-validation-failed`.
 - **A sub-flow** (`"kind" -> "subgraph"`) is part of the flow schema, but a
   run refuses it today (`flow-unbound`). Inline the steps instead.
 
