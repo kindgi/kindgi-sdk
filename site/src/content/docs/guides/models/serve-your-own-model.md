@@ -5,13 +5,25 @@ sidebar:
   order: 4
 ---
 
-An open model you serve yourself (with Ollama, vLLM or llama.cpp's server, on
-your machine or on a server in your network) registers like any
+This guide connects an open model you serve yourself to your agents, sends
+the request fields your server needs, and keeps it as a fallback.
+
+You can serve it with Ollama, vLLM or llama.cpp's server, on your machine or
+on a server in your network. It registers like any
 [OpenAI-compatible endpoint](../openai-compatible/): no key, and a price of
 zero. Two things are specific to it: the request fields your server needs, and
 whether it should be a fallback.
 
+## Before you start
+
+- **A pack** with `kindgi dev` running, from Kindgi 0.1's CLI.
+- **A server that answers the OpenAI Chat Completions API,** with tool
+  calling on and a model that supports it.
+- **An agent,** to try it. This guide uses `acme.order-desk`.
+
 ## The provider
+
+Write the provider as a spec, and save it in the pack as `acme-llm.json`:
 
 ```json
 {
@@ -31,10 +43,16 @@ whether it should be a fallback.
 }
 ```
 
+Register it, then start a turn. `--spec=@acme-llm.json` reads the spec from
+that file. `--agent` is the agent, and `--input` its input:
+
 ```sh
 kindgi providers register --spec=@acme-llm.json
 kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1002?"}'
 ```
+
+`register` prints the provider's id, as JSON. The turn's run shows which
+provider answered:
 
 ```json
 {
@@ -51,25 +69,28 @@ kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my o
 ```
 
 - **`baseURL`** is your server as the runtime reaches it. Here it's Ollama on
-  the same machine as `kindgi dev`; for a server in your network, it's that
-  server's address (`http://<host>:<port>/v1`).
-- **`region`** is a label of your choosing; agents can require it.
+  the same machine as `kindgi dev`. For a server in your network, it's that
+  server's address, such as `http://<host>:<port>/v1`.
+- **`region`** is a label of your choosing. Agents can require it.
 - **`contextWindow`** is the context your server serves the model with, which
   can be less than the model's own.
 
 To have `kindgi dev` register it on every boot, put the spec in the pack's
-config instead (`{ spec: { … } }` in `providers`); see [Declare them in your pack's config](../#declare-them-in-your-packs-config).
+config instead, as `{ spec: { … } }` in `providers`.
+[Declare them in your pack's config](../#declare-them-in-your-packs-config)
+shows how.
 
 ## Extra request fields
 
-Some servers need fields the OpenAI API doesn't have. A thinking model (Qwen 3,
-for one) writes its reasoning before its answer unless it's asked not to, and an
-agent with a [typed answer](../../agents/typed-answer/) then gets an answer
-that isn't JSON. If you can't change the server's defaults, send the field
+Some servers need fields the OpenAI API doesn't have. A thinking model, such
+as Qwen 3, writes its reasoning before its answer unless it's asked not to.
+An agent with a [typed answer](../../agents/typed-answer/) then gets an
+answer that isn't JSON. If you can't change the server's defaults, send the field
 with every request.
 
 `adapter_config` is flat: each extra field is one key that starts with
-`extraBody.`, and the dots nest. The provider above sends, with every call:
+`extraBody.`, and the dots nest. The provider in
+[The provider](#the-provider) sends, with every call:
 
 ```json
 { "chat_template_kwargs": { "enable_thinking": false } }
@@ -118,3 +139,9 @@ A turn it answers carries a `fallback-provider` warning:
 
 When several fallbacks fit, the usual ranking applies: `acme-llm` comes before
 `dev-echo` alphabetically.
+
+## Next
+
+- [Connect an OpenAI-compatible endpoint](../openai-compatible/)
+- [Choose the model an agent uses](../../agents/choose-a-model/)
+- [Give an agent a typed answer](../../agents/typed-answer/)
