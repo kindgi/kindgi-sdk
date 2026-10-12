@@ -30,10 +30,12 @@ export type SchemaMajor = Brand<number, 'SchemaMajor'>;
  * semver, so replays and audit trails always know which version was in force.
  *
  * @example
+ * ```ts excerpt
  * const flowRef: VersionedRef<FlowId> = {
  *   id: 'acme.contract-review' as FlowId,
  *   version: '1.2.3' as Semver,
  * };
+ * ```
  */
 export interface VersionedRef<Id extends string> {
   readonly id: Id;

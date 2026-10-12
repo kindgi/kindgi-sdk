@@ -33,7 +33,7 @@ export interface SupervisorClient {
    *   supplied by the deployment's `SupervisorBinding`.
    *
    * @example
-   * ```ts
+   * ```ts excerpt
    * const supervisorId = await client.supervisor.define({
    *   id: 'acme.citation-supervisor',
    *   version: '1.0.0',
