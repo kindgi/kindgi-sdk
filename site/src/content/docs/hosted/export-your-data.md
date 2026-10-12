@@ -5,9 +5,10 @@ sidebar:
   order: 20
 ---
 
-Your workspace's data can be read at any time with the API or the CLI, as
-JSON, and saved as files. After your account closes, it can still be read for
-30 days, signed in as before or with the workspace's own API keys.
+Your workspace's data can be read at any time through the API, as JSON, and
+saved as files; most of it with the CLI too. After your account closes, it
+can still be read for 30 days, signed in as before or with the workspace's
+own API keys.
 
 Secret values are never exported: they can't be read back, by design. Their
 names and metadata are.
