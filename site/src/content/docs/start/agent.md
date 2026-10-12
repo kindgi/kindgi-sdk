@@ -220,7 +220,8 @@ are how you write tools and agents for this project.
 ## Step 3: start Kindgi
 
 Start `kindgi dev` from the project's folder so that it keeps running after
-your turn ends, with its output in `.kindgi/dev.log`:
+your turn ends, with its output in `.kindgi/dev.log`. Run
+`mkdir -p .kindgi` first, on its own, so the log's folder exists. Then:
 
 - **If your tool runs commands in the background itself** (Claude Code's
   background tasks do), start it that way: `kindgi dev`, as a background
@@ -228,12 +229,11 @@ your turn ends, with its output in `.kindgi/dev.log`:
 - **Otherwise,** start it detached, and note its process id:
 
   ```sh
-  mkdir -p .kindgi
   nohup kindgi dev > .kindgi/dev.log 2>&1 &
   echo $!
   ```
 
-  Keep `mkdir` on its own line: with `mkdir … && nohup … &`, `$!` is a
+  Run the `mkdir` before it, not as `mkdir … && nohup … &`: then `$!` is a
   subshell's id, and stopping it leaves `kindgi dev` running.
 
 Use `kindgi` as the project runs it (`.kindgi/` is git-ignored). It starts
