@@ -163,10 +163,19 @@ environment block, and `--env prod` names that block:
 pnpm exec kindgi build --local --push --env prod
 ```
 
+It prints the build as JSON, then each step. The last steps:
+
 ```text
-✓ Pushed …/acme@sha256:bd7bfe4f…
-✓ /app/index.json in the image matches the local index byte for byte
-✓ Ed25519 signature over (imageDigest, artifactVersion, indexHash, tenantId, publishedAt)
+…
+    ✓ Pushed …/acme@sha256:bd7bfe4f…
+
+  Verifying build output
+    ✓ /app/index.json in the image matches the local index byte for byte
+
+  Signing locally
+    ✓ Ed25519 signature over (imageDigest, artifactVersion, indexHash, tenantId, publishedAt)
+      key: …
+…
 ```
 
 Set `server_image` and `pack_image` in `prod.tfvars` to the two digests
@@ -294,7 +303,7 @@ fail after that, check that the runtime's service account has
 When a tool calls one of your app's IAM-protected Cloud Run services, list it
 in `pack_run_invokers`, by its name, not its URL:
 
-```hcl
+```hcl excerpt
 pack_run_invokers = [
   { project = "acme-app", location = "europe-west1", service = "orders-api" },
 ]
@@ -408,11 +417,20 @@ It prints the key the runtime now trusts, then says so:
 pnpm exec kindgi deploy --env prod --endpoint "$URL" --token "$KINDGI_API_TOKEN"
 ```
 
+It prints the deployment as JSON, then each step. The last steps:
+
 ```text
-✓ POST /v1/deployments  →  201 Created
-  artifactVersion: …
-  primitives:      3 tools, 1 guardrail, 1 agent, 2 flows
-Deploy complete.
+…
+  Registering deployment
+    ✓ POST /v1/deployments  →  201 Created
+      deploymentId:    b27ee9ec-…
+      artifactVersion: …
+      primitives:      3 tools, 1 guardrail, 1 agent, 2 flows
+      activatedAt:     2026-10-04T22:23:24.370Z
+
+  Deploy complete.
+  Runs started from now use image sha256:bd7bfe4f7d9c8… (artifactVersion …).
+  Runs already in flight continue on their pinned image.
 ```
 
 The runtime read your pack's image from Artifact Registry with its own token
@@ -457,7 +475,7 @@ secret given as a plain value: a name with `SECRET` in it, or the SMTP URL.
 
 **With an API token,** which the console's sign-in page then takes:
 
-```hcl
+```hcl excerpt
 server_env = {
   KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
 }
@@ -473,7 +491,7 @@ openssl rand 32 | base64 | gcloud secrets create $N-auth-secret --data-file=-
 read -rs SMTP_URL && printf '%s' "$SMTP_URL" | gcloud secrets create $N-smtp-url --data-file=- && unset SMTP_URL
 ```
 
-```hcl
+```hcl excerpt
 public_url = "https://kindgi-dev-server-abc123-pd.a.run.app" # terraform output -raw server_url
 server_env = {
   KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
@@ -576,7 +594,7 @@ A new grant can take a minute or two to apply.
   openssl rand 32 | base64 | gcloud secrets create $N-erasure-ledger-key --data-file=-
   ```
 
-  ```hcl
+  ```hcl excerpt
   server_secret_env = {
     KINDGI_ERASURE_LEDGER_KEY = { secret = "kindgi-dev-erasure-ledger-key", version = "1" }
   }
