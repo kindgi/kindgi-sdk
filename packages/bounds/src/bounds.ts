@@ -76,9 +76,9 @@ const MiB = 1024 * KiB;
 
 /**
  * Anywhere but the hosted profile: today's behaviour. A pattern on V8's
- * engine, templates and idle time without limits; caps where today has
- * none that a self-hoster could still hurt itself without (bodies,
- * schemas, the compile cache).
+ * engine, a template's length and render time, and idle time without
+ * limits; caps where today has none that a self-hoster could still hurt
+ * itself without (bodies, schemas, the compile cache, a render's memory).
  */
 export const SELF_HOSTED_BOUNDS: TenantInputBounds = deepFreeze({
   regex: 'v8',
@@ -90,7 +90,7 @@ export const SELF_HOSTED_BOUNDS: TenantInputBounds = deepFreeze({
   liquid: {
     parseLimit: Number.POSITIVE_INFINITY,
     renderLimitMs: Number.POSITIVE_INFINITY,
-    memoryLimit: Number.POSITIVE_INFINITY,
+    memoryLimit: 16_777_216,
   },
   responseMaxBytes: 10 * MiB,
   responseIdleMs: Number.POSITIVE_INFINITY,
