@@ -107,22 +107,24 @@ const read = (path) => {
     return '';
   }
 };
+/** A generated page's Markdown, by its slug. */
+const page = (slug) => read(join(docs, `${slug}.md`));
 const ids = (markdown) =>
   new Set([...markdown.matchAll(/^#{2,4} (.+)$/gm)].map((m) => headingId(m[1].replace(/`/g, ''))));
 const cliIds = new Map();
 for (const command of commands.filter((c) => c.path.length === 1)) {
-  cliIds.set(command.name, ids(read(join(docs, 'reference', 'cli', `${command.name}.md`))));
+  cliIds.set(command.name, ids(page(`reference/cli/${command.name}`)));
 }
 for (const command of commands) {
   const name = `kindgi ${command.path.join(' ')}`;
   if (!cliIds.get(command.path[0])?.has(headingId(name)))
     gaps.push(`${name}: no entry on its page`);
 }
-const envIds = ids(read(join(docs, 'reference', 'env-vars.md')));
+const envIds = ids(page('reference/env-vars'));
 for (const variable of KINDGI_ENV_SCHEMA) {
   if (!envIds.has(headingId(variable.name))) gaps.push(`${variable.name}: no entry on its page`);
 }
-const errorIds = ids(read(join(docs, 'reference', 'errors.md')));
+const errorIds = ids(page('reference/errors'));
 for (const code of codes) {
   if (!errorIds.has(headingId(code))) gaps.push(`error code ${code}: no entry on its page`);
 }
