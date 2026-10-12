@@ -16,8 +16,8 @@ went, and sends a failed one again.
   [Get a webhook when a run finishes](../receive-run-finished/) shows.
 - **A receiver listening at its URL,** such as one from
   [Verify a webhook](../verify-a-webhook/).
-- **Node 22.12 or later, or Python 3.11 or later,** with Kindgi 0.1's
-  client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+- **Node 22.12 or later, Python 3.11 or later, or Java 17 or later,** with
+  Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
 
 ## Send a test event
 
@@ -176,6 +176,67 @@ def fix_endpoint(endpoint_id: str, delivery_id: str) -> None:
     kindgi.webhook_endpoints.update(endpoint_id, url="http://localhost:8788/hooks/kindgi")
     again = kindgi.webhook_endpoints.redeliver(endpoint_id, delivery_id)
     print(again.status)
+```
+
+```text
+pending
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/FixEndpoint.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.PatchWebhookEndpointBody;
+import com.kindgi.client.models.WebhookDelivery;
+
+public final class FixEndpoint {
+  private static final Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+  /** Points the endpoint at the right URL, and sends the delivery again now. */
+  public static void fixEndpoint(String endpointId, String deliveryId) {
+    kindgi.webhookEndpoints().update(endpointId,
+        PatchWebhookEndpointBody.builder().url("http://localhost:8787/hooks/kindgi").build());
+    WebhookDelivery again = kindgi.webhookEndpoints().redeliver(endpointId, deliveryId);
+    System.out.println(again.status());
+  }
+
+  public static void main(String[] args) {
+    fixEndpoint(args[0], args[1]);
+  }
+}
+```
+
+```text
+pending
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/FixEndpoint.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.PatchWebhookEndpointBody
+
+object FixEndpoint {
+  private val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+  /** Points the endpoint at the right URL, and sends the delivery again now. */
+  def fixEndpoint(endpointId: String, deliveryId: String): Unit = {
+    kindgi.webhookEndpoints().update(endpointId,
+      PatchWebhookEndpointBody.builder().url("http://localhost:8787/hooks/kindgi").build())
+    val again = kindgi.webhookEndpoints().redeliver(endpointId, deliveryId)
+    println(again.status)
+  }
+
+  def main(args: Array[String]): Unit = fixEndpoint(args(0), args(1))
+}
 ```
 
 ```text
