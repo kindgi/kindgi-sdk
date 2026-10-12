@@ -6526,7 +6526,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.register',
     summary: 'Register a signed deployment',
     description:
-      "Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries, then record the deployment. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.",
+      "Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's Default project), then record the deployment. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6544,7 +6544,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. A tool that declares or sends a model provider's key is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key.",
       ),
-      '403': ErrorResponse("Signer key not on the tenant's trust list."),
+      '403': ErrorResponse(
+        "Signer key not on the tenant's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the tenant.",
+      ),
+      '404': ErrorResponse(
+        "The body's `projectId` names no project of this tenant (`project-not-found`).",
+      ),
     },
   },
   {

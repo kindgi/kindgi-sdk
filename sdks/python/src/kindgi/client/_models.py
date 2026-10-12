@@ -8966,6 +8966,10 @@ class DeploymentRecord(BaseModel):
     """
     Server-side ledger timestamp — when the register call succeeded.
     """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's Default project).
+    """
     endpoint: DeploymentEndpoint | None = None
     primitives: DeploymentPrimitiveCounts
     contents: DeploymentContents
@@ -9000,6 +9004,10 @@ class DeploymentRegistrationBody(BaseModel):
     published_at: Annotated[AwareDatetime, Field(alias="publishedAt")]
     """
     Issuer-supplied ISO-8601 timestamp — covered by the signature.
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The project to deploy into, one per client: its agents, flows, tools and guardrails are registered there, and its secret sync writes there. It takes admin on that project (a key limited to another project is refused). Absent: a tenant-wide deploy, into the tenant's Default project. An id that already lives in another project is `409` (`tool-project-mismatch` and the like): each client gets its own pack, whose ids carry its own pack id. Not covered by the signature, which attests the image.
     """
 
 

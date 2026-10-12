@@ -1885,6 +1885,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           signingKeyRegistry: input.signingKeyRegistry,
           providerKeys,
           imageRegistry: input.imageRegistry,
+          // A runtime routing pack calls per deployment sends each check call
+          // by its id: a pack check must carry its pack's id.
+          ...(input.systemDeployments !== undefined && { requirePrefixedPackChecks: true }),
           ...(input.toolRegistry !== undefined && { toolRegistry: input.toolRegistry }),
           ...(input.blockRegistry !== undefined && { blockRegistry: input.blockRegistry }),
           ...(input.guardrailRegistry !== undefined && {

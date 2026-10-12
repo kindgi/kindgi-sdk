@@ -98,6 +98,7 @@ function makeInMemoryDeploymentBinding(): DeploymentBinding {
         signature: input.signature,
         publishedAt: input.publishedAt,
         activatedAt: new Date().toISOString(),
+        ...(input.projectId !== undefined && { projectId: input.projectId }),
         primitives: input.primitives,
         contents: input.contents,
       };
@@ -495,6 +496,9 @@ function makeInMemoryAgentRegistry(
  * throw to make accidental use visible in the test output.
  */
 const DEFAULT_PROJECT_ID = randomUUID() as ProjectId;
+/** Two client projects of the tenant, each deployed into by name. */
+const CLIENT_A = randomUUID() as ProjectId;
+const CLIENT_B = randomUUID() as ProjectId;
 
 function makeMockProjectBinding(defaultProjectId: ProjectId = DEFAULT_PROJECT_ID): ProjectBinding {
   const notImpl = (m: string) => async () => {
@@ -513,7 +517,21 @@ function makeMockProjectBinding(defaultProjectId: ProjectId = DEFAULT_PROJECT_ID
       } as Project;
     },
     create: notImpl('create') as ProjectBinding['create'],
-    get: notImpl('get') as ProjectBinding['get'],
+    // The tenant's projects a deploy may name (the project-ref check reads them).
+    async get(t, projectId) {
+      if (t !== tenantId) return undefined;
+      const known = [defaultProjectId, CLIENT_A, CLIENT_B, ELSEWHERE_PROJECT_ID];
+      if (!known.includes(projectId)) return undefined;
+      return {
+        id: projectId,
+        tenantId,
+        name: projectId === defaultProjectId ? 'Default' : 'Client',
+        slug: projectId === defaultProjectId ? 'default' : `client-${projectId.slice(0, 8)}`,
+        isDefault: projectId === defaultProjectId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      } as Project;
+    },
     list: notImpl('list') as ProjectBinding['list'],
     update: notImpl('update') as ProjectBinding['update'],
     delete: notImpl('delete') as ProjectBinding['delete'],
@@ -1684,7 +1702,7 @@ describe('POST /v1/deployments — rollback', () => {
     };
     expect(body.error.code).toBe('agent-project-mismatch');
     expect(body.error.message).toBe(
-      "The agent acme.drafting@1.0.0 wasn't published: it belongs to another project; nothing was deployed",
+      "The agent acme.drafting@1.0.0 wasn't published: it belongs to another project (one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id); nothing was deployed",
     );
     expect(body.error.details).toEqual({ primitive: 'agent', id: 'acme.drafting@1.0.0' });
     // The project it belongs to stays off the wire.
@@ -2677,7 +2695,8 @@ async function makeSyncApp(
       currentVersion: number;
     }[];
     omitSecretsBinding?: boolean;
-    seedProjectIdOnDeployment?: string;
+    /** The project the seeded deployment was deployed into; absent: tenant-wide. */
+    deployedInto?: ProjectId;
     resolveTokenOverride?: TokenResolver;
   } = {},
 ): Promise<SyncFixtures> {
@@ -2708,26 +2727,12 @@ async function makeSyncApp(
     publishedAt: '2026-09-22T00:00:00.000Z',
     primitives: { tools: 0, guardrails: 0, agents: 0, flows: 0 },
     contents: { tools: [], guardrails: [], agents: [], flows: [] },
+    ...(opts.deployedInto !== undefined && { projectId: opts.deployedInto }),
   });
   if (registerOutcome.kind !== 'ok') {
     throw new Error('failed to seed deployment');
   }
   const deploymentId = registerOutcome.deployment.deploymentId;
-
-  // Optionally attach a projectId to exercise the project-scope path.
-  // The in-memory binding stores the returned deployment as-is; monkey-
-  // patch its `.get` so the router picks up the extra field.
-  if (opts.seedProjectIdOnDeployment !== undefined) {
-    const original = deploymentRegistry.get.bind(deploymentRegistry);
-    (deploymentRegistry as { get: DeploymentBinding['get'] }).get = async (input) => {
-      const rec = await original(input);
-      if (rec === null) return null;
-      return {
-        ...rec,
-        projectId: opts.seedProjectIdOnDeployment,
-      } as Deployment & { readonly projectId: string };
-    };
-  }
 
   return { app, deploymentRegistry, secretsFixture, deploymentId };
 }
@@ -2886,12 +2891,9 @@ describe('POST /v1/deployments/:deploymentId/secrets — scope determination', (
     }
   });
 
-  test('project-scoped deployment → writes to { kind: "project", tenantId, projectId }', async () => {
-    // Simulate the planned shape where deployments
-    // carry a projectId. The binding-get shim (seedProjectIdOnDeployment)
-    // attaches the field so `deriveScopeFromDeployment` picks it up.
+  test('a deploy into a named project → writes to { kind: "project", tenantId, projectId }', async () => {
     const { app, deploymentId, secretsFixture } = await makeSyncApp({
-      seedProjectIdOnDeployment: DEFAULT_PROJECT_ID as unknown as string,
+      deployedInto: DEFAULT_PROJECT_ID,
     });
     const res = await app.request(`/v1/deployments/${deploymentId}/secrets`, {
       method: 'POST',
@@ -3782,7 +3784,7 @@ describe("POST /v1/deployments — a guardrail id that's already live", () => {
     };
     expect(body.error.code).toBe('guardrail-project-mismatch');
     expect(body.error.message).toBe(
-      "The guardrail acme.no-fabricated-quotes wasn't published: it belongs to another project; nothing was deployed",
+      "The guardrail acme.no-fabricated-quotes wasn't published: it belongs to another project (one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id); nothing was deployed",
     );
     expect(body.error.details).toEqual({ primitive: 'guardrail', id: 'acme.no-fabricated-quotes' });
     // The project it belongs to stays off the wire.
@@ -4178,5 +4180,272 @@ describe("POST /v1/deployments — the tenant's own image repository", () => {
   test('a runtime serving one tenant never checks: any image registers, prefix or not', async () => {
     expect((await deploy(undefined, 'single')).status).toBe(201);
     expect((await deploy('ghcr.io/other', 'single')).status).toBe(201);
+  });
+});
+
+// ---------------- deploying into a named project, one per client ----------------
+
+describe('POST /v1/deployments with projectId: one project per client', () => {
+  /** A pack whose ids carry its own pack id, as `kindgi init` makes one per client. */
+  const clientPack = (packId: string, keyId?: SigningKeyId) =>
+    buildSignedDeploy({
+      ...(keyId !== undefined && { keyId }),
+      artifactVersion: '20261012.1',
+      publishedAt: '2026-10-12T09:00:00.000Z',
+      index: {
+        v: 1,
+        packId,
+        packVersion: '1.0.0',
+        artifactVersion: '20261012.1',
+        publishedAt: '2026-10-12T09:00:00.000Z',
+        tools: [
+          {
+            id: `${packId}.woo.find-orders`,
+            description: 'Find orders.',
+            version: '1.0.0',
+            input: { type: 'object' },
+            output: { type: 'object' },
+            modulePath: './tools/find-orders.js',
+          },
+        ],
+        guardrails: [],
+        agents: [
+          {
+            id: `${packId}.store-agent`,
+            version: '1.0.0',
+            name: 'Store agent',
+            instructions: 'help',
+            capabilities: [{ feature: 'model.text.chat' }],
+            tools: [],
+          },
+        ],
+        flows: [],
+      },
+    });
+
+  const deploy = (app: ReturnType<typeof makeApp>['app'], wire: unknown, token = TOKEN) =>
+    app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(wire),
+    });
+
+  test("the deploy's tools and agents go into the named project, and the record keeps it", async () => {
+    const fixture = clientPack('acme-shop');
+    lastToolRegisterProjectId = undefined;
+    lastAgentPublishProjectId = undefined;
+    const { app, deploymentRegistry } = makeApp({ fixture });
+    const res = await deploy(app, { ...fixture.wire, projectId: CLIENT_A });
+    expect(res.status).toBe(201);
+    expect(lastToolRegisterProjectId).toBe(CLIENT_A);
+    expect(lastAgentPublishProjectId).toBe(CLIENT_A);
+    const body = (await res.json()) as { deploymentId: string; projectId?: string };
+    expect(body.projectId).toBe(CLIENT_A);
+    const stored = await deploymentRegistry.get({ tenantId, deploymentId: body.deploymentId });
+    expect(stored?.projectId).toBe(CLIENT_A);
+  });
+
+  test('without projectId: tenant-wide, into the Default project, and the record names none', async () => {
+    const fixture = clientPack('acme-shop');
+    lastToolRegisterProjectId = undefined;
+    const { app } = makeApp({ fixture });
+    const res = await deploy(app, fixture.wire);
+    expect(res.status).toBe(201);
+    expect(lastToolRegisterProjectId).toBe(DEFAULT_PROJECT_ID);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect('projectId' in body).toBe(false);
+  });
+
+  test('two clients, two packs, one tenant: each deploys into its own project', async () => {
+    const a = clientPack('acme-shop');
+    const b = clientPack('globex-shop', 'key-globex' as SigningKeyId);
+    const { app, toolRegistry } = makeApp({
+      fixture: a,
+      extraTrust: [
+        {
+          keyId: 'key-globex' as SigningKeyId,
+          tenantId,
+          publicKey: Buffer.from(b.publicKeyRaw).toString('base64'),
+        },
+      ],
+      extraImages: [{ imageRef: b.imageRef, digest: b.digest, indexBytes: b.indexBytes }],
+    });
+    lastToolRegisterProjectId = undefined;
+    expect((await deploy(app, { ...a.wire, projectId: CLIENT_A })).status).toBe(201);
+    expect(lastToolRegisterProjectId).toBe(CLIENT_A);
+    expect((await deploy(app, { ...b.wire, projectId: CLIENT_B })).status).toBe(201);
+    expect(lastToolRegisterProjectId).toBe(CLIENT_B);
+    expect(
+      await toolRegistry.get({ tenantId, toolId: 'acme-shop.woo.find-orders' as never }),
+    ).not.toBeNull();
+    expect(
+      await toolRegistry.get({ tenantId, toolId: 'globex-shop.woo.find-orders' as never }),
+    ).not.toBeNull();
+  });
+
+  test('a projectId that is not a project id is 400; one of no project of this tenant is 404; nothing registers', async () => {
+    const fixture = clientPack('acme-shop');
+    lastToolRegisterProjectId = undefined;
+    const { app } = makeApp({ fixture });
+    const bad = await deploy(app, { ...fixture.wire, projectId: 'client-a' });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: { code: string } }).error.code).toBe('bad-input');
+    const unknown = await deploy(app, { ...fixture.wire, projectId: randomUUID() });
+    expect(unknown.status).toBe(404);
+    expect(((await unknown.json()) as { error: { code: string } }).error.code).toBe(
+      'project-not-found',
+    );
+    expect(lastToolRegisterProjectId).toBeUndefined();
+  });
+
+  test('a key limited to another project is refused; one limited to the named project deploys', async () => {
+    const fixture = clientPack('acme-shop');
+    const KEY_A = 'deployments-key-client-a';
+    const { app } = makeApp({
+      fixture,
+      extra: {
+        resolveToken: async (token) =>
+          token === KEY_A ? { tenantId, tokenProjectId: CLIENT_A } : resolveToken(token),
+      },
+    });
+    const other = await deploy(app, { ...fixture.wire, projectId: CLIENT_B }, KEY_A);
+    expect(other.status).toBe(403);
+    expect(((await other.json()) as { error: { code: string } }).error.code).toBe(
+      'key-project-mismatch',
+    );
+    expect((await deploy(app, { ...fixture.wire, projectId: CLIENT_A }, KEY_A)).status).toBe(201);
+  });
+
+  test("with an authorizer: admin on the named project deploys there; another project's, or tenant-wide, is refused", async () => {
+    const PROJECT_ADMIN = 'deployments-client-a-admin';
+    const grants: Readonly<Record<string, readonly string[]>> = {
+      'client-a-admin': [`admin project:${CLIENT_A}`, `read tenant:${tenantId}`],
+    };
+    const decide = (principal: unknown, action: string, resource: { type: string; id: string }) => {
+      const allowed = (grants[(principal as { actor: { id: string } }).actor.id] ?? []).includes(
+        `${action} ${resource.type}:${resource.id}`,
+      );
+      return {
+        allowed,
+        reason: allowed ? 'test: granted' : 'test: not granted',
+        evidence: {
+          action,
+          relation: '',
+          resource: `${resource.type}:${resource.id}`,
+          actorSubject: '',
+        },
+      };
+    };
+    const fixture = clientPack('acme-shop');
+    const { app } = makeApp({
+      fixture,
+      extra: {
+        resolveToken: async (token) =>
+          token === PROJECT_ADMIN
+            ? { tenantId, userId: 'client-a-admin' as never }
+            : resolveToken(token),
+        authz: {
+          fgaApiUrl: 'http://fga.invalid',
+          authzCheckBinding: {
+            check: async (p, a, r) => decide(p, a, r) as never,
+            checkBatch: async (p, a, rs) => rs.map((r) => decide(p, a, r)) as never,
+          },
+        },
+      },
+    });
+    expect(
+      (await deploy(app, { ...fixture.wire, projectId: CLIENT_B }, PROJECT_ADMIN)).status,
+    ).toBe(403);
+    expect((await deploy(app, fixture.wire, PROJECT_ADMIN)).status).toBe(403);
+    expect(
+      (await deploy(app, { ...fixture.wire, projectId: CLIENT_A }, PROJECT_ADMIN)).status,
+    ).toBe(201);
+  });
+});
+
+// ---------------- pack check ids under per-deployment routing ----------------
+
+describe("POST /v1/deployments: a pack check carries its pack's id where checks are routed by id", () => {
+  const withCheck = (checkId: string, builtIn = false) =>
+    buildSignedDeploy({
+      index: {
+        v: 1,
+        packId: 'acme-shop',
+        packVersion: '1.0.0',
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [],
+        guardrails: [
+          {
+            id: 'acme-shop.no-contact-details',
+            name: 'no-contact-details',
+            kind: 'zero-llm',
+            action: { 'on-violation': 'halt' },
+            severity: 'error',
+            scope: { when: 'runtime-only' },
+            checkModulePath: 'guardrails/no-contact-details.mjs',
+            checkId,
+            ...(builtIn && { checkBuiltIn: true }),
+          },
+        ],
+        agents: [],
+        flows: [],
+      },
+    });
+  /** What a runtime routing pack calls per deployment passes. */
+  const perDeployment = {
+    systemDeployments: {
+      binding: {} as never,
+      endpointHostAllowed: () => false,
+    },
+  } as const;
+  const post = (app: ReturnType<typeof makeApp>['app'], wire: unknown) =>
+    app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(wire),
+    });
+
+  test('an unprefixed pack check is refused, naming the fix; nothing is registered', async () => {
+    const fixture = withCheck('shared.checks.contact');
+    const { app, guardrailRegistry } = makeApp({ fixture, extra: perDeployment });
+    const res = await post(app, fixture.wire);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; details?: { issues?: Record<string, unknown>[] } };
+    };
+    expect(body.error.code).toBe('deployment-validation-failed');
+    expect(body.error.details?.issues).toEqual([
+      {
+        primitive: 'guardrail',
+        index: 0,
+        id: 'acme-shop.no-contact-details',
+        path: '/check',
+        message:
+          'check "shared.checks.contact" doesn\'t start with this pack\'s id ("acme-shop."). Name it "acme-shop.checks.<name>": this runtime sends each check call to the deployment that shipped its id, so two packs\' checks must never share one.',
+      },
+    ]);
+    expect(
+      await guardrailRegistry.get({
+        tenantId,
+        guardrailId: 'acme-shop.no-contact-details' as never,
+      }),
+    ).toBeNull();
+  });
+
+  test('a prefixed pack check deploys; so does a built-in one the guardrail merely names', async () => {
+    const prefixed = withCheck('acme-shop.checks.contact');
+    expect(
+      (await post(makeApp({ fixture: prefixed, extra: perDeployment }).app, prefixed.wire)).status,
+    ).toBe(201);
+    const builtIn = withCheck('must-cite', true);
+    expect(
+      (await post(makeApp({ fixture: builtIn, extra: perDeployment }).app, builtIn.wire)).status,
+    ).toBe(201);
+  });
+
+  test('with one pack service (no per-deployment routing), the build warning stays the only word', async () => {
+    const fixture = withCheck('shared.checks.contact');
+    expect((await post(makeApp({ fixture }).app, fixture.wire)).status).toBe(201);
   });
 });

@@ -27,6 +27,8 @@ import { stableStringify } from '../build/envelope.js';
 import type { DeployEnvelope } from '../build/envelope.js';
 import type {
   DeploymentRecord,
+  FindProjectsOptions,
+  FindProjectsResult,
   PostDeploymentBody,
   PostDeploymentOptions,
   PostDeploymentResult,
@@ -242,4 +244,63 @@ export async function syncSecretsReal(opts: SyncSecretsOptions): Promise<SyncSec
       message: wire?.error?.message ?? `HTTP ${res.status}`,
     },
   };
+}
+
+/** The most a page of `GET /v1/projects` holds. */
+const PROJECTS_PAGE_LIMIT = 100;
+
+/**
+ * Every project of the tenant whose slug is `opts.slug`, read page by page
+ * from `GET /v1/projects` (it has no slug filter). The token's own rights
+ * decide what it lists.
+ */
+export async function findProjectsReal(opts: FindProjectsOptions): Promise<FindProjectsResult> {
+  const base = `${opts.endpoint.replace(/\/+$/, '')}/v1/projects`;
+  const found: { id: string; name: string; orgId?: string }[] = [];
+  let cursor: string | undefined;
+  do {
+    const url = `${base}?limit=${PROJECTS_PAGE_LIMIT}${cursor === undefined ? '' : `&cursor=${encodeURIComponent(cursor)}`}`;
+    let res: Response;
+    try {
+      res = await opts.fetchImpl(url, {
+        headers: { Authorization: `Bearer ${opts.token}` },
+        ...(opts.signal !== undefined && { signal: opts.signal }),
+      });
+    } catch (err) {
+      return { kind: 'error', message: `GET ${base} failed: ${(err as Error).message}` };
+    }
+    let page: { data?: unknown; hasMore?: unknown; nextCursor?: unknown };
+    try {
+      page = (await res.json()) as typeof page;
+    } catch {
+      return {
+        kind: 'error',
+        message: `GET ${base} returned HTTP ${res.status} with a body that isn't JSON`,
+      };
+    }
+    if (!res.ok || !Array.isArray(page.data)) {
+      const code = (page as { error?: { code?: unknown } }).error?.code;
+      return {
+        kind: 'error',
+        message: `GET ${base} answered HTTP ${res.status}${typeof code === 'string' ? ` (${code})` : ''}`,
+      };
+    }
+    for (const p of page.data as {
+      id?: unknown;
+      name?: unknown;
+      slug?: unknown;
+      orgId?: unknown;
+    }[]) {
+      if (p.slug === opts.slug && typeof p.id === 'string') {
+        found.push({
+          id: p.id,
+          name: typeof p.name === 'string' ? p.name : p.id,
+          ...(typeof p.orgId === 'string' && { orgId: p.orgId }),
+        });
+      }
+    }
+    cursor =
+      page.hasMore === true && typeof page.nextCursor === 'string' ? page.nextCursor : undefined;
+  } while (cursor !== undefined);
+  return { kind: 'ok', projects: found };
 }
