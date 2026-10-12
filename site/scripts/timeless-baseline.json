@@ -1,7 +1,7 @@
 {
   "concepts/licensing": 2,
   "concepts/security": 3,
-  "deploy/authorization": 6,
+  "deploy/authorization": 5,
   "deploy/azure-container-apps": 1,
   "deploy/cloud-run": 3,
   "deploy/index": 1,
@@ -20,7 +20,7 @@
   "guides/evals/release-an-agent-version": 1,
   "guides/guardrails/configure-a-guardrail": 3,
   "guides/guardrails/halt-or-record": 1,
-  "guides/guardrails/use-a-built-in-check": 3,
+  "guides/guardrails/use-a-built-in-check": 2,
   "guides/models/anthropic": 1,
   "guides/models/api-key-presets": 1,
   "guides/models/index": 2,
@@ -35,13 +35,6 @@
   "guides/sso/sessions": 1,
   "guides/tools/write-a-tool": 1,
   "guides/webhooks/receive-run-finished": 2,
-  "start/existing-app": 9,
-  "start/install": 2,
-  "start/java-app": 1,
-  "start/quickstart-java": 1,
-  "start/quickstart-python": 1,
-  "start/quickstart-scala": 1,
-  "start/quickstart-typescript": 1,
-  "tutorials/support-desk-python": 1,
-  "tutorials/support-desk-typescript": 1
+  "start/existing-app": 6,
+  "start/install": 2
 }
