@@ -230,7 +230,7 @@ test('a build gets every Markdown page, llms.txt by section, and the files it li
   try {
     done('/', dir);
     assert.equal(
-      readFileSync(join(dir, 'start/install.md'), 'utf8'),
+      readFileSync(join(dir, twinPath('/start/install/', '/')), 'utf8'),
       '# Install\n\n> Get it.\n\nInstall it.\n',
     );
     assert.ok(existsSync(join(dir, 'index.md')));
@@ -274,7 +274,7 @@ test("a version's build links into its own base", () => {
   try {
     done('/v0.1.7/', dir);
     assert.equal(
-      readFileSync(join(dir, 'start/install.md'), 'utf8'),
+      readFileSync(join(dir, twinPath('/start/install/', '/')), 'utf8'),
       `# Install\n\n[Home](${origin}/v0.1.7/index.md)\n`,
     );
     assert.match(

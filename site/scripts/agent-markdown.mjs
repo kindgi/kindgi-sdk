@@ -4,8 +4,8 @@
  * The docs for coding agents, written from the built pages at the end of a
  * build (llmstxt.org):
  *
- * - **A Markdown version of every page,** beside it: `start/install/` is
- *   also `start/install.md`. Its links are absolute, and a link to another
+ * - **A Markdown version of every page,** beside it: `/start/install/` is
+ *   also `/start/install.md`. Its links are absolute, and a link to another
  *   page points at that page's Markdown. Notes keep their box (a quote that
  *   starts with the note's title), tabs keep their labels, and code blocks
  *   keep their language and file name.
@@ -365,7 +365,7 @@ function llmsIndex(ordered, { origin, base, title, description, details }) {
   const at = (rel) => `${origin}${base}${rel}`;
   const howTo = [
     "Every page of these docs has a Markdown version: replace the slash at the end of the page's URL with `.md`",
-    `(\`${at('start/install/')}\` is \`${at('start/install.md')}\`). The links below point at those.`,
+    `(\`${at('start/install/')}\` is \`${origin}${twinPath(`${base}start/install/`, base)}\`). The links below point at those.`,
   ].join('\n');
   const files = [
     'Whole sections in one file each:',
