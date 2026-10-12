@@ -91,7 +91,25 @@ Run it with `ACME_WEBHOOK_SECRET` set, the way your app runs TypeScript.
 Use `kindgi.webhooks.verify`. This receiver, `receiver.py`, uses FastAPI. Any
 framework works the same way: pass the headers and the body's bytes.
 
+Add FastAPI, uvicorn and httpx to your app's project:
+
+```sh
+uv add fastapi uvicorn httpx
+```
+
+It prints the packages it installed. uvicorn serves the receiver, and httpx
+sends the requests in [Test the receiver without Kindgi](#test-the-receiver-without-kindgi).
+
+{/* check-samples: the reader's install step, which the docs' sample check runs before it checks receiver.py; readers don't see it.
+
+```sh
+uv add fastapi uvicorn httpx
+```
+
+*/}
+
 ```python
+# receiver.py
 import os
 
 from fastapi import FastAPI, Request, Response
@@ -131,7 +149,7 @@ async def kindgi_webhook(request: Request) -> Response:
     return Response(status_code=204)
 ```
 
-Run it with `ACME_WEBHOOK_SECRET` set: `uvicorn receiver:app --port 8788`.
+Run it with `ACME_WEBHOOK_SECRET` set: `uv run uvicorn receiver:app --port 8788`.
 `receiver:app` is the file's `app`, and `--port` the port it listens on.
 
 </TabItem>
