@@ -112,6 +112,25 @@ kindgi secrets set ACME_SAML_SIGNING_KEY --env=production --scope=tenant --from-
 - `--from-stdin` makes `set` read the key from its input, instead of asking
   for it. `< acme-sp-key.pem` gives it the key file as that input.
 
+`openssl` prints its progress, then a line of dashes. Then `set` prints what
+it stored:
+
+```text
+…
+-----
+{
+  "name": "ACME_SAML_SIGNING_KEY",
+  "scope": {
+    "kind": "tenant",
+    "tenantId": "6c0bd33e-e941-439b-bd0c-c7e412db29fc"
+  },
+  "envName": "production",
+  "versionId": 1
+}
+
+  Set ACME_SAML_SIGNING_KEY at tenant in production.
+```
+
 Give the certificate, `acme-sp-cert.pem`, to whoever runs your identity
 provider, to add to the app. Kindgi's service provider metadata doesn't
 carry the certificate, so they add it by hand. Then run `finish` again with
