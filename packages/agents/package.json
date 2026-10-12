@@ -37,6 +37,7 @@
   },
   "dependencies": {
     "@kindgi/authz": "workspace:*",
+    "@kindgi/bounds": "workspace:*",
     "@kindgi/capabilities": "workspace:*",
     "@kindgi/compliance": "workspace:*",
     "@kindgi/embedding": "workspace:*",
