@@ -95,10 +95,10 @@ KINDGI_OPENFGA_API_URL=http://kindgi-openfga:8080
 
 Run runtime 0.1.4.1 or later with authorization on: 0.1.4 can leave
 permission changes unapplied after a redeploy
-([Runtime 0.1.4.1](../operate/#runtime-0141)). On 0.1.6 and 0.1.7,
+([Kindgi 0.1.4.1](../../releases/0.1.4.1/#fixed)). On 0.1.6 and 0.1.7,
 authorization also needs a database user that has `BYPASSRLS` or is a
 superuser, which a managed Postgres usually doesn't give you: use 0.1.8 or
-later there ([Known limitations in 0.1.7](../operate/#known-limitations-in-017)).
+later there ([Known issues in 0.1.7](../../releases/0.1.7/#known-issues)).
 
 At its first start with it, the runtime creates an OpenFGA store for the
 tenant (`tenant-<tenant id>`) and makes the seed user its admin. The startup
@@ -109,7 +109,7 @@ log says so:
 ```
 
 After an upgrade, a start that brings the store up to the new version's model
-logs one line for it ([From 0.1.3 to 0.1.4](../operate/#from-013-to-014)).
+logs one line for it ([Kindgi 0.1.4](../../releases/0.1.4/#upgrade-steps)).
 
 :::caution[Keep the seed user]
 With authorization on, keep the seed user the same: set `KINDGI_SEED_USER_ID`,
