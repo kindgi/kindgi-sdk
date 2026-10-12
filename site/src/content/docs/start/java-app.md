@@ -4,7 +4,7 @@ description: Start runs, follow them and read their answers from a Java applicat
 sidebar:
   order: 5.5
   label: Call Kindgi from Java
-  badge: { text: 'Preview', variant: 'caution' }
+  badge: { text: 'Preview', variant: 'caution', class: 'kg-preview' }
 ---
 
 Your Java app starts runs, follows them and reads what they answered,
