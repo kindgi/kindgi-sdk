@@ -45,6 +45,18 @@ test('a phrase split across two lines by the hard wrap still dates a page', () =
   );
 });
 
+test('a version and everything before it dates a page, once', () => {
+  assert.deepEqual(
+    phrases(
+      [
+        ':::note[On Kindgi 0.1.6 and earlier]',
+        'It fixes one security bug in 0.1.5 and earlier, and one in 0.1.4 or older.',
+      ].join('\n'),
+    ),
+    ['1: 0.1.6 and earlier', '2: 0.1.5 and earlier', '2: 0.1.4 or older'],
+  );
+});
+
 test('a requirement or a range is fine', () => {
   assert.deepEqual(
     phrases(
