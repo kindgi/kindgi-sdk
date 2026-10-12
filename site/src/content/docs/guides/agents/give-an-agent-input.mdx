@@ -474,6 +474,61 @@ object NotifyCustomer {
 </TabItem>
 </Tabs>
 
+{/* check-samples: stand-ins for the tool the Java and Scala flows above import, from Write an agent's Java and Scala tabs; the docs' sample check reads them, readers don't see them.
+
+```java
+// src/main/java/acme/tools/LookupOrder.java
+package acme.tools;
+
+import com.kindgi.pack.Tool;
+import java.util.Map;
+import org.jspecify.annotations.Nullable;
+
+public final class LookupOrder {
+  public record Input(String orderId) {}
+
+  public record Output(String orderId, String status, @Nullable String eta) {}
+
+  private static final Map<String, Output> ORDERS = Map.of(
+      "A-1001", new Output("A-1001", "shipped", "2026-10-06"),
+      "A-1002", new Output("A-1002", "processing", null));
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme.lookup-order")
+      .description("Looks up an order by its id (like A-1001): its status and expected delivery date.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .handler((input, ctx) ->
+          ORDERS.getOrDefault(input.orderId(), new Output(input.orderId(), "not-found", null)));
+
+  private LookupOrder() {}
+}
+```
+
+```scala
+// src/main/scala/acme/tools/LookupOrder.scala
+package acme.tools
+
+import com.kindgi.pack.scaladsl._
+
+object LookupOrder {
+  final case class Input(orderId: String)
+  final case class Output(orderId: String, status: String, eta: Option[String])
+
+  private val orders = Map(
+    "A-1001" -> Output("A-1001", "shipped", Some("2026-10-06")),
+    "A-1002" -> Output("A-1002", "processing", None))
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme.lookup-order")
+    .description("Looks up an order by its id (like A-1001): its status and expected delivery date.")
+    .version("0.1.0")
+    .readOnly
+    .handler((in, _) => orders.getOrElse(in.orderId, Output(in.orderId, "not-found", None)))
+}
+```
+*/}
+
 The agent gets the step's input two ways:
 
 - as **`{{ input }}`** in its instructions, so it can use the fields;
