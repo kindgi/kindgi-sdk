@@ -25,10 +25,24 @@ uv run pytest    # the template's tests: the tools and the check, called directl
 ```
 
 - `uvx --from "kindgi-cli>=0.1,<0.2" kindgi` runs the newest 0.1 release of
-  the Kindgi CLI from PyPI without installing it
-  ([Check this machine](../install/#check-this-machine) says how).
+  the Kindgi CLI from PyPI, the line these docs describe, without installing
+  it ([Check this machine](../install/#check-this-machine) says how). The
+  range is optional: `uvx --from kindgi-cli kindgi init my-pack --template=python`
+  runs the newest release, which may be on a later line than these docs.
 - `init my-pack` makes the pack in a new folder, `my-pack`.
 - `--template=python` makes it a Python pack, with examples.
+
+`init` prints what it made. `uv sync` installs the pack's dependencies, and
+the template's tests pass:
+
+```text
+…
+✓ Python pack scaffolded at …/my-pack/
+…
+Installed 26 packages in 206ms
+…
+============================== 3 passed in 0.82s ===============================
+```
 
 The pack's config is the `[tool.kindgi]` table of its `pyproject.toml`; its
 tools, guardrails, agents and flows live in four folders:
@@ -184,22 +198,42 @@ keeps serving.
 
 ## 5. Connect a real model
 
-Store an Anthropic key as a secret, then register the provider:
+Store your AI model provider's API key as a secret, then register the
+provider:
 
 ```sh
-uv run kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
-uv run kindgi providers register --preset=anthropic
+uv run kindgi secrets set <KEY_NAME> --env=local --scope=tenant
+uv run kindgi providers register --preset=<preset>
 ```
 
-- `secrets set ANTHROPIC_API_KEY` asks for the key without showing it, and
+`<KEY_NAME>` and `<preset>` depend on the provider:
+
+| Provider | `<KEY_NAME>` | `<preset>` |
+| --- | --- | --- |
+| Anthropic | `ANTHROPIC_API_KEY` | `anthropic` |
+| OpenAI | `OPENAI_API_KEY` | `openai` |
+| Gemini (a Google AI Studio key) | `GEMINI_API_KEY` | `gemini-api` |
+| Groq | `GROQ_API_KEY` | `groq` |
+| OpenRouter (a hosted gateway) | `OPENROUTER_API_KEY` | `openrouter` |
+
+- `secrets set <KEY_NAME>` asks for the key without showing it, and
   writes it to Kindgi's own `.kindgi/secrets.env`.
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files, that one among them.
 - `--scope=tenant` is where the secret lives: the tenant, rather than one
   org (`org:<orgId>`) or project (`project:<projectId>`).
-- `--preset=anthropic` registers Anthropic's models from Kindgi's built-in
-  preset, which reads the `ANTHROPIC_API_KEY` secret. `kindgi providers
-  presets` lists the others.
+- `--preset=<preset>` registers the provider's models from Kindgi's built-in
+  preset, which reads the `<KEY_NAME>` secret. `kindgi providers presets`
+  lists every preset.
+
+With Anthropic's key, for example, the two commands print:
+
+```text
+…
+  Set ANTHROPIC_API_KEY at tenant in local.
+…
+✓ Registered anthropic: claude-opus-5-5, claude-sonnet-5-5 (default), claude-haiku-5-5, claude-haiku-4-5 — key ANTHROPIC_API_KEY (env local)
+```
 
 The provider takes over from `dev-echo` at the next turn. Gemini on Vertex AI has a
 preset too; any OpenAI-compatible endpoint registers from a short spec file.
