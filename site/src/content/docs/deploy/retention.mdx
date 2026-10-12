@@ -18,10 +18,11 @@ good.
 ## Before you start
 
 - **`admin` on the tenant.** Publishing a policy and sweeping both take it.
-- **A client:** the TypeScript SDK (`@kindgi/sdk`) or the Python SDK
-  (`kindgi`), with `KINDGI_API_URL` and `KINDGI_API_TOKEN` set for your
-  runtime. Under `kindgi dev`, the client finds the running runtime by
-  itself.
+- **A client:** the TypeScript SDK (`@kindgi/sdk`), the Python SDK
+  (`kindgi`), or the [Java client](../../start/java-app/)
+  (`com.kindgi:kindgi-client`, preview), which Scala uses too, with
+  `KINDGI_API_URL` and `KINDGI_API_TOKEN` set for your runtime. Under
+  `kindgi dev`, the client finds the running runtime by itself.
 
 ## What a policy covers
 
@@ -189,8 +190,8 @@ PublishPolicyResult[policyId=acme.keep-providers, version=1.0.0]
 <TabItem label="Scala">
 
 ```scala
-// src/main/scala/acme/app/RetentionPolicy.scala
-package acme.app
+// src/main/scala/com/acme/app/RetentionPolicy.scala
+package com.acme.app
 
 import com.kindgi.client.Kindgi
 import com.kindgi.client.models.{PolicyKind, PublishPolicyBody}
@@ -248,7 +249,9 @@ A sweep purges what's due. The runtime sweeps on its own only when you set
   when.
 - `retention.sweep` purges every record past its grace, or one domain's.
 
-Each example lists what a sweep would purge now, then purges it.
+Each example lists what a sweep would purge now, then purges it. In the
+outputs, the policy is at 1.0.1, with no grace, as the Python example
+publishes it, and one removed provider is waiting.
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -335,8 +338,8 @@ public final class RetentionSweep {
 <TabItem label="Scala">
 
 ```scala
-// src/main/scala/acme/app/RetentionSweep.scala
-package acme.app
+// src/main/scala/com/acme/app/RetentionSweep.scala
+package com.acme.app
 
 import com.kindgi.client.Kindgi
 import com.kindgi.client.models.{RetentionDomain, RetentionSweepBody}
@@ -358,7 +361,7 @@ object RetentionSweep {
 ```
 
 ```text
-List(provider d43a6322-8295-4240-a209-e7109a929927 (policy acme.keep-providers))
+List(provider b981ec8a-7d31-475b-9c59-9e8370f74cec (policy acme.keep-providers))
 1 purged
 ```
 
