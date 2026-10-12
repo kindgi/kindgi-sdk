@@ -26,16 +26,6 @@ npx @kindgi/cli init
 pnpm install          # or the app's own package manager
 ```
 
-:::note[On Kindgi 0.1.0 (fixed in 0.1.1)]
-- In a pnpm 11+ app, the first `pnpm install` stops with
-  `ERR_PNPM_IGNORED_BUILDS` for `esbuild`. In `pnpm-workspace.yaml`, set
-  `esbuild: false` under `allowBuilds:` (replacing pnpm's placeholder), then
-  install again. esbuild works without its install script: its native
-  binary comes from its `@esbuild/<platform>` package.
-- `init` doesn't add Zod, which tools and agents use for their schemas:
-  `pnpm add zod`.
-:::
-
 `init` adds:
 
 - the pack's config: its id (from the app's name), version, and where its
@@ -347,7 +337,7 @@ Inside `kindgi/`, import the pack's own modules relatively. Don't add an
 
 :::caution[Preview]
 **Preview.** Java and Scala support is tested and supported, but its API may
-still change in 0.1.6 without the usual deprecation period.
+still change in a later release without the usual deprecation period.
 :::
 
 In the app's directory (where its `pom.xml` is), with a JDK 17 or later and
@@ -423,7 +413,7 @@ or an interface.
 
 :::caution[Preview]
 **Preview.** Java and Scala support is tested and supported, but its API may
-still change in 0.1.6 without the usual deprecation period.
+still change in a later release without the usual deprecation period.
 :::
 
 In the app's directory (where its `build.sbt` is), with a JDK 17 or later,
@@ -514,7 +504,7 @@ The first request raises `ValueError`, naming what to set.
 
 The banner's first line, `Console`, is the console's address
 (`http://127.0.0.1:4000/console/`; `kindgi console` opens it). Sign in there
-with **Sign in as seeded user**, or with the same token. Open the console in Chrome or Firefox. Safari can't keep the local sign-in over http yet ([Known limitations](../../deploy/operate/#known-limitations-in-015)).
+with **Sign in as seeded user**, or with the same token.
 
 The token stays the same when you restart `kindgi dev`. `kindgi dev --reset`
 starts the project over, dropping its database
