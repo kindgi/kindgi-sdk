@@ -34,6 +34,10 @@ URL with `.md`.
   `--from-stdin`: it then asks for the value without showing it.
 - **When something fails, run doctor** (step 0) and read what it says before
   you guess.
+- **Leave the person's code and settings as they are** unless a page says to
+  change them, and ask before you change anything else. That includes an
+  app's `package.json` name (pass `--pack-id` instead), its `zod` version,
+  and its package manager's settings, such as pnpm's `minimumReleaseAge`.
 - **`kindgi` in this page's commands** means, until step 2 makes a project:
   `npx --yes @kindgi/cli@0.1` if `node --version` works; else, for someone
   using Python without Node, `uvx --from "kindgi-cli>=0.1,<0.2" kindgi`
