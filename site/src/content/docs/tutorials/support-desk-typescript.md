@@ -26,15 +26,6 @@ pnpm install
 The `minimal` template gives you the pack's folders (`tools/`, `agents/`,
 `guardrails/`, `flows/`) and nothing in them.
 
-:::note[On Kindgi 0.1.0 (fixed in 0.1.1)]
-`init` from npm writes no `.gitignore`, so git would track `.env` (where
-your model key goes) and `.kindgirc.json` (the dev token):
-
-```sh
-printf '%s\n' node_modules/ dist/ .kindgi/ .kindgirc.json '*.tsbuildinfo' .env .env.local >> .gitignore
-```
-:::
-
 ## 2. Your code
 
 The tools will work on tickets. In your app they'd come from a database; here
@@ -291,7 +282,7 @@ pnpm exec kindgi runs start --agent=acme-desk.triage --input='{"userMessage":"Tr
 The agent called `get-ticket`, read the ticket, and answered in the shape
 you gave it. Your reply will read differently: it's the model's. To see the
 run's page, with each step, the tool call and the cost, run
-`pnpm exec kindgi console` and open **Runs**. Open the console in Chrome or Firefox. Safari can't keep the local sign-in over http yet ([Known limitations](../../deploy/operate/#known-limitations-in-015)).
+`pnpm exec kindgi console` and open **Runs**.
 
 ## 8. Handle tickets
 
