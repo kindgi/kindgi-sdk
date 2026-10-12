@@ -49,6 +49,7 @@ import type {
   StartImprovementPassInput,
   TokenResolver,
 } from '../src/index.js';
+import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
 import { inMemoryProposals } from './support/in-memory-proposals.js';
 
@@ -793,8 +794,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
       call('POST', `/v1/proposals/${id}/evaluate`, { suiteId: 'acme.scoring-judged' });
     const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
     try {
-      // The app's error handler answers the budget's error.
-      expect((await evaluate()).status).toBe(500);
+      await expectCompileBudgetRefused(await evaluate());
       expect([...blocks.rows.keys()].filter((k) => k.startsWith(WEIGHTS))).toEqual([
         `${WEIGHTS}@1.0.0`,
       ]);

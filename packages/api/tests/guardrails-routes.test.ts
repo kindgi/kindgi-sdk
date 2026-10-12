@@ -19,6 +19,7 @@ import type {
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
+import { expectCompileBudgetRefused } from './support/compile-budget.js';
 
 /**
  * Guardrails route tests.
@@ -490,8 +491,7 @@ describe("API — guardrails register: the config against its check's configSche
     const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
     try {
       const refused = await register();
-      // The app's error handler answers the budget's error.
-      expect(refused.status).toBe(500);
+      await expectCompileBudgetRefused(refused);
       expect((await binding.list({ tenantId, limit: 10 })).data).toEqual([]);
     } finally {
       restore();

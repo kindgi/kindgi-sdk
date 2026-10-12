@@ -15,6 +15,7 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { AgentRegistryBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';
+import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { inMemoryMemory } from './support/in-memory-memory.js';
 
 /**
@@ -402,8 +403,7 @@ describe('API — agents publish', () => {
     const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
     try {
       const refused = await publish();
-      // The app's error handler answers the budget's error.
-      expect(refused.status).toBe(500);
+      await expectCompileBudgetRefused(refused);
       const listed = await app.request('/v1/agents', {
         headers: { authorization: `Bearer ${TOKEN}` },
       });

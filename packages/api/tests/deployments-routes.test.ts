@@ -40,6 +40,7 @@ import type {
   ToolRegistryBinding,
 } from '../src/index.js';
 import { sameGuardrailDefinition } from '../src/routes/deployments.js';
+import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
 
 /**
@@ -864,8 +865,7 @@ describe("POST /v1/deployments — the image's index is what registers", () => {
     const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
     try {
       const refused = await post(app, fixture.wire);
-      // The app's error handler answers the budget's error.
-      expect(refused.status).toBe(500);
+      await expectCompileBudgetRefused(refused);
       expect((await toolRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
       expect((await guardrailRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
       expect((await agentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);

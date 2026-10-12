@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { Logger } from '@kindgi/log';
+import { SchemaCompileBudgetError } from '@kindgi/schema';
 import type { Context } from 'hono';
 
 import { statusFor, toWireError } from '../errors.js';
@@ -20,6 +21,11 @@ import { statusFor, toWireError } from '../errors.js';
  * An exception that carries its own response (Hono's `HTTPException`,
  * `getResponse()`) answers with it, as Hono's default handler does.
  *
+ * A compile the tenant's compile budget refused (`SchemaCompileBudgetError`,
+ * thrown from wherever a schema compiles) is a limit, not a failure:
+ * `429 rate-limit-exceeded` with `details.limit: 'schema-compile-time'`,
+ * the budget, and `Retry-After`.
+ *
  * The requestId embedded in the response body matches
  * `middleware/request-id.ts`, so a caller can correlate.
  *
@@ -34,6 +40,21 @@ export function mapThrownError(cause: Error, c: Context): Response {
     return c.newResponse(res.body, res);
   }
   const requestId = (c.get('requestId') as string | undefined) ?? 'req-unknown';
+  if (cause instanceof SchemaCompileBudgetError) {
+    c.header('Retry-After', String(Math.max(Math.ceil(cause.retryAfterMs / 1000), 1)));
+    c.status(statusFor('rate-limit-exceeded') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'rate-limit-exceeded',
+          message: cause.message,
+          limit: 'schema-compile-time',
+          budgetMs: cause.budgetMs,
+        },
+        requestId,
+      ),
+    );
+  }
   // A 500 is something an operator should look at: logged, with the error.
   (c.get('log') as Logger | undefined)?.error('unhandled error', { err: cause });
   const body = toWireError(

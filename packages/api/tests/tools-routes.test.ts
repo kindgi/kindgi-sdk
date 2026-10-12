@@ -15,6 +15,7 @@ import { createStubAppBindings } from '../src/testing/index.js';
 import { createApp } from '../src/index.js';
 import type { RunHandlerBinding, TokenResolver, ToolRegistryBinding } from '../src/index.js';
 import { ToolSchema } from '../src/openapi/schemas.js';
+import { expectCompileBudgetRefused } from './support/compile-budget.js';
 
 /**
  * Tools route tests.
@@ -584,8 +585,7 @@ describe('API — tools register', () => {
     const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
     try {
       const refused = await register();
-      // The app's error handler answers the budget's error.
-      expect(refused.status).toBe(500);
+      await expectCompileBudgetRefused(refused);
       const listed = await app.request('/v1/tools', {
         headers: { authorization: `Bearer ${TOKEN}` },
       });

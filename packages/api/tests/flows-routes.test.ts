@@ -14,6 +14,7 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { FlowRegistryBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';
+import { expectCompileBudgetRefused } from './support/compile-budget.js';
 
 /**
  * Flows route tests. Mirrors the agents-routes suite
@@ -506,8 +507,7 @@ describe('API — flows publish', () => {
     const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
     try {
       const refused = await publish();
-      // The app's error handler answers the budget's error.
-      expect(refused.status).toBe(500);
+      await expectCompileBudgetRefused(refused);
       const listed = await app.request('/v1/flows', {
         headers: { authorization: `Bearer ${TOKEN}` },
       });

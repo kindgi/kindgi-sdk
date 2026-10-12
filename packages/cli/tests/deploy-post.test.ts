@@ -54,4 +54,40 @@ describe('postDeploymentReal', () => {
     expect(result.kind === 'wire-error' && result.idempotentReplay).toBeFalsy();
     expect(result).not.toHaveProperty('idempotentReplay');
   });
+
+  test("a refusal's Retry-After (whole seconds) and the limit it names are carried", async () => {
+    const result = await post(
+      answering(
+        429,
+        {
+          error: {
+            code: 'rate-limit-exceeded',
+            message: 'used up',
+            details: { limit: 'schema-compile-time', budgetMs: 2000 },
+          },
+        },
+        { 'Retry-After': '23' },
+      ),
+    );
+    expect(result).toMatchObject({
+      kind: 'wire-error',
+      status: 429,
+      retryAfterSeconds: 23,
+      error: { code: 'rate-limit-exceeded', limit: 'schema-compile-time' },
+    });
+  });
+
+  test('a Retry-After that is not whole seconds, or a limit that is not a name, is left out', async () => {
+    for (const retryAfter of ['1.5', 'Wed, 21 Oct 2026 07:28:00 GMT', '-1', '']) {
+      const result = await post(
+        answering(
+          429,
+          { error: { code: 'rate-limit-exceeded', message: 'x', details: { limit: 7 } } },
+          { 'Retry-After': retryAfter },
+        ),
+      );
+      expect(result).not.toHaveProperty('retryAfterSeconds');
+      expect(result.kind === 'wire-error' && result.error).not.toHaveProperty('limit');
+    }
+  });
 });

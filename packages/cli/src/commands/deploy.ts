@@ -20,7 +20,8 @@
  *   5. Compute `Idempotency-Key: sha256(canonicalBody)` (or `--idempotency-key`).
  *   6. If `--dry-run`: print the curl-equivalent + body + headers to
  *      stderr, exit 0.
- *   7. Otherwise POST via `ctx.fetch`.
+ *   7. Otherwise POST via `ctx.fetch`, waiting out the server's rate
+ *      limits (`429` with `Retry-After`) for up to 10 minutes in all.
  *   8. Handle response (201 / 200 / 4xx / 5xx / transport).
  *   9. Warn on out-of-band secrets sync if `.env.<envName>` exists.
  */
@@ -41,6 +42,7 @@ import { renderResponse } from '../deploy/response.js';
 import type {
   DeployRunners,
   PostDeploymentBody,
+  PostDeploymentResult,
   RunBuildResult,
   SyncSecretsBody,
 } from '../deploy/runners.js';
@@ -53,6 +55,7 @@ import {
 import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import type { OptionValue } from '../parse.js';
+import { type RateLimitRefusal, isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
 import { runBuild } from './build.js';
 import type { EnvironmentConfig, PackConfig } from './build.js';
 import type { CommandResult, LeafCommand } from './types.js';
@@ -347,14 +350,23 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   }
 
   // ---- 8. POST ---------------------------------------------------------
-  const result = await runners.postDeployment({
-    endpoint: args.endpoint,
-    token: args.token,
-    body: postBody,
-    idempotencyKey,
-    fetchImpl: ctx.fetch,
-    ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
-  });
+  //
+  // A `429 rate-limit-exceeded` with `Retry-After` is waited out and the
+  // same request sent again, with the same Idempotency-Key: the server
+  // keeps no answer to a refused request under its key.
+  const result = await sendWaitingOutRateLimits(
+    ctx,
+    () =>
+      runners.postDeployment({
+        endpoint: args.endpoint,
+        token: args.token,
+        body: postBody,
+        idempotencyKey,
+        fetchImpl: ctx.fetch,
+        ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+      }),
+    deployRefusal,
+  );
 
   // ---- 9. Render response ---------------------------------------------
   const rendered = renderResponse(result, {
@@ -402,6 +414,27 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   return {
     kind: 'ok',
     rendered: { stdout: jsonOut.stdout, stderr: `${banner.join('\n')}\n` },
+  };
+}
+
+/**
+ * A refused deployment to wait out: `429 rate-limit-exceeded` with a
+ * `Retry-After`. Not a replayed one (a runtime before 0.1.3 replays
+ * refusals): sent again, it would answer the same.
+ */
+function deployRefusal(result: PostDeploymentResult): RateLimitRefusal | undefined {
+  if (
+    result.kind !== 'wire-error' ||
+    result.status !== 429 ||
+    result.error.code !== 'rate-limit-exceeded' ||
+    result.idempotentReplay === true ||
+    !isWait(result.retryAfterSeconds)
+  ) {
+    return undefined;
+  }
+  return {
+    retryAfterSeconds: result.retryAfterSeconds,
+    ...(result.error.limit !== undefined && { limit: result.error.limit }),
   };
 }
 

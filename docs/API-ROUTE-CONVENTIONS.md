@@ -166,6 +166,8 @@ The SDK's `fromWire(json)` (`sdks/typescript/src/errors.ts`) matches on `code`.
 | `rate-limit-exceeded`                            | 429         |
 | Anything else server-caused                      | 500         |
 
+A `429 rate-limit-exceeded` carries `Retry-After`, in whole seconds. When a tenant's limit refused the request, `details.limit` names it. `schema-compile-time` is the time the tenant's schemas spent compiling in the last 60 seconds, against `details.budgetMs`. It counts every compile in a request that publishes schemas, and a schema compiled again on a call. A publish it refuses stores nothing.
+
 ---
 
 ## 5. Pagination

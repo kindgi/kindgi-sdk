@@ -138,10 +138,14 @@ export type PostDeploymentResult =
       readonly status: number;
       /** A replay of an earlier answer to this Idempotency-Key (a runtime before 0.1.3 also replays refusals). */
       readonly idempotentReplay?: boolean;
+      /** The answer's `Retry-After`, in seconds, when it has one in whole seconds. */
+      readonly retryAfterSeconds?: number;
       readonly error: {
         readonly code: string;
         readonly message: string;
         readonly details?: readonly Record<string, unknown>[];
+        /** Which limit refused it (the wire's `details.limit`, on a `429`), when the server named one. */
+        readonly limit?: string;
       };
     }
   | {
