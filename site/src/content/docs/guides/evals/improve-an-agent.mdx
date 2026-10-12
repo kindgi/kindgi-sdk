@@ -166,7 +166,7 @@ curl -X POST "$KINDGI_API_URL/v1/proposals/improve" \
 - `model` is the provider and model of yours that drafts them.
 - `candidates` is how many templates it drafts: 1 to 5, 3 by default.
 
-It answers with the pass, as `--wait` does from the CLI.
+It answers at once (`202`) with the pass, as the CLI does without `--wait`.
 
 The drafter sees the cases judged wrong and their reasons. A template it
 writes is compared only if it stays within what the agent already has:
