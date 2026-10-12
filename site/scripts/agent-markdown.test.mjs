@@ -184,11 +184,12 @@ function build(files) {
   return dir;
 }
 
-function done(base, dir) {
+function done(base, dir, version = '0.1.7') {
   agentMarkdown({
     site: origin,
     base,
     title: 'Kindgi',
+    version,
     description: siteDescription,
     details: 'Details.',
   }).hooks['astro:build:done']({
@@ -240,7 +241,10 @@ test('a build gets every Markdown page, llms.txt by section, and the files it li
     );
 
     const llms = readFileSync(join(dir, 'llms.txt'), 'utf8');
-    assert.match(llms, /^# Kindgi\n\n> The site\.\n\nDetails\.\n/);
+    assert.match(
+      llms,
+      /^# Kindgi\n\n> The site\.\n\nThese are the docs for Kindgi 0\.1\.7\.\n\nDetails\.\n/,
+    );
     assert.match(
       llms,
       /## Start\n\n- \[Kindgi documentation\]\(https:\/\/docs\.kindgi\.com\/index\.md\): Home\.\n- \[Install\]\(https:\/\/docs\.kindgi\.com\/start\/install\.md\): Get it\.\n- \[Quickstart\]\(https:\/\/docs\.kindgi\.com\/start\/quickstart\.md\)\n/,
@@ -254,16 +258,26 @@ test('a build gets every Markdown page, llms.txt by section, and the files it li
     const start = readFileSync(join(dir, '_llms-txt/start.txt'), 'utf8');
     assert.match(
       start,
-      /^<SYSTEM>Start: install, quickstarts, existing apps<\/SYSTEM>\n\n# Install\n\nSource: https:\/\/docs\.kindgi\.com\/start\/install\/\n\n> Get it\.\n\nInstall it\./,
+      /^<SYSTEM>Start: install, quickstarts, existing apps \(Kindgi 0\.1\.7\)<\/SYSTEM>\n\n# Install\n\nSource: https:\/\/docs\.kindgi\.com\/start\/install\/\n\n> Get it\.\n\nInstall it\./,
     );
-    assert.match(readFileSync(join(dir, 'llms-full.txt'), 'utf8'), /# HTTP API\n\nSource:/);
-    assert.doesNotMatch(readFileSync(join(dir, 'llms-small.txt'), 'utf8'), /# HTTP API/);
+    const full = readFileSync(join(dir, 'llms-full.txt'), 'utf8');
+    assert.match(
+      full,
+      /^<SYSTEM>Kindgi: the complete documentation \(Kindgi 0\.1\.7\)<\/SYSTEM>\n/,
+    );
+    assert.match(full, /# HTTP API\n\nSource:/);
+    const small = readFileSync(join(dir, 'llms-small.txt'), 'utf8');
+    assert.match(
+      small,
+      /^<SYSTEM>Kindgi: the documentation without the generated references \(Kindgi 0\.1\.7\)<\/SYSTEM>\n/,
+    );
+    assert.doesNotMatch(small, /# HTTP API/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("a version's build links into its own base", () => {
+test("a version's build links into its own base, and names its version", () => {
   const dir = build({
     'index.html': page({ title: 'Kindgi documentation', content: '<p>Welcome.</p>' }),
     'start/install/index.html': page({
@@ -272,16 +286,26 @@ test("a version's build links into its own base", () => {
     }),
   });
   try {
-    done('/v0.1.7/', dir);
+    done('/v0.1.6/', dir, '0.1.6');
     assert.equal(
       readFileSync(join(dir, twinPath('/start/install/', '/')), 'utf8'),
-      `# Install\n\n[Home](${origin}/v0.1.7/index.md)\n`,
+      `# Install\n\n[Home](${origin}/v0.1.6/index.md)\n`,
     );
+    const llms = readFileSync(join(dir, 'llms.txt'), 'utf8');
+    assert.match(llms, /https:\/\/docs\.kindgi\.com\/v0\.1\.6\/start\/install\.md/);
+    assert.match(llms, /\n\nThese are the docs for Kindgi 0\.1\.6\.\n\n/);
     assert.match(
-      readFileSync(join(dir, 'llms.txt'), 'utf8'),
-      /https:\/\/docs\.kindgi\.com\/v0\.1\.7\/start\/install\.md/,
+      readFileSync(join(dir, '_llms-txt/start.txt'), 'utf8'),
+      /^<SYSTEM>Start: install, quickstarts, existing apps \(Kindgi 0\.1\.6\)<\/SYSTEM>\n/,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('the integration needs the version its files name', () => {
+  assert.throws(
+    () => agentMarkdown({ site: origin, base: '/', title: 'Kindgi', description: siteDescription }),
+    /agentMarkdown: no version/,
+  );
 });

@@ -17,6 +17,11 @@
  *   survive.
  * - **A `<link rel="alternate" type="text/markdown">`** in each page's head.
  *
+ * Each `llms*.txt` file names the version it describes (`llms.txt` below its
+ * description, the others in their `<SYSTEM>` heading): an agent that fetched
+ * one from a versioned build (`/v0.1.7/llms.txt`) knows which Kindgi it reads
+ * about.
+ *
  * It reads the built HTML, so every page gets a Markdown version, the HTTP
  * API's included, and the version fixes (`versioned-pages.mjs`, listed
  * before it) are already in.
@@ -356,12 +361,12 @@ function referenceOf(page) {
 }
 
 /**
- * `llms.txt`: what the docs are, how to get any page as Markdown, the
- * combined files, then every page: a section per sidebar group and a
- * subsection per group inside it, the generated references under
- * "Optional", as llmstxt.org names it.
+ * `llms.txt`: what the docs are and which version, how to get any page as
+ * Markdown, the combined files, then every page: a section per sidebar
+ * group and a subsection per group inside it, the generated references
+ * under "Optional", as llmstxt.org names it.
  */
-function llmsIndex(ordered, { origin, base, title, description, details }) {
+function llmsIndex(ordered, { origin, base, title, version, description, details }) {
   const at = (rel) => `${origin}${base}${rel}`;
   const howTo = [
     "Every page of these docs has a Markdown version: replace the slash at the end of the page's URL with `.md`",
@@ -402,7 +407,8 @@ function llmsIndex(ordered, { origin, base, title, description, details }) {
       ]),
     ].join('\n'),
   );
-  return `${[`# ${title}`, `> ${description}`, details, howTo, files, ...lists].join('\n\n')}\n`;
+  const which = `These are the docs for ${title} ${version}.`;
+  return `${[`# ${title}`, `> ${description}`, which, details, howTo, files, ...lists].join('\n\n')}\n`;
 }
 
 /** `: <description>` for a list entry, or nothing. */
@@ -410,32 +416,37 @@ function described({ description }) {
   return description ? `: ${description}` : '';
 }
 
-/** Pages in one file: a heading for the file, then each page with its URL. */
-function combinedFile(list, heading) {
-  return `${[`<SYSTEM>${heading}</SYSTEM>`, ...list.map(combined)].join('\n\n')}\n`;
+/**
+ * Pages in one file: a heading for the file, with the release it describes
+ * (`Kindgi 0.1.7`), then each page with its URL.
+ */
+function combinedFile(list, heading, release) {
+  return `${[`<SYSTEM>${heading} (${release})</SYSTEM>`, ...list.map(combined)].join('\n\n')}\n`;
 }
 
 /**
  * Writes every page's Markdown and the `llms*.txt` files into the build at
- * `root`, for the docs served at `origin` + `base`. Returns how many pages
- * got a Markdown version.
+ * `root`, for the docs of `version` served at `origin` + `base`. Returns
+ * how many pages got a Markdown version.
  */
-export function writeAgentMarkdown(root, { origin, base, title, description, details }) {
+export function writeAgentMarkdown(root, { origin, base, title, version, description, details }) {
   const { pages, sidebar } = writePages(root, { origin, base, description });
   const ordered = readingOrder(pages, sidebar, { origin, base });
+  const release = `${title} ${version}`;
   writeFileSync(
     join(root, 'llms.txt'),
-    llmsIndex(ordered, { origin, base, title, description, details }),
+    llmsIndex(ordered, { origin, base, title, version, description, details }),
   );
   writeFileSync(
     join(root, 'llms-full.txt'),
-    combinedFile(ordered, `${title}: the complete documentation`),
+    combinedFile(ordered, `${title}: the complete documentation`, release),
   );
   writeFileSync(
     join(root, 'llms-small.txt'),
     combinedFile(
       ordered.filter((page) => !referenceOf(page)),
       `${title}: the documentation without the generated references`,
+      release,
     ),
   );
   mkdirSync(join(root, '_llms-txt'), { recursive: true });
@@ -444,20 +455,36 @@ export function writeAgentMarkdown(root, { origin, base, title, description, det
     const heading = section.description
       ? `${section.label}: ${section.description}`
       : section.label;
-    writeFileSync(join(root, '_llms-txt', `${section.slug}.txt`), combinedFile(list, heading));
+    writeFileSync(
+      join(root, '_llms-txt', `${section.slug}.txt`),
+      combinedFile(list, heading, release),
+    );
   }
   return pages.size;
 }
 
-/** The integration: writes the agents' Markdown once the build is done. */
-export function agentMarkdown({ site, base, title, description, details }) {
+/**
+ * The integration: writes the agents' Markdown once the build is done.
+ * `version` is the release the build describes (`docsVersion()`).
+ */
+export function agentMarkdown({ site, base, title, version, description, details }) {
+  if (!version) {
+    throw new Error('agentMarkdown: no version: each llms*.txt file names the one it describes.');
+  }
   return {
     name: 'kindgi-agent-markdown',
     hooks: {
       'astro:build:done': ({ dir, logger }) => {
         const root = fileURLToPath(dir);
         const origin = new URL(site).origin;
-        const count = writeAgentMarkdown(root, { origin, base, title, description, details });
+        const count = writeAgentMarkdown(root, {
+          origin,
+          base,
+          title,
+          version,
+          description,
+          details,
+        });
         logger.info(`${count} page(s) written as Markdown, with llms.txt and the section files.`);
       },
     },
