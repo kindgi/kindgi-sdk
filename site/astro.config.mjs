@@ -166,6 +166,7 @@ export default defineConfig({
         },
         { label: 'Concepts', items: [{ autogenerate: { directory: 'concepts' } }] },
         { label: 'Deploy', items: [{ autogenerate: { directory: 'deploy' } }] },
+        { label: 'Release notes', items: [{ autogenerate: { directory: 'releases' } }] },
         {
           label: 'Reference',
           items: [
