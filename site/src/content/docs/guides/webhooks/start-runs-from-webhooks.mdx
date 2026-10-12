@@ -151,10 +151,13 @@ preset, where to paste them. From a WooCommerce run, the secret left out:
   the project. It never replaces a secret: if the project already has one of
   that name, it's refused (`secret-write-conflict`), so pick another
   `--secret`. To use a secret you already stored with
-  [`kindgi secrets set`](../../secrets/), leave out `--generate-secret`: the
-  trigger reads it at the first of its project, the project's org and the
-  tenant that has it and that you administer. A model provider's key is
-  refused: give the trigger a secret of its own.
+  [`kindgi secrets set`](../../secrets/), leave out `--generate-secret`. The
+  trigger records where the secret is (`hmacSecretScope`): the first of its
+  project, that project's org and the tenant that has it, among the scopes
+  you administer. The receiver reads it there only, so store the secret
+  before you register the trigger, and register the trigger again to move
+  it. A model provider's key is refused: give the trigger a secret of its
+  own.
 - **The receive URL** comes from your runtime's public address
   (`KINDGI_PUBLIC_URL`). Without one, the trigger is still registered, and
   the CLI says how to set it. `kindgi webhooks get <id>` shows the URL once
