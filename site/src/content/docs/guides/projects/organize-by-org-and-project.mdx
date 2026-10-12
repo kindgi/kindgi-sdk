@@ -7,6 +7,9 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide gives each customer an org with its projects, runs and reads
+their work by project or org, and deletes an org.
+
 A **project** holds runs, conversations, approvals and what they cost. An
 **org** groups projects: one org per customer, for example, with a project
 for each part of their work. Every tenant has a Default project. A run that
@@ -16,8 +19,9 @@ a conversation stays in the conversation's project.
 
 An agent, flow, tool or test set belongs to the project its first version
 was published into, and never moves. Publishing a version of it into another
-project is refused with a `409`, such as `agent-project-mismatch`
-(`flow-…`, `tool-…`, `eval-suite-project-mismatch`), and nothing is written.
+project is refused with a `409`, and nothing is written. Its code names the
+kind, such as `agent-project-mismatch`, `flow-…`, `tool-…` or
+`eval-suite-project-mismatch`.
 The refusal doesn't name the project it belongs to, since you may not be
 able to read that project. A deploy that includes one is refused whole and
 deploys nothing, even when that agent or flow is unchanged. Publish new
@@ -27,7 +31,19 @@ Reading an agent, flow, tool, test set or guardrail says which project
 it's in: its `projectId`, with the runtime 0.1.6 or later. A pack
 `kindgi dev` serves from disk has none.
 
+## Before you start
+
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.1's client and CLI.
+- **Node 22.12 or later, or Python 3.11 or later,** for the client.
+- **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set, or a running
+  `kindgi dev`, which the client finds.
+- **An agent,** to run in the customer's project. This guide uses
+  `acme-ops.echo-agent`.
+
 ## Give a customer an org and a project
+
+Create the customer's org and a project in it once, then run the customer's
+work there. The script prints the run's status and the org's runs:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -91,7 +107,7 @@ the CLI, `kindgi runs start … --project=<project-id>` runs in a customer's
 project, and `kindgi projects list` lists the projects with their ids.
 
 **Slugs.** An org's slug is unique in the tenant. A project's slug is unique
-in its org, so every customer can have a `support` project; a project with
+in its org, so every customer can have a `support` project. A project with
 no org has a slug unique among the projects with none. A taken slug is
 refused with `409 slug-conflict`:
 
@@ -100,15 +116,16 @@ Another org in the tenant has the slug "acme-customer-one"
 Another project in its org has the slug "support" (for a project without an org: another project without one)
 ```
 
-A tenant has one Default project; asking for a second one answers
+A tenant has one Default project. Asking for a second one answers
 `409 project-default-already-exists`, "The tenant already has a Default
 project".
 
 ## Read a customer's work
 
-The lists take a `scope`, one project's or every project's in an org:
-`{ kind: 'project', projectId }` or `{ kind: 'org', orgId }` (Python:
-`scope_kind="project", scope_id=…`).
+The lists take a `scope`: one project's, or every project's in an org.
+In TypeScript, it's `{ kind: 'project', projectId }` or
+`{ kind: 'org', orgId }`. In Python, it's
+`scope_kind="project", scope_id=…`.
 
 - Runs: [List runs](../../runs/list-runs/).
 - Approvals: [Decide an approval](../../approvals/decide-an-approval/).
@@ -116,26 +133,28 @@ The lists take a `scope`, one project's or every project's in an org:
 - Where answers came from: [Trace an answer](../../observability/trace-an-answer/).
 - What it cost, by month and model: [Cost per run and per customer](../../observability/cost-per-run/).
 
-Records from before Kindgi 0.1.3 have no project, so only a list without a
-scope shows them.
+A record with no project shows only in a list without a scope.
 
-A tool sees the run's project and org (`ctx.projectId`, `ctx.orgId`), so it
-can check that a record belongs to the customer the run is for:
-[Check the run's org](../../tools/write-a-tool/#check-the-runs-org).
+A tool sees the run's project and org, as `ctx.projectId` and `ctx.orgId`.
+So it can check that a record belongs to the customer the run is for, as
+[Check the run's org](../../tools/write-a-tool/#check-the-runs-org) shows.
 
 ## Delete an org
+
+Delete an org when its customer leaves. With `kindgi` and `org` from the
+script:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 await kindgi.orgs.delete(org.id);
 ```
 
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 kindgi.orgs.delete(str(org.id))
 ```
 
@@ -154,4 +173,11 @@ kindgi.orgs.delete(str(org.id))
   org that never existed: `No org with id "0404cbc2-9612-461d-9997-0cbf1d12341a"`.
 
 Kindgi keeps the deleted org's record until a
-[retention policy](../../../deploy/retention/) on `org` purges it, after its environments' and MCP endpoints' own records are purged.
+[retention policy](../../../deploy/retention/) on `org` purges it. That
+comes after its environments' and MCP endpoints' own records are purged.
+
+## Next
+
+- [List runs](../../runs/list-runs/)
+- [Cost per run and per customer](../../observability/cost-per-run/)
+- [Check the run's org](../../tools/write-a-tool/#check-the-runs-org)
