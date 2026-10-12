@@ -17,12 +17,19 @@ preview: request access at contact@kindgi.com, then log in once with
 ## 1. Create the pack
 
 ```sh tutorial=run
-npx @kindgi/cli init my-pack --template=sample
+npx --yes @kindgi/cli@0.1 init my-pack --template=sample
 cd my-pack
 pnpm install
 ```
 
-`my-pack` is the pack's id: every tool, agent and flow in it is named
+- `npx --yes @kindgi/cli@0.1` runs the newest 0.1 release of the Kindgi CLI
+  without installing it ([Check this machine](../install/#check-this-machine)
+  says how).
+- `init my-pack` makes the pack in a new folder, `my-pack`.
+- `--template=sample` starts it with examples. The default, `minimal`, gives
+  you the folders and none of the examples.
+
+`my-pack` is also the pack's id: every tool, agent and flow in it is named
 `my-pack.<name>`. The `sample` template gives you:
 
 ```
@@ -44,9 +51,6 @@ below yourself, or ask your coding agent ("run the pack and try the agent",
 run. [How it knows Kindgi](../coding-agents/).
 :::
 
-(The default template, `minimal`, gives you the folders and none of the
-examples.)
-
 ## 2. Run it
 
 ```sh tutorial=background ready="Kindgi is up"
@@ -56,7 +60,7 @@ pnpm exec kindgi dev
 `kindgi dev` starts the Kindgi runtime in Docker, indexes the pack,
 registers every tool, agent, guardrail and flow, and does it again on every
 save. It prints the API's URL and a token, and writes them to
-`.kindgirc.json` in the pack, so the commands below find the runtime by
+`.kindgirc.json` in the pack, so the next commands find the runtime by
 themselves. Leave it running.
 
 The first address its banner prints is the console's, where you can see each
@@ -67,11 +71,11 @@ run: what it was asked, the steps it took and what it answered:
                Sign in: "Sign in as seeded user" on the sign-in page (the dev token, below)
 ```
 
-Open it in your browser (the port is `4000`, or the next free one; the
-runtime's own address, `http://127.0.0.1:4000/`, leads there too), or run
-`pnpm exec kindgi console`, which opens it for you. On the sign-in page, click
-**Sign in as seeded user**. `kindgi dev --open` opens the console as soon as
-Kindgi is up.
+To open the console, run `pnpm exec kindgi console`, or go to the banner's
+`Console` address. Its port is `4000`, or the next free one. On the sign-in
+page, click **Sign in as seeded user**.
+
+Tip: `kindgi dev --open` opens the console as soon as Kindgi is up.
 
 ## 3. Run the agent
 
@@ -80,6 +84,10 @@ In a second terminal, in `my-pack`:
 ```sh tutorial=run
 pnpm exec kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
 ```
+
+- `--agent=my-pack.echo-agent` names the agent to run, by its id.
+- `--input` is the run's input, as JSON. An agent takes the person's message
+  as `userMessage`.
 
 ```text tutorial=expect
   "status": "completed",
@@ -107,6 +115,9 @@ of your own.
 ```sh tutorial=run
 pnpm exec kindgi runs start --flow=my-pack.echo-flow --input='{"name":"Ada"}'
 ```
+
+- `--flow=my-pack.echo-flow` names the flow to run, by its id.
+- `--input` is the flow's input, as JSON.
 
 ```text tutorial=expect
   "status": "completed",
@@ -170,20 +181,28 @@ up.
 
 ## 6. Connect a real model
 
-Store an Anthropic key as a secret (you're prompted for it; it isn't
-echoed, and it goes in Kindgi's own `.kindgi/secrets.env`), then register the
-provider:
+Store an Anthropic key as a secret, then register the provider:
 
 ```sh
 pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
 pnpm exec kindgi providers register --preset=anthropic
 ```
 
-It takes over from `dev-echo` at the next turn. Run the agent again and it
+- `secrets set ANTHROPIC_API_KEY` asks for the key without showing it, and
+  keeps it in Kindgi's own `.kindgi/secrets.env`.
+- `--env=local` is the environment the secret belongs to. Under
+  `kindgi dev`, `local` is your pack's own env files.
+- `--scope=tenant` keeps the secret for your whole tenant, so every project
+  in it can use it.
+- `--preset=anthropic` registers Anthropic's models from Kindgi's built-in
+  preset, which reads the `ANTHROPIC_API_KEY` secret. `kindgi providers
+  presets` lists the others.
+
+The provider takes over from `dev-echo` at the next turn. Run the agent again and it
 answers with a real model, still calling your tools. Gemini on Vertex AI
-has a preset too (`--preset=gemini --project=<gcp-project>`); any
-OpenAI-compatible endpoint (vLLM, llama.cpp, Ollama, OpenRouter) registers
-from a short spec file.
+has a preset too: `--preset=gemini --project=<gcp-project>`, where
+`--project` names your Google Cloud project. Any OpenAI-compatible endpoint
+(vLLM, llama.cpp, Ollama, OpenRouter) registers from a short spec file.
 
 The registration is in this project's dev database. To have `kindgi dev`
 register the model on every boot, in each worktree and after `--reset`,
