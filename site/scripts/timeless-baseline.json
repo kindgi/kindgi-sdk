@@ -4,7 +4,6 @@
   "guides/agents/conversations": 1,
   "guides/agents/typed-answer": 2,
   "guides/agents/write-an-agent": 1,
-  "guides/approvals/decide-an-approval": 2,
   "guides/evals/build-a-test-set": 2,
   "guides/evals/change-a-prompt-or-setting": 1,
   "guides/evals/judge-a-runs-output": 2,
