@@ -92,15 +92,41 @@ function proseLines(source) {
   return prose;
 }
 
-/** The phrases in a page's source that date it, each with its line number. */
+/**
+ * The prose in paragraphs: runs of consecutive prose lines, so a phrase the
+ * page's hard wrap splits across two lines is still one phrase. Each
+ * paragraph keeps where each line starts in its joined text.
+ */
+function paragraphs(prose) {
+  const result = [];
+  let current;
+  for (const { number, line } of prose) {
+    if (line.trim() === '') {
+      current = undefined;
+      continue;
+    }
+    if (!current || number !== current.last + 1) {
+      current = { text: '', starts: [], last: number };
+      result.push(current);
+    }
+    if (current.text) current.text += ' ';
+    current.starts.push({ at: current.text.length, number });
+    current.text += proseOf(line);
+    current.last = number;
+  }
+  return result;
+}
+
+/** The phrases in a page's source that date it, each with the line it starts on. */
 export function datedPhrases(source) {
-  return proseLines(source).flatMap(({ number, line }) =>
-    [VERSION, TIME_WORDS].flatMap((pattern) =>
-      [...proseOf(line).matchAll(pattern)].map((match) => ({
-        line: number,
+  return paragraphs(proseLines(source)).flatMap(({ text, starts }) =>
+    [VERSION, TIME_WORDS]
+      .flatMap((pattern) => [...text.matchAll(pattern)])
+      .sort((a, b) => a.index - b.index)
+      .map((match) => ({
+        line: starts.findLast(({ at }) => at <= match.index).number,
         phrase: match[0].replace(/\s+/g, ' '),
       })),
-    ),
   );
 }
 

@@ -30,6 +30,21 @@ test('a version as a point in time dates a page', () => {
   );
 });
 
+test('a phrase split across two lines by the hard wrap still dates a page', () => {
+  assert.deepEqual(
+    phrases(
+      [
+        'The banner says so. From',
+        '0.1.7, `init` sets this up.',
+        '',
+        '- A list item from',
+        '- 0.1.6 is another.',
+      ].join('\n'),
+    ),
+    ['1: From 0.1.7'],
+  );
+});
+
 test('a requirement or a range is fine', () => {
   assert.deepEqual(
     phrases(
