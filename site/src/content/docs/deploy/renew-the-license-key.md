@@ -119,9 +119,10 @@ A refusal from access.kindgi.com names its code, `refused (<code>): …`:
 | `unauthorized` | Enroll the deployment, and add its line at access.kindgi.com. |
 | `stale-request` | Check the machine's clock: it's more than 5 minutes off. |
 | `replayed` | Run `renew` again: each request is used once. |
-| `rate-limited` | Wait: a key renews at most once an hour. |
+| `rate-limited` | Wait an hour, then run `renew` again: too many renewals came for this key this hour. |
 | `renewer-stopped` | Its renewal was stopped at access.kindgi.com. Enroll it again, or sign in there for a key. |
 | `not-entitled` | A production key is renewed with your contract: write to contact@kindgi.com. |
+| `term-ended` | The contract's term has ended, and the key you have runs until its own date. Write to contact@kindgi.com to extend the term. |
 | `key-revoked`, `denied` | Write to contact@kindgi.com. |
 
 ## On a schedule
