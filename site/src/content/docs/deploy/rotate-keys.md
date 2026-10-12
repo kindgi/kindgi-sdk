@@ -80,13 +80,22 @@ Put it in both files, as `KINDGI_PACK_SERVICE_TOKEN` in `pack.env` and in
 `kindgi.env`. Then restart the pack's service with the same image:
 
 ```sh
-docker stop --time 30 kindgi-pack
+docker stop -t 30 kindgi-pack
 docker rm kindgi-pack
 docker run -d --name kindgi-pack --network kindgi --env-file pack.env \
   registry.localhost:5050/acme-pack@sha256:<your pack's digest>
 ```
 
 `<your pack's digest>` is the digest of the pack's image you run now.
+
+Docker prints the container's name after `stop` and `rm`, and the new
+container's id after `run`:
+
+```text
+kindgi-pack
+kindgi-pack
+9b39070edcb7a7b20a373c0842207f6fd51db51bc1783f5f0c37eff06e38cdb5
+```
 
 And [restart the runtime](../restart-and-check-health/#restart-the-runtime).
 While the two tokens differ, the pack's service refuses the runtime's calls,
@@ -130,13 +139,23 @@ revoked id can't be trusted again.
 
    `acme-selfhost-2` is the new key's id. `--env selfhost` also prints the
    lines to add to the `selfhost` block of `kindgi.config.ts`. It prints the
-   key's JSON, then this, with the home folder's path elided:
+   key as JSON, then where it put it and the lines to add, with the home
+   folder's path elided:
 
    ```text
+   {
+     "keyId": "acme-selfhost-2",
+     "privateKeyPath": "…/.kindgi/keys/acme-selfhost-2.pem",
+     "publicKeyPath": "…/.kindgi/keys/acme-selfhost-2.pub.pem",
+     "fingerprint": "sha256:37c5be5aed8a2688470bdacb",
+     "home": "…",
+     "env": "selfhost"
+   }
+
      ✓ Ed25519 keypair created: acme-selfhost-2
        private key:  …/.kindgi/keys/acme-selfhost-2.pem  (mode 0600)
        public key:   …/.kindgi/keys/acme-selfhost-2.pub.pem  (mode 0644)
-       fingerprint:  sha256:3310ed91d73174ce4a90ce35
+       fingerprint:  sha256:37c5be5aed8a2688470bdacb
 
      Next step: add to environments.selfhost in kindgi.config.ts:
 
@@ -157,7 +176,20 @@ revoked id can't be trusted again.
 
    `--url` and `--token` are the runtime's URL and API token. It prints the
    trusted key as JSON, then `✓ Trusted acme-selfhost-2` with the fingerprint
-   `key create` printed.
+   `key create` printed:
+
+   ```text
+   {
+     "keyId": "acme-selfhost-2",
+     "tenantId": "7e23b761-8fb2-47a0-925d-15fdf2e90fd7",
+     "algorithm": "ed25519",
+     "publicKey": "LzdQT9vYe71NqL4/bCozeEkTYqPIAhdZYiCC40xQnmA=",
+     "createdAt": "2026-10-12T16:48:46.981Z"
+   }
+
+     ✓ Trusted acme-selfhost-2 (sha256:37c5be5aed8a2688470bdacb)
+       The runtime now accepts deploys this key signs.
+   ```
 
 2. Sign your next release with it. Add the two lines `key create` printed
    to the `selfhost` block of `kindgi.config.ts`:
@@ -178,13 +210,16 @@ revoked id can't be trusted again.
    pnpm exec kindgi deploy --env selfhost --token "$KINDGI_API_TOKEN"
    ```
 
-   The deploy prints the deployment:
+   The deploy prints the deployment as JSON, then each step. Its registering
+   step:
 
    ```text
+   …
      Registering deployment
        ✓ POST /v1/deployments  →  201 Created
          deploymentId:    3c4f4d76-f4a4-4d5f-8339-f05b0497b462
          artifactVersion: 20261008.193855
+   …
    ```
 
    The artifact version is the build time by default, `YYYYMMDD.HHMMSS` in
@@ -221,10 +256,12 @@ envelope, so sending an envelope you already deployed returns the first
 answer again, for 24 hours, and deploys nothing.
 
 ```text
+…
   Registering deployment
     ✗ POST /v1/deployments  →  HTTP 403
       code:    signer-not-trusted
       message: Signer key "acme-selfhost" is not on this tenant's trust list
+…
 ```
 
 The runtime checks signatures when you deploy. A deployment the revoked key
@@ -236,7 +273,11 @@ curl -s "http://localhost:4000/v1/signing-keys?includeRevoked=true" -H "authoriz
 ```
 
 It answers with the keys as JSON. Each key in the list has its `revokedAt`
-and `revokedReason`, if it was revoked.
+and `revokedReason`, if it was revoked:
+
+```text
+{"data":[{"keyId":"acme-selfhost","tenantId":"7e23b761-8fb2-47a0-925d-15fdf2e90fd7","algorithm":"ed25519","publicKey":"Fgx7GGmlWq8CTnoSlW3pcHwuLNrozmX3RtAE6R7JWTo=","createdAt":"2026-10-12T16:48:41.774Z","revokedAt":"2026-10-12T16:48:48.236Z","revokedReason":"rotated to acme-selfhost-2"},{"keyId":"acme-selfhost-2","tenantId":"7e23b761-8fb2-47a0-925d-15fdf2e90fd7","algorithm":"ed25519","publicKey":"LzdQT9vYe71NqL4/bCozeEkTYqPIAhdZYiCC40xQnmA=","createdAt":"2026-10-12T16:48:46.981Z"}],"hasMore":false}
+```
 
 ## Rotate the public run token key
 
@@ -272,6 +313,11 @@ docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
 
 `-v` mounts the key file, read-only, at the path `kindgi.env` names. The
 other flags are [the restart's](../restart-and-check-health/#restart-the-runtime).
+It prints the new container's id:
+
+```text
+bb9217f9a692c0a22b2a5bae10620194f0843fe2de8c01e5c478e2aec51464bb
+```
 
 The file must have mode 0600, and the runtime's user in the container, uid
 10001, must be able to read it. The log says:
