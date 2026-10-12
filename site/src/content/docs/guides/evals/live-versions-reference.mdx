@@ -180,7 +180,8 @@ kindgi agents promote acme.order-desk 1.0.0 --project=<project-id> --segment=com
 ```
 
 - `<project-id>` is the segment's project.
-- `--segment=company:globex` is the segment path, a key and a value.
+- `--segment=company:globex` is the segment, `key:value`. A deeper segment
+  repeats `--segment`, coarse to fine.
 - `--reason` says why, and is kept with the promotion.
 
 Under a gate, the promotion's one check says why it went through, and its
