@@ -387,8 +387,8 @@ What to check before you upgrade, and what's different after:
     preset:** a preset's own settings are required, and another preset's
     are refused, by the types and by `kindgi dev`, which names whose setting
     it is. In TypeScript, `preset` is one of the preset names
-    (`KindgiPresetName`), so a name computed at run time needs
-    `as KindgiPresetName`
+    (`KindgiPresetName`, from `@kindgi/handler-runtime`), so a name computed
+    at run time needs `as KindgiPresetName`
     ([Declare them in your pack's config](../../guides/models/#declare-them-in-your-packs-config)).
 - **The runtime image carries the `kindgi` CLI,** which runs the license
   renewal jobs. On linux/amd64 it downloads 290 MB, up from 276 MB.
