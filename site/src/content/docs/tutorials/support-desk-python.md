@@ -18,7 +18,8 @@ that branches on that answer. It takes about 20 minutes.
 - **Python 3.11 or later**, and **uv**.
 - **Docker**, with access to the runtime image, as
   [Install](../../start/install/) sets up.
-- **An Anthropic API key,** for step 6.
+- **An API key from an AI model provider** (Anthropic, OpenAI, Gemini, Groq
+  or OpenRouter), for step 6.
 
 ## 1. Create the pack
 
@@ -292,26 +293,37 @@ It has loaded the pack's two tools, its agent and its flow. Leave it
 running, and continue in a second terminal, in `acme-desk`.
 
 The agent needs a real model for its typed answer. The stand-in that
-`kindgi dev` starts with can't produce one. Store your Anthropic key as a
-secret, then register the provider:
+`kindgi dev` starts with can't produce one. Store your AI model provider's
+API key as a secret, then register the provider:
 
 ```sh
-uv run kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
-uv run kindgi providers register --preset=anthropic
+uv run kindgi secrets set <KEY_NAME> --env=local --scope=tenant
+uv run kindgi providers register --preset=<preset>
 ```
+
+`<KEY_NAME>` and `<preset>` depend on the provider:
+
+| Provider | `<KEY_NAME>` | `<preset>` |
+| --- | --- | --- |
+| Anthropic | `ANTHROPIC_API_KEY` | `anthropic` |
+| OpenAI | `OPENAI_API_KEY` | `openai` |
+| Gemini (a Google AI Studio key) | `GEMINI_API_KEY` | `gemini-api` |
+| Groq | `GROQ_API_KEY` | `groq` |
+| OpenRouter (a hosted gateway) | `OPENROUTER_API_KEY` | `openrouter` |
 
 - `secrets set` prompts for the key, and doesn't echo it.
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files.
 - `--scope=tenant` is where the secret lives: the tenant, rather than one
   org (`org:<orgId>`) or project (`project:<projectId>`).
-- `--preset=anthropic` registers Claude on the Anthropic API, with the key
-  stored under `ANTHROPIC_API_KEY`.
+- `--preset=<preset>` registers the provider's models from Kindgi's built-in
+  preset, which reads the `<KEY_NAME>` secret.
 
 `secrets set` then prints the secret's name, scope, environment and version
-as JSON, then `Set ANTHROPIC_API_KEY at tenant in local.` `providers register`
-prints the provider's id as JSON, then `✓ Registered anthropic:` with the
-preset's models, its default marked. Your agent's turns now go to Claude.
+as JSON, then `Set <KEY_NAME> at tenant in local.` `providers register`
+prints the provider's id as JSON, then `✓ Registered <preset>:` with the
+preset's models, its default marked. Your agent's turns now go to that
+provider's default model.
 
 ## 7. Triage a ticket
 
