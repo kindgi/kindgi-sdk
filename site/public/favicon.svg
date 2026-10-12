@@ -1,4 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="6" fill="#0a0a0b"/>
-  <path d="M9 8 v16 M9 16 l7 -8 M9 16 l7 8 M20 8 v16 M20 16 h5" stroke="#e7a94a" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <style>
+    .tile { fill: #6C1A5A; }
+    .k { stroke: #FFFFFF; }
+    @media (prefers-color-scheme: dark) {
+      .tile { fill: #DA8BD0; }
+      .k { stroke: #241A2D; }
+    }
+  </style>
+  <rect class="tile" width="32" height="32"/>
+  <path class="k" d="M9 8v16M9 16l7-8M9 16l7 8M20 8v16M20 16h5" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
