@@ -61,6 +61,22 @@ kindgi env init --secrets-backend=secret-manager --secrets-manager=aws
 - It writes `.env.example` in the current directory. `--out=<path>` writes
   it elsewhere, and `--force` overwrites a file that's there.
 
+It prints where it wrote the file, and for which backend:
+
+```text
+{
+  "outPath": "…/.env.example",
+  "target": {
+    "secretsBackend": "secret-manager",
+    "secretsManager": "aws"
+  },
+  "varsWritten": 90
+}
+
+  Wrote 90 env-var entries → …/.env.example
+  Target: {"secretsBackend":"secret-manager","secretsManager":"aws"}
+```
+
 Each section shows the lines the runtime's startup log prints when it reaches
 your secret manager, and what it prints when it can't.
 

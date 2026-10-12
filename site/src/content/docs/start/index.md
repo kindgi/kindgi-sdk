@@ -6,7 +6,8 @@ sidebar:
   label: Overview
 ---
 
-Begin here.
+Start here to install Kindgi, run a first pack on your machine, or add
+Kindgi to an app you already have.
 
 1. [What is Kindgi?](introduction/): packs, the runtime, and how your app
    and your coding agent work with them.
