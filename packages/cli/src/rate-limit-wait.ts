@@ -5,11 +5,13 @@
  * Waiting out the server's rate limits, for the commands that publish
  * (`kindgi deploy`, `flows publish`, `agents publish`, `blocks publish`).
  *
- * A `429 rate-limit-exceeded` with a `Retry-After` (the client's
- * `rate-limited` error with `retryAfterSeconds`) means "not now": nothing
- * was stored, so the command waits that long and sends the same request
- * again, saying so on stderr, one line per wait. A refusal without a wait,
- * and every other error, comes back as it is.
+ * The server answers its rate limits with `429 rate-limit-exceeded`. A
+ * `429` with a `Retry-After` means "not now": nothing was stored, so the
+ * command waits that long and sends the same request again, saying so on
+ * stderr, one line per wait. Through the client, that's any `rate-limited`
+ * error with `retryAfterSeconds` (the client maps every `429` to it);
+ * `kindgi deploy` also checks the code. A refusal without a wait, and
+ * every other error, comes back as it is.
  *
  * The waiting adds up, on the clock, to at most `RATE_LIMIT_WAIT_CAP_MS`
  * per call; each of these commands makes one such call. When the next
@@ -106,7 +108,7 @@ export async function callWaitingOutRateLimits<T>(
   return outcome.value;
 }
 
-/** A client error the server says to wait out: `rate-limited`, with `retryAfterSeconds`. */
+/** A client error the server says to wait out: `rate-limited` (any `429`), with `retryAfterSeconds`. */
 export function clientRefusal(thrown: unknown): RateLimitRefusal | undefined {
   const error = extractKindgiError(thrown);
   if (error?.code !== 'rate-limited' || !isWait(error.retryAfterSeconds)) return undefined;
