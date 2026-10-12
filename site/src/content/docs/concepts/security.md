@@ -48,6 +48,13 @@ size limits of their own
 ([Keep files with a run](../../guides/runs/keep-files-with-a-run/),
 [Start runs from webhooks](../../guides/webhooks/start-runs-from-webhooks/)).
 
+Rendering an agent's instructions template may use 16,777,216 of the
+template engine's memory units, roughly the characters of the strings and
+arrays the render builds. A render past it fails the agent's turn with
+`model-invocation-failed`:
+`Prompt render failed: Template render failed: the render went over its memory limit of 16777216`.
+No setting changes it.
+
 With [authorization](../../deploy/authorization/) on, people and service
 accounts have API keys of their own, `kgi_ak_…`. Each key acts with its
 holder's grants and no more. A revoked key is refused from its next request.

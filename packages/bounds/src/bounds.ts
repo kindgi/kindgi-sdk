@@ -10,7 +10,7 @@
  * one tenant's input must never stall the server for the others. Anywhere
  * else (a self-hosted server, a pack's own process, a test) it's
  * {@link SELF_HOSTED_BOUNDS}: today's behaviour, with generous limits on
- * bodies and schemas.
+ * bodies, schemas and a render's memory.
  *
  * Why one setting rather than an argument: the places that compile tenant
  * input are deep inside the SDK's packages (guardrails, schema, agents,
