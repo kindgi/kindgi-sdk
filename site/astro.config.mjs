@@ -78,11 +78,13 @@ export default defineConfig({
       description,
       details: [
         'Kindgi runs AI agents and flows beside your application. You define tools (your own',
-        'TypeScript or Python code), agents and flows in a pack; the Kindgi runtime runs them',
-        'durably, calls your code over HTTP, and records every step in a journal. The SDKs',
-        '(`@kindgi/sdk` on npm, `kindgi` on PyPI) and the CLI (`@kindgi/cli` on npm, `kindgi-cli`',
-        'on PyPI) are Apache-2.0. TypeScript projects run the CLI as `pnpm exec kindgi`; Python',
-        'projects as `uv run kindgi`.',
+        'TypeScript, Python, Java or Scala code), agents and flows in a pack; the Kindgi runtime',
+        'runs them durably, calls your code over HTTP, and records every step in a journal. The',
+        'SDKs (`@kindgi/sdk` on npm, `kindgi` on PyPI, and `com.kindgi:kindgi-pack`,',
+        '`kindgi-pack-scala` and `kindgi-client` on Maven Central) and the CLI (`@kindgi/cli` on',
+        'npm, `kindgi-cli` on PyPI) are Apache-2.0. TypeScript projects run the CLI as',
+        '`pnpm exec kindgi`; Python projects as `uv run kindgi`; Java and Scala projects as',
+        '`./kindgiw`.',
       ].join('\n'),
     }),
     starlight({
@@ -179,6 +181,7 @@ export default defineConfig({
           label: 'Reference',
           items: [
             { label: 'Overview', link: '/reference/' },
+            { label: 'Features by SDK', link: '/reference/sdks/' },
             httpApi,
             { label: 'TypeScript', collapsed: true, items: [sdkReference] },
             {
