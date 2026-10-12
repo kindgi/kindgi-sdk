@@ -245,6 +245,30 @@ test('shell problems: the commands of every launcher in a block', () => {
   assert.deepEqual(shellProblems(code, cli), ["`kindgi runs list`: Unknown option '--bogus'"]);
 });
 
+test('a JVM test is a whole file too: src/test/java and src/test/scala', () => {
+  const page = [
+    `${fence}java`,
+    '// src/test/java/mypack/tools/LookupOrderTest.java',
+    'class LookupOrderTest {}',
+    fence,
+    `${fence}scala`,
+    '// src/test/scala/mypack/tools/LookupOrderSuite.scala',
+    'class LookupOrderSuite',
+    fence,
+    `${fence}java`,
+    '// test/LookupOrderTest.java',
+    fence,
+  ].join('\n');
+  assert.deepEqual(
+    pageRules(page, cli).problems.map(({ line }) => line),
+    [9],
+  );
+  assert.deepEqual(
+    fileSamples(page).java.map((file) => file.path),
+    ['src/test/java/mypack/tools/LookupOrderTest.java'],
+  );
+});
+
 test("a page's whole files: its excerpts stay out; a skill's files are all kept", () => {
   const page = [
     `${fence}ts`,

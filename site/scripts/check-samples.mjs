@@ -32,6 +32,9 @@
  * doesn't import `com.kindgi.pack` is app code calling the Java client
  * (`com.kindgi.client`): Java compiles alone, and Scala compiles with sbt
  * over a fresh `scala` pack that also depends on kindgi-client, with no index.
+ * A Java or Scala test (`// src/test/java/…`, `// src/test/scala/…`) goes
+ * over a fresh pack too, and the pack's own build runs it (Maven's `test`
+ * with JUnit, sbt's `test` with munit), so its asserts are checked.
  *
  * Snippets run as pasted: on a page, every code block is either offered for
  * copying and checked, or an excerpt (`excerpts.mjs`: its fence says
@@ -119,13 +122,13 @@ const LANGUAGES = {
   // A Java file: an app's (compiled against the Java SDK) or a pack's (over a `java` pack).
   java: {
     template: 'java',
-    file: /^\/\/\s*(src\/main\/java\/\S+\.java)\s*$/,
+    file: /^\/\/\s*(src\/(?:main|test)\/java\/\S+\.java)\s*$/,
     id: /\bdefine\("([a-z0-9-]+)\.[^"]+"\)/,
   },
   // A Scala file, over a `scala` pack: `Tool[I, O]("acme.x")`, `Agent("acme.x")`, …
   scala: {
     template: 'scala',
-    file: /^\/\/\s*(src\/main\/scala\/\S+\.scala)\s*$/,
+    file: /^\/\/\s*(src\/(?:main|test)\/scala\/\S+\.scala)\s*$/,
     id: /\b(?:Tool|Guardrail|Agent|Flow)(?:\[[^\]]*\])?(?:\.json)?\("([a-z0-9-]+)\.[^"]+"\)/,
   },
 };
@@ -853,8 +856,10 @@ function javaSources(dir, rel = '') {
 }
 
 function checkJava(files) {
-  // A pack's samples go over a fresh `java` pack and are indexed; an app's compile alone.
-  const pack = files.some(packFile);
+  // A pack's samples go over a fresh `java` pack and are indexed; an app's
+  // compile alone. A test (src/test/java) is a pack's: the pack's own tests run.
+  const tests = files.some(testFile);
+  const pack = tests || files.some(packFile);
   const packId = files.map((file) => file.content.match(LANGUAGES.java.id)?.[1]).find(Boolean);
   const dir = pack ? freshPack('java', packId ?? 'my-pack') : mkdtempSync(join(work, 'java-'));
   for (const file of files) {
@@ -871,7 +876,11 @@ function checkJava(files) {
     dir,
   );
   if (!compiled.ok || !pack) return compiled.ok ? undefined : compiled.output;
-  return indexJvmPack(dir, [classes, classpath].join(delimiter));
+  const indexed = indexJvmPack(dir, [classes, classpath].join(delimiter));
+  if (indexed !== undefined || !tests) return indexed;
+  // The pack's Maven build compiles and runs its tests (JUnit, from its pom).
+  const tested = run('sh', [join(dir, 'mvnw'), '-B', '-q', '-ntp', 'test'], dir);
+  return tested.ok ? undefined : tested.output;
 }
 
 /** A JVM pack indexed with kindgi-pack's indexer: its problems, or undefined when it has none. */
@@ -956,11 +965,17 @@ function packFile(file) {
   return /\bimport com\.kindgi\.pack\b/.test(file.content);
 }
 
+/** Whether a JVM file is a test (src/test/…), which runs in a pack's own build. */
+function testFile(file) {
+  return file.path.startsWith('src/test/');
+}
+
 function checkScala(files) {
   // App code calling the Java client goes over the same fresh pack, with
   // kindgi-client added to its build; only a pack's own files are indexed.
-  const client = files.some((file) => !file.stub && !packFile(file));
-  const pack = files.some(packFile);
+  const tests = files.some(testFile);
+  const client = files.some((file) => !file.stub && !testFile(file) && !packFile(file));
+  const pack = files.some((file) => !testFile(file) && packFile(file));
   scala({ client });
   const packId = files.map((file) => file.content.match(LANGUAGES.scala.id)?.[1]).find(Boolean);
   const dir = freshPack('scala', packId ?? 'my-pack');
@@ -975,14 +990,16 @@ function checkScala(files) {
       `\nlibraryDependencies += "com.kindgi" % "kindgi-client" % "${jvmVersion()}"\n`,
     );
   }
+  // A test (src/test/scala, munit from the pack's build) is compiled and run.
+  const test = tests ? ['test'] : [];
   if (!pack) {
-    const compiled = run('sbt', ['-batch', '-error', 'compile'], dir);
+    const compiled = run('sbt', ['-batch', '-error', ...test, 'compile'], dir);
     return compiled.ok ? undefined : compiled.output;
   }
   // sbt compiles the pack and prints its runtime classpath as the last line of its stdout. Its
   // stderr can carry a line of its own after it (the JVM's "Picked up JAVA_TOOL_OPTIONS: …", a
   // launcher's warning), which isn't the classpath.
-  const exported = run('sbt', ['-batch', '-error', 'export Runtime/fullClasspath'], dir);
+  const exported = run('sbt', ['-batch', '-error', ...test, 'export Runtime/fullClasspath'], dir);
   if (!exported.ok) return exported.output;
   const classpath = exported.stdout
     .trim()
