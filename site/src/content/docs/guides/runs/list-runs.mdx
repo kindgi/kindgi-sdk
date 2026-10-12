@@ -14,8 +14,8 @@ started, the runs inside one run, or one agent's turns.
 
 - **Runs to list,** on a runtime such as `kindgi dev`, with Kindgi 0.1's
   CLI.
-- **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
-  Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or Java
+  17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
 
 ## From the CLI
 
@@ -118,6 +118,82 @@ edaf7625-0585-40c3-805c-0c098f6846b8 acme.review-order failed
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/ListRuns.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.RunCollectionPage;
+import com.kindgi.client.resources.RunsListParams;
+
+public final class ListRuns {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create();
+
+    // The newest runs your app started, without the agent turns inside them
+    RunsListParams params = RunsListParams.builder().topLevel(true).limit(3L).build();
+    RunCollectionPage page = kindgi.runs().list(params);
+    for (RunCollectionPage.DataItem run : page.data()) {
+      System.out.println(run.id() + " " + run.flowId() + " " + run.status());
+    }
+
+    // The next page
+    if (page.nextCursor() != null) {
+      RunCollectionPage next = kindgi.runs().list(params.toBuilder().cursor(page.nextCursor()).build());
+      System.out.println(next.data().size() + " " + next.hasMore());
+    }
+  }
+}
+```
+
+```text
+b627328a-d5ac-4230-b305-4bac6b307213 acme.reserve-order cancelled
+1e6dcd0a-7a2c-4240-a55c-517415f38d2a agent.turn completed
+a9dc9e8c-733c-4b4f-a520-3dfb760979ce agent.turn completed
+3 true
+```
+
+The params are a record with a builder; `toBuilder()` makes the next page's from them.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/ListRuns.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.resources.RunsListParams
+import scala.jdk.CollectionConverters._
+
+object ListRuns {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create()
+
+    // The newest runs your app started, without the agent turns inside them
+    val params = RunsListParams.builder().topLevel(true).limit(3L).build()
+    val page = kindgi.runs().list(params)
+    for (run <- page.data.asScala) println(s"${run.id} ${run.flowId} ${run.status}")
+
+    // The next page
+    Option(page.nextCursor).foreach { cursor =>
+      val next = kindgi.runs().list(params.toBuilder.cursor(cursor).build())
+      println(s"${next.data.size} ${next.hasMore}")
+    }
+  }
+}
+```
+
+```text
+3e8b649e-14f9-4791-b54e-8a7af90f956c acme.process-order completed
+b627328a-d5ac-4230-b305-4bac6b307213 acme.reserve-order cancelled
+1e6dcd0a-7a2c-4240-a55c-517415f38d2a agent.turn completed
+3 true
+```
+
+</TabItem>
 </Tabs>
 
 The page holds the runs, and its `nextCursor` leads to the next one.
@@ -194,6 +270,79 @@ c231451d-c304-4466-bb37-3b72145470ed cancelled 2.1.0
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/ListEnded.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.RunCollectionPage;
+import com.kindgi.client.models.RunStatus;
+import com.kindgi.client.resources.RunsListParams;
+import java.time.OffsetDateTime;
+import java.util.List;
+
+public final class ListEnded {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create();
+
+    RunCollectionPage ended = kindgi.runs().list(RunsListParams.builder()
+        .status(List.of(RunStatus.FAILED, RunStatus.CANCELLED))
+        .createdAfter(OffsetDateTime.now().minusHours(24))
+        .topLevel(true)
+        .build());
+    for (RunCollectionPage.DataItem run : ended.data()) {
+      System.out.println(run.id() + " " + run.status() + " " + (run.agent() == null ? null : run.agent().version()));
+    }
+  }
+}
+```
+
+```text
+b627328a-d5ac-4230-b305-4bac6b307213 cancelled null
+4ff78455-4ff5-45e9-8d5b-7d3116a76e84 cancelled null
+e7532a22-7401-4b8d-a7ac-f3dd20e628e2 cancelled null
+b0896582-86d7-4e7d-8387-931550da93a3 failed null
+667c2bc8-6930-457e-bc7d-2756b6f26ff8 failed null
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/ListEnded.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.RunStatus
+import com.kindgi.client.resources.RunsListParams
+import java.time.OffsetDateTime
+import scala.jdk.CollectionConverters._
+
+object ListEnded {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create()
+
+    val ended = kindgi.runs().list(RunsListParams.builder()
+      .status(List(RunStatus.FAILED, RunStatus.CANCELLED).asJava)
+      .createdAfter(OffsetDateTime.now().minusHours(24))
+      .topLevel(true)
+      .build())
+    for (run <- ended.data.asScala) println(s"${run.id} ${run.status} ${Option(run.agent).map(_.version).orNull}")
+  }
+}
+```
+
+```text
+b627328a-d5ac-4230-b305-4bac6b307213 cancelled null
+4ff78455-4ff5-45e9-8d5b-7d3116a76e84 cancelled null
+e7532a22-7401-4b8d-a7ac-f3dd20e628e2 cancelled null
+b0896582-86d7-4e7d-8387-931550da93a3 failed null
+667c2bc8-6930-457e-bc7d-2756b6f26ff8 failed null
+```
+
+</TabItem>
 </Tabs>
 
 ## The runs inside a run
@@ -237,6 +386,70 @@ for child in children.data:
 
 ```text
 13237b2f-6cdd-4592-a94d-f5e751258790 agent.turn note
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/ListChildren.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.Run;
+import com.kindgi.client.models.RunCollectionPage;
+import com.kindgi.client.models.StartRunBody;
+import com.kindgi.client.resources.RunsListParams;
+import java.util.Map;
+
+public final class ListChildren {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create();
+
+    Run run = kindgi.runs().start(StartRunBody.WithFlow.builder()
+        .flow("acme.process-order")
+        .input(Map.of("orderId", "A-100"))
+        .build());
+    RunCollectionPage children = kindgi.runs().list(RunsListParams.builder().parentRunId(run.id()).build());
+    for (RunCollectionPage.DataItem child : children.data()) {
+      System.out.println(child.id() + " " + child.flowId() + " " + child.parentNodeId());
+    }
+  }
+}
+```
+
+```text
+84b4622d-b44d-40c7-b6f3-d4014539ab15 agent.turn note
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/ListChildren.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.StartRunBody
+import com.kindgi.client.resources.RunsListParams
+import scala.jdk.CollectionConverters._
+
+object ListChildren {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create()
+
+    val run = kindgi.runs().start(StartRunBody.WithFlow.builder()
+      .flow("acme.process-order")
+      .input(Map("orderId" -> "A-100").asJava)
+      .build())
+    val children = kindgi.runs().list(RunsListParams.builder().parentRunId(run.id).build())
+    for (child <- children.data.asScala) println(s"${child.id} ${child.flowId} ${child.parentNodeId}")
+  }
+}
+```
+
+```text
+b3539355-2683-419f-bd84-26a718ccb66f agent.turn note
 ```
 
 </TabItem>
@@ -304,6 +517,64 @@ for run in turns.data:
 51f736ba-bdde-4558-bf5f-32270622b822 1.1.0 d8d51075-ee70-44bd-b93d-f15e450798b7 259f5e11-6ebe-4347-a590-e3db5c71cf7f
 f9745c06-9935-4641-bf41-77d11a7f1ffb 1.1.0 b3e40910-9a84-4fc5-a4f8-d2cced5dbb53 -
 d0f3817d-1166-462d-a666-7a193bc48f08 1.0.0 60c9d486-ff3b-4ef9-8fbe-be19ab1d7313 -
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/ListTurns.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.RunCollectionPage;
+import com.kindgi.client.resources.RunsListParams;
+import java.util.Objects;
+
+public final class ListTurns {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create();
+
+    RunCollectionPage turns = kindgi.runs().list(RunsListParams.builder().agentId("acme.desk-agent").build());
+    for (RunCollectionPage.DataItem run : turns.data()) {
+      System.out.println(run.id() + " " + run.agent().version() + " " + run.agent().conversationId() + " "
+          + Objects.toString(run.parentRunId(), "-"));
+    }
+  }
+}
+```
+
+```text
+1e6dcd0a-7a2c-4240-a55c-517415f38d2a 1.1.0 8cd0734d-e281-4325-b724-594eda004e54 -
+a9dc9e8c-733c-4b4f-a520-3dfb760979ce 1.1.0 3e923800-371e-40c3-8e1d-1af2f1295eca -
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/ListTurns.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.resources.RunsListParams
+import scala.jdk.CollectionConverters._
+
+object ListTurns {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create()
+
+    val turns = kindgi.runs().list(RunsListParams.builder().agentId("acme.desk-agent").build())
+    for (run <- turns.data.asScala) {
+      println(s"${run.id} ${run.agent.version} ${run.agent.conversationId} ${Option(run.parentRunId).getOrElse("-")}")
+    }
+  }
+}
+```
+
+```text
+1e6dcd0a-7a2c-4240-a55c-517415f38d2a 1.1.0 8cd0734d-e281-4325-b724-594eda004e54 -
+a9dc9e8c-733c-4b4f-a520-3dfb760979ce 1.1.0 3e923800-371e-40c3-8e1d-1af2f1295eca -
 ```
 
 </TabItem>

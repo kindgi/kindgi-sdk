@@ -18,8 +18,8 @@ straight from Kindgi. The token can do nothing else, and it expires.
 
 - **A flow to start,** registered on your runtime. This guide starts
   `acme.reserve-order`; use your own flow's id.
-- **A backend that starts runs** with Kindgi 0.1's TypeScript or Python
-  client, on Node 22.12 or later or Python 3.11 or later, as
+- **A backend that starts runs** with Kindgi 0.1's client, on Node 22.12 or
+  later, Python 3.11 or later, or Java 17 or later, as
   [Start a run](../start-a-run/) shows.
 - **A web page that imports npm packages,** such as one a bundler like Vite
   builds, for `@kindgi/sdk/client`.
@@ -110,6 +110,84 @@ def start_reservation(order_id: str) -> dict[str, str | None]:
 def fresh_token(run_id: str) -> str:
     """When the page asks for a fresh token. Check first that the user may see this run."""
     return kindgi.tokens.mint_public(run_ids=[run_id]).token
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/RunTokens.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.MintPublicRunTokenBody;
+import com.kindgi.client.models.Run;
+import com.kindgi.client.models.StartRunBody;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+public final class RunTokens {
+  private static final Kindgi kindgi = Kindgi.create();
+
+  public record Started(UUID runId, String token) {}
+
+  /** When the user starts a reservation. */
+  public static Started startReservation(String orderId) {
+    Run run = kindgi.runs().start(StartRunBody.WithFlow.builder()
+        .flow("acme.reserve-order")
+        .input(Map.of("orderId", orderId))
+        .options(StartRunBody.WithFlow.Options.builder().wait_(false).build())
+        .build());
+    return new Started(run.id(), run.publicAccessToken());
+  }
+
+  /** When the page asks for a fresh token (check first that the user may see this run). */
+  public static String freshToken(UUID runId) {
+    return kindgi.tokens().mintPublic(MintPublicRunTokenBody.builder()
+        .runIds(List.of(runId.toString()))
+        .build()).token();
+  }
+
+  private RunTokens() {}
+}
+```
+
+Checked under `kindgi dev`: the start answers a token, and `mintPublic` a fresh one.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/RunTokens.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{MintPublicRunTokenBody, StartRunBody}
+import java.util.UUID
+import scala.jdk.CollectionConverters._
+
+object RunTokens {
+  private val kindgi = Kindgi.create()
+
+  final case class Started(runId: UUID, token: String)
+
+  /** When the user starts a reservation. */
+  def startReservation(orderId: String): Started = {
+    val run = kindgi.runs().start(StartRunBody.WithFlow.builder()
+      .flow("acme.reserve-order")
+      .input(Map("orderId" -> orderId).asJava)
+      .options(StartRunBody.WithFlow.Options.builder().wait_(false).build())
+      .build())
+    Started(run.id, run.publicAccessToken)
+  }
+
+  /** When the page asks for a fresh token (check first that the user may see this run). */
+  def freshToken(runId: UUID): String =
+    kindgi.tokens().mintPublic(MintPublicRunTokenBody.builder()
+      .runIds(List(runId.toString).asJava)
+      .build()).token
+}
 ```
 
 </TabItem>

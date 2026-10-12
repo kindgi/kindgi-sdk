@@ -13,8 +13,8 @@ cause and by version, so a version that fails in a new way stands out.
 ## Before you start
 
 - **Failed runs,** on a runtime such as `kindgi dev`, with Kindgi 0.1's CLI.
-- **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
-  Kindgi 0.1's client, `KINDGI_API_URL` and `KINDGI_API_TOKEN` set, and
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or Java
+  17 or later, with Kindgi 0.1's client, `KINDGI_API_URL` and `KINDGI_API_TOKEN` set, and
   `read` on the project.
 
 ## Why one run failed
@@ -134,6 +134,76 @@ def print_failures(project_id: str) -> None:
         print(g.code, g.subject.id, g.version, g.count)
     for g in failures.unrecorded:
         print("unrecorded", g.subject.id, g.version, g.count)
+```
+
+```text
+guardrail-violation acme.refunds 1.1.0 3
+capability-routing-failed acme.vision 1.0.0 1
+hitl-rejected acme.desk 1.0.0 1
+unrecorded acme.refunds 1.0.0 2
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/RunFailures.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.FailureGroup;
+import com.kindgi.client.models.RunFailureGroups;
+import com.kindgi.client.resources.RunsFailuresParams;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+
+public final class RunFailures {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+    String projectId = args[0];
+
+    OffsetDateTime to = OffsetDateTime.now(ZoneOffset.UTC);
+    RunFailureGroups failures = kindgi.runs().failures(RunsFailuresParams.builder()
+        .projectId(projectId).from(to.minusDays(7)).to(to).build()); // the last week
+    for (FailureGroup g : failures.groups()) System.out.println(g.code() + " " + g.subject().id() + " " + g.version() + " " + g.count());
+    for (FailureGroup g : failures.outcomes()) System.out.println(g.code() + " " + g.subject().id() + " " + g.version() + " " + g.count());
+    for (FailureGroup g : failures.unrecorded()) System.out.println("unrecorded " + g.subject().id() + " " + g.version() + " " + g.count());
+  }
+}
+```
+
+```text
+guardrail-violation acme.refunds 1.1.0 3
+capability-routing-failed acme.vision 1.0.0 1
+hitl-rejected acme.desk 1.0.0 1
+unrecorded acme.refunds 1.0.0 2
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/RunFailures.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.resources.RunsFailuresParams
+import java.time.{OffsetDateTime, ZoneOffset}
+import scala.jdk.CollectionConverters._
+
+object RunFailures {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+    val projectId = args(0)
+
+    val to = OffsetDateTime.now(ZoneOffset.UTC)
+    val failures = kindgi.runs().failures(
+      RunsFailuresParams.builder().projectId(projectId).from(to.minusDays(7)).to(to).build()) // the last week
+    for (g <- failures.groups.asScala) println(s"${g.code} ${g.subject.id} ${g.version} ${g.count}")
+    for (g <- failures.outcomes.asScala) println(s"${g.code} ${g.subject.id} ${g.version} ${g.count}")
+    for (g <- failures.unrecorded.asScala) println(s"unrecorded ${g.subject.id} ${g.version} ${g.count}")
+  }
+}
 ```
 
 ```text
