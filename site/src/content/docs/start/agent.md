@@ -13,7 +13,7 @@ other). A person pastes this prompt into their agent:
 Set up Kindgi for me: read https://docs.kindgi.com/start/agent/ and follow it step by step. Tell me whenever you need me to do something, and wait for me.
 ```
 
-If you are that agent: follow the steps below in order. Do everything you
+If you are that agent: follow this page's steps in order. Do everything you
 can yourself. Ask the person only for what the steps say needs them, one
 thing at a time, and wait until they say they've done it.
 
@@ -30,16 +30,17 @@ has one: replace the slash at the end of its URL with `.md`.
 - **If a pipe from the clipboard doesn't work,** ask the person to run the
   command themselves, in their own terminal, without `--password-stdin` or
   `--from-stdin`: it then asks for the value without showing it.
-- **When something fails, run doctor** (below) and read what it says before
+- **When something fails, run doctor** (step 0) and read what it says before
   you guess.
-- **`kindgi` in the commands below** means, until step 2 makes a project:
+- **`kindgi` in this page's commands** means, until step 2 makes a project:
   `npx --yes @kindgi/cli@0.1` if `node --version` works; else, for someone
   using Python without Node, `uvx --from "kindgi-cli>=0.1,<0.2" kindgi`
   (the CLI from PyPI; it needs no Node). From step 2 on, from the project's
   folder:
   - a TypeScript project: `pnpm exec kindgi` if `pnpm --version` works,
-    else `npx --no -- kindgi` (the `--` passes every flag, `--help`
-    included, to Kindgi rather than to npx);
+    else `npx --no -- kindgi`. `--no` keeps npx from downloading anything,
+    so it runs the project's own CLI. The `--` passes every flag, `--help`
+    included, to Kindgi rather than to npx;
   - a Python project: `uv run kindgi` (the project's dev dependencies bring
     the CLI);
   - a Java or Scala project: `./kindgiw` (the CLI version the project pins in
@@ -54,7 +55,7 @@ Work out the clipboard command for this OS:
 | macOS | `pbpaste` | `pbcopy < /dev/null` |
 | Linux (Wayland) | `wl-paste --no-newline` | `wl-copy --clear` |
 | Linux (X11) | `xclip -o -selection clipboard` | `xclip -selection clipboard < /dev/null` |
-| Windows | use the fallback below | |
+| Windows | use the fallback (next paragraph) | |
 
 Before you pipe the clipboard, check it isn't empty, without printing it:
 `[ -n "$(pbpaste)" ]` (with this OS's command). If the clipboard command
@@ -201,6 +202,9 @@ runtime: skip this step.
    sbt -batch test
    ```
 
+   `--template` picks the project's language: `python`, `java` or `scala`.
+   Without it, `init` makes a TypeScript project.
+
 3. Run doctor again from the project's folder; `project` and
    `dependencies` should pass.
 
@@ -264,18 +268,27 @@ user**, which needs no token: don't print the token in the chat.
    kindgi providers register --preset=openai
    ```
 
-   `secrets set` writes the key to Kindgi's own `.kindgi/secrets.env`, which
-   git ignores and the app doesn't load. It needs `kindgi dev` running. `kindgi providers presets` lists
-   the presets and their models.
+   - `secrets set` writes the key to Kindgi's own `.kindgi/secrets.env`,
+     which git ignores and the app doesn't load. It needs `kindgi dev`
+     running.
+   - `--from-stdin` reads the key from the pipe, so it's never shown.
+   - `--env=local` is the environment the secret belongs to. Under
+     `kindgi dev`, `local` is the pack's env files, `.kindgi/secrets.env`
+     among them.
+   - `--scope=tenant` is where the secret lives: the tenant, rather than one
+     org or project.
+   - `--preset=openai` registers OpenAI's models from Kindgi's built-in
+     preset, which reads the key from that provider's secret in the table,
+     `OPENAI_API_KEY` here. `kindgi providers presets` lists the presets and
+     their models.
 3. Clear the clipboard, if this OS lets you.
 4. Run doctor again; `model-key` and `provider` should pass.
 
 Doctor's `model-key` only checks that a key is saved: a wrong key shows as a
 `401` on the first run. Then don't open, measure or print
-`.kindgi/secrets.env` or the app's env files. Ask
-the person to copy the key again (they can check it in their provider's
-console), and run the
-`secrets set` command again with `--write-mode=add-version`: without it, a
+`.kindgi/secrets.env` or the app's env files. Ask the person to copy the key
+again (they can check it in their provider's console), and run the
+`secrets set` command again with `--write-mode=add-version`. Without it, a
 key that's already stored is refused (`Version conflict: OPENAI_API_KEY
 already exists`). The new key is used from the next run: there's no need to
 register the provider again or to restart `kindgi dev`.
@@ -294,7 +307,9 @@ register the provider again or to restart `kindgi dev`.
    kindgi runs start --agent=<pack id>.<agent name> --input='{"userMessage":"…"}'
    ```
 
-   It waits for the run and prints it; the answer is in its `output`.
+   `--agent` names the agent by its id, and `--input` is its input as JSON:
+   the person's message goes in `userMessage`. The command waits for the
+   run and prints it. The answer is in its `output`.
 
 ## Step 6: wrap up
 

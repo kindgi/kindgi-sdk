@@ -23,8 +23,8 @@ language and living in its repository:
 - **Guardrails:** checks on what an agent says or does before it counts.
 
 You write packs in **TypeScript** (`@kindgi/sdk`) or **Python** (the
-`kindgi` package). Tools call your app's own modules; nothing is rewritten
-for Kindgi.
+`kindgi` package), and, in preview, in **Java** and **Scala**. Tools call
+your app's own modules; nothing is rewritten for Kindgi.
 
 ## The runtime
 
@@ -79,3 +79,11 @@ you're reading.
 
 The SDKs are Apache-2.0. The runtime is source-available under the Business
 Source License 1.1.
+
+## Next
+
+- [Install](../install/): what you need on your machine.
+- [Quickstart: TypeScript](../quickstart-typescript/), or the
+  [Python](../quickstart-python/), [Java](../quickstart-java/) or
+  [Scala](../quickstart-scala/) one: a first pack, running in ten minutes.
+- [Add Kindgi to an existing app](../existing-app/).

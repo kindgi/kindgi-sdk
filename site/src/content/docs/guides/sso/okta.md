@@ -83,6 +83,23 @@ kindgi secrets set ACME_OKTA_SECRET --env=production --scope=tenant
 - `--scope=tenant` stores the secret for the whole workspace.
 
 The command asks for the value twice, and doesn't show what you type.
+Then it prints what it stored:
+
+```text
+Value:
+Re-enter to confirm:
+{
+  "name": "ACME_OKTA_SECRET",
+  "scope": {
+    "kind": "tenant",
+    "tenantId": "6c0bd33e-e941-439b-bd0c-c7e412db29fc"
+  },
+  "envName": "production",
+  "versionId": 1
+}
+
+  Set ACME_OKTA_SECRET at tenant in production.
+```
 
 ## 4. Register it
 
