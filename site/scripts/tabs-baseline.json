@@ -206,9 +206,5 @@
   "guides/webhooks/test-and-replay": {
     "Java": 2,
     "Scala": 2
-  },
-  "guides/webhooks/verify-a-webhook": {
-    "Java": 2,
-    "Scala": 2
   }
 }
