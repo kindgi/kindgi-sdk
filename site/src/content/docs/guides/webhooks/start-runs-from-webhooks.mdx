@@ -136,12 +136,12 @@ kindgi webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
 It prints the trigger as JSON, then where to point the sender: the trigger's
 id, its **receive URL** (`https://<your runtime>/v1/hooks/<tenant id>/<webhook id>`),
 the signing secret, shown this once, with where it's stored, and, with a
-preset, where to paste them. From a WooCommerce run, the secret left out:
+preset, where to paste them. With the WooCommerce preset, the secret left out:
 
 ```text
-  Registered webhook trigger 4988b936-ec4e-445a-92aa-53d214c593d1: each signed delivery starts acme-shop.order-review@0.1.0.
-  Receive URL (the sender posts here): …/v1/hooks/9639c5a8-7f96-4e47-aad9-bd983fa64822/5ea2595a-134f-44e0-8a80-8428ab616a40
-  Signing secret (stored as acme-woo-orders in project 0b6f…; shown this once): …
+  Registered webhook trigger 71fb612e-efc4-4659-8bb3-dfb69c96aa15: each signed delivery starts acme-shop.order-review@0.1.0.
+  Receive URL (the sender posts here): …/v1/hooks/695e8098-30be-469a-89d8-1a88487f8967/2003c201-f368-4d76-be29-109cc906bc48
+  Signing secret (stored as acme-woo-orders in project 685834cd-17a6-4cfa-9c46-0fbc5dde84fa; shown this once): …
   In WooCommerce: Settings → Advanced → Webhooks → Add webhook. One webhook per topic (`order.created`, …); Delivery URL: the receive URL; Secret: the secret. WooCommerce never resends a delivery Kindgi refuses, and switches the webhook off after 7 in a row.
 ```
 
