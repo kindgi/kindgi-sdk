@@ -136,6 +136,16 @@ Run it with `ACME_WEBHOOK_SECRET` set: `uvicorn receiver:app --port 8788`.
 `receiver:app` is the file's `app`, and `--port` the port it listens on.
 
 </TabItem>
+<TabItem label="Java">
+
+Not in the Java SDK. Kindgi's deliveries are [Standard Webhooks](https://www.standardwebhooks.com), so a Standard Webhooks library verifies them with the same secret: see [Other languages](#other-languages).
+
+</TabItem>
+<TabItem label="Scala">
+
+Not in the Scala SDK. Kindgi's deliveries are [Standard Webhooks](https://www.standardwebhooks.com), so a Standard Webhooks library for the JVM verifies them with the same secret: see [Other languages](#other-languages).
+
+</TabItem>
 </Tabs>
 
 With the endpoint registered, the TypeScript receiver prints this for a run
@@ -249,6 +259,16 @@ for secret in [os.environ["ACME_WEBHOOK_SECRET"], webhooks.generate_secret()]:
 204
 401
 ```
+
+</TabItem>
+<TabItem label="Java">
+
+Not in the Java SDK. Kindgi's deliveries are [Standard Webhooks](https://www.standardwebhooks.com), so a Standard Webhooks library verifies them with the same secret: see [Other languages](#other-languages).
+
+</TabItem>
+<TabItem label="Scala">
+
+Not in the Scala SDK. Kindgi's deliveries are [Standard Webhooks](https://www.standardwebhooks.com), so a Standard Webhooks library for the JVM verifies them with the same secret: see [Other languages](#other-languages).
 
 </TabItem>
 </Tabs>
