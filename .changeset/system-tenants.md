@@ -9,6 +9,7 @@
   - With `firstAdmin`, that person becomes its admin by email, and no key comes back. Without it, its first admin key comes back once, and that takes the full system capability, as does a `test` tenant.
   - It takes `productionAllowed` and `imagePrefix` (`<host>/<path>`) at creation.
   - A taken slug is `409 tenant-slug-taken`.
+  - It's safe to retry with the same slug: if the tenant's setup didn't finish, the tenant waits, frozen, and the same request again finishes it and answers as the first would have. Another request naming that slug is `409 tenant-slug-taken`.
 - **`GET /v1/system/tenants`** and **`GET /v1/system/tenants/{tenantId}`** (`system:tenants`) list and read tenants: never their content.
 - **`POST …/close`** (`system:tenants`) makes the tenant `closing`: readable and exportable with its own keys for its window, nothing runs. It's one-way.
 - **`PUT …/suspended`** (`system:suspend`, which no other scope includes) suspends or restores it, reversibly.

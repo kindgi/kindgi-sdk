@@ -76,6 +76,12 @@ export type SystemTenantCreateOutcome =
  * the `tenants` row; the runtime enforces what each state means.
  */
 export interface SystemTenantsBinding {
+  /**
+   * Safe to retry with the same slug: a tenant whose setup didn't finish
+   * waits, frozen, until the same request again finishes it (and answers
+   * as the first would have); another request naming that slug is
+   * `slug-taken`.
+   */
   create(input: SystemTenantCreateInput): Promise<SystemTenantCreateOutcome>;
   /** Newest first; purged tenants are left out. */
   list(input: {
