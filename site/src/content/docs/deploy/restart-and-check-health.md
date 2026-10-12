@@ -26,7 +26,7 @@ The runtime reads its settings when it starts, so most changes to
 Stop the container, remove it, and start it again with the same settings:
 
 ```sh
-docker stop --timeout 30 kindgi-server
+docker stop -t 30 kindgi-server
 docker rm kindgi-server
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
@@ -34,7 +34,7 @@ docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   quay.io/kindgi/runtime:0.1.6
 ```
 
-- `--timeout 30` gives the runtime 30 seconds to stop before Docker kills it.
+- `-t 30` gives the runtime 30 seconds to stop before Docker kills it.
 - `--network kindgi` puts it on the network the database and the pack's
   service are on.
 - `--restart unless-stopped` starts it again after a crash or a reboot.
@@ -49,7 +49,7 @@ container's id after `run`:
 ```text
 kindgi-server
 kindgi-server
-46d15fe6856a31855c1466459270699d414cc0bc9c3cb452ba11c009fb750de8
+22451a46ab6068874f5e493d44d3cb2fefc38edfcac32553194206eac95ea229
 ```
 
 On a stop, the runtime stops taking requests and gives the runs it's
@@ -65,7 +65,7 @@ pnpm exec kindgi runs cancel <run id> --url http://localhost:4000 --token "$KIND
 ```
 
 `<run id>` is the run's id. `--url` is the runtime's URL, and `--token` the
-API token. It prints `"ok": true` with the run's id, as in
+API token. It prints the run's id, as in
 [Cancel a run](../../guides/runs/cancel-a-run/):
 
 ```json
