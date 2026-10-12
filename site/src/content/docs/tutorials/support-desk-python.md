@@ -300,8 +300,10 @@ uv run kindgi providers register --preset=anthropic
 ```
 
 - `secrets set` prompts for the key, and doesn't echo it.
-  `--env=local` stores it for `kindgi dev`, and `--scope=tenant` for the
-  whole tenant, where provider keys live.
+- `--env=local` is the environment the secret belongs to. Under
+  `kindgi dev`, `local` is the pack's env files.
+- `--scope=tenant` is where the secret lives: the tenant, rather than one
+  org (`org:<orgId>`) or project (`project:<projectId>`).
 - `--preset=anthropic` registers Claude on the Anthropic API, with the key
   stored under `ANTHROPIC_API_KEY`.
 
