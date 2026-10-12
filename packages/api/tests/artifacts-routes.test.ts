@@ -37,7 +37,10 @@ const resolveToken: TokenResolver = async (token) =>
     ? { tenantId, userId: token as UserId, scopes: [], capabilities: [] }
     : null;
 
-function memoryBlobs(): BlobStorageBinding & { readonly rows: Map<string, BlobMeta> } {
+function memoryBlobs(): BlobStorageBinding & {
+  readonly rows: Map<string, BlobMeta>;
+  readonly bytes: Map<string, Uint8Array>;
+} {
   const rows = new Map<string, BlobMeta>();
   const bytes = new Map<string, Uint8Array>();
   const read = async (b: ReadableStream<Uint8Array> | Uint8Array) =>
@@ -85,7 +88,7 @@ function memoryBlobs(): BlobStorageBinding & { readonly rows: Map<string, BlobMe
       return { kind: 'ok', value: { deleted: rows.delete(id) } };
     },
   };
-  return Object.assign(binding as BlobStorageBinding, { rows });
+  return Object.assign(binding as BlobStorageBinding, { rows, bytes });
 }
 
 function decision(user: string, action: Action, resource: ResourceRef): Decision {
@@ -142,7 +145,20 @@ function harness(options: { authz?: boolean; maxBytes?: number } = {}) {
     const text = await res.text();
     return { status: res.status, text, json: () => JSON.parse(text) as Record<string, any> };
   };
-  return { upload, call, blobs };
+  /** A multipart body sent as the same bytes each time, as a client's retry sends it. */
+  const sendBytes = async (as: string, sent: Request, headers: Record<string, string> = {}) => {
+    const res = await app.request('/v1/artifacts', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${as}`,
+        'content-type': sent.headers.get('content-type') ?? '',
+        ...headers,
+      },
+      body: await sent.clone().arrayBuffer(),
+    });
+    return { status: res.status, body: (await res.json()) as Record<string, any> };
+  };
+  return { upload, sendBytes, call, blobs };
 }
 
 describe('artifacts belong to a project', () => {
@@ -218,6 +234,23 @@ describe('reading and deleting', () => {
     expect(bob.json().data).toEqual([]);
     const narrowed = await h.call('alice', 'GET', `/v1/artifacts?projectId=${P2}`);
     expect(narrowed.json().data.map((m: BlobMeta) => m.projectId)).toEqual([P2]);
+  });
+});
+
+describe('an upload sent with an Idempotency-Key', () => {
+  test('keeps its bytes as sent, and a repeat replays the first answer', async () => {
+    const h = harness();
+    const binary = new Uint8Array([0xff, 0x00, 0x80, 0xfe, 0x41]);
+    const form = new FormData();
+    form.set('file', new Blob([binary], { type: 'application/octet-stream' }), 'b.bin');
+    const sent = new Request('http://localhost/', { method: 'POST', body: form });
+    const key = { 'idempotency-key': 'upload-1' };
+    const first = await h.sendBytes('alice', sent, key);
+    expect(first.status).toBe(201);
+    expect(h.blobs.bytes.get(first.body.blobId)).toEqual(binary);
+    const again = await h.sendBytes('alice', sent, key);
+    expect(again).toEqual(first);
+    expect(h.blobs.rows.size).toBe(1);
   });
 });
 

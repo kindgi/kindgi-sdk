@@ -70,6 +70,7 @@ import { noStoreMiddleware } from './middleware/no-store.js';
 import { principalMiddleware } from './middleware/principal.js';
 import { PROJECT_REF_ROUTES, refuseBadProjectId } from './middleware/project-ref.js';
 import { publicRunCorsMiddleware, publicRunRouteMatcher } from './middleware/public-run-routes.js';
+import { readBodyOnce } from './middleware/request-body.js';
 import { requestIdMiddleware } from './middleware/request-id.js';
 import { requestLogMiddleware } from './middleware/request-log.js';
 import { sealedCursors } from './middleware/sealed-cursors.js';
@@ -1169,6 +1170,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   });
   const authorizer: Authorizer | undefined =
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
+  // A write's body is read once, as the bytes it came with, before
+  // anything parses it: the checks below, idempotency and the route all
+  // read that copy.
+  v1.use('*', readBodyOnce());
   // A key limited to a project names no other one.
   v1.use('*', refuseOtherProjectForKey(authorizer));
   // Page cursors are sealed at the edge, for every list.
