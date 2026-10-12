@@ -499,20 +499,23 @@ function makeMockProjectBinding(defaultProjectId: ProjectId = DEFAULT_PROJECT_ID
   const notImpl = (m: string) => async () => {
     throw new Error(`makeMockProjectBinding: ${m} not used in these tests`);
   };
+  const project = {
+    id: defaultProjectId,
+    tenantId,
+    name: 'Default',
+    slug: 'default',
+    isDefault: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  } as Project;
   return {
     async getDefault(): Promise<Project | undefined> {
-      return {
-        id: defaultProjectId,
-        tenantId,
-        name: 'Default',
-        slug: 'default',
-        isDefault: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      } as Project;
+      return project;
     },
     create: notImpl('create') as ProjectBinding['create'],
-    get: notImpl('get') as ProjectBinding['get'],
+    // The Default project, in no org (where a pack tool's secret is looked for).
+    get: (async (_t: unknown, id: ProjectId) =>
+      id === defaultProjectId ? project : undefined) as ProjectBinding['get'],
     list: notImpl('list') as ProjectBinding['list'],
     update: notImpl('update') as ProjectBinding['update'],
     delete: notImpl('delete') as ProjectBinding['delete'],
@@ -853,6 +856,60 @@ describe("POST /v1/deployments — the image's index is what registers", () => {
 // ---------------- happy path ----------------
 
 describe('POST /v1/deployments — happy path', () => {
+  test("a pack tool's declared secret: where it's read is recorded with the version", async () => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        packId: 'acme.aperture',
+        packVersion: '1.0.0',
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [
+          {
+            id: 'acme.lookup',
+            description: 'Looks things up with its own key.',
+            version: '1.0.0',
+            input: { type: 'object' },
+            output: { type: 'object' },
+            modulePath: './tools/lookup.js',
+            needsSpec: { secrets: { ACME_LOOKUP_KEY: { type: 'string' } } },
+          },
+        ],
+        guardrails: [],
+      },
+    });
+    const tools = makeVersionedToolRegistry();
+    const published: Record<string, unknown>[] = [];
+    const toolRegistry = {
+      ...tools,
+      publish: async (input: Parameters<ToolRegistryBinding['publish']>[0]) => {
+        published.push(input as unknown as Record<string, unknown>);
+        return tools.publish(input);
+      },
+    } as ToolRegistryBinding;
+    // Set at the tenant, in the env this deployment serves; the deployer is the tenant's admin.
+    const secretsBinding = {
+      get: async (input: { scope: { kind: string }; envName: string; name: string }) =>
+        input.scope.kind === 'tenant' &&
+        input.envName === 'prod' &&
+        input.name === 'ACME_LOOKUP_KEY'
+          ? { name: input.name, currentVersion: 1 }
+          : null,
+    } as unknown as SecretBinding;
+    const { app } = makeApp({
+      fixture,
+      toolRegistry,
+      extra: { secretsBinding, envName: 'prod' as never },
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status, await res.clone().text()).toBe(201);
+    expect(published.map((p) => p.secretScopes)).toEqual([{ ACME_LOOKUP_KEY: { kind: 'tenant' } }]);
+  });
+
   test("a tool naming a model provider's key is refused, naming the tool, the key and the provider", async () => {
     const fixture = buildSignedDeploy({
       index: {
