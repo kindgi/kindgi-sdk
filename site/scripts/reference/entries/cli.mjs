@@ -238,7 +238,7 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     'eval-run': 'none',
     limit: '`25` (at most `100`)',
-    replays: '`exclude`',
+    replays: '`exclude`; with `--eval-run`, `include`',
     trigger: 'none',
   },
   'runs journal': {
@@ -323,7 +323,7 @@ export const CLI_DEFAULTS = {
   },
   'conversations list': {
     cursor: 'none',
-    limit: 'none',
+    limit: '`25` (at most `100`)',
     replays: '`exclude`',
     status: 'none',
   },
@@ -334,7 +334,7 @@ export const CLI_DEFAULTS = {
   },
   'conversations messages': {
     cursor: 'none',
-    limit: 'none',
+    limit: '`25` (at most `100`)',
   },
   'tools list': {
     cursor: 'none',
@@ -401,7 +401,7 @@ export const CLI_DEFAULTS = {
   'proposals list': {
     agent: 'none',
     cursor: 'none',
-    limit: 'none',
+    limit: '`25` (at most `100`)',
     org: 'none',
     project: 'none',
     segment: 'none',
@@ -457,7 +457,7 @@ export const CLI_DEFAULTS = {
   'proposals passes list': {
     agent: 'none',
     cursor: 'none',
-    limit: 'none',
+    limit: '`25` (at most `100`)',
   },
   'proposals passes cancel': {
     'idempotency-key': 'none',
@@ -779,7 +779,7 @@ export const CLI_DEFAULTS = {
   },
   'service-accounts list': {
     cursor: 'none',
-    limit: 'none',
+    limit: '`25` (at most `100`)',
   },
   'service-accounts grant': {
     project: 'none',
@@ -794,18 +794,18 @@ export const CLI_DEFAULTS = {
   },
   'people list': {
     cursor: 'none',
-    limit: 'none',
+    limit: '`25` (at most `100`)',
     query: 'none',
   },
   'capabilities list': {
     cursor: 'none',
     feature: 'none',
-    limit: 'none',
+    limit: '`25` (at most `100`)',
   },
   'providers list': {
     cursor: 'none',
     feature: 'none',
-    limit: 'none',
+    limit: '`25` (at most `100`)',
   },
   'providers register': {
     deployments: 'required with the azure-openai preset',

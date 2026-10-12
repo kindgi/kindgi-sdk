@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import { referenceGaps } from './reference/completeness.mjs';
 import { commandOf, headingId, linkTo } from './reference/mentions.mjs';
 import { operationSlug } from './reference/openapi.mjs';
+import { markFragments } from './reference/packages.mjs';
 
 /** A reference with nothing missing: one group, one command, one of everything. */
 function complete() {
@@ -145,4 +146,29 @@ test('commandOf finds the longest command a line runs', () => {
   assert.equal(commandOf('pnpm exec kindgi runs', commands), 'runs');
   assert.equal(commandOf('kindgi nothing-here', commands), undefined);
   assert.equal(commandOf('echo kindgi runs start', commands), undefined);
+});
+
+test("markFragments marks a README's TypeScript fragments, not its whole files", () => {
+  const readme = [
+    '```ts',
+    'client.runs.list();',
+    '```',
+    '```ts',
+    '// src/index.ts',
+    "export const id = 'acme.lookup';",
+    '```',
+    '````md',
+    '```ts',
+    'inside();',
+    '```',
+    '````',
+    '```sh',
+    'npm install @kindgi/sdk',
+    '```',
+  ].join('\n');
+  const marked = markFragments(readme).split('\n');
+  assert.equal(marked[0], '```ts excerpt');
+  assert.equal(marked[3], '```ts');
+  assert.equal(marked[8], '```ts');
+  assert.equal(marked[12], '```sh');
 });

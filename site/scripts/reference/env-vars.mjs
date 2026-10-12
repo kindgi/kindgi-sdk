@@ -98,6 +98,17 @@ export function envExample(spec) {
   return spec.example || ENV_EXAMPLES[spec.name]?.value;
 }
 
+/**
+ * A variable's example as lines to paste: a value the reader makes is made
+ * in place (`NAME="$(openssl rand -base64 32)"`), under a comment saying
+ * what it is.
+ */
+function exampleLines(spec) {
+  const make = spec.example ? undefined : ENV_EXAMPLES[spec.name]?.make;
+  if (!make) return [`${spec.name}=${envExample(spec) ?? ''}`];
+  return [`# ${envExample(spec).replace(/^<|>$/g, '')}`, `${spec.name}="$(${make})"`];
+}
+
 /** The guides that name a variable, else its group's hand-picked pages. */
 export function envSeeAlso(spec, mentions, pagesBySlug) {
   const named = distinctPages(mentions.codeSpans.get(spec.name), GUIDE_LINKS);
@@ -112,7 +123,7 @@ export function envSeeAlso(spec, mentions, pagesBySlug) {
 function variable(spec, mentions, pagesBySlug) {
   const value = spec.allowedValues?.length ? spec.allowedValues.join('|') : '<value>';
   const lines = [`### \`${spec.name}\``, ''];
-  lines.push('**Synopsis**', '', '```sh', `${spec.name}=${value}`, '```', '');
+  lines.push('**Synopsis**', '', '```sh signature', `${spec.name}=${value}`, '```', '');
   lines.push(spec.description, '');
   lines.push('**Values**', '');
   lines.push(`- **Read by:** ${readBy(spec)}`);
@@ -121,12 +132,7 @@ function variable(spec, mentions, pagesBySlug) {
     lines.push(`- **Values:** ${spec.allowedValues.map((v) => `\`${v}\``).join(', ')}`);
   }
   lines.push(`- **Default:** ${envDefault(spec) ?? ''}`, '');
-  const make = spec.example ? undefined : ENV_EXAMPLES[spec.name]?.make;
-  const example = [
-    `${spec.name}=${envExample(spec) ?? ''}`,
-    ...(make ? [`# Make one: ${make}`] : []),
-  ];
-  lines.push('**Example**', '', '```sh', ...example, '```', '');
+  lines.push('**Example**', '', '```sh', ...exampleLines(spec), '```', '');
   lines.push('**See also**', '');
   for (const link of envSeeAlso(spec, mentions, pagesBySlug)) lines.push(`- ${link}`);
   lines.push('');

@@ -129,7 +129,8 @@ function entry(command, depth, context) {
   const group = command.subcommands.length > 0;
   const lines = [`${'#'.repeat(Math.min(depth, 4))} \`kindgi ${path}\``, ''];
   const synopsis = group ? `kindgi ${path} <command>` : command.usage;
-  lines.push('**Synopsis**', '', '```sh', synopsis, '```', '');
+  // A synopsis is a signature, not a command to paste, and is marked so.
+  lines.push('**Synopsis**', '', '```sh signature', synopsis, '```', '');
   lines.push(text(command.description), '');
   if (group) {
     lines.push('**Commands**', '', '| Command | Description |', '| --- | --- |');

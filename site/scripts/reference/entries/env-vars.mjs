@@ -142,8 +142,7 @@ export const ENV_DEFAULTS = {
   KINDGI_IMAGE_REGISTRY_HOST: 'none: every registry is read anonymously',
   KINDGI_IMAGE_REGISTRY_USERNAME: 'none: no credentials (anonymous reads)',
   KINDGI_IMAGE_REGISTRY_PASSWORD: 'none: no credentials (anonymous reads)',
-  KINDGI_IMAGE_REGISTRY_INSECURE_HOSTS:
-    'none: none; loopback hosts (`localhost`, `127.0.0.1`, `[::1]`) always use plain HTTP',
+  KINDGI_IMAGE_REGISTRY_INSECURE_HOSTS: 'none: loopback hosts always use plain HTTP',
   KINDGI_IMAGE_REGISTRY_AUTH: '`static`',
   KINDGI_PACK_DIR: 'none: packs come from signed deployments in Postgres',
   KINDGI_DEV_CONSOLE_LOGIN: '`false`',
@@ -153,7 +152,9 @@ export const ENV_DEFAULTS = {
 /**
  * An example for each variable whose schema entry has none (all of them
  * secrets or keys): the value's shape, and a command that makes one when
- * there is one.
+ * there is one (the example then makes it in place). A shape without a
+ * command is a placeholder, so it's plain words: no commas, `#` or
+ * parentheses, which a pasted shell line can't hold.
  */
 export const ENV_EXAMPLES = {
   KINDGI_LICENSE_KEY: {
@@ -174,7 +175,7 @@ export const ENV_EXAMPLES = {
     value: '<client secret of your Google OAuth app>',
   },
   KINDGI_AUTH_MICROSOFT_CLIENT_ID: {
-    value: '<application (client) id of your Microsoft app>',
+    value: '<application id of your Microsoft app>',
   },
   KINDGI_AUTH_MICROSOFT_CLIENT_SECRET: {
     value: '<client secret of your Microsoft app>',
@@ -213,9 +214,9 @@ export const ENV_EXAMPLES = {
     value: '<32 random bytes, base64>',
     make: 'openssl rand -base64 32',
   },
+  // The key it held before the rotation, not a new one.
   KINDGI_PAGINATION_PREVIOUS_KEY: {
-    value: '<32 random bytes, base64: the key before the current one>',
-    make: 'openssl rand -base64 32',
+    value: '<the KINDGI_PAGINATION_KEY value before the rotation>',
   },
   KINDGI_SECRETS_AAD_KEY: {
     value: '<32 random bytes, base64>',
