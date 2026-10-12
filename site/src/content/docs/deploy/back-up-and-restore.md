@@ -97,10 +97,10 @@ Command was: CREATE POLICY tenant_rows ON public.auth_sso_providers TO … USING
 pg_restore: warning: errors ignored on restore: 1
 ```
 
-The error is the one policy in the backup that names the runtime's database
-role, which the fresh server doesn't have yet. Everything else is restored.
-The runtime makes the role, and that policy, when it starts on the new
-database.
+The error comes from the one policy in the backup that names the runtime's
+database role, which the fresh server doesn't have yet. Everything else is
+restored. The runtime makes the role, and that policy, when it starts on the
+new database.
 
 Point the runtime at the new database in `kindgi.env`, where `<DB_PASSWORD>`
 is the database password:
@@ -208,10 +208,16 @@ Then:
    kindgi memory erasures replay erasures-<date>.json
    ```
 
-   `erasures-<date>.json` is the latest export. Its answer lists the
-   erasures it `replayed`, the ones it `restored` to the ledger, and any it
-   couldn't match, as `unmatched`. Here, the backup held a fact about the end
-   user `end-7` from before their erasure, and the replay erased it again:
+   `erasures-<date>.json` is the latest export. Its answer sorts the
+   export's erasures three ways:
+
+   - `replayed`: the database held someone they erased, and the replay
+     erased them again.
+   - `restored`: put back in the ledger only, with nothing to erase.
+   - `unmatched`: the ones it couldn't match.
+
+   Here, the backup held a fact about the end user `end-7` from before their
+   erasure, and the replay erased it again:
 
    ```json
    {
