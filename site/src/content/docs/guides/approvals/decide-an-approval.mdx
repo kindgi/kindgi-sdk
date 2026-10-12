@@ -141,8 +141,9 @@ kindgi approvals list --status=pending
 kindgi approvals get <approval-id>
 ```
 
-- `--status=pending` lists the approvals nobody is assigned to yet. Without
-  `--status`, the list includes decided approvals too.
+- `--status=pending` lists the approvals nobody is assigned to yet, which any
+  reviewer of their role may decide. Without `--status`, the list includes
+  decided approvals too.
 - `<approval-id>` is an approval's `id`, from the list.
 
 To see the approvals assigned to you, oldest first:

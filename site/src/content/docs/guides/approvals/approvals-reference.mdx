@@ -205,9 +205,9 @@ runtime purges other audit events, as
 
 Cancelling a run withdraws the approvals it waits on by itself, as
 [Cancel a run](../../runs/cancel-a-run/#approvals-of-a-cancelled-run)
-describes. Those approvals show `withdrawnBecause: "run-cancelled"` and no
-`decision`. When a run ends otherwise while they wait, such as when it fails,
-they show `run-ended`.
+describes. Those approvals show `withdrawnBecause: "run-cancelled"`. When a
+run ends otherwise while they wait, such as when it fails, they show
+`run-ended`. Either way, they have no `decision`.
 
 An approval a run asked for without waiting on it names the run only as
 where it came from. A project-wide memory fact's review is one, and a memory
