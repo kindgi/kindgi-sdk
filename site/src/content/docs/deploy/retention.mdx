@@ -7,10 +7,21 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This page shows how to choose how long Kindgi keeps what you delete, purge it
+when that time is up, and keep the audit trail as long as you need.
+
 Most deletes in Kindgi are soft. A deleted record drops out of lists and reads
-at once, and stays in the database, marked deleted, until a **retention
+at once. It stays in the database, marked deleted, until a **retention
 policy** says to purge it and a **sweep** does. Without a policy, it stays for
 good.
+
+## Before you start
+
+- **`admin` on the tenant.** Publishing a policy and sweeping both take it.
+- **A client:** the TypeScript SDK (`@kindgi/sdk`) or the Python SDK
+  (`kindgi`), with `KINDGI_API_URL` and `KINDGI_API_TOKEN` set for your
+  runtime. Under `kindgi dev`, the client finds the running runtime by
+  itself.
 
 ## What a policy covers
 
@@ -41,10 +52,10 @@ each one by the name in the second column.
 | `*` | All deleted records | every domain that has no policy of its own, except `memory` and `conversation` |
 
 `memory` and `conversation` hold people's words, so their retention is
-opt-in: a `*` policy doesn't reach them, only a policy naming them does.
+opt-in. A `*` policy doesn't reach them. Only a policy that names them does.
 
 :::caution[`run` and `*` purge finished runs]
-Runs aren't deleted first: a policy on `run`, or a `*` policy, purges every
+Runs aren't deleted first. A policy on `run`, or a `*` policy, purges every
 finished run once its grace has passed since the run finished. To keep runs
 while purging the rest, give `run` a policy of its own.
 :::
@@ -55,7 +66,7 @@ A purged run takes its journal, provenance and snapshot with it. These stay,
 under their own setting:
 
 - **Judgments,** with the copy of the run's input and output each judged
-  run keeps. A judgment that isn't removed stays for good; a removed one
+  run keeps. A judgment that isn't removed stays for good. A removed one
   goes under `judgment`.
 - **The judging queue's history:** items that closed (judged, dismissed,
   or `erased`) and runs a rule skipped at its cap. They hold ids, versions,
@@ -66,27 +77,33 @@ under their own setting:
 ### Webhook deliveries
 
 A [webhook trigger](../../guides/webhooks/start-runs-from-webhooks/)'s
-deliveries (its fires) are kept for 30 days, whatever the policies; they're
-what a repeated delivery is recognized by. A fire keeps the delivery's event
-only until its run starts (at most about 10 minutes after a crash). Then only
-the run has it, under `run` retention like any run's input. A skipped,
-refused or repeated delivery's body is never kept.
+deliveries, its fires, are kept for 30 days, whatever the policies say.
+They're what a repeated delivery is recognized by. A fire keeps the
+delivery's event only until its run starts, at most about 10 minutes after a
+crash. Then only the run has it, under `run` retention like any run's input.
+A skipped, refused or repeated delivery's body is never kept.
 
 - **The people in an event aren't Kindgi identities.** A WooCommerce order
   names your customer, but erasing a person in Kindgi can't find them in a
-  run's input: the run's input goes with the run, under `run` retention (or
-  when the run is deleted), unless your pack maps senders to people.
+  run's input, unless your pack maps senders to people. Otherwise the run's
+  input goes with the run: under `run` retention, or when the run is
+  deleted.
 - **Where a delivery came from is personal data too.** A refused delivery's
-  address is in the [audit](#audit-events) (`evidence.clientAddress`), under the audit's
-  retention, and a request to an unknown trigger is in the server's log, under
-  your log retention.
+  address is in the [audit](#audit-events), as `evidence.clientAddress`,
+  under the audit's retention. A request to an unknown trigger is in the
+  server's log, under your log retention.
 
-## Set a policy
+## 1. Set a policy
 
-A retention policy is a policy of kind `retention`, whose `spec` is
-`{ domain, graceSeconds, mode: "purge" }`. `graceSeconds` counts from the
-delete: `0` purges at the next sweep, and `-1` keeps records for good.
-Publishing a policy takes `admin` on the tenant.
+A policy says how long one domain's deleted records are kept. It's a policy
+of kind `retention`, whose `spec` is `{ domain, graceSeconds, mode: "purge" }`:
+
+- `domain` is the kind of record, from [What a policy covers](#what-a-policy-covers).
+- `graceSeconds` counts from the delete: `0` purges at the next sweep, and
+  `-1` keeps records for good.
+- `mode` is `purge`.
+
+Publish it with your client. Each example prints the policy it published.
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -145,20 +162,24 @@ policy_id='acme.keep-providers' version='1.0.1'
 
   A new version can't move a policy to another domain either
   (`409 policy-scope-changed`): publish a policy for that domain under a new id.
-- **A spec that doesn't fit is refused** (`400 validation-failed`), naming the
-  field: `policy.spec/mode can't be "archive" yet: use "purge"`, or
+- **A spec that doesn't fit is refused** with `400 validation-failed`, naming
+  the field: `policy.spec/mode can't be "archive" yet: use "purge"`, or
   `policy.spec/domain must be one of: org, agent, …, provider, * (got "blocks")`.
-- **Policies published before 0.1.4** can still cover one domain twice. The
-  console warns, and lists, sweeps and the runtime's log say which one
+- **Two policies can still cover one domain** when an older runtime took
+  both. The console warns. Lists, sweeps and the runtime's log say which one
   applies: unregister the others.
 
-## See what will be purged, and purge it
+## 2. See what will be purged, and purge it
 
 A sweep purges what's due. The runtime sweeps on its own only when you set
-`KINDGI_RETENTION_SWEEP_INTERVAL_MS` (below); otherwise, you sweep.
-`retention.scheduled` lists each deleted record a policy will purge, and when;
-`retention.sweep` purges every record past its grace, or one domain's. Both
-take `admin` on the tenant.
+`KINDGI_RETENTION_SWEEP_INTERVAL_MS`
+([Sweep on a schedule](#sweep-on-a-schedule)). Otherwise, you sweep:
+
+- `retention.scheduled` lists each deleted record a policy will purge, and
+  when.
+- `retention.sweep` purges every record past its grace, or one domain's.
+
+Each example lists what a sweep would purge now, then purges it.
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -218,29 +239,33 @@ purged:
 }
 ```
 
-- **`domain`** narrows either call to one domain, and **`pastGraceOnly`**
-  (`past_grace_only` in Python) the list to what a sweep would purge now.
+- **`domain`** narrows either call to one domain.
+- **`pastGraceOnly`**, `past_grace_only` in Python, narrows the list to what
+  a sweep would purge now.
 - **`unpolicedDomains`**, in the list's answer, names the domains no policy
-  covers: their deleted records are kept.
-- **A long list comes in pages.** `limit` is how many records per domain
-  (25 unless you say, at most 100); `hasMore` says there are more, and
+  covers. Their deleted records are kept.
+- **A long list comes in pages.** `limit` is how many records per domain:
+  25 unless you say, at most 100. `hasMore` says there are more, and
   `nextCursor`, passed back as `cursor`, gets the next page. In Python,
-  `paginate(kindgi.retention.scheduled, limit=…)` (from `kindgi.client`) walks
+  `paginate(kindgi.retention.scheduled, limit=…)`, from `kindgi.client`, walks
   every page.
 - **A purged record is gone for good.** Sweeping again purges nothing new
-  until more records pass their grace. Over HTTP: `GET /v1/retention/scheduled`
-  and `POST /v1/retention/sweep` (or `/v1/retention/sweep/<domain>`).
-- **A purge that fails is kept and tried again.** If deleting a record fails
-  (its database errors in the middle of a sweep), the record stays, counts in
-  that domain's `remaining`, and the next sweep tries it again. Its
+  until more records pass their grace. Over HTTP, the calls are
+  `GET /v1/retention/scheduled` and `POST /v1/retention/sweep`, or
+  `/v1/retention/sweep/<domain>` for one domain.
+- **A purge that fails is kept and tried again.** Deleting a record can fail
+  when its database errors in the middle of a sweep. The record then stays,
+  counts in that domain's `remaining`, and the next sweep tries it again. Its
   `retention:purge` audit event says `outcome: failed`, with the error in
   `evidence.error`.
 
-**To sweep on a schedule,** set `KINDGI_RETENTION_SWEEP_INTERVAL_MS` in
-`kindgi.env`: how often, in milliseconds, at least `60000` (`3600000` is
-hourly). Each pass is the same sweep, for every tenant the runtime serves, and
-purges up to 500 records per domain; the rest wait for the next pass. The
-startup log says which way it runs:
+### Sweep on a schedule
+
+Set `KINDGI_RETENTION_SWEEP_INTERVAL_MS` in `kindgi.env`: how often to sweep,
+in milliseconds, at least `60000`. `3600000` is hourly. Each pass is the same
+sweep, for every tenant the runtime serves. It purges up to 500 records per
+domain, and the rest wait for the next pass. The startup log says which way
+it runs:
 
 ```text
   Retention: purges deleted rows past their grace every 1 min
@@ -256,11 +281,11 @@ A pass that purged something logs it, per tenant:
 A value under `60000` stops the runtime at start:
 `KINDGI_RETENTION_SWEEP_INTERVAL_MS must be at least 60000 milliseconds. Got 59999.`
 
-**Expired rows go on their own,** whatever this setting says: every hour, the
-runtime deletes expired idempotency answers, sessions and sign-in state. They
-aren't records a policy keeps, so no setting turns that on. The retention
-sweep is for deleted records past their policy's grace. The startup log says
-so:
+**Expired rows go on their own,** whatever this setting says. Every hour, the
+runtime deletes expired idempotency answers, sessions and sign-in state.
+They aren't records a policy keeps, so no setting turns that on. The
+retention sweep is for deleted records past their policy's grace. The
+startup log says so:
 
 ```text
   Expired rows: deleted every 1 h (idempotency answers, sessions, sign-in state)
@@ -283,8 +308,8 @@ will purge them.
 ## Audit events
 
 Retention policies don't touch the audit trail: each access decision, each
-approval decision, each run's outcome. Kindgi keeps it for good, unless you
-start the runtime with `KINDGI_COMPLIANCE_CLASSIFIER` set to:
+approval decision and each run's outcome. Kindgi keeps it for good, unless
+you start the runtime with `KINDGI_COMPLIANCE_CLASSIFIER` set to:
 
 - `shipped`, the classifier the runtime ships;
 - or the absolute path of a classifier JSON of your own.
@@ -296,8 +321,10 @@ then every hour, in the tenants it serves:
 | --- | --- |
 | Access decisions (`authz-decision`) | 90 days; denied ones 365 days |
 | Run outcomes (`run-outcome`), guardrail violations (`guardrail-violation`), changes to [env values](../../guides/tools/give-a-tool-env-values/) (`env-set`, `env-deleted`) | 730 days |
-| Approval decisions (`hitl-decision`), and changes to secrets, API keys, service accounts and people's access (below) | For good: they're on legal hold |
+| Approval decisions (`hitl-decision`), and changes to secrets, API keys, service accounts and people's access ([On legal hold](#on-legal-hold)) | For good: they're on legal hold |
 | Any other kind | For good |
+
+### On legal hold
 
 The changes on legal hold are these kinds:
 
@@ -308,6 +335,8 @@ The changes on legal hold are these kinds:
 - **Service accounts:** `service-account-created`, `service-account-granted`,
   `service-account-ungranted`, `service-account-unregistered`;
 - **People:** `person-added`, `person-granted`, `person-ungranted`.
+
+### Check that it's on
 
 The banner says it's on:
 
@@ -326,6 +355,8 @@ logs it, per tenant:
 
 Any other value stops the runtime at start:
 `` KINDGI_COMPLIANCE_CLASSIFIER must be `shipped` or the absolute path of a classifier JSON. Got "nonsense". ``
+
+### Your own classifier
 
 Your own classifier lists the kinds to purge under `byKind`, each with its
 `days`, and `onDenyDays` for denied ones; `legalHold: true` keeps a kind for
@@ -383,3 +414,12 @@ events as compliance evidence. Without it, that route answers `404`.
 - **Deleted data** lists each deleted record with when it was deleted, when
   it will be purged and the policy that decides it, and has **Purge what's
   due now**, the same sweep as the API.
+
+## Next
+
+- [Erase a person's data](../../guides/agents/erase-a-persons-data/): remove
+  what Kindgi holds about one person.
+- [Operate a self-hosted runtime](../operate/): backups, restores and the
+  startup log.
+- [Logs](../logs/): what the runtime logs, and how long your log system
+  keeps it.
