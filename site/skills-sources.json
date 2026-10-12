@@ -243,6 +243,7 @@
         "guides/approvals/approvals-reference",
         "guides/approvals/decide-an-approval",
         "guides/evals/judge-a-runs-output",
+        "guides/evals/judging-reference",
         "guides/observability/cost-per-run",
         "guides/runs/list-runs",
         "guides/runs/read-the-journal",
