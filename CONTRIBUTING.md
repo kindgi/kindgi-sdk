@@ -46,7 +46,7 @@ A check on the pull request asks for any of them that's missing.
 
 - **License headers.** Every source file starts with:
 
-  ```ts
+  ```text
   // SPDX-License-Identifier: Apache-2.0
   // Copyright (C) 2026 Kindgi Inc.
   ```
