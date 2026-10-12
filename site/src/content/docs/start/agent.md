@@ -169,6 +169,12 @@ runtime: skip this step.
    <read the clipboard> | kindgi auth registry --username <robot name> --password-stdin
    ```
 
+   It ends with:
+
+   ```text
+   ✓ You can pull quay.io/kindgi/runtime:…@sha256:…, the image this CLI runs.
+   ```
+
 3. Clear the clipboard, if this OS lets you.
 4. Run doctor again; `registry` should pass.
 
@@ -226,6 +232,24 @@ that uses it, as that page shows. Otherwise:
    `--template` picks the project's language: `python`, `java` or `scala`.
    Without it, `init` makes a TypeScript project.
 
+   `init` prints what it made, then the next steps. For TypeScript, with
+   `pnpm install` after it:
+
+   ```text
+   …
+   ✓ Pack scaffolded at …/my-agents/
+   ✓ package.json pins pnpm@10.28.0 (packageManager)
+   …
+   Done in 13.3s using pnpm v10.28.0
+   ```
+
+   For Python it's `✓ Python pack scaffolded at …/my-agents/`, and `uv sync`
+   ends with `Installed 26 packages in 457ms`. For Java,
+   `✓ Java pack scaffolded at …/my-agents/ (preview)`, and `./mvnw -q test`
+   prints nothing when the tests pass. For Scala,
+   `✓ Scala pack scaffolded at …/my-agents/ (preview)`, and sbt ends with
+   `[info] Passed: Total 3, Failed 0, Errors 0, Passed 3`.
+
 3. Run doctor again from the project's folder; `project` and
    `dependencies` should pass.
 
@@ -249,6 +273,8 @@ your turn ends, with its output in `.kindgi/dev.log`. Run
   nohup kindgi dev > .kindgi/dev.log 2>&1 &
   echo $!
   ```
+
+  `echo $!` prints the process id, a number such as `76907`.
 
   Run the `mkdir` before it, not as `mkdir … && nohup … &`: then `$!` is a
   subshell's id, and stopping it leaves `kindgi dev` running.
@@ -311,6 +337,15 @@ user**, which needs no token: don't print the token in the chat.
      preset, which reads the key from that provider's secret in the table,
      `OPENAI_API_KEY` here. `kindgi providers presets` lists the presets and
      their models.
+
+   The two commands print:
+
+   ```text
+   …
+     Set OPENAI_API_KEY at tenant in local.
+   …
+   ✓ Registered openai: gpt-6.1-sol (default), gpt-6-astra, gpt-6-luna — key OPENAI_API_KEY (env local)
+   ```
 3. Clear the clipboard, if this OS lets you.
 4. Run doctor again; `model-key` and `provider` should pass.
 
@@ -340,6 +375,14 @@ register the provider again or to restart `kindgi dev`.
    `--agent` names the agent by its id, and `--input` is its input as JSON:
    the person's message goes in `userMessage`. The command waits for the
    run and prints it. The answer is in its `output`.
+
+   ```text
+   …
+     "status": "completed",
+   …
+       "output": {
+   …
+   ```
 
 ## Step 6: wrap up
 
