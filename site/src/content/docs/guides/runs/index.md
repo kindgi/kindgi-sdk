@@ -6,9 +6,12 @@ sidebar:
   label: Overview
 ---
 
-A **run** is one execution of a flow, or one turn of an agent. Your app starts
-it, follows it, and reads what it returned; the journal records every step.
-[Runs, the journal and durability](../../concepts/runs/) explains the model.
+These guides start, follow, read and manage runs.
+
+A **run** is one execution of a flow, or one turn of an agent. Your app
+starts it, follows it, and reads what it returned. The journal records every
+step. [Runs, the journal and durability](../../concepts/runs/) explains the
+model.
 
 - [Start a run](start-a-run/): wait for its result, or start it in the
   background.
