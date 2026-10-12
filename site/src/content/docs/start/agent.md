@@ -220,22 +220,25 @@ are how you write tools and agents for this project.
 ## Step 3: start Kindgi
 
 Start `kindgi dev` from the project's folder so that it keeps running after
-your turn ends: detached, with its output in a log, and note its process id:
+your turn ends, with its output in `.kindgi/dev.log`:
 
-```sh
-mkdir -p .kindgi
-nohup kindgi dev > .kindgi/dev.log 2>&1 &
-echo $!
-```
+- **If your tool runs commands in the background itself** (Claude Code's
+  background tasks do), start it that way: `kindgi dev`, as a background
+  task, with its output in `.kindgi/dev.log`. Your tool can stop it.
+- **Otherwise,** start it detached, and note its process id:
 
-Use `kindgi` as the project runs it (`.kindgi/` is git-ignored). Keep
-`mkdir` on its own line: with `mkdir … && nohup … &`, `$!` is a subshell's
-id, and stopping it leaves `kindgi dev` running. If your tool runs commands
-in the background itself (Claude Code's background tasks do), start
-`kindgi dev` that way instead, with its output in `.kindgi/dev.log`, and tell
-the person how your tool stops it. It starts the runtime in
-Docker and answers with a stand-in model, `dev-echo`, until step 4 adds a
-real one.
+  ```sh
+  mkdir -p .kindgi
+  nohup kindgi dev > .kindgi/dev.log 2>&1 &
+  echo $!
+  ```
+
+  Keep `mkdir` on its own line: with `mkdir … && nohup … &`, `$!` is a
+  subshell's id, and stopping it leaves `kindgi dev` running.
+
+Use `kindgi` as the project runs it (`.kindgi/` is git-ignored). It starts
+the runtime in Docker and answers with a stand-in model, `dev-echo`, until
+step 4 adds a real one.
 
 Run doctor every few seconds until `runtime` passes. `model-key` and
 `provider` still fail: that's expected until step 4. Then tell the person
