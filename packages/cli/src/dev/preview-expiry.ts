@@ -3,12 +3,36 @@
 
 import type { KindgiClient, LicenseStatus } from '@kindgi/client';
 
+import { DEFAULT_RUNTIME_IMAGE } from './runtime-image.js';
+
 /**
  * Which runtime `kindgi dev` runs: the release this CLI pins (`pinned`),
  * an image the developer named (`--runtime-image`), or one they run
  * themselves (`--runtime-url`). It decides the way to a newer one.
  */
 export type DevRuntimeSource = 'pinned' | 'image' | 'url';
+
+/** Which runtime `kindgi dev` runs, from its flags. */
+export function devRuntimeSource(args: {
+  readonly runtimeUrl: string | undefined;
+  readonly runtimeImage: string;
+}): DevRuntimeSource {
+  if (args.runtimeUrl !== undefined) return 'url';
+  return args.runtimeImage === DEFAULT_RUNTIME_IMAGE ? 'pinned' : 'image';
+}
+
+/** How the runtime's refusal of a preview build past its end starts (its `license-gate.ts`). */
+const PREVIEW_REFUSAL = 'This preview build of the Kindgi runtime';
+
+/**
+ * What to add when the runtime stopped while starting because its preview
+ * build is past its end, and `kindgi dev` didn't run the release its CLI
+ * pins: the runtime's own text says to update the CLI, which changes only
+ * the pinned one. Empty otherwise.
+ */
+export function previewRefusalHint(message: string, source: DevRuntimeSource): string {
+  return source !== 'pinned' && message.includes(PREVIEW_REFUSAL) ? `\n${NEWER[source]}` : '';
+}
 
 /**
  * The warning for a preview runtime near the end of its life: before

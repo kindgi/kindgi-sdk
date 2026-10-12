@@ -11,7 +11,13 @@ import { describe, expect, test } from 'vitest';
 
 import type { LicenseStatus } from '@kindgi/client';
 
-import { previewExpiryWarning, readLicenseStatus } from '../src/dev/preview-expiry.js';
+import {
+  devRuntimeSource,
+  previewExpiryWarning,
+  previewRefusalHint,
+  readLicenseStatus,
+} from '../src/dev/preview-expiry.js';
+import { DEFAULT_RUNTIME_IMAGE } from '../src/dev/runtime-image.js';
 
 const preview = (daysLeft: number, standing: 'valid' | 'expiring' | 'expired'): LicenseStatus => ({
   mode: 'development',
@@ -67,4 +73,40 @@ test("a status it can't read says nothing, and never stops kindgi dev", async ()
   ).toBeUndefined();
   const status = preview(20, 'expiring');
   expect(await readLicenseStatus({ license: { get: async () => status } })).toBe(status);
+});
+
+describe('a runtime that refused to start because its preview build is past its end', () => {
+  const stop =
+    'the Kindgi runtime container stopped while starting (exit code 2):\nThis preview build of the Kindgi runtime (0.1.8, released 2026-10-20) expired on 2027-01-18: until Kindgi 1.0, a release stops starting 90 days after it was released. Run a newer release. With `kindgi dev`, update the Kindgi CLI (`@kindgi/cli`, or `kindgi-cli` from PyPI): it runs the runtime release the CLI pins.';
+
+  test('which runtime kindgi dev runs, from its flags', () => {
+    expect(devRuntimeSource({ runtimeUrl: undefined, runtimeImage: DEFAULT_RUNTIME_IMAGE })).toBe(
+      'pinned',
+    );
+    expect(
+      devRuntimeSource({ runtimeUrl: undefined, runtimeImage: 'quay.io/acme/runtime:0.1.8' }),
+    ).toBe('image');
+    expect(
+      devRuntimeSource({
+        runtimeUrl: 'http://127.0.0.1:4000',
+        runtimeImage: DEFAULT_RUNTIME_IMAGE,
+      }),
+    ).toBe('url');
+  });
+
+  test('an image of your own: the way to a newer one is added; the pinned one says it already', () => {
+    expect(previewRefusalHint(stop, 'image')).toBe(
+      '\nRun a newer runtime image (`--runtime-image`), or drop the flag to run the one this CLI pins.',
+    );
+    expect(previewRefusalHint(stop, 'pinned')).toBe('');
+  });
+
+  test('any other stop: nothing added', () => {
+    expect(
+      previewRefusalHint(
+        'the Kindgi runtime container stopped while starting (exit code 1):\nboom',
+        'image',
+      ),
+    ).toBe('');
+  });
 });

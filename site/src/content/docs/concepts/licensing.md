@@ -108,7 +108,7 @@ meets it.
   development mode it says:
 
   ```text
-  This preview build of the Kindgi runtime (0.1.8, released 2026-07-01) expired on 2026-09-29: until Kindgi 1.0, a release stops starting 90 days after it was released. Run a newer release. With `kindgi dev`, update the Kindgi CLI (`@kindgi/cli`, or `kindgi-cli` from PyPI): it runs the runtime release the CLI pins.
+  This preview build of the Kindgi runtime (0.1.0-preview.3, released 2026-07-01) expired on 2026-09-29: until Kindgi 1.0, a release stops starting 90 days after it was released. Run a newer release. With `kindgi dev`, update the Kindgi CLI (`@kindgi/cli`, or `kindgi-cli` from PyPI): it runs the runtime release the CLI pins.
   ```
 
   Outside development mode it ends "Run a newer release, or start this one

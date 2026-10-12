@@ -103,7 +103,12 @@ import { type PackCode, isJvmPackCode, resolvePackCode } from '../dev/pack-code.
 import { devPackEnv, devPackEnvFiles } from '../dev/pack-env.js';
 import { createPackRefresher, showPackEvent } from '../dev/pack-service.js';
 import { PORT_SEARCH_SPAN, firstFreePort } from '../dev/port.js';
-import { previewExpiryWarning, readLicenseStatus } from '../dev/preview-expiry.js';
+import {
+  devRuntimeSource,
+  previewExpiryWarning,
+  previewRefusalHint,
+  readLicenseStatus,
+} from '../dev/preview-expiry.js';
 import { type DevProject, resolveDevProject } from '../dev/project.js';
 import {
   type DeclaredProvider,
@@ -832,7 +837,7 @@ async function runDevForPack(
     if (err instanceof RuntimeOwnedElsewhere) return ownedElsewhereRefusal(err);
     return {
       kind: 'error',
-      stderr: `kindgi dev couldn't start the Kindgi runtime: ${(err as Error).message}\n`,
+      stderr: `kindgi dev couldn't start the Kindgi runtime: ${(err as Error).message}${previewRefusalHint((err as Error).message, devRuntimeSource(args))}\n`,
       exitCode: 1,
     };
   }
@@ -919,11 +924,7 @@ async function runDevForPack(
   // release, until 1.0): from 30 days before, the way to a newer one.
   const previewWarning = previewExpiryWarning(
     await readLicenseStatus(client),
-    args.runtimeUrl !== undefined
-      ? 'url'
-      : args.runtimeImage === DEFAULT_RUNTIME_IMAGE
-        ? 'pinned'
-        : 'image',
+    devRuntimeSource(args),
   );
   if (previewWarning !== undefined) emitProgress(previewWarning);
 
