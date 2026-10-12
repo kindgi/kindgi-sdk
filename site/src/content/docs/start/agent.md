@@ -241,7 +241,8 @@ your turn ends, with its output in `.kindgi/dev.log`. Run
 
 - **If your tool runs commands in the background itself** (Claude Code's
   background tasks do), start it that way: `kindgi dev`, as a background
-  task, with its output in `.kindgi/dev.log`. Your tool can stop it.
+  task, with its output in `.kindgi/dev.log`, and no `&` or `nohup`: the
+  task is in the background already. Your tool can stop it.
 - **Otherwise,** start it detached, and note its process id:
 
   ```sh

@@ -32,7 +32,11 @@ pnpm install
 - `npx --yes @kindgi/cli@0.1` runs the newest 0.1 release of the Kindgi CLI
   without installing it ([Check this machine](../install/#check-this-machine)
   says how).
-- `init` with no pack name adds Kindgi to the app in this folder.
+- `init` with no pack name adds Kindgi to the app in this folder. The
+  pack's id comes from the `name` in the app's `package.json`. If there's no
+  name, or `init` says it doesn't make a pack id, add `--pack-id=<id>`:
+  lowercase letters, digits and dashes, starting with a letter, such as
+  `--pack-id=acme-support`. The app keeps its `package.json` as it is.
 - Run your app's own package manager's install in place of `pnpm install`.
 - If your app's pnpm sets `minimumReleaseAge`, `pnpm install` refuses a
   Kindgi release younger than that. Wait until the release is old enough, or
@@ -72,9 +76,10 @@ pnpm install
 
 If your app is on zod 3, `init` keeps it, and a Kindgi schema written with
 zod 3 doesn't compile: Kindgi takes zod 4 schemas. Write your tools' and
-agents' inputs and outputs as JSON Schema objects instead, or upgrade the
-app to zod 4 if its own code allows (zod 4 changes some of zod 3's API, such
-as `invalid_type_error`). A tool's input as JSON Schema:
+agents' inputs and outputs as JSON Schema objects instead. Moving the app
+to zod 4 is a change to the app's own code (zod 4 changes some of zod 3's
+API, such as `invalid_type_error`), so it's the app owner's decision. A
+tool's input as JSON Schema:
 
 ```ts excerpt
 input: {
