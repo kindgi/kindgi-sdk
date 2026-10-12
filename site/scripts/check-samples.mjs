@@ -77,9 +77,9 @@
  * without a shell, in that page's own copy of the pack before compiling, so
  * the sample is checked against the library itself and no other page's pack
  * gets it. Any other line there (a flag, a URL, a path, `;`, a pipe, `$(…)`)
- * is a problem and is never run, and so is a library that no install command
- * on the page shows the reader. Java and Scala samples have no such step:
- * they compile against their pack and the Java client only.
+ * is a problem and is never run. A library that no install command on the
+ * page shows the reader is a problem too. Java and Scala samples have no such
+ * step: they compile against their pack and the Java client only.
  *
  * Needs the workspace built (`pnpm run build`), uv for Python samples, for
  * Java samples a JDK 17 or later and the Java SDK built
