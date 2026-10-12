@@ -100,6 +100,8 @@ kindgi agents promote acme.order-desk 1.1.0 --project=<project-id> --segment=com
 - `--segment=company:acme` is the segment path in it.
 - `--org=<org-id>` names an org instead.
 
+It prints the promotion, with the segment as its `scope`.
+
 A run started with that segment gets 1.1.0:
 
 ```sh
@@ -350,6 +352,8 @@ Promote it the same way, without `--check`:
 ```sh
 kindgi agents promote acme.order-desk 1.3.0 --tenant --eval-run=<comparison-id> --reason="1.3.0 did as well on the order checks"
 ```
+
+It prints the promotion or the gate's refusal:
 
 - **When the policy has no `approvals`,** a promotion that passes goes live
   at once, `"status": "promoted"`.
