@@ -238,6 +238,14 @@ export interface SecretResolveInput {
   readonly name: string;
   readonly version?: number;
   readonly resolveContext: ResolveContext;
+  /**
+   * Read at `scope` only: no walk to a broader scope. A secret not set
+   * there is `secret-not-found`, whatever broader scopes have. Every
+   * store must honour it: an item's secret is read where it was recorded
+   * when the item was registered, and nowhere else (`resolveAtScope`).
+   * Absent: the most-specific-wins walk.
+   */
+  readonly exact?: true;
 }
 
 /**
@@ -260,6 +268,12 @@ export interface SecretResolveOutcome {
   readonly name: string;
   readonly versionId: number;
   readonly value: string;
+  /**
+   * The scope the value was read at: the one asked for, or a broader one
+   * the walk reached. Every in-tree store reports it; `resolveAtScope`
+   * refuses a value read at another scope than it asked for.
+   */
+  readonly scope?: Scope;
 }
 
 export interface SecretGetVersionInput {

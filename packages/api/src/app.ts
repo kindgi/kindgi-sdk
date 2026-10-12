@@ -955,7 +955,8 @@ export interface CreateAppInput {
    * The env this deployment serves (`KINDGI_ENV`): where the secrets a
    * tool's code declares are looked for when the tool is published, to
    * record where they're read (`secret-scope.ts`). Absent: the webhook
-   * receiver's, else not recorded for those.
+   * receiver's; with neither, each is recorded at the broadest scope its
+   * registrant administers, without a lookup.
    */
   readonly envName?: import('@kindgi/types').EnvName;
   /**
@@ -1829,6 +1830,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         secretWrites: observedSecrets.writes,
         envName: input.webhookReceiver.envName,
         providerKeys,
+        ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         ...(input.webhookReceiver.clientAddress !== undefined && {
           clientAddress: input.webhookReceiver.clientAddress,
         }),

@@ -52,7 +52,8 @@ export interface EmitResolveEventInput {
   readonly errorCode?: string;
   readonly auditEvents: AuditEventBinding;
   readonly tenantId: TenantId;
-  readonly projectId: ProjectId;
+  /** The project the event belongs to; absent for one that's the tenant's or an org's. */
+  readonly projectId?: ProjectId;
 }
 
 /**
@@ -71,7 +72,7 @@ export async function emitResolveEvent(input: EmitResolveEventInput): Promise<vo
   const actor = actorFromResolveContext(input.resolveContext);
   const event = buildEvent({
     tenantId: input.tenantId,
-    projectId: input.projectId,
+    ...(input.projectId !== undefined && { projectId: input.projectId }),
     kind,
     outcome: input.outcome,
     actor,

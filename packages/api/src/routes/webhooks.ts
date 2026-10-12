@@ -242,7 +242,7 @@ export function webhooksRouter(
         return bad(
           c,
           requestId,
-          "This deployment can't make a signing secret (it has no secrets store): store one and name it in `hmacSecretName`, without `generateSecret`.",
+          "This deployment can't make a signing secret (it has no secrets store, or no webhook receiver): store one and name it in `hmacSecretName`, without `generateSecret`.",
         );
       }
       const existing = await secrets.get({ scope: item, envName, name: hmacSecretName.value });

@@ -10323,6 +10323,7 @@ export const SecretResolveOutcomeSchema: JsonSchema = {
     name: { type: 'string' },
     versionId: { type: 'integer', minimum: 1 },
     value: { type: 'string' },
+    scope: { $ref: '#/components/schemas/Scope' },
   },
 };
 

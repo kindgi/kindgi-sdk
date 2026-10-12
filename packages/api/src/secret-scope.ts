@@ -22,14 +22,21 @@
  * from the recorded scope is missing, never read from a broader one.
  */
 
+import type { AuditEventBinding } from '@kindgi/audit-events';
+import { emitResolveEvent } from '@kindgi/compliance';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
 import type { ToolManifest } from '@kindgi/tools';
-import type { EnvName, OrgId, RecordedSecretScope, TenantId } from '@kindgi/types';
+import type { EnvName, OrgId, RecordedSecretScope, Result, TenantId } from '@kindgi/types';
 import type { Context } from 'hono';
 
 import type { Authorizer } from './middleware/authorize.js';
 import { scopeResourceRef } from './routes/scope-params.js';
-import type { SecretBinding } from './secrets-binding.js';
+import type {
+  SecretBinding,
+  SecretError,
+  SecretResolveInput,
+  SecretResolveOutcome,
+} from './secrets-binding.js';
 import type { AppEnv } from './types.js';
 
 /** The scopes a secret named by an item at `item` is looked for at, narrowest first. */
@@ -86,6 +93,52 @@ export function scopeOfRecorded(tenantId: TenantId, recorded: RecordedSecretScop
   if (recorded.kind === 'project')
     return { kind: 'project', tenantId, projectId: recorded.projectId };
   return { kind: 'tenant', tenantId };
+}
+
+/**
+ * Read an item's secret at the scope recorded for it, and only there: an
+ * exact read. A store that answers from another scope anyway (one that
+ * ignores `exact`) is refused as the in-tree stores say a secret isn't
+ * set, and the refusal is audited (scope and name, never the value).
+ */
+export async function resolveAtScope(
+  secrets: Pick<SecretBinding, 'resolve'>,
+  input: Omit<SecretResolveInput, 'exact'>,
+  auditEvents?: AuditEventBinding,
+): Promise<Result<SecretResolveOutcome, SecretError>> {
+  const resolved = await secrets.resolve({ ...input, exact: true });
+  if (resolved.kind === 'err') return resolved;
+  const at = resolved.value.scope;
+  if (at === undefined || sameScope(at, input.scope)) return resolved;
+  if (auditEvents !== undefined) {
+    await emitResolveEvent({
+      kind: 'secret',
+      scope: input.scope,
+      envName: input.envName,
+      name: input.name,
+      outcome: 'failed',
+      errorCode: 'secret-scope-mismatch',
+      resolveContext: input.resolveContext,
+      auditEvents,
+      tenantId: input.scope.tenantId,
+      ...(input.scope.kind === 'project' && { projectId: input.scope.projectId }),
+    });
+  }
+  return {
+    kind: 'err',
+    error: {
+      code: 'secret-not-found',
+      message: `No secret at scope + envName for name "${input.name}".`,
+      name: input.name,
+    },
+  };
+}
+
+function sameScope(a: Scope, b: Scope): boolean {
+  if (a.tenantId !== b.tenantId) return false;
+  if (a.kind === 'project') return b.kind === 'project' && a.projectId === b.projectId;
+  if (a.kind === 'org') return b.kind === 'org' && a.orgId === b.orgId;
+  return b.kind === 'tenant';
 }
 
 /** Each named secret's scope to record (`null` for none usable), by name. */

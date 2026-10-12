@@ -6,6 +6,7 @@ import { type KeyObject, createHash, randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
+import type { AuditEventBinding } from '@kindgi/audit-events';
 import {
   type VerifyInboundSignatureFailure,
   inboundSigningKey,
@@ -21,7 +22,7 @@ import {
   createInMemoryRateLimitStore,
   nearestForwardedClient,
 } from '../rate-limit-store.js';
-import { scopeOfRecorded } from '../secret-scope.js';
+import { resolveAtScope, scopeOfRecorded } from '../secret-scope.js';
 import type { SecretBinding, SecretWrites } from '../secrets-binding.js';
 import {
   type FoundWebhookTrigger,
@@ -35,8 +36,10 @@ import { UUID_RE } from './uuid-param.js';
 export interface HooksRouterOptions {
   /** Needs `findWebhook`, `fireWebhook` and `recordWebhookRefusal`. */
   readonly triggers: TriggerRegistryBinding;
-  /** Where a trigger's signing secret is read (at the tenant, as tools' secrets are). */
+  /** Where a trigger's signing secret is read: at the scope recorded for it (`secret-scope.ts`). */
   readonly secrets: SecretBinding;
+  /** Where a read refused for its scope is recorded (`resolveAtScope`). */
+  readonly auditEvents?: AuditEventBinding;
   /** The env this deployment serves: where the signing secret is read. */
   readonly envName: EnvName;
   /** A model provider's key is never a webhook trigger's secret. */
@@ -208,12 +211,16 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
     const kept = signingKeys.get(id);
     if (kept !== undefined && kept.until > now()) return kept.key;
     const writesBefore = writes;
-    const secret = await secrets.resolve({
+    const read = {
       scope,
       envName: options.envName,
       name: found.hmacSecretName,
-      resolveContext: { caller: 'webhook-receiver' },
-    });
+      resolveContext: { caller: 'webhook-receiver' as const },
+    };
+    const secret =
+      found.hmacSecretScope === undefined
+        ? await secrets.resolve(read)
+        : await resolveAtScope(secrets, read, options.auditEvents);
     const derived =
       secret.kind === 'err' ? undefined : inboundSigningKey(found.signature, secret.value.value);
     const key = derived?.kind === 'ok' ? derived.key : undefined;

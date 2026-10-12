@@ -9653,6 +9653,10 @@ class SecretResolveOutcome(BaseModel):
     name: str
     version_id: Annotated[int, Field(alias="versionId", ge=1)]
     value: str
+    scope: Scope2 | Scope3 | Scope4 | None = None
+    """
+    Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
+    """
 
 
 class SecretRotateOutcome1(BaseModel):

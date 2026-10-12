@@ -4,15 +4,17 @@
 /**
  * Where a webhook trigger's signing secret is read (`secret-scope.ts`):
  * recorded when it's registered, as its registrant may read the secret,
- * then the only scope the receiver reads. With a store that keeps each
- * scope apart, and three people: the tenant's admin, project P's admin,
- * and a writer in P who administers nothing.
+ * then the only scope the receiver reads. With a store that reads as the
+ * in-tree ones do (most-specific-wins up to the tenant, unless the read is
+ * `exact`), and three people: the tenant's admin, project P's admin, and a
+ * writer in P who administers nothing.
  */
 
 import { createHmac } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import type { Action, AuthzCheckBinding, Decision, Principal, ResourceRef } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
 import type { EnvName, TenantId, UserId } from '@kindgi/types';
@@ -74,9 +76,33 @@ function checkBinding(): AuthzCheckBinding {
 const keyOf = (scope: Scope, env: string, name: string) =>
   `${scope.kind === 'project' ? `project:${scope.projectId}` : scope.kind === 'org' ? `org:${scope.orgId}` : 'tenant'}|${env}|${name}`;
 
-function setup(options: { readonly receiver?: boolean } = {}) {
+/** The scopes a read at `scope` walks, most specific first: P's org is ORG. */
+const walkFrom = (scope: Scope): Scope[] => {
+  const top: Scope = { kind: 'tenant', tenantId: TENANT };
+  if (scope.kind === 'tenant') return [top];
+  if (scope.kind === 'org') return [scope, top];
+  return [scope, { kind: 'org', tenantId: TENANT, orgId: ORG as never }, top];
+};
+
+function setup(
+  options: {
+    readonly receiver?: boolean;
+    /** A store that walks even for an `exact` read (one that doesn't honour it). */
+    readonly ignoresExact?: boolean;
+    /** Triggers registered as before scopes were recorded: none kept. */
+    readonly legacy?: boolean;
+  } = {},
+) {
   // The store, each scope apart.
   const stored = new Map<string, string>();
+  const reads: { readonly scope: string; readonly exact: boolean }[] = [];
+  const audited: AuditEvent[] = [];
+  const auditEvents = {
+    append: async (events: readonly AuditEvent[]) => {
+      audited.push(...events);
+      return { kind: 'ok', value: undefined };
+    },
+  } as unknown as AuditEventBinding;
   const put = (scope: Scope, value: string, env: string = ENV) =>
     stored.set(keyOf(scope, env, NAME), value);
   const secrets = {
@@ -103,17 +129,32 @@ function setup(options: { readonly receiver?: boolean } = {}) {
         },
       };
     },
-    async resolve(input: { scope: Scope; envName: string; name: string }) {
-      const value = stored.get(keyOf(input.scope, input.envName, input.name));
-      return value === undefined
-        ? {
-            kind: 'err',
-            error: { code: 'secret-not-found', message: 'not found', name: input.name },
-          }
-        : { kind: 'ok', value: { name: input.name, versionId: 1, value } };
+    async resolve(input: { scope: Scope; envName: string; name: string; exact?: true }) {
+      reads.push({ scope: keyOf(input.scope, '', '').split('|')[0] ?? '', exact: !!input.exact });
+      const exact = input.exact === true && options.ignoresExact !== true;
+      for (const scope of exact ? [input.scope] : walkFrom(input.scope)) {
+        const value = stored.get(keyOf(scope, input.envName, input.name));
+        if (value !== undefined)
+          return { kind: 'ok', value: { name: input.name, versionId: 1, value, scope } };
+      }
+      return {
+        kind: 'err',
+        error: { code: 'secret-not-found', message: 'not found', name: input.name },
+      };
     },
   } as unknown as SecretBinding;
-  const registry = createInMemoryTriggerRegistry({ defaultProjectId: P as never });
+  const kept = createInMemoryTriggerRegistry({ defaultProjectId: P as never });
+  const registry: typeof kept =
+    options.legacy === true
+      ? {
+          ...kept,
+          register: (input: Parameters<typeof kept.register>[0]) => {
+            if (input.kind !== 'webhook') return kept.register(input);
+            const { hmacSecretScope: _, ...asBefore } = input;
+            return kept.register(asBefore);
+          },
+        }
+      : kept;
   const check = checkBinding();
   const appFor = () =>
     createApp({
@@ -125,6 +166,7 @@ function setup(options: { readonly receiver?: boolean } = {}) {
         get: async (_t: unknown, id: string) => (id === P ? { id: P, orgId: ORG } : undefined),
       } as never,
       resolveToken,
+      auditEvents,
       runHandler: {} as RunHandlerBinding,
       ...(options.receiver !== false && { webhookReceiver: { envName: ENV } }),
       authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: check },
@@ -162,6 +204,8 @@ function setup(options: { readonly receiver?: boolean } = {}) {
   };
   return {
     stored,
+    reads,
+    audited,
     put,
     call,
     register,
@@ -249,6 +293,38 @@ describe('the same name in the tenant and in P', () => {
     h.stored.delete(`project:${P}|${ENV}|${NAME}`);
     h.restart();
     expect(await h.deliver(t.body.webhookId, 'tenant-value')).toBe(401);
+  });
+
+  test('every read at a recorded scope is exact', async () => {
+    const h = setup();
+    h.put(project, 'p-value');
+    const t = await h.register('p-admin');
+    expect(await h.deliver(t.body.webhookId, 'p-value')).toBe(202);
+    expect(h.reads).toEqual([{ scope: `project:${P}`, exact: true }]);
+  });
+
+  test("a trigger from before scopes were recorded reads the tenant's, walking as it did", async () => {
+    const h = setup({ legacy: true });
+    h.put(tenant, 'tenant-value');
+    h.put(project, 'p-value');
+    const t = await h.register('p-admin');
+    const read = await h.call('p-admin', 'GET', `/${t.body.triggerId}`);
+    expect(read.body).not.toHaveProperty('hmacSecretScope');
+    expect(await h.deliver(t.body.webhookId, 'tenant-value')).toBe(202);
+    expect(h.reads).toEqual([{ scope: 'tenant', exact: false }]);
+  });
+
+  test("a store that doesn't honour exact: a value it reads at another scope is refused, and that's audited without it", async () => {
+    const h = setup({ ignoresExact: true });
+    h.put(tenant, 'tenant-value');
+    const t = await h.register('p-admin');
+    expect(t.body.hmacSecretScope).toEqual({ kind: 'project', projectId: P });
+    expect(await h.deliver(t.body.webhookId, 'tenant-value')).toBe(401);
+    const refused = h.audited.filter((e) => e.kind === 'secret-resolved');
+    expect(refused).toHaveLength(1);
+    expect(refused[0]).toMatchObject({ outcome: 'failed', projectId: P });
+    expect(JSON.stringify(refused[0])).toContain('secret-scope-mismatch');
+    expect(JSON.stringify(h.audited)).not.toContain('tenant-value');
   });
 
   test('a secret in another env is not the one the receiver reads', async () => {
