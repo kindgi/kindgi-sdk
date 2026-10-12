@@ -10,13 +10,15 @@
  * - **Any other page** has all four in every group, or a tab for a language
  *   that lacks the feature which says so on its first line ("Not in the
  *   Java SDK.") and what to do instead.
- * - **Pages written before this check** have their missing tabs listed in
- *   `tabs-baseline.json`, by page and group. The list only shrinks: a tab a
- *   page gains comes off it, and a missing tab that isn't on it fails.
- *   `--write-baseline` takes off what a page has gained, and adds nothing.
+ * - **Pages written before this check** have their missing tabs counted in
+ *   `tabs-baseline.json`: for each page, how many of its groups lack each
+ *   language. A page that lacks more fails, and so does one that lacks
+ *   fewer, until its count comes down: the counts only shrink.
+ *   `--write-baseline` lowers them to what's left, and raises none.
  *
  * A group is named by the heading above it ("Test it"), with "#2" for a
- * second group under the same heading.
+ * second group under the same heading. The baseline counts rather than
+ * names them, so a heading that changes doesn't change it.
  *
  * Usage: node scripts/check-tabs.mjs [--write-baseline]
  */
@@ -142,68 +144,75 @@ function notInProblems(at, group, isTier1) {
   });
 }
 
-/** A group's missing tabs: on a Tier 1 page any; elsewhere those the baseline doesn't list. */
-function missingProblems(at, group, listed, isTier1) {
-  const missing = missingFrom(group);
-  if (missing.length === 0) return [];
-  if (isTier1) return [`${at}: a Tier 1 page needs a tab for ${missing.join(', ')}`];
-  const unlisted = missing.filter((language) => !listed.includes(language));
-  if (unlisted.length === 0) return [];
-  return [
-    `${at}: no tab for ${unlisted.join(', ')}. Add one, with the feature, or a first line "Not in the ${unlisted[0]} SDK." and what to do instead`,
-  ];
+/** How many of a page's groups lack each language: `{ Java: 2, Scala: 2 }`, zeros left out. */
+export function missingCounts(groups) {
+  const counts = {};
+  for (const group of groups) {
+    for (const language of missingFrom(group)) counts[language] = (counts[language] ?? 0) + 1;
+  }
+  return counts;
 }
 
-/** Baseline entries for tabs a page has now, or for a group that's gone. */
+/** A page's missing tabs: on a Tier 1 page any; elsewhere more than its baseline allows. */
+function missingProblems(page, groups, allowed, isTier1) {
+  const problems = [];
+  for (const language of LANGUAGES) {
+    const lacking = groups.filter((group) => missingFrom(group).includes(language));
+    const limit = isTier1 ? 0 : (allowed[language] ?? 0);
+    if (lacking.length <= limit) continue;
+    const where = lacking.map((group) => `line ${group.line}, "${group.name}"`).join('; ');
+    problems.push(
+      isTier1
+        ? `${page}: a Tier 1 page needs a ${language} tab in every group (${where})`
+        : `${page}: ${lacking.length} group(s) with no ${language} tab, ${limit} allowed (${where}). Add one, with the feature, or a first line "Not in the ${language} SDK." and what to do instead`,
+    );
+  }
+  return problems;
+}
+
+/** Baseline counts above what a page lacks now: they come down (--write-baseline). */
 function staleProblems(groupsByPage, baseline) {
-  return Object.entries(baseline).flatMap(([page, entries]) =>
-    Object.entries(entries).flatMap(([name, listed]) => {
-      const group = (groupsByPage.get(page) ?? []).find((g) => g.name === name);
-      const missing = group ? missingFrom(group) : [];
-      const gained = listed.filter((language) => !missing.includes(language));
-      if (gained.length === 0) return [];
-      const what = group ? 'the group has now' : 'is no longer a group';
-      const pronoun = gained.length === 1 ? 'it' : 'them';
-      return [
-        `${page} ("${name}"): tabs-baseline.json lists ${gained.join(', ')}, which ${what}: take ${pronoun} off (--write-baseline)`,
-      ];
-    }),
-  );
+  return Object.entries(baseline).flatMap(([page, allowed]) => {
+    const counts = missingCounts(groupsByPage.get(page) ?? []);
+    return Object.entries(allowed)
+      .filter(([language, count]) => (counts[language] ?? 0) < count)
+      .map(
+        ([language, count]) =>
+          `${page}: tabs-baseline.json allows ${count} group(s) with no ${language} tab, and the page has ${counts[language] ?? 0}: lower it (--write-baseline)`,
+      );
+  });
 }
 
 /**
  * What fails, for each page's groups (`Map<slug, groups>`) against the
- * baseline (`{ slug: { group: [languages] } }`): a tab missing that the
- * baseline doesn't list, a baseline entry that's stale, a "Not in" tab on a
- * Tier 1 page or one naming another SDK than its own.
+ * baseline (`{ slug: { language: count } }`): more missing tabs than the
+ * baseline allows, a count the page has come under, a missing tab on a
+ * Tier 1 page, a "Not in" tab on one or naming another SDK than its own.
  */
 export function check(groupsByPage, baseline, tier1 = TIER_1) {
   const problems = [];
   for (const [page, groups] of groupsByPage) {
     const isTier1 = tier1.includes(page);
     for (const group of groups) {
-      const at = `${page} (line ${group.line}, "${group.name}")`;
-      const listed = baseline[page]?.[group.name] ?? [];
       problems.push(
-        ...notInProblems(at, group, isTier1),
-        ...missingProblems(at, group, listed, isTier1),
+        ...notInProblems(`${page} (line ${group.line}, "${group.name}")`, group, isTier1),
       );
     }
+    problems.push(...missingProblems(page, groups, baseline[page] ?? {}, isTier1));
   }
   return [...problems, ...staleProblems(groupsByPage, baseline)];
 }
 
-/** The baseline with what pages have gained taken off. Nothing is added. */
+/** The baseline lowered to what pages lack now. No count goes up, and no page is added. */
 export function shrink(baseline, groupsByPage) {
   const result = {};
-  for (const [page, entries] of Object.entries(baseline)) {
-    const groups = groupsByPage.get(page) ?? [];
-    for (const [name, listed] of Object.entries(entries)) {
-      const group = groups.find((g) => g.name === name);
-      const still = group ? listed.filter((language) => missingFrom(group).includes(language)) : [];
-      if (still.length > 0) {
+  for (const [page, allowed] of Object.entries(baseline)) {
+    const counts = missingCounts(groupsByPage.get(page) ?? []);
+    for (const [language, count] of Object.entries(allowed)) {
+      const left = Math.min(count, counts[language] ?? 0);
+      if (left > 0) {
         result[page] ??= {};
-        result[page][name] = still;
+        result[page][language] = left;
       }
     }
   }
@@ -244,11 +253,11 @@ function main() {
     process.exit(1);
   }
   const left = Object.values(baseline).reduce(
-    (sum, entries) => sum + Object.keys(entries).length,
+    (sum, counts) => sum + Object.values(counts).reduce((a, b) => a + b, 0),
     0,
   );
   console.log(
-    `check-tabs: OK, ${found.size} page(s) with language tabs; ${left} group(s) on the baseline, none new.`,
+    `check-tabs: OK, ${found.size} page(s) with language tabs; ${left} missing tab(s) on the baseline, in ${Object.keys(baseline).length} page(s), none new.`,
   );
 }
 

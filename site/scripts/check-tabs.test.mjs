@@ -65,7 +65,7 @@ test('a page with every language in every group passes', () => {
   assert.deepEqual(check(pages([['guides/x', `## A\n\n${group(...ALL)}`]]), {}), []);
 });
 
-test('a new missing tab fails, on a page with no baseline or a group the baseline does not list', () => {
+test('a new missing tab fails: a page with no baseline, or more missing than its count', () => {
   const found = pages([
     [
       'guides/x',
@@ -73,38 +73,48 @@ test('a new missing tab fails, on a page with no baseline or a group the baselin
     ],
   ]);
   assert.deepEqual(check(found, {}), [
-    'guides/x (line 3, "A"): no tab for Java, Scala. Add one, with the feature, or a first line "Not in the Java SDK." and what to do instead',
-    'guides/x (line 22, "B"): no tab for Scala. Add one, with the feature, or a first line "Not in the Scala SDK." and what to do instead',
+    'guides/x: 1 group(s) with no Java tab, 0 allowed (line 3, "A"). Add one, with the feature, or a first line "Not in the Java SDK." and what to do instead',
+    'guides/x: 2 group(s) with no Scala tab, 0 allowed (line 3, "A"; line 22, "B"). Add one, with the feature, or a first line "Not in the Scala SDK." and what to do instead',
   ]);
-  // The baseline lists A's missing Java only: Scala is still new.
-  assert.deepEqual(check(found, { 'guides/x': { A: ['Java', 'Scala'], B: [] } }).length, 1);
-  assert.deepEqual(check(found, { 'guides/x': { A: ['Java'], B: ['Scala'] } }), [
-    'guides/x (line 3, "A"): no tab for Scala. Add one, with the feature, or a first line "Not in the Scala SDK." and what to do instead',
-  ]);
-});
-
-test('missing tabs the baseline lists pass', () => {
-  const found = pages([['guides/x', `## A\n\n${group('TypeScript', 'Python')}`]]);
-  assert.deepEqual(check(found, { 'guides/x': { A: ['Java', 'Scala'] } }), []);
-});
-
-test('a baseline entry for a tab the page has gained fails, so the baseline cannot go stale', () => {
-  const found = pages([['guides/x', `## A\n\n${group(...ALL)}`]]);
-  assert.deepEqual(check(found, { 'guides/x': { A: ['Java', 'Scala'] } }), [
-    'guides/x ("A"): tabs-baseline.json lists Java, Scala, which the group has now: take them off (--write-baseline)',
+  // The baseline allows one group without Scala: the page has two.
+  assert.deepEqual(check(found, { 'guides/x': { Java: 1, Scala: 1 } }), [
+    'guides/x: 2 group(s) with no Scala tab, 1 allowed (line 3, "A"; line 22, "B"). Add one, with the feature, or a first line "Not in the Scala SDK." and what to do instead',
   ]);
 });
 
-test('a baseline entry for a group or a page that is gone fails', () => {
-  const found = pages([['guides/x', `## Renamed\n\n${group(...ALL)}`]]);
-  assert.deepEqual(check(found, { 'guides/x': { A: ['Java'] }, 'guides/gone': { B: ['Scala'] } }), [
-    'guides/x ("A"): tabs-baseline.json lists Java, which is no longer a group: take it off (--write-baseline)',
-    'guides/gone ("B"): tabs-baseline.json lists Scala, which is no longer a group: take it off (--write-baseline)',
+test('missing tabs the baseline counts pass, whatever their headings are called now', () => {
+  const baseline = { 'guides/x': { Java: 1, Scala: 1 } };
+  const before = pages([['guides/x', `## A\n\n${group('TypeScript', 'Python')}`]]);
+  const renamed = pages([
+    ['guides/x', `## Send the key from your app\n\n${group('TypeScript', 'Python')}`],
+  ]);
+  assert.deepEqual(check(before, baseline), []);
+  assert.deepEqual(check(renamed, baseline), []);
+});
+
+test('a count above what the page lacks now fails, so the baseline cannot go stale', () => {
+  const found = pages([
+    ['guides/x', `## A\n\n${group(...ALL)}\n\n## B\n\n${group('TypeScript', 'Python', 'Java')}`],
+  ]);
+  assert.deepEqual(check(found, { 'guides/x': { Java: 2, Scala: 2 } }), [
+    'guides/x: tabs-baseline.json allows 2 group(s) with no Java tab, and the page has 0: lower it (--write-baseline)',
+    'guides/x: tabs-baseline.json allows 2 group(s) with no Scala tab, and the page has 1: lower it (--write-baseline)',
+  ]);
+});
+
+test('a baseline entry for a page that is gone fails', () => {
+  assert.deepEqual(check(pages([]), { 'guides/gone': { Scala: 1 } }), [
+    'guides/gone: tabs-baseline.json allows 1 group(s) with no Scala tab, and the page has 0: lower it (--write-baseline)',
   ]);
 });
 
 test('a tab that says its SDK lacks the feature counts as the tab', () => {
-  const source = `## A\n\n${group('TypeScript', 'Python', ['Java', 'Not in the Java SDK. Call the HTTP API instead.'], ['Scala', 'Not in the Scala SDK. Call the HTTP API instead.'])}`;
+  const source = `## A\n\n${group(
+    'TypeScript',
+    'Python',
+    ['Java', 'Not in the Java SDK. Call the HTTP API instead.'],
+    ['Scala', 'Not in the Scala SDK. Call the HTTP API instead.'],
+  )}`;
   assert.deepEqual(check(pages([['guides/x', source]]), {}), []);
 });
 
@@ -119,8 +129,8 @@ test('a Tier 1 page needs every language, whatever the baseline says, and no "No
   const missing = pages([
     ['guides/tools/write-a-tool', `## A\n\n${group('TypeScript', 'Python', 'Java')}`],
   ]);
-  assert.deepEqual(check(missing, { 'guides/tools/write-a-tool': { A: ['Scala'] } }), [
-    'guides/tools/write-a-tool (line 3, "A"): a Tier 1 page needs a tab for Scala',
+  assert.deepEqual(check(missing, { 'guides/tools/write-a-tool': { Scala: 1 } }), [
+    'guides/tools/write-a-tool: a Tier 1 page needs a Scala tab in every group (line 3, "A")',
   ]);
   const notIn = pages([
     [
@@ -133,16 +143,13 @@ test('a Tier 1 page needs every language, whatever the baseline says, and no "No
   ]);
 });
 
-test('--write-baseline takes off what pages have gained and adds nothing', () => {
+test('--write-baseline lowers the counts to what pages lack, and raises and adds none', () => {
   const found = pages([
     ['guides/x', `## A\n\n${group('TypeScript', 'Python', 'Java')}\n\n## B\n\n${group(...ALL)}`],
     ['guides/new', `## C\n\n${group('TypeScript')}`],
   ]);
   assert.deepEqual(
-    shrink(
-      { 'guides/x': { A: ['Java', 'Scala'], B: ['Scala'] }, 'guides/gone': { D: ['Java'] } },
-      found,
-    ),
-    { 'guides/x': { A: ['Scala'] } },
+    shrink({ 'guides/x': { Java: 1, Scala: 2 }, 'guides/gone': { Java: 1 } }, found),
+    { 'guides/x': { Scala: 1 } },
   );
 });
