@@ -74,8 +74,10 @@ skills are behind, and `kindgi skills sync` refreshes them (see
   answer that doesn't match the agent's output schema, a package that's
   only in `devDependencies`: the message says which, and the agent fixes it
   and runs again.
-- **These docs, for agents.** [`docs.kindgi.com/llms.txt`](https://docs.kindgi.com/llms.txt)
-  indexes this site in plain text, one file per section;
+- **These docs, for agents.** Every page has a Markdown version: replace
+  the slash at the end of its URL with `.md`.
+  [`docs.kindgi.com/llms.txt`](https://docs.kindgi.com/llms.txt) lists
+  every page's Markdown version by section, and links one file per section.
   [`llms-full.txt`](https://docs.kindgi.com/llms-full.txt) is all of it.
   Point an agent there when it needs more than the skills.
 
