@@ -10,6 +10,7 @@ import type { TenantId } from '@kindgi/types';
 import { callerIdentity } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
+import { requestBodyBytes } from './request-body.js';
 
 /**
  * Idempotency-key store: `(tenantId, caller, route, key) → cached response`,
@@ -190,8 +191,7 @@ export function idempotencyMiddleware(
       return next();
     }
 
-    const bodyText = await readRawBody(c.req.raw);
-    const bodyHash = sha256Hex(bodyText);
+    const bodyHash = await fingerprint(c as Context<AppEnv>);
     const cacheKey = `${tenantId}|${callerIdentity(c as Context<AppEnv>)}|${c.req.method.toUpperCase()}:${c.req.path}|${rawKey}`;
     const hit = await store.get(cacheKey);
     if (hit !== null) return replay(c, hit, bodyHash, requestId, ttlMs);
@@ -222,9 +222,6 @@ export function idempotencyMiddleware(
       }
     }
 
-    // Re-attach the buffered body so downstream handlers reading
-    // `c.req.json()` see the same bytes.
-    if (bodyText.length > 0) rebindBody(c, bodyText);
     const renewal =
       holds === undefined
         ? undefined
@@ -313,26 +310,14 @@ function bodyMismatch(c: Context, requestId: string) {
   );
 }
 
-async function readRawBody(req: Request): Promise<string> {
-  const method = req.method.toUpperCase();
-  if (method === 'GET' || method === 'HEAD') return '';
-  try {
-    return await req.clone().text();
-  } catch {
-    return '';
-  }
-}
-
-function sha256Hex(text: string): string {
-  return createHash('sha256').update(text).digest('hex');
-}
-
-function rebindBody(c: { req: { raw: Request } }, body: string): void {
-  const original = c.req.raw;
-  const rebuilt = new Request(original.url, {
-    method: original.method,
-    headers: original.headers,
-    body,
-  });
-  Object.defineProperty(c.req, 'raw', { value: rebuilt, configurable: true });
+/**
+ * sha256 of the body's bytes as they came, so a body that text decoding
+ * would change (a byte-order mark, invalid UTF-8, a binary upload) keeps
+ * its own fingerprint. Only the hash comes back: nothing here holds the
+ * body while the request runs.
+ */
+async function fingerprint(c: Context<AppEnv>): Promise<string> {
+  return createHash('sha256')
+    .update(await requestBodyBytes(c))
+    .digest('hex');
 }

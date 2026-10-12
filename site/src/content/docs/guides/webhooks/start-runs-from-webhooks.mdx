@@ -301,7 +301,9 @@ what else a delivery leaves: the sender's address on a refusal.
 - **Limits:** a body over the trigger's cap is answered `413`. `--body-limit`
   sets the cap: 256 KiB by default, at most 1 MiB. Deliveries past the
   trigger's rate are answered `429`. `--rate-limit` sets the rate: 600 a
-  minute by default.
+  minute by default. A JSON body that nests objects and arrays more than 128
+  levels deep is answered `400 bad-input`, with the limit in
+  `details.maxDepth`. It's on the fires as `body-too-deep`.
 
 ## Pause, change and remove
 

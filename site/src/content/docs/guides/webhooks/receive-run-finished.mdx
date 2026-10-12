@@ -60,6 +60,9 @@ print(webhooks.generate_secret())
 </TabItem>
 </Tabs>
 
+It prints a new secret on one line: `whsec_` and the base64 of 32 random
+bytes.
+
 Store it as a secret, under a name. The CLI asks for the value and doesn't
 echo it:
 
@@ -78,9 +81,10 @@ kindgi secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
   Kindgi's own `.kindgi/secrets.env`, which your app doesn't load, as
   [Keep local values in env files](../../secrets/env-files/) explains.
 
-It prints:
+It prints the secret's name, scope, environment and version as JSON, then:
 
 ```text
+…
   Set ACME_WEBHOOK_SECRET at tenant in local, in your app's env file.
 ```
 

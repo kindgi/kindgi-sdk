@@ -124,6 +124,9 @@ kindgi providers register --preset=bedrock --region=us-east-2 \
 - `--region=us-east-2` is the Region your account uses Bedrock in.
 - `--models` names the Bedrock model id to register.
 
+It prints the provider's id as JSON, then `✓ Registered bedrock:` with the
+model it registered.
+
 The Bedrock model ids are:
 
 - **Claude Haiku 4.5** (`us.anthropic.claude-haiku-4-5-20251001-v1:0`): works
@@ -430,10 +433,11 @@ Kindgi's own `.kindgi/secrets.env`, which wins on a clash.
 To store a key without echoing it, with `kindgi dev` running:
 
 ```sh
-kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
+kindgi secrets set <KEY_NAME> --env=local --scope=tenant
 ```
 
-- `ANTHROPIC_API_KEY` is the secret's name: the key name the provider reads.
+- `<KEY_NAME>` is the secret's name: the key name the provider reads, such as
+  `OPENAI_API_KEY`. The [presets](#presets) table names each preset's key.
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files.
 - `--scope=tenant` is where the secret lives: the tenant, rather than one org

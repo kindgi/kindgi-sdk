@@ -400,11 +400,16 @@ export KINDGI_API_TOKEN=<the token from kindgi.env>
 pnpm exec kindgi key trust acme-selfhost --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
 ```
 
+It prints the trusted key as JSON, then confirms it:
+
 ```text
+…
   ✓ Trusted acme-selfhost (sha256:7bfbd97be075d796eb24f80d)
+…
 ```
 
-The fingerprint is the one `kindgi key create` printed.
+The fingerprint is the one `kindgi key create` printed. The runtime now
+accepts deploys this key signs.
 
 Then deploy. `--env selfhost` picks the environment, and `--token` sends
 the API token:

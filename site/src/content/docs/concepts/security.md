@@ -38,6 +38,23 @@ Tokens are compared in constant time. A wrong or missing token gets `401`:
 
 To rotate the token, restart the runtime with a new value.
 
+A request's body is at most 10 MiB. A bigger one is refused with
+`413 request-too-large`, with the limit in `details.maxBytes`, as soon as
+it's past the limit: a body that declares its length up front isn't read at
+all. A JSON body that nests objects and arrays more than 128 levels deep is
+refused with `400 bad-input`, with the limit in `details.maxDepth`, a
+webhook delivery's included. An artifact upload and a webhook delivery have
+size limits of their own
+([Keep files with a run](../../guides/runs/keep-files-with-a-run/),
+[Start runs from webhooks](../../guides/webhooks/start-runs-from-webhooks/)).
+
+Rendering an agent's instructions template may use 16,777,216 of the
+template engine's memory units, roughly the characters of the strings the
+render builds and the items of its arrays. A render past it fails the
+agent's turn with `model-invocation-failed`:
+`Prompt render failed: Template render failed: the render went over its memory limit of 16777216`.
+No setting changes it.
+
 With [authorization](../../deploy/authorization/) on, people and service
 accounts have API keys of their own, `kgi_ak_…`. Each key acts with its
 holder's grants and no more. A revoked key is refused from its next request.

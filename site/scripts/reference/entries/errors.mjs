@@ -47,8 +47,13 @@ export const ERROR_ENTRIES = {
   },
   'bad-input': {
     description:
-      "The request is malformed: the body isn't valid JSON or isn't an object, a field has the wrong type or value, a `projectId` isn't a UUID, or a `cursor` wasn't issued by this list. Fix the input named in the message.",
-    details: [],
+      "The request is malformed: the body isn't valid JSON or isn't an object, a JSON body nests objects and arrays deeper than the limit, a field has the wrong type or value, a `projectId` isn't a UUID, or a `cursor` wasn't issued by this list. Fix the input named in the message.",
+    details: [
+      {
+        key: 'maxDepth',
+        meaning: 'the most levels a JSON body may nest, when it nests deeper',
+      },
+    ],
   },
   'unresolved-tool': {
     description:
@@ -1742,6 +1747,16 @@ export const ERROR_ENTRIES = {
       {
         key: 'maxBytes',
         meaning: 'the largest accepted size, in bytes',
+      },
+    ],
+  },
+  'request-too-large': {
+    description:
+      "The request body is larger than the API's limit. Send a smaller body. An artifact upload and a webhook delivery have limits of their own (`artifact-too-large`, `webhook-body-too-large`).",
+    details: [
+      {
+        key: 'maxBytes',
+        meaning: 'the largest accepted body, in bytes',
       },
     ],
   },

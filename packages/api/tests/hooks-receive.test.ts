@@ -7,15 +7,18 @@
  * sender gets the same 401, with the reason only in the trigger's history
  * (and the access audit); a delivery repeated starts nothing; WooCommerce's
  * unsigned save-time ping gets its 200; a paused trigger takes the delivery
- * and starts nothing; the limits answer 413 and 429, and a delivery that
- * proves its sender is never held back by anyone's refusals. A trigger's
- * signing key is kept for a few seconds, as a key, never logged.
+ * and starts nothing; the limits answer 413 and 429, an event nested past
+ * the bounds' depth is refused, and a delivery that proves its sender is
+ * never held back by anyone's refusals. A trigger's signing key is kept for
+ * a few seconds, as a key, never logged.
  */
 
 import { createHmac, randomUUID } from 'node:crypto';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import { HOSTED_BOUNDS, SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
+import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import { generateWebhookSecret, webhookHeaders } from '@kindgi/crypto';
 import { createLogger } from '@kindgi/log';
 import type { EnvName, TenantId, UserId } from '@kindgi/types';
@@ -40,6 +43,13 @@ const PROJECT = '00000000-0000-4000-8000-0000000000a1';
 const WOO_SECRET = 'acmeWooSecret42';
 const HUB_SECRET = 'acme-hub-secret';
 const PROVIDER_KEY = 'acme-provider-key';
+
+let restoreBounds: (() => void) | undefined;
+
+afterEach(() => {
+  restoreBounds?.();
+  restoreBounds = undefined;
+});
 
 const resolveToken: TokenResolver = async (token) =>
   token === TOKEN
@@ -335,6 +345,34 @@ describe('a signed delivery', () => {
     expect(plain.status).toBe(202);
     expect(registry.webhookEvents.get(plain.body?.fireId)).toBe(text);
   });
+
+  test.each([
+    ['the hosted bounds', HOSTED_BOUNDS],
+    ['the self-hosted bounds', SELF_HOSTED_BOUNDS],
+  ])(
+    'a JSON event nested past 128 levels is refused and recorded, and starts nothing; at 128 it fires, under %s',
+    async (_, bounds) => {
+      restoreBounds = overrideTenantInputBounds(bounds);
+      const { register, deliver, fires, registry } = setup();
+      const t = await register(WOO);
+      const nested = (levels: number) => `${'['.repeat(levels)}${']'.repeat(levels)}`;
+      const deep = nested(129);
+      const res = await deliver(t.webhookId, deep, wooHeaders(deep, 'acme-deep'));
+      expect(res).toMatchObject({
+        status: 400,
+        body: { error: { code: 'bad-input', details: { maxDepth: 128 } } },
+      });
+      expect(await fires(t.triggerId)).toEqual([
+        expect.objectContaining({ outcome: 'refused', detail: 'body-too-deep' }),
+      ]);
+      expect(registry.webhookEvents.size).toBe(0);
+
+      const atLimit = nested(128);
+      const fired = await deliver(t.webhookId, atLimit, wooHeaders(atLimit, 'acme-at-limit'));
+      expect(fired.status).toBe(202);
+      expect(registry.webhookEvents.get(fired.body?.fireId)).toEqual(JSON.parse(atLimit));
+    },
+  );
 });
 
 describe('a request that does not prove its sender', () => {
@@ -362,6 +400,24 @@ describe('a request that does not prove its sender', () => {
         audit: true,
         clientAddress: '203.0.113.7',
       }),
+    ]);
+  });
+
+  test('a JSON event nested past the limit with a wrong signature, or none: the 401, recorded as the signature', async () => {
+    const { register, deliver, fires } = setup();
+    const t = await register(WOO);
+    const deep = `${'['.repeat(129)}${']'.repeat(129)}`;
+    const answers = [
+      await deliver(t.webhookId, deep, wooHeaders(deep, 'acme-deep-1', 'notTheSecret')),
+      await deliver(t.webhookId, deep, { 'content-type': 'application/json' }),
+    ];
+    for (const a of answers) {
+      expect(a).toMatchObject({ status: 401, body: { error: { code: 'webhook-refused' } } });
+      expect(a.body?.error.details).toBeUndefined();
+    }
+    expect((await fires(t.triggerId)).map((fire) => fire.detail).sort()).toEqual([
+      'signature-invalid',
+      'signature-missing',
     ]);
   });
 
