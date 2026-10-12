@@ -7,6 +7,7 @@ import {
   TUTORIALS,
   missingImports,
   pinOf,
+  pinnedPagePaths,
   pinnedTutorials,
   slugOf,
   tutorialRedirects,
@@ -126,13 +127,22 @@ test("_redirects: every release's and next's copy of a pinned page goes to /tuto
     [
       '/v0.1.6/tutorials/add-kindgi /tutorials/add-kindgi/ 301',
       '/v0.1.6/tutorials/add-kindgi/ /tutorials/add-kindgi/ 301',
+      '/v0.1.6/tutorials/add-kindgi.md /tutorials/add-kindgi.md 301',
       '/v0.1.5/tutorials/add-kindgi /tutorials/add-kindgi/ 301',
       '/v0.1.5/tutorials/add-kindgi/ /tutorials/add-kindgi/ 301',
+      '/v0.1.5/tutorials/add-kindgi.md /tutorials/add-kindgi.md 301',
       '/next/tutorials/add-kindgi /tutorials/add-kindgi/ 301',
       '/next/tutorials/add-kindgi/ /tutorials/add-kindgi/ 301',
+      '/next/tutorials/add-kindgi.md /tutorials/add-kindgi.md 301',
       '',
     ].join('\n'),
   );
+});
+
+test('a pinned page and its Markdown, where a build has them', () => {
+  const asPaths = (slug) => pinnedPagePaths(slug).map((segments) => `/${segments.join('/')}`);
+  assert.deepEqual(asPaths('add-kindgi'), ['/tutorials/add-kindgi', '/tutorials/add-kindgi.md']);
+  assert.deepEqual(asPaths(''), ['/tutorials/index.html', '/tutorials.md']);
 });
 
 test('_redirects: nothing for unpinned tutorials, and the section index only when it is pinned', () => {
@@ -140,6 +150,11 @@ test('_redirects: nothing for unpinned tutorials, and the section index only whe
   assert.equal(tutorialRedirects(plan(tags('0.1.6')), []), '');
   assert.equal(
     tutorialRedirects(plan(tags('0.1.6')), ['']),
-    '/v0.1.6/tutorials /tutorials/ 301\n/v0.1.6/tutorials/ /tutorials/ 301\n',
+    [
+      '/v0.1.6/tutorials /tutorials/ 301',
+      '/v0.1.6/tutorials/ /tutorials/ 301',
+      '/v0.1.6/tutorials.md /tutorials.md 301',
+      '',
+    ].join('\n'),
   );
 });
