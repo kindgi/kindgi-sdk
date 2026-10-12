@@ -209,7 +209,7 @@ declare it in `pyproject.toml`: [Declare them in your pack's config](../../guide
 
 ## Next
 
-- [Add Kindgi to an existing Python app](../existing-app/#a-python-app):
+- [Add Kindgi to an existing Python app](../existing-app-python/):
   your app's own modules as tools.
 - [Build a support desk](../../tutorials/support-desk-python/) in Python.
 - [Guides](../../guides/): one task at a time.

@@ -105,7 +105,7 @@ Whichever registry you use, two things stop the runtime from reading it:
 
 If your app's code needs a generate step in the image (Prisma's client, for
 example), set that up first:
-[What the pack's image needs](../../start/existing-app/#what-the-packs-image-needs).
+[What the pack's image needs](../../start/existing-app-typescript/#what-the-packs-image-needs).
 
 In a Python pack, run each `pnpm exec kindgi` on this page as
 `uv run kindgi`, and lock its dependencies first (`uv lock`, or

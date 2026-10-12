@@ -219,7 +219,7 @@ declare it in `kindgi.config.json` (`"providers": [{"preset": "anthropic"}]`):
 
 ## Next
 
-- [Add Kindgi to an existing Java app](../existing-app/#a-java-app-maven):
+- [Add Kindgi to an existing Java app](../existing-app-java/):
   your app's own classes as tools.
 - [Call Kindgi from a Java app](../java-app/): start runs and follow them
   with the Java client.
