@@ -36,7 +36,7 @@ pnpm install
   pack's id comes from the `name` in the app's `package.json`. If there's no
   name, or `init` says it doesn't make a pack id, add `--pack-id=<id>`:
   lowercase letters, digits and dashes, starting with a letter, such as
-  `--pack-id=acme-support`. The app keeps its `package.json` as it is.
+  `--pack-id=acme-support`. The app's `name` stays as it is.
 - Run your app's own package manager's install in place of `pnpm install`.
 - If your app's pnpm sets `minimumReleaseAge`, `pnpm install` refuses a
   Kindgi release younger than that. Wait until the release is old enough, or
