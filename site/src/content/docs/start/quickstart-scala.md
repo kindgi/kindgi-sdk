@@ -235,7 +235,7 @@ declare it in `kindgi.config.json` (`"providers": [{"preset": "anthropic"}]`):
 
 ## Next
 
-- [Add Kindgi to an existing Scala app](../existing-app/#a-scala-app-sbt):
+- [Add Kindgi to an existing Scala app](../existing-app-scala/):
   your app's own classes as tools.
 - [Guides](../../guides/): one task at a time.
 - [Concepts](../../concepts/): packs, runs and the journal, security.
