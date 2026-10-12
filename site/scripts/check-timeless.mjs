@@ -10,7 +10,11 @@
  *
  * - **A version as a point in time:** "from 0.1.6", "fixed in 0.1.1",
  *   "since 0.1.4", "in 0.1.6", "on 0.1.6", "0.1.6 and earlier", "0.1.5 or older". A
- *   requirement ("0.1.7 or later") and a range ("in 0.1.x") are fine.
+ *   requirement ("0.1.7 or later") and a range ("in 0.1.x") are fine. So is a
+ *   version with a later major than Kindgi's own (the CLI's): it's another
+ *   thing's number, an agent's ("a conversation started on 1.2.0") or a
+ *   dependency's ("fixed in 48.0.1"). From Kindgi 1.0 on, an agent version in a
+ *   page needs a major above Kindgi's, or this rule needs another way to tell.
  * - **Time words:** "today", "currently", "for now", "at the moment",
  *   "a fix is planned", "coming soon".
  *
@@ -31,6 +35,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { docsVersion } from './versioned-pages.mjs';
 
 const site = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DOCS = 'src/content/docs/';
@@ -118,11 +123,23 @@ function paragraphs(prose) {
   return result;
 }
 
-/** The phrases in a page's source that date it, each with the line it starts on. */
-export function datedPhrases(source) {
+/** Whether `version`'s major is at most Kindgi's (`kindgi`), so it can be Kindgi's own. */
+export function couldBeKindgis(version, kindgi) {
+  return Number(version.split('.')[0]) <= Number(kindgi.split('.')[0]);
+}
+
+/**
+ * The phrases in a page's source that date it, each with the line it starts
+ * on. `kindgi` is Kindgi's version, the CLI's in this checkout.
+ */
+export function datedPhrases(source, kindgi = docsVersion()) {
   return paragraphs(proseLines(source)).flatMap(({ text, starts }) =>
     [VERSION, OLDER, TIME_WORDS]
       .flatMap((pattern) => [...text.matchAll(pattern)])
+      .filter((match) => {
+        const version = match[0].match(/\d+\.\d+\.\d+/)?.[0];
+        return !version || couldBeKindgis(version, kindgi);
+      })
       .sort((a, b) => a.index - b.index)
       .map((match) => ({
         line: starts.findLast(({ at }) => at <= match.index).number,
@@ -141,8 +158,9 @@ function pages() {
 /** Each page's hits, by its slug (its path under the docs, without `.md` or `.mdx`). */
 function hitsByPage() {
   const result = new Map();
+  const kindgi = docsVersion();
   for (const path of pages()) {
-    const hits = datedPhrases(readFileSync(join(site, path), 'utf8'));
+    const hits = datedPhrases(readFileSync(join(site, path), 'utf8'), kindgi);
     if (hits.length > 0) result.set(path.slice(DOCS.length).replace(/\.mdx?$/, ''), hits);
   }
   return result;
