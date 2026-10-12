@@ -365,7 +365,7 @@ describe('--check', () => {
       `✗ No access to ${DEFAULT_RUNTIME_IMAGE}: ERROR: unexpected status`,
     );
     expect(out.stderr).toContain(
-      'sign in with GitHub at https://access.kindgi.com for a pull credential, then log in',
+      'The runtime image needs a pull credential: sign in with GitHub at https://access.kindgi.com for one, then log in',
     );
     expect(out.stderr).toContain('kindgi auth registry --username <your robot name>.');
     expect(out.stderr).not.toContain("Couldn't find");

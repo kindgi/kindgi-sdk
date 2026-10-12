@@ -280,7 +280,7 @@ function accessFailure(
     return [
       `  ✗ No access to ${image}: ${access.detail}`,
       args.username === undefined
-        ? `    The runtime image is in private preview: sign in with GitHub at ${KINDGI_ACCESS_ORIGIN} for a pull credential, then log in: ${registryLoginCommand(image)}.`
+        ? `    The runtime image needs a pull credential: sign in with GitHub at ${KINDGI_ACCESS_ORIGIN} for one, then log in: ${registryLoginCommand(image)}.`
         : `    ${args.username} is logged in to ${args.host} but can't pull it: sign in at ${KINDGI_ACCESS_ORIGIN} for your current pull credential (questions: contact@kindgi.com).`,
     ];
   }

@@ -207,9 +207,9 @@ One command runs the whole loop on your machine:
   Default Credentials file (`GOOGLE_APPLICATION_CREDENTIALS`, else the one
   `gcloud auth application-default login` writes) is mounted read-only.
   Kindgi keeps no key files of its own.
-- **The image:** the runtime image is pulled on first use. It is in
-  private preview: sign in with GitHub at https://access.kindgi.com for a
-  pull credential, then log Docker in with it:
+- **The image:** the runtime image is pulled on first use. It needs a pull
+  credential: sign in with GitHub at https://access.kindgi.com for one, then
+  log Docker in with it:
   `kindgi auth registry --username <your robot name>` (see
   [The runtime image's registry](#the-runtime-images-registry)). `kindgi dev`
   says so when a pull is refused.
@@ -824,9 +824,9 @@ with `kindgi auth whoami`.
 
 ### The runtime image's registry
 
-The Kindgi runtime image `kindgi dev` runs is in private preview. Sign in
-with GitHub at https://access.kindgi.com for a pull credential (a robot name
-and a token), then log Docker in once:
+The Kindgi runtime image `kindgi dev` runs needs a pull credential (a robot
+name and a token). Sign in with GitHub at https://access.kindgi.com for one,
+then log Docker in once:
 
 ```sh
 kindgi auth registry --username <your robot name>  # prompts for the token, without echoing it

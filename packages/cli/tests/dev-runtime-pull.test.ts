@@ -117,7 +117,7 @@ describe.skipIf(process.platform === 'win32')('the runtime image pull', () => {
     const message = result.kind === 'error' ? result.message : '';
     expect(message).toContain('unauthorized');
     expect(message).toContain(
-      '  The runtime image is in private preview: sign in with GitHub at https://access.kindgi.com for a pull credential, log in (kindgi auth registry --username <your robot name>), then run kindgi dev again.',
+      '  The runtime image needs a pull credential: sign in with GitHub at https://access.kindgi.com for one, log in (kindgi auth registry --username <your robot name>), then run kindgi dev again.',
     );
   });
 

@@ -191,7 +191,7 @@ export async function ensureRuntimeImage(
     helper !== undefined
       ? `\n  ${credentialHelperHint(helper.helper)}`
       : isRegistryAuthFailure(pulled.stderr)
-        ? `\n  The runtime image is in private preview: sign in with GitHub at ${KINDGI_ACCESS_ORIGIN} for a pull credential, log in (${registryLoginCommand(image)}), then run kindgi dev again.`
+        ? `\n  The runtime image needs a pull credential: sign in with GitHub at ${KINDGI_ACCESS_ORIGIN} for one, log in (${registryLoginCommand(image)}), then run kindgi dev again.`
         : '';
   return { kind: 'error', message: `Couldn't pull ${image}: ${detail}${auth}` };
 }
