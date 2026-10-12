@@ -163,10 +163,19 @@ environment block, and `--env prod` names that block:
 pnpm exec kindgi build --local --push --env prod
 ```
 
+It prints the build as JSON, then each step. The last steps:
+
 ```text
-✓ Pushed …/acme@sha256:bd7bfe4f…
-✓ /app/index.json in the image matches the local index byte for byte
-✓ Ed25519 signature over (imageDigest, artifactVersion, indexHash, tenantId, publishedAt)
+…
+    ✓ Pushed …/acme@sha256:bd7bfe4f…
+
+  Verifying build output
+    ✓ /app/index.json in the image matches the local index byte for byte
+
+  Signing locally
+    ✓ Ed25519 signature over (imageDigest, artifactVersion, indexHash, tenantId, publishedAt)
+      key: …
+…
 ```
 
 Set `server_image` and `pack_image` in `prod.tfvars` to the two digests
@@ -408,11 +417,20 @@ It prints the key the runtime now trusts, then says so:
 pnpm exec kindgi deploy --env prod --endpoint "$URL" --token "$KINDGI_API_TOKEN"
 ```
 
+It prints the deployment as JSON, then each step. The last steps:
+
 ```text
-✓ POST /v1/deployments  →  201 Created
-  artifactVersion: …
-  primitives:      3 tools, 1 guardrail, 1 agent, 2 flows
-Deploy complete.
+…
+  Registering deployment
+    ✓ POST /v1/deployments  →  201 Created
+      deploymentId:    b27ee9ec-…
+      artifactVersion: …
+      primitives:      3 tools, 1 guardrail, 1 agent, 2 flows
+      activatedAt:     2026-10-04T22:23:24.370Z
+
+  Deploy complete.
+  Runs started from now use image sha256:bd7bfe4f7d9c8… (artifactVersion …).
+  Runs already in flight continue on their pinned image.
 ```
 
 The runtime read your pack's image from Artifact Registry with its own token
