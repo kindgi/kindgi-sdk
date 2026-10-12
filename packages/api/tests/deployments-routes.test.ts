@@ -1375,6 +1375,49 @@ describe('POST /v1/deployments — manifest validation', () => {
     );
   });
 
+  test("an agent's template with a partial → 400, naming the agent and where", async () => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [],
+        guardrails: [],
+        agents: [
+          {
+            id: 'acme.drafting',
+            version: '1.0.0',
+            name: 'Drafting',
+            instructions: "Draft it. {% layout 'package.json' %}",
+            capabilities: [{ feature: 'model.text.chat' }],
+            tools: [],
+          },
+        ],
+        flows: [],
+      },
+    });
+    const { app } = makeApp({ fixture });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; details?: { issues?: Array<Record<string, unknown>> } };
+    };
+    expect(body.error.code).toBe('deployment-validation-failed');
+    expect(body.error.details?.issues).toEqual([
+      {
+        primitive: 'agent',
+        index: 0,
+        id: 'acme.drafting',
+        path: '/instructions',
+        message: "templates can't use include, render or layout",
+      },
+    ]);
+  });
+
   test("a tool's needsSpec schema that wouldn't compile → 400, naming the tool and where", async () => {
     const fixture = buildSignedDeploy({
       index: {
