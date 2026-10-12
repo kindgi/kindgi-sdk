@@ -2,6 +2,9 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, relative } from 'node:path';
 import { test } from 'node:test';
 import {
   blocks,
@@ -10,7 +13,9 @@ import {
   fillPlaceholders,
   jsonProblem,
   kindgiArgs,
+  missingGenerated,
   pageRules,
+  pages,
   shellCommands,
   shellProblems,
 } from './check-samples.mjs';
@@ -106,6 +111,26 @@ test('a page: a compiled-language block is a whole file or an excerpt', () => {
   assert.match(problems[1].message, /marked `excerpt` but names a file/);
 });
 
+test('a page: a signature is offered for nothing, so it needs no file name', () => {
+  const page = [
+    `${fence}python signature`,
+    'get(agent_id: str, /, *, timeout: float | None = None) -> Agent',
+    fence,
+    `${fence}ts signature`,
+    'function start(input: StartRunInput): Promise<Run>',
+    fence,
+    `${fence}python signature`,
+    '# tools/lookup.py',
+    fence,
+  ].join('\n');
+  const { problems } = pageRules(page, cli);
+  assert.deepEqual(
+    problems.map(({ line }) => line),
+    [7],
+  );
+  assert.match(problems[0].message, /marked `signature` but names a file/);
+});
+
 test("a page: text isn't checked, other languages are excerpts, JSON parses", () => {
   const page = [
     `${fence}text`,
@@ -168,6 +193,10 @@ test('JSON: a document, JSON Lines, JSONC; a block with comments is jsonc', () =
   assert.equal(jsonProblem('{\n  // the id\n  "a": 1,\n}', true), undefined);
   assert.match(jsonProblem('{\n  // the id\n  "a": 1\n}', false), /is `jsonc`/);
   assert.match(jsonProblem('"a": 1,\n"b": 2', false), /part of a JSON document/);
+  // One line, whatever the parser quotes; the jsonc hint only for a block with comments.
+  const broken = jsonProblem('{\n  "data": [ ... ],\n  "next": null\n}', false);
+  assert.match(broken, /^doesn't parse as JSON: /);
+  assert.doesNotMatch(broken, /\n|jsonc/);
 });
 
 test('placeholders become one word for the shell', () => {
@@ -269,7 +298,7 @@ test('a JVM test is a whole file too: src/test/java and src/test/scala', () => {
   );
 });
 
-test("a page's whole files: its excerpts stay out; a skill's files are all kept", () => {
+test("a page's whole files: excerpts and signatures stay out; a skill's files are all kept", () => {
   const page = [
     `${fence}ts`,
     '// tools/a/index.ts',
@@ -278,8 +307,51 @@ test("a page's whole files: its excerpts stay out; a skill's files are all kept"
     `${fence}ts excerpt`,
     '// tools/b/index.ts',
     fence,
+    `${fence}ts signature`,
+    '// tools/c/index.ts',
+    fence,
   ].join('\n');
   const paths = (files) => files.ts.map((file) => file.path);
-  assert.deepEqual(paths(fileSamples(page, { excerpts: false })), ['tools/a/index.ts']);
-  assert.deepEqual(paths(fileSamples(page)), ['tools/a/index.ts', 'tools/b/index.ts']);
+  assert.deepEqual(paths(fileSamples(page, { offeredOnly: true })), ['tools/a/index.ts']);
+  assert.deepEqual(paths(fileSamples(page)), [
+    'tools/a/index.ts',
+    'tools/b/index.ts',
+    'tools/c/index.ts',
+  ]);
+});
+
+test('every page, the generated reference included; a whole run needs it generated', () => {
+  const root = mkdtempSync(join(tmpdir(), 'check-samples-pages-'));
+  try {
+    // A page by its slug: its path under the docs, without the extension.
+    const page = (slug, extension = 'md') => {
+      mkdirSync(join(root, slug, '..'), { recursive: true });
+      writeFileSync(join(root, `${slug}.${extension}`), '# A page\n');
+    };
+    page('start/install');
+    page('guides/tools/write-a-tool', 'mdx');
+    page('reference/index');
+    page('contributing/repository');
+    writeFileSync(join(root, 'reference', 'openapi.json'), '{}');
+    assert.deepEqual(missingGenerated(root), ['reference/cli', 'reference/python']);
+    page('reference/cli/runs');
+    assert.deepEqual(missingGenerated(root), ['reference/python']);
+    page('reference/python/client');
+    assert.deepEqual(missingGenerated(root), []);
+    assert.deepEqual(
+      pages(root)
+        .map((path) => relative(root, path))
+        .sort(),
+      [
+        'contributing/repository',
+        'guides/tools/write-a-tool',
+        'reference/cli/runs',
+        'reference/index',
+        'reference/python/client',
+        'start/install',
+      ].map((slug) => (slug.startsWith('guides/') ? `${slug}.mdx` : `${slug}.md`)),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
