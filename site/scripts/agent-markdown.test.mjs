@@ -160,7 +160,7 @@ test('a signature says so after its language, and its label stays out', () => {
     md.markdown,
     '# Quickstart\n\n```python signature\nget(agent_id: str, /) -> Agent\n```\n',
   );
-  assert.doesNotMatch(md.markdown, /Signature\n/);
+  assert.doesNotMatch(md.markdown, /Signature/);
 });
 
 test('beside an excerpt, a whole file keeps its plain fence', () => {
