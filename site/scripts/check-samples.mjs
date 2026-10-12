@@ -70,6 +70,17 @@
  * an app with its own settings (Next.js: `moduleResolution: "bundler"`, the
  * `@/*` paths).
  *
+ * A sample may also import a library the reader adds to their app
+ * (`from fastapi import FastAPI`). The same comment then holds the reader's
+ * install step, a shell block of `uv add <library> …` (Python) or
+ * `pnpm add <library> …` (TypeScript) lines. The check runs it as words,
+ * without a shell, in that page's own copy of the pack before compiling, so
+ * the sample is checked against the library itself and no other page's pack
+ * gets it. Any other line there (a flag, a URL, a path, `;`, a pipe, `$(…)`)
+ * is a problem and is never run. A library that no install command on the
+ * page shows the reader is a problem too. Java and Scala samples have no such
+ * step: they compile against their pack and the Java client only.
+ *
  * Needs the workspace built (`pnpm run build`), uv for Python samples, for
  * Java samples a JDK 17 or later and the Java SDK built
  * (`cd sdks/java && ./mvnw package -DskipTests`), and for Scala samples sbt,
@@ -347,7 +358,151 @@ export function pageRules(markdown, cli) {
     if (shell) result.shell.push(block);
     if (parsed) result.parsed.push(block);
   }
+  const { adds, problems } = libraries(markdown);
+  result.problems.push(...problems);
+  const files = fileSamples(markdown, { offeredOnly: true });
+  const shown = installed(markdown);
+  for (const { language, libraries: names, line } of adds) {
+    const { name, install } = INSTALL_HINT[language];
+    if (!files[language].some((file) => !file.stub)) {
+      result.problems.push({
+        line,
+        message: `adds ${name} libraries, but the page has no whole ${name} file to check with them`,
+      });
+    }
+    const hidden = names.filter((spec) => !shown[language].has(libraryName(language, spec)));
+    if (hidden.length > 0) {
+      result.problems.push({
+        line,
+        message: `adds ${hidden.map((spec) => `\`${spec}\``).join(', ')} for the check, but no install command on the page shows the reader that step: show it (${install})`,
+      });
+    }
+  }
   return result;
+}
+
+/** The command that adds a library in a `check-samples` comment, by the pack it adds to. */
+const ADD = { uv: 'python', pnpm: 'ts' };
+/**
+ * A library as an install command names it, by language: for Python, a
+ * name with extras and version specifiers (`fastapi`, `uvicorn[standard]`,
+ * `'fastapi>=0.115'`); for TypeScript, an npm name, scoped or not, with a
+ * version (`hono`, `@acme/client@^2`). No flags, URLs, paths or git specs.
+ */
+const LIBRARY = {
+  python:
+    /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?(?:\[[A-Za-z0-9._,-]+\])?(?:(?:==|~=|!=|>=|<=|>|<)[A-Za-z0-9.*+!-]+(?:,(?:==|~=|!=|>=|<=|>|<)[A-Za-z0-9.*+!-]+)*)?$/,
+  ts: /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*(?:@[A-Za-z0-9.^~*+-]+)?$/,
+};
+/** What an install line in a `check-samples` comment can't have: the shell's operators, substitutions, escapes. */
+const SHELL_SYNTAX = /[;&|()`$\\]/;
+const INSTALL_HINT = {
+  python: { name: 'Python', install: '`uv add …` or `pip install …`' },
+  ts: { name: 'TypeScript', install: '`pnpm add …` or `npm install …`' },
+};
+
+/**
+ * One line of a `check-samples` comment's shell block, as the libraries it
+ * adds (`{ language, libraries }`), or undefined when it's anything but
+ * `uv add <library> …` or `pnpm add <library> …`.
+ */
+function addLine(command) {
+  const unquoted = command.replace(/'[^']*'|"[^"]*"/g, '');
+  if (SHELL_SYNTAX.test(command) || /[<>'"]/.test(unquoted)) return undefined;
+  const commands = shellCommands(command);
+  if (commands.length !== 1) return undefined;
+  const [tool, verb, ...names] = commands[0];
+  const language = ADD[tool];
+  if (language === undefined || verb !== 'add' || names.length === 0) return undefined;
+  return names.every((name) => LIBRARY[language].test(name))
+    ? { language, libraries: names }
+    : undefined;
+}
+
+/**
+ * The libraries a page's samples import that the reader adds to their app
+ * (`from fastapi import FastAPI`): `{ adds, problems }`. The page's
+ * `check-samples` comment has the reader's install step, in a shell block
+ * of `uv add <library> …` (Python) or `pnpm add <library> …` (TypeScript)
+ * lines, which the check runs in that page's own copy of the pack.
+ * `adds`: `{ language, libraries, line }[]`; `problems`: `{ line, message }[]`,
+ * for any other line in such a block, which is never run.
+ */
+export function libraries(markdown) {
+  const result = { adds: [], problems: [] };
+  for (const block of blocks(markdown)) {
+    if (!block.stub || !SHELL.has(block.language)) continue;
+    block.lines.forEach((text, index) => {
+      const command = text.trim();
+      if (command === '' || command.startsWith('#')) return;
+      const line = block.line + 1 + index;
+      const add = addLine(command);
+      if (add !== undefined) {
+        result.adds.push({ ...add, line });
+        return;
+      }
+      result.problems.push({
+        line,
+        message:
+          'a `check-samples` shell block only adds the libraries the samples import, a command a line: `uv add <library> …` (Python) or `pnpm add <library> …` (TypeScript), with no flags, URLs, paths or shell syntax',
+      });
+    });
+  }
+  return result;
+}
+
+/** The words an install command installs, and the language it installs them for. */
+function installCommand(words) {
+  const [first, second, third, fourth] = words;
+  if (first === 'uv' && second === 'add') return { language: 'python', words: words.slice(2) };
+  if (first === 'uv' && second === 'pip' && third === 'install') {
+    return { language: 'python', words: words.slice(3) };
+  }
+  if (/^pip3?$/.test(first) && second === 'install') {
+    return { language: 'python', words: words.slice(2) };
+  }
+  if (/^python3?$/.test(first) && second === '-m' && third === 'pip' && fourth === 'install') {
+    return { language: 'python', words: words.slice(4) };
+  }
+  if (['pnpm', 'yarn'].includes(first) && second === 'add') {
+    return { language: 'ts', words: words.slice(2) };
+  }
+  if (first === 'npm' && ['install', 'i'].includes(second)) {
+    return { language: 'ts', words: words.slice(2) };
+  }
+  return undefined;
+}
+
+/** A library's name without its extras or version (Python's in PEP 503's normal form). */
+function libraryName(language, spec) {
+  if (language === 'python') {
+    return spec
+      .split(/[[=<>!~,\s]/)[0]
+      .replace(/[-_.]+/g, '-')
+      .toLowerCase();
+  }
+  const version = spec.indexOf('@', 1);
+  return (version === -1 ? spec : spec.slice(0, version)).toLowerCase();
+}
+
+/**
+ * The libraries the install commands the reader sees on a page add, by
+ * language (`uv add`, `uv pip install`, `pip install` and
+ * `python -m pip install` for Python; `pnpm add`, `yarn add`, `npm install`
+ * for TypeScript), by name.
+ */
+function installed(markdown) {
+  const found = { python: new Set(), ts: new Set() };
+  const commands = blocks(markdown)
+    .filter((block) => !block.stub && SHELL.has(block.language))
+    .flatMap((block) => shellCommands(block.lines.join('\n')));
+  for (const install of commands.map(installCommand)) {
+    if (install === undefined) continue;
+    for (const word of install.words.filter((word) => !word.startsWith('-'))) {
+      found[install.language].add(libraryName(install.language, word));
+    }
+  }
+  return found;
 }
 
 /** `<run-id>`, `<your pack's digest>`: a placeholder the reader fills in. */
@@ -1032,7 +1187,20 @@ function checkScala(files) {
   return indexJvmPack(dir, classpath.trim());
 }
 
-function check(language, files, packDir) {
+/**
+ * A page's TypeScript or Python files written over its own copy of a fresh
+ * pack and checked; `added`: the libraries the page's `check-samples`
+ * comment adds (`libraries`), installed in that copy first, the reader's
+ * install step run as words (no shell).
+ */
+function check(language, files, packDir, added = []) {
+  if (added.length > 0) {
+    const add =
+      language === 'ts'
+        ? run('pnpm', ['add', '--prefer-offline', '--silent', ...added], packDir)
+        : run('uv', ['add', '--quiet', ...added], packDir);
+    if (!add.ok) return `adding ${added.join(' ')} to the pack failed:\n${add.output}`;
+  }
   for (const file of files) {
     const target = join(packDir, file.path);
     mkdirSync(dirname(target), { recursive: true });
@@ -1082,9 +1250,17 @@ function readBaseline() {
   return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
 }
 
-/** The slugs of the pages that are tracked files, or `undefined` outside a git checkout. */
-function trackedPages() {
-  const listed = run('git', ['ls-files', '-z'], docs);
+/**
+ * The slugs of the pages git ignores (the generated reference), or
+ * `undefined` outside a git checkout. A new page that isn't committed yet is
+ * neither tracked nor ignored, so it isn't taken for a generated one.
+ */
+function ignoredPages() {
+  const listed = run(
+    'git',
+    ['ls-files', '-z', '--others', '--ignored', '--exclude-standard'],
+    docs,
+  );
   if (!listed.ok) return undefined;
   return new Set(
     listed.stdout
@@ -1095,14 +1271,14 @@ function trackedPages() {
 }
 
 /**
- * The baseline lines for the failing pages that aren't tracked files: the
- * generated reference pages. A change to the code one documents (a new
- * export, method or command) adds blocks to a page its author never wrote;
- * until the page's generator marks them, these lines let them pass.
+ * The baseline lines for the failing pages git ignores: the generated
+ * reference pages. A change to the code one documents (a new export, method
+ * or command) adds blocks to a page its author never wrote; until the page's
+ * generator marks them, these lines let them pass.
  */
-export function generatedBaseline(failing, tracked) {
+export function generatedBaseline(failing, ignored) {
   return failing
-    .filter(({ page }) => !tracked.has(page))
+    .filter(({ page }) => ignored.has(page))
     .map(({ page, lines }) => `  ${JSON.stringify(page)}: ${lines.length},`);
 }
 
@@ -1143,6 +1319,7 @@ function checkPage(page, markdown, cli) {
 function compileSamples(page, markdown, isPage) {
   let checked = 0;
   const failures = [];
+  const { adds } = libraries(markdown);
   for (const [language, files] of Object.entries(fileSamples(markdown, { offeredOnly: isPage }))) {
     if (files.length === 0) continue;
     let error;
@@ -1153,7 +1330,8 @@ function compileSamples(page, markdown, isPage) {
     } else {
       const { template, id } = LANGUAGES[language];
       const packId = files.map((file) => file.content.match(id)?.[1]).find(Boolean) ?? 'my-pack';
-      error = check(language, files, freshPack(template, packId));
+      const added = adds.filter((add) => add.language === language).flatMap((add) => add.libraries);
+      error = check(language, files, freshPack(template, packId), added);
     }
     const samples = files.filter((file) => !file.stub);
     checked += samples.length;
@@ -1168,7 +1346,7 @@ function compileSamples(page, markdown, isPage) {
  * count in the baseline (the pages' problems when these rules came in) are
  * reported but don't fail; the pages' owners fix them, and the baseline is emptied.
  */
-function report({ ruleProblems, failures }, tracked) {
+function report({ ruleProblems, failures }, ignored) {
   const baseline = readBaseline();
   const failing = ruleProblems.filter(({ page, lines }) => lines.length > (baseline[page] ?? 0));
   const known = ruleProblems.filter((entry) => !failing.includes(entry));
@@ -1176,9 +1354,9 @@ function report({ ruleProblems, failures }, tracked) {
   const sections = [];
   if (failing.length > 0) {
     sections.push(
-      `check-samples: ${count(failing)} code block(s) that can't be pasted as they are. Make each whole and checked, or mark it \`excerpt\` (site/scripts/excerpts.mjs):\n\n${failing.flatMap(({ lines }) => lines).join('\n')}`,
+      `check-samples: ${count(failing)} code block(s) that can't be pasted as they are. Make each whole and checked, or mark it \`excerpt\` (a reference page's declaration: \`signature\`; site/scripts/excerpts.mjs):\n\n${failing.flatMap(({ lines }) => lines).join('\n')}`,
     );
-    const generated = tracked ? generatedBaseline(failing, tracked) : [];
+    const generated = ignored ? generatedBaseline(failing, ignored) : [];
     if (generated.length > 0) {
       sections.push(
         `check-samples: ${generated.length} of these page(s) are generated (git-ignored; \`pnpm run docs:build\` writes them), so a change to the code they document can add blocks to them. Until their generator marks those blocks, set these counts in site/scripts/${BASELINE}:\n\n${generated.join('\n')}`,
@@ -1245,7 +1423,7 @@ async function main() {
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
-  if (report(totals, trackedPages())) process.exit(1);
+  if (report(totals, ignoredPages())) process.exit(1);
   const compiled = compile ? `${totals.checked} file samples check; ` : '';
   console.log(
     `check-samples: ${compiled}${totals.copyable} code blocks on the pages are offered for copying and checked; not offered: ${totals.excerpts} excerpt(s), ${totals.signatures} signature(s).`,

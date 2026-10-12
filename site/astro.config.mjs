@@ -97,6 +97,8 @@ export default defineConfig({
       },
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/kindgi/kindgi-sdk' }],
       editLink: { baseUrl: 'https://github.com/kindgi/kindgi-sdk/edit/main/site/' },
+      // No "On this page" column beside the text.
+      tableOfContents: false,
       // The fonts are served from the site itself (Fontsource), so a page asks no
       // other host for them: Plex Sans with its width axis (headings narrow to
       // --kg-narrow), its files kept in src/fonts so a release's docs branch can
