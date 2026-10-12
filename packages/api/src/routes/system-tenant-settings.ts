@@ -22,6 +22,8 @@ export interface SystemTenantSettingsBinding {
     tenantId: TenantId,
     allowed: boolean,
   ): Promise<{ readonly productionAllowed: boolean }>;
+  /** The tenant's limits as stored: one that isn't set is absent. */
+  limits(tenantId: TenantId): Promise<TenantLimits>;
   /** Replace the tenant's limits with exactly these: one left out isn't set. */
   setLimits(tenantId: TenantId, limits: TenantLimits): Promise<TenantLimits>;
 }
@@ -40,20 +42,24 @@ export const TENANT_LIMIT_NAMES = [
 ] as const satisfies readonly (keyof TenantLimits)[];
 
 /**
- * The control plane's two writes on a tenant, under `/v1/system/tenants`:
+ * The control plane's settings on a tenant, under `/v1/system/tenants`:
  *
  * - **`PUT /:tenantId/production-allowed`** `{ allowed }`
  *   (`system:tenants:production`): whether the tenant may put projects in
  *   production, the switch the production gate reads. Answers
  *   `{ tenantId, productionAllowed }`.
+ * - **`GET /:tenantId/limits`** (`system:tenants:limits`): the tenant's
+ *   limits as stored, `{ tenantId, limits }`, the shape `PUT` takes, so a
+ *   change of one is read, changed and put back. A limit not set is
+ *   absent.
  * - **`PUT /:tenantId/limits`** `{ apiRequestsPerMinute?, … }`
  *   (`system:tenants:limits`): replaces the tenant's limits with exactly
  *   these. A limit left out isn't set, and isn't enforced. Answers
  *   `{ tenantId, limits }`.
  *
- * Both act through `withSystemTenantContext`: an unknown or purged tenant
- * is `404 tenant-not-found`, and a closing one `409 tenant-closing`, since
- * a closing tenant is frozen.
+ * Each acts through `withSystemTenantContext`: an unknown or purged tenant
+ * is `404 tenant-not-found`. A closing tenant is frozen, so the writes
+ * answer it `409 tenant-closing`; its limits can still be read.
  */
 export function systemTenantSettingsRouter(options: {
   readonly settings: SystemTenantSettingsBinding;
@@ -86,6 +92,20 @@ export function systemTenantSettingsRouter(options: {
           productionAllowed: stored.productionAllowed,
         });
       },
+    ),
+  );
+
+  r.get('/:tenantId/limits', async (c) =>
+    withSystemTenantContext(
+      c,
+      directory,
+      c.req.param('tenantId'),
+      { scope: 'system:tenants:limits', ...(authorizer !== undefined && { authorizer }) },
+      async (tenant) =>
+        c.json({
+          tenantId: tenant.id as unknown as string,
+          limits: await settings.limits(tenant.id),
+        }),
     ),
   );
 

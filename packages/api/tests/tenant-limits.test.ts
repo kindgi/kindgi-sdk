@@ -53,6 +53,9 @@ function makeApp(setup: {
       async setProductionAllowed(_id, allowed) {
         return { productionAllowed: allowed };
       },
+      async limits() {
+        return setup.limits() ?? {};
+      },
       async setLimits(_id, next) {
         return next;
       },

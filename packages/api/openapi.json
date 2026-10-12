@@ -23249,6 +23249,73 @@
       }
     },
     "/v1/system/tenants/{tenantId}/limits": {
+      "get": {
+        "operationId": "systemTenants.limits",
+        "summary": "Read a tenant's limits",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "200": {
+            "description": "The tenant's limits.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantLimitsResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:limits` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No tenant with that id, or a purged one (`tenant-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. Takes `system:tenants:limits`. A closing tenant's limits can be read.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
       "put": {
         "operationId": "systemTenants.setLimits",
         "summary": "Set a tenant's limits",

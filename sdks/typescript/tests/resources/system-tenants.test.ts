@@ -26,6 +26,16 @@ describe('systemTenants — wire round-trip', () => {
     expect(call.headers['idempotency-key']).toBe('k-1');
   });
 
+  it('limits: GET …/limits, the shape setLimits takes', async () => {
+    const answer = { tenantId: TENANT, limits: { runsAtOnce: 20, approvalsPending: 500 } };
+    const stub = jsonFetch(answer);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(await client.systemTenants.limits(TENANT)).toEqual(answer);
+    const call = stub.calls[0]!;
+    expect(`${call.method} ${call.url}`).toBe(`GET ${API}/v1/system/tenants/${TENANT}/limits`);
+    expect(call.body).toBeUndefined();
+  });
+
   it('setLimits: PUT …/limits with exactly the limits given', async () => {
     const limits = { apiRequestsPerMinute: 600, runsAtOnce: 20 };
     const stub = jsonFetch({ tenantId: TENANT, limits });

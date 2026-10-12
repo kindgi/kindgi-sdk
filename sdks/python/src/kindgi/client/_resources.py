@@ -58,6 +58,9 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "systemTenants.limits": Operation(
+        "systemTenants.limits", "GET", "/v1/system/tenants/{tenantId}/limits", "json", False
+    ),
     "systemTenants.setLimits": Operation(
         "systemTenants.setLimits", "PUT", "/v1/system/tenants/{tenantId}/limits", "json", True
     ),
@@ -1580,6 +1583,22 @@ class SystemTenantsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ProductionAllowedBody, body, fields),
             response=_models.TenantProductionAllowed,
+            timeout=timeout,
+        )
+
+    def limits(
+        self, tenant_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.TenantLimitsResult:
+        """Read a tenant's limits. `GET /v1/system/tenants/{tenantId}/limits`
+
+        The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. Takes `system:tenants:limits`. A closing tenant's limits can be read.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.limits"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={},
+            response=_models.TenantLimitsResult,
             timeout=timeout,
         )
 
@@ -8995,6 +9014,22 @@ class AsyncSystemTenantsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ProductionAllowedBody, body, fields),
             response=_models.TenantProductionAllowed,
+            timeout=timeout,
+        )
+
+    async def limits(
+        self, tenant_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.TenantLimitsResult:
+        """Read a tenant's limits. `GET /v1/system/tenants/{tenantId}/limits`
+
+        The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. Takes `system:tenants:limits`. A closing tenant's limits can be read.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.limits"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={},
+            response=_models.TenantLimitsResult,
             timeout=timeout,
         )
 
