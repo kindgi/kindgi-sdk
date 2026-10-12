@@ -85,18 +85,18 @@
   font-weight: 600;
 }
 
-/* Links in the text: their words and an arrow, no underline, ink on hover. */
+/* Links in the text: ink, underlined in plum, the underline thicker on hover. */
 .sl-markdown-content a:not(:where(.not-content *)) {
-  color: var(--kg-link);
-  text-decoration: none;
+  color: var(--kg-text);
+  text-decoration: underline;
+  text-decoration-color: var(--kg-action);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.22em;
 }
 .sl-markdown-content a:not(:where(.not-content *)):hover {
-  color: var(--kg-link-hover);
-}
-.sl-markdown-content :is(p, li, td, dd) > a:not(:where(.not-content *))::after,
-.sl-markdown-content :is(p, li, td, dd) > :is(strong, b) > a:not(:where(.not-content *))::after {
-  content: "→" / "";
-  margin-inline-start: 0.25em;
+  color: var(--kg-text);
+  text-decoration-color: var(--kg-action);
+  text-decoration-thickness: 2px;
 }
 
 /* Menus stay neutral: the current page is ink, bold, with a line edge and a
@@ -115,13 +115,6 @@ nav.sidebar a[aria-current="page"]:focus {
   font-weight: 600;
   background-color: color-mix(in srgb, var(--kg-text) 6%, transparent);
   box-shadow: inset 2px 0 0 var(--kg-text);
-}
-:is(starlight-toc, mobile-starlight-toc) a {
-  color: var(--kg-text-2);
-}
-:is(starlight-toc, mobile-starlight-toc) a[aria-current="true"] {
-  color: var(--kg-text);
-  font-weight: 600;
 }
 
 /* "Preview" is one of the rare labels that wear plum. */
