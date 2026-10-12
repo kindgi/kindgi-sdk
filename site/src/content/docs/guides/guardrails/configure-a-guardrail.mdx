@@ -145,12 +145,13 @@ kindgi guardrails get my-pack.answer-length
 
 ## What the check receives
 
-The check gets `config` resolved by its schema, in both SDKs:
+The check gets `config` resolved by its schema:
 
 - **Defaults are filled in.** A guardrail without `config` runs with the
   schema's defaults; here, a limit of 500.
-- **A value that doesn't fit is refused** before any turn runs, and the
-  message names the setting.
+- **A value that doesn't fit is refused,** and the message names the
+  setting. In TypeScript and Python that happens before any turn runs; in
+  Java and Scala, on the turns the guardrail checks.
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

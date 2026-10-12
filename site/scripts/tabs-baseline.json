@@ -139,10 +139,6 @@
     "Java": 1,
     "Scala": 1
   },
-  "guides/tools/http-tools": {
-    "Java": 2,
-    "Scala": 2
-  },
   "guides/webhooks/receive-run-finished": {
     "Java": 2,
     "Scala": 2
