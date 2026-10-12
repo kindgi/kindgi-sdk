@@ -78,7 +78,7 @@ The first tool that isn't stops the run, before the tool is called:
 kindgi runs start --flow=my-pack.note-order --input='{"orderId":"ord_1001","text":"Customer called"}' --dry-run
 ```
 
-```json
+```json excerpt
   "status": "failed",
   "dryRun": true,
   "failureMessage": "dry-run-effectful-tool: tool \"my-pack.add-order-note\" is not declared read-only (mutating: false), so it does not run in a dry run",
