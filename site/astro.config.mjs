@@ -67,11 +67,13 @@ export default defineConfig({
     // Before Starlight, so its search index reads the fixed pages.
     versionedPages({ ref, version }),
     // Every page as Markdown, and `llms.txt` with the files it lists, for
-    // coding agents. After the version fixes, so the Markdown has them too.
+    // coding agents. After the version fixes, so the Markdown has them too;
+    // each `llms*.txt` file names the version.
     agentMarkdown({
       site,
       base,
       title: 'Kindgi',
+      version,
       description,
       details: [
         'Kindgi runs AI agents and flows beside your application. You define tools (your own',
