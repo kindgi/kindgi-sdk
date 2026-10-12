@@ -1,6 +1,6 @@
 {
   "site/src/content/docs/deploy/cloud-run.md": 4,
-  "site/src/content/docs/deploy/operate.md": 3,
+  "site/src/content/docs/deploy/operate.md": 1,
   "site/src/content/docs/deploy/secret-manager.md": 1,
   "site/src/content/docs/deploy/self-host.md": 1,
   "site/src/content/docs/guides/agents/budgets.mdx": 2,
@@ -43,6 +43,8 @@
   "site/src/content/docs/guides/webhooks/receive-run-finished.mdx": 4,
   "site/src/content/docs/guides/webhooks/test-and-replay.mdx": 4,
   "site/src/content/docs/guides/webhooks/verify-a-webhook.mdx": 4,
+  "site/src/content/docs/releases/0.1.6.md": 1,
+  "site/src/content/docs/releases/0.1.7.md": 1,
   "site/src/content/docs/start/existing-app.md": 2,
   "site/src/content/docs/start/java-app.md": 2,
   "site/src/content/docs/start/quickstart-java.md": 1,
