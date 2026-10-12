@@ -7,9 +7,23 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide brings a flow's branches back together, in a step that runs once
+after whichever of them ran.
+
 A step with several incoming edges waits until each of them is decided, then
-runs once if at least one fired. `acme.handle-order` holds a large order, then
-emails the customer either way. It adds one tool, `acme.email-customer`:
+runs once if at least one fired.
+
+## Before you start
+
+- **A pack with the tools and the branch** from
+  [Branch a flow](../branch-a-flow/): `acme.get-order` and
+  `acme.hold-order`.
+- **A runtime such as `kindgi dev`,** with Kindgi 0.1's CLI.
+
+## Join two branches
+
+`acme.handle-order` holds a large order, then emails the customer either way.
+It adds one tool, `acme.email-customer`. Write the tool and the flow:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -183,12 +197,14 @@ handle_order = Flow(
 `order` when the order isn't large. Whichever path the run takes, `email`
 runs once, at the end of it.
 
+Run it for a small order and a large one:
+
 ```sh
 kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}'
 kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-200"}'
 ```
 
-The two runs return:
+`--flow` is the flow, and `--input` its input. The two runs return:
 
 ```json
 { "to": "ada@example.com", "message": "Your order is on its way." }
@@ -198,7 +214,8 @@ The two runs return:
 ## The input of a joining step
 
 `email` maps `status` from `nodeOutputs.hold.status`. For `A-100`, `hold`
-didn't run, so the path doesn't resolve and the key is left out:
+didn't run, so the path doesn't resolve and the key is left out. Its journal,
+which `kindgi runs journal <run-id>` prints, shows it:
 
 ```json
 {"sequence": 4, "kind": "edge.evaluated", "payload": {"edgeId": "e2", "decision": false}, …}
@@ -216,6 +233,12 @@ the step before it, and a joining step has several: its input is empty.
 ## Branches that both run
 
 Edges without conditions fire together, so two steps after the same step run
-at the same time, and a step that joins them runs once, after both. To run
+at the same time. A step that joins them runs once, after both. To run
 several tools on the same input and collect their outputs as one, a
 [fanout step](../run-steps-in-parallel/) is shorter.
+
+## Next
+
+- [Run steps in parallel](../run-steps-in-parallel/)
+- [Pass data between steps](../pass-data-between-steps/)
+- [Repeat steps in a loop](../loop/)
