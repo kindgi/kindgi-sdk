@@ -147,7 +147,7 @@ URL, the token, the timeout or your own `HttpClient`.
 the path's ids first, then the request body, then the query parameters as
 one record with a builder:
 
-```java
+```java excerpt
 // in src/main/java/com/acme/Lists.java
 RunCollectionPage page = client.runs().list(RunsListParams.builder().limit(20L).build());
 ```
@@ -160,7 +160,7 @@ fetches the next page as you read on.
 `AuthException`, `RateLimitedException` and so on, with the server's own
 code in `serverCode()`:
 
-```java
+```java excerpt
 // in src/main/java/com/acme/Lookup.java
 try {
   client.runs().get(runId);

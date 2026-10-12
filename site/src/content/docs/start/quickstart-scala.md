@@ -158,7 +158,7 @@ futures uses `handlerAsync`, which takes a `Future`.
 
 An agent is data, and it refers to the tools and the guardrail themselves:
 
-```scala
+```scala excerpt
 // in src/main/scala/mypack/agents/EchoAgent.scala
 val agent: Agent = Agent("my-pack.echo-agent")
   .version("0.1.0")
