@@ -26,7 +26,7 @@ import { nameToolsAsSent, toolIdsBySentName } from '@kindgi/capabilities/tool-na
 import { bearerValueProblem } from '@kindgi/types';
 
 import { EXTRA_BODY_RESERVED_RESPONSES, invokeResponses, requestOptions } from './responses.js';
-import { computeCost, decodeToolName, encodeToolName } from './wire.js';
+import { SERVER_ENV_NEVER, computeCost, decodeToolName, encodeToolName } from './wire.js';
 
 /**
  * Configuration for an OpenAI-compatible ModelProvider. `baseURL` is the
@@ -174,6 +174,7 @@ export function createOpenAICompatModelProvider(
     const client = new OpenAI({
       apiKey: key,
       baseURL: options.baseURL,
+      ...SERVER_ENV_NEVER,
       ...(options.clientOptions ?? {}),
       fetch: attempts.fetch,
     });

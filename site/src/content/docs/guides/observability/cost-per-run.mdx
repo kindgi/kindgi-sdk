@@ -329,20 +329,21 @@ Anyone who can read the project sees its **Cost** page: what its model calls
 cost over a range (**7 days**, **30 days**, **90 days**, **12 months** or
 **Custom**), against the range before.
 
-![A project's Cost page over 30 days: "$24.02 in the last 30 days, 78% more than the 30 days before.", "1,509 model calls · 8.4M tokens", spend by day stacked by agent, and Where it went by agent, with Support agent at $14.94 (62%), 34% more than the 30 days before.](../../../../assets/cost/cost-30d.png)
+![A project's Cost page over 30 days: "$24.17 in the last 30 days, 77% more than the 30 days before.", "1,508 model calls · 8.4M tokens", spend by day stacked by agent, and Where it went by agent, with its Columns menu and Support agent at $15.00 (62%), 33% more than the 30 days before.](../../../../assets/cost/cost-30d.png)
 
-- **The headline:** "$24.02 in the last 30 days, 78% more than the 30 days
-  before." and "1,509 model calls · 8.4M tokens".
+- **The headline:** "$24.17 in the last 30 days, 77% more than the 30 days
+  before." and "1,508 model calls · 8.4M tokens".
 - **Spend by day (UTC), by agent:** a stacked chart, with a sentence under
   it ("the costliest day was 8 Oct ($1.19). Support agent is 62% of it.").
   **Show as a table** gives the numbers. Over 12 months it's by month.
 - **Where it went:** **By agent**, **By model**, **By flow** or **By kind**,
-  the costliest against the range before ("34% more (was $11.12)", "new").
-  An agent's or a model's row filters the page to it.
+  the costliest against the range before ("33% more (was $11.28)", "new").
+  An agent's or a model's row filters the page to it. The table sorts by
+  a column's header, and **Columns** chooses which columns it shows.
 - **Biggest changes:** against the range before, by dollars ("Research
-  agent new: $8.49", "Legacy summarizer −$1.81 (none now)").
+  agent new: $8.57", "Legacy summarizer −$1.81 (none now)").
 - **Per-turn caps:** each agent with a budget for one turn, and how close its
-  turns came ("Costliest turn $0.14 of $0.12; 38 turns used over 80% of it, 6
+  turns came ("Costliest turn $0.14 of $0.12; 36 turns used over 80% of it, 4
   turns went over.").
 - **Details:** the token split, and the exact
   [`GET /v1/cost/aggregate`](#one-customers-month) queries the page made.
@@ -378,7 +379,7 @@ model calls, its child runs included. Each call →".
 Tenant admins see **Tenant costs**: every project's spend, laid out like a
 project's Cost page.
 
-![Tenant costs over 30 days: "$48.03 in the last 30 days, 78% more than the 30 days before.", "3,018 model calls · 16.8M tokens", spend by day stacked by project, and Where it went by project: Default and Ops, $24.02 each.](../../../../assets/cost/tenant-costs.png)
+![Tenant costs over 30 days: "$48.33 in the last 30 days, 77% more than the 30 days before.", "3,016 model calls · 16.9M tokens", spend by day stacked by project, and Where it went by project: Default and Ops, $24.17 each.](../../../../assets/cost/tenant-costs.png)
 
 - **The headline,** and **Spend by day (UTC), by project.**
 - **Where it went:** **By project**, **By org**, **By agent** or **By

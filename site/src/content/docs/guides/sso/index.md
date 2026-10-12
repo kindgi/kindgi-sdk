@@ -214,3 +214,9 @@ Error [identity-provider-invalid]: http://127.0.0.1:18091/realms/acme is not a p
 
 The local Keycloak in the examples above was allowed that way
 (`KINDGI_AUTH_PRIVATE_IDP_ORIGINS=http://127.0.0.1:18091`).
+
+From 0.1.7, the runtime also checks each connection to a tenant's identity
+provider (its discovery, and the token, keys and user info requests at
+sign-in) as it checks the other hosts a tenant names
+([What a tenant can't make the server do](../../concepts/security/#what-a-tenant-cant-make-the-server-do)).
+An origin listed in `KINDGI_AUTH_PRIVATE_IDP_ORIGINS` connects as before.

@@ -1,5 +1,23 @@
 # @kindgi/flow
 
+## 0.1.6
+
+### Patch Changes
+
+- Updated dependencies [03151ca]
+- Updated dependencies [b4bbd95]
+  - @kindgi/schema@0.1.6
+  - @kindgi/types@0.1.6
+
+## 0.1.6-rc.0
+
+### Patch Changes
+
+- Updated dependencies [03151ca]
+- Updated dependencies [b4bbd95]
+  - @kindgi/schema@0.1.6-rc.0
+  - @kindgi/types@0.1.6-rc.0
+
 ## 0.1.5
 
 ### Patch Changes

@@ -134,8 +134,8 @@ built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.5.1" \
-  quay.io/kindgi/runtime:0.1.5.1@sha256:7c1b111ff22091d137f45d9770f6ff9f2521575bf28130957a5db1ce80a2e56e
+docker buildx imagetools create --tag "$REPO/runtime:0.1.6" \
+  quay.io/kindgi/runtime:0.1.6@sha256:66c351d9cd0396f9cdffc40480fb1e236d212459dfc4900ab5de082ce0507f11
 ```
 
 The copy keeps the release's digest. (A plain `docker pull`, `tag` and `push`
@@ -613,7 +613,7 @@ Cloud Run hasn't released its addresses yet: run it again later.
 
 ## Limits today
 
-- **One runtime instance.** 0.1.6 fixes the known reasons several instances
-  couldn't share a database, but several together aren't verified yet, so
-  the module runs one
-  ([Known limitations](../operate/#known-limitations-in-016)).
+- **One runtime instance.** 0.1.6 and 0.1.7 fix the known reasons several
+  instances couldn't share a database, but several together aren't verified
+  yet, so the module runs one
+  ([Known limitations](../operate/#known-limitations-in-017)).

@@ -196,12 +196,18 @@ export interface RunFlowInput {
    * When set together with `authz`, every `ctx.authorize` / `can` /
    * `check` inside handlers is decided against it; on its own it only
    * informs (e.g. whose own memory an agent turn may read).
+   *
+   * Not enforced in 0.1.7: the runtime doesn't yet decide these checks
+   * inside a run (route-level permissions apply). Planned for 0.1.8.
    */
   readonly principal?: Principal;
   /**
    * Authorization config — enables authorization checks inside the
    * runtime. When absent, `ctx.authorize` is a no-op and tool
    * invocations skip their pre-flight check.
+   *
+   * Not enforced in 0.1.7: the runtime doesn't yet decide these checks
+   * inside a run (route-level permissions apply). Planned for 0.1.8.
    */
   readonly authz?: {
     readonly fgaApiUrl: string;

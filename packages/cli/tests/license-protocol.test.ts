@@ -137,10 +137,15 @@ describe('a license key, checked offline', () => {
     }
   });
 
-  test("Kindgi's own signing key, as a released runtime trusts it", () => {
-    const pub = KINDGI_LICENSE_PUBLIC_KEYS['lk-2026-1'];
-    expect(Buffer.from(pub ?? '', 'base64')).toHaveLength(32);
-    // A key signed with anything else under that kid is refused.
-    expect(checkLicenseKey(keyFor({ ...payload, kid: 'lk-2026-1' })).kind).toBe('err');
+  test("Kindgi's own signing keys, as a released runtime trusts them", () => {
+    for (const kid of ['lk-2026-1', 'lk-2026-p2']) {
+      const pub = KINDGI_LICENSE_PUBLIC_KEYS[kid];
+      expect(Buffer.from(pub ?? '', 'base64'), kid).toHaveLength(32);
+      // A key signed with anything else under that kid is refused.
+      expect(checkLicenseKey(keyFor({ ...payload, kid })), kid).toMatchObject({
+        kind: 'err',
+        reason: 'bad-signature',
+      });
+    }
   });
 });

@@ -23,6 +23,7 @@ import type { AppEnv } from '../types.js';
 import { type Refusal, recordRefusal, refusalError } from './denied.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 import { parseTimeInput } from './time-input.js';
+import { tokenSignInKey } from './token-sign-in.js';
 
 /**
  * API keys: mint, list, read, revoke. A key acts for one principal (a
@@ -41,6 +42,13 @@ import { parseTimeInput } from './time-input.js';
  *   refuses `role-exceeds-principal`). Every capability granted must be
  *   one the minter holds. A minter narrowed to a project mints only keys
  *   narrowed to the same project.
+ * - **How long it lasts:** a key minted by a key that expires may not
+ *   outlive it. Its `expiresAt` must be no later than the minter's, and
+ *   present: a later or absent one is refused, 403
+ *   `token-expiry-exceeds-minter`, naming the latest allowed. A session
+ *   opened by token sign-in mints as the key it was opened with. A minter
+ *   that never expires (the deployment's token, a key without an expiry)
+ *   and a session from any other sign-in cap nothing.
  */
 export function tokensRouter(admin: TokenAdmin, authorizer?: Authorizer): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
@@ -58,7 +66,9 @@ export function tokensRouter(admin: TokenAdmin, authorizer?: Authorizer): Hono<A
 
     const owner = keyOwner(c);
     const principal = parsed.value.for ?? owner;
-    const refused = await mintRefusal(c, authorizer, owner, principal, parsed.value);
+    const refused =
+      (await mintRefusal(c, authorizer, owner, principal, parsed.value)) ??
+      (await expiryRefusal(c, admin, authorizer, parsed.value.expiresAt));
     if (refused !== undefined) return fail(c, refused, requestId);
 
     const createdBy = callerRef(c);
@@ -233,6 +243,54 @@ async function mintRefusal(
     });
   }
   return undefined;
+}
+
+/**
+ * Why the new key would outlive the key minting it, if it would. The
+ * minter is the caller's key, or, for a session token sign-in opened, the
+ * key it was opened with: looked up, so one revoked since refuses (its
+ * sessions end with it, where the store can). A minter that never expires,
+ * and a session from any other sign-in, cap nothing.
+ */
+async function expiryRefusal(
+  c: Context<AppEnv>,
+  admin: TokenAdmin,
+  authorizer: Authorizer | undefined,
+  expiresAt: Date | undefined,
+): Promise<WireError | undefined> {
+  let minterExpiresAt: Date | undefined;
+  if (c.get('sessionId') === undefined) {
+    minterExpiresAt = c.get('tokenExpiresAt');
+  } else {
+    const tokenId = tokenSignInKey(c.get('providerId'));
+    if (tokenId === undefined) return undefined;
+    const key = await admin.get({ tenantId: c.get('tenantId') as TenantId, tokenId });
+    if (key === undefined || key.revokedAt !== undefined) {
+      return {
+        code: 'auth-revoked',
+        message: 'The API key this session was opened with is revoked: sign in again',
+      };
+    }
+    minterExpiresAt = key.expiresAt;
+  }
+  if (minterExpiresAt === undefined) return undefined;
+  if (expiresAt !== undefined && expiresAt.getTime() <= minterExpiresAt.getTime()) {
+    return undefined;
+  }
+  const latest = minterExpiresAt.toISOString();
+  const refusal: Refusal = {
+    action: 'admin',
+    resource: ref('tenant', c.get('tenantId') as unknown as string),
+    message:
+      expiresAt === undefined
+        ? `The key minting this one expires at ${latest}: give the new key an \`expiresAt\` no later than that`
+        : `A key can't outlive the key minting it: \`expiresAt\` must be no later than ${latest}`,
+    failing: 'scope',
+    code: 'token-expiry-exceeds-minter',
+    details: { latestExpiresAt: latest },
+  };
+  recordRefusal(c, authorizer, refusal);
+  return refusalError(refusal);
 }
 
 /** A key the caller may see: any, for a tenant admin; otherwise only their own. */

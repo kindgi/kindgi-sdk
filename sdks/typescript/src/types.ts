@@ -2289,6 +2289,10 @@ export interface ApiTokenSpec {
   /** None when absent. Only capabilities the caller holds can be granted. */
   readonly capabilities?: readonly string[];
   readonly label?: string;
+  /**
+   * Never expires when absent. When the key minting it expires, it's
+   * required and no later than that key's (`token-expiry-exceeds-minter`).
+   */
   readonly expiresAt?: import('@kindgi/types').Timestamp;
   /**
    * Limit the key to this project: a request naming another project is

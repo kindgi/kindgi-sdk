@@ -11035,7 +11035,7 @@ class MintTokenBody(BaseModel):
     """
     expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
     """
-    ISO 8601 timestamp.
+    ISO 8601 timestamp. Absent: the key never expires. When the minting key expires (or the key a token sign-in session was opened with), it's required and no later than that key's (`token-expiry-exceeds-minter`).
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """

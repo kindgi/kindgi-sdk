@@ -60,7 +60,8 @@ required.
 
 A config the check doesn't take is refused: a required setting left out, a
 setting of the wrong type, one the check doesn't know, or a regular expression
-that doesn't compile. Registering such a guardrail answers
+that doesn't compile (or, from runtime 0.1.8, is longer than 8,192 characters
+with its flags). Registering such a guardrail answers
 `422 guardrail-config-invalid`, with each problem in `details.issues`, and
 deploying a pack with one fails with `deployment-validation-failed`. If one
 reaches a turn anyway, its check can't run, so with `halt` the turn stops

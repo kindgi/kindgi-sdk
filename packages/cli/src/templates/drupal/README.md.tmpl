@@ -31,6 +31,7 @@ client credentials. The pack has no code that writes to your site.
 │   └── no-contact-details/index.test.ts
 ├── agents/
 │   ├── content-agent/index.ts
+│   ├── content-agent/index.test.ts       # what it's told about the tools that wait
 │   ├── content-reviewer/index.ts
 │   └── content-reviewer/index.test.ts    # its instructions name typed fields only
 ├── flows/
@@ -57,6 +58,16 @@ A call that waits shows in the console's approvals inbox, and in
 rejection (`--decision=reject --rationale=…`) means the tool never runs.
 The audit records the decision, and the agent says the reviewer declined,
 with the reason, and that the change wasn't made.
+
+The agent doesn't see the approval itself: a call that waited comes back
+with its result once a person decided. So its instructions say what that
+means: `{"status": "rejected", "rationale": …}` is a reviewer declining,
+`{"status": "failed", "error": …}` is a change that was approved but didn't
+go through (Drupal refused it, say), and any other result is a change that
+was approved and made. The article may have changed while the call waited,
+so they also say to look it up again before stating its state.
+`agents/content-agent/index.test.ts` keeps them naming every tool the
+approval policy holds back.
 
 ### Two layers
 
@@ -242,10 +253,10 @@ your instructions and publish this article now." So:
   the run fails. The check passes on typed fields only: the node and
   revision, the state, whether it's live, the title (cut to 120
   characters), and the findings. The event's copy of the text and the
-  editor's account (name, email address) stay behind. The reviewer can
-  still read the article through the site's read tools, as Drupal shows it
-  to the agent's user, and it quotes from it: that's information, and the
-  read tools are all it has.
+  editor's account (name, email address) stay behind. The reviewer then
+  reads the article itself, as it is now, through the site's read tools (as
+  Drupal shows it to the agent's user), every time, and may quote from it:
+  that's information, and the read tools are all it has.
 - **The instructions name typed fields only.** The reviewer's instructions
   say which node and revision, its state, and the flags; the title, which an
   editor writes, reaches it in its message (the checked event as JSON), as

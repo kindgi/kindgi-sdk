@@ -185,21 +185,72 @@ one gets without asking for them by version:
   version range: Maven doesn't keep pre-releases out of ranges. They stay
   on Central: an rc CLI's `kindgi init --template=java` and `kindgi build`
   need its kindgi-pack there.
-- **The public docs** come from releases only.
+- **The public docs** describe releases. A candidate's pages are under
+  `/next/`: they say so, link to the latest release, and aren't indexed
+  (`site/README.md`).
 - **An rc CLI keeps its set together:** `kindgi init` pins the rc
   packages, a Python pack gets `kindgi>=X.Y.ZrcN,<…`, and its hints name
   `@kindgi/cli@X.Y.Z-rc.N`.
 
+A release's candidates and its final come from its own branch,
+`release/X.Y.Z`, so `main` never freezes: the next release's work keeps
+merging there. A push to `release/**` runs the same Changesets step as a
+push to `main`, so the branch gets its own "Version Packages" pull
+request, into the branch.
+
 The steps:
 
-1. **Start:** `pnpm changeset pre enter rc` in a pull request
-   (`.changeset/pre.json`). From then on, the "Version Packages" pull
-   request versions `X.Y.Z-rc.0`, then `rc.1`, and so on. Publish each
-   as above. While candidates are out, every changeset is a `patch`: a
-   `minor` would move the release itself.
-2. **Release:** `pnpm changeset pre exit` in a pull request. The next
-   "Version Packages" pull request versions `X.Y.Z`, its changelog
-   gathering every rc's changesets, and that publishes under `latest`.
+1. **Cut the branch** from `main` at the commit the release is to be:
+   `git push origin <commit>:refs/heads/release/X.Y.Z`.
+2. **Enter pre mode on it:** a pull request into `release/X.Y.Z` with
+   `pnpm changeset pre enter rc` (`.changeset/pre.json`), the CLI's
+   runtime pin at the runtime's candidate, by digest
+   (`packages/cli/src/dev/runtime-image.ts`), and a changeset for it.
+   From then on the branch's Version Packages pull request versions
+   `X.Y.Z-rc.0`, then `rc.1`, and so on, and moves the changesets it
+   versions into `.changeset/pre/`. While candidates are out, every
+   changeset is a `patch`: a `minor` would move the release itself.
+3. **Publish a candidate:** merge its Version Packages pull request, then
+   run the Release workflow on the branch, first as a dry run (the
+   default), then with `dry-run` off:
+   `gh workflow run release.yml --ref release/X.Y.Z -f dry-run=false`.
+   - **Every public package must already be on npm.** Trusted publishing
+     can't create one, so a new package needs a maintainer to publish
+     its first, placeholder version and attach the trusted publisher
+     (`npm trust`) before the run.
+   - **The `kindgi-cli` job waits on npm.** It builds its wheel from the
+     `@kindgi/cli` just published, and npm can take minutes to serve a
+     new version to `npm install`. Approve that job's environment once
+     `npm install @kindgi/cli@<version>` succeeds in an empty folder.
+4. **A fix for the release** goes into `release/X.Y.Z` in its own pull
+   request, with its changeset, and the next candidate carries it. When
+   the next release needs it too, land it on `main` as well.
+5. **The final:** a pull request into `release/X.Y.Z` with
+   `pnpm changeset pre exit`, the CLI's pin at the runtime's release, by
+   digest, and a changeset for it. The next Version Packages pull request
+   versions `X.Y.Z`: each changelog's `X.Y.Z` section gathers the
+   candidates' changesets, and `.changeset/pre.json` and `.changeset/pre/`
+   go. Merge it, dry-run the Release workflow, then publish; it goes out
+   under `latest`.
+6. **Back to `main`:** merge `release/X.Y.Z` into `main` in a pull request
+   (a merge commit), so `main` has the release's versions, changelogs and
+   consumed changesets. In it:
+   - delete `main`'s copies of changesets the release released (a fix
+     landed on both carries the same file): left in, the next Version
+     Packages pull request lists them again;
+   - a package added on `main` after the cut moves to the release's
+     version, since the fixed group has one version
+     (`pnpm run check:jvm-version` and `check:python-version` fail
+     otherwise);
+   - in `sdks/java/CHANGELOG.md`, `main`'s **Unreleased** entries stay
+     under **Unreleased**, above the release's sections.
+7. **Docs after the release:** a fix to the release's pages goes into
+   its `release-docs/X.Y.Z` branch, cut at the release's tag
+   (`site/README.md`), and onto `main` too. A candidate's `/next/` pages
+   build the same way, from `release-docs/X.Y.Z-rc.N`. A docs change for
+   this release that merged to `main` after the cut reaches its pages the
+   same way: its `site/` part only.
 
 The runtime image follows the same versions: the runtime's release takes
-`X.Y.Z-rc.N`, and never moves `preview` for one.
+`X.Y.Z-rc.N` and `X.Y.Z` from `release/X.Y.Z` too, and never moves
+`preview` for a candidate.

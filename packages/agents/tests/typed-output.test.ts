@@ -19,6 +19,7 @@ import type { NodeId, OrgId, ProjectId, RunId, TenantId } from '@kindgi/types';
 import { defineAgent } from '../src/define.js';
 import { buildRunTrace } from '../src/guardrails-gate.js';
 import { buildBudgetCheckHandler } from '../src/handlers/budget-check.js';
+import { buildBuildInitialMessagesHandler } from '../src/handlers/build-initial-messages.js';
 import { buildComposeResultHandler } from '../src/handlers/compose-result.js';
 import type { AgentTurnIterationOutput, TurnContext } from '../src/handlers/context.js';
 import { parseFailureMessage } from '../src/handlers/errors.js';
@@ -27,6 +28,7 @@ import type { InvokeAgentBindings, InvokeAgentInput } from '../src/handlers/publ
 import { writeRunSnapshot } from '../src/handlers/run-snapshot.js';
 import {
   outputChecker,
+  outputInstructions,
   parseJsonAnswer,
   repairMessage,
   repairsSoFar,
@@ -131,6 +133,55 @@ describe('reading and checking the answer', () => {
     expect(msg.content).toContain('the axes as JSON');
     expect(msg.content).toContain('- /remedy must be array');
     expect(repairsSoFar([{ role: 'user', content: 'go' }, msg])).toBe(1);
+  });
+});
+
+describe("the output, told from the turn's start", () => {
+  /** The system message the turn's first model call is sent. */
+  async function systemOf(a: Agent): Promise<string> {
+    const ctx = {
+      ...ctxFor(a),
+      bindings: {
+        conversationBinding: { readMessages: async () => ({ kind: 'ok', value: [] }) },
+      },
+      conversation: { id: conversationId, tenantId, projectId },
+      retrieved: [],
+      renderedPrompt: 'Read the grievance and list the remedies.',
+      userMessage: { sequence: 1, role: 'user', content: 'go' },
+    } as unknown as TurnContext;
+    const out = (await buildBuildInitialMessagesHandler(ctx)(undefined, kctx())) as {
+      nextMessages: { role: string; content: string }[];
+    };
+    const [system] = out.nextMessages;
+    expect(system?.role).toBe('system');
+    return system?.content ?? '';
+  }
+
+  test("a typed agent's system message carries the output, in the words a repair uses", async () => {
+    const system = await systemOf(agent({ output: AXES }));
+    expect(system.startsWith('Read the grievance and list the remedies.')).toBe(true);
+    expect(system).toContain(outputInstructions(AXES));
+    expect(system).toContain('Call the tools you need first');
+    expect(repairMessage(AXES, ['x']).content).toContain(outputInstructions(AXES));
+  });
+
+  test('the schema goes as written, its descriptions included', async () => {
+    const described: AgentOutputSpec = {
+      name: 'verdict',
+      schema: {
+        type: 'object',
+        properties: { refund: { type: 'boolean', description: 'Whether the order is refunded' } },
+        required: ['refund'],
+      },
+    };
+    const system = await systemOf(agent({ output: described }));
+    expect(system).toContain('the verdict as JSON');
+    expect(system).toContain('"description":"Whether the order is refunded"');
+  });
+
+  test("an untyped agent's system message has no output part", async () => {
+    const system = await systemOf(agent());
+    expect(system).not.toContain('as JSON matching this JSON Schema');
   });
 });
 
