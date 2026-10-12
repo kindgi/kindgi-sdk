@@ -11530,7 +11530,7 @@ class Tool1(BaseModel):
         Field(alias="secretScopes"),
     ] = None
     """
-    Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin registers it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.
+    Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.
     """
 
 
@@ -11605,7 +11605,7 @@ class ToolVersionRow(BaseModel):
         Field(alias="secretScopes"),
     ] = None
     """
-    Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin registers it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.
+    Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.
     """
 
 
@@ -12338,7 +12338,7 @@ class MCPEndpoint(BaseModel):
         Field(alias="secretScopes"),
     ] = None
     """
-    Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin registers it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.
+    Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.
     """
 
 

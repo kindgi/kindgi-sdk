@@ -330,8 +330,9 @@ export interface RegisterWebhookTriggerInput {
    * Where the signing secret is read: recorded by the API when the trigger
    * is registered (the scope the registrant may read it at; see
    * `@kindgi/api`'s `secret-scope.ts`). `null`: none usable, so no delivery
-   * verifies until an admin registers it again. Absent: not recorded (a
-   * caller from before it was), and the receiver reads it as it did.
+   * verifies until an admin names its secret again (an update). Absent: not
+   * recorded (a caller from before it was), and the receiver reads it as it
+   * did.
    */
   readonly hmacSecretScope?: RecordedSecretScope | null;
   /** How its sender signs; absent → {@link DEFAULT_WEBHOOK_SIGNATURE}. */

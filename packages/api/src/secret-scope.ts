@@ -14,12 +14,14 @@
  * registered before its secret is set), the broadest scope they administer
  * is: the tenant for a tenant admin, the project for a project admin. A
  * caller who administers none of them records none, and the item reads no
- * secret until an admin registers it again.
+ * secret until an admin records it again: a tool by publishing a new
+ * version, an MCP endpoint by unregistering it and registering it again, a
+ * webhook trigger by naming its secret again (an update).
  *
  * Nothing here refuses: what's recorded doesn't say whether the name
  * exists at a scope the caller can't read. A secret set later at another
- * scope changes nothing until the item is registered again; one removed
- * from the recorded scope is missing, never read from a broader one.
+ * scope changes nothing until the scope is recorded again, as above; one
+ * removed from the recorded scope is missing, never read from a broader one.
  */
 
 import type { AuditEventBinding } from '@kindgi/audit-events';
