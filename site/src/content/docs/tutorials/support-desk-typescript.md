@@ -35,8 +35,8 @@ pnpm install
 - `--template=minimal` starts the pack with its folders and nothing in them.
 
 `init` lists the files it made, and `pnpm install` installs the pack's
-packages. You now have the pack's folders, `tools/`, `agents/`, `guardrails/` and
-`flows/`, all empty.
+packages. You now have the pack's folders, `tools/`, `agents/`, `guardrails/`
+and `flows/`, all empty.
 
 ## 2. Your code
 
@@ -305,9 +305,10 @@ pnpm exec kindgi providers register --preset=anthropic
 - `--preset=anthropic` registers Claude on the Anthropic API, with the key
   stored under `ANTHROPIC_API_KEY`.
 
-`secrets set` then prints `Set ANTHROPIC_API_KEY at tenant in local.`, and
-`providers register` prints `✓ Registered anthropic:` with the preset's
-models, its default marked. Your agent's turns now go to Claude.
+`secrets set` then prints the secret's name, scope, environment and version
+as JSON, then `Set ANTHROPIC_API_KEY at tenant in local.` `providers register`
+prints the provider's id as JSON, then `✓ Registered anthropic:` with the
+preset's models, its default marked. Your agent's turns now go to Claude.
 
 ## 7. Triage a ticket
 

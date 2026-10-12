@@ -272,8 +272,8 @@ short. Then the threshold was lowered to one judge:
 kindgi schedules update <schedule-id> --input='{"tiers": ["settings"], "threshold": {"judgments": 5, "runs": 3, "judges": 1}, "monthlyCapUsd": 20}'
 ```
 
-It prints the schedule, with its new input. The next fire started a pass, and the third came while that pass was still
-running. Its history, newest first:
+It prints the schedule, with its new input. The next fire started a pass, and
+the third came while that pass was still running. Its history, newest first:
 
 ```sh
 kindgi schedules fires <schedule-id> --table
