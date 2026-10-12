@@ -40,25 +40,30 @@ export function requestBodyLimit(
     ) {
       return next();
     }
-    const maxBytes = tenantInputBounds().requestMaxBytes;
-    return bodyLimit({
-      maxSize: maxBytes,
-      onError: (limited) => {
-        limited.status(statusFor('request-too-large') as never);
-        return limited.json(
-          toWireError(
-            {
-              code: 'request-too-large',
-              message: `The request body is over the limit of ${maxBytes} bytes`,
-              maxBytes,
-            },
-            limited.get('requestId'),
-          ),
-        );
-      },
-    })(c, next);
+    return underApiLimit(c, next);
   };
 }
+
+/** The body under `requestMaxBytes`: `413 request-too-large`, with `details.maxBytes`, past it. */
+const underApiLimit: MiddlewareHandler<AppEnv> = (c, next) => {
+  const maxBytes = tenantInputBounds().requestMaxBytes;
+  return bodyLimit({
+    maxSize: maxBytes,
+    onError: (limited) => {
+      limited.status(statusFor('request-too-large') as never);
+      return limited.json(
+        toWireError(
+          {
+            code: 'request-too-large',
+            message: `The request body is over the limit of ${maxBytes} bytes`,
+            maxBytes,
+          },
+          limited.get('requestId'),
+        ),
+      );
+    },
+  })(c, next);
+};
 
 /** A route whose body has a size limit of its own, checked before the body is read. */
 export interface OwnBodyLimit {
@@ -69,8 +74,12 @@ export interface OwnBodyLimit {
 
 /**
  * Reads a write's body once, as bytes, and keeps them for everything
- * after it. A route in `ownLimits` has its limit checked first, after the
- * caller is known, so a large one is never read for a caller who isn't.
+ * after it. Never without a limit: a route in `ownLimits` has its own,
+ * checked first, after the caller is known, so a large one is never read
+ * for a caller who isn't; any other body is read under the API's
+ * `requestMaxBytes`, as `requestBodyLimit` checks it, which also holds a
+ * path that check leaves alone and nothing else took (a `/v1/hooks/` path
+ * the receiver doesn't route).
  */
 export function readBodyOnce(ownLimits: readonly OwnBodyLimit[] = []): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
@@ -79,9 +88,7 @@ export function readBodyOnce(ownLimits: readonly OwnBodyLimit[] = []): Middlewar
       c.set('requestBody', new Uint8Array(await c.req.arrayBuffer()));
       await next();
     };
-    const own = ownLimitOf(c, ownLimits);
-    if (own === undefined) return read();
-    return own.limit(c, read);
+    return (ownLimitOf(c, ownLimits)?.limit ?? underApiLimit)(c, read);
   };
 }
 
@@ -94,13 +101,23 @@ function ownLimitOf(
 }
 
 /**
+ * Whether the request is to a route in `ownLimits`: one that takes an
+ * upload, never JSON, so nothing before it reads its body as JSON (the
+ * body can be as large as the route's own limit).
+ */
+export function takesUpload(c: Context<AppEnv>, ownLimits: readonly OwnBodyLimit[]): boolean {
+  return ownLimitOf(c, ownLimits) !== undefined;
+}
+
+/**
  * A JSON body nested deeper than `requestJsonMaxDepth` is `400 bad-input`,
  * with `details.maxDepth`, before anything walks it: the checks after
  * this one, idempotency and the route. A body that isn't JSON is the
- * route's to refuse.
+ * route's to refuse, as is an upload's (`ownLimits`), which isn't parsed.
  */
-export function refuseDeepJson(): MiddlewareHandler<AppEnv> {
+export function refuseDeepJson(ownLimits: readonly OwnBodyLimit[] = []): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
+    if (takesUpload(c, ownLimits)) return next();
     const first = firstJsonByte(c.get('requestBody'));
     // Only an object or an array can nest.
     if (first !== 0x7b && first !== 0x5b) return next();

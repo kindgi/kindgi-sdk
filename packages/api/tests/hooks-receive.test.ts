@@ -403,6 +403,24 @@ describe('a request that does not prove its sender', () => {
     ]);
   });
 
+  test('a JSON event nested past the limit with a wrong signature, or none: the 401, recorded as the signature', async () => {
+    const { register, deliver, fires } = setup();
+    const t = await register(WOO);
+    const deep = `${'['.repeat(129)}${']'.repeat(129)}`;
+    const answers = [
+      await deliver(t.webhookId, deep, wooHeaders(deep, 'acme-deep-1', 'notTheSecret')),
+      await deliver(t.webhookId, deep, { 'content-type': 'application/json' }),
+    ];
+    for (const a of answers) {
+      expect(a).toMatchObject({ status: 401, body: { error: { code: 'webhook-refused' } } });
+      expect(a.body?.error.details).toBeUndefined();
+    }
+    expect((await fires(t.triggerId)).map((fire) => fire.detail).sort()).toEqual([
+      'signature-invalid',
+      'signature-missing',
+    ]);
+  });
+
   test('no signature: the same 401, recorded as signature-missing', async () => {
     const { register, deliver, fires } = setup();
     const t = await register(WOO);

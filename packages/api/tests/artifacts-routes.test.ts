@@ -317,6 +317,33 @@ describe('a key limited to a project', () => {
   });
 });
 
+describe("an upload's body is never read as JSON", () => {
+  const multipartBytes = (text: string) => new TextEncoder().encode(text);
+
+  test('a JSON body over 2 MiB nested past the limit, labelled multipart, is the route’s to refuse', async () => {
+    const restore = overrideTenantInputBounds(HOSTED_BOUNDS);
+    try {
+      const deep = `${'['.repeat(129)}${' '.repeat(2 * 1024 * 1024)}${']'.repeat(129)}`;
+      const r = await harness().sendRaw('alice', multipartBytes(deep));
+      expect(r.status).toBe(400);
+      expect(r.body.error).toEqual(
+        expect.objectContaining({ code: 'bad-input', message: 'Malformed multipart body' }),
+      );
+      expect(r.body.error.details).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
+  test('a key limited to a project: a JSON body naming another project, labelled multipart, is the route’s to refuse', async () => {
+    const h = harness();
+    const r = await h.sendRaw('alice-key-p1', multipartBytes(JSON.stringify({ projectId: P2 })));
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatchObject({ code: 'bad-input', message: 'Malformed multipart body' });
+    expect(h.blobs.rows.size).toBe(0);
+  });
+});
+
 describe('the upload cap', () => {
   test("on hosted, an upload over the API's 2 MiB limit is under its own", async () => {
     const restore = overrideTenantInputBounds(HOSTED_BOUNDS);

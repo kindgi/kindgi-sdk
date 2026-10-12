@@ -49,9 +49,9 @@ size limits of their own
 [Start runs from webhooks](../../guides/webhooks/start-runs-from-webhooks/)).
 
 Rendering an agent's instructions template may use 16,777,216 of the
-template engine's memory units, roughly the characters of the strings and
-arrays the render builds. A render past it fails the agent's turn with
-`model-invocation-failed`:
+template engine's memory units, roughly the characters of the strings the
+render builds and the items of its arrays. A render past it fails the
+agent's turn with `model-invocation-failed`:
 `Prompt render failed: Template render failed: the render went over its memory limit of 16777216`.
 No setting changes it.
 

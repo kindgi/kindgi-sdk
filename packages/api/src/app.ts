@@ -1191,12 +1191,14 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
   // A write's body is read once, as the bytes it came with, before
   // anything parses it: the checks below, idempotency and the route all
-  // read that copy. An upload is read under its own size limit.
+  // read that copy. An upload is read under its own size limit, any
+  // other body under the API's.
   v1.use('*', readBodyOnce(ownBodyLimits));
-  // A JSON body nested past the bounds is refused before anything walks it.
-  v1.use('*', refuseDeepJson());
+  // A JSON body nested past the bounds is refused before anything walks
+  // it. An upload's body isn't JSON, and neither check reads it as JSON.
+  v1.use('*', refuseDeepJson(ownBodyLimits));
   // A key limited to a project names no other one.
-  v1.use('*', refuseOtherProjectForKey(authorizer));
+  v1.use('*', refuseOtherProjectForKey(authorizer, ownBodyLimits));
   // Page cursors are sealed at the edge, for every list.
   if (input.cursorSealer !== undefined) v1.use('*', sealedCursors(input.cursorSealer));
 

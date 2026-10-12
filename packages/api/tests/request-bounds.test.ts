@@ -116,6 +116,28 @@ describe("a request body's size", () => {
     expect(upload.pulled()).toBeLessThanOrEqual(64 * 1024);
   });
 
+  test.each([
+    ['PUT', '/v1/hooks/a/b'],
+    ['POST', '/v1/hooks/a/b/x'],
+    ['POST', '/v1/hooks/a/b/'],
+    // The webhook receiver isn't mounted here.
+    ['POST', '/v1/hooks/a/b'],
+  ])(
+    "%s %s, which no webhook receiver takes, is read under the API's limit",
+    async (method, path) => {
+      restore = overrideTenantInputBounds(HOSTED_BOUNDS);
+      const streamed = counted(20 * MiB);
+      expect(await send(path, streamed.stream, { method })).toEqual({
+        status: 413,
+        error: expect.objectContaining({
+          code: 'request-too-large',
+          details: { maxBytes: 2 * MiB },
+        }),
+      });
+      expect(streamed.pulled()).toBeLessThanOrEqual(2 * MiB + 2 * 64 * 1024);
+    },
+  );
+
   test('on a self-hosted server, the limit is 10 MiB', async () => {
     restore = overrideTenantInputBounds(SELF_HOSTED_BOUNDS);
     expect((await send('/v1/echo-for-test', ' '.repeat(3 * MiB))).status).toBe(201);
