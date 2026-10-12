@@ -9,7 +9,8 @@
   - With `firstAdmin`, that person becomes its admin by email, and no key comes back. Without it, its first admin key comes back once, and that takes the full system capability, as does a `test` tenant.
   - It takes `productionAllowed` and `imagePrefix` (`<host>/<path>`) at creation.
   - A taken slug is `409 tenant-slug-taken`.
-  - It's safe to retry with the same slug: if the tenant's setup didn't finish, the tenant waits, frozen, and the same request again finishes it and answers as the first would have. Another request naming that slug is `409 tenant-slug-taken`.
+  - It's safe to retry with the same slug: if the tenant's setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have. Another request naming that slug is `409 tenant-slug-taken`.
+  - A repeat of a create that finished is `409 tenant-slug-taken` too, unless it carries the first request's Idempotency-Key. Then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice.
 - **`GET /v1/system/tenants`** and **`GET /v1/system/tenants/{tenantId}`** (`system:tenants`) list and read tenants: never their content.
 - **`POST …/close`** (`system:tenants`) makes the tenant `closing`: readable and exportable with its own keys for its window, nothing runs. It's one-way.
 - **`PUT …/suspended`** (`system:suspend`, which no other scope includes) suspends or restores it, reversibly.

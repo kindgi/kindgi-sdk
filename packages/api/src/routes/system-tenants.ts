@@ -71,16 +71,21 @@ export type SystemTenantCreateOutcome =
 
 /**
  * The runtime's tenants, for the operator: creating one runs the tenant's
- * setup (its default project, its authorization store, adapter sync) in
- * the same change. Closing, suspending and the image prefix are writes on
- * the `tenants` row; the runtime enforces what each state means.
+ * setup (its default project, its authorization store, adapter sync); a
+ * create whose setup didn't finish leaves the tenant frozen until the same
+ * request finishes it. Closing, suspending and the image prefix are writes
+ * on the `tenants` row; the runtime enforces what each state means.
  */
 export interface SystemTenantsBinding {
   /**
    * Safe to retry with the same slug: a tenant whose setup didn't finish
-   * waits, frozen, until the same request again finishes it (and answers
-   * as the first would have); another request naming that slug is
-   * `slug-taken`.
+   * waits, frozen, until the same request (the same name, slug, settings
+   * and first admin, under any Idempotency-Key) finishes it and answers as
+   * the first would have; another request naming that slug is
+   * `slug-taken`. A repeat of a create that finished is `slug-taken` too,
+   * unless it carries the first request's Idempotency-Key, which the route
+   * answers from the first answer (or withholds, when that held an admin
+   * key).
    */
   create(input: SystemTenantCreateInput): Promise<SystemTenantCreateOutcome>;
   /** Newest first; purged tenants are left out. */
