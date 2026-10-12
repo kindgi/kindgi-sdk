@@ -50,24 +50,43 @@ export const SYSTEM_CLOCK: BudgetClock = {
 };
 
 interface Spent {
+  /** When the piece of work started, by the wall clock. */
   readonly at: number;
-  readonly ms: number;
+  /** How long it took, in whole microseconds. */
+  readonly us: number;
+}
+
+/**
+ * One tenant's work in the window: its pieces in the order they started,
+ * from `head` on, and their total. Whole microseconds, so adding pieces
+ * and dropping them never drifts from what they add up to.
+ */
+interface Ledger {
+  pieces: Spent[];
+  head: number;
+  spentUs: number;
+  /** While refused: when the tenant is under its budget again. */
+  refusedUntil: number;
 }
 
 /**
  * The time each tenant spent on one kind of work in the last 60 seconds,
  * against `budgetMs`; `refuse` makes the error for a tenant past it. An
- * infinite budget keeps no count.
+ * infinite budget keeps no count. Charging a piece costs the same however
+ * many pieces the window holds.
  */
 export class TenantTimeBudget {
-  private readonly spent = new Map<string, Spent[]>();
+  private readonly ledgers = new Map<string, Ledger>();
+  private readonly budgetUs: number;
   private sweptAt = 0;
 
   constructor(
     private readonly budgetMs: number,
     private readonly refuse: (budgetMs: number, retryAfterMs: number) => TenantBudgetError,
     private readonly clock: BudgetClock = SYSTEM_CLOCK,
-  ) {}
+  ) {
+    this.budgetUs = budgetMs * 1_000;
+  }
 
   /**
    * Runs `work` as `tenant`'s, and returns what it returns: refused with
@@ -87,42 +106,70 @@ export class TenantTimeBudget {
     }
   }
 
-  /** Once a window: drops the work that left it. */
+  /** Once a window: drops the work that left it, and the tenants with none left. */
   private sweep(now: number): void {
     if (now - this.sweptAt <= BUDGET_WINDOW_MS) return;
     this.sweptAt = now;
-    for (const tenant of [...this.spent.keys()]) this.recent(tenant, now);
+    for (const [tenant, ledger] of this.ledgers) {
+      if (this.inWindow(ledger, now) === 0) this.ledgers.delete(tenant);
+    }
   }
 
   /** Throws `refuse`'s error when `tenant` has spent its budget. */
   private check(tenant: string, now: number): void {
-    const recent = this.recent(tenant, now);
-    let total = recent.reduce((sum, spent) => sum + spent.ms, 0);
-    if (total < this.budgetMs) return;
+    const ledger = this.ledgerOf(tenant);
+    if (now < ledger.refusedUntil) throw this.refuse(this.budgetMs, ledger.refusedUntil - now);
+    this.inWindow(ledger, now);
+    if (ledger.spentUs < this.budgetUs) return;
     // Under the budget again once enough of the oldest work leaves the window.
+    let left = ledger.spentUs;
     let under = now;
-    for (const spent of recent) {
-      total -= spent.ms;
+    for (let i = ledger.head; i < ledger.pieces.length; i += 1) {
+      const spent = ledger.pieces[i] as Spent;
+      left -= spent.us;
       under = spent.at + BUDGET_WINDOW_MS;
-      if (total < this.budgetMs) break;
+      if (left < this.budgetUs) break;
     }
+    // Nothing the tenant starts is charged while it's refused, so the wait holds.
+    ledger.refusedUntil = under;
     throw this.refuse(this.budgetMs, under - now);
   }
 
   /** Charges `tenant` for work started `at` that took `ms`. */
   private spend(tenant: string, at: number, ms: number): void {
-    const list = this.spent.get(tenant);
-    if (list === undefined) this.spent.set(tenant, [{ at, ms }]);
-    else list.push({ at, ms });
+    const ledger = this.ledgerOf(tenant);
+    const us = Math.round(ms * 1_000);
+    ledger.spentUs += us;
+    // Work ends in the order it started, but for a piece inside another one.
+    let i = ledger.pieces.length;
+    while (i > ledger.head && (ledger.pieces[i - 1] as Spent).at > at) i -= 1;
+    ledger.pieces.splice(i, 0, { at, us });
   }
 
-  /** `tenant`'s work in the window ending `now`, oldest first; kept for the next call. */
-  private recent(tenant: string, now: number): Spent[] {
-    const kept = (this.spent.get(tenant) ?? []).filter(
-      (spent) => spent.at > now - BUDGET_WINDOW_MS,
-    );
-    if (kept.length > 0) this.spent.set(tenant, kept);
-    else this.spent.delete(tenant);
-    return kept;
+  /** Drops `ledger`'s work that left the window ending `now`; returns how many pieces are left. */
+  private inWindow(ledger: Ledger, now: number): number {
+    const { pieces } = ledger;
+    while (
+      ledger.head < pieces.length &&
+      (pieces[ledger.head] as Spent).at <= now - BUDGET_WINDOW_MS
+    ) {
+      ledger.spentUs -= (pieces[ledger.head] as Spent).us;
+      ledger.head += 1;
+    }
+    // Copied down once as many were dropped as are kept: each piece is copied about once.
+    if (ledger.head > 0 && ledger.head * 2 >= pieces.length) {
+      ledger.pieces = pieces.slice(ledger.head);
+      ledger.head = 0;
+    }
+    return ledger.pieces.length - ledger.head;
+  }
+
+  private ledgerOf(tenant: string): Ledger {
+    let ledger = this.ledgers.get(tenant);
+    if (ledger === undefined) {
+      ledger = { pieces: [], head: 0, spentUs: 0, refusedUntil: 0 };
+      this.ledgers.set(tenant, ledger);
+    }
+    return ledger;
   }
 }

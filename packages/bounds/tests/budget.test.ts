@@ -96,6 +96,42 @@ describe('a budget kept per tenant', () => {
     expect(budget.charge('tenant-a', () => 'ran')).toBe('ran');
   });
 
+  test('many small pieces: each one counts, and leaves the window on its own', () => {
+    const { budget, clock, work } = budgetOf(1_000);
+    // 4,000 pieces of 0.25 ms, one every 10.25 ms: the whole budget, in 41 s.
+    for (let i = 0; i < 4_000; i += 1) {
+      work('tenant-a', 0.25);
+      clock.later(10);
+    }
+    const { retryAfterMs } = refusal(() => work('tenant-a', 0.25));
+    // Under again once the first piece leaves the window.
+    expect(retryAfterMs).toBe(BUDGET_WINDOW_MS - 41_000);
+    // Once the first 3,000 have left, the last 1,000 hold 250 ms: 750 ms more runs, and no more.
+    // (Timed on the monotonic clock alone, so no more pieces leave while it runs.)
+    clock.later(retryAfterMs + 2_999 * 10.25);
+    expect(
+      budget.charge('tenant-a', () => {
+        clock.monotonic += 750;
+        return 750;
+      }),
+    ).toBe(750);
+    refusal(() => work('tenant-a', 0.25));
+    // Once all of them have left, the whole budget runs again.
+    clock.later(BUDGET_WINDOW_MS);
+    expect(work('tenant-a', 999.75)).toBe(999.75);
+    expect(work('tenant-a', 0.25)).toBe(0.25);
+    refusal(() => work('tenant-a', 0.25));
+  });
+
+  test('work is kept in the order it started, when the wall clock is set back', () => {
+    const { clock, work } = budgetOf(1_000);
+    work('tenant-a', 600);
+    clock.wall -= 30_000;
+    work('tenant-a', 600);
+    // The second piece started first by the wall clock, so it leaves the window first.
+    expect(refusal(() => work('tenant-a', 1)).retryAfterMs).toBe(BUDGET_WINDOW_MS - 600);
+  });
+
   test('each tenant has its own budget', () => {
     const { work } = budgetOf(1_000);
     work('tenant-a', 1_000);

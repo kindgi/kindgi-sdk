@@ -2,13 +2,14 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { Principal } from '@kindgi/authz';
+import { TenantBudgetError } from '@kindgi/bounds';
 import type { KernelError, RunResult } from '@kindgi/runtime';
 import type { OrgId, Result, RunId, TenantId } from '@kindgi/types';
 
 import { AGENT_TURN_FLOW } from './agent-turn-flow.js';
 import { DEFAULT_MAX_WALL_MS } from './handlers/constants.js';
 import type { TurnContext } from './handlers/context.js';
-import { AgentTurnFailure, type InvokeAgentError } from './handlers/errors.js';
+import { AgentTurnFailure, type InvokeAgentError, budgetRefusal } from './handlers/errors.js';
 import { buildHandlers } from './handlers/index.js';
 import type { InvokeAgentBindings, InvokeAgentInput } from './handlers/public-types.js';
 import { rehydrateTurnContext } from './handlers/rehydrate.js';
@@ -152,7 +153,8 @@ export interface ResumeAgentTurnInput {
 /**
  * Rebuild a resumed turn's context from its journal (see
  * `rehydrateTurnContext`). Returns the turn's error when it can't be
- * rebuilt; `undefined` to go on and resume.
+ * rebuilt, a budget kept per tenant's refusal included (as a node's is,
+ * `budgetRefusal`); `undefined` to go on and resume.
  */
 async function rehydrateFromJournal(
   ctx: TurnContext,
@@ -174,6 +176,7 @@ async function rehydrateFromJournal(
     return undefined;
   } catch (cause) {
     if (cause instanceof AgentTurnFailure) return { kind: 'err', error: cause.payload };
+    if (cause instanceof TenantBudgetError) return { kind: 'err', error: budgetRefusal(cause) };
     throw cause;
   }
 }

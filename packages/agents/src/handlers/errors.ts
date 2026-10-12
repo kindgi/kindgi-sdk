@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { TenantBudgetLimit } from '@kindgi/bounds';
+import type { TenantBudgetError, TenantBudgetLimit } from '@kindgi/bounds';
 import type { EvaluationResult } from '@kindgi/guardrails';
 import type { PolicyKind } from '@kindgi/policy-contract';
 
@@ -342,6 +342,22 @@ function tryParseChunk(chunk: string): InvokeAgentError | undefined {
 /** Helper for handlers to short-circuit with a structured error. */
 export function throwAgentTurnFailure(error: InvokeAgentError): never {
   throw new AgentTurnFailure(error);
+}
+
+/**
+ * The turn's failure when a budget kept per tenant refused its work
+ * (`TenantBudgetError`): `rate-limit-exceeded`, with the budget and the
+ * wait. Both places a turn's work runs answer with it: its node handlers
+ * (`buildHandlers`), and a resumed turn's rebuild from its journal.
+ */
+export function budgetRefusal(cause: TenantBudgetError): RateLimitExceededError {
+  return {
+    code: 'rate-limit-exceeded',
+    message: cause.message,
+    limit: cause.limit,
+    budgetMs: cause.budgetMs,
+    retryAfterMs: cause.retryAfterMs,
+  };
 }
 
 /**
