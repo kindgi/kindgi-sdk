@@ -17,9 +17,9 @@ still change in a later release without the usual deprecation period.
 :::
 
 **Before you start**, set up what the [Install page](../install/) describes:
-Docker, Node 22.12 or later, and access to the runtime image. The image is
-in private preview: request access at contact@kindgi.com, then log in once
-with `kindgi auth registry`. You also need a JDK 17 or later, with
+Docker, Node 22.12 or later, and access to the runtime image: sign in at
+[access.kindgi.com](https://access.kindgi.com) with GitHub, copy your pull
+token, then log in once with `kindgi auth registry`. You also need a JDK 17 or later, with
 `JAVA_HOME` set to it, and [sbt](https://www.scala-sbt.org/download) 1.10 or
 later.
 
