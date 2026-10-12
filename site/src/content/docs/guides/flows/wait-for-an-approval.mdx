@@ -16,7 +16,8 @@ reviewer decides, and the flow continues from where it stopped.
 
 ## Before you start
 
-- **The tools** `acme.hold-order`, from
+- **The tools** `acme.get-order`, from [Write a flow](../write-a-flow/),
+  `acme.hold-order`, from
   [Pass data between steps](../pass-data-between-steps/), and
   `acme.email-customer`, from [Join branches](../join-branches/).
 - **A runtime such as `kindgi dev`,** with Kindgi 0.1's CLI.
@@ -362,8 +363,8 @@ agent turn's approval:
 kindgi approvals complete 0eaa2820-0afe-4147-a017-fc8a4d1657cc --decision=approve --rationale="Checked with the customer"
 ```
 
-The id is the approval's. `--decision` is `approve` or `reject`, and
-`--rationale` is kept with it.
+The id is the approval's, `--decision=approve` approves it (`reject` turns
+it down), and `--rationale` is kept with it.
 
 The decision resumes the agent's turn and then the flow, within the same
 call. By the time the command returns, the flow has finished. Read the flow's

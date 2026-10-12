@@ -283,8 +283,8 @@ are dispatched before either completes:
 | `settle-all` | every branch finished, succeeded or failed. The step itself succeeds | `{ "<branchId>": { "status": "succeeded", "output": … } \| { "status": "failed", "error": "…" }, … }` |
 
 With `settle-all`, a failed branch is data for the next step, not a failed
-run. Add a branch that runs `acme.check-stock`, whose input the order doesn't
-fit, to `acme.assess-order`'s fanout. Its step's output is then:
+run. Here a `settle-all` fanout's `stock` branch runs `acme.check-stock` with
+an input that doesn't fit it, next to `risk`. The step's output:
 
 ```json
 {

@@ -32,9 +32,9 @@ Start the run with `--dry-run`:
 kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}' --dry-run
 ```
 
-`--flow` is the flow, `--input` its input, and `--dry-run` runs only the
-steps that read. It prints the run, which stopped at the first step that
-writes:
+`--flow` is the flow, and `--input` its input. `--dry-run` runs only the
+tools declared read-only, as [What runs](#what-runs) shows. It prints the
+run, which stopped at the first step that writes:
 
 ```json
 {
