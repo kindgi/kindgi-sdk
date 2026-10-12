@@ -38,7 +38,7 @@ From your app, in TypeScript, it's `memory.facts.write`, `read`, `list`,
 
 ## How memory reaches the model
 
-Retrieved facts go in one message just before the user's, as data, in this
+Retrieved facts go in one message right before the user's, as data, in this
 shape:
 
 ```text
@@ -59,9 +59,10 @@ A fact can be an instruction only if you say so and a person verified it.
 
 ## Search by meaning
 
-`semantic` and `both` need an embeddings endpoint on the runtime. Any
-endpoint that speaks OpenAI's `POST /embeddings` works, such as OpenAI,
-Ollama, vLLM and Hugging Face TEI. Set these in the runtime's environment:
+A retrieval's `semantic` and `both` modes need an embeddings endpoint on the
+runtime. Any endpoint that speaks OpenAI's `POST /embeddings` works, such as
+OpenAI, Ollama, vLLM and Hugging Face TEI. Set these in the runtime's
+environment:
 
 ```sh
 KINDGI_MEMORY_EMBEDDINGS=openai-compat
@@ -69,13 +70,15 @@ KINDGI_MEMORY_EMBEDDINGS_URL=http://localhost:11434/v1
 KINDGI_MEMORY_EMBEDDINGS_MODEL=nomic-embed-text
 ```
 
+- `KINDGI_MEMORY_EMBEDDINGS=openai-compat` turns search by meaning on,
+  through an endpoint that speaks OpenAI's `POST /embeddings`.
 - `KINDGI_MEMORY_EMBEDDINGS_URL` is the endpoint, and
   `KINDGI_MEMORY_EMBEDDINGS_MODEL` the model it embeds with.
 - `KINDGI_MEMORY_EMBEDDINGS_API_KEY` is for an endpoint that takes a key,
   from your secret store.
 
-Facts are embedded when they're written, and a background job embeds the
-ones already there. Changing the model embeds every fact again.
+Facts are embedded when they're written. A background job embeds the ones
+already there. Changing the model embeds every fact again.
 
 The startup log says which search the runtime has, with embeddings and
 without:
@@ -95,6 +98,10 @@ writes, for the query `appliance parts`:
 ```sh
 curl -X POST $KINDGI_API_URL/v1/memory/retrieve -H 'authorization: Bearer …' -H 'content-type: application/json' -d '{"mode":"both","query":"appliance parts"}'
 ```
+
+- `$KINDGI_API_URL` is your runtime's URL, and `…` stands for your API
+  token.
+- `-d` is the search: its `mode` and its `query`.
 
 ```text
 {
