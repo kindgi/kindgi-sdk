@@ -472,5 +472,5 @@ and the check it asked OpenFGA, which is the evidence.
 - [People, API keys and service accounts](../people-and-keys/): add the
   people and accounts that authorization checks.
 - [Turn on sign-in](../sign-in/): how people sign in to the console.
-- [Operate a self-hosted runtime](../operate/): backups, including
-  OpenFGA's database.
+- [Back up and restore the runtime's database](../back-up-and-restore/):
+  back up OpenFGA's database with the runtime's.

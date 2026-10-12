@@ -7,8 +7,11 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide registers an MCP server with the runtime, so your agents and
+flows call its tools like your own.
+
 An MCP server you run, or one a vendor runs, can give your agents its tools.
-Register its endpoint with the runtime: Kindgi lists the server's tools and
+Register its endpoint with the runtime. Kindgi lists the server's tools and
 registers each one as a tool of your tenant, named
 `<endpoint id>.<tool name>`. Agents and flow steps then call it like a tool
 of your pack.
@@ -16,13 +19,22 @@ of your pack.
 :::note
 `kindgi mcp` is a different thing: it adds MCP servers to your coding
 agent's `.mcp.json`. The runtime's MCP endpoints are registered through the
-API, as below.
+API, as this guide shows.
 :::
+
+## Before you start
+
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.1's CLI.
+- **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell: your
+  runtime's URL and its API token. `kindgi dev` prints both.
+- **`uv`,** to run the example server.
+- **An agent and a model that calls tools,** to call the server's tools.
+  This guide uses `my-pack.order-desk`.
 
 ## A server to try
 
 An MCP server that speaks Streamable HTTP works. This one, written with the
-Python MCP SDK (1.x), has two tools:
+Python MCP SDK, version 1.x, has two tools:
 
 ```python
 # server.py: an MCP server with two tools, over Streamable HTTP.
@@ -49,21 +61,31 @@ if __name__ == "__main__":
     mcp.run(transport="streamable-http")
 ```
 
+Run it from the folder that holds `server.py`:
+
 ```sh
 uv init --bare --no-workspace
 uv add 'mcp<2'
 uv run python server.py
 ```
 
-It serves at `http://localhost:8791/mcp`. Under `kindgi dev` the runtime
-reaches your machine's `localhost`.
+- **`uv init --bare --no-workspace`** makes the folder a project of its own,
+  with no sample files.
+- **`uv add 'mcp<2'`** adds the MCP SDK, version 1.x.
+
+The server keeps running, and serves at `http://localhost:8791/mcp`. Under
+`kindgi dev`, the runtime reaches your machine's `localhost`.
 
 ## Register the endpoint
+
+Registering the endpoint makes its tools your tenant's. Register it from
+your app's code:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```ts
+// register-inventory.ts
 import { createClient } from '@kindgi/sdk/client';
 import type { TenantId } from '@kindgi/sdk/types';
 
@@ -85,10 +107,13 @@ console.log(page.data.map((e) => `${e.endpointId} (${e.transport})`));
 [ 'inventory (streamable-http)' ]
 ```
 
+`KINDGI_TENANT_ID` is the id of the tenant your runtime serves.
+
 </TabItem>
 <TabItem label="Python">
 
 ```python
+# register_inventory.py
 from kindgi.client import Kindgi
 
 client = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
@@ -114,7 +139,7 @@ inventory streamable-http
 </TabItem>
 </Tabs>
 
-Or with `curl` (`kindgi dev` prints the API's URL and token):
+Or register it with `curl`:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/mcp/endpoints" \
@@ -169,11 +194,11 @@ kindgi tools get inventory.stock_level
 ```
 
 Kindgi registers MCP tools as version `1.0.0`. A tool's input schema is
-the one the server gives. Its answer is the server's structured content,
-checked against the tool's `outputSchema`, when the server declares one;
-otherwise the answer's text, parsed as JSON when the text is JSON (servers
-built with the TypeScript MCP SDK often declare none: their `echo` tool
-answers `"Echo: hi"`).
+the one the server gives. When the server declares an `outputSchema`, the
+tool's answer is the server's structured content, checked against it.
+Otherwise the answer is the text, parsed as JSON when the text is JSON.
+Servers built with the TypeScript MCP SDK often declare none: their `echo`
+tool answers `"Echo: hi"`.
 
 ## Call its tools
 
@@ -182,7 +207,7 @@ An agent lists an MCP tool by id, with a version range:
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 // in agents/order-desk/index.ts
 tools: [
   { id: 'my-pack.lookup-order' as ToolId, version: '^0.1.0' },
@@ -193,7 +218,7 @@ tools: [
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 # in agents/order_desk.py
 tools=[lookup_order, {"id": "inventory.stock_level", "version": "^1.0.0"}],
 ```
@@ -201,8 +226,9 @@ tools=[lookup_order, {"id": "inventory.stock_level", "version": "^1.0.0"}],
 </TabItem>
 </Tabs>
 
-With a model that calls tools (here Llama 3.1 on Ollama, see
-[Models](../../models/)):
+Start a turn with a model that calls tools. Here it's Llama 3.1 on Ollama,
+as [Models](../../models/) sets up. `--agent` is the agent, and `--input`
+its input:
 
 ```sh
 kindgi runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
@@ -254,14 +280,16 @@ there when the endpoint is registered, no tools are registered, and the
     [runtime] 07:23:26.303 WARN  [mcp] MCP endpoint "warehouse" sync failed: mcp-auth-unresolved: MCP endpoint "warehouse": its secretRef local/INVENTORY_TOKEN did not resolve: No secret "INVENTORY_TOKEN" for env "local" in .env, .env.local, .kindgi/secrets.env at /pack endpointId=warehouse
 ```
 
-Store the secret (`kindgi secrets set INVENTORY_TOKEN --env=local --scope=tenant`),
-then register the endpoint again, as below.
+Store the secret with
+`kindgi secrets set INVENTORY_TOKEN --env=local --scope=tenant`. Then
+unregister the endpoint and register it again, as
+[When the server changes](#when-the-server-changes) shows.
 
 ### Sign in with a user name and password
 
-For a server that takes HTTP Basic, such as a WordPress site's MCP Adapter
-(WooCommerce's MCP tools included) with an Application Password, use `auth`
-instead of `secretRef`:
+For a server that takes HTTP Basic, use `auth` instead of `secretRef`. A
+WordPress site's MCP Adapter takes it with an Application Password, and so
+do WooCommerce's MCP tools:
 
 ```json
 "auth": {
@@ -276,8 +304,8 @@ resolved from the tenant's secrets when it connects. Give the agent its own
 WordPress user, with a role that allows only what it should do, and create
 the Application Password on that user's profile.
 
-A user name or password the server turns down (it answers 401) fails the tool
-call with `mcp-auth-refused`, and the runtime's log names the endpoint:
+A user name or password the server turns down with a 401 fails the tool
+call with `mcp-auth-refused`. The runtime's log names the endpoint:
 
 ```text
 20:22:48.769 WARN  [mcp] MCP endpoint "shop-bad" sync failed: mcp-auth-refused: MCP endpoint "shop-bad" answered 401 to its credential endpointId=shop-bad
@@ -302,14 +330,15 @@ Server with Simple OAuth:
 }
 ```
 
-Kindgi asks `tokenUrl` for an access token (`grant_type=client_credentials`)
-and sends it as `Authorization: Bearer <token>`:
+Kindgi asks `tokenUrl` for an access token, with
+`grant_type=client_credentials`. It sends the token as
+`Authorization: Bearer <token>`:
 
 - **Refreshed before it expires:** a fifth of the token's lifetime early, at
   most a minute. A 300-second token is replaced after 240 seconds. A token
   answered without `expires_in` is used for 60 seconds.
 - **The client's credentials:** an `Authorization: Basic` header to the token
-  endpoint by default; `"clientAuth": "client_secret_post"` sends
+  endpoint by default. `"clientAuth": "client_secret_post"` sends
   `client_id` and `client_secret` in the form instead. `audience` is sent
   when it's set.
 - **Never stored:** tokens live in the runtime's memory only, and each runtime
@@ -320,10 +349,11 @@ and sends it as `Authorization: Bearer <token>`:
   `KINDGI_TENANT_HOST_ACCESS=local`, the default in `kindgi dev`. A deployed
   runtime's default, `deployed`, refuses it with `host-access-denied`.
 - **When it fails:**
-  - a token request that's refused (`invalid_client`, a scope it may not
-    have) fails the tool call with `mcp-auth-refused`;
-  - one that can't be made (the token endpoint down, a malformed answer) fails
-    it with `mcp-auth-failed`.
+  - a token request that's refused fails the tool call with
+    `mcp-auth-refused`, as with `invalid_client` or a scope the client may
+    not have;
+  - one that can't be made fails it with `mcp-auth-failed`, as when the
+    token endpoint is down or its answer is malformed.
 
   Neither message includes the secret or a token. The runtime's log says
   which, and why:
@@ -332,8 +362,8 @@ and sends it as `Authorization: Bearer <token>`:
   20:22:48.608 WARN  [mcp] MCP endpoint "cms-down" sync failed: mcp-auth-failed: MCP endpoint "cms-down": its token request to localhost:18099 failed: fetch failed (ECONNREFUSED) endpointId=cms-down
   20:22:49.143 WARN  [mcp] MCP endpoint "cms-bad" sync failed: mcp-auth-refused: MCP endpoint "cms-bad": its token endpoint localhost:18081 refused the client (HTTP 401: invalid_client) endpointId=cms-bad
   ```
-- **A token the server stops taking early** (a 401): Kindgi asks for a new
-  one and sends that request once more.
+- **A token the server stops taking early,** with a 401: Kindgi asks for a
+  new one and sends that request once more.
 
 On Drupal's side: the [MCP Server](https://www.drupal.org/project/mcp_server)
 module, and [Simple OAuth](https://www.drupal.org/project/simple_oauth) for
@@ -359,10 +389,11 @@ A sync that signed in says what it found:
 21:00:52.218 INFO  [mcp] MCP endpoint "cms" synced — 1 published, 0 reinstated, 0 unchanged, 0 retired endpointId=cms published=1 reinstated=0 unchanged=0 retired=0
 ```
 
-One whose counts are all 0 (`synced — 0 published, 0 reinstated,
-0 unchanged, 0 retired`) signed in too, but the server listed no tools to that
-account. Which tools a server lists, and to whom, is set on the server's
-side: check that the account the credentials stand for may use them.
+One whose counts are all 0 signed in too:
+`synced — 0 published, 0 reinstated, 0 unchanged, 0 retired`. The server
+listed no tools to that account. Which tools a server lists, and to whom, is
+set on the server's side. Check that the account the credentials stand for
+may use them.
 
 ### What `auth` can't be set with
 
@@ -376,19 +407,19 @@ registration with both is refused (`invalid-mcp-endpoint`, reason
 
 Add `"sendTraceparent": true` to the registration, and each tool call to the
 server carries the W3C `traceparent` of the run that made it, as a request
-header. The server's logs can then be matched to the run
-([Follow a request or a run](../../../deploy/logs/#follow-a-request-or-a-run)).
-Only the ids go: the trace id and a span id, never the tool's input or output.
-It's off by default, and HTTP transports only: a `stdio` server gets no
-headers, so `true` there is refused (`invalid-mcp-endpoint`, reason
-`invalid-send-traceparent`).
+header. The server's logs can then be matched to the run, as
+[Follow a request or a run](../../../deploy/logs/#follow-a-request-or-a-run)
+shows. Only the ids go: the trace id and a span id, never the tool's input
+or output. It's off by default, and HTTP transports only. A `stdio` server
+gets no headers, so `true` there is refused with `invalid-mcp-endpoint`,
+reason `invalid-send-traceparent`.
 
 ## When the server changes
 
 The runtime lists an endpoint's tools when the endpoint is registered and
 each time the runtime starts. It doesn't watch the server. To pick up new or
 changed tools, unregister the endpoint and register it again, or restart
-the runtime:
+the runtime. `inventory` in the path is the endpoint's id:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/mcp/endpoints/inventory/unregister" \
@@ -419,8 +450,8 @@ reconnects:
   server's SSE endpoint (`http://localhost:8793/sse` for the Python SDK).
 - **`stdio`**: `{ transport: 'stdio', command, args?, env? }`. The runtime
   runs the command in its own container, as its own user, under
-  `kindgi dev` too. A deployment refuses it (`KINDGI_TENANT_HOST_ACCESS`
-  is `deployed` outside development):
+  `kindgi dev` too. A deployment refuses it, because
+  `KINDGI_TENANT_HOST_ACCESS` is `deployed` outside development:
 
   ```json
   {"error":{"code":"host-access-denied","message":"MCP endpoint \"files\" uses the stdio transport, which runs a command on the server's host; KINDGI_TENANT_HOST_ACCESS=deployed refuses that. Run the MCP server over HTTP (streamable-http) instead.", …}}
@@ -433,11 +464,18 @@ reconnects:
 - An MCP tool always counts as one that changes things: it doesn't run in a
   [dry run](../read-only-tools/#dry-runs), and an approval gate asks before
   it.
-- A tool's schemas are read in the JSON Schema dialect they declare
-  (`"$schema"`): draft-06, draft-07 (what servers built with the TypeScript
-  MCP SDK declare), 2019-09 or 2020-12, the default when they declare none.
-  Kindgi skips a tool whose schema declares another dialect or doesn't
-  compile, and the runtime's log names the tool.
-- An endpoint is registered at a scope: `tenant`, as here, or a project
-  (`"scopeKind": "project", "scopeId": "<project id>"`). See the
-  [API reference](../../../reference/api/operations/tags/mcp/).
+- A tool's schemas are read in the JSON Schema dialect their `"$schema"`
+  declares: draft-06, draft-07, 2019-09 or 2020-12. Servers built with the
+  TypeScript MCP SDK declare draft-07. 2020-12 is the default when they
+  declare none. Kindgi skips a tool whose schema declares another dialect or
+  doesn't compile, and the runtime's log names the tool.
+- An endpoint is registered at a scope: `tenant`, as here, or a project,
+  with `"scopeKind": "project", "scopeId": "<project id>"`. The
+  [API reference](../../../reference/api/operations/tags/mcp/) has the
+  registration's fields.
+
+## Next
+
+- [Mark a tool read-only](../read-only-tools/)
+- [Give a tool a secret](../give-a-tool-a-secret/)
+- [Call an HTTP API without code](../http-tools/)

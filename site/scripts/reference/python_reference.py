@@ -122,7 +122,8 @@ def signature(
 
 
 def code(text: str) -> list[str]:
-    return ["```python", text, "```", ""]
+    # A declaration, not code to paste, and marked so.
+    return ["```python signature", text, "```", ""]
 
 
 def frontmatter(title: str, description: str, order: int | None = None, label: str | None = None) -> list[str]:

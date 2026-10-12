@@ -575,12 +575,14 @@ A new grant can take a minute or two to apply.
   ```
 
   Without it, they say erasures aren't replayable. Keep the key: losing it
-  means losing replay ([Operate](../operate/)).
+  means losing replay
+  ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
 - **Logs:** Cloud Logging, per service. The runtime logs JSON there, one
   record per line, and Cloud Logging reads each record's `severity`. Filter
   by `jsonPayload.traceId` to follow one request or run. The startup lines are
   the `lines` of its `boot` record, as in
-  [Operate](../restart-and-check-health/#the-startup-log). See [Logs](../logs/).
+  [The startup log](../restart-and-check-health/#the-startup-log). See
+  [Logs](../logs/).
 
 ## Tear it down
 

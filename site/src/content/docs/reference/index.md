@@ -24,13 +24,17 @@ SDKs, the CLI and the schemas), so it matches the release it documents.
 - **[Python](python/):** the `kindgi` package: authoring (`kindgi`), the API
   client (`kindgi.client`) with every `client.<resource>` and the API's
   models, `kindgi.webhooks`, and `python -m kindgi.pack`.
-- **Java (preview):** `com.kindgi:kindgi-client`, the API client for Java
-  apps. Its reference comes with its first release; until then, see
-  [Call Kindgi from a Java app](../start/java-app/) and the client's
-  [README](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java#readme).
+- **[Java](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java#readme)
+  and Scala (preview):** the README of `com.kindgi:kindgi-client`, the API
+  client for Java and Scala apps, and
+  [`kindgi-pack`'s](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java/kindgi-pack),
+  for packs. See also [Call Kindgi from a Java app](../start/java-app/).
 - **[CLI](cli/):** every `kindgi` command, its flags and its subcommands.
 - **[Environment variables](env-vars/):** every `KINDGI_*` variable the
   runtime and the pack service read.
+- **[Error codes](errors/):** every error code the HTTP API answers with:
+  its status, what it means, what its details hold, and the operations that
+  answer it.
 - **[Packages](packages/):** every public `@kindgi/*` package: what it's for
   and how to use it.
 - **[JSON Schemas](schemas/):** the documents Kindgi reads and writes (the

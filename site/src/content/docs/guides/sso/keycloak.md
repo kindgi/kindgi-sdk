@@ -88,6 +88,23 @@ kindgi secrets set ACME_KC_SECRET --env=production --scope=tenant
 - `--scope=tenant` stores the secret for the whole workspace.
 
 The command asks for the value twice, and doesn't show what you type.
+Then it prints what it stored:
+
+```text
+Value:
+Re-enter to confirm:
+{
+  "name": "ACME_KC_SECRET",
+  "scope": {
+    "kind": "tenant",
+    "tenantId": "6c0bd33e-e941-439b-bd0c-c7e412db29fc"
+  },
+  "envName": "production",
+  "versionId": 1
+}
+
+  Set ACME_KC_SECRET at tenant in production.
+```
 
 ### 4. Register it
 
@@ -164,6 +181,25 @@ kindgi secrets set ACME_SAML_SIGNING_KEY --env=production --scope=tenant --from-
 - `-subj` sets the certificate's name. Use your own domain in it.
 - `--from-stdin` makes `set` read the key from its input, instead of asking
   for it. `< acme-sp-key.pem` gives it the key file as that input.
+
+`openssl` prints its progress, then a line of dashes. Then `set` prints what
+it stored:
+
+```text
+…
+-----
+{
+  "name": "ACME_SAML_SIGNING_KEY",
+  "scope": {
+    "kind": "tenant",
+    "tenantId": "6c0bd33e-e941-439b-bd0c-c7e412db29fc"
+  },
+  "envName": "production",
+  "versionId": 1
+}
+
+  Set ACME_SAML_SIGNING_KEY at tenant in production.
+```
 
 Give the certificate, `acme-sp-cert.pem`, to whoever runs Keycloak. The key
 stays in the secret store. Delete `acme-sp-key.pem` once it's stored.
