@@ -41,11 +41,27 @@ Open `my-agents` in your coding agent. Send it these prompts, one at a time:
 3. `Write an agent that reads a customer message and says how urgent it is, and why.`
 4. `Run it with: "My order hasn't arrived and I need it tomorrow."`
 
-At the 2nd, your coding agent asks which AI model provider you use, and
-gives you a command that stores its API key: `kindgi secrets set`, with the
-key's name. Run it yourself, in a terminal in `my-agents`: it asks for the
-key without showing it, so the key never goes into the chat. Then tell your
-coding agent it's done.
+At the second prompt, your coding agent asks which AI model provider you
+use. Then it gives you a command that stores the provider's API key, to run
+yourself, in a terminal in `my-agents`. For Anthropic, it's:
+
+```sh
+pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
+```
+
+For another provider, it's the same command with that provider's key name,
+such as `OPENAI_API_KEY`. It asks for the key twice, and shows it neither
+time, so the key never goes into the chat:
+
+```text
+Value:
+Re-enter to confirm:
+```
+
+If your coding agent asks you to paste the key into the chat, or to put it
+in a file, run the command instead. Then tell your coding agent it's done:
+it registers the provider, with `kindgi providers register` and the
+provider's preset, such as `--preset=anthropic`.
 
 ## Find the console
 
