@@ -190,10 +190,10 @@ uv run kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
 uv run kindgi providers register --preset=anthropic
 ```
 
-- `secrets set ANTHROPIC_API_KEY` asks for the key without showing it.
+- `secrets set ANTHROPIC_API_KEY` asks for the key without showing it, and
+  writes it to Kindgi's own `.kindgi/secrets.env`.
 - `--env=local` is the environment the secret belongs to. Under
-  `kindgi dev`, `local` is the pack's env files, Kindgi's own
-  `.kindgi/secrets.env` among them.
+  `kindgi dev`, `local` is the pack's env files, that one among them.
 - `--scope=tenant` is where the secret lives: the tenant, rather than one
   org (`org:<orgId>`) or project (`project:<projectId>`).
 - `--preset=anthropic` registers Anthropic's models from Kindgi's built-in
