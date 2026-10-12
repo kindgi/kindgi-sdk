@@ -78,7 +78,7 @@ After each got a key of its own, the same run finds nothing (exit `0`):
 provider-keys: nothing names a model provider's key (1 tenant checked).
 ```
 
-The runtime logs the same at every start, one `WARN` per tool version or endpoint (`docker logs kindgi-server`). Here it's for another tool registered on 0.1.5 with Anthropic's key, `acme.translate`:
+The runtime logs the same at every start, one `WARN` per tool version or endpoint (`docker logs kindgi-server`). Here it's for another tool that was registered with Anthropic's key, `acme.translate`:
 
 ```json
 {"time":"2026-10-10T10:15:40.130Z","level":"warn","severity":"WARNING","subsystem":"providers.keys","message":"provider-key-declared tenant=… tool=acme.translate@1.0.0 secret=ANTHROPIC_API_KEY provider=anthropic: a model provider's key is used by its provider only, so this tool's calls are refused. Store the key it needs under its own name and use that name","tenantId":"…","kind":"tool","id":"acme.translate","version":"1.0.0","secretName":"ANTHROPIC_API_KEY","providerId":"anthropic"}
