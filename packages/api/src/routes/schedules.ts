@@ -447,6 +447,7 @@ function serializeFire(f: TriggerFire): Record<string, unknown> {
     ...(f.runId !== undefined && { runId: f.runId }),
     ...(f.passId !== undefined && { passId: f.passId }),
     ...(f.detail !== undefined && { detail: f.detail }),
+    ...(f.countsTowardPause !== undefined && { countsTowardPause: f.countsTowardPause }),
     ...(f.missedCount !== undefined && { missedCount: f.missedCount }),
     ...(f.manual === true && { manual: true }),
   };

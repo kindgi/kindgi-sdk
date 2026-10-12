@@ -253,6 +253,14 @@ export interface TriggerFire {
   readonly passId?: string;
   /** Why it was refused, skipped or failed. */
   readonly detail?: string;
+  /**
+   * Whether it counted toward the trigger's auto-pause (5 in a row by
+   * default). `false` for a refusal for a limit, such as the tenant's runs
+   * pending (`detail` starts `rate-limited:`): the limit passes, and the
+   * trigger isn't at fault. Absent from a runtime that doesn't say: then
+   * refused and failed fires counted, and the others didn't.
+   */
+  readonly countsTowardPause?: boolean;
   /** Occurrences this fire stood in for after a gap (`catchUp: 'latest'`). */
   readonly missedCount?: number;
   /** A `run-now` fire, outside the schedule. */

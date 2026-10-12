@@ -10964,6 +10964,13 @@ export const ImproveScheduleInputSchema: JsonSchema = {
   },
 };
 
+/** Whether a fire counted toward its trigger's auto-pause (a schedule's or a webhook trigger's). */
+const COUNTS_TOWARD_PAUSE: JsonSchema = {
+  type: 'boolean',
+  description:
+    "Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for a refusal for a limit, such as the tenant's runs pending (`detail` starts `rate-limited:`): the limit passes, and the trigger isn't at fault. Absent from a runtime that doesn't say: `refused` and `failed` fires counted, and the others didn't.",
+};
+
 export const ScheduleFireSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -10992,7 +10999,7 @@ export const ScheduleFireSchema: JsonSchema = {
         'failed',
       ],
       description:
-        "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`: what an improve schedule waits for wasn't there (its threshold, or its monthly cap), as `detail` says. None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do.",
+        "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`: what an improve schedule waits for wasn't there (its threshold, or its monthly cap), as `detail` says. None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
     passId: {
@@ -11001,6 +11008,7 @@ export const ScheduleFireSchema: JsonSchema = {
       description: 'The improvement pass it started (an improve schedule).',
     },
     detail: { type: 'string', description: 'Why it was refused, skipped or failed.' },
+    countsTowardPause: COUNTS_TOWARD_PAUSE,
     missedCount: {
       type: 'integer',
       minimum: 1,
@@ -11378,6 +11386,7 @@ export const WebhookFireSchema: JsonSchema = {
       description:
         "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, or the owner's lost access.",
     },
+    countsTowardPause: COUNTS_TOWARD_PAUSE,
     duplicates: {
       type: 'integer',
       minimum: 1,
