@@ -173,7 +173,9 @@ describe('renderInstructions — strict variables', () => {
 });
 
 describe('renderInstructions — partials', () => {
-  // `package.json` would resolve from the package's directory, where the tests run.
+  // A template stored before partials were refused at publish: `defineAgent`
+  // refuses these now. `package.json` would resolve from the package's
+  // directory, where the tests run.
   test.each([
     ['include', "{% include 'package.json' %}"],
     ['render', "{% render 'package.json' %}"],
@@ -182,7 +184,7 @@ describe('renderInstructions — partials', () => {
     ['an Object.prototype member', "{% include 'constructor' %}"],
     ['__proto__', "{% render '__proto__' %}"],
   ])('a template resolves no partials: %s fails the render', (_, template) => {
-    const agent = make(template, [{ name: 'partial', type: 'string' }]);
+    const agent = { ...make('Hi', [{ name: 'partial', type: 'string' }]), instructions: template };
     const r = renderInstructions(agent, {
       parameters: { partial: 'package.json' },
       clock: fixedClock,
@@ -190,7 +192,9 @@ describe('renderInstructions — partials', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe('render-failure');
-      expect(r.error.message).toContain('Failed to lookup');
+      expect(r.error.message).toBe(
+        "Template render failed: templates can't use include, render or layout",
+      );
     }
   });
 });
