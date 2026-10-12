@@ -55,7 +55,12 @@ self-contained packages, routes, specs). For docs:
   quote the output you got. Don't invent output.
 - **Every code block runs as pasted, or isn't offered for copying.** A whole
   file starts with its path (`// tools/lookup/index.ts`, `# tools/lookup.py`)
-  and `pnpm run docs:samples` compiles it in a fresh pack. A shell command
+  and `pnpm run docs:samples` compiles it in a fresh pack. If the file
+  imports a library the pack doesn't have, the page shows the reader its
+  install command (`uv add fastapi`, `pnpm add nanoid`), and the page's
+  hidden `<!-- check-samples: … -->` comment (`{/* check-samples: … */}` in
+  MDX) holds the same step as a ```` ```sh ```` block of `uv add` or
+  `pnpm add` lines, so the check adds the library first. A shell command
   names only commands and flags the CLI has, and JSON parses. Part of a file
   is an excerpt: its fence says so (```` ```ts excerpt ````) and it starts
   with `// in <path>` (`# in <path>`). The page shows it without a copy
