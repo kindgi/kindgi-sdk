@@ -80,7 +80,7 @@ Put it in both files, as `KINDGI_PACK_SERVICE_TOKEN` in `pack.env` and in
 `kindgi.env`. Then restart the pack's service with the same image:
 
 ```sh
-docker stop --time 30 kindgi-pack
+docker stop -t 30 kindgi-pack
 docker rm kindgi-pack
 docker run -d --name kindgi-pack --network kindgi --env-file pack.env \
   registry.localhost:5050/acme-pack@sha256:<your pack's digest>
