@@ -623,11 +623,11 @@ What to check before you upgrade, and what's different after:
   route-level permissions are. Until 0.1.8, give project admin roles only
   to people trusted across all of a tenant's projects, or use a separate
   tenant per customer.
-- **A project's tools, MCP endpoints and webhook triggers use the tenant's
-  secrets.** A secret one of them names is looked up at the tenant, whoever
-  registered it. Until 0.1.8, give project admin roles only to people you'd
-  trust with every secret in the tenant. 0.1.8 limits each item to the scopes
-  the person registering it administers.
+- **A project's tools and MCP endpoints use the tenant's secrets.** A secret
+  one of them names is looked up at the tenant, whoever registered it. Until
+  0.1.8, give project admin roles only to people you'd trust with every
+  secret in the tenant. 0.1.8 limits each item to the scopes the person
+  registering it administers.
 - **With authorization on, a runtime whose database user has no `BYPASSRLS`
   (and isn't a superuser) doesn't start.** That's the usual case on a managed
   Postgres. To check, run this as the runtime's database user:
