@@ -66,6 +66,19 @@ test('"On" a version dates a page too', () => {
   );
 });
 
+test('a four-part version is read whole', () => {
+  assert.deepEqual(
+    phrases(
+      [
+        'as in 0.1.4.1 or later',
+        'It runs on 0.1.5.1 or later.',
+        'A bug in 0.1.4.1 and earlier.',
+      ].join('\n'),
+    ),
+    ['3: 0.1.4.1 and earlier'],
+  );
+});
+
 test('a requirement or a range is fine', () => {
   assert.deepEqual(
     phrases(

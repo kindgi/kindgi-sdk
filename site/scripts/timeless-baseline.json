@@ -5,7 +5,7 @@
   "deploy/azure-container-apps": 1,
   "deploy/cloud-run": 4,
   "deploy/index": 1,
-  "deploy/operate": 58,
+  "deploy/operate": 56,
   "deploy/people-and-keys": 2,
   "deploy/renew-the-license-key": 2,
   "deploy/retention": 1,

@@ -37,7 +37,7 @@ const DOCS = 'src/content/docs/';
 const BASELINE = join(site, 'scripts', 'timeless-baseline.json');
 
 const VERSION =
-  /\b(?:from|since|before|until|as of|fixed in|added in|changed in|new in|removed in|in|on)\s+(?:Kindgi\s+|the runtime\s+|runtime\s+)?\d+\.\d+\.\d+(?:\.\d+)?\b(?!\s+(?:or|and)\s+(?:later|earlier|older))/gi;
+  /\b(?:from|since|before|until|as of|fixed in|added in|changed in|new in|removed in|in|on)\s+(?:Kindgi\s+|the runtime\s+|runtime\s+)?\d+\.\d+\.\d+(?:\.\d+)?\b(?!\.\d)(?!\s+(?:or|and)\s+(?:later|earlier|older))/gi;
 const OLDER = /\b\d+\.\d+\.\d+(?:\.\d+)?\s+(?:or|and)\s+(?:earlier|older)\b/gi;
 const TIME_WORDS = /\b(?:today|currently|for now|at the moment|a fix is planned|coming soon)\b/gi;
 const ALLOWED = /<!--\s*timeless:|\{\/\*\s*timeless:/;
