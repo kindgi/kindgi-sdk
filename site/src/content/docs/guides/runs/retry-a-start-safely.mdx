@@ -158,7 +158,8 @@ refused, and nothing started.
   seconds.
 - **The key must come with the same request.** The same key with a different
   body, such as another input or other options, is refused with a conflict.
-  Nothing starts, also while the first request is still running.
+  Nothing starts, also while the first request is still running. Bodies are
+  compared byte for byte, as they were sent.
 - **Only an answer that succeeded is kept.** A refused start isn't kept, such
   as one for a flow that isn't registered (`404 flow-not-found`). Once you've
   fixed the cause, the same start with the same key runs.

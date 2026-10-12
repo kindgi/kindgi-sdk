@@ -17,7 +17,7 @@ import {
   type ResponseSpec,
   honoToOpenapiPath,
 } from './operations.js';
-import { COMPONENT_SCHEMAS, type JsonSchema } from './schemas.js';
+import { COMPONENT_SCHEMAS, type JsonSchema, ref } from './schemas.js';
 
 export interface OpenApiInfo {
   readonly title?: string;
@@ -293,12 +293,26 @@ function buildPaths(ops: readonly OperationSpec[]): Record<string, Record<string
   return paths;
 }
 
+/**
+ * What an operation with a body may answer when the body is over the
+ * API's limit, unless it declares a 413 of its own (an upload's cap).
+ */
+const REQUEST_TOO_LARGE: ResponseSpec = {
+  description:
+    "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+  schema: ref('WireError'),
+};
+
 function buildOperation(op: OperationSpec): Record<string, unknown> {
+  const responses =
+    op.requestBody !== undefined && op.responses['413'] === undefined
+      ? { ...op.responses, '413': REQUEST_TOO_LARGE }
+      : op.responses;
   const doc: Record<string, unknown> = {
     operationId: op.operationId,
     summary: op.summary,
     tags: [...op.tags],
-    responses: buildResponses(op.responses),
+    responses: buildResponses(responses),
   };
   if (op.description !== undefined) doc.description = op.description;
   if (op.senderOnly !== undefined) doc['x-kindgi-sender-only'] = true;

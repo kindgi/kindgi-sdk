@@ -70,6 +70,12 @@ import { noStoreMiddleware } from './middleware/no-store.js';
 import { principalMiddleware } from './middleware/principal.js';
 import { PROJECT_REF_ROUTES, refuseBadProjectId } from './middleware/project-ref.js';
 import { publicRunCorsMiddleware, publicRunRouteMatcher } from './middleware/public-run-routes.js';
+import {
+  type OwnBodyLimit,
+  readBodyOnce,
+  refuseDeepJson,
+  requestBodyLimit,
+} from './middleware/request-body.js';
 import { requestIdMiddleware } from './middleware/request-id.js';
 import { requestLogMiddleware } from './middleware/request-log.js';
 import { sealedCursors } from './middleware/sealed-cursors.js';
@@ -96,7 +102,11 @@ import {
 import { adaptersRouter } from './routes/adapters.js';
 import { agentsRouter } from './routes/agents.js';
 import { approvalsRouter } from './routes/approvals.js';
-import { artifactsRouter } from './routes/artifacts.js';
+import {
+  DEFAULT_ARTIFACT_MAX_BYTES,
+  artifactUploadLimit,
+  artifactsRouter,
+} from './routes/artifacts.js';
 import { auditRouter } from './routes/audit.js';
 import { authRouter, logoutHandler } from './routes/auth.js';
 import { blocksRouter } from './routes/blocks.js';
@@ -1083,6 +1093,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   app.use('*', requestIdMiddleware());
   // The request's trace context and logger, and its access line.
   app.use('*', requestLogMiddleware(input.logger ?? noopLogger));
+  // An upload is read under its own limit, once the caller is known
+  // (`readBodyOnce`); every other body under the API's, before anything.
+  const ownBodyLimits: readonly OwnBodyLimit[] = [
+    {
+      method: 'POST',
+      path: '/v1/artifacts',
+      limit: artifactUploadLimit(input.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES),
+    },
+  ];
+  app.use('*', requestBodyLimit(ownBodyLimits));
   // No `/v1` answer is kept by a browser or a proxy (data and errors alike).
   app.use('/v1/*', noStoreMiddleware());
   // A thrown exception: a 500 wire error with its message and request id, logged.
@@ -1169,8 +1189,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   });
   const authorizer: Authorizer | undefined =
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
+  // A write's body is read once, as the bytes it came with, before
+  // anything parses it: the checks below, idempotency and the route all
+  // read that copy. An upload is read under its own size limit, any
+  // other body under the API's.
+  v1.use('*', readBodyOnce(ownBodyLimits));
+  // A JSON body nested past the bounds is refused before anything walks
+  // it. An upload's body isn't JSON, and neither check reads it as JSON.
+  v1.use('*', refuseDeepJson(ownBodyLimits));
   // A key limited to a project names no other one.
-  v1.use('*', refuseOtherProjectForKey(authorizer));
+  v1.use('*', refuseOtherProjectForKey(authorizer, ownBodyLimits));
   // Page cursors are sealed at the edge, for every list.
   if (input.cursorSealer !== undefined) v1.use('*', sealedCursors(input.cursorSealer));
 
@@ -1429,7 +1457,6 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         runBinding,
         ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
         ...(authorizer !== undefined && { authorizer }),
-        ...(input.artifactMaxBytes !== undefined && { maxBytes: input.artifactMaxBytes }),
       }),
     );
   }

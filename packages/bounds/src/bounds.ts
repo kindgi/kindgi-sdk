@@ -10,7 +10,7 @@
  * one tenant's input must never stall the server for the others. Anywhere
  * else (a self-hosted server, a pack's own process, a test) it's
  * {@link SELF_HOSTED_BOUNDS}: today's behaviour, with generous limits on
- * bodies and schemas.
+ * bodies, schemas and a render's memory.
  *
  * Why one setting rather than an argument: the places that compile tenant
  * input are deep inside the SDK's packages (guardrails, schema, agents,
@@ -57,7 +57,11 @@ export interface TenantInputBounds {
   readonly sseEventMaxBytes: number;
   /** The largest request body the API reads, in bytes (routes that take more set their own). */
   readonly requestMaxBytes: number;
-  /** The deepest a request's JSON may nest, objects and arrays. */
+  /**
+   * The deepest a request's JSON may nest, in levels of objects and arrays,
+   * the body's own being 1. It leaves room for a schema as deep as
+   * `schemaMaxDepth` inside the body that carries it.
+   */
   readonly requestJsonMaxDepth: number;
 }
 
@@ -72,9 +76,9 @@ const MiB = 1024 * KiB;
 
 /**
  * Anywhere but the hosted profile: today's behaviour. A pattern on V8's
- * engine, templates and idle time without limits; caps where today has
- * none that a self-hoster could still hurt itself without (bodies,
- * schemas, the compile cache).
+ * engine, a template's length and render time, and idle time without
+ * limits; caps where today has none that a self-hoster could still hurt
+ * itself without (bodies, schemas, the compile cache, a render's memory).
  */
 export const SELF_HOSTED_BOUNDS: TenantInputBounds = deepFreeze({
   regex: 'v8',
@@ -86,7 +90,7 @@ export const SELF_HOSTED_BOUNDS: TenantInputBounds = deepFreeze({
   liquid: {
     parseLimit: Number.POSITIVE_INFINITY,
     renderLimitMs: Number.POSITIVE_INFINITY,
-    memoryLimit: Number.POSITIVE_INFINITY,
+    memoryLimit: 16_777_216,
   },
   responseMaxBytes: 10 * MiB,
   responseIdleMs: Number.POSITIVE_INFINITY,
@@ -112,7 +116,7 @@ export const HOSTED_BOUNDS: TenantInputBounds = deepFreeze({
   responseIdleMs: 60_000,
   sseEventMaxBytes: 10 * MiB,
   requestMaxBytes: 2 * MiB,
-  requestJsonMaxDepth: 64,
+  requestJsonMaxDepth: 128,
 });
 
 let configured: TenantInputBounds | undefined;
