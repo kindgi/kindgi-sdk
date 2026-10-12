@@ -9,6 +9,8 @@ sidebar:
 The reference is generated from Kindgi's own sources (the API spec, the
 SDKs, the CLI and the schemas), so it matches the release it documents.
 
+- **[Features by SDK](sdks/):** which features the TypeScript, Python, Java
+  and Scala SDKs have, and what to do where one lacks a feature.
 - **[HTTP API](api/):** every route, its parameters, request and response
   bodies, and the errors it answers, with a request example for each. From
   the API's OpenAPI specification.
