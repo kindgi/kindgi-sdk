@@ -76,8 +76,8 @@ Within about a lease plus a sweep:
   `Interrupted: its parent run had ended (failed), so nothing waits for it.`
   So an approval inside a cancelled flow can't run its tools.
 
-A run that was just started gets at least a minute before a sweep can pick
-it up, whatever the lease.
+A new run gets at least a minute before a sweep can pick it up, whatever
+the lease.
 
 ## Dry runs
 
