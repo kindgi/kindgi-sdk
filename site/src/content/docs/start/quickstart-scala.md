@@ -40,6 +40,16 @@ sbt -batch test    # the template's tests: the tools, called directly
 - `--template=scala` makes it a Scala pack, with examples.
 - `sbt -batch test` runs the template's tests. `-batch` keeps sbt from waiting for input.
 
+`init` prints what it made, and sbt ends with the tests' summary:
+
+```text
+…
+✓ Scala pack scaffolded at …/my-pack/ (preview)
+…
+[info] Passed: Total 3, Failed 0, Errors 0, Passed 3
+[success] Total time: 15 s, completed …
+```
+
 Without Node, run `init` from PyPI instead:
 `uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=scala`.
 
@@ -90,6 +100,16 @@ server when none is running and stops it when it stops; a server you
 already run (your IDE's) is used and left running. It writes the API's URL
 and a token to `.kindgirc.json`, so the next commands find the runtime by
 themselves. Leave it running.
+
+When the pack is loaded and the runtime is up, it says so:
+
+```text
+…
+  ✓ loaded: 2 tools, 1 guardrails, 1 agents, 1 flows
+…
+    ✓ Kindgi is up
+…
+```
 
 ## 3. Run the agent and the flow
 
@@ -234,6 +254,15 @@ provider:
 - `--preset=<preset>` registers the provider's models from Kindgi's built-in
   preset, which reads the `<KEY_NAME>` secret. `kindgi providers presets`
   lists every preset, Gemini on Vertex AI too.
+
+With Anthropic's key, for example, the two commands print:
+
+```text
+…
+  Set ANTHROPIC_API_KEY at tenant in local.
+…
+✓ Registered anthropic: claude-opus-5-5, claude-sonnet-5-5 (default), claude-haiku-5-5, claude-haiku-4-5 — key ANTHROPIC_API_KEY (env local)
+```
 
 The provider takes over from `dev-echo` at the next turn. Any
 OpenAI-compatible endpoint registers from a short spec file.

@@ -31,6 +31,18 @@ uv run pytest    # the template's tests: the tools and the check, called directl
 - `init my-pack` makes the pack in a new folder, `my-pack`.
 - `--template=python` makes it a Python pack, with examples.
 
+`init` prints what it made. `uv sync` installs the pack's dependencies, and
+the template's tests pass:
+
+```text
+…
+✓ Python pack scaffolded at …/my-pack/
+…
+Installed 26 packages in 206ms
+…
+============================== 3 passed in 0.82s ===============================
+```
+
 The pack's config is the `[tool.kindgi]` table of its `pyproject.toml`; its
 tools, guardrails, agents and flows live in four folders:
 
@@ -212,6 +224,15 @@ uv run kindgi providers register --preset=<preset>
 - `--preset=<preset>` registers the provider's models from Kindgi's built-in
   preset, which reads the `<KEY_NAME>` secret. `kindgi providers presets`
   lists every preset.
+
+With Anthropic's key, for example, the two commands print:
+
+```text
+…
+  Set ANTHROPIC_API_KEY at tenant in local.
+…
+✓ Registered anthropic: claude-opus-5-5, claude-sonnet-5-5 (default), claude-haiku-5-5, claude-haiku-4-5 — key ANTHROPIC_API_KEY (env local)
+```
 
 The provider takes over from `dev-echo` at the next turn. Gemini on Vertex AI has a
 preset too; any OpenAI-compatible endpoint registers from a short spec file.

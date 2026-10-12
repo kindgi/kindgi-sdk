@@ -39,6 +39,15 @@ cd my-pack
 - `--template=java` makes it a Java pack, with examples.
 - `./mvnw -q test` runs the template's tests with the pack's own Maven, quietly (`-q`).
 
+`init` prints what it made. `./mvnw -q test` prints nothing when the tests
+pass:
+
+```text
+…
+✓ Java pack scaffolded at …/my-pack/ (preview)
+…
+```
+
 Without Node, run `init` from PyPI instead:
 `uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=java`.
 
@@ -87,6 +96,16 @@ the Java indexer reads it, and its tools and checks run in a pack service.
 It recompiles on every save. It writes the API's URL and a token to
 `.kindgirc.json`, so the next commands find the runtime by themselves.
 Leave it running.
+
+When the pack is loaded and the runtime is up, it says so:
+
+```text
+…
+  ✓ loaded: 2 tools, 1 guardrails, 1 agents, 1 flows
+…
+    ✓ Kindgi is up
+…
+```
 
 ## 3. Run the agent and the flow
 
@@ -218,6 +237,15 @@ provider:
 - `--preset=<preset>` registers the provider's models from Kindgi's built-in
   preset, which reads the `<KEY_NAME>` secret. `kindgi providers presets`
   lists every preset, Gemini on Vertex AI too.
+
+With Anthropic's key, for example, the two commands print:
+
+```text
+…
+  Set ANTHROPIC_API_KEY at tenant in local.
+…
+✓ Registered anthropic: claude-opus-5-5, claude-sonnet-5-5 (default), claude-haiku-5-5, claude-haiku-4-5 — key ANTHROPIC_API_KEY (env local)
+```
 
 The provider takes over from `dev-echo` at the next turn. Any
 OpenAI-compatible endpoint registers from a short spec file.

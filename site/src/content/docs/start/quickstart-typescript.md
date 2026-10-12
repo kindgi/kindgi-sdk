@@ -31,6 +31,19 @@ pnpm install
 - `--template=sample` starts it with examples. The default, `minimal`, gives
   you the folders and none of the examples.
 
+`init` prints what it made, as JSON and then as a summary. `pnpm install`
+ends with `Done`:
+
+```text
+{
+  "template": "sample",
+  "packId": "my-pack",
+…
+✓ Pack scaffolded at …/my-pack/
+…
+Done in 4.4s using pnpm v10.28.0
+```
+
 `my-pack` is also the pack's id: every tool, agent and flow in it is named
 `my-pack.<name>`. The `sample` template gives you:
 
@@ -212,6 +225,15 @@ pnpm exec kindgi providers register --preset=<preset>
 - `--preset=<preset>` registers the provider's models from Kindgi's built-in
   preset, which reads the `<KEY_NAME>` secret. `kindgi providers presets`
   lists every preset.
+
+With Anthropic's key, for example, the two commands print:
+
+```text
+…
+  Set ANTHROPIC_API_KEY at tenant in local.
+…
+✓ Registered anthropic: claude-opus-5-5, claude-sonnet-5-5 (default), claude-haiku-5-5, claude-haiku-4-5 — key ANTHROPIC_API_KEY (env local)
+```
 
 The provider takes over from `dev-echo` at the next turn. Run the agent again and it
 answers with a real model, still calling your tools. Gemini on Vertex AI

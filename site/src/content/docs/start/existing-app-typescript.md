@@ -44,6 +44,18 @@ pnpm install
   `@kindgi/sdk@<version>`). The setting protects your app's dependencies, so
   leave it as it is.
 
+`init` prints what it made, as JSON and then as a summary. `pnpm install`
+ends with `Done`:
+
+```text
+…
+  Kindgi added to …/acme-support (augment mode).
+  Pack id: acme-support    Version: 0.1.0
+  Wrote 19 files; skipped 0.
+…
+Done in 4.9s using pnpm v10.28.0
+```
+
 `init` adds:
 
 - the pack's config: its id (from the app's name), version, and where its
@@ -188,6 +200,16 @@ pnpm exec kindgi dev
 `kindgi dev` builds the pack from `kindgi/`, runs its tools in a process
 started from your app's root, and reloads on every save.
 
+When it's up, its banner names the project and its database:
+
+```text
+…
+    ✓ Kindgi is up
+…
+    Project    acme-support · database kindgi_acme_support
+…
+```
+
 Until you register a model, agents answer with `dev-echo`, which only checks
 the wiring: it calls the agent's first tool with `{"message": …}` and can't
 produce a typed answer, so this agent fails with `output-schema-violation`.
@@ -200,6 +222,11 @@ pnpm exec kindgi runs start --agent=acme-support.triage --input='{"userMessage":
 ```
 
 ```text
+…
+  Set ANTHROPIC_API_KEY at tenant in local.
+…
+✓ Registered anthropic: claude-opus-5-5, claude-sonnet-5-5 (default), claude-haiku-5-5, claude-haiku-4-5 — key ANTHROPIC_API_KEY (env local)
+…
   "status": "completed",
 …
     "output": {
@@ -229,6 +256,15 @@ A tool's tests go beside it (`kindgi/tools/get-request/index.test.ts`), and
 
 ```sh
 pnpm exec kindgi test
+```
+
+With two tests beside `get-request`, it prints vitest's summary:
+
+```text
+…
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+…
 ```
 
 `init` sets this up. It writes `vitest.config.mts` at the app's
