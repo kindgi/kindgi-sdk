@@ -6,8 +6,10 @@ sidebar:
   label: Overview
 ---
 
-The reference is generated from Kindgi's own sources (the API spec, the
-SDKs, the CLI and the schemas), so it matches the release it documents.
+These pages describe everything you can call, import, run or set in Kindgi,
+so you can look up the exact name, option or field you need. Most of them are
+generated from Kindgi's own sources (the API spec, the SDKs, the CLI and the
+schemas), so they match the release they document.
 
 - **[Features by SDK](sdks/):** which features the TypeScript, Python, Java
   and Scala SDKs have, and what to do where one lacks a feature.
