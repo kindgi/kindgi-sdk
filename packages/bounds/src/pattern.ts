@@ -39,8 +39,12 @@ export type CompiledTenantPattern =
  * them): RE2 always matches by code point and folds case as the `u` flag
  * does; `.` stops only at `\n`, and with `m`, `^` and `$` only around
  * `\n`; `\s` is ASCII whitespace. What RE2 would silently read otherwise
- * is refused: `[]` and `[^]` (the start of a class to RE2) and `[:` in a
- * class (a POSIX class to RE2).
+ * is refused: `[]` and `[^]` (the start of a class to RE2), `[:` in a
+ * class (a POSIX class to RE2) and, without the `u` flag, the escapes
+ * JavaScript reads as the letter itself (`\p`, `\P`, `\A`, `\z`, `\Q`,
+ * `\a`, `\x{`). So is `\u`, which RE2 doesn't have. And it accepts only
+ * what `RegExp` accepts: a pattern V8 refuses is refused in V8's words, even
+ * where RE2 would compile it (`(?i)`, `(?P<n>…)`).
  *
  * Flags under RE2: `i`, `m`, `s` and `u` map to RE2's own; `y` anchors at
  * the start as it does from `lastIndex` 0; `g` and `d` change no answer
@@ -115,7 +119,15 @@ function compileRe2(source: string, flags: string): CompiledTenantPattern {
     if (mapped === undefined) return { kind: 'refused', reason: `\`${flag}\` isn't a flag` };
     re2Flags |= mapped;
   }
-  const unsupported = unsupportedOnRe2(source);
+  // What `RegExp` accepts, never more: RE2 compiles `(?i)`, `(?P<n>…)` and,
+  // with `u`, `\pL` or `\x{41}`, which V8 refuses. Constructing it only
+  // parses (it never matches), and the pattern is already within its length.
+  try {
+    new RegExp(source, flags);
+  } catch (error) {
+    return { kind: 'refused', reason: (error as Error).message };
+  }
+  const unsupported = unsupportedOnRe2(source, flags.includes('u'));
   if (unsupported !== undefined) return { kind: 'refused', reason: unsupported };
   let re: RE2JS;
   try {
@@ -155,14 +167,23 @@ function compileRe2(source: string, flags: string): CompiledTenantPattern {
 /**
  * What RE2 doesn't have, or reads differently from JavaScript, by name
  * and where it is; `undefined` when there's none. RE2's own messages
- * would call a lookbehind an "invalid named capture".
+ * would call a lookbehind an "invalid named capture". It runs on a
+ * pattern `RegExp` has already parsed with the same flags (`unicode`: `u`).
  */
-function unsupportedOnRe2(source: string): string | undefined {
+function unsupportedOnRe2(source: string, unicode: boolean): string | undefined {
   let inClass = false;
   for (let i = 0; i < source.length; i += 1) {
     const c = source[i];
     if (c === '\\') {
       const next = source[i + 1] ?? '';
+      if (next === 'u') {
+        return `${RE2_ENGINE} has no \`\\u\` escapes: write the character itself (at index ${i})`;
+      }
+      const misread = unicode ? undefined : RE2_READS_OTHERWISE[next];
+      if (misread !== undefined && (next !== 'x' || source[i + 2] === '{')) {
+        const written = next === 'x' ? '\\x{' : `\\${next}`;
+        return `${RE2_ENGINE} reads \`${written}\` as ${misread}, where JavaScript without the \`u\` flag reads the letter \`${next}\` (at index ${i})`;
+      }
       if (!inClass && next >= '1' && next <= '9') {
         return `${RE2_ENGINE} has no backreferences (\`\\${next}\` at index ${i})`;
       }
@@ -193,6 +214,17 @@ function unsupportedOnRe2(source: string): string | undefined {
 }
 
 const LOOKAROUND = ['(?=', '(?!', '(?<=', '(?<!'] as const;
+
+/** Escapes JavaScript without `u` reads as the letter itself, and RE2 as something else. */
+const RE2_READS_OTHERWISE: Readonly<Record<string, string>> = {
+  p: 'a Unicode class',
+  P: 'a negated Unicode class',
+  A: 'the start of the text',
+  z: 'the end of the text',
+  Q: 'the start of a quoted literal (`\\Q…\\E`)',
+  a: 'the bell character',
+  x: 'the start of a code point (`\\x{41}`)',
+};
 
 /** The index after an empty match at `index`: past a whole surrogate pair when matching by code point. */
 function after(input: string, index: number, byCodePoint: boolean): number {

@@ -33,8 +33,9 @@ Tests run with other bounds through `@kindgi/bounds/testing`'s
 `compileTenantPattern(source, flags)` compiles a pattern a tenant wrote, a
 JavaScript regular expression's source and flags, under the process's
 bounds. It answers `{ kind: 'ok', pattern }`, whose `test(input)` and
-`count(input, atMost)` give the answers of the `RegExp` it was written as,
-or `{ kind: 'refused', reason }`, saying why.
+`count(input, atMost)` give the answers of the `RegExp` it was written as
+(on RE2, but for the differences below), or `{ kind: 'refused', reason }`,
+saying why.
 
 ```ts
 import { compileTenantPattern } from '@kindgi/bounds';
@@ -51,11 +52,19 @@ does, up to 8,192 characters with its flags. With `HOSTED_BOUNDS` it runs on
 [re2js](https://www.npmjs.com/package/re2js) port), in time linear in its
 input, up to 1,024 characters. On RE2:
 
-- **Refused, by name:** backreferences (`\1`, `\k<name>`), lookahead and
-  lookbehind (`(?=`, `(?!`, `(?<=`, `(?<!`), and what RE2 would silently read
-  otherwise: `[]` and `[^]` (the start of a class to RE2) and `[:` in a class
-  (a POSIX class to RE2). So is anything RE2 can't compile, in RE2's words,
-  such as a repeat count over 1,000.
+- **Only what `RegExp` accepts:** a pattern V8 refuses is refused in V8's
+  words, even where RE2 would compile it (`(?i)`, `(?P<n>…)`, or with `u`,
+  `\pL` and `\x{41}`).
+- **Refused, by name:**
+  - what RE2 doesn't have: backreferences (`\1`, `\k<name>`), lookahead and
+    lookbehind (`(?=`, `(?!`, `(?<=`, `(?<!`), and `\u` escapes (write the
+    character itself);
+  - what RE2 would silently read otherwise: `[]` and `[^]` (the start of a
+    class to RE2), `[:` in a class (a POSIX class to RE2) and, without the
+    `u` flag, `\p`, `\P`, `\A`, `\z`, `\Q`, `\a` and `\x{`, in a class or
+    out, which JavaScript reads as the letter itself.
+- **Refused in RE2's words:** anything else RE2 can't compile, such as a
+  repeat count over 1,000.
 - **Flags:** `i`, `m`, `s` and `u` map to RE2's own; `y` anchors at the
   start; `g` and `d` change no answer; `v` is refused.
 - **Read differently, for every pattern:**
@@ -65,8 +74,9 @@ input, up to 1,024 characters. On RE2:
     and `$` match only around `\n`;
   - `\s` is ASCII whitespace (`\t`, `\n`, `\f`, `\r` and space).
 - **Counting:** every match of a pattern like `x.*y|x` can read to the end of
-  the input, so counting them all is quadratic. `count(input, atMost)` stops
-  at `atMost`, and a `must-cite` guardrail asks for its `minCitations`, at
+  the input, so counting them all is quadratic. `count(input, atMost)` scans
+  at most `atMost` matches, each linear in the input, so it costs up to
+  `atMost` × the input. A `must-cite` guardrail asks for its `minCitations`, at
   most `mustCiteMaxCitations`: 100 with `HOSTED_BOUNDS`, no cap with
   `SELF_HOSTED_BOUNDS`.
 

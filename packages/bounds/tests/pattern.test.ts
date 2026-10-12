@@ -118,6 +118,8 @@ describe('on RE2 (hosted): what it lacks, refused by name', () => {
     ['[a[]', '['],
     ['\\\\1', 'a\\1'],
     ['(?<n>a)b', 'ab'],
+    ['\\\\p{L}', '\\p{L}'],
+    ['\\x41', 'A'],
   ])(
     '/%s/ has the same characters escaped, in a class, or a named group: it runs',
     (source, input) => {
@@ -139,19 +141,75 @@ describe('on RE2 (hosted): what it lacks, refused by name', () => {
 
   test("a pattern RE2 can't compile is refused with RE2's words: repeat counts over 1000", () => {
     onRe2();
-    expect(refusal('x{1000}{1000}')).toBe(
-      'RE2, the engine patterns run on here, refuses it: invalid nested repetition operator: `{1000}{1000}`',
-    );
     expect(refusal('(x{1000}){1000}')).toBe(
       'RE2, the engine patterns run on here, refuses it: invalid repeat count: `{1000}`',
     );
     expect(refusal('x{1001}')).toBe(
       'RE2, the engine patterns run on here, refuses it: invalid repeat count: `{1001}`',
     );
-    // V8 refuses the first too (as a literal it wouldn't parse), and runs the second.
-    const [nested, grouped] = ['x{1000}{1000}', '(x{1000}){1000}'];
-    expect(() => new RegExp(nested)).toThrow('Nothing to repeat');
-    expect(new RegExp(grouped).test('x')).toBe(false);
+    // V8 runs both.
+    expect(/(x{1000}){1000}/.test('x')).toBe(false);
+    expect(/x{1001}/.test('x')).toBe(false);
+  });
+
+  const misread = (written: string, reads: string, letter: string, index: number) =>
+    `RE2, the engine patterns run on here, reads \`${written}\` as ${reads}, where JavaScript without the \`u\` flag reads the letter \`${letter}\` (at index ${index})`;
+  test.each([
+    ['\\p{L}', '\\p', 'a Unicode class', 'p', 0],
+    ['a\\pL', '\\p', 'a Unicode class', 'p', 1],
+    ['\\P{L}', '\\P', 'a negated Unicode class', 'P', 0],
+    ['\\Aab', '\\A', 'the start of the text', 'A', 0],
+    ['ab\\z', '\\z', 'the end of the text', 'z', 2],
+    ['\\Q.\\E', '\\Q', 'the start of a quoted literal (`\\Q…\\E`)', 'Q', 0],
+    ['\\a', '\\a', 'the bell character', 'a', 0],
+    ['\\x{41}', '\\x{', 'the start of a code point (`\\x{41}`)', 'x', 0],
+    ['[\\p{L}]', '\\p', 'a Unicode class', 'p', 1],
+    ['[\\x{41}]', '\\x{', 'the start of a code point (`\\x{41}`)', 'x', 1],
+    ['[\\a]', '\\a', 'the bell character', 'a', 1],
+  ])(
+    '/%s/ without u: JavaScript reads %s as the letter, RE2 as something else: refused by name',
+    (source, written, reads, letter, index) => {
+      onRe2();
+      expect(refusal(source)).toBe(misread(written, reads, letter, index));
+      expect(() => new RegExp(source)).not.toThrow();
+    },
+  );
+
+  test.each([
+    ['\\u0041', ''],
+    ['[\\u4e00-\\u9fff]', ''],
+    ['a\\u{41}', 'u'],
+  ])('/%s/%s: RE2 has no \\u escapes, refused by name', (source, flags) => {
+    onRe2();
+    expect(refusal(source, flags)).toBe(
+      `RE2, the engine patterns run on here, has no \`\\u\` escapes: write the character itself (at index ${source.indexOf('\\u')})`,
+    );
+  });
+});
+
+describe('on RE2: what RegExp accepts, never more', () => {
+  test.each([
+    ['(?i)abc', ''],
+    ['(?s).', ''],
+    ['(?P<n>a)', ''],
+    ['x{1000}{1000}', ''],
+    ['\\pL', 'u'],
+    ['\\p{Greek}', 'u'],
+    ['\\x{41}', 'u'],
+    ['\\A', 'u'],
+    ['\\z', 'u'],
+    ['\\a', 'u'],
+    ['\\Q.\\E', 'u'],
+  ])("/%s/%s, which V8 refuses, is refused in V8's words", (source, flags) => {
+    onRe2();
+    let words: string | undefined;
+    try {
+      new RegExp(source, flags);
+    } catch (error) {
+      words = (error as Error).message;
+    }
+    expect(words).toMatch(/^Invalid regular expression: /);
+    expect(refusal(source, flags)).toBe(words);
   });
 });
 
