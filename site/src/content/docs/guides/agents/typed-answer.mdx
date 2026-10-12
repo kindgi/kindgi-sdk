@@ -18,7 +18,7 @@ turn completes, and your code reads the fields.
 
 - **A pack on a runtime such as `kindgi dev`,** with Kindgi 0.1's CLI.
 - **A registered model,** as [Models](../../models/) shows. `dev-echo`
-  can't write a typed answer.
+  only repeats the message, so it can't triage a ticket.
 - **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
   Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
 
@@ -222,12 +222,6 @@ print(triage.category, triage.priority)  # billing urgent
 </TabItem>
 </Tabs>
 
-It prints the answer's category and priority:
-
-```text
-billing urgent
-```
-
 ## When the answer doesn't fit
 
 An answer that isn't JSON, or doesn't match the schema, goes back to the model
@@ -242,8 +236,9 @@ It did not fit:
 Reply again with only the corrected triage JSON.
 ```
 
-Here a version of the agent whose instructions didn't describe the JSON
-answered first in prose. The repair worked, and the turn took two steps
+Here an older runtime, which didn't send the schema with the first call, ran
+a version of the agent whose instructions didn't describe the JSON: its first
+answer was prose. The repair worked, and the turn took two steps
 instead of one. Each repair is a model call: it counts as a step against the
 agent's [budget](../budgets/), and it costs.
 

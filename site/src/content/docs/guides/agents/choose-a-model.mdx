@@ -51,11 +51,11 @@ all of them:
 - **`{ feature: … }`**: a feature the model lists in its registration:
   `tool-use`, `parallel-tool-use`, `structured-output`, `long-context`,
   `thinking`, `vision` and others. An agent that calls tools needs `tool-use`.
-  `structured-output` says the model can follow a JSON schema itself. Kindgi
-  doesn't send it the schema: an agent's [typed answer](../typed-answer/)
-  comes from its instructions, then a check against the schema and repairs,
-  on every model. So needing `structured-output` only narrows which models
-  qualify.
+  `structured-output` says the model can follow a JSON schema itself; Kindgi
+  doesn't use that. On every model, an agent's
+  [typed answer](../typed-answer/) comes from its instructions and the schema
+  at the end of its system message, then a check against the schema and
+  repairs. So needing `structured-output` only narrows which models qualify.
 - **`{ contextWindow: { op: '>=', value: 500000 } }`**: a context window.
 - **`{ region: 'on-prem' }`**: a provider registered with this `region`.
 - **`{ models: { allow: […] } }`**, **`{ providers: { allow: […] } }`**: only
@@ -89,8 +89,8 @@ A turn routed to a model its provider has retired fails, so an agent that
 prefers or requires one needs a new version naming another model. Anthropic
 lists each Claude model's status, and any retirement date, on its
 [model deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations)
-page. An Anthropic provider registered without a default falls back the same
-way: register it again, as
+page. An Anthropic provider registered without a default falls back to its
+first model by name too. Register it again, as
 [Connect Anthropic](../../models/anthropic/#if-you-registered-it-before-014)
 shows.
 

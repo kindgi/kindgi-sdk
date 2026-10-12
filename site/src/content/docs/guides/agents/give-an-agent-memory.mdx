@@ -1,6 +1,6 @@
 ---
 title: Give an agent memory
-description: Keep facts an agent reads before each turn, let it remember what it's told, and recall earlier conversations, with who sees what and how it reaches the model.
+description: Keep facts an agent reads before each turn, let it remember what it's told, and recall earlier conversations.
 sidebar:
   order: 5.5
 ---
@@ -411,10 +411,10 @@ its fixed line about `<memory>` blocks, then the recalled message as data,
 then the user's message:
 
 ```sh
-kindgi runs journal <run-id> --limit=50
+kindgi runs journal <run-id>
 ```
 
-`<run-id>` is the run's id, and `--limit=50` reads up to 50 entries.
+`<run-id>` is the run's id.
 
 ```json
 {
