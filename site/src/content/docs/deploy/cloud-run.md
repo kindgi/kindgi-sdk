@@ -383,8 +383,19 @@ KINDGI_API_TOKEN=$(gcloud secrets versions access latest --secret=$N-api-token)
 pnpm exec kindgi key trust acme-prod --url "$URL" --token "$KINDGI_API_TOKEN"
 ```
 
+It prints the key the runtime now trusts, then says so:
+
 ```text
-  ✓ Trusted acme-prod (sha256:…)
+{
+  "keyId": "acme-prod",
+  "tenantId": "722e23b8-bbb4-43dc-9a37-9640e369fa7d",
+  "algorithm": "ed25519",
+  "publicKey": "UCeKMLv5KIFRJo5exp/5BKzsPOKzdlmJYYuLKVYmEVo=",
+  "createdAt": "2026-10-12T14:28:47.190Z"
+}
+
+  ✓ Trusted acme-prod (sha256:60e5a3c06154b3ee3e425037)
+    The runtime now accepts deploys this key signs.
 ```
 
 - `gcloud secrets versions access` reads the API token from step 3.

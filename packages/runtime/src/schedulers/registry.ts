@@ -205,7 +205,8 @@ export type WebhookRefusalReason =
   | 'paused'
   | 'rate-limited'
   | 'body-too-large'
-  | 'body-not-json';
+  | 'body-not-json'
+  | 'body-too-deep';
 
 export interface WebhookRefusalInput {
   readonly tenantId: TenantId;

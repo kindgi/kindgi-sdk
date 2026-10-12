@@ -283,6 +283,7 @@ kindgi reviewers register --spec='{"role":"standard"}'
 ```
 
 `--spec` is the reviewer, as JSON: `role` is `standard`, `senior` or `admin`.
+It prints the registered reviewer, as JSON.
 
 Then start the flow:
 
@@ -364,7 +365,8 @@ kindgi approvals complete 0eaa2820-0afe-4147-a017-fc8a4d1657cc --decision=approv
 ```
 
 The id is the approval's, `--decision=approve` approves it (`reject` turns
-it down), and `--rationale` is kept with it.
+it down), and `--rationale` is kept with it. It prints the recorded decision
+as JSON: the approval, the decision, and what it did to the run.
 
 The decision resumes the agent's turn and then the flow, within the same
 call. By the time the command returns, the flow has finished. Read the flow's
