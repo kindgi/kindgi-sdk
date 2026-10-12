@@ -92,6 +92,24 @@ export function redirects({ lines }) {
     .join('');
 }
 
+/**
+ * `/_headers`: every page's Markdown (`/start/install.md`, at the root and
+ * under every version) is served with `X-Robots-Tag: noindex`, so search
+ * engines list the pages, not their Markdown.
+ *
+ * The rules, as Cloudflare documents them for Workers static assets
+ * (https://developers.cloudflare.com/workers/static-assets/headers/, the
+ * same as Pages' `_headers`): a URL pattern on one line, its `Name: value`
+ * headers indented below it. "A splat pattern — signified by an asterisk
+ * (`*`) — will greedily match all characters. You may only include a single
+ * splat in the URL", and the page's own example matches `/*.jpg`. So the one
+ * rule `/*.md` matches `/index.md` and `/v0.1.7/start/install.md` alike,
+ * well within the file's limit of 100 rules.
+ */
+export function headers() {
+  return '/*.md\n  X-Robots-Tag: noindex\n';
+}
+
 /** The workspace's lockfile: a release's docs branch may change its `site` importer. */
 export const LOCKFILE = 'pnpm-lock.yaml';
 const SITE_IMPORTER = 'site';

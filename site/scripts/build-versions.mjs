@@ -22,6 +22,8 @@
  *                out, whatever the newest release's own copy says; the
  *                releases' and `/next/`'s copies redirect to it
  *                (`tutorials-overlay.mjs`)
+ *   *.md         every page's Markdown, for coding agents, at the root and
+ *                under every version: never indexed (`/_headers`)
  *
  * Only releases are public: readers install a release, so the site
  * describes what they have. What's merged but not released is checked in a
@@ -46,7 +48,7 @@ import {
   pinnedTutorials,
   tutorialRedirects,
 } from './tutorials-overlay.mjs';
-import { LOCKFILE, docsSource, menu, plan, redirects } from './versions-plan.mjs';
+import { LOCKFILE, docsSource, headers, menu, plan, redirects } from './versions-plan.mjs';
 
 const args = process.argv.slice(2);
 const option = (name) => {
@@ -226,4 +228,5 @@ writeFileSync(
   join(out, '_redirects'),
   redirects(planned) + tutorialRedirects(planned, overlay.pages),
 );
+writeFileSync(join(out, '_headers'), headers());
 console.log(`build-versions: ${out}`);

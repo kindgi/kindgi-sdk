@@ -45,6 +45,8 @@ its pages, its generated reference and its code are the same commit:
 /next/       the newest release candidate (`@kindgi/sdk@X.Y.Z-rc.N`) while
              it's newer than every release; gone once its release ships
 /versions.json   what the version menu lists, with each build's exact version
+*.md         each page's Markdown, for coding agents, in every build: never
+             indexed (X-Robots-Tag: noindex, from _headers)
 ```
 
 ```sh

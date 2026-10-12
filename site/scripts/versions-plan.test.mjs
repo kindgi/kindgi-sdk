@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { docsSource, lockfileImporters, menu, plan, redirects } from './versions-plan.mjs';
+import { docsSource, headers, lockfileImporters, menu, plan, redirects } from './versions-plan.mjs';
 
 const tag = (v) => `@kindgi/sdk@${v}`;
 const tags = (...versions) => versions.map(tag);
@@ -101,6 +101,25 @@ test('_redirects: each line path goes to its newest release, page for page', () 
     redirects(plan(tags('0.1.2', '0.1.3', '0.2.0'))),
     '/v0.2 /v0.2.0/ 301\n/v0.2/* /v0.2.0/:splat 301\n/v0.1 /v0.1.3/ 301\n/v0.1/* /v0.1.3/:splat 301\n',
   );
+});
+
+test('_headers: every Markdown page, at the root and under every version, is noindex', () => {
+  assert.equal(headers(), '/*.md\n  X-Robots-Tag: noindex\n');
+  // Matched as Cloudflare documents a splat: greedily, any characters, slashes too.
+  const [pattern] = headers().split('\n');
+  const literal = (part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const rule = new RegExp(`^${pattern.split('*').map(literal).join('.*')}$`);
+  for (const path of [
+    '/index.md',
+    '/start/install.md',
+    '/v0.1.7/start/install.md',
+    '/next/guides/tools/write-a-tool.md',
+  ]) {
+    assert.ok(rule.test(path), path);
+  }
+  for (const path of ['/start/install/', '/v0.1.7/', '/llms.txt', '/versions.json']) {
+    assert.ok(!rule.test(path), path);
+  }
 });
 
 test("a release's docs: its tag, or its docs branch when that changes only site/", () => {
