@@ -58,11 +58,13 @@ The check is **offline**: the runtime verifies the key's signature against
 public keys built into the release. It never calls Kindgi, at startup or
 later.
 
-There are two kinds of key, both from contact@kindgi.com:
+There are two kinds of key:
 
-- **A production key** comes with a commercial license.
+- **A production key** comes with a commercial license, from
+  contact@kindgi.com.
 - **A non-production key** is free, for staging and CI that run the runtime
-  outside development mode.
+  outside development mode. Get one at
+  [access.kindgi.com](https://access.kindgi.com), or from contact@kindgi.com.
 
 The runtime starts with either and prints which one it has.
 
@@ -81,7 +83,8 @@ way, with its own message.
 ## When a key expires
 
 - **From 30 days before** the expiry date, the banner warns that the key
-  expires soon.
+  expires soon, and says how to renew it. From 0.1.7, a tenant admin also
+  sees a line on every console page.
 - **After it expires,** the runtime still starts for 14 days, with a warning
   that says until when.
 - **After those 14 days,** it refuses to start, naming the date the key
@@ -94,3 +97,9 @@ KINDGI_LICENSE_KEY expired on 2026-07-31, more than 14 days ago. Renew it: conta
 The key is checked only when the runtime starts, so a running server never
 stops because of its key. A platform that restarts instances on its own
 (scaling, a deploy) keeps working through the grace period while you renew.
+
+To renew, a production key goes with your contract: write to
+contact@kindgi.com. A non-production key from access.kindgi.com renews when
+you sign in there again. From 0.1.7, once access.kindgi.com has it on, the
+deployment can also renew its key itself, by hand or on a schedule
+([Renew the license key](../../deploy/renew-the-license-key/)).
