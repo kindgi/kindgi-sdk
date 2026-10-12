@@ -41,10 +41,11 @@ Open `my-agents` in your coding agent. Send it these prompts, one at a time:
 3. `Write an agent that reads a customer message and says how urgent it is, and why.`
 4. `Run it with: "My order hasn't arrived and I need it tomorrow."`
 
-At the 2nd, your coding agent gives you a command that stores your AI model
-provider's API key. Run it yourself, in a terminal in `my-agents`: it asks
-for the key without showing it, so the key never goes into the chat. Then
-tell your coding agent it's done.
+At the 2nd, your coding agent asks which AI model provider you use, and
+gives you a command that stores its API key: `kindgi secrets set`, with the
+key's name. Run it yourself, in a terminal in `my-agents`: it asks for the
+key without showing it, so the key never goes into the chat. Then tell your
+coding agent it's done.
 
 ## Find the console
 
