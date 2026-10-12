@@ -303,7 +303,7 @@ fail after that, check that the runtime's service account has
 When a tool calls one of your app's IAM-protected Cloud Run services, list it
 in `pack_run_invokers`, by its name, not its URL:
 
-```hcl
+```hcl excerpt
 pack_run_invokers = [
   { project = "acme-app", location = "europe-west1", service = "orders-api" },
 ]
@@ -475,7 +475,7 @@ secret given as a plain value: a name with `SECRET` in it, or the SMTP URL.
 
 **With an API token,** which the console's sign-in page then takes:
 
-```hcl
+```hcl excerpt
 server_env = {
   KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
 }
@@ -491,7 +491,7 @@ openssl rand 32 | base64 | gcloud secrets create $N-auth-secret --data-file=-
 read -rs SMTP_URL && printf '%s' "$SMTP_URL" | gcloud secrets create $N-smtp-url --data-file=- && unset SMTP_URL
 ```
 
-```hcl
+```hcl excerpt
 public_url = "https://kindgi-dev-server-abc123-pd.a.run.app" # terraform output -raw server_url
 server_env = {
   KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
@@ -594,7 +594,7 @@ A new grant can take a minute or two to apply.
   openssl rand 32 | base64 | gcloud secrets create $N-erasure-ledger-key --data-file=-
   ```
 
-  ```hcl
+  ```hcl excerpt
   server_secret_env = {
     KINDGI_ERASURE_LEDGER_KEY = { secret = "kindgi-dev-erasure-ledger-key", version = "1" }
   }
