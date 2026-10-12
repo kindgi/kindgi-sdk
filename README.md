@@ -111,7 +111,7 @@ Kindgi CLI for Python developers: `@kindgi/cli` with Node from a wheel, so
 
 ## Java
 
-[`kindgi-client`](./sdks/java) (Java 17+, preview; not on Maven Central yet) — the
+[`kindgi-client`](./sdks/java) (Java 17+, preview) — the
 Kindgi API from a Java app: generated from the OpenAPI document at build time, with
 typed models and errors, paging, streaming and retries. It works beside an app's
 own Jackson, Spring Boot 3 and 4 included.
