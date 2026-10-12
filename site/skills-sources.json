@@ -239,6 +239,8 @@
       "pages": [
         "deploy/people-and-keys",
         "guides/agents/give-an-agent-memory",
+        "guides/agents/memory-reference",
+        "guides/approvals/approvals-reference",
         "guides/approvals/decide-an-approval",
         "guides/evals/judge-a-runs-output",
         "guides/observability/cost-per-run",

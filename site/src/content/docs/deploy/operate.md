@@ -552,7 +552,7 @@ What to check before you upgrade, and what's different after:
     ([Receive webhooks](../../guides/webhooks/receive-run-finished/)).
   - **The console:** a reviewer's **Inbox** across projects, where you can
     decide several approvals in one go or by keyboard
-    ([Decide an approval](../../guides/approvals/decide-an-approval/#in-the-console-your-inbox)).
+    ([Decide an approval](../../guides/approvals/approvals-reference/#the-inbox)).
     A project gets pages for its failed runs
     ([What failed](../../guides/runs/list-runs/#what-failed)),
     [schedules](../../guides/runs/run-on-a-schedule/#in-the-console),
@@ -564,7 +564,7 @@ What to check before you upgrade, and what's different after:
     judging, and [costs](../../guides/observability/cost-per-run/#cost-in-the-console)
     for the project and each run. The tenant gets
     [Teams](../authorization/#in-the-console-teams),
-    [Webhooks](../../guides/webhooks/receive-run-finished/#in-the-console),
+    [Webhooks](../../guides/webhooks/webhook-events/#in-the-console),
     [Sign-in](../../guides/sso/#from-the-console), **My access** and its own
     costs. A page or action shows only to the roles that can use it
     ([The console, by role](../authorization/#the-console-by-role)).
