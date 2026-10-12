@@ -16,6 +16,7 @@ import {
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
+import { SchemaCompileBudgetError } from '@kindgi/schema';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
 import type {
   Cursor,
@@ -31,6 +32,7 @@ import type {
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import { type UnpinnableRef, publishDeployedAgent, resolveAgentPins } from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
+import { type BlockPins, resolveBlockPins } from '../block-pins.js';
 import type { DeployedVersionOutcome } from '../deploy-versions.js';
 import type {
   DeployedAgent,
@@ -48,6 +50,7 @@ import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
 import type { ImageRegistryBinding } from '../image-registry-binding.js';
 import type { LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { PublishRefused } from '../publish-refused.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
@@ -184,6 +187,8 @@ export function deploymentsRouter(
   authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // Every schema a publish compiles counts against its tenant's budget.
+  const publishCompiles = publishCompilesMiddleware();
   r.use('*', tenantResourceAccess(authorizer));
 
   // ---------- GET / (list, cursor-paginated) ----------
@@ -255,7 +260,7 @@ export function deploymentsRouter(
   });
 
   // ---------- POST / (register a signed deployment) ----------
-  r.post('/', async (c) => {
+  r.post('/', publishCompiles, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
 
@@ -605,6 +610,17 @@ export function deploymentsRouter(
       defaultProjectId = defaultProject.id;
     }
 
+    // Every schema a deploy compiles is compiled before its first write,
+    // so a compile its tenant's budget refuses leaves nothing stored. The
+    // agents' data blocks pin here (checking model settings compiles
+    // one); a deploy writes no blocks, so they pin as they would later.
+    const blockPinsOf =
+      bindings.agentRegistry !== undefined &&
+      bindings.toolRegistry !== undefined &&
+      defaultProjectId !== undefined
+        ? await pinBlocks(bindings.blockRegistry, tenantId, validated.agents)
+        : undefined;
+
     const rolled: RollbackAction[] = [];
     // The version each agent is registered under: its definition's, or
     // the one a deploy registered in its place (`publishDeployedAgent`).
@@ -691,7 +707,7 @@ export function deploymentsRouter(
           ...(await registerAgents({
             agents: bindings.agentRegistry,
             tools: bindings.toolRegistry,
-            blocks: bindings.blockRegistry,
+            blockPins: blockPinsOf,
             tenantId,
             projectId: defaultProjectId,
             defined: validated.agents,
@@ -719,6 +735,10 @@ export function deploymentsRouter(
       }
     } catch (cause) {
       await rollback(rolled);
+      // A compile the tenant's budget refused is a limit, which the app's
+      // error handler answers. None runs past the first write here, but a
+      // registry binding may compile.
+      if (cause instanceof SchemaCompileBudgetError) throw cause;
       // A primitive refused with a typed outcome is the caller's to fix:
       // that outcome's own status and code. Anything thrown is a 500.
       if (cause instanceof PublishRefused) {
@@ -1793,7 +1813,8 @@ function deployedVersion(
  * as (`DeployedAgent`), pushing a rollback for each version it writes.
  *
  * With a tool registry, every agent is pinned first (the pack's tools
- * are registered by now): one whose range matches no published version
+ * are registered by now, and its data blocks were pinned before the
+ * deploy wrote anything): one whose range matches no published version
  * throws `UnpinnableDeploy` before any agent is written, and the deploy
  * rolls back. Each is then registered by `publishDeployedAgent`, which
  * never keeps a version's old pins. Without one, agents register
@@ -1802,13 +1823,14 @@ function deployedVersion(
 async function registerAgents(input: {
   readonly agents: AgentRegistryBinding;
   readonly tools: ToolRegistryBinding | undefined;
-  readonly blocks: BlockRegistryBinding | undefined;
+  /** Each agent's data-block pins (`pinBlocks`); undefined without a tool registry. */
+  readonly blockPins: readonly BlockPins[] | undefined;
   readonly tenantId: TenantId;
   readonly projectId: ProjectId;
   readonly defined: readonly Agent[];
   readonly rolled: RollbackAction[];
 }): Promise<DeployedAgent[]> {
-  const { agents, tools, blocks, tenantId, projectId, rolled } = input;
+  const { agents, tools, blockPins, tenantId, projectId, rolled } = input;
   // Signed deploys have no per-request principal — pass parent-only
   // tuples (no owner grant). Tenant admins keep access via
   // `admin from parent` cascade.
@@ -1819,7 +1841,7 @@ async function registerAgents(input: {
       await agents.unregister({ tenantId, agentId, version });
     });
 
-  if (tools === undefined) {
+  if (tools === undefined || blockPins === undefined) {
     for (const agent of input.defined) {
       const outcome = await agents.publish({ tenantId, projectId, agent, enqueueTuples });
       if (outcome.kind === 'ok') written(outcome.agentId, outcome.version);
@@ -1830,7 +1852,7 @@ async function registerAgents(input: {
     return input.defined.map(deployedPrimitive);
   }
 
-  const pinsOf = await pinAgents(tools, blocks, tenantId, input.defined);
+  const pinsOf = await pinAgents(tools, blockPins, tenantId, input.defined);
   const deployed: DeployedAgent[] = [];
   for (const [i, agent] of input.defined.entries()) {
     const pins = pinsOf[i] as AgentPins;
@@ -1946,17 +1968,34 @@ async function pinFlows(
   return pins;
 }
 
+/** Each agent's data-block pins, in order (`resolveBlockPins`); `pinAgents` reports their issues. */
+async function pinBlocks(
+  blocks: BlockRegistryBinding | undefined,
+  tenantId: TenantId,
+  defined: readonly Agent[],
+): Promise<BlockPins[]> {
+  const pins: BlockPins[] = [];
+  for (const agent of defined) pins.push(await resolveBlockPins(blocks, tenantId, agent));
+  return pins;
+}
+
 /** Each agent's pins, in order; throws `UnpinnableDeploy` naming every range that matches nothing. */
 async function pinAgents(
   tools: ToolRegistryBinding,
-  blocks: BlockRegistryBinding | undefined,
+  blockPins: readonly BlockPins[],
   tenantId: TenantId,
   defined: readonly Agent[],
 ): Promise<AgentPins[]> {
   const pins: AgentPins[] = [];
   const unpinnable: UnpinnableRef[] = [];
   for (const [i, agent] of defined.entries()) {
-    const resolved = await resolveAgentPins(tools, tenantId, agent, blocks);
+    const resolved = await resolveAgentPins(
+      tools,
+      tenantId,
+      agent,
+      undefined,
+      blockPins[i] as BlockPins,
+    );
     if (resolved.kind === 'ok') {
       pins.push(resolved.pins);
       continue;

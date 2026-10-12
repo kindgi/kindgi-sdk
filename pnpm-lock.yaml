@@ -432,6 +432,9 @@ importers:
       '@kindgi/blob-binding':
         specifier: workspace:*
         version: link:../blob-binding
+      '@kindgi/bounds':
+        specifier: workspace:*
+        version: link:../bounds
       '@kindgi/capabilities':
         specifier: workspace:*
         version: link:../capabilities

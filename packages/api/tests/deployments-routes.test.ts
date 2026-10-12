@@ -6,6 +6,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import { type Agent, type AgentPins, pinsDigest } from '@kindgi/agents';
+import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
+import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import { generateEd25519KeyPair, serializePublicKeyPem, signEd25519 } from '@kindgi/crypto';
 import { type Flow, type FlowPins, flowPinsDigest } from '@kindgi/flow';
 import type { Guardrail } from '@kindgi/guardrails';
@@ -38,6 +40,7 @@ import type {
   ToolRegistryBinding,
 } from '../src/index.js';
 import { sameGuardrailDefinition } from '../src/routes/deployments.js';
+import { inMemoryBlocks } from './support/in-memory-blocks.js';
 
 /**
  * Deployments route tests. Every binding is
@@ -847,6 +850,110 @@ describe("POST /v1/deployments — the image's index is what registers", () => {
         message: 'Image /app/index.json is not a JSON object',
       });
     }
+  });
+  test("its tools' schema compiles count against the tenant's budget, first ones included: refused, nothing is written", async () => {
+    const fixture = buildSignedDeploy();
+    const {
+      app,
+      toolRegistry,
+      guardrailRegistry,
+      agentRegistry,
+      flowRegistry,
+      deploymentRegistry,
+    } = makeApp({ fixture });
+    const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
+    try {
+      const refused = await post(app, fixture.wire);
+      // The app's error handler answers the budget's error.
+      expect(refused.status).toBe(500);
+      expect((await toolRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+      expect((await guardrailRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+      expect((await agentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+      expect((await flowRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+      expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+    } finally {
+      restore();
+    }
+    expect((await post(app, fixture.wire)).status).toBe(201);
+  });
+
+  test("its agents' data blocks pin before anything is written: checking model settings can't follow a write", async () => {
+    const order: string[] = [];
+    const blocks = inMemoryBlocks();
+    await blocks.publish({
+      tenantId,
+      projectId: DEFAULT_PROJECT_ID,
+      block: {
+        id: 'acme.model',
+        version: '1.0.0',
+        kind: 'settings',
+        content: { values: { temperature: 0.2 } },
+      },
+    });
+    const tools = makeInMemoryToolRegistry();
+    const agents = makeInMemoryAgentRegistry();
+    const pinned: unknown[] = [];
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [
+          {
+            id: 'acme.verify-citation',
+            description: 'Verify a legal citation.',
+            version: '1.0.0',
+            input: { type: 'object' },
+            output: { type: 'object' },
+            modulePath: './tools/legal/verify-citation.js',
+          },
+        ],
+        guardrails: [],
+        agents: [
+          {
+            id: 'acme.drafting',
+            version: '1.0.0',
+            name: 'Drafting',
+            instructions: 'do it',
+            capabilities: [{ feature: 'model.text.chat' }],
+            tools: [],
+            modelSettings: { id: 'acme.model', version: '^1.0.0' },
+          },
+        ],
+        flows: [],
+      },
+    });
+    const { app } = makeApp({
+      fixture,
+      agentRegistry: {
+        ...agents,
+        publish: async (input) => {
+          order.push('agent written');
+          pinned.push(input.agent.pins);
+          return agents.publish(input);
+        },
+      },
+      toolRegistry: {
+        ...tools,
+        publish: async (input) => {
+          order.push('tool written');
+          return tools.publish(input);
+        },
+      },
+      extra: {
+        blockRegistry: {
+          ...blocks,
+          getVersion: async (input) => {
+            order.push('block read');
+            return blocks.getVersion(input);
+          },
+        },
+      },
+    });
+    const res = await post(app, fixture.wire);
+    expect(res.status, await res.clone().text()).toBe(201);
+    expect(order).toEqual(['block read', 'tool written', 'agent written']);
+    expect(pinned).toEqual([expect.objectContaining({ settings: { 'acme.model': '1.0.0' } })]);
   });
 });
 

@@ -13,6 +13,8 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
+import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import { createLogger } from '@kindgi/log';
 import type { OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
@@ -287,6 +289,21 @@ describe('/v1/blocks: publish and read', () => {
       wasTombstoned: true,
     });
     expect((await call('GET', '/v1/blocks/acme.intake-prompt')).body.version).toBe('1.1.0');
+  });
+
+  test("its schema's compile counts against the tenant's budget, the first one included: refused, nothing is stored", async () => {
+    const { call } = harness();
+    const publish = () =>
+      call('POST', '/v1/blocks', weights('1.0.0', { recency: 0.3, relevance: 0.7 }, weightsSchema));
+    const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
+    try {
+      // The app's error handler answers the budget's error.
+      expect((await publish()).status).toBe(500);
+      expect((await call('GET', '/v1/blocks')).body.data).toEqual([]);
+    } finally {
+      restore();
+    }
+    expect((await publish()).status).toBe(201);
   });
 });
 

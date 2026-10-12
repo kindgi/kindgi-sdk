@@ -9,6 +9,7 @@ import type { Cursor, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types'
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRecord, ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
@@ -52,6 +53,8 @@ export function toolsRouter(
   options: { readonly providerKeys?: ProviderKeys } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // Every schema a publish compiles counts against its tenant's budget.
+  const publishCompiles = publishCompilesMiddleware();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
   // every write before anything else runs.
   r.use(
@@ -268,7 +271,7 @@ export function toolsRouter(
   });
 
   // ---------- POST / (register) ----------
-  r.post('/', async (c) => {
+  r.post('/', publishCompiles, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
 

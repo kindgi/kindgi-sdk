@@ -3,7 +3,7 @@
 
 import { Liquid } from 'liquidjs';
 
-import { compileInlineSchema } from '@kindgi/schema';
+import { type CompiledInlineSchema, compileInlineSchema } from '@kindgi/schema';
 import type { Result, TenantId } from '@kindgi/types';
 
 import { validatePromptParameters } from './define.js';
@@ -129,7 +129,30 @@ export function settingsSchemaIssues(
   if (compiled.kind === 'err') {
     return [{ path: '/content/schema', message: compiled.error.message }];
   }
-  const checked = compiled.value.validate(values);
+  return valueIssues(compiled.value, values, path);
+}
+
+/** `MODEL_SETTINGS_SCHEMA`, compiled by the first `modelSettingsIssues`. */
+let modelSettingsSchema: CompiledInlineSchema | undefined;
+
+/**
+ * Whether `values` are model settings (`MODEL_SETTINGS_SCHEMA`): the
+ * problems, none when they are. The schema is Kindgi's and never
+ * changes, so it's compiled once in a process and kept here, not in the
+ * schema cache: past the first check, checking model settings compiles
+ * nothing, so it never counts against a tenant's compile budget.
+ */
+export function modelSettingsIssues(values: unknown, path = '/content/values'): BlockIssue[] {
+  if (modelSettingsSchema === undefined) {
+    const compiled = compileInlineSchema(MODEL_SETTINGS_SCHEMA);
+    if (compiled.kind === 'err') throw new Error(compiled.error.message);
+    modelSettingsSchema = compiled.value;
+  }
+  return valueIssues(modelSettingsSchema, values, path);
+}
+
+function valueIssues(schema: CompiledInlineSchema, values: unknown, path: string): BlockIssue[] {
+  const checked = schema.validate(values);
   if (checked.kind === 'ok') return [];
   return checked.error.errors.map((e) => {
     const err = e as { readonly instancePath?: string; readonly message?: string };
@@ -197,8 +220,8 @@ function invalid(issues: readonly BlockIssue[]): Result<never, InvalidBlock> {
 
 /**
  * What a model-settings block's values may set: the model-call knobs a
- * turn passes on. Checked when an agent version that references the
- * block (`Agent.modelSettings`) is published.
+ * turn passes on. Checked (`modelSettingsIssues`) when an agent version
+ * that references the block (`Agent.modelSettings`) is published.
  */
 export const MODEL_SETTINGS_SCHEMA: Readonly<Record<string, unknown>> = {
   type: 'object',

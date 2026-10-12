@@ -5,10 +5,9 @@ import { pickVersion } from '@kindgi/tools';
 
 import {
   type BlockDefinition,
-  MODEL_SETTINGS_SCHEMA,
   type ModelSettings,
   type PromptBlockContent,
-  settingsSchemaIssues,
+  modelSettingsIssues,
 } from '../blocks.js';
 
 import type { TurnContext } from './context.js';
@@ -162,7 +161,7 @@ function turnBlocks(
     }
     const values = overrides?.settings?.[block.id] ?? block.content.values;
     if (ref.role === 'model-settings') {
-      const issues = settingsSchemaIssues(values, MODEL_SETTINGS_SCHEMA);
+      const issues = modelSettingsIssues(values);
       if (issues.length > 0) {
         fail(
           ref,

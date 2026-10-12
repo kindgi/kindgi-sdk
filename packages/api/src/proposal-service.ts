@@ -3,7 +3,7 @@
 
 import { createHash } from 'node:crypto';
 
-import type { AgentId } from '@kindgi/agents';
+import { type AgentId, modelSettingsIssues } from '@kindgi/agents';
 import { tuplesForCreate } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import { canonicalize } from '@kindgi/schema';
@@ -224,12 +224,27 @@ export function createProposalService(deps: ProposalServiceDeps) {
     if (from === null) {
       return err(validationFailed(`Block "${blockId}" version ${fromVersion} is gone`, []));
     }
-    const published = await publishBlockEdit({
-      blocks: deps.blocks,
-      tenantId,
-      from,
-      edit: editOf(proposal.tier, proposal.change.content),
-    });
+    const edit = editOf(proposal.tier, proposal.change.content);
+    // Deriving the agent version checks model settings, after the block
+    // version is written: checked here first, so a refusal leaves
+    // nothing stored.
+    if (edit.kind === 'settings') {
+      const agent = await deps.agents.getVersion({
+        tenantId,
+        agentId: proposal.agentId,
+        version: proposal.fromVersion as Semver,
+      });
+      const issues = agent?.modelSettings?.id === blockId ? modelSettingsIssues(edit.values) : [];
+      if (issues.length > 0) {
+        return err(
+          validationFailed(
+            `The proposal's content isn't model settings, which block "${blockId}" is`,
+            issues,
+          ),
+        );
+      }
+    }
+    const published = await publishBlockEdit({ blocks: deps.blocks, tenantId, from, edit });
     if (published.kind === 'invalid') {
       return err(
         validationFailed(

@@ -14,6 +14,7 @@ import type { FlowRegistryBinding, FlowVersionRecord } from '../flow-binding.js'
 import { resolveFlowPins } from '../flow-pins.js';
 import type { LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
@@ -54,6 +55,8 @@ export function flowsRouter(
   pinning?: FlowPinning,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // Every schema a publish compiles counts against its tenant's budget.
+  const publishCompiles = publishCompilesMiddleware();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
   // every write before anything else runs.
   r.use(
@@ -265,7 +268,7 @@ export function flowsRouter(
   });
 
   // ---------- POST / (publish) ----------
-  r.post('/', async (c) => {
+  r.post('/', publishCompiles, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
 

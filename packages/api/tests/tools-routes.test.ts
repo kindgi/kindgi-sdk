@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
+import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import type { ToolManifest } from '@kindgi/tools';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
@@ -569,6 +571,29 @@ describe('API — tools register', () => {
     expect(second.headers.get('X-Idempotent-Replay')).toBe('true');
     const body = (await second.json()) as { toolId: string };
     expect(body.toolId).toBe('acme.verify-citation');
+  });
+
+  test("its schemas' compiles count against the tenant's budget, first ones included: refused, nothing is stored", async () => {
+    const { app } = makeApp();
+    const register = () =>
+      app.request('/v1/tools', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(toolPostBody()),
+      });
+    const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
+    try {
+      const refused = await register();
+      // The app's error handler answers the budget's error.
+      expect(refused.status).toBe(500);
+      const listed = await app.request('/v1/tools', {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(((await listed.json()) as { data: unknown[] }).data).toEqual([]);
+    } finally {
+      restore();
+    }
+    expect((await register()).status).toBe(201);
   });
 });
 
