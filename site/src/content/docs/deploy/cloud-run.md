@@ -405,6 +405,8 @@ pnpm exec kindgi deploy --env prod --endpoint "$(terraform output -raw server_ur
 Deploy complete.
 ```
 
+To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
+
 The runtime read your pack's image from Artifact Registry with its own token
 (`KINDGI_IMAGE_REGISTRY_AUTH=google`) to check it before registering it.
 

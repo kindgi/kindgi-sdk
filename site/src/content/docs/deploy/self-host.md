@@ -347,6 +347,8 @@ pnpm exec kindgi deploy --env selfhost --token "$KINDGI_API_TOKEN"
     "primitives": { "tools": 3, "guardrails": 1, "agents": 1, "flows": 1 },
 ```
 
+To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
+
 The runtime checked the signature, read the pack's index from the image, and registered its tools, agents and flows.
 
 ## 8. Add a model, and run a flow
