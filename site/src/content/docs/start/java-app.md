@@ -13,7 +13,7 @@ typed errors.
 
 :::caution[Preview]
 **Preview.** Java and Scala support is tested and supported, but its API may
-still change in 0.1.6 without the usual deprecation period.
+still change in a later release without the usual deprecation period.
 :::
 
 **Before you start:** a pack running under `kindgi dev`, such as the one

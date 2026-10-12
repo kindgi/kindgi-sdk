@@ -16,7 +16,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.0"
+version: "0.1.1"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -33,7 +33,7 @@ sources:
 > moves the pin, and kindgi-pack-scala's version in `build.sbt` with it.
 >
 > **Preview:** Java and Scala support is tested and supported, but its API
-> may still change in 0.1.6 without the usual deprecation period.
+> may still change in a later release without the usual deprecation period.
 
 ## What a pack is
 
