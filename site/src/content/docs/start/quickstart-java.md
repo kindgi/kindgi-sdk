@@ -159,7 +159,7 @@ gates skip it. Left unset, a tool counts as one that writes.
 
 An agent is data, and it refers to the tools and the guardrail themselves:
 
-```java
+```java excerpt
 // in src/main/java/mypack/agents/EchoAgent.java
 public static final Agent AGENT = Agent.define("my-pack.echo-agent")
     .version("0.1.0")
