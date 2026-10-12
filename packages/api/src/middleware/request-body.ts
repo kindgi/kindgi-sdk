@@ -113,16 +113,20 @@ export function refuseDeepJson(): MiddlewareHandler<AppEnv> {
     const maxDepth = tenantInputBounds().requestJsonMaxDepth;
     if (!nestsDeeperThan(value, maxDepth)) return next();
     c.status(statusFor('bad-input') as never);
-    return c.json(
-      toWireError(
-        {
-          code: 'bad-input',
-          message: `The JSON body nests objects and arrays more than ${maxDepth} deep, the limit`,
-          maxDepth,
-        },
-        c.get('requestId'),
-      ),
-    );
+    return c.json(toWireError(deepJsonRefusal(maxDepth), c.get('requestId')));
+  };
+}
+
+/**
+ * The refusal for JSON nested more than `maxDepth` levels: `400 bad-input`,
+ * with `details.maxDepth`. The webhook receiver refuses a delivery's event
+ * with it too.
+ */
+export function deepJsonRefusal(maxDepth: number) {
+  return {
+    code: 'bad-input',
+    message: `The JSON body nests objects and arrays more than ${maxDepth} deep, the limit`,
+    maxDepth,
   };
 }
 

@@ -46,8 +46,9 @@ A request's body is at most 10 MiB. A bigger one is refused with
 `413 request-too-large`, with the limit in `details.maxBytes`, as soon as
 it's past the limit: a body that declares its length up front isn't read at
 all. A JSON body that nests objects and arrays more than 128 levels deep is
-refused with `400 bad-input`, with the limit in `details.maxDepth`. An
-artifact upload and a webhook delivery have limits of their own
+refused with `400 bad-input`, with the limit in `details.maxDepth`, a
+webhook delivery's included. An artifact upload and a webhook delivery have
+size limits of their own
 ([Keep files with a run](../../guides/runs/keep-files-with-a-run/),
 [Start runs from webhooks](../../guides/webhooks/start-runs-from-webhooks/)).
 

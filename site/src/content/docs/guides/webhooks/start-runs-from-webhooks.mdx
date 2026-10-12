@@ -270,7 +270,9 @@ says what else a delivery leaves: the sender's address on a refusal).
   5 minutes off is refused as `stale`.
 - **Limits:** a body over the trigger's cap (`--body-limit`, 256 KiB by
   default, at most 1 MiB) is `413`, and deliveries past the trigger's rate
-  (`--rate-limit`, 600 a minute by default) are `429`.
+  (`--rate-limit`, 600 a minute by default) are `429`. A JSON body that nests
+  objects and arrays more than 128 levels deep is `400 bad-input`, with the
+  limit in `details.maxDepth`, and is on the fires as `body-too-deep`.
 
 ## Pause, change and remove
 
