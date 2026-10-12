@@ -7,11 +7,23 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide puts a condition on an edge, so a step runs only when it holds,
+and writes the "otherwise" branch.
+
 An edge with a `when` condition fires only when the condition holds. Two edges
-out of one step, with opposite conditions, make an if/else. `acme.review-order`
-holds an order over 1000 USD and confirms the rest, with the tools from
-[Write a flow](../write-a-flow/) and
-[Pass data between steps](../pass-data-between-steps/):
+out of one step, with opposite conditions, make an if/else.
+
+## Before you start
+
+- **A pack with the tools** from [Write a flow](../write-a-flow/) and
+  [Pass data between steps](../pass-data-between-steps/): `acme.get-order`,
+  `acme.hold-order` and `acme.confirm-order`.
+- **A runtime such as `kindgi dev`,** with Kindgi 0.1's CLI.
+
+## Branch on a condition
+
+`acme.review-order` holds an order over 1000 USD and confirms the rest. Write
+it:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -122,12 +134,16 @@ review_order = Flow(
 </TabItem>
 </Tabs>
 
-`e2` fires when the order's total is over 1000; `e3` when it isn't. The
+`e2` fires when the order's total is over 1000, and `e3` when it isn't. The
 condition is defined once and wrapped in `not` for the other branch.
+
+Run it:
 
 ```sh
 kindgi runs start --flow=acme.review-order --input='{"orderId":"A-200"}'
 ```
+
+`--flow` is the flow, and `--input` its input. It prints the run:
 
 ```json
 {
@@ -143,8 +159,8 @@ kindgi runs start --flow=acme.review-order --input='{"orderId":"A-200"}'
 }
 ```
 
-`A-200`'s total is 1250, so the order is held. With `A-100` (42.50), `e3`
-fires and the order is confirmed.
+`A-200`'s total is 1250, so the order is held. With `A-100`, whose total is
+42.50, `e3` fires and the order is confirmed.
 
 ## What the journal records
 
@@ -155,33 +171,35 @@ edge didn't fire is skipped and has no entries:
 kindgi runs journal <run-id>
 ```
 
+`<run-id>` is the run's id. It prints:
+
 ```json
 {"sequence": 4, "kind": "edge.evaluated", "payload": {"edgeId": "e2", "decision": true}, …}
 {"sequence": 5, "kind": "edge.evaluated", "payload": {"edgeId": "e3", "decision": false}, …}
 {"sequence": 6, "kind": "step.started", "nodeId": "hold", "payload": {"input": {"reason": "Over 1000 USD", "orderId": "A-200"}}, …}
 ```
 
-(One entry per line here; the command prints them as one JSON document.)
+This shows one entry per line. The command prints them as one JSON document.
 
 ## Conditions
 
-A condition is JSON. Each operand is a `{ path }` (the same roots as
-`inputMapping`) or a `{ literal }`:
+A condition is JSON. Each operand is a `{ path }`, with the same roots as
+`inputMapping`, or a `{ literal }`:
 
 | Operator | Shape | True when |
 | --- | --- | --- |
-| `eq` `ne` `lt` `lte` `gt` `gte` | `{ op, left, right }` | the comparison holds (`lt`… compare two numbers or two strings) |
-| `in` `notIn` | `{ op, value, set }` | `value` is (isn't) an element of the array `set` |
-| `exists` `notExists` | `{ op, value }` | the path resolves (doesn't) |
-| `truthy` `falsy` | `{ op, value }` | the value is truthy (falsy; a missing path is falsy) |
-| `and` `or` | `{ op, children: [...] }` | all (any) of the children hold |
+| `eq` `ne` `lt` `lte` `gt` `gte` | `{ op, left, right }` | the comparison holds. `lt` and the others compare two numbers or two strings |
+| `in` `notIn` | `{ op, value, set }` | `value` is, or isn't, an element of the array `set` |
+| `exists` `notExists` | `{ op, value }` | the path resolves, or doesn't |
+| `truthy` `falsy` | `{ op, value }` | the value is truthy, or falsy. A missing path is falsy |
+| `and` `or` | `{ op, children: [...] }` | all, or any, of the children hold |
 | `not` | `{ op, child }` | the child doesn't hold |
 
 :::caution[A missing value]
 When a path doesn't resolve, `eq`, `lt`, `lte`, `gt` and `gte` are false and
 `ne` is true. So for the "otherwise" branch, write `not` around the
-condition, as above, rather than a second comparison: it covers exactly what
-the first edge doesn't.
+condition, as `acme.review-order` does, rather than a second comparison: it
+covers exactly what the first edge doesn't.
 :::
 
 ## Branch on an agent's answer
@@ -197,4 +215,10 @@ To branch on what an agent decided, give the agent a
 A step none of whose incoming edges fired is skipped, and so is every step
 only it leads to. If no edge reaches `$end`, the run still completes, with no
 output. Cover every case with your conditions, or bring the branches back
-together: [Join branches](../join-branches/).
+together, as [Join branches](../join-branches/) shows.
+
+## Next
+
+- [Join branches](../join-branches/)
+- [Repeat steps in a loop](../loop/)
+- [Give an agent a typed answer](../../agents/typed-answer/)
