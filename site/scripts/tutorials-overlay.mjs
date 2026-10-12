@@ -111,9 +111,31 @@ export function missingImports(source, file, exists) {
   return missing;
 }
 
+/** A page's Markdown sits beside it, with this extension (`agent-markdown.mjs`). */
+const MARKDOWN = '.md';
+
+/**
+ * Where a pinned page and its Markdown sit in a build, as path segments
+ * from the build's root: the page's folder and, beside it, its Markdown
+ * (`/tutorials/<slug>/`, `/tutorials/<slug>.md`); for the section's index,
+ * its `index.html` and the section's Markdown.
+ *
+ * @param {string} slug the page's slug (`pinnedTutorials`)
+ * @returns {string[][]} each as path segments
+ */
+export function pinnedPagePaths(slug) {
+  return slug === ''
+    ? [['tutorials', 'index.html'], [`tutorials${MARKDOWN}`]]
+    : [
+        ['tutorials', slug],
+        ['tutorials', `${slug}${MARKDOWN}`],
+      ];
+}
+
 /**
  * `/_redirects` lines: each release's and the pre-release's copy of a pinned
- * page goes to the one under `/tutorials/`.
+ * page goes to the one under `/tutorials/`, and its Markdown to that page's
+ * Markdown.
  *
  * @param {{ releases: { parsed: { version: string } }[], next?: { parsed: { version: string } } }} p
  * @param {readonly string[]} pages the pinned pages' slugs (`pinnedTutorials`)
@@ -126,7 +148,8 @@ export function tutorialRedirects({ releases, next }, pages) {
     for (const slug of pages) {
       const from = slug === '' ? `${base}/tutorials` : `${base}/tutorials/${slug}`;
       const to = slug === '' ? '/tutorials/' : `/tutorials/${slug}/`;
-      lines += `${from} ${to} 301\n${from}/ ${to} 301\n`;
+      const markdown = slug === '' ? `/tutorials${MARKDOWN}` : `/tutorials/${slug}${MARKDOWN}`;
+      lines += `${from} ${to} 301\n${from}/ ${to} 301\n${base}${markdown} ${markdown} 301\n`;
     }
   }
   return lines;
