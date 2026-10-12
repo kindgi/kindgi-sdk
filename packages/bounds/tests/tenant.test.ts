@@ -7,7 +7,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 import { describe, expect, test } from 'vitest';
 
-import { currentTenant, runAsTenant } from '../src/index.js';
+import { currentTenant, runAsTenant, runOutsideTenant } from '../src/index.js';
 
 describe('runAsTenant', () => {
   test('outside a scope, no tenant', () => {
@@ -50,6 +50,17 @@ describe('runAsTenant', () => {
         compiles: 'all',
       });
       expect(currentTenant()?.compiles).toBe('recompiles');
+    });
+  });
+
+  test('runOutsideTenant: no scope inside it, through its awaits; the scope is back after it', async () => {
+    await runAsTenant('tenant-a', async () => {
+      const inside = await runOutsideTenant(async () => {
+        await sleep(1);
+        return currentTenant();
+      });
+      expect(inside).toBeUndefined();
+      expect(currentTenant()?.tenantId).toBe('tenant-a');
     });
   });
 });

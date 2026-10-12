@@ -8,11 +8,17 @@ export {
   configureTenantInputBounds,
   tenantInputBounds,
 } from './bounds.js';
-export { type CompiledTenantPattern, type TenantPattern, compileTenantPattern } from './pattern.js';
+export {
+  type CompiledTenantPattern,
+  type TenantPattern,
+  compileTenantPattern,
+  tenantPatternSyntaxProblem,
+} from './pattern.js';
 export {
   type RunAsTenantOptions,
   type TenantCompiles,
   type TenantScope,
   currentTenant,
   runAsTenant,
+  runOutsideTenant,
 } from './tenant.js';

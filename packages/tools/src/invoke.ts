@@ -17,17 +17,6 @@ import type {
 import { isToolPreconditionError } from './precondition.js';
 import type { JsonSchema, Tool, ToolContext } from './types.js';
 
-/**
- * Cache compiled validators keyed by the schema *object reference*. Tools
- * are defined once and reused, so schema identity is stable — the WeakMap
- * releases entries when the tool is dropped. A pack's tools' validators
- * and an MCP server's are cached apart (`schemaOptions`).
- */
-const caches = {
-  input: { pack: new WeakMap<JsonSchema, ValidateFunction>(), mcp: new WeakMap() },
-  output: { pack: new WeakMap<JsonSchema, ValidateFunction>(), mcp: new WeakMap() },
-} as const;
-
 const PACK_SCHEMAS: CompileJsonSchemaOptions = { dialects: ['2020-12'] };
 const MCP_SCHEMAS: CompileJsonSchemaOptions = { strict: false };
 
@@ -44,22 +33,19 @@ export function schemaOptions(tool: Pick<Tool, 'transport'>): CompileJsonSchemaO
 /**
  * A compiled validator. Input validators fill in each property's JSON
  * Schema `default` (`useDefaults`) — the data they check is a copy of the
- * caller's.
+ * caller's. Taken from `compileJsonSchema`'s cache on each call, which is
+ * all that keeps it: once the cache drops it, the next call compiles it
+ * again, a recompile the tenant's budget counts.
  */
 function compile(
   schema: JsonSchema,
   side: 'input' | 'output',
   tool: Pick<Tool, 'transport'>,
 ): ValidateFunction {
-  const cache = caches[side][tool.transport === 'mcp' ? 'mcp' : 'pack'];
-  const cached = cache.get(schema);
-  if (cached !== undefined) return cached;
-  const validator = compileJsonSchema(schema as Readonly<Record<string, unknown>>, {
+  return compileJsonSchema(schema as Readonly<Record<string, unknown>>, {
     ...schemaOptions(tool),
     ...(side === 'input' && { useDefaults: true }),
   });
-  cache.set(schema, validator);
-  return validator;
 }
 
 /**

@@ -12,8 +12,10 @@
  * schema compiled again (`recompiles`), which is what a tenant whose
  * schemas don't fit in the cache makes each call do. A tenant's first
  * compile of a schema in the process is free, up to `FIRST_COMPILES`
- * schemas; past them, every compile counts. A compile isn't stopped part
- * way, so a tenant's minute can run past the budget by one compile.
+ * schemas; past them, every compile counts. A tenant that compiled
+ * nothing for an hour is forgotten, as a restart would forget it: its next
+ * compiles are first ones again. A compile isn't stopped part way, so a
+ * tenant's minute can run past the budget by one compile.
  */
 
 import type { TenantScope } from '@kindgi/bounds';
@@ -22,6 +24,9 @@ const WINDOW_MS = 60_000;
 
 /** The schemas a tenant may compile once for free, in a process. */
 export const FIRST_COMPILES = 4_096;
+
+/** How long a tenant compiles nothing before it's forgotten. */
+export const FORGET_AFTER_MS = 60 * 60_000;
 
 /** A tenant's compile refused: it spent `budgetMs` in the last 60 seconds. Retry after `retryAfterMs`. */
 export class SchemaCompileBudgetError extends Error {
@@ -45,8 +50,8 @@ interface Spent {
 
 export class CompileBudget {
   private readonly spent = new Map<string, Spent[]>();
-  /** Each tenant's schemas compiled once, by key, up to `FIRST_COMPILES`. */
-  private readonly compiled = new Map<string, Set<string>>();
+  /** Each tenant's schemas compiled once, by key, up to `FIRST_COMPILES`, and when it last compiled. */
+  private readonly compiled = new Map<string, { readonly seen: Set<string>; at: number }>();
   private sweptAt = 0;
 
   constructor(private readonly budgetMs: number) {}
@@ -59,13 +64,14 @@ export class CompileBudget {
    */
   run<T>(scope: TenantScope | undefined, key: string | undefined, compile: () => T): T {
     if (scope === undefined || this.budgetMs === Number.POSITIVE_INFINITY) return compile();
-    const seen = this.compiledBy(scope.tenantId);
+    const now = Date.now();
+    this.sweep(now);
+    const seen = this.compiledBy(scope.tenantId, now);
     const first = key !== undefined && !seen.has(key) && seen.size < FIRST_COMPILES;
     if (first && scope.compiles === 'recompiles') {
       seen.add(key);
       return compile();
     }
-    const now = Date.now();
     this.check(scope.tenantId, now);
     // Noted once it runs: a refused compile leaves the schema a first one.
     if (first) seen.add(key);
@@ -77,14 +83,26 @@ export class CompileBudget {
     }
   }
 
-  /** The schemas `tenant` has compiled once, by key. */
-  private compiledBy(tenant: string): Set<string> {
-    let seen = this.compiled.get(tenant);
-    if (seen === undefined) {
-      seen = new Set();
-      this.compiled.set(tenant, seen);
+  /** The schemas `tenant` has compiled once, by key; it compiles `now`. */
+  private compiledBy(tenant: string, now: number): Set<string> {
+    const kept = this.compiled.get(tenant);
+    if (kept !== undefined) {
+      kept.at = now;
+      return kept.seen;
     }
+    const seen = new Set<string>();
+    this.compiled.set(tenant, { seen, at: now });
     return seen;
+  }
+
+  /** Once a window: drops the compiles that left it, and forgets the tenants idle past `FORGET_AFTER_MS`. */
+  private sweep(now: number): void {
+    if (now - this.sweptAt <= WINDOW_MS) return;
+    this.sweptAt = now;
+    for (const tenant of [...this.spent.keys()]) this.recent(tenant, now);
+    for (const [tenant, kept] of [...this.compiled]) {
+      if (now - kept.at >= FORGET_AFTER_MS) this.compiled.delete(tenant);
+    }
   }
 
   /** Throws `SchemaCompileBudgetError` when `tenant` has spent its budget. */
@@ -107,11 +125,6 @@ export class CompileBudget {
     const list = this.spent.get(tenant);
     if (list === undefined) this.spent.set(tenant, [{ at, ms }]);
     else list.push({ at, ms });
-    // Tenants that stopped compiling, dropped once a window.
-    if (at - this.sweptAt > WINDOW_MS) {
-      this.sweptAt = at;
-      for (const other of [...this.spent.keys()]) this.recent(other, at);
-    }
   }
 
   /** `tenant`'s compiles in the window ending `now`, oldest first; kept for the next call. */

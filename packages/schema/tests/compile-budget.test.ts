@@ -10,7 +10,12 @@
 import type { TenantScope } from '@kindgi/bounds';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { CompileBudget, FIRST_COMPILES, SchemaCompileBudgetError } from '../src/compile-budget.js';
+import {
+  CompileBudget,
+  FIRST_COMPILES,
+  FORGET_AFTER_MS,
+  SchemaCompileBudgetError,
+} from '../src/compile-budget.js';
 
 let clock = 0;
 
@@ -128,6 +133,19 @@ describe('CompileBudget', () => {
     for (let n = 0; n < FIRST_COMPILES; n += 1) budget.run(recompiles, `first-${n}`, taking(1_000));
     budget.run(recompiles, 'one-more', taking(2_000));
     expect(refusedWith(() => budget.run(recompiles, 'another', taking(1)))).toBeDefined();
+  });
+
+  test('a tenant that compiled nothing for an hour is forgotten: its compiles are first ones again', () => {
+    const budget = new CompileBudget(2_000);
+    budget.run(recompiles, 'a', taking(1));
+    later(FORGET_AFTER_MS - 1);
+    budget.run(all, 'x', taking(2_000));
+    // Still remembered: compiling `a` again counts, past the budget.
+    expect(refusedWith(() => budget.run(recompiles, 'a', taking(1)))).toBeDefined();
+    later(FORGET_AFTER_MS);
+    budget.run(all, 'y', taking(2_000));
+    // Forgotten, as after a restart: `a` is a first compile again, and free.
+    expect(budget.run(recompiles, 'a', taking(1))).toBe('compiled');
   });
 
   test('a schema that isn’t JSON always counts', () => {

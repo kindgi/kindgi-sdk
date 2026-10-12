@@ -15,6 +15,7 @@ import {
   SELF_HOSTED_BOUNDS,
   compileTenantPattern,
   runAsTenant,
+  tenantPatternSyntaxProblem,
 } from '@kindgi/bounds';
 import type { TenantInputBounds } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
@@ -88,13 +89,40 @@ describe('on the hosted bounds', () => {
     );
   });
 
-  test('`format: regex` is a pattern `compileTenantPattern` accepts', () => {
+  test('`format: regex` is a pattern whose syntax `compileTenantPattern` accepts, in its flag mode', () => {
     under(HOSTED_BOUNDS);
     const validate = compileJsonSchema({ type: 'string', format: 'regex' });
-    expect(validate('^a+$')).toBe(true);
-    expect(validate('(?=a)')).toBe(false);
-    expect(validate('[')).toBe(false);
-    expect(validate('a'.repeat(1_025))).toBe(false);
+    for (const source of ['^a+$', '(?=a)', '[', 'a'.repeat(1_025), ']', '\\p{L}', '(a)\\1']) {
+      expect(validate(source), source).toBe(compileTenantPattern(source).kind === 'ok');
+    }
+    // Without `u`, as `compileTenantPattern` reads a pattern with no flags:
+    // `]` is the character, where with `u` V8 refuses it.
+    expect(validate(']')).toBe(true);
+    expect(tenantPatternSyntaxProblem(']', 'u')).toBe(
+      'Invalid regular expression: /]/u: Lone quantifier brackets',
+    );
+    // RE2 refuses this only for its size, when it's compiled.
+    expect(validate('a{1001}')).toBe(true);
+    expect(compileTenantPattern('a{1001}').kind).toBe('refused');
+  });
+
+  test('`format: regex` builds no RE2 program per value: 2 MiB of them in linear time', () => {
+    under(HOSTED_BOUNDS);
+    const validate = compileJsonSchema({
+      type: 'array',
+      items: { type: 'string', format: 'regex' },
+    });
+    const values: string[] = [];
+    let bytes = 2;
+    for (let k = 0; bytes < 2 * 1024 * 1024; k += 1) {
+      const value = `.{1000}.{1000}.{1000}${k}`;
+      values.push(value);
+      bytes += value.length + 3;
+    }
+    const started = performance.now();
+    expect(validate(values)).toBe(true);
+    // Building RE2's program for each value took about a minute.
+    expect(performance.now() - started).toBeLessThan(1_000);
   });
 
   test('`format: url` gives ajv-formats’ verdicts, in linear time', () => {
@@ -224,6 +252,22 @@ describe.each([
     expect(refusal(fits)).toBeUndefined();
   });
 
+  test('a `$ref` is compiled once, where its target is, not copied into each use', () => {
+    under(bounds);
+    const uses = 150;
+    const properties = (prefix: string, value: (k: number) => object) =>
+      Object.fromEntries(Array.from({ length: uses }, (_, k) => [`${prefix}${k}`, value(k)]));
+    const validate = compileJsonSchema({
+      $defs: { item: { type: 'object', properties: properties('p', () => ({ type: 'string' })) } },
+      type: 'object',
+      properties: properties('r', () => ({ $ref: '#/$defs/item' })),
+    });
+    // Each use inlined, the code would be about 150 × 150 checks: over 2 MB.
+    expect(validate.toString().length).toBeLessThan(200_000);
+    expect(validate({ r0: { p0: 'a' }, r149: { p149: 'b' } })).toBe(true);
+    expect(validate({ r149: { p149: 1 } })).toBe(false);
+  });
+
   test('more values than its bytes could hold: refused before it’s written out', () => {
     under(bounds);
     const shared = { enum: Array.from({ length: 1_000 }, (_, k) => k) };
@@ -321,6 +365,24 @@ describe('a compiled schema is kept', () => {
     const v8 = compileJsonSchema(schema);
     under(HOSTED_BOUNDS);
     expect(compileJsonSchema(schema)).not.toBe(v8);
+  });
+
+  test('a kept inline schema holds its cache key, not its validator', () => {
+    const schema = (n: number) => ({ type: 'string', maxLength: n });
+    under({ ...SELF_HOSTED_BOUNDS, schemaCacheEntries: 1, schemaCompileBudgetMs: 0 });
+    runAsTenant('tenant-a', () => {
+      const kept = compileInlineSchema(schema(1));
+      if (kept.kind !== 'ok') throw new Error('compiles');
+      expect(kept.value.validate('a').kind).toBe('ok');
+      // The cache drops it: validating compiles it again, a recompile the budget counts.
+      compileJsonSchema(schema(2));
+      expect(() => kept.value.validate('a')).toThrow(SchemaCompileBudgetError);
+    });
+    // Outside a tenant's scope nothing is counted: compiled again, it validates.
+    const kept = compileInlineSchema(schema(1));
+    if (kept.kind !== 'ok') throw new Error('compiles');
+    compileJsonSchema(schema(2));
+    expect(kept.value.validate('ab').kind).toBe('err');
   });
 
   test('a schema holding a value JSON can’t carry: compiled each time', () => {

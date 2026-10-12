@@ -6,7 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import { type Agent, type AgentPins, pinsDigest } from '@kindgi/agents';
-import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
+import { SELF_HOSTED_BOUNDS, currentTenant } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import { generateEd25519KeyPair, serializePublicKeyPem, signEd25519 } from '@kindgi/crypto';
 import { type Flow, type FlowPins, flowPinsDigest } from '@kindgi/flow';
@@ -875,6 +875,23 @@ describe("POST /v1/deployments — the image's index is what registers", () => {
       restore();
     }
     expect((await post(app, fixture.wire)).status).toBe(201);
+  });
+
+  test('past its first write, nothing it compiles counts: the budget was charged before the write', async () => {
+    const fixture = buildSignedDeploy();
+    const inner = makeInMemoryToolRegistry();
+    const scopes: unknown[] = [];
+    const toolRegistry: ToolRegistryBinding = {
+      ...inner,
+      async publish(input) {
+        scopes.push(currentTenant() ?? 'none');
+        return inner.publish(input);
+      },
+    };
+    const { app } = makeApp({ fixture, toolRegistry });
+    expect((await post(app, fixture.wire)).status).toBe(201);
+    expect(scopes.length).toBeGreaterThan(0);
+    expect(new Set(scopes)).toEqual(new Set(['none']));
   });
 
   test("its agents' data blocks pin before anything is written: checking model settings can't follow a write", async () => {

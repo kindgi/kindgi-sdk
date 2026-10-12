@@ -52,23 +52,50 @@ export type CompiledTenantPattern =
  */
 export function compileTenantPattern(source: string, flags = ''): CompiledTenantPattern {
   const bounds = tenantInputBounds();
-  const length = source.length + flags.length;
-  if (length > bounds.patternMaxLength) {
-    return {
-      kind: 'refused',
-      reason: `${length} characters with its flags, over the limit of ${bounds.patternMaxLength}`,
-    };
-  }
+  const tooLong = lengthProblem(source, flags);
+  if (tooLong !== undefined) return { kind: 'refused', reason: tooLong };
   return bounds.regex === 're2' ? compileRe2(source, flags) : compileV8(source, flags);
 }
 
-function compileV8(source: string, flags: string): CompiledTenantPattern {
-  let once: RegExp;
-  try {
-    once = new RegExp(source, flags);
-  } catch (error) {
-    return { kind: 'refused', reason: (error as Error).message };
+/**
+ * Why `compileTenantPattern` would refuse `source` with `flags` for its
+ * syntax, or `undefined` when it wouldn't: over `patternMaxLength`, what
+ * `RegExp` refuses and, under RE2, a flag or a construct RE2 doesn't have
+ * or reads otherwise. It builds no RE2 program, so it costs about what
+ * V8's parse does. A pattern RE2 refuses only for its size (a repeat over
+ * 1,000, a program too large) passes here, and is refused when it's
+ * compiled.
+ */
+export function tenantPatternSyntaxProblem(source: string, flags = ''): string | undefined {
+  const tooLong = lengthProblem(source, flags);
+  if (tooLong !== undefined) return tooLong;
+  if (tenantInputBounds().regex !== 're2') {
+    const parsed = parse(source, flags);
+    return typeof parsed === 'string' ? parsed : undefined;
   }
+  const re2Flags = re2FlagsFor(flags);
+  return typeof re2Flags === 'string' ? re2Flags : re2SyntaxProblem(source, flags);
+}
+
+/** Why `source` with `flags` is over `patternMaxLength`, or `undefined`. */
+function lengthProblem(source: string, flags: string): string | undefined {
+  const max = tenantInputBounds().patternMaxLength;
+  const length = source.length + flags.length;
+  return length > max ? `${length} characters with its flags, over the limit of ${max}` : undefined;
+}
+
+/** `source` with `flags` as V8 parses it, or V8's reason for refusing it. */
+function parse(source: string, flags: string): RegExp | string {
+  try {
+    return new RegExp(source, flags);
+  } catch (error) {
+    return (error as Error).message;
+  }
+}
+
+function compileV8(source: string, flags: string): CompiledTenantPattern {
+  const once = parse(source, flags);
+  if (typeof once === 'string') return { kind: 'refused', reason: once };
   const every = flags.includes('g') ? once : new RegExp(source, `${flags}g`);
   const byCodePoint = flags.includes('u') || flags.includes('v');
   return {
@@ -106,29 +133,37 @@ const RE2_FLAGS: Readonly<Record<string, number>> = {
   y: 0,
 };
 
-function compileRe2(source: string, flags: string): CompiledTenantPattern {
+/** RE2's flags for `flags`, or why there are none. */
+function re2FlagsFor(flags: string): number | string {
   let re2Flags = 0;
   for (const [index, flag] of [...flags].entries()) {
-    if (flags.indexOf(flag) !== index) {
-      return { kind: 'refused', reason: `the \`${flag}\` flag is given twice` };
-    }
-    if (flag === 'v') {
-      return { kind: 'refused', reason: `${RE2_ENGINE} has no \`v\` flag (set notation)` };
-    }
+    if (flags.indexOf(flag) !== index) return `the \`${flag}\` flag is given twice`;
+    if (flag === 'v') return `${RE2_ENGINE} has no \`v\` flag (set notation)`;
     const mapped = RE2_FLAGS[flag];
-    if (mapped === undefined) return { kind: 'refused', reason: `\`${flag}\` isn't a flag` };
+    if (mapped === undefined) return `\`${flag}\` isn't a flag`;
     re2Flags |= mapped;
   }
-  // What `RegExp` accepts, never more: RE2 compiles `(?i)`, `(?P<n>…)` and,
-  // with `u`, `\pL` or `\x{41}`, which V8 refuses. Constructing it only
-  // parses (it never matches), and the pattern is already within its length.
-  try {
-    new RegExp(source, flags);
-  } catch (error) {
-    return { kind: 'refused', reason: (error as Error).message };
-  }
-  const unsupported = unsupportedOnRe2(source, flags.includes('u'));
-  if (unsupported !== undefined) return { kind: 'refused', reason: unsupported };
+  return re2Flags;
+}
+
+/**
+ * Why RE2 can't run `source` with `flags` as JavaScript reads it, for its
+ * syntax; `undefined` when it can. What `RegExp` accepts, never more: RE2
+ * compiles `(?i)`, `(?P<n>…)` and, with `u`, `\pL` or `\x{41}`, which V8
+ * refuses. Constructing it only parses (it never matches), and the pattern
+ * is already within its length.
+ */
+function re2SyntaxProblem(source: string, flags: string): string | undefined {
+  const parsed = parse(source, flags);
+  if (typeof parsed === 'string') return parsed;
+  return unsupportedOnRe2(source, flags.includes('u'));
+}
+
+function compileRe2(source: string, flags: string): CompiledTenantPattern {
+  const re2Flags = re2FlagsFor(flags);
+  if (typeof re2Flags === 'string') return { kind: 'refused', reason: re2Flags };
+  const problem = re2SyntaxProblem(source, flags);
+  if (problem !== undefined) return { kind: 'refused', reason: problem };
   let re: RE2JS;
   try {
     re = RE2JS.compile(source, re2Flags);

@@ -17,7 +17,7 @@ const PACKAGES = join(import.meta.dirname, '..', '..');
 
 /** `RegExp(` sites by file (from `packages/`): how many, and why none compiles a tenant's pattern. */
 const ALLOWED: Readonly<Record<string, { readonly sites: number; readonly why: string }>> = {
-  'bounds/src/pattern.ts': { sites: 3, why: 'the helper itself: on V8, and parsing before RE2' },
+  'bounds/src/pattern.ts': { sites: 2, why: 'the helper itself: on V8, and parsing before RE2' },
   'agents/src/remember.ts': { sites: 1, why: 'a tool id, escaped, as a whole token' },
   'api/src/middleware/public-run-routes.ts': { sites: 1, why: "Kindgi's own route paths" },
   'capabilities/src/tool-names.ts': { sites: 1, why: 'tool ids, escaped, as whole tokens' },

@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
-import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
+import { SELF_HOSTED_BOUNDS, currentTenant } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import type { ToolManifest } from '@kindgi/tools';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
@@ -594,6 +594,45 @@ describe('API — tools register', () => {
       restore();
     }
     expect((await register()).status).toBe(201);
+  });
+});
+
+describe("API — a request runs as its tenant's work", () => {
+  test('a list counts a recompile; a register counts every compile', async () => {
+    const inner = makeInMemoryBinding();
+    const seen: Record<string, unknown> = {};
+    const spy: ToolRegistryBinding = {
+      ...inner,
+      async list(input) {
+        seen.list = currentTenant();
+        return inner.list(input);
+      },
+      async publish(input) {
+        seen.publish = currentTenant();
+        return inner.publish(input);
+      },
+    };
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      toolRegistry: spy,
+    });
+    const listed = await app.request('/v1/tools', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(listed.status).toBe(200);
+    const registered = await app.request('/v1/tools', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(toolPostBody()),
+    });
+    expect(registered.status).toBe(201);
+    expect(seen).toEqual({
+      list: { tenantId, compiles: 'recompiles' },
+      publish: { tenantId, compiles: 'all' },
+    });
+    expect(currentTenant()).toBeUndefined();
   });
 });
 

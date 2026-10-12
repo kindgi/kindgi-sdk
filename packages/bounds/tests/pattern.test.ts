@@ -14,6 +14,7 @@ import {
   SELF_HOSTED_BOUNDS,
   type TenantPattern,
   compileTenantPattern,
+  tenantPatternSyntaxProblem,
 } from '../src/index.js';
 import { overrideTenantInputBounds } from '../src/testing.js';
 
@@ -286,5 +287,53 @@ describe('on RE2: linear time', () => {
     const started = performance.now();
     expect(compiled('x.*y|x').count('x'.repeat(16_000), 3)).toBe(3);
     expect(performance.now() - started).toBeLessThan(1_000);
+  });
+});
+
+describe('tenantPatternSyntaxProblem: compileTenantPattern’s verdict on the syntax, without RE2’s program', () => {
+  const cases: readonly (readonly [string, string])[] = [
+    ['^a+$', ''],
+    [']', ''],
+    [']', 'u'],
+    ['a{', ''],
+    ['(?=a)', ''],
+    ['(?<!a)b', ''],
+    ['(a)\\1', ''],
+    ['(?<n>a)\\k<n>', ''],
+    ['\\p{L}', ''],
+    ['\\p{L}', 'u'],
+    ['[', ''],
+    ['[]', ''],
+    ['\\u0041', ''],
+    ['a', 'v'],
+    ['a', 'gg'],
+    ['a'.repeat(1_025), ''],
+  ];
+
+  test.each([
+    ['hosted', HOSTED_BOUNDS],
+    ['self-hosted', SELF_HOSTED_BOUNDS],
+  ] as const)('%s: the same verdict, for the same reason', (_, bounds) => {
+    restore = overrideTenantInputBounds(bounds);
+    for (const [source, flags] of cases) {
+      const result = compileTenantPattern(source, flags);
+      expect(tenantPatternSyntaxProblem(source, flags), `/${source}/${flags}`).toBe(
+        result.kind === 'refused' ? result.reason : undefined,
+      );
+    }
+  });
+
+  test('on RE2: the flags decide the syntax, as they do when it’s compiled', () => {
+    onRe2();
+    expect(tenantPatternSyntaxProblem(']')).toBeUndefined();
+    expect(tenantPatternSyntaxProblem(']', 'u')).toBe(refusal(']', 'u'));
+    expect(tenantPatternSyntaxProblem('\\p{L}', 'u')).toBeUndefined();
+    expect(tenantPatternSyntaxProblem('\\p{L}')).toBe(refusal('\\p{L}'));
+  });
+
+  test('on RE2: a pattern refused only for its size passes, and compiling it refuses it', () => {
+    onRe2();
+    expect(tenantPatternSyntaxProblem('a{1001}')).toBeUndefined();
+    expect(refusal('a{1001}')).toContain('RE2, the engine patterns run on here, refuses it');
   });
 });

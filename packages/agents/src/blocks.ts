@@ -3,7 +3,8 @@
 
 import { Liquid } from 'liquidjs';
 
-import { type CompiledInlineSchema, compileInlineSchema } from '@kindgi/schema';
+import { runOutsideTenant } from '@kindgi/bounds';
+import { type CompiledInlineSchema, compileInlineSchema, compileJsonSchema } from '@kindgi/schema';
 import type { Result, TenantId } from '@kindgi/types';
 
 import { validatePromptParameters } from './define.js';
@@ -132,29 +133,33 @@ export function settingsSchemaIssues(
   return valueIssues(compiled.value, values, path);
 }
 
-/** `MODEL_SETTINGS_SCHEMA`, compiled by the first `modelSettingsIssues`. */
-let modelSettingsSchema: CompiledInlineSchema | undefined;
+/** `MODEL_SETTINGS_SCHEMA`'s validator, compiled by the first `modelSettingsIssues`. */
+let modelSettingsValidator: ReturnType<typeof compileJsonSchema> | undefined;
 
 /**
  * Whether `values` are model settings (`MODEL_SETTINGS_SCHEMA`): the
  * problems, none when they are. The schema is Kindgi's and never
- * changes, so it's compiled once in a process and kept here, not in the
- * schema cache: past the first check, checking model settings compiles
- * nothing, so it never counts against a tenant's compile budget.
+ * changes, so it's compiled once in a process, outside any tenant's
+ * scope (`runOutsideTenant`), and its validator kept here: checking model
+ * settings never counts against a tenant's compile budget.
  */
 export function modelSettingsIssues(values: unknown, path = '/content/values'): BlockIssue[] {
-  if (modelSettingsSchema === undefined) {
-    const compiled = compileInlineSchema(MODEL_SETTINGS_SCHEMA);
-    if (compiled.kind === 'err') throw new Error(compiled.error.message);
-    modelSettingsSchema = compiled.value;
-  }
-  return valueIssues(modelSettingsSchema, values, path);
+  modelSettingsValidator ??= runOutsideTenant(() =>
+    compileJsonSchema(MODEL_SETTINGS_SCHEMA, { dialects: ['2020-12'] }),
+  );
+  if (modelSettingsValidator(values)) return [];
+  return errorIssues(modelSettingsValidator.errors ?? [], path);
 }
 
 function valueIssues(schema: CompiledInlineSchema, values: unknown, path: string): BlockIssue[] {
   const checked = schema.validate(values);
   if (checked.kind === 'ok') return [];
-  return checked.error.errors.map((e) => {
+  return errorIssues(checked.error.errors, path);
+}
+
+/** A validator's errors, as issues under `path`. */
+function errorIssues(errors: readonly unknown[], path: string): BlockIssue[] {
+  return errors.map((e) => {
     const err = e as { readonly instancePath?: string; readonly message?: string };
     return { path: `${path}${err.instancePath ?? ''}`, message: err.message ?? 'invalid' };
   });

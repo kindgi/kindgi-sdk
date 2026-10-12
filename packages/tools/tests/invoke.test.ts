@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { HOSTED_BOUNDS, runAsTenant } from '@kindgi/bounds';
+import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
+import { SchemaCompileBudgetError } from '@kindgi/schema';
 import { describe, expect, test } from 'vitest';
 
 import type { TenantId, ToolId } from '@kindgi/types';
@@ -309,5 +312,25 @@ describe('invokeTool — abortSignal cooperation', () => {
     const r = await invokeTool(spec.value, null, context);
     expect(r.kind).toBe('ok');
     if (r.kind === 'ok') expect((r.value as { events: number }).events).toBe(1);
+  });
+});
+
+describe('invokeTool — the schema cache is all that keeps its validators', () => {
+  test('once the cache drops one, the next call compiles it again, as a recompile the budget counts', async () => {
+    // One validator kept: the input's and the output's push each other out.
+    const restore = overrideTenantInputBounds({
+      ...HOSTED_BOUNDS,
+      schemaCacheEntries: 1,
+      schemaCompileBudgetMs: 0,
+    });
+    try {
+      const tool = echo();
+      const call = () => runAsTenant('tenant-a', () => invokeTool(tool, { msg: 'hi' }, ctx()));
+      // The first compiles of the tenant's schemas are free.
+      expect((await call()).kind).toBe('ok');
+      await expect(call()).rejects.toBeInstanceOf(SchemaCompileBudgetError);
+    } finally {
+      restore();
+    }
   });
 });

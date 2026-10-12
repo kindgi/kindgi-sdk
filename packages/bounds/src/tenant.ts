@@ -3,8 +3,11 @@
 
 /**
  * Whose work this is: the tenant a budget kept per tenant charges
- * (`schemaCompileBudgetMs`), and which of its compiles count. The server
- * runs each request and each run with `runAsTenant`. The scope is an
+ * (`schemaCompileBudgetMs`), and which of its compiles count. The API runs
+ * each authenticated request with `runAsTenant`, and a request that
+ * publishes schemas in a scope of its own that counts every compile; a
+ * server that does a tenant's work outside a request (a run, a job) wraps
+ * it the same way. The scope is an
  * `AsyncLocalStorage` context: it follows `fn`'s own awaits and callbacks,
  * never another request's, however they interleave. Outside any scope
  * (boot, Kindgi's own work), nothing is charged.
@@ -39,6 +42,16 @@ const scopes = new AsyncLocalStorage<TenantScope>();
 /** Runs `fn` as `tenantId`'s work, and returns what it returns. */
 export function runAsTenant<T>(tenantId: string, fn: () => T, options: RunAsTenantOptions = {}): T {
   return scopes.run({ tenantId, compiles: options.compiles ?? 'recompiles' }, fn);
+}
+
+/**
+ * Runs `fn` outside any tenant's scope, and returns what it returns: for
+ * Kindgi's own work that a tenant's request happens to start (compiling
+ * one of Kindgi's schemas the first time, say), which no tenant is
+ * charged for.
+ */
+export function runOutsideTenant<T>(fn: () => T): T {
+  return scopes.exit(fn);
 }
 
 /** Whose work this is, or undefined outside `runAsTenant`. */

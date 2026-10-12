@@ -7,6 +7,7 @@ import { Hono } from 'hono';
 
 import type { Agent, AgentId, AgentPins } from '@kindgi/agents';
 import { tuplesForCreate } from '@kindgi/authz';
+import { runOutsideTenant } from '@kindgi/bounds';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
 import type { Flow, FlowPins } from '@kindgi/flow';
 import {
@@ -627,117 +628,122 @@ export function deploymentsRouter(
     const deployedAgents: DeployedAgent[] = [];
     const deployedFlows: DeployedFlow[] = [];
     try {
-      if (bindings.toolRegistry !== undefined && defaultProjectId !== undefined) {
-        for (const tool of validated.tools) {
-          const projectIdForTool = defaultProjectId;
-          const outcome = await bindings.toolRegistry.publish({
-            tenantId,
-            projectId: projectIdForTool,
-            tool,
-            enqueueTuples: (toolId) =>
-              tuplesForCreate({
-                kind: 'tool',
-                id: toolId as ToolId,
-                tenantId,
-                projectId: projectIdForTool,
-              }),
-          });
-          if (outcome.kind === 'ok') {
-            const toolId = outcome.toolId;
-            const version = outcome.version;
-            rolled.push(async () => {
-              await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
+      // Past the first write, a compile is a registry's own compile of a
+      // schema compiled above, which the tenant's budget was charged for:
+      // it runs outside the counting, so the budget can't refuse a deploy
+      // half-written.
+      await runOutsideTenant(async () => {
+        if (bindings.toolRegistry !== undefined && defaultProjectId !== undefined) {
+          for (const tool of validated.tools) {
+            const projectIdForTool = defaultProjectId;
+            const outcome = await bindings.toolRegistry.publish({
+              tenantId,
+              projectId: projectIdForTool,
+              tool,
+              enqueueTuples: (toolId) =>
+                tuplesForCreate({
+                  kind: 'tool',
+                  id: toolId as ToolId,
+                  tenantId,
+                  projectId: projectIdForTool,
+                }),
             });
-          } else if (outcome.kind === 'already-registered') {
-            await refreshToolCode(bindings.toolRegistry, tenantId, tool, rolled);
-          } else {
-            throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome);
+            if (outcome.kind === 'ok') {
+              const toolId = outcome.toolId;
+              const version = outcome.version;
+              rolled.push(async () => {
+                await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
+              });
+            } else if (outcome.kind === 'already-registered') {
+              await refreshToolCode(bindings.toolRegistry, tenantId, tool, rolled);
+            } else {
+              throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome);
+            }
           }
         }
-      }
-      if (bindings.guardrailRegistry !== undefined && defaultProjectId !== undefined) {
-        for (const guardrail of validated.guardrails) {
-          const projectIdForGuardrail = defaultProjectId;
-          const outcome = await bindings.guardrailRegistry.register({
-            tenantId,
-            projectId: projectIdForGuardrail,
-            guardrail,
-            enqueueTuples: (guardrailId) =>
-              tuplesForCreate({
-                kind: 'guardrail',
-                id: guardrailId as GuardrailId,
-                tenantId,
-                projectId: projectIdForGuardrail,
-              }),
-          });
-          if (outcome.kind === 'ok') {
-            const guardrailId = outcome.guardrailId;
-            rolled.push(async () => {
-              await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
-            });
-          } else if (outcome.kind === 'already-registered') {
-            const kept = await keepRegisteredGuardrail(
-              bindings.guardrailRegistry,
+        if (bindings.guardrailRegistry !== undefined && defaultProjectId !== undefined) {
+          for (const guardrail of validated.guardrails) {
+            const projectIdForGuardrail = defaultProjectId;
+            const outcome = await bindings.guardrailRegistry.register({
               tenantId,
-              projectIdForGuardrail,
+              projectId: projectIdForGuardrail,
               guardrail,
-            );
-            // Unregistered since the registry answered: registered afresh.
-            if (kept.kind === 'registered') {
-              const guardrailId = guardrail.id;
+              enqueueTuples: (guardrailId) =>
+                tuplesForCreate({
+                  kind: 'guardrail',
+                  id: guardrailId as GuardrailId,
+                  tenantId,
+                  projectId: projectIdForGuardrail,
+                }),
+            });
+            if (outcome.kind === 'ok') {
+              const guardrailId = outcome.guardrailId;
               rolled.push(async () => {
                 await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
               });
-            } else {
-              await refreshGuardrailFields(
+            } else if (outcome.kind === 'already-registered') {
+              const kept = await keepRegisteredGuardrail(
                 bindings.guardrailRegistry,
                 tenantId,
+                projectIdForGuardrail,
                 guardrail,
-                kept.existing,
-                rolled,
               );
+              // Unregistered since the registry answered: registered afresh.
+              if (kept.kind === 'registered') {
+                const guardrailId = guardrail.id;
+                rolled.push(async () => {
+                  await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
+                });
+              } else {
+                await refreshGuardrailFields(
+                  bindings.guardrailRegistry,
+                  tenantId,
+                  guardrail,
+                  kept.existing,
+                  rolled,
+                );
+              }
+            } else {
+              throw new PublishRefused('guardrail', guardrail.id, outcome);
             }
-          } else {
-            throw new PublishRefused('guardrail', guardrail.id, outcome);
           }
         }
-      }
-      if (bindings.agentRegistry !== undefined && defaultProjectId !== undefined) {
-        deployedAgents.push(
-          ...(await registerAgents({
-            agents: bindings.agentRegistry,
-            tools: bindings.toolRegistry,
-            blockPins: blockPinsOf,
-            tenantId,
-            projectId: defaultProjectId,
-            defined: validated.agents,
-            rolled,
-          })),
-        );
-      } else {
-        deployedAgents.push(...validated.agents.map(deployedPrimitive));
-      }
-      if (bindings.flowRegistry !== undefined && defaultProjectId !== undefined) {
-        deployedFlows.push(
-          ...(await registerFlows({
-            flows: bindings.flowRegistry,
-            tools: bindings.toolRegistry,
-            agents: bindings.agentRegistry,
-            ...(bindings.liveVersions !== undefined && { live: bindings.liveVersions }),
-            tenantId,
-            projectId: defaultProjectId,
-            defined: validated.flows,
-            rolled,
-          })),
-        );
-      } else {
-        deployedFlows.push(...validated.flows.map(deployedPrimitive));
-      }
+        if (bindings.agentRegistry !== undefined && defaultProjectId !== undefined) {
+          deployedAgents.push(
+            ...(await registerAgents({
+              agents: bindings.agentRegistry,
+              tools: bindings.toolRegistry,
+              blockPins: blockPinsOf,
+              tenantId,
+              projectId: defaultProjectId,
+              defined: validated.agents,
+              rolled,
+            })),
+          );
+        } else {
+          deployedAgents.push(...validated.agents.map(deployedPrimitive));
+        }
+        if (bindings.flowRegistry !== undefined && defaultProjectId !== undefined) {
+          deployedFlows.push(
+            ...(await registerFlows({
+              flows: bindings.flowRegistry,
+              tools: bindings.toolRegistry,
+              agents: bindings.agentRegistry,
+              ...(bindings.liveVersions !== undefined && { live: bindings.liveVersions }),
+              tenantId,
+              projectId: defaultProjectId,
+              defined: validated.flows,
+              rolled,
+            })),
+          );
+        } else {
+          deployedFlows.push(...validated.flows.map(deployedPrimitive));
+        }
+      });
     } catch (cause) {
       await rollback(rolled);
       // A compile the tenant's budget refused is a limit, which the app's
-      // error handler answers. None runs past the first write here, but a
-      // registry binding may compile.
+      // error handler answers. None runs past the first write here.
       if (cause instanceof SchemaCompileBudgetError) throw cause;
       // A primitive refused with a typed outcome is the caller's to fix:
       // that outcome's own status and code. Anything thrown is a 500.

@@ -8,7 +8,7 @@ import type { ValidateFunction } from 'ajv';
 
 import type { Result } from '@kindgi/types';
 
-import { boundedAjv, compileTenantSchema } from './bounded.js';
+import { boundedAjv, holdTenantSchema } from './bounded.js';
 import { SchemaCompileBudgetError } from './compile-budget.js';
 import { ALLOW_UNION_TYPES } from './dialect.js';
 import type { SchemaError } from './errors.js';
@@ -205,7 +205,10 @@ export interface CompiledInlineSchema {
   /**
    * Validate `data`. Returns the original value on success (typed as `T`
    * for caller convenience — the runtime does not verify the T assertion
-   * beyond schema conformance).
+   * beyond schema conformance). It keeps the schema's cache key, not its
+   * validator: once the cache has dropped the validator, it compiles the
+   * schema again, a recompile the tenant's budget counts, so it throws
+   * `SchemaCompileBudgetError` when the tenant has spent its budget.
    */
   validate<T = unknown>(data: unknown): Result<T, ValidationErrorLike>;
   /** The raw schema JSON, for round-tripping or debugging. */
@@ -243,9 +246,9 @@ export const INLINE_ANNOTATIONS: readonly string[] = ['x-kindgi-tunable'];
  * schemas don't have a `$id` and don't need cross-schema `$ref` resolution.
  */
 export function compileInlineSchema(schema: unknown): Result<CompiledInlineSchema, SchemaError> {
-  let validator: ValidateFunction;
+  let validator: () => ValidateFunction;
   try {
-    validator = compileTenantSchema(schema, {
+    validator = holdTenantSchema(schema, {
       dialect: '2020-12',
       options: { strict: true, allErrors: true, allowUnionTypes: ALLOW_UNION_TYPES },
       // Annotations Kindgi reads off a schema, which validate nothing.
@@ -269,7 +272,8 @@ export function compileInlineSchema(schema: unknown): Result<CompiledInlineSchem
     value: {
       source: schema,
       validate<T = unknown>(data: unknown): Result<T, ValidationErrorLike> {
-        if (validator(data)) {
+        const validate = validator();
+        if (validate(data)) {
           return { kind: 'ok', value: data as T };
         }
         return {
@@ -277,7 +281,7 @@ export function compileInlineSchema(schema: unknown): Result<CompiledInlineSchem
           error: {
             code: 'validation-error',
             message: 'Data does not validate against inline schema',
-            errors: validator.errors ?? [],
+            errors: validate.errors ?? [],
           },
         };
       },

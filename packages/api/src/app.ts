@@ -74,6 +74,7 @@ import { requestIdMiddleware } from './middleware/request-id.js';
 import { requestLogMiddleware } from './middleware/request-log.js';
 import { sealedCursors } from './middleware/sealed-cursors.js';
 import { sigv4Middleware } from './middleware/sigv4.js';
+import { tenantScopeMiddleware } from './middleware/tenant-scope.js';
 import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
@@ -1167,6 +1168,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     if (tenantId !== undefined) c.set('log', c.get('log').child({ tenantId }));
     await next();
   });
+  // And its work is the tenant's: a schema it compiles again counts
+  // against the tenant's compile budget.
+  v1.use('*', tenantScopeMiddleware());
   const authorizer: Authorizer | undefined =
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
   // A key limited to a project names no other one.

@@ -9,12 +9,13 @@
  * With `SELF_HOSTED_BOUNDS`, Ajv is as it always was: patterns on V8,
  * ajv-formats' full formats, Ajv's own `uniqueItems`. On RE2
  * (`HOSTED_BOUNDS`), every check a tenant's schema makes runs in time
- * linear in the data:
+ * linear in the data (`uniqueItems`: in its size times its depth):
  * - `pattern`, `patternProperties` and `propertyNames`' patterns run on
  *   RE2, through `compileTenantPattern` (Ajv's `code.regExp`); Kindgi's own
  *   schemas' patterns stay on V8 (`schemasFrom`);
- * - formats are ajv-formats' `fast` ones; `regex` is a pattern that
- *   `compileTenantPattern` accepts, and `url` is matched without the
+ * - formats are ajv-formats' `fast` ones; `regex` is a pattern whose
+ *   syntax `compileTenantPattern` accepts (`tenantPatternSyntaxProblem`,
+ *   which builds no RE2 program), and `url` is matched without the
  *   backtracking its regular expression has (see `linearUrl`);
  * - `uniqueItems` finds a repeat by each item's key, not pair by pair
  *   (`./unique-items.ts`).
@@ -30,7 +31,12 @@
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 
-import { compileTenantPattern, currentTenant, tenantInputBounds } from '@kindgi/bounds';
+import {
+  compileTenantPattern,
+  currentTenant,
+  tenantInputBounds,
+  tenantPatternSyntaxProblem,
+} from '@kindgi/bounds';
 import type { TenantInputBounds } from '@kindgi/bounds';
 import { Ajv } from 'ajv';
 import type { Options, ValidateFunction } from 'ajv';
@@ -79,10 +85,18 @@ export function boundedAjv(
   how: BoundedAjvOptions = {},
 ): AnyAjv {
   const onRe2 = tenantInputBounds().regex === 're2';
-  const ajvOptions: Options =
-    onRe2 && how.schemasFrom !== 'kindgi'
-      ? { ...options, code: { ...options.code, regExp: tenantRegExp } }
-      : options;
+  const tenants = how.schemasFrom !== 'kindgi';
+  const ajvOptions: Options = tenants
+    ? {
+        ...options,
+        // Ajv's default inlines a `$ref` target at every site that uses
+        // it, so the code it writes grows as the target's size times its
+        // uses while the JSON stays small: 27 KiB of one `$defs` used 400
+        // times took 18 s and 2.8 GiB to compile.
+        inlineRefs: false,
+        ...(onRe2 && { code: { ...options.code, regExp: tenantRegExp } }),
+      }
+    : options;
   let ajv: AnyAjv;
   if (dialect === '2020-12') ajv = new Ajv2020(ajvOptions);
   else if (dialect === '2019-09') ajv = new Ajv2019(ajvOptions);
@@ -94,7 +108,9 @@ export function boundedAjv(
   }
   if (onRe2) {
     addFormats(ajv, { mode: 'fast' });
-    ajv.addFormat('regex', (input: string) => compileTenantPattern(input).kind === 'ok');
+    // A pattern `compileTenantPattern` would accept for its syntax, checked
+    // without building RE2's program: data can carry thousands of values.
+    ajv.addFormat('regex', (input: string) => tenantPatternSyntaxProblem(input) === undefined);
     ajv.addFormat('url', linearUrl());
     ajv.removeKeyword('uniqueItems');
     ajv.addKeyword(linearUniqueItems());
@@ -169,6 +185,40 @@ export interface TenantSchemaCompile {
  * `undefined`) is compiled each time.
  */
 export function compileTenantSchema(schema: unknown, how: TenantSchemaCompile): ValidateFunction {
+  return compileKeyed(schema, how).validate;
+}
+
+/**
+ * A tenant's `schema` compiled now, as `compileTenantSchema` does, for a
+ * caller that keeps it: what this keeps is the cache key, not the
+ * validator. Each call returns the validator the cache has under the key
+ * or, once the cache has dropped it (or the bounds changed), compiles it
+ * again as `compileTenantSchema` does, a recompile the tenant's budget
+ * counts, and which can throw as it does. So however long a caller keeps
+ * it, the cache is all that holds the compiled schema. A schema holding a
+ * value JSON can't carry, never cached, is held as compiled.
+ */
+export function holdTenantSchema(
+  schema: unknown,
+  how: TenantSchemaCompile,
+): () => ValidateFunction {
+  const first = compileKeyed(schema, how);
+  if (first.key === undefined) return () => first.validate;
+  let key = first.key;
+  return () => {
+    const kept = stateFor(tenantInputBounds()).cache.get(key);
+    if (kept?.kind === 'compiled') return kept.validate;
+    const again = compileKeyed(schema, how);
+    if (again.key !== undefined) key = again.key;
+    return again.validate;
+  };
+}
+
+/** `compileTenantSchema`'s validator, and the key the cache keeps it under (none when it isn't JSON). */
+function compileKeyed(
+  schema: unknown,
+  how: TenantSchemaCompile,
+): { readonly validate: ValidateFunction; readonly key?: string } {
   const bounds = tenantInputBounds();
   const measured = measure(schema, bounds);
   if (measured.kind === 'over') throw new Error(measured.reason);
@@ -185,7 +235,7 @@ export function compileTenantSchema(schema: unknown, how: TenantSchemaCompile): 
     );
   const { cache, budget } = stateFor(bounds);
   const scope = currentTenant();
-  if (!measured.json) return budget.run(scope, undefined, compile);
+  if (!measured.json) return { validate: budget.run(scope, undefined, compile) };
   const key = createHash('sha256')
     .update(JSON.stringify([how.dialect, how.options, how.annotations ?? []]))
     .update(text)
@@ -193,7 +243,7 @@ export function compileTenantSchema(schema: unknown, how: TenantSchemaCompile): 
   const kept = cache.get(key);
   if (kept !== undefined) {
     if (kept.kind === 'refused') throw kept.error;
-    return kept.validate;
+    return { validate: kept.validate, key };
   }
   let validate: ValidateFunction;
   try {
@@ -204,7 +254,7 @@ export function compileTenantSchema(schema: unknown, how: TenantSchemaCompile): 
     throw error;
   }
   cache.set(key, { kind: 'compiled', validate }, bytes);
-  return validate;
+  return { validate, key };
 }
 
 /** `JSON.stringify(schema)`, or '' when it can't write it (a `BigInt`). */

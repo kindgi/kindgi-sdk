@@ -27,12 +27,13 @@ Turn the JSON Schemas that live in `@kindgi/specs/*.schema.json` into runtime-us
 `compileJsonSchema` and `compileInlineSchema` compile a schema under the process's bounds, from [`@kindgi/bounds`](../bounds/):
 
 - A schema nested deeper than `schemaMaxDepth`, or larger than `schemaMaxBytes` as JSON, is refused before it's compiled, with an error naming the limit.
+- A `$ref` is compiled once, where its target is, not copied into each place that uses it (Ajv's `inlineRefs: false`), so the code a schema compiles to grows with its JSON, not with its targets' sizes times their uses.
 - Each schema is compiled once and its validator kept, by the schema's JSON as written and the options it was compiled with. The cache holds at most `schemaCacheEntries` validators and `schemaCacheMaxBytes` of their schemas' JSON, and drops the least recently used first. A schema that didn't compile is kept too, weighing nothing, and throws the same error again.
 
-Under `HOSTED_BOUNDS`, whose patterns run on RE2, every check a schema makes of the data runs in time linear in the data:
+Under `HOSTED_BOUNDS`, whose patterns run on RE2, every check a schema makes of the data runs in time linear in the data (`uniqueItems`: in its size times its depth):
 
 - `pattern`, `patternProperties` and `propertyNames` run on RE2, through `compileTenantPattern`. A schema with a pattern RE2 can't run (a lookahead, a backreference) doesn't compile, and the error names the pattern and why.
-- Formats are ajv-formats' `fast` ones. `regex` accepts the patterns `compileTenantPattern` does, and `url` is ajv-formats' own, written without its backtracking. `fast` is looser in places: `date` accepts `2026-02-30`.
+- Formats are ajv-formats' `fast` ones. `regex` accepts a pattern whose syntax `compileTenantPattern` accepts, checked without building RE2's program (`tenantPatternSyntaxProblem`): one RE2 refuses only for its size, such as a repeat over 1,000, passes. `url` is ajv-formats' own, written without its backtracking. `fast` is looser in places: `date` accepts `2026-02-30`.
 - `uniqueItems` looks for a repeat by a key for each item, not pair by pair. The verdict and the error are Ajv's, down to the pair of items it names. One difference: an object with its own `valueOf` or `toString` key is compared by its keys, where Ajv's compare throws.
 
 Under `SELF_HOSTED_BOUNDS`, patterns run on V8, formats are ajv-formats' `full` ones, and `uniqueItems` is Ajv's own.

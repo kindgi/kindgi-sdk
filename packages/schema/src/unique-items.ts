@@ -2,7 +2,8 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * `uniqueItems` in time linear in the data, for schemas compiled on RE2
+ * `uniqueItems` in time linear in the data's size times its depth (each
+ * level's key is built from its children's), for schemas compiled on RE2
  * (the hosted bounds).
  *
  * Ajv's own keyword compares every pair of items (n² deep-equals) unless
