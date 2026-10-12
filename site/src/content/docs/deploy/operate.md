@@ -331,6 +331,222 @@ The runtime logs the same at every start, one `WARN` per tool version or endpoin
 {"time":"2026-10-10T10:15:40.130Z","level":"warn","severity":"WARNING","subsystem":"providers.keys","message":"provider-key-declared tenant=… tool=acme.translate@1.0.0 secret=ANTHROPIC_API_KEY provider=anthropic: a model provider's key is used by its provider only, so this tool's calls are refused. Store the key it needs under its own name and use that name","tenantId":"…","kind":"tool","id":"acme.translate","version":"1.0.0","secretName":"ANTHROPIC_API_KEY","providerId":"anthropic"}
 ```
 
+### From 0.1.6 to 0.1.7
+
+The database migrates when 0.1.7 starts. One step adds a check to the table
+of trigger fires: Postgres reads the table under a lock while it adds it,
+and since fires are kept 30 days, that's short.
+
+#### Security fixes in 0.1.7
+
+- **The server's environment reached model providers' calls.** The model
+  SDKs fill options a call leaves out from environment variables. On a
+  runtime whose environment set them:
+  - `ANTHROPIC_AUTH_TOKEN` was sent as a bearer beside each Anthropic
+    provider's own key;
+  - `ANTHROPIC_BASE_URL` sent every Anthropic provider's calls, with that
+    provider's key, to that address instead of Anthropic's API;
+  - `OPENAI_ORG_ID` and `OPENAI_PROJECT_ID` went as headers to each
+    OpenAI-compatible provider's base URL;
+  - `GOOGLE_GENAI_USE_VERTEXAI` (or `GOOGLE_GENAI_USE_ENTERPRISE`) moved a
+    Gemini Developer API provider to Vertex AI, in the project the
+    environment named.
+
+  0.1.7's adapters set these options themselves, so nothing of the server's
+  environment goes out with a provider's call. If your runtime's environment
+  set `ANTHROPIC_BASE_URL` to an address you don't fully trust, rotate the
+  Anthropic keys of the providers it ran, and `ANTHROPIC_AUTH_TOKEN` too if
+  it was set.
+- **A tenant's identity provider skipped the egress guard.** The requests to
+  a tenant's SSO identity provider (OIDC discovery when the provider is
+  registered; the token, JWKS and userinfo requests at sign-in) didn't go
+  through `KINDGI_TENANT_HOST_ACCESS`'s checks, as the other hosts tenant
+  configuration names do. In 0.1.7 they do, checked at each connection; a
+  discovery the guard refuses answers `422 identity-provider-invalid`.
+  Origins listed in `KINDGI_AUTH_PRIVATE_IDP_ORIGINS` connect as before
+  ([What a tenant can't make the server do](../../concepts/security/#what-a-tenant-cant-make-the-server-do)).
+- **A key could mint a key that outlived it.** A key that expires, even one
+  limited to a project, could make a key that never expires, which kept
+  working after the first one expired or was revoked. In 0.1.7, from a key
+  that expires, a new key needs an `expiresAt` (`--expires` in the CLI) no
+  later than it (`403 token-expiry-exceeds-minter`). A console signed in
+  with a key mints as that key. The deployment's token, keys without an
+  expiry and other sign-ins are unchanged
+  ([API keys](../people-and-keys/#api-keys)).
+
+#### What to check, and what's different
+
+What to check before you upgrade, and what's different after:
+
+- **Rebuild your packs with the 0.1.7 CLI:**
+  - **A parameter named `input` is refused** when an agent or a prompt block
+    is defined, as `today`, `now`, `agent`, `conversation` and `settings`
+    were. Before, it was accepted, and a turn's structured input silently
+    replaced its value. Rename it.
+  - **A pack's `providers` declarations are checked against their
+    preset:** a preset's own settings are required, and another preset's
+    are refused, by the types and by `kindgi dev`, which names whose setting
+    it is. In TypeScript, `preset` is one of the preset names
+    (`KindgiPresetName`), so a name computed at run time needs
+    `as KindgiPresetName`
+    ([Declare them in your pack's config](../../guides/models/#declare-them-in-your-packs-config)).
+- **The runtime image carries the `kindgi` CLI,** which runs the license
+  renewal jobs. On linux/amd64 it downloads 290 MB, up from 276 MB.
+- **Embedding `@kindgi/agents`:** `AGENTS_MIGRATIONS_DIR` is only on the
+  runtime-only subpath `@kindgi/agents/migrations` now, with no alias.
+- **The API:**
+  - A page cursor a list didn't issue answers `400 bad-input` on the
+    agents, flows, policies and eval-suites `/versions` lists and on an
+    agent's promotions, as it does on blocks' and tools' `/versions`.
+  - When an admin ends someone's sessions, it shows on that person's
+    sign-in history (`GET /v1/audit/sign-ins?userId=`), with `byUserId`
+    saying who, and no longer on the admin's.
+  - Adding a team member who isn't a person of the tenant, was removed, or
+    is named by a malformed id is refused with `404 identity-user-not-found`,
+    as adding a project member is. Before, an unknown id was added.
+  - A judging rule's results count the runs their judgments come from
+    (`runsWithJudgments`).
+- **Models:**
+  - Claude Haiku 4.5 asks for up to 16,000 output tokens by default in the
+    `anthropic` and `bedrock` presets (it was 8,192). A model's
+    `maxOutputTokens` is the default cap a call gets when its agent sets
+    none, not the model's own limit. A provider you registered from the
+    preset by hand keeps 8,192 until you register the preset again
+    (`kindgi providers unregister <id>`, then `register --preset=…`); one
+    your pack declares updates at the next `kindgi dev` start. An agent with
+    its own `maxOutputTokens` isn't affected.
+  - A typed agent is told its output's name and JSON Schema from the first
+    model call, so most typed turns no longer pay for a repair call.
+- **The console:**
+  - Its data pages are one kind of table: headers that sort, a search box on
+    the lists, a **Columns** menu, and each view kept in the page's address.
+    The judging queue's **Show more** reads **Load more**, and a flow run's
+    row on the Runs page opens to its agent turns.
+  - On a run's Overview, a step that ended with its run reads **Cancelled**
+    ("Stopped: the run failed" in a failed run), and the Journal marks each
+    such start
+    ([After a cancel](../../guides/runs/cancel-a-run/#after-a-cancel)).
+  - Signing in with an emailed link, or with Google, Microsoft or GitHub,
+    returns you to the console page you were opening, and a console link
+    without its workspace (`/console/projects/…`) opens in yours.
+  - A tenant admin sees a line on every console page from 30 days before
+    the license key expires, with how to renew.
+- **`kindgi dev`:**
+  - **There's one per pack.** A second `kindgi dev` in the same pack exits
+    with code 3 ("kindgi dev is already running for this pack") and says
+    where the running one is: its process id, the console and the API
+    (with `--json`, as `{ "running": {…} }`). Before, it took over the
+    first one's runtime. `--reset` and
+    `--recreate-services` are refused the same way while one runs
+    ([Your coding agent](../../start/coding-agents/#what-it-runs)).
+  - The console works at `localhost`, `127.0.0.1` or `[::1]` on the
+    runtime's port. A request from anywhere else is refused, and the refusal
+    now names the address to use
+    ([Requests from other sites](../../guides/sso/sessions/#requests-from-other-sites)).
+  - It says what it's doing while it starts: pulling the image (with its
+    size and progress), starting the container, migrating the database, and
+    waiting for it to serve, each with its time.
+- **The CLI:**
+  - In an app Kindgi was added to, `kindgi init` sets up the tests
+    `kindgi test` runs (vitest and vite, and a `vitest.config.mts` that maps
+    your tsconfig paths); an app that runs vitest already keeps its own
+    setup and is told what to add. It pins zod, vitest and vite exactly when
+    your app pins exactly, else as a range.
+  - `kindgi doctor` names the config file it found.
+  - `kindgi guardrails list --table` prints a table.
+  - Printed npm commands read `npx --no -- kindgi …`, so a flag such as
+    `--help` reaches Kindgi rather than npx.
+  - An app that imports an agent file (for its output schema) builds with
+    Next.js or webpack, with no `serverExternalPackages`.
+- **Fixed:**
+  - **A runtime starting while another serves the same database no longer
+    fails** with `enable-rls … deadlock detected`, and the serving one no
+    longer answers `500` "Tenant-scoped query failed: deadlock detected". A
+    start on an up-to-date database now takes no lock a serving instance's
+    writes wait for, so a deploy, restart or scale-up no longer stalls
+    writes.
+  - **An MCP tool whose name contains `__` can be called.** Two tools that
+    would go to the model under one name (`acme.a__b` and `acme.a.b`) are
+    refused before the call, naming both: rename one of them.
+- **New in 0.1.7:**
+  - **Webhook triggers:** a signed request from WooCommerce, Drupal's
+    Webhooks module, GitHub, Shopify or any Standard Webhooks sender starts
+    a run of a flow, acting as whoever registered the trigger
+    (`kindgi webhooks`, and
+    `webhooks` in the TypeScript, Python and Java clients;
+    [Start runs from WooCommerce, Drupal or any signed webhook](../../guides/webhooks/start-runs-from-webhooks/)).
+  - **A webhook's event, typed:** `parseEvent` in `@kindgi/sdk/webhooks`
+    reads the event in a verified request's body, as Python's
+    `webhooks.parse_event` does
+    ([Verify a webhook](../../guides/webhooks/verify-a-webhook/#a-receiver)).
+  - **An MCP endpoint can sign in** with a user name and password, or with
+    OAuth client credentials
+    ([Send a credential](../../guides/tools/mcp-servers/#send-a-credential)).
+  - **Azure OpenAI and Amazon Bedrock as model providers,** with the
+    `azure-openai` and `bedrock` presets
+    ([Presets](../../guides/models/#presets)).
+  - **AWS Secrets Manager** for the secrets set through Kindgi's API
+    ([Keep secrets in your own secret manager](../secret-manager/#aws-secrets-manager)).
+  - **Azure Container Apps,** from Kindgi's Terraform module
+    ([Deploy on Azure Container Apps](../azure-container-apps/)).
+  - **A deployment can renew its own license key:** `kindgi license enroll`
+    once, then `kindgi license renew` by hand or on a schedule, which the
+    Azure module can run for you. It works once access.kindgi.com has it on
+    ([Renew the license key](../renew-the-license-key/)).
+  - **Where the license stands:** `GET /v1/license` answers its `standing`
+    (`valid`, `expiring`, `grace` or `expired`), `daysLeft` and its dates.
+    The deployment's token reads all of it; where the deployment serves one
+    tenant, that tenant's admins read the countdown only, and anyone else
+    gets `403 license-operator-only`.
+  - **A tool's env values in a unit test:** `invokeToolForTest` and
+    `toolContextForTest` in `@kindgi/sdk/define` decide them as a run does
+    ([Give a tool per-project values](../../guides/tools/give-a-tool-env-values/#test-it)).
+  - **Two templates:** `kindgi init --template=woocommerce`, agents for a
+    WooCommerce store, where a larger refund, a price change and publishing
+    a product each wait for a person; and `--template=drupal`, agents for a
+    Drupal site through its MCP Server, with a review flow a Drupal webhook
+    starts.
+  - **Coding agents:** a `kindgi-using` skill, with which your coding
+    agent guides you in using what was built: the CLI's answer and the
+    console page beside it
+    ([Your coding agent](../../start/coding-agents/#skills-loaded-for-the-task)).
+
+#### Known limitations in 0.1.7
+
+- **In a tenant with several projects, flows and agents can use tools,
+  agents and other items defined in another project of the same tenant.** Checks inside a
+  run (`ctx.authorize`, `can`, `check`) aren't enforced yet; route-level
+  permissions are. Until 0.1.8, give project admin roles only to people
+  trusted across all of a tenant's projects, or use a separate tenant per
+  customer.
+- **A project's tools, MCP endpoints and webhook triggers use the tenant's
+  secrets.** A secret one of them names is looked up at the tenant, whoever
+  registered it. Until 0.1.8, give project admin roles only to people you'd
+  trust with every secret in the tenant. 0.1.8 limits each item to the scopes
+  the person registering it administers.
+- **With authorization on, a runtime whose database user has no `BYPASSRLS`
+  (and isn't a superuser) doesn't start.** That's the usual case on a managed
+  Postgres. To check, run this as the runtime's database user:
+
+  ```sql
+  SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user;
+  ```
+
+  If both are `f`, use 0.1.8 or later for production with authorization on:
+  0.1.8 fixes it. Without authorization, the runtime starts as before.
+- **A tenant SSO sign-in whose identity provider's userinfo request fails**
+  (the provider is down, or `KINDGI_TENANT_HOST_ACCESS` refuses its address)
+  **ends at an empty 500 page** instead of the sign-in page with an error. No
+  session is created. Token and JWKS failures go back to the sign-in page as
+  expected.
+- **Run one runtime instance.** 0.1.6 and 0.1.7 fix the known reasons
+  several instances couldn't share a database: boot migrations wait their
+  turn, the sign-in limit is shared, guardrail, tool and provider changes
+  reach every instance, page cursors work across instances with one
+  `KINDGI_PAGINATION_KEY`, and from 0.1.7 a start takes no lock a serving
+  instance's writes wait for. Several instances together aren't verified on a
+  platform yet, so the Cloud Run module still runs one.
+
 ### From 0.1.5 to 0.1.6
 
 The database migrates when 0.1.6 starts.
@@ -658,7 +874,7 @@ What to check before you upgrade, and what's different after:
   model answers without it.
   Drupal's MCP Server Tool Bridge names its tools this way (`tool_api__…`).
   There's no workaround for a server whose tool names you don't choose:
-  0.1.7 fixes it.
+  0.1.7 fixes it ([From 0.1.6 to 0.1.7](#from-016-to-017)).
 - **A runtime starting while another serves the same database can fail to
   start.** Each start applies row-level security to every tenant table
   again, under locks that a write in flight can deadlock with. So a new
@@ -672,7 +888,8 @@ What to check before you upgrade, and what's different after:
   Starting it again serves. While it happens, the runtime that's serving can
   answer some writes with `500 internal-server-error`, "Tenant-scoped query
   failed: deadlock detected", and keeps serving (in our test, some project
-  creations). This isn't new in 0.1.6, and a fix is planned for 0.1.7.
+  creations). This isn't new in 0.1.6: 0.1.7 fixes it
+  ([From 0.1.6 to 0.1.7](#from-016-to-017)).
 
 ### Runtime 0.1.5.1
 
