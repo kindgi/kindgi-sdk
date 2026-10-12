@@ -138,6 +138,10 @@ its own private network sets `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`, which
 opens RFC 1918, CGNAT and IPv6 unique-local addresses. Loopback and the
 cloud metadata addresses stay refused.
 
+A model provider's calls carry only its own registration's settings and its
+own key: from 0.1.7, nothing of the server's environment goes with them
+([Security fixes in 0.1.7](../../deploy/operate/#security-fixes-in-017)).
+
 ## Secrets by reference
 
 The runtime stores the **names** of secrets, not their values, wherever it
