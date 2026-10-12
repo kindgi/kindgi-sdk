@@ -27,7 +27,9 @@ kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
 ```
 
 - `ANTHROPIC_API_KEY` is the secret's name, the one the preset reads.
-- `--env=local` is the environment `kindgi dev` serves.
+- `--env=local` is the environment the secret belongs to. Under
+  `kindgi dev`, `local` is the pack's env files, `.kindgi/secrets.env` among
+  them.
 - `--scope=tenant` is where the secret lives: the tenant, rather than one org
   (`org:<orgId>`) or project (`project:<projectId>`).
 
@@ -146,18 +148,17 @@ says how it keeps cached prompts, and for how long.
 [API and data retention](https://platform.claude.com/docs/en/manage-claude/api-and-data-retention)
 says whether caching is eligible for zero data retention.
 
-A registration from an earlier preset prices cache reads at 10% on every
-model, so it overstates them on Opus 5.5 and Sonnet 5.5. Register the preset
-again to get the 5% rate, as
-[If an older registration has no default](#if-an-older-registration-has-no-default)
-shows.
+A registration whose models have no `promptCacheReadMultiplier` prices cache
+reads at 10% on every model, so it overstates them on Opus 5.5 and Sonnet
+5.5. Register the preset again to get the 5% rate, as
+[Register the preset again](#register-the-preset-again) shows.
 
-## If an older registration has no default
+## Register the preset again
 
-A registration from an earlier preset has no default and doesn't list Haiku
-5.5, so an agent that names no model gets `claude-haiku-4-5`, the first by
-name. Register the preset again with the current CLI. A registration can't
-be edited, so unregister it first:
+A registration with no default model doesn't list Haiku 5.5 either, so an
+agent that names no model gets `claude-haiku-4-5`, the first by name.
+Register the preset again with an updated CLI. A registration can't be
+edited, so unregister it first:
 
 ```sh
 kindgi providers unregister anthropic

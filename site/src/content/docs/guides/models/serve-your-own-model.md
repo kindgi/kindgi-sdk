@@ -6,7 +6,8 @@ sidebar:
 ---
 
 This guide connects an open model you serve yourself to your agents, sends
-the request fields your server needs, and keeps it as a fallback.
+the request fields your server needs, and, if you want, keeps it as a
+fallback.
 
 You can serve it with Ollama, vLLM or llama.cpp's server, on your machine or
 on a server in your network. It registers like any

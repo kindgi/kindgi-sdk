@@ -18,6 +18,9 @@ Four presets connect a provider with one API key, the way
 | `groq` | Open-weight models on Groq's fast inference | `GROQ_API_KEY` |
 | `openrouter` | A hosted service in front of several vendors: your prompts pass through OpenRouter | `OPENROUTER_API_KEY` |
 
+`azure-openai` takes a key too, `AZURE_OPENAI_API_KEY`, with your resource
+and deployments: [Presets](../#presets) explains its flags.
+
 For Gemini with your Google Cloud credentials instead of a key, use
 [Gemini on Vertex AI](../gemini-on-vertex-ai/), the `gemini` preset.
 
@@ -40,7 +43,9 @@ kindgi secrets set OPENAI_API_KEY --env=local --scope=tenant
 ```
 
 - `OPENAI_API_KEY` is the secret's name, the one the preset reads.
-- `--env=local` is the environment `kindgi dev` serves.
+- `--env=local` is the environment the secret belongs to. Under
+  `kindgi dev`, `local` is the pack's env files, `.kindgi/secrets.env` among
+  them.
 - `--scope=tenant` is where the secret lives: the tenant, rather than one org
   (`org:<orgId>`) or project (`project:<projectId>`).
 
@@ -113,9 +118,9 @@ threshold prices the whole call at the higher rates.
 [Temperature and thinking](../#temperature-and-thinking) says which of these
 models take a temperature, and which think.
 
-A provider registered from an earlier preset has no default, so an agent
-that names no model gets the first by name, and it keeps only the two base
-rates. Register it again: unregister it, then register the preset. For one
+A provider registered from a preset that had no default model has none, so
+an agent that names no model gets the first by name, and it keeps only the
+two base rates. Register it again: unregister it, then register the preset. For one
 the pack's config declares, restart `kindgi dev` instead.
 
 ## OpenAI

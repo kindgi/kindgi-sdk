@@ -23,8 +23,10 @@ Each is one JSON file. It holds the exact bytes that were signed, base64, as `bu
 - **A runtime,** such as `kindgi dev`, with Kindgi 0.1's CLI.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell, for the
   HTTP requests.
-- **`openssl`,** to make a key.
-- **A decided approval or a finished run,** to export.
+- **`openssl`,** to make a key to keep. `kindgi dev` signs with a throwaway
+  key without one.
+- **A decided approval, or the run of an agent turn that completed,** to
+  export.
 
 ## Give the deployment its key
 
@@ -88,7 +90,7 @@ It answers with the keys as JSON, the active one first. Each key has an id deriv
 
 ## Export
 
-Export an approval by its id, or a run's provenance by the run's id. Each command writes the signed file:
+Export an approval by its id, or a run's provenance by the run's id. Each prints the signed export, and `>` saves it:
 
 ```sh
 kindgi approvals export 0b6e3c1e-2f4f-4a51-9d0e-7a1f2c3d4e5f > approval.json
@@ -116,7 +118,7 @@ Every export is recorded as an `export-signed` audit event: who exported what, w
 kindgi exports verify approval.json --from-runtime
 ```
 
-`--from-runtime` trusts the keys the runtime lists. An auditor without access checks against the key you gave them, with `--trust=export-signing.pub.pem`. Repeat it for several keys. It prints the check as JSON, with `"valid": true` and the key that signed. It exits 0 when the export checks out and 1 when it doesn't, saying why.
+`--from-runtime` trusts the keys the runtime lists. An auditor without access checks against the key you gave them, with `--trust=export-signing.pub.pem`. Repeat it for several keys. It prints the check as JSON: `valid`, and `signingKeyId`, the id of the key that signed. It exits 0 when the export checks out and 1 when it doesn't, saying why.
 
 </TabItem>
 <TabItem label="TypeScript">
@@ -244,7 +246,7 @@ Then give the runtime the file, in one of these:
 - **They never sign:** a request that asks for a retired key's id is `404 signing-key-not-found`. A private key in the file stops the runtime at boot, and so does a block it can't read.
 - **Any signing key:** it works whatever signs now: a file, a secret or a KMS key version.
 
-[Provenance](../../../reference/api/operations/tags/provenance/) and [Compliance](../../../reference/api/operations/tags/compliance/) in the HTTP API have every operation.
+[Approvals](../../../reference/api/operations/tags/approvals/), [Provenance](../../../reference/api/operations/tags/provenance/), [Compliance](../../../reference/api/operations/tags/compliance/) and [Export signing keys](../../../reference/api/operations/tags/export-signing-keys/) in the HTTP API have every operation.
 
 ## Next
 

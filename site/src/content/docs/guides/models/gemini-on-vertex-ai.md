@@ -134,7 +134,7 @@ Or require it, as
 
 An earlier preset registered `gemini-2.5-pro` and `gemini-2.5-flash`.
 Vertex AI retires both on **2026-10-20**. After that, a turn routed to them
-fails. Move to the current CLI, then:
+fails. Update the CLI, then:
 
 - **A provider you registered with `kindgi providers register`:** unregister
   it and register the preset again. A registration can't be edited:

@@ -256,9 +256,9 @@ curl "$KINDGI_API_URL/v1/provenance?createdAfter=2026-10-05T16:25:00Z&limit=3" \
 
 Each record carries its run's `projectId`. `scopeKind=project&scopeId=<id>`
 lists one project's records, and `scopeKind=org&scopeId=<id>` every
-project's in an org. The clients call it `scope`. A record with no project,
-or that doesn't name its agent, shows only in a list without a scope or
-`--agent`.
+project's in an org. The clients call it `scope`. A record with no project is
+listed only without a scope, and one whose run doesn't name its agent isn't
+matched by `--agent`.
 
 `signed` is `false`: the records themselves aren't signed as they're
 written. To hand a run's provenance to someone, export it signed by the
@@ -273,4 +273,4 @@ has every operation.
 
 - [Cost per run and per customer](../cost-per-run/)
 - [Export signed evidence](../export-signed-evidence/)
-- [Read the journal](../../runs/read-the-journal/)
+- [Read a run's journal](../../runs/read-the-journal/)
