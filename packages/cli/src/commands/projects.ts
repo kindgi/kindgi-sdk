@@ -122,15 +122,22 @@ function productionText(state: ProductionState): string {
 }
 
 /**
- * The two refusals named by the server's own code, since the client's
- * families would mislead: `production-not-allowed` is a 403 (`auth`), and
- * its message says what lets the tenant in (`details.next`, when the
- * runtime names it); `tenant-not-found` is a 404 (`not-found`).
+ * The refusals named by the server's own code, since the client's families
+ * would mislead: `production-not-allowed` and `permission-denied` (not a
+ * tenant admin) are 403s, filed under `auth`, and `production-not-allowed`'s
+ * message says what lets the tenant in (`details.next`, when the runtime
+ * names it); `tenant-not-found` is a 404, filed under `not-found`.
  */
+const PRODUCTION_REFUSALS = new Set([
+  'production-not-allowed',
+  'permission-denied',
+  'tenant-not-found',
+]);
+
 function productionError(err: unknown, ctx: CommandContext): CommandResult {
   const wire = extractKindgiError(err);
   const code = wire !== null && 'serverCode' in wire ? wire.serverCode : undefined;
-  if (wire !== null && (code === 'production-not-allowed' || code === 'tenant-not-found')) {
+  if (wire !== null && code !== undefined && PRODUCTION_REFUSALS.has(code)) {
     return { kind: 'error', stderr: `Error [${code}]: ${wire.message}\n`, exitCode: 1 };
   }
   return commandResultFromThrown(err, ctx, 'kindgi projects production');

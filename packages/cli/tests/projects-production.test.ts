@@ -40,6 +40,10 @@ const NOT_ALLOWED = fromWire(
   },
   403,
 );
+const NOT_ADMIN = fromWire(
+  { code: 'permission-denied', message: 'Only a tenant admin can put a project in production' },
+  403,
+);
 const NO_TENANT = fromWire(
   {
     code: 'tenant-not-found',
@@ -128,6 +132,14 @@ describe('kindgi projects production', () => {
     expect(out.stdout).toBe('');
     expect(out.stderr).toBe(
       `Error [production-not-allowed]: This tenant can't put projects in production yet. To be allowed: ${NEXT}. Projects not in production keep working as staging.\n`,
+    );
+  });
+
+  test('someone who isn\'t a tenant admin: permission-denied, not the client\'s `auth`', async () => {
+    const { out } = await run(['projects', 'production', 'p-shop', 'off'], { refuse: NOT_ADMIN });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      'Error [permission-denied]: Only a tenant admin can put a project in production\n',
     );
   });
 
