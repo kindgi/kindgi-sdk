@@ -2517,7 +2517,7 @@ export const ERROR_ENTRIES = {
   },
   'webhook-refused': {
     description:
-      "The inbound webhook request doesn't prove who sent it: a wrong or missing signature, one too old, or an unknown address. The answer is the same for every reason; the reason is on the trigger's fires.",
+      "The inbound webhook request doesn't prove who sent it: an unknown address, a missing, wrong or too old signature, or a secret that can't be read. The answer is the same for every reason; the reason is in the trigger's fires and the access audit.",
     details: [],
   },
   'webhook-gone': {
