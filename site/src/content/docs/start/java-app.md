@@ -190,3 +190,11 @@ is `UNRECOGNIZED`), where the Python client refuses the whole answer.
 More detail is in the client's
 [README](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java#readme):
 streams, updates that clear a property, your app's Jackson.
+
+## Next
+
+- [Add Kindgi to a Java app](../existing-app/#a-java-app-maven): your app's
+  own classes as tools.
+- [Quickstart: Java](../quickstart-java/): a pack of its own, with every
+  primitive.
+- [Follow a run](../../guides/runs/follow-a-run/): every way to watch one.
