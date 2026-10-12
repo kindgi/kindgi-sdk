@@ -75,8 +75,8 @@ To run a new agent version in a flow, publish a new version of the flow.
 
 - **A rollback** puts a scope back on the version that was live there
   before, or on `--to=<version>`, at once. It isn't gated.
-- **An unpin** removes a scope's own live version. Its runs then use the
-  scope above, or the latest version when nothing above is live.
+- **An unpin** removes a scope's own live version. Its runs then use a
+  wider scope's live version, or the latest version when none is live.
 
 What each refuses:
 
@@ -131,7 +131,7 @@ A gate policy's parts, and what each asks of a promotion:
 | --- | --- |
 | `comparison.maxAgeHours` | a comparison of the version, finished at most this many hours ago |
 | `evidence.minCases` | each figure resting on at least this many judged cases, for the version and for the live one |
-| `metrics` | each named figure at least `minCandidate`, and at most `maxDrop` below the live version. The figures are `weightedYesShare`, `judgedCoverage`, or `weightedPrecisionAtK` with its `k` |
+| `metrics` | each named figure at least `minCandidate`, and lower than the live version's by at most `maxDrop`. The figures are `weightedYesShare`, `judgedCoverage`, or `weightedPrecisionAtK` with its `k` |
 | `replay` | at most this many diverged cases, errors, refused writes and stopped cases: `maxDiverged`, `maxErrors`, `maxRefusedWrites`, `maxStopped`. Those left out are 0. A version with other settings runs read-only tools live, which [counts as diverged](../compare-an-agent-version/#what-a-replay-does), so `maxDiverged: 0` refuses it |
 | `approvals` | then a reviewer with this role approves it, `senior` if left out. It's someone other than whoever asked, unless `separateApprover: false` lets the one who asked approve it |
 | `onlyRestrictedClasses: true` | a comparison that [counted only restricted judges](../compare-an-agent-version/#count-only-restricted-judges) |
@@ -157,15 +157,15 @@ A gate policy's parts, and what each asks of a promotion:
 
 ### A gated scope needs a live version of its own
 
-Otherwise, the next published version, or a promotion above it, would reach
-its runs without its gate. A policy for a scope without one is refused:
+Otherwise, the next published version, or a promotion for a wider scope,
+would reach its runs without its gate. A policy for a scope without one is refused:
 
 ```text
 The tenant has no live version of acme.order-desk of its own, so publishing a version would make it live here ungated: pin a version for this scope first (1.2.0 serves it now)
 ```
 
-A scope whose runs get their version from a pin above it, such as a segment
-that runs its project's version, is refused the same way, naming that pin:
+A scope whose runs get their version from a wider scope's pin, such as a
+segment that runs its project's version, is refused the same way, naming that pin:
 
 ```text
 Segment company:globex has no live version of acme.order-desk of its own, so a promotion for project <project-id> would change it without this gate: pin a version for this scope first (1.0.0 serves it now)
@@ -179,13 +179,19 @@ already applies:
 kindgi agents promote acme.order-desk 1.0.0 --project=<project-id> --segment=company:globex --reason="Pin globex before its gate"
 ```
 
+- `<project-id>` is the segment's project.
+- `--segment=company:globex` is the segment, `key:value`. A deeper segment
+  repeats `--segment`, coarse to fine.
+- `--reason` says why, and is kept with the promotion.
+
 Under a gate, the promotion's one check says why it went through, and its
 reason starts with `pin-in-place`:
 `acme.order-desk 1.0.0 already serves this scope (from a pin above it), so pinning it here changes nothing for runs: the gate's checks and approval don't apply.`
 `--check` answers `would-promote` with that same check.
 
-A gate that still follows a pin above it, such as one set up by an older
-runtime, refuses a promotion, rollback or unpin above it with
+A gated scope that still follows a wider scope's pin, such as one set up by
+an older runtime, refuses a promotion, rollback or unpin in that wider scope
+with
 `409 gate-policy-descendant-unpinned`, naming the scope and its version:
 
 ```text
