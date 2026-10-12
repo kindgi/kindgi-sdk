@@ -45,6 +45,7 @@ import { dirname, join, resolve } from 'node:path';
 import {
   TUTORIALS,
   missingImports,
+  pinnedPagePaths,
   pinnedTutorials,
   tutorialRedirects,
 } from './tutorials-overlay.mjs';
@@ -213,14 +214,14 @@ if (next) {
   console.log(`build-versions: next (v${next.parsed.version}) from ${from(next.tag, ref)}`);
   atTag(ref, 'next', (worktree) => buildDocs(worktree, '/next/', next.tag, join(out, 'next')));
 }
-// A pinned tutorial lives under /tutorials/ only: the other builds' copies go, and redirect there.
+// A pinned tutorial lives under /tutorials/ only: the other builds' copies
+// go, their Markdown too, and both redirect there.
 const builds = [...releases.map(({ parsed }) => `v${parsed.version}`), ...(next ? ['next'] : [])];
 for (const build of builds) {
   for (const slug of overlay.pages) {
-    rmSync(join(out, build, 'tutorials', ...(slug === '' ? ['index.html'] : [slug])), {
-      recursive: true,
-      force: true,
-    });
+    for (const path of pinnedPagePaths(slug)) {
+      rmSync(join(out, build, ...path), { recursive: true, force: true });
+    }
   }
 }
 writeFileSync(join(out, 'versions.json'), `${JSON.stringify(menu(planned), null, 2)}\n`);
