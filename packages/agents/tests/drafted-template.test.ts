@@ -55,10 +55,13 @@ describe('checkDraftedTemplate', () => {
     expect(check(`Hi {{ firm }} ${'x'.repeat(2100)}`)[0]).toContain('at most 2000');
   });
 
-  test('a partial is refused: a template resolves none', () => {
-    // `package.json` would resolve from the package's directory, where the tests run.
-    expect(check("Rank for {{ firm }}. {% render 'package.json' %}")).toEqual([
-      'the template isn\'t valid Liquid: ENOENT: Failed to lookup "package.json" in "."',
-    ]);
-  });
+  test.each(['package.json', 'constructor', '__proto__'])(
+    'a partial is refused: a template resolves none (%s)',
+    (name) => {
+      // `package.json` would resolve from the package's directory, where the tests run.
+      expect(check(`Rank for {{ firm }}. {% render '${name}' %}`)).toEqual([
+        `the template isn't valid Liquid: ENOENT: Failed to lookup "${name}" in "."`,
+      ]);
+    },
+  );
 });

@@ -179,6 +179,8 @@ describe('renderInstructions — partials', () => {
     ['render', "{% render 'package.json' %}"],
     ['layout', "{% layout 'package.json' %}Hello"],
     ['a dynamic name', '{% include partial %}'],
+    ['an Object.prototype member', "{% include 'constructor' %}"],
+    ['__proto__', "{% render '__proto__' %}"],
   ])('a template resolves no partials: %s fails the render', (_, template) => {
     const agent = make(template, [{ name: 'partial', type: 'string' }]);
     const r = renderInstructions(agent, {
@@ -188,7 +190,7 @@ describe('renderInstructions — partials', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe('render-failure');
-      expect(r.error.message).toContain('Failed to lookup "package.json"');
+      expect(r.error.message).toContain('Failed to lookup');
     }
   });
 });
