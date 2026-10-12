@@ -6,9 +6,10 @@ sidebar:
   label: Overview
 ---
 
-These pages come from the contributor docs in the
+These pages show how the SDK repository is organized and what every change
+to it must pass. They come from the contributor docs in the
 [kindgi-sdk repository](https://github.com/kindgi/kindgi-sdk), so they change
-with the code:
+with the code.
 
 - [The repository](repository/): setup, the checks every change passes, and
   how releases work.
@@ -17,7 +18,7 @@ with the code:
 - [Adding an HTTP route](adding-a-route/): the checklist, from the handler to
   the generated OpenAPI document and the TypeScript client.
 
-The SDK is in preview, and we aren't accepting external contributions yet.
-Issues are welcome: to report a problem with Kindgi or with these docs, open
-one in the repository. Report security vulnerabilities privately, as its
-security policy describes.
+While the SDK is in preview, the repository doesn't accept external
+contributions. To report a problem with Kindgi or with these docs, open an
+issue in the repository. Report a security vulnerability privately, as the
+repository's security policy describes.
