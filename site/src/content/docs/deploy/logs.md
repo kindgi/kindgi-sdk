@@ -80,7 +80,7 @@ ends with `"inMessage":["method","route","status","durationMs"]`. That's how
 the pretty format and `kindgi dev` know to leave them out.
 
 At boot, the pretty format prints the startup block (see
-[The startup log](../operate/#the-startup-log)). The JSON format prints one
+[The startup log](../restart-and-check-health/#the-startup-log)). The JSON format prints one
 `boot` record instead, with the same lines in `lines`:
 
 ```json

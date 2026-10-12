@@ -7,9 +7,19 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide makes an agent wait for a person before it calls a tool that
+changes something, then approves or rejects the call.
+
 An agent turns on approval gates in its `conversationPolicy`. When the model
 asks for a gated tool, the run stops before the tool is called and waits for a
-reviewer. Approve, and the tool runs; reject, and it doesn't.
+reviewer. Approve, and the tool runs. Reject, and it doesn't.
+
+## Before you start
+
+- **A pack** on a runtime such as `kindgi dev`, with Kindgi 0.1's CLI. This
+  guide uses the pack `acme-ops`, with a read-only tool, `acme-ops.greet`.
+- **A model the agent can route to,** with `tool-use`, as
+  [Models](../../models/) shows.
 
 ## Gate a tool
 
@@ -141,10 +151,10 @@ status_agent = Agent(
 
 - **`always_ask`**: every call waits for a decision.
 - **`never_ask`**: calls run without asking.
-- **No override:** a tool declared read-only (`mutating: false`) runs without
-  asking; any other tool asks. So `hitl: { tools: {} }` asks before every tool
-  that can change something, and here `acme-ops.greet`, which is read-only,
-  never asks.
+- **No override:** a tool declared read-only, with `mutating: false`, runs
+  without asking. Any other tool asks. So `hitl: { tools: {} }` asks before
+  every tool that can change something. Here `acme-ops.greet`, which is
+  read-only, never asks.
 
 An agent without `hitl.tools` has no tool gates, unless your tenant has
 [approval rules](../approval-rules-for-every-agent/).
@@ -152,16 +162,22 @@ An agent without `hitl.tools` has no tool gates, unless your tenant has
 ## Become a reviewer
 
 Approvals are decided by **reviewers**. Under `kindgi dev` you're one already,
-an `admin`. On any other runtime, register yourself once (the user your API
-token belongs to); it covers any token of yours, a console sign-in too:
+an `admin`. On any other runtime, register yourself once, as the user your API
+token belongs to. It covers any token of yours, a console sign-in too:
 
 ```sh
 kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
 ```
 
+`--spec` is the reviewer: its `role` and, optionally, a `displayName`.
+It prints the registered reviewer, as JSON.
+
 [Decide an approval](../decide-an-approval/) covers reviewers and their roles.
 
 ## Run it
+
+Start a turn that asks for the tool. `--agent` is the agent, and `--input`
+its input:
 
 ```sh
 kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
@@ -179,10 +195,12 @@ kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkou
 ```
 
 The run is `suspended`: the model asked for `acme-ops.post-update`, and the
-call waits. `kindgi runs start` returns as soon as the run waits; it doesn't
+call waits. `kindgi runs start` returns as soon as the run waits. It doesn't
 block until someone decides.
 
 ## See what it waits for
+
+List the pending approvals. `--status=pending` lists only the ones still `pending`:
 
 ```sh
 kindgi approvals list --status=pending
@@ -224,6 +242,9 @@ The approval names the tool and the exact arguments the model chose, and
 
 ## Approve it
 
+Decide it by the approval's `id`. `--decision=approve` lets the tool run,
+and `--rationale` is kept with the decision:
+
 ```sh
 kindgi approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approve --rationale="Confirmed with the on-call engineer"
 ```
@@ -253,9 +274,9 @@ The run continues in the same call: the tool runs and the agent finishes its
 turn. The tool runs at the version the turn started with, even when a newer
 version in the agent's range appeared while it waited.
 
-If that version is gone by then (under `kindgi dev`, the tool's file now says
-another version), the turn can't go on. The approval still stands, its answer
-says so in `resume`, and the run fails:
+If that version is gone by then, the turn can't go on. Under `kindgi dev`,
+that happens when the tool's file now says another version. The approval
+still stands, its answer says so in `resume`, and the run fails:
 
 ```json
 "resume": {
@@ -265,12 +286,14 @@ says so in `resume`, and the run fails:
 }
 ```
 
-Its journal (`kindgi runs journal <run-id>`) says who decided which
-approval:
+Its journal says who decided which approval. `kindgi runs journal <run-id>`
+shows it:
 
 ```json
 {"sequence": 27, "kind": "wait.resumed", "nodeId": "agent-loop", "payload": {"value": {"decided": "approve", "decidedBy": "user:26fc414a-b49f-4e1f-a022-162865770178", "rationale": "Confirmed with the on-call engineer", "approvalId": "a281a631-b48b-4868-b138-213a433e8c40"}, …}, …}
 ```
+
+Get the run by its id to see the tool's result:
 
 ```sh
 kindgi runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
@@ -294,12 +317,16 @@ kindgi runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
 ## Reject it
 
 With `--decision=reject`, the tool doesn't run. The agent gets the rejection
-as the tool's result, with your rationale, and finishes its turn (a real model
-can tell the user why nothing was posted):
+as the tool's result, with your rationale, and finishes its turn. A real
+model can tell the user why nothing was posted. `<approval-id>` is the
+approval's `id`:
 
 ```sh
 kindgi approvals complete <approval-id> --decision=reject --rationale="Not confirmed yet"
 ```
+
+It prints the recorded decision, as approving does. The run's messages then
+hold the rejection as the tool's result:
 
 ```json
       {
@@ -318,7 +345,8 @@ its `tool-call`, and a `tool-result` that is the rejection the model read.
 ## In a flow
 
 When the agent is a step of a flow, the flow waits with it: the flow run is
-`suspended` too, and its journal shows the step waiting:
+`suspended` too, and its journal shows the step waiting. `<flow-run-id>` is
+the flow run's id:
 
 ```sh
 kindgi runs journal <flow-run-id>
@@ -341,4 +369,5 @@ continues from that step.
 
 - [Decide an approval](../decide-an-approval/): escalate, withdraw, roles, and
   deciding from your app.
+- [Set approval rules for every agent](../approval-rules-for-every-agent/).
 - [CLI reference: `kindgi approvals`](../../../reference/cli/approvals/).
