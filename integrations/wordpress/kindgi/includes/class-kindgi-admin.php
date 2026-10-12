@@ -313,7 +313,7 @@ final class Kindgi_Admin {
 		}
 		$when = get_option( 'date_format' ) . ' ' . get_option( 'time_format' );
 		echo '<div class="notice notice-error inline"><p><strong>' . esc_html__( 'WooCommerce turned off a webhook that delivers to Kindgi.', 'kindgi' ) . '</strong> '
-			. esc_html__( "It does that after 7 refused deliveries in a row, and Kindgi refuses deliveries past its receive limits (429, try again later). Until it's on again, nothing it sends reaches Kindgi, and WooCommerce never resends what it didn't deliver.", 'kindgi' )
+			. esc_html__( "It does that after 7 refused deliveries in a row, and where Kindgi limits webhook receives, it refuses deliveries past the limit (429, try again later). Until it's on again, nothing it sends reaches Kindgi, and WooCommerce never resends what it didn't deliver.", 'kindgi' )
 			. '</p><ul>';
 		foreach ( $off as $webhook ) {
 			echo '<li><a href="' . esc_url( Kindgi_Webhooks::edit_url( $webhook['id'] ) ) . '">' . esc_html( '' !== $webhook['name'] ? $webhook['name'] : '#' . $webhook['id'] ) . '</a>';
