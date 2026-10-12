@@ -7,19 +7,30 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide makes each turn of a long conversation wait for a reviewer, once
+the conversation has run a number of turns.
+
 Some conversations should get a person's attention once they run long: a
 support chat that hasn't been resolved in a few turns, say. `hitl.afterTurns`
 lets the first turns of a conversation run, then makes each turn after them
 wait for a reviewer before it starts.
 
+## Before you start
+
+- **An agent,** in a pack on a runtime such as `kindgi dev`, with Kindgi
+  0.1's CLI. This guide uses the sample pack's `acme-ops.echo-agent`.
+- **A reviewer's role.** Under `kindgi dev`, you're an `admin` reviewer.
+  [Decide an approval](../decide-an-approval/) shows how to become one
+  elsewhere.
+
 ## Set the limit
 
-In the sample pack's agent:
+Give the agent's conversation policy a limit:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 // in agents/echo-agent/index.ts
   conversationPolicy: { historyLimit: 10, hitl: { afterTurns: 2 } },
 ```
@@ -27,7 +38,7 @@ In the sample pack's agent:
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 # in agents/echo_agent.py
     conversation_policy={"historyLimit": 10, "hitl": {"afterTurns": 2}},
 ```
@@ -35,13 +46,14 @@ In the sample pack's agent:
 </TabItem>
 </Tabs>
 
-Two turns run as usual. From the third on, each turn of the same conversation
-waits for an approval before it runs.
+`afterTurns: 2` lets two turns run as usual. From the third on, each turn of
+the same conversation waits for an approval before it runs.
 
 ## Try it
 
-Start a conversation, then continue it with the `conversationId` the first
-turn returns (in its `output`):
+Start a conversation, then continue it twice. `--agent` is the agent, and
+`--input` its input. `<conversation-id>` is the `conversationId` the first
+turn returns, in its `output`:
 
 ```sh
 kindgi runs start --agent=acme-ops.echo-agent --input='{"userMessage":"My order is late."}'
@@ -60,7 +72,8 @@ The first two runs complete. The third is `suspended`:
 }
 ```
 
-Its approval says why:
+Its approval says why. List the pending approvals. `--status=pending` leaves
+out the decided ones:
 
 ```sh
 kindgi approvals list --status=pending
@@ -96,20 +109,24 @@ kindgi approvals list --status=pending
 
 The turn hasn't run yet: the model hasn't been called.
 `kindgi runs resume <run-id>` names the approval the run waits for, with the
-command that decides it (see
-[What a run waits for](../decide-an-approval/#what-a-run-waits-for)).
+command that decides it, as
+[What a run waits for](../decide-an-approval/#what-a-run-waits-for) shows.
 
 ## Approve or reject
+
+Decide the approval to let the turn run or stop it. `<approval-id>` is the
+approval's `id` from the list:
 
 ```sh
 kindgi approvals complete <approval-id> --decision=approve
 ```
 
-Approve, and the turn runs; it's the conversation's third
-(`"turnNumber": 3` in the run's output). The next turn asks again: every turn
-past the limit needs its own approval.
+It prints the decided approval, as JSON. The turn runs, and it's the
+conversation's third: the run's output has `"turnNumber": 3`. The next turn
+asks again: every turn past the limit needs its own approval.
 
-Reject, and the run fails without calling the model:
+Reject, and the run fails without calling the model. `--rationale` is kept
+with the decision. Then get the run by its id:
 
 ```sh
 kindgi approvals complete ff98fdd3-5d1d-4245-bdab-2ab9971f3962 --decision=reject --rationale="Hand this one to a person"
@@ -129,5 +146,11 @@ kindgi runs get 0c424165-fc78-4563-965f-5ca9ba0ec4a9
 A rejected turn doesn't count: the conversation still has two turns, and the
 next message asks again.
 
-You need to be a reviewer to see and decide these: see
-[Decide an approval](../decide-an-approval/).
+You need to be a reviewer to see and decide these, as
+[Decide an approval](../decide-an-approval/) shows.
+
+## Next
+
+- [Decide an approval](../decide-an-approval/)
+- [Ask before a tool runs](../ask-before-a-tool-runs/)
+- [Hold a conversation](../../agents/conversations/)
