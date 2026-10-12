@@ -18,6 +18,8 @@
  *   `_llms-txt/`, each made of the pages' Markdown, so headings and notes
  *   survive.
  * - **A `<link rel="alternate" type="text/markdown">`** in each page's head.
+ *   For people, `src/components/PageTitle.astro` links the Markdown under
+ *   each page's title, and this checks it's the page's own.
  *
  * Each `llms*.txt` file names the version it describes (`llms.txt` below its
  * description, the others in their `<SYSTEM>` heading): an agent that fetched
@@ -349,9 +351,13 @@ function combined(page) {
   return [first, '', `Source: ${page.url}`, ...rest].join('\n');
 }
 
+/** The Markdown a built page links under its title (`data-markdown`). */
+const LINKED_MARKDOWN = /\sdata-markdown="([^"]*)"/;
+
 /**
  * Writes each built page's Markdown beside it and links it from the page's
- * head. Returns the pages that got one, by URL path, and the sidebar's links.
+ * head. A page whose title links any Markdown but its own fails the build.
+ * Returns the pages that got one, by URL path, and the sidebar's links.
  */
 function writePages(root, { origin, base, description }) {
   const files = [...builtPages(root)];
@@ -371,8 +377,15 @@ function writePages(root, { origin, base, description }) {
       siteDescription: description,
     };
     const page = pageToMarkdown(html, at);
+    const twin = page ? twinPath(path, base) : undefined;
+    // The link under the page's title (PageTitle.astro) is its own Markdown.
+    const linked = LINKED_MARKDOWN.exec(html)?.[1];
+    if (linked !== undefined && linked !== twin) {
+      throw new Error(
+        `${path} links ${linked} as its Markdown version, but ${twin ? `its own is ${twin}` : 'it has none'}.`,
+      );
+    }
     if (!page) continue;
-    const twin = twinPath(path, base);
     const twinFile = join(root, twin.slice(base.length));
     mkdirSync(dirname(twinFile), { recursive: true });
     writeFileSync(twinFile, page.markdown);
