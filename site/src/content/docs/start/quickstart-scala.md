@@ -13,7 +13,7 @@ are case classes and functions, built with sbt, on Scala 3 (2.13 works too).
 
 :::caution[Preview]
 **Preview.** Java and Scala support is tested and supported, but its API may
-still change in 0.1.6 without the usual deprecation period.
+still change in a later release without the usual deprecation period.
 :::
 
 **Before you start**, set up what the [Install page](../install/) describes:
