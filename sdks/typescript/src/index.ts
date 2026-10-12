@@ -366,10 +366,16 @@ export type {
   SystemKeySpec,
   SystemKeysClient,
 } from './resources/system-keys.js';
+export type { SystemTenantsClient, TenantLimitsShape } from './resources/system-tenants.js';
 export type {
-  SystemTenantsClient,
-  TenantLimitsShape,
-} from './resources/system-tenants.js';
+  SystemUsageClient,
+  SystemUsageQuery,
+  TenantUsageClient,
+  UsageGroup,
+  UsageGroupKey,
+  UsagePage,
+  UsageQuery,
+} from './resources/usage.js';
 export { SIGNED_EXPORT_ALGORITHMS, verifySignedExport } from './verify-export.js';
 export { docsUrl } from './docs-links.js';
 export type {

@@ -96,6 +96,7 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'POST /v1/system/keys/{keyId}/revoke system-principal-required',
     'PUT /v1/system/tenants/{tenantId}/production-allowed system-principal-required',
     'PUT /v1/system/tenants/{tenantId}/limits system-principal-required',
+    'GET /v1/system/usage system-principal-required',
   ],
   // An admin key without the capability a write needs; a caller who isn't a reviewer.
   [NO_CAPS_KEY]: [
@@ -108,6 +109,7 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'POST /v1/system/keys/{keyId}/revoke system-principal-required',
     'PUT /v1/system/tenants/{tenantId}/production-allowed system-principal-required',
     'PUT /v1/system/tenants/{tenantId}/limits system-principal-required',
+    'GET /v1/system/usage system-principal-required',
   ],
 };
 
