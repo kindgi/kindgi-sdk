@@ -8,6 +8,7 @@ import { ref } from '@kindgi/authz';
 import { refused } from '../routes/denied.js';
 import type { AppEnv } from '../types.js';
 import type { Authorizer } from './authorize.js';
+import { mayBeJsonObject } from './request-body.js';
 
 const PROJECT_PATH_RE = /\/projects\/([^/]+)/;
 const WRITE_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH']);
@@ -30,7 +31,7 @@ export function refuseOtherProjectForKey(authorizer?: Authorizer): MiddlewareHan
   return async (c, next) => {
     const keyProject = c.get('tokenProjectId');
     if (keyProject === undefined) return next();
-    for (const named of await projectsNamed(c.req)) {
+    for (const named of await projectsNamed(c.req, c.get('requestBody'))) {
       if (named !== keyProject) {
         return refused(c, authorizer, {
           action: c.req.method === 'GET' || c.req.method === 'HEAD' ? 'read' : 'write',
@@ -54,7 +55,7 @@ type RequestLike = {
 };
 
 /** Every project id the request names, in path, query and body. */
-async function projectsNamed(req: RequestLike): Promise<string[]> {
+async function projectsNamed(req: RequestLike, kept?: Uint8Array): Promise<string[]> {
   const named: string[] = [];
   const inPath = PROJECT_PATH_RE.exec(req.path)?.[1];
   if (inPath !== undefined) named.push(decodeURIComponent(inPath));
@@ -62,7 +63,9 @@ async function projectsNamed(req: RequestLike): Promise<string[]> {
   if (inQuery !== undefined && inQuery !== '') named.push(inQuery);
   const scopeId = req.query('scopeId');
   if (req.query('scopeKind') === 'project' && scopeId !== undefined) named.push(scopeId);
-  if (WRITE_METHODS.has(req.method)) named.push(...(await projectsInBody(req)));
+  if (WRITE_METHODS.has(req.method) && mayBeJsonObject(kept)) {
+    named.push(...(await projectsInBody(req)));
+  }
   return named;
 }
 

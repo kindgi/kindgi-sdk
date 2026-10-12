@@ -97,7 +97,11 @@ import {
 import { adaptersRouter } from './routes/adapters.js';
 import { agentsRouter } from './routes/agents.js';
 import { approvalsRouter } from './routes/approvals.js';
-import { artifactsRouter } from './routes/artifacts.js';
+import {
+  DEFAULT_ARTIFACT_MAX_BYTES,
+  artifactUploadLimit,
+  artifactsRouter,
+} from './routes/artifacts.js';
 import { auditRouter } from './routes/audit.js';
 import { authRouter, logoutHandler } from './routes/auth.js';
 import { blocksRouter } from './routes/blocks.js';
@@ -1172,8 +1176,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
   // A write's body is read once, as the bytes it came with, before
   // anything parses it: the checks below, idempotency and the route all
-  // read that copy.
-  v1.use('*', readBodyOnce());
+  // read that copy. An upload is read under its own size limit.
+  v1.use(
+    '*',
+    readBodyOnce([
+      {
+        method: 'POST',
+        path: '/v1/artifacts',
+        limit: artifactUploadLimit(input.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES),
+      },
+    ]),
+  );
   // A key limited to a project names no other one.
   v1.use('*', refuseOtherProjectForKey(authorizer));
   // Page cursors are sealed at the edge, for every list.
@@ -1434,7 +1447,6 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         runBinding,
         ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
         ...(authorizer !== undefined && { authorizer }),
-        ...(input.artifactMaxBytes !== undefined && { maxBytes: input.artifactMaxBytes }),
       }),
     );
   }

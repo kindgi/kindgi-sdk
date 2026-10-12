@@ -191,11 +191,7 @@ export function idempotencyMiddleware(
       return next();
     }
 
-    // The body's bytes as they came, so a body that text decoding would
-    // change (a byte-order mark, invalid UTF-8, a binary upload) keeps
-    // its own fingerprint.
-    const bodyBytes = await requestBodyBytes(c as Context<AppEnv>);
-    const bodyHash = sha256Hex(bodyBytes);
+    const bodyHash = await fingerprint(c as Context<AppEnv>);
     const cacheKey = `${tenantId}|${callerIdentity(c as Context<AppEnv>)}|${c.req.method.toUpperCase()}:${c.req.path}|${rawKey}`;
     const hit = await store.get(cacheKey);
     if (hit !== null) return replay(c, hit, bodyHash, requestId, ttlMs);
@@ -226,9 +222,6 @@ export function idempotencyMiddleware(
       }
     }
 
-    // Re-attach the buffered body so a downstream handler reading the raw
-    // request sees the same bytes.
-    if (bodyBytes.length > 0) rebindBody(c, bodyBytes);
     const renewal =
       holds === undefined
         ? undefined
@@ -317,16 +310,14 @@ function bodyMismatch(c: Context, requestId: string) {
   );
 }
 
-function sha256Hex(bytes: Uint8Array): string {
-  return createHash('sha256').update(bytes).digest('hex');
-}
-
-function rebindBody(c: { req: { raw: Request } }, body: Uint8Array): void {
-  const original = c.req.raw;
-  const rebuilt = new Request(original.url, {
-    method: original.method,
-    headers: original.headers,
-    body,
-  });
-  Object.defineProperty(c.req, 'raw', { value: rebuilt, configurable: true });
+/**
+ * sha256 of the body's bytes as they came, so a body that text decoding
+ * would change (a byte-order mark, invalid UTF-8, a binary upload) keeps
+ * its own fingerprint. Only the hash comes back: nothing here holds the
+ * body while the request runs.
+ */
+async function fingerprint(c: Context<AppEnv>): Promise<string> {
+  return createHash('sha256')
+    .update(await requestBodyBytes(c))
+    .digest('hex');
 }

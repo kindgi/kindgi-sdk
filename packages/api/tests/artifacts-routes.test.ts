@@ -32,10 +32,13 @@ const GRANTS: Readonly<Record<string, readonly string[]>> = {
   bob: [],
 };
 
+/** `alice-key-p1` is alice with an API key limited to project P1. */
 const resolveToken: TokenResolver = async (token) =>
   token === 'alice' || token === 'bob'
     ? { tenantId, userId: token as UserId, scopes: [], capabilities: [] }
-    : null;
+    : token === 'alice-key-p1'
+      ? { tenantId, userId: 'alice' as UserId, scopes: [], capabilities: [], tokenProjectId: P1 }
+      : null;
 
 function memoryBlobs(): BlobStorageBinding & {
   readonly rows: Map<string, BlobMeta>;
@@ -100,7 +103,7 @@ function decision(user: string, action: Action, resource: ResourceRef): Decision
   };
 }
 
-function harness(options: { authz?: boolean; maxBytes?: number } = {}) {
+function harness(options: { authz?: boolean; maxBytes?: number; defaultProject?: string } = {}) {
   const stubs = createStubAppBindings();
   const blobs = memoryBlobs();
   const run = {
@@ -112,7 +115,7 @@ function harness(options: { authz?: boolean; maxBytes?: number } = {}) {
     ...stubs,
     kernelBinding: { ...stubs.kernelBinding, run },
     projectBinding: {
-      getDefault: async () => ({ id: P1 as ProjectId }),
+      getDefault: async () => ({ id: (options.defaultProject ?? P1) as ProjectId }),
     } as never,
     resolveToken,
     runHandler: {} as RunHandlerBinding,
@@ -251,6 +254,54 @@ describe('an upload sent with an Idempotency-Key', () => {
     const again = await h.sendBytes('alice', sent, key);
     expect(again).toEqual(first);
     expect(h.blobs.rows.size).toBe(1);
+  });
+});
+
+describe('a key limited to a project', () => {
+  test("an upload naming nothing lands in the key's project, not the tenant's default", async () => {
+    const h = harness({ defaultProject: P2 });
+    const r = await h.upload('alice-key-p1');
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ projectId: P1, createdBy: 'user:alice' });
+  });
+
+  test('its own project is fine; another, named or through an owner run, is refused', async () => {
+    const h = harness();
+    expect((await h.upload('alice-key-p1', { projectId: P1 })).status).toBe(201);
+    for (const fields of [{ projectId: P2 }, { ownerRunId: RUN_IN_P2 }]) {
+      const r = await h.upload('alice-key-p1', fields);
+      expect(r.status).toBe(403);
+      expect(r.body.error).toMatchObject({
+        code: 'key-project-mismatch',
+        details: { keyProjectId: P1, projectId: P2 },
+      });
+    }
+    expect(h.blobs.rows.size).toBe(1);
+  });
+
+  test('an upload sent again with its Idempotency-Key replays the first answer', async () => {
+    const h = harness();
+    const form = new FormData();
+    form.set('file', new Blob(['hello'], { type: 'text/plain' }), 'note.txt');
+    const sent = new Request('http://localhost/', { method: 'POST', body: form });
+    const key = { 'idempotency-key': 'upload-p1' };
+    const first = await h.sendBytes('alice-key-p1', sent, key);
+    expect(first.status).toBe(201);
+    expect(await h.sendBytes('alice-key-p1', sent, key)).toEqual(first);
+    expect(h.blobs.rows.size).toBe(1);
+  });
+
+  test('a JSON body labelled multipart is bad input, and nothing is stored', async () => {
+    const h = harness();
+    const json = new Request('http://localhost/', {
+      method: 'POST',
+      headers: { 'content-type': 'multipart/form-data; boundary=x' },
+      body: JSON.stringify({ name: 'note.txt' }),
+    });
+    const r = await h.sendBytes('alice-key-p1', json);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatchObject({ code: 'bad-input' });
+    expect(h.blobs.rows.size).toBe(0);
   });
 });
 
