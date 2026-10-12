@@ -107,15 +107,21 @@ test('a note keeps its box: a quote that starts with its kind and title', () => 
   assert.match(md.markdown, /> \*\*Tip\*\*\n>\n> Short\./);
 });
 
-const codeFrame = (title, language, lines) =>
-  `<div class="expressive-code"><link rel="stylesheet" href="/_astro/ec.css"><script type="module" src="/_astro/ec.js"></script><figure class="frame"><figcaption class="header"><span class="title">${title}</span><span class="sr-only">Terminal window</span></figcaption><pre data-language="${language}"><code>${lines
+/**
+ * Expressive Code's frame. An excerpt's (`is-excerpt`) has its label beside
+ * the code, and no copy button.
+ */
+const codeFrame = (title, language, lines, { excerpt = false } = {}) =>
+  `<div class="expressive-code"><link rel="stylesheet" href="/_astro/ec.css"><script type="module" src="/_astro/ec.js"></script><figure class="frame${excerpt ? ' is-excerpt' : ''}"><figcaption class="header"><span class="title">${title}</span><span class="sr-only">Terminal window</span></figcaption><pre data-language="${language}"><code>${lines
     .map(
       (line) =>
         `<div class="ec-line"><div class="code">${line === '' ? '\n' : `<span>${line}</span>`}</div></div>`,
     )
-    .join(
-      '',
-    )}</code></pre><div class="copy"><button title="Copy to clipboard" data-code="x"></button></div></figure></div>`;
+    .join('')}</code></pre>${
+    excerpt
+      ? '<div class="excerpt">Excerpt</div>'
+      : '<div class="copy"><button title="Copy to clipboard" data-code="x"></button></div>'
+  }</figure></div>`;
 
 test('code keeps its language, its file name and its empty lines, without the copy button', () => {
   const md = convert(
@@ -131,6 +137,34 @@ test('code keeps its language, its file name and its empty lines, without the co
 test('a terminal block has no file name', () => {
   const md = convert(codeFrame('', 'sh', ['pnpm install']));
   assert.equal(md.markdown, '# Quickstart\n\n```sh\npnpm install\n```\n');
+});
+
+test('an excerpt says so after its language, and its label stays out', () => {
+  const md = convert(
+    codeFrame('tools/echo/index.ts', 'ts', ['return { echo: input };'], { excerpt: true }),
+  );
+  assert.equal(
+    md.markdown,
+    '# Quickstart\n\n`tools/echo/index.ts`\n\n```ts excerpt\nreturn { echo: input };\n```\n',
+  );
+  assert.doesNotMatch(md.markdown, /Excerpt/);
+});
+
+test('beside an excerpt, a whole file keeps its plain fence', () => {
+  const whole = codeFrame('tools/echo/index.ts', 'ts', ['export default 1;']);
+  const excerpt = codeFrame('', 'py', ['return input'], { excerpt: true });
+  assert.equal(
+    convert(`${whole}<p>Then:</p>${excerpt}${whole}`).markdown,
+    [
+      '# Quickstart',
+      '`tools/echo/index.ts`',
+      '```ts\nexport default 1;\n```',
+      'Then:',
+      '```py excerpt\nreturn input\n```',
+      '`tools/echo/index.ts`',
+      '```ts\nexport default 1;\n```\n',
+    ].join('\n\n'),
+  );
 });
 
 test('tabs keep their labels, the hidden panels included', () => {
