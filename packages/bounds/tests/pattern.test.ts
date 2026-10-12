@@ -1,0 +1,232 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+/**
+ * A tenant's pattern on the engine the bounds name: the answers of the
+ * JavaScript `RegExp` it was written as, on V8 or on RE2 (linear time),
+ * with what RE2 doesn't have refused by name.
+ */
+
+import { afterEach, describe, expect, test } from 'vitest';
+
+import {
+  HOSTED_BOUNDS,
+  SELF_HOSTED_BOUNDS,
+  type TenantPattern,
+  compileTenantPattern,
+} from '../src/index.js';
+import { overrideTenantInputBounds } from '../src/testing.js';
+
+let restore: (() => void) | undefined;
+afterEach(() => {
+  restore?.();
+  restore = undefined;
+});
+const onRe2 = () => {
+  restore = overrideTenantInputBounds(HOSTED_BOUNDS);
+};
+
+function compiled(source: string, flags?: string): TenantPattern {
+  const result = compileTenantPattern(source, flags);
+  if (result.kind !== 'ok') throw new Error(`refused: ${result.reason}`);
+  return result.pattern;
+}
+function refusal(source: string, flags?: string): string {
+  const result = compileTenantPattern(source, flags);
+  if (result.kind !== 'refused') throw new Error(`compiled: /${source}/${flags ?? ''}`);
+  return result.reason;
+}
+/** What V8 says, from a fresh `RegExp` each time, as the checks did before. */
+const v8 = {
+  test: (source: string, flags: string, input: string) => new RegExp(source, flags).test(input),
+  count: (source: string, flags: string, input: string) =>
+    (input.match(new RegExp(source, flags.includes('g') ? flags : `${flags}g`)) ?? []).length,
+};
+
+describe('length: the source with its flags, against patternMaxLength', () => {
+  test.each([
+    ['self-hosted', SELF_HOSTED_BOUNDS],
+    ['hosted', HOSTED_BOUNDS],
+  ])('%s: at the limit it compiles; one over, refused with both numbers', (_, bounds) => {
+    restore = overrideTenantInputBounds(bounds);
+    const max = bounds.patternMaxLength;
+    expect(compileTenantPattern('a'.repeat(max - 1), 'i').kind).toBe('ok');
+    expect(refusal('a'.repeat(max), 'i')).toBe(
+      `${max + 1} characters with its flags, over the limit of ${max}`,
+    );
+  });
+});
+
+describe('on V8 (self-hosted): the RegExp it was written as', () => {
+  test("a pattern that doesn't compile is refused with V8's own words", () => {
+    expect(refusal('(unclosed')).toBe(
+      'Invalid regular expression: /(unclosed/: Unterminated group',
+    );
+    expect(refusal('a', 'x')).toContain("Invalid flags supplied to RegExp constructor 'x'");
+  });
+
+  test('compiled once, asked many times: g and y keep no state between answers', () => {
+    const global = compiled('a', 'g');
+    expect([global.test('a'), global.test('a'), global.test('a')]).toEqual([true, true, true]);
+    const sticky = compiled('b', 'y');
+    expect([sticky.test('ab'), sticky.test('ba'), sticky.test('ab')]).toEqual([false, true, false]);
+    expect([global.count('aaa'), global.count('aaa')]).toEqual([3, 3]);
+  });
+
+  test.each([
+    ['\\[[^\\]]+\\]', '', 'per [Smith] and [Jones], and [Lee]'],
+    ['a*', '', 'baa'],
+    ['x*', '', '😀a'],
+    ['x*', 'u', '😀a'],
+    ['\\b', '', 'ab cd'],
+    ['a', 'y', 'aab'],
+    ['a', 'y', 'baa'],
+    ['a', 'i', 'AaA'],
+  ])('count(/%s/%s) on %j is what match() with g counts', (source, flags, input) => {
+    expect(compiled(source, flags).count(input)).toBe(v8.count(source, flags, input));
+  });
+
+  test('count stops at atMost', () => {
+    expect(compiled('a').count('aaaaa', 2)).toBe(2);
+    expect(compiled('a').count('a', 2)).toBe(1);
+  });
+});
+
+describe('on RE2 (hosted): what it lacks, refused by name', () => {
+  test.each([
+    ['(a)\\1', 'has no backreferences (`\\1` at index 3)'],
+    ['(?<n>a)\\k<n>', 'has no backreferences (`\\k<` at index 7)'],
+    ['(?=a)', 'has no lookahead or lookbehind (`(?=` at index 0)'],
+    ['b(?!a)', 'has no lookahead or lookbehind (`(?!` at index 1)'],
+    ['(?<=a)b', 'has no lookahead or lookbehind (`(?<=` at index 0)'],
+    ['(?<!a)b', 'has no lookahead or lookbehind (`(?<!` at index 0)'],
+    ['a[]b', 'reads `[]` as the start of a class, not as JavaScript does (at index 1)'],
+    ['[^]a]', 'reads `[^]` as the start of a class, not as JavaScript does (at index 0)'],
+    [
+      '[[:alpha:]]',
+      'reads `[:` in a class as a POSIX class such as `[:alpha:]`, not as JavaScript does (at index 1)',
+    ],
+  ])('/%s/: %s', (source, why) => {
+    onRe2();
+    expect(refusal(source)).toBe(`RE2, the engine patterns run on here, ${why}`);
+  });
+
+  test.each([
+    ['\\(?=a\\)', '(=a)'],
+    ['[(?=]', '='],
+    ['\\[]', 'a[]'],
+    ['[a[]', '['],
+    ['\\\\1', 'a\\1'],
+    ['(?<n>a)b', 'ab'],
+  ])(
+    '/%s/ has the same characters escaped, in a class, or a named group: it runs',
+    (source, input) => {
+      onRe2();
+      expect(compiled(source).test(input)).toBe(true);
+      expect(v8.test(source, '', input)).toBe(true);
+    },
+  );
+
+  test('flags: v, an unknown one and a repeated one are refused; d and g change nothing', () => {
+    onRe2();
+    expect(refusal('a', 'v')).toBe(
+      'RE2, the engine patterns run on here, has no `v` flag (set notation)',
+    );
+    expect(refusal('a', 'x')).toBe("`x` isn't a flag");
+    expect(refusal('a', 'ii')).toBe('the `i` flag is given twice');
+    expect(compiled('a', 'dg').test('ba')).toBe(true);
+  });
+
+  test("a pattern RE2 can't compile is refused with RE2's words: repeat counts over 1000", () => {
+    onRe2();
+    expect(refusal('x{1000}{1000}')).toBe(
+      'RE2, the engine patterns run on here, refuses it: invalid nested repetition operator: `{1000}{1000}`',
+    );
+    expect(refusal('(x{1000}){1000}')).toBe(
+      'RE2, the engine patterns run on here, refuses it: invalid repeat count: `{1000}`',
+    );
+    expect(refusal('x{1001}')).toBe(
+      'RE2, the engine patterns run on here, refuses it: invalid repeat count: `{1001}`',
+    );
+    // V8 refuses the first too (as a literal it wouldn't parse), and runs the second.
+    const [nested, grouped] = ['x{1000}{1000}', '(x{1000}){1000}'];
+    expect(() => new RegExp(nested)).toThrow('Nothing to repeat');
+    expect(new RegExp(grouped).test('x')).toBe(false);
+  });
+});
+
+describe('on RE2: each mapped flag answers as V8 does, where they could differ', () => {
+  test.each([
+    ['^b$', 'm', 'a\nb\nc'],
+    ['^b$', '', 'a\nb\nc'],
+    ['a.b', 's', 'a\nb'],
+    ['a.b', '', 'a\nb'],
+    ['i', 'i', 'İ'],
+    ['İ', 'i', 'i'],
+    ['i', 'iu', 'İ'],
+    ['i', 'i', 'I'],
+    ['^\\p{L}$', 'u', 'é'],
+    ['^\\p{L}$', 'u', '1'],
+    ['^.$', 'u', '😀'],
+    ['^.{2}$', 'u', '😀'],
+  ])('/%s/%s on %j', (source, flags, input) => {
+    onRe2();
+    expect(compiled(source, flags).test(input)).toBe(v8.test(source, flags, input));
+  });
+
+  test.each([
+    ['\\[[^\\]]+\\]', 'u', 'per [Smith] and [Jones], and [Lee]'],
+    ['a*', 'u', 'baa'],
+    ['x*', 'u', '😀a'],
+    ['\\b', 'u', 'ab cd'],
+    ['a', 'uy', 'aab'],
+    ['a', 'uy', 'baa'],
+    ['', 'uy', 'ab'],
+  ])('count(/%s/%s) on %j as V8 counts it', (source, flags, input) => {
+    onRe2();
+    expect(compiled(source, flags).count(input)).toBe(v8.count(source, flags, input));
+  });
+
+  test('y anchors test at the start, as V8 does from lastIndex 0', () => {
+    onRe2();
+    expect(compiled('b', 'y').test('ab')).toBe(false);
+    expect(compiled('a', 'y').test('ab')).toBe(true);
+  });
+});
+
+describe('on RE2: what reads differently, the same way for every pattern (the README lists it)', () => {
+  test.each([
+    // RE2 always matches by code point, and folds case, as `u` does.
+    ['^.$', '', '😀', true, false],
+    ['ſ', 'i', 's', true, false],
+    // `.` stops only at \n; with m, ^ and $ only around \n.
+    ['a.b', '', 'a\rb', true, false],
+    ['a.b', '', 'a b', true, false],
+    ['a$', 'm', 'a\r\nb', false, true],
+    // \s is ASCII whitespace.
+    ['^\\s$', '', ' ', false, true],
+    ['^\\s$', '', '\v', false, true],
+  ])('/%s/%s on %j: RE2 %s, V8 %s', (source, flags, input, re2Answer, v8Answer) => {
+    onRe2();
+    expect(compiled(source, flags).test(input)).toBe(re2Answer);
+    expect(v8.test(source, flags, input)).toBe(v8Answer);
+  });
+});
+
+describe('on RE2: linear time', () => {
+  test('a pattern that backtracks exponentially on V8 answers at once', () => {
+    onRe2();
+    const started = performance.now();
+    expect(compiled('^(a+)+$').test(`${'a'.repeat(5_000)}b`)).toBe(false);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
+  test('counting asks no more than atMost of the input', () => {
+    onRe2();
+    // Every match of `x.*y|x` reads to the end of the input: counting all
+    // 16,000 takes seconds; three, at once.
+    const started = performance.now();
+    expect(compiled('x.*y|x').count('x'.repeat(16_000), 3)).toBe(3);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+});
