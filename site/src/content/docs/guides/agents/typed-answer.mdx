@@ -215,6 +215,8 @@ run = kindgi.runs.start(
     agent="acme.ticket-triage",
     input={"userMessage": "I was charged twice for order A-1001 and I need the money back today."},
 )
+if run.output is None:
+    raise SystemExit(f"The run has no output: it's {run.status}.")
 triage = Triage.model_validate(run.output["output"])
 print(triage.category, triage.priority)  # billing urgent
 ```
