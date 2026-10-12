@@ -201,7 +201,13 @@ revoked id can't be trusted again.
    revocation.
 
    ```text
+   {
+     "keyId": "acme-selfhost",
+     "revoked": true
+   }
+
      ✓ Revoked acme-selfhost
+       The runtime refuses new deploys it signs. Deployments it signed keep running, and the key stays listed for audit.
    ```
 
    A revoked id can't be trusted again: `kindgi key trust` says so, and how
