@@ -16,4 +16,4 @@ Each release has a page: what it adds, fixes and changes, its known issues, and 
 - **[Kindgi 0.1.4.1](0.1.4.1/):** a runtime-only patch to 0.1.4 for permission changes a redeploy left unapplied with authorization on.
 - **[Kindgi 0.1.4](0.1.4/):** what's new, fixed and changed in Kindgi 0.1.4, and the upgrade from 0.1.3.
 - **[Kindgi 0.1.3](0.1.3/):** what changed in Kindgi 0.1.3 for projects coming from 0.1.2 or earlier.
-- **[Kindgi 0.1.1](0.1.1/):** what Kindgi 0.1.1 fixed in 0.1.0's project setup.
+- **[Kindgi 0.1.1](0.1.1/):** what Kindgi 0.1.1 fixed in 0.1.0's project setup, and the database user the runtime needs.
