@@ -155,9 +155,9 @@ preset, where to paste them. With the WooCommerce preset, the secret left out:
   trigger records where the secret is (`hmacSecretScope`): the first of its
   project, that project's org and the tenant that has it, among the scopes
   you administer. The receiver reads it there only, so store the secret
-  before you register the trigger, and register the trigger again to move
-  it. A model provider's key is refused: give the trigger a secret of its
-  own.
+  before you register the trigger. To move it, name the secret again:
+  `kindgi webhooks update <trigger-id> --secret=<name>`. A model provider's
+  key is refused: give the trigger a secret of its own.
 - **The receive URL** comes from your runtime's public address
   (`KINDGI_PUBLIC_URL`). Without one, the trigger is still registered, and
   the CLI says how to set it. `kindgi webhooks get <id>` shows the URL once

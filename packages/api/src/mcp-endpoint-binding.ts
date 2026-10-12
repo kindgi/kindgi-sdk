@@ -211,8 +211,9 @@ export interface MCPEndpoint {
    * Where each secret the endpoint names is read, by name: recorded by the
    * server when the endpoint is registered (`secret-scope.ts`), never sent
    * by a caller. `null`: the person registering it administers no scope its
-   * secret could be read at, so none is read until an admin registers it
-   * again. Absent on endpoints registered before it was recorded.
+   * secret could be read at, so none is read until an admin unregisters it
+   * and registers it again. Absent on endpoints registered before it was
+   * recorded.
    */
   readonly secretScopes?: Readonly<Record<string, RecordedSecretScope | null>>;
 }
