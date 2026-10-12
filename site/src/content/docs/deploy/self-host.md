@@ -15,7 +15,7 @@ You run four containers on one Docker network:
 - **your pack's service:** your tools' code;
 - **a registry** the runtime reads your pack's image from.
 
-You then deploy a pack to it, and run a flow end to end. Everything here runs on one machine with Docker Desktop. On a server the pieces are the same; step 2 says what changes.
+Everything here runs on one machine with Docker Desktop. On a server the pieces are the same; step 2 says what changes.
 
 :::note[Access to the runtime image]
 The runtime image is in private preview: request access at contact@kindgi.com.
@@ -25,8 +25,10 @@ You get its pull credentials, a robot name and a token, and log in once with
 
 ## Before you start
 
-- **Docker**, `openssl` and `uuidgen`, and for a TypeScript pack
-  **Node 22.12** or later, with Kindgi 0.1's CLI.
+- **Docker**, `openssl`, `uuidgen` and `curl`, and for a TypeScript pack
+  **Node 22.12** or later and **pnpm**.
+- **Kindgi 0.1's CLI.**
+- **Ollama**, with `llama3.1` pulled, for the flow in step 8.
 - **A pack.** This page uses the sample. `--template=sample` picks it, and
   `acme-pack` is its folder and its pack id:
 
@@ -49,13 +51,14 @@ docker login quay.io
 docker pull quay.io/kindgi/runtime:0.1.6
 ```
 
-`docker login` asks for the robot name and token, and prints
-`Login Succeeded`. `docker pull` prints the image's digest when it's done.
+`docker login` prints `Login Succeeded`. It asks for the robot name and
+token only if `kindgi auth registry` hasn't logged Docker in already. `docker pull` prints the image's digest when it's done.
 
 ## 2. Start Postgres and a registry
 
 The runtime keeps its data in Postgres, and reads your pack's image from a
-registry. Start both on a network of their own:
+registry. Make a network for the containers, start Postgres on it, and start
+the registry on your machine's port 5050:
 
 ```sh
 docker network create kindgi
@@ -125,8 +128,8 @@ pnpm exec kindgi key create acme-selfhost --env selfhost
 
 It prints the key's JSON, then the paths of its private and public key files
 and its fingerprint.
-[Rotate the runtime's tokens and keys](../rotate-keys/) shows that output in
-full.
+[Rotate a signing key](../rotate-keys/#rotate-a-signing-key) shows that
+output in full.
 
 Add an environment for this deployment to `kindgi.config.ts`:
 
@@ -380,8 +383,8 @@ The start log says which it uses, with one of these lines:
 
 **Caching:** every `/v1` answer, data and errors alike, says
 `Cache-Control: no-store`, so neither a proxy nor a browser keeps one to show
-it again, or to someone else. Outside `/v1`, the console's files and the
-docs keep their own caching headers.
+it again, or to someone else. Outside `/v1`, on the console's files and
+the docs, the runtime doesn't add `no-store`.
 
 Point the load balancer's health check at `/ready`, as
 [Check health and logs](../restart-and-check-health/#check-health-and-logs)
@@ -470,8 +473,7 @@ Mount key files into the container like the signing key in [Rotate the public ru
 
 ## Clean up
 
-To remove what this guide made, remove the containers, the database's
-volume and the network. Each command prints the names it removed:
+To remove the containers, the database's volume and the network:
 
 ```sh
 docker rm -f kindgi-server kindgi-pack kindgi-registry kindgi-db
@@ -479,7 +481,8 @@ docker volume rm kindgi-db
 docker network rm kindgi
 ```
 
-`-f` stops a container before it removes it.
+Each command prints the names it removed. `-f` removes a container even while
+it runs.
 
 ## Next
 
