@@ -54,4 +54,11 @@ describe('checkDraftedTemplate', () => {
     expect(check(context.current.template)).toEqual(['the template is the current one']);
     expect(check(`Hi {{ firm }} ${'x'.repeat(2100)}`)[0]).toContain('at most 2000');
   });
+
+  test('a partial is refused: a template resolves none', () => {
+    // `package.json` would resolve from the package's directory, where the tests run.
+    expect(check("Rank for {{ firm }}. {% render 'package.json' %}")).toEqual([
+      'the template isn\'t valid Liquid: ENOENT: Failed to lookup "package.json" in "."',
+    ]);
+  });
 });

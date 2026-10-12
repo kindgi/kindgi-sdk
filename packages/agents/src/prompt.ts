@@ -125,7 +125,9 @@ export function renderInstructions(
   }
 
   const merged = mergeContext(agent, declared, context);
-  const liquid = new Liquid({ strictVariables: true, strictFilters: true });
+  // `templates: {}`: a template resolves no partials, so `include`,
+  // `render` and `layout` fail the render, whatever the name.
+  const liquid = new Liquid({ strictVariables: true, strictFilters: true, templates: {} });
   try {
     const rendered = liquid.parseAndRenderSync(template, merged);
     return { ok: true, value: { rendered, context: merged } };

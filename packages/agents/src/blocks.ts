@@ -149,7 +149,7 @@ function promptIssues(content: unknown): BlockIssue[] {
   }
   const issues: BlockIssue[] = [];
   try {
-    new Liquid().parse(c.template);
+    new Liquid({ templates: {} }).parse(c.template);
   } catch (cause) {
     issues.push({
       path: '/content/template',
