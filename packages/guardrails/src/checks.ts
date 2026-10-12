@@ -32,10 +32,14 @@ import type { CheckFunction, CheckRegistry, RegisteredCheck } from './types.js';
  *
  * Counting stops once it has found `minCitations`, so a pass reports that
  * many as `citationCount` (a fail, every one it found): a long output costs
- * no more than the check needs.
+ * no more than the check needs. The bounds cap `minCitations`
+ * (`mustCiteMaxCitations`): over it, registration refuses the config and
+ * evaluation throws.
  */
 const mustCite: CheckFunction = async (config, trace) => {
   const minCitations = typeof config.minCitations === 'number' ? config.minCitations : 1;
+  const tooMany = tooManyCitations(minCitations);
+  if (tooMany !== undefined) throw new Error(tooMany);
   const sourcePattern =
     typeof config.sourcePattern === 'string' ? config.sourcePattern : '\\[[^\\]]+\\]';
   if (trace.output === undefined || trace.output.length === 0) {
@@ -273,6 +277,14 @@ function patternOf(config: object, key: string, source: string, flags: string) {
   return compiled.pattern;
 }
 
+/** Why `must-cite`'s `minCitations` is over the bounds' cap, if it is. */
+function tooManyCitations(minCitations: unknown): string | undefined {
+  const max = tenantInputBounds().mustCiteMaxCitations;
+  return typeof minCitations === 'number' && minCitations > max
+    ? `config.minCitations is ${minCitations}, over the limit of ${max}.`
+    : undefined;
+}
+
 /** Each built-in's config, as JSON Schema: what registration and evaluation check it against. */
 const CONFIG_SCHEMAS: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
   'must-cite': object({
@@ -322,15 +334,30 @@ const REGEX_SETTINGS: Readonly<Record<string, readonly [pattern: string, flags?:
   'output-matches': ['pattern', 'flags'],
 };
 
-/** Every way `config` doesn't fit built-in `id`: its schema's problems, then a regex that won't compile. */
+/**
+ * Every way `config` doesn't fit built-in `id`: its schema's problems; or,
+ * once it fits, a setting over the bounds' cap and a regex that won't compile.
+ */
 function builtInConfigProblems(id: string, config: unknown): readonly GuardrailConfigProblem[] {
   const schema = CONFIG_SCHEMAS[id] as Readonly<Record<string, unknown>>;
   const problems = guardrailConfigProblems({ configSchema: schema, config });
   if (problems.length > 0) return problems;
+  const settings = (config ?? {}) as Record<string, unknown>;
+  const tooMany = id === 'must-cite' ? tooManyCitations(settings.minCitations) : undefined;
+  return [
+    ...(tooMany !== undefined ? [{ path: '/config/minCitations', message: tooMany }] : []),
+    ...regexProblems(id, settings),
+  ];
+}
+
+/** A regex setting of built-in `id`'s that won't compile, if there is one. */
+function regexProblems(
+  id: string,
+  settings: Readonly<Record<string, unknown>>,
+): readonly GuardrailConfigProblem[] {
   const regex = REGEX_SETTINGS[id];
   if (regex === undefined) return [];
   const [patternKey, flagsKey] = regex;
-  const settings = (config ?? {}) as Record<string, unknown>;
   const pattern = settings[patternKey];
   if (typeof pattern !== 'string') return [];
   const flags = flagsKey !== undefined ? settings[flagsKey] : undefined;

@@ -125,6 +125,42 @@ describe('must-cite counts no further than it needs', () => {
   });
 });
 
+describe('must-cite asks for at most mustCiteMaxCitations', () => {
+  const overTheCap = {
+    path: '/config/minCitations',
+    message: 'config.minCitations is 101, over the limit of 100.',
+  };
+
+  test('hosted: 100 registers; 101 is refused by name, alongside a pattern RE2 lacks', () => {
+    hosted();
+    const mustCite = check('must-cite');
+    expect(mustCite.configProblems?.({ minCitations: 100 })).toEqual([]);
+    expect(mustCite.configProblems?.({ minCitations: 101 })).toEqual([overTheCap]);
+    expect(mustCite.configProblems?.({ minCitations: 101, sourcePattern: '(?=x)' })).toEqual([
+      overTheCap,
+      {
+        path: '/config/sourcePattern',
+        message:
+          "config.sourcePattern isn't a regular expression that compiles: RE2, the engine patterns run on here, has no lookahead or lookbehind (`(?=` at index 0).",
+      },
+    ]);
+  });
+
+  test('hosted: evaluated directly over the cap, it throws, however many it would find', async () => {
+    hosted();
+    await expect(
+      check('must-cite').evaluate({ minCitations: 101 }, trace('[a] '.repeat(101)), {}),
+    ).rejects.toThrow(overTheCap.message);
+  });
+
+  test('self-hosted: no cap', async () => {
+    const mustCite = check('must-cite');
+    expect(mustCite.configProblems?.({ minCitations: 1_000_000 })).toEqual([]);
+    const result = await mustCite.evaluate({ minCitations: 101 }, trace('[a] '.repeat(101)), {});
+    expect(result).toEqual({ passed: true, attributes: { citationCount: 101 } });
+  });
+});
+
 describe('compiled once per config', () => {
   test('registration and every evaluation share one compile; a new config or new bounds compile again', async () => {
     const outputMatches = check('output-matches');

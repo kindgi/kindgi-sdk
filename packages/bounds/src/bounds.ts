@@ -24,6 +24,12 @@ export interface TenantInputBounds {
   readonly regex: 'v8' | 're2';
   /** The longest a tenant's pattern may be: its source plus its flags, in characters. */
   readonly patternMaxLength: number;
+  /**
+   * The most citations a `must-cite` guardrail may require (`minCitations`).
+   * It counts matches up to that many, and on RE2 each match can read the
+   * rest of the output, so this caps what one evaluation costs.
+   */
+  readonly mustCiteMaxCitations: number;
   /** The largest schema compiled: its JSON, in bytes, before it's compiled. */
   readonly schemaMaxBytes: number;
   /** The deepest a schema may nest, objects and arrays. */
@@ -59,10 +65,9 @@ const KiB = 1024;
 const MiB = 1024 * KiB;
 
 /*
- * The numbers: proposed (w6, 2026-10-12), fitted to limits the code
- * already enforces (a pack service's body and an HTTP tool's response
- * 10 MiB, a webhook body 256 KiB, MCP sign-in 64 KiB), until usage
- * (stream 6) confirms them before the 0.1.8 go/no-go.
+ * The numbers: proposed, fitted to limits the code already enforces (a
+ * pack service's body and an HTTP tool's response 10 MiB, a webhook body
+ * 256 KiB, MCP sign-in 64 KiB), until hosted usage confirms them.
  */
 
 /**
@@ -74,6 +79,7 @@ const MiB = 1024 * KiB;
 export const SELF_HOSTED_BOUNDS: TenantInputBounds = deepFreeze({
   regex: 'v8',
   patternMaxLength: 8_192,
+  mustCiteMaxCitations: Number.POSITIVE_INFINITY,
   schemaMaxBytes: 1 * MiB,
   schemaMaxDepth: 64,
   schemaCacheEntries: 1_000,
@@ -93,6 +99,7 @@ export const SELF_HOSTED_BOUNDS: TenantInputBounds = deepFreeze({
 export const HOSTED_BOUNDS: TenantInputBounds = deepFreeze({
   regex: 're2',
   patternMaxLength: 1_024,
+  mustCiteMaxCitations: 100,
   schemaMaxBytes: 256 * KiB,
   schemaMaxDepth: 32,
   schemaCacheEntries: 512,

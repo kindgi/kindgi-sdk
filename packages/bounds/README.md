@@ -3,8 +3,9 @@
 The limits a Kindgi server puts on what a tenant sends it, so that one
 tenant's input can't stall the server for the others:
 
-- **patterns:** their length, and the engine they run on (V8's, or RE2's,
-  which runs in linear time, so no pattern can take exponential time);
+- **patterns:** their length, the engine they run on (V8's, or RE2's,
+  which runs in linear time, so no pattern can take exponential time), and
+  how many citations a `must-cite` guardrail may ask for;
 - **schemas:** their size and nesting depth before they're compiled, and how
   many compiled ones are kept;
 - **templates:** liquidjs's parse, render-time and memory limits;
@@ -63,5 +64,10 @@ input, up to 1,024 characters. On RE2:
   - `.` stops only at `\n`, not at `\r`, `\u2028` or `\u2029`, and with `m`, `^`
     and `$` match only around `\n`;
   - `\s` is ASCII whitespace (`\t`, `\n`, `\f`, `\r` and space).
+- **Counting:** every match of a pattern like `x.*y|x` can read to the end of
+  the input, so counting them all is quadratic. `count(input, atMost)` stops
+  at `atMost`, and a `must-cite` guardrail asks for its `minCitations`, at
+  most `mustCiteMaxCitations`: 100 with `HOSTED_BOUNDS`, no cap with
+  `SELF_HOSTED_BOUNDS`.
 
 Apache-2.0.
