@@ -130,14 +130,14 @@ can't read or update one tenant's part of that queue, it logs an error
 ([Logs](../logs/)):
 
 ```json
-{"time":"2026-10-12T06:21:01.457Z","level":"error","severity":"ERROR","subsystem":"authz.outbox","message":"drain: a tenant failed","tenantId":"0b6a3f2e-6c1d-4a8e-9f4b-2d7c5e1a9b30","error":"Tenant-scoped query failed: connection refused (connect ECONNREFUSED 127.0.0.1:1)"}
+{"time":"2026-10-12T06:21:01.457Z","level":"error","severity":"ERROR","subsystem":"authz.outbox","message":"drain: a tenant failed","tenantId":"0b6a3f2e-6c1d-4a8e-9f4b-2d7c5e1a9b30","error":"Tenant-scoped query failed: connection refused (connect ECONNREFUSED …)"}
 ```
 
 That tenant's changes stay queued and go on a later pass: none is lost, and
 other tenants' changes still go. Until then, checks answer from what OpenFGA
 already has.
 
-- **A single line** needs nothing: the database was briefly out of reach.
+- **A single line** needs nothing: it was a passing database error.
 - **The same tenant on every pass** means its permission changes aren't
   reaching OpenFGA. Fix what `error` names on the database side (the
   connection, a timeout, or the database user's permissions). The changes
