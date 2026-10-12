@@ -177,7 +177,7 @@ Every list endpoint accepts:
 
 Response body:
 
-```json
+```json excerpt
 {
   "data": [ … ],
   "nextCursor": "cursor-abc123",
