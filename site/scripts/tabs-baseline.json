@@ -115,10 +115,6 @@
     "Java": 3,
     "Scala": 3
   },
-  "guides/observability/export-signed-evidence": {
-    "Java": 1,
-    "Scala": 1
-  },
   "guides/observability/trace-an-answer": {
     "Java": 1,
     "Scala": 1
