@@ -4316,6 +4316,40 @@ describe('POST /v1/deployments with projectId: one project per client', () => {
     expect((await deploy(app, { ...fixture.wire, projectId: CLIENT_A }, KEY_A)).status).toBe(201);
   });
 
+  test('a suspended project takes no deploy, named or the Default; another project still does', async () => {
+    const suspended = new Set<string>([CLIENT_A, DEFAULT_PROJECT_ID]);
+    const asked: string[] = [];
+    const extra = {
+      projectSuspended: async (t: TenantId, projectId: ProjectId) => {
+        asked.push(`${t}/${projectId}`);
+        return suspended.has(projectId);
+      },
+    };
+    const named = clientPack('acme-shop');
+    lastToolRegisterProjectId = undefined;
+    const intoA = makeApp({ fixture: named, extra });
+    const refused = await deploy(intoA.app, { ...named.wire, projectId: CLIENT_A });
+    expect(refused.status).toBe(409);
+    const body = (await refused.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('project-suspended');
+    expect(body.error.message).toContain('nothing was deployed');
+    expect(lastToolRegisterProjectId).toBeUndefined();
+    expect(
+      await intoA.toolRegistry.get({ tenantId, toolId: 'acme-shop.woo.find-orders' as never }),
+    ).toBeNull();
+    expect(asked).toEqual([`${tenantId}/${CLIENT_A}`]);
+
+    const wide = clientPack('acme-shop');
+    const tenantWide = await deploy(makeApp({ fixture: wide, extra }).app, wide.wire);
+    expect(tenantWide.status).toBe(409);
+
+    const other = clientPack('globex-shop');
+    expect(
+      (await deploy(makeApp({ fixture: other, extra }).app, { ...other.wire, projectId: CLIENT_B }))
+        .status,
+    ).toBe(201);
+  });
+
   test("with an authorizer: admin on the named project deploys there; another project's, or tenant-wide, is refused", async () => {
     const PROJECT_ADMIN = 'deployments-client-a-admin';
     const grants: Readonly<Record<string, readonly string[]>> = {

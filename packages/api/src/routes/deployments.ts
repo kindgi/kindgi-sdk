@@ -153,6 +153,13 @@ export interface DeploymentsRouterBindings {
    * `deployment-validation-failed`. Absent: the build's warning only.
    */
   readonly requirePrefixedPackChecks?: boolean;
+  /**
+   * Whether a project is suspended: nothing new deploys into one (the
+   * named project, or the Default for a tenant-wide deploy), refused
+   * `409 project-suspended` before anything is written. Absent: no check,
+   * for a runtime without project suspension.
+   */
+  readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
   /** The tenant's model providers' keys: no tool a deployment brings may name one. */
   readonly providerKeys?: ProviderKeys;
   readonly deploymentRegistry: DeploymentBinding;
@@ -660,6 +667,23 @@ export function deploymentsRouter(
         );
       }
       targetProjectId = defaultProject.id;
+    }
+    if (
+      targetProjectId !== undefined &&
+      bindings.projectSuspended !== undefined &&
+      (await bindings.projectSuspended(tenantId, targetProjectId))
+    ) {
+      c.status(statusFor('project-suspended') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'project-suspended',
+            message:
+              "The project is suspended, so nothing deploys into it until it's restored; nothing was deployed",
+          },
+          requestId,
+        ),
+      );
     }
 
     const rolled: RollbackAction[] = [];
