@@ -377,6 +377,7 @@ register the provider again or to restart `kindgi dev`.
    run and prints it. The answer is in its `output`.
 
    ```text
+   …
      "status": "completed",
    …
        "output": {

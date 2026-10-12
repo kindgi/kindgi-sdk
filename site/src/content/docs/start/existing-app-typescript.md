@@ -221,6 +221,8 @@ pnpm exec kindgi providers register --preset=<preset>
 pnpm exec kindgi runs start --agent=acme-support.triage --input='{"userMessage":"Triage REQ-1002"}'
 ```
 
+With Anthropic's key, for example, the three commands print:
+
 ```text
 …
   Set ANTHROPIC_API_KEY at tenant in local.
