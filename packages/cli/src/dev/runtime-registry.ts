@@ -11,6 +11,7 @@
  * (`runtime-container.ts`), handed in, so tests pass a fake.
  */
 
+import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
 import type { DockerOutcome, DockerRunner } from './runtime-container.js';
 import { RUNTIME_IMAGE_REGISTRY, registryOf } from './runtime-image.js';
 
@@ -52,7 +53,7 @@ export function credentialHelperHint(helper: string | undefined): string {
 export function registryLoginCommand(image: string): string {
   const registry = registryOf(image);
   const other = registry === RUNTIME_IMAGE_REGISTRY ? '' : ` --registry ${registry}`;
-  return `kindgi auth registry --username <the robot name you were given>${other}`;
+  return `kindgi auth registry --username <your robot name>${other}`;
 }
 
 /** The end of what `docker` wrote to stderr, with `secret` (the token) blanked out. */
@@ -117,7 +118,7 @@ export async function dockerLogin(
     helper !== undefined
       ? `\n  ${credentialHelperHint(helper.helper)}`
       : isRegistryAuthFailure(login.stderr)
-        ? `\n  Check the username and the token.${registry === RUNTIME_IMAGE_REGISTRY ? ' For new pull credentials, write to contact@kindgi.com.' : ''}`
+        ? `\n  Check the username and the token.${registry === RUNTIME_IMAGE_REGISTRY ? ` Signing in at ${KINDGI_ACCESS_ORIGIN} shows both.` : ''}`
         : '';
   return {
     kind: 'error',

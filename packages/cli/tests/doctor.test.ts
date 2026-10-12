@@ -287,13 +287,11 @@ describe('the machine', () => {
     const { check } = await doctor({ seam: seam({ docker: dockerThat('no-access') }) });
     expect(check('registry')).toMatchObject({ status: 'fail' });
     expect(check('registry')?.fix).toMatch(
-      /npx @kindgi\/cli@\S+ auth registry --username <robot name> --password-stdin/,
+      /npx @kindgi\/cli@\S+ auth registry --username <your robot name> --password-stdin/,
     );
-    // Where pull credentials come from, the same as `kindgi auth registry` and `kindgi dev` say.
     expect(check('registry')?.fix).toContain(
-      'request the robot name and token at contact@kindgi.com',
+      'the robot name and the token are on https://access.kindgi.com once you sign in with GitHub',
     );
-    expect(check('registry')?.fix).not.toContain('access.kindgi.com');
   });
 
   test("a credential helper Docker can't run: named, with the fix, not a network problem", async () => {
