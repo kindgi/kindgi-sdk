@@ -96,6 +96,23 @@ kindgi secrets set ACME_ENTRA_SECRET --env=production --scope=tenant
 - `--scope=tenant` stores the secret for the whole workspace.
 
 The command asks for the value twice, and doesn't show what you type.
+Then it prints what it stored:
+
+```text
+Value:
+Re-enter to confirm:
+{
+  "name": "ACME_ENTRA_SECRET",
+  "scope": {
+    "kind": "tenant",
+    "tenantId": "6c0bd33e-e941-439b-bd0c-c7e412db29fc"
+  },
+  "envName": "production",
+  "versionId": 1
+}
+
+  Set ACME_ENTRA_SECRET at tenant in production.
+```
 
 Before the secret expires, add a new client secret in Entra ID, and store it
 under the same name as a new version:
@@ -104,10 +121,19 @@ under the same name as a new version:
 kindgi secrets set ACME_ENTRA_SECRET --env=production --scope=tenant --write-mode=add-version
 ```
 
-`--write-mode=add-version` adds a version to a secret that exists. Without
-it, `set` refuses a name that's already taken. The runtime keeps a secret it
-has read for up to a minute, so sign-ins use the new version within a
-minute. Delete the old client secret in Entra ID only after that.
+`--write-mode=add-version` adds a version to a secret that exists. It
+prints what the first `set` printed, with the new version in `versionId`.
+Without the flag, `set` refuses a name that's already taken:
+
+```text
+Value:
+Re-enter to confirm:
+Version conflict: ACME_ENTRA_SECRET already exists (version 1). To store a new version, retry with --write-mode=add-version.
+```
+
+The runtime keeps a secret it has read for up to a minute, so sign-ins use
+the new version within a minute. Delete the old client secret in Entra ID
+only after that.
 
 ## 4. Register it
 
