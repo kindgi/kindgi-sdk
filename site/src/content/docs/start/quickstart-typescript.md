@@ -185,28 +185,39 @@ up.
 
 ## 6. Connect a real model
 
-Store an Anthropic key as a secret, then register the provider:
+Store your AI model provider's API key as a secret, then register the
+provider:
 
 ```sh
-pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
-pnpm exec kindgi providers register --preset=anthropic
+pnpm exec kindgi secrets set <KEY_NAME> --env=local --scope=tenant
+pnpm exec kindgi providers register --preset=<preset>
 ```
 
-- `secrets set ANTHROPIC_API_KEY` asks for the key without showing it, and
+`<KEY_NAME>` and `<preset>` depend on the provider:
+
+| Provider | `<KEY_NAME>` | `<preset>` |
+| --- | --- | --- |
+| Anthropic | `ANTHROPIC_API_KEY` | `anthropic` |
+| OpenAI | `OPENAI_API_KEY` | `openai` |
+| Gemini (a Google AI Studio key) | `GEMINI_API_KEY` | `gemini-api` |
+| Groq | `GROQ_API_KEY` | `groq` |
+| OpenRouter (a hosted gateway) | `OPENROUTER_API_KEY` | `openrouter` |
+
+- `secrets set <KEY_NAME>` asks for the key without showing it, and
   writes it to Kindgi's own `.kindgi/secrets.env`.
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files, that one among them.
 - `--scope=tenant` is where the secret lives: the tenant, rather than one
   org (`org:<orgId>`) or project (`project:<projectId>`).
-- `--preset=anthropic` registers Anthropic's models from Kindgi's built-in
-  preset, which reads the `ANTHROPIC_API_KEY` secret. `kindgi providers
-  presets` lists the others.
+- `--preset=<preset>` registers the provider's models from Kindgi's built-in
+  preset, which reads the `<KEY_NAME>` secret. `kindgi providers presets`
+  lists every preset.
 
 The provider takes over from `dev-echo` at the next turn. Run the agent again and it
 answers with a real model, still calling your tools. Gemini on Vertex AI
 has a preset too: `--preset=gemini --project=<gcp-project>`, where
 `--project` names your Google Cloud project. Any OpenAI-compatible endpoint
-(vLLM, llama.cpp, Ollama, OpenRouter) registers from a short spec file.
+(vLLM, llama.cpp, Ollama) registers from a short spec file.
 
 The registration is in this project's dev database. To have `kindgi dev`
 register the model on every boot, in each worktree and after `--reset`,

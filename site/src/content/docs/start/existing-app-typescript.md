@@ -191,11 +191,11 @@ started from your app's root, and reloads on every save.
 Until you register a model, agents answer with `dev-echo`, which only checks
 the wiring: it calls the agent's first tool with `{"message": …}` and can't
 produce a typed answer, so this agent fails with `output-schema-violation`.
-Register a model first:
+Register a model first, with your AI model provider's API key:
 
 ```sh
-pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # prompts for the key; it isn't echoed
-pnpm exec kindgi providers register --preset=anthropic
+pnpm exec kindgi secrets set <KEY_NAME> --env=local --scope=tenant   # prompts for the key; it isn't echoed
+pnpm exec kindgi providers register --preset=<preset>
 pnpm exec kindgi runs start --agent=acme-support.triage --input='{"userMessage":"Triage REQ-1002"}'
 ```
 
@@ -207,6 +207,16 @@ pnpm exec kindgi runs start --agent=acme-support.triage --input='{"userMessage":
       "priority": "urgent"
     },
 ```
+
+`<KEY_NAME>` and `<preset>` depend on the provider:
+
+| Provider | `<KEY_NAME>` | `<preset>` |
+| --- | --- | --- |
+| Anthropic | `ANTHROPIC_API_KEY` | `anthropic` |
+| OpenAI | `OPENAI_API_KEY` | `openai` |
+| Gemini (a Google AI Studio key) | `GEMINI_API_KEY` | `gemini-api` |
+| Groq | `GROQ_API_KEY` | `groq` |
+| OpenRouter (a hosted gateway) | `OPENROUTER_API_KEY` | `openrouter` |
 
 To have `kindgi dev` register the model on every boot, in each worktree and
 after `--reset`, declare it in the pack's config:
