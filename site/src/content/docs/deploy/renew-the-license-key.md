@@ -152,7 +152,7 @@ A refusal from access.kindgi.com names its code, `refused (<code>): …`:
 | `term-ended` | The contract's term has ended, and the key you have runs until its own date. Write to contact@kindgi.com to extend the term. |
 | `key-revoked`, `denied` | Write to contact@kindgi.com. |
 
-## Renew on a schedule
+## On a schedule
 
 Any scheduler that can run the CLI will do: cron, a CI schedule, or a
 scheduled job. Once a day is plenty.
