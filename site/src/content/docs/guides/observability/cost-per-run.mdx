@@ -7,14 +7,26 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide reads what a run's model calls cost, sums one customer's month,
+and gets each run's total when it finishes.
+
 Kindgi records every model call a run makes: the model, the tokens, and what
-the call cost at the prices its provider was registered with (see
-[Connect a model](../../models/)). Read the records of one run or of a flow's
-whole run, sum them for one customer's month, or get each run's total when it
-finishes. These costs are Kindgi's estimates from the vendors' published
-prices; your provider's invoice is what you pay.
+the call cost at the prices its provider was registered with, as
+[Models](../../models/) describes. These costs are Kindgi's estimates from
+the vendors' published prices. Your provider's invoice is what you pay.
+
+## Before you start
+
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.1's TypeScript or
+  Python client: Node 22.12 or later, or Python 3.11 or later.
+- **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set, or a running
+  `kindgi dev`, which the client finds.
+- **A run's id,** to read its calls. `kindgi runs list` shows it.
 
 ## A run's calls
+
+Read the records of one run. Each script takes the run's id as its first
+argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -105,10 +117,10 @@ Each record is one model call:
 | `providerRequestId` | The provider's id for the request, to quote to its support. Not every provider sends one. |
 | `callId` | The call's id. The model call's node in the turn's [provenance](../trace-an-answer/) has the same `callId`. |
 
-To see the usage exactly as the provider sent it, add `includeRawUsage: true`
-(Python: `include="rawUsage"`). Each record then has `rawUsage`:
+To see the usage exactly as the provider sent it, add `includeRawUsage: true`,
+or `include="rawUsage"` in Python. Each record then has `rawUsage`:
 
-```json
+```json excerpt
 "rawUsage": {
   "provider": "anthropic",
   "model": "claude-sonnet-5-5",
@@ -120,19 +132,19 @@ To see the usage exactly as the provider sent it, add `includeRawUsage: true`
 
 Each agent step of a flow runs as a run of its own, under the flow's run. The
 flow's run makes no model calls itself, so ask for its whole tree with
-`rootRunId`:
+`rootRunId`. `flowRunId` is the flow run's id:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 const calls = await kindgi.cost.usage.query({ rootRunId: flowRunId });
 ```
 
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 calls = kindgi.cost.records.list(root_run_id=flow_run_id)
 ```
 
@@ -145,8 +157,9 @@ flow's run.
 ## One customer's month
 
 Give each of your customers an org, and run their work in a project of that
-org ([Organize work by org and project](../../projects/organize-by-org-and-project/)).
-One call then sums a customer's spend, here by month and model:
+org, as
+[Organize work by org and project](../../projects/organize-by-org-and-project/)
+shows. One call then sums a customer's spend, here by month and model:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -241,27 +254,27 @@ The sum covers only that customer's runs:
 }
 ```
 
-- **`scope`** narrows the sum to an org (`{ kind: 'org', orgId }`) or a
-  project (`{ kind: 'project', projectId }`). Python: `scope_kind` and
-  `scope_id`.
-- **Who sees what:** the sum needs `read` on its scope. Across projects
-  (no scope, or an org), it counts only the projects the caller may read,
-  and records with no project; a tenant admin's sum counts every project.
+- **`scope`** narrows the sum to an org, `{ kind: 'org', orgId }`, or a
+  project, `{ kind: 'project', projectId }`. In Python, it's `scope_kind`
+  and `scope_id`.
+- **Who sees what:** the sum needs `read` on its scope. Across projects,
+  with no scope or an org, it counts only the projects the caller may read,
+  and records with no project. A tenant admin's sum counts every project.
   Where the deployment's cost store can't apply the limit, anyone but a
-  tenant admin is refused (`403`).
-- **`from` and `to`**: the time window; `to` is exclusive.
-- **The groups** come most expensive first, at most 1000 of them; `?limit=`
-  on the API (Python: `limit=`), up to 10000, sets another cap. `truncated` says whether some were left
-  out, and `totalGroups` how many there were; the totals always cover every
-  record. To read every record instead, page through
-  [`cost.usage.query`](#a-runs-calls).
+  tenant admin is refused with `403`.
+- **`from` and `to`**: the time window. `to` is exclusive.
+- **The groups** come most expensive first, at most 1000 of them. `?limit=`
+  on the API, or `limit=` in Python, sets another cap, up to 10000.
+  `truncated` says whether some were left out, and `totalGroups` how many
+  there were. The totals always cover every record. To read every record
+  instead, page through [`cost.usage.query`](#a-runs-calls).
 - **`groupBy`** splits the sum. Besides `month` and `model`: `day`, `orgId`,
   `projectId`, `agentId`, `flowId`, `runId`, `rootRunId`, `conversationId`,
   `providerId`, `servedModel`, `category` and `tenant`. With no `groupBy`,
   you get the totals only.
 
-A tool can check that a run belongs to the right customer: see
-[Check the run's org](../../tools/write-a-tool/#check-the-runs-org).
+A tool can check that a run belongs to the right customer, as
+[Check the run's org](../../tools/write-a-tool/#check-the-runs-org) shows.
 
 ## When a run finishes
 
@@ -326,8 +339,8 @@ failed call costs $0.
 ### A project's cost
 
 Anyone who can read the project sees its **Cost** page: what its model calls
-cost over a range (**7 days**, **30 days**, **90 days**, **12 months** or
-**Custom**), against the range before.
+cost over a range, against the range before. The range is **7 days**,
+**30 days**, **90 days**, **12 months** or **Custom**.
 
 ![A project's Cost page over 30 days: "$24.17 in the last 30 days, 77% more than the 30 days before.", "1,508 model calls · 8.4M tokens", spend by day stacked by agent, and Where it went by agent, with its Columns menu and Support agent at $15.00 (62%), 33% more than the 30 days before.](../../../../assets/cost/cost-30d.png)
 
@@ -388,5 +401,11 @@ project's Cost page.
 - **Biggest changes** and **Details,** as on a project's page.
 
 Anyone else who opens it is pointed to each project's Cost page instead. As
-with the API (see [One customer's month](#one-customers-month)), a person's
+with the API in [One customer's month](#one-customers-month), a person's
 numbers count only the projects they may read.
+
+## Next
+
+- [Trace an answer and its cost](../trace-an-answer/)
+- [Set an agent's budget](../../agents/budgets/)
+- [Organize work by org and project](../../projects/organize-by-org-and-project/)
