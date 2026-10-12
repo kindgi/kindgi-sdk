@@ -13,20 +13,41 @@ import tokens from '../design/tokens.json' with { type: 'json' };
 import cli from '../packages/cli/package.json' with { type: 'json' };
 import { versionInCode } from './scripts/versioned-pages.mjs';
 
-// The design tokens' source: the accent is a token, not a colour of our own.
-const accent = tokens.colors.accent.dark;
+// The design tokens' source: code shows three colours, as the design sheet
+// does: the code text, comments at 55% of it, and strings in the accent.
+const { accent, 'code-bg': codeBg, 'code-text': codeText } = tokens.colors;
+
+/** `color-mix(in srgb, a share, b)` of two `#RRGGBB` colours. */
+function mix(a, share, b) {
+  const channel = (hex, i) => Number.parseInt(hex.slice(i, i + 2), 16);
+  return `#${[1, 3, 5]
+    .map((i) => Math.round(channel(a, i) * share + channel(b, i) * (1 - share)))
+    .map((v) => v.toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
+// One syntax theme serves both page themes, so each colour is one value. Comments
+// are 55% of the code text on the light theme's code surface, the lighter one:
+// mixed on the dark surface, they'd fall under 4.5:1 on the light.
+const comment = mix(codeText.light, 0.55, codeBg.light);
 
 export default defineEcConfig({
   // `{{kindgi.version}}` in a code block, filled before highlighting.
   plugins: [versionInCode(cli.version)],
   themes: ['github-dark-default'],
-  // Recolour the rule for plain strings only: the theme lists comments,
-  // regular expressions and links under string scopes too, and those keep
-  // their own colours.
+  // Every rule to the code text, but comments and plain strings. A rule with
+  // its own background (a diff line) keeps its colours.
   customizeTheme: (theme) => {
     for (const rule of theme.settings ?? []) {
-      if ([rule.scope ?? []].flat().includes('string')) {
-        rule.settings = { ...rule.settings, foreground: accent };
+      const scopes = [rule.scope ?? []].flat();
+      const { foreground, ...rest } = rule.settings ?? {};
+      if (foreground === undefined || rest.background !== undefined) continue;
+      if (scopes.some((scope) => scope === 'comment' || scope.startsWith('comment.'))) {
+        rule.settings = { ...rest, foreground: comment };
+      } else if (scopes.includes('string')) {
+        rule.settings = { ...rest, foreground: accent.dark };
+      } else {
+        rule.settings = rest;
       }
     }
     return theme;
@@ -42,7 +63,7 @@ export default defineEcConfig({
       editorBackground: 'var(--kg-code-bg)',
       editorTabBarBackground: 'var(--kg-code-bg)',
       editorActiveTabBackground: 'var(--kg-code-bg)',
-      editorActiveTabIndicatorBottomColor: accent,
+      editorActiveTabIndicatorBottomColor: accent.light,
       editorActiveTabIndicatorTopColor: 'transparent',
       terminalBackground: 'var(--kg-code-bg)',
       terminalTitlebarBackground: 'var(--kg-code-bg)',

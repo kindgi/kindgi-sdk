@@ -67,6 +67,12 @@ export default defineConfig({
       description:
         'Build agents and flows in your own code, run them durably, and keep every step on the record.',
       favicon: '/favicon.svg',
+      // The plum tile beside the title, as the favicon draws it: the action
+      // colour of each theme (design/tokens.json).
+      logo: {
+        light: './src/assets/kindgi-tile-light.svg',
+        dark: './src/assets/kindgi-tile-dark.svg',
+      },
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/kindgi/kindgi-sdk' }],
       editLink: { baseUrl: 'https://github.com/kindgi/kindgi-sdk/edit/main/site/' },
       // The fonts are served from the site itself (Fontsource), so a page asks no

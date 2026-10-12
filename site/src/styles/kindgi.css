@@ -66,6 +66,13 @@
   --sl-color-red-high: var(--kg-status-bad);
 }
 
+/* The logo tile beside the title, near the title's own height rather than
+   the full header's. */
+.site-title img {
+  height: 1.5rem;
+  width: 1.5rem;
+}
+
 /* Headings and the site title: Plex Sans at its narrow width. */
 :is(.sl-markdown-content :is(h1, h2, h3, h4), h1#_top, .site-title) {
   font-stretch: var(--kg-narrow);
@@ -86,7 +93,8 @@
 .sl-markdown-content a:not(:where(.not-content *)):hover {
   color: var(--kg-link-hover);
 }
-.sl-markdown-content :is(p, li, td, dd) > a:not(:where(.not-content *))::after {
+.sl-markdown-content :is(p, li, td, dd) > a:not(:where(.not-content *))::after,
+.sl-markdown-content :is(p, li, td, dd) > :is(strong, b) > a:not(:where(.not-content *))::after {
   content: "→" / "";
   margin-inline-start: 0.25em;
 }
@@ -106,7 +114,7 @@ nav.sidebar a[aria-current="page"]:focus {
   color: var(--kg-text);
   font-weight: 600;
   background-color: color-mix(in srgb, var(--kg-text) 6%, transparent);
-  box-shadow: inset 2px 0 0 var(--kg-line);
+  box-shadow: inset 2px 0 0 var(--kg-text);
 }
 :is(starlight-toc, mobile-starlight-toc) a {
   color: var(--kg-text-2);
@@ -130,6 +138,26 @@ nav.sidebar a[aria-current="page"] .sl-badge.kg-preview {
   font-weight: 600;
 }
 
+/* The API reference's method badges (GET, POST, …) repeat on every operation
+   in its sidebar, so they stay neutral: a rule edge and secondary text. The
+   sidebar selector outranks the plugin's own colours there
+   (`.sidebar-content a:not([aria-current=page]) .sl-openapi-method-get`). */
+.sl-badge[class*="sl-openapi-method-"],
+nav.sidebar .sidebar-content a .sl-badge[class*="sl-openapi-method-"] {
+  --sl-color-bg-badge: transparent;
+  --sl-color-border-badge: var(--kg-rule);
+  --sl-color-text-badge: var(--kg-text-2);
+  color: var(--kg-text-2);
+}
+/* The same on an operation's own page and the API overview, where the plugin
+   fills each method with its own colour. The element in the selector outranks
+   the plugin's scoped rule. */
+div.sl-openapi-operation-method-badge {
+  background-color: transparent;
+  border-color: var(--kg-rule);
+  color: var(--kg-text);
+}
+
 /* Callouts: the status colour on the word and the icon, a quiet full border,
    the card behind. */
 .starlight-aside {
@@ -139,6 +167,11 @@ nav.sidebar a[aria-current="page"] .sl-badge.kg-preview {
 }
 .starlight-aside__content {
   color: var(--kg-text-2);
+}
+/* Inline code in a callout keeps the neutral inline-code background, not
+   Starlight's tint of the callout's colour. */
+.sl-markdown-content .starlight-aside code:not(:where(.not-content *)) {
+  background-color: var(--sl-color-bg-inline-code);
 }
 
 /* Cards, link cards and the next/previous links: the card on the page, a

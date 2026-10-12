@@ -47,8 +47,8 @@ export function themePairs(colors, theme) {
     ['"Preview" (action) on the sidebar\'s current page', c.action, current, 4.5],
     ['text on the accent tint (action 12% in the card)', c.text, mix(c.action, 0.12, c.card), 4.5],
     ['secondary text on a field (the search box)', c['text-2'], c.field, 4.5],
-    // ec.config.mjs marks the selected code tab with the accent's dark value in both themes.
-    ['the selected code tab (accent) on code', colors.accent.dark, c['code-bg'], 3],
+    // ec.config.mjs marks the selected code tab with the accent's light value in both themes.
+    ['the selected code tab (accent) on code', colors.accent.light, c['code-bg'], 3],
   ];
 }
 
