@@ -9,6 +9,7 @@
 
 import { HOSTED_BOUNDS, SELF_HOSTED_BOUNDS, type TenantInputBounds } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
+import { Liquid } from 'liquidjs';
 import { afterEach, describe, expect, test } from 'vitest';
 
 import {
@@ -125,6 +126,35 @@ describe('one check at every way in', () => {
     expect(templateProblem(template)).toBeUndefined();
     expect(doors(template)).toEqual({ agent: [], block: [], drafted: [] });
     expect(rendered(template)).toBe("Hi {% include 'x' %}");
+  });
+});
+
+describe('a stored template renders as before', () => {
+  /** The renderer every release before this one used, as it was. */
+  function before(template: string): string {
+    try {
+      return new Liquid({ strictVariables: true, strictFilters: true }).parseAndRenderSync(
+        template,
+        { firm: 'Acme' },
+      );
+    } catch (cause) {
+      return `Template render failed: ${(cause as Error).message}`;
+    }
+  }
+
+  test.each([
+    ['plain text', 'You rank filings.'],
+    ['a variable and a filter', 'For {{ firm | upcase }}.'],
+    ['a loop', '{% for i in (1..3) %}{{ i }}{% endfor %}'],
+    ['an unknown filter, refused at render before as now', '{{ firm | nope }}'],
+    ['invalid Liquid', 'Hi {% if %}'],
+  ])('without a partial, the same output or the same failure: %s', (_, template) => {
+    const agent = { ...stored(template), parameters: [{ name: 'firm', type: 'string' as const }] };
+    const r = renderInstructions(agent, {
+      parameters: { firm: 'Acme' },
+      clock: () => new Date('2026-10-12T00:00:00Z'),
+    });
+    expect(r.ok ? r.value.rendered : r.error.message).toBe(before(template));
   });
 });
 
