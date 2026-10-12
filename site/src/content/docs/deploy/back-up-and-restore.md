@@ -65,7 +65,7 @@ docker run -d --name kindgi-db-restored --network kindgi \
   -v kindgi-db-restored:/var/lib/postgresql/data \
   pgvector/pgvector:pg16
 
-docker exec kindgi-db-restored pg_isready -U kindgi -d kindgi
+until docker exec kindgi-db-restored pg_isready -h 127.0.0.1 -U kindgi -d kindgi; do sleep 1; done
 docker exec -i kindgi-db-restored pg_restore -U kindgi -d kindgi --no-privileges < kindgi-backup.dump
 ```
 
@@ -73,13 +73,34 @@ docker exec -i kindgi-db-restored pg_restore -U kindgi -d kindgi --no-privileges
   same name for its data.
 - `pgvector/pgvector:pg16` is Postgres 16 with the `vector` extension the
   runtime needs.
-- `docker run -d` prints the new container's id.
-- `pg_isready` says whether the new Postgres accepts connections yet. Run it
-  again until it prints `accepting connections`. `pg_restore` prints nothing
-  when it succeeds.
+- The `until` loop runs `pg_isready` each second until the new Postgres
+  accepts connections. `-h 127.0.0.1` asks over TCP: while the image sets up
+  the new database, Postgres answers only on its local socket, then
+  restarts.
 - `--no-privileges` leaves out the backup's grants. The runtime grants its
   database role what it needs every time it starts, and a fresh server
   doesn't have that role yet.
+
+`docker run -d` prints the new container's id. `pg_isready` prints
+`no response` until Postgres is up. `pg_restore` then reports one error, and
+exits `1`:
+
+```text
+09760d6e9bf5d2818925e52d5c0d30aae9b1b608458494784cbc738454df0e64
+127.0.0.1:5432 - no response
+…
+127.0.0.1:5432 - accepting connections
+pg_restore: error: could not execute query: ERROR:  role "…" does not exist
+Command was: CREATE POLICY tenant_rows ON public.auth_sso_providers TO … USING (…) WITH CHECK (…);
+
+
+pg_restore: warning: errors ignored on restore: 1
+```
+
+The error is the one policy in the backup that names the runtime's database
+role, which the fresh server doesn't have yet. Everything else is restored.
+The runtime makes the role, and that policy, when it starts on the new
+database.
 
 Point the runtime at the new database in `kindgi.env`, where `<DB_PASSWORD>`
 is the database password:
@@ -171,7 +192,14 @@ Then:
 
    `--out` is the file it writes. `$(date +%F)` names it with the date of the
    export. It prints, as JSON, the file it `wrote` and how many `erasures` it
-   holds.
+   holds:
+
+   ```json
+   {
+     "wrote": "erasures-2026-10-12.json",
+     "erasures": 1
+   }
+   ```
 
 2. **After a restore, replay the latest export** before the runtime serves
    anyone. It erases again whoever the restored database holds:
@@ -182,7 +210,18 @@ Then:
 
    `erasures-<date>.json` is the latest export. Its answer lists the
    erasures it `replayed`, the ones it `restored` to the ledger, and any it
-   couldn't match, as `unmatched`.
+   couldn't match, as `unmatched`. Here, the backup held a fact about the end
+   user `end-7` from before their erasure, and the replay erased it again:
+
+   ```json
+   {
+     "replayed": [
+       "9e1e3253-d3a1-4c25-a0d4-020696e32125"
+     ],
+     "restored": [],
+     "unmatched": []
+   }
+   ```
 
 Two more things keep erasures complete:
 
