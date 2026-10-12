@@ -67,13 +67,13 @@ class ChargedEmitter implements Emitter {
 
 /**
  * What a value weighs toward `memoryLimit`, before anything is made from
- * it: a string its length, an array 1 plus what its items weigh, anything
- * else its text's length. Each distinct array is weighed once a render
- * (no template can change an array once it's made), so an array that
- * holds the same arrays many times costs its distinct arrays to weigh,
- * whatever its total. The walk stops as soon as the total
- * passes what the render has left, and an array that holds itself is
- * over any limit.
+ * it: a string its length, an array 1 plus what its items weigh (each at
+ * least 1, for the place it takes), anything else its text's length. Each
+ * distinct array is walked once a render (no template can change an array
+ * once it's made) and counted every time it's held, so an array that
+ * holds the same arrays many times weighs its whole total but takes only
+ * its distinct arrays to walk. The walk stops as soon as the total passes
+ * the limit, and an array that holds itself is over any limit.
  */
 function weigh(ctx: Context, value: unknown): number {
   const root = toValue(value);
@@ -113,7 +113,7 @@ function weigh(ctx: Context, value: unknown): number {
     }
     const item = toValue(frame.array[frame.index]);
     frame.index += 1;
-    if (!Array.isArray(item)) add(frame, flatWeight(item));
+    if (!Array.isArray(item)) add(frame, Math.max(1, flatWeight(item)));
     else {
       const known = weighed.get(item);
       if (known !== undefined) add(frame, known);

@@ -313,7 +313,9 @@ describe("the bounds' limits", () => {
       // Each pass holds the last array twice: 2^26 arrays to walk, 26 distinct.
       const build =
         '{% assign e = "" | split: "," %}{% assign a = e %}{% for i in (1..26) %}{% assign a = e | push: a | push: a %}{% endfor %}';
-      // Written out, or compared, which walks it without writing it.
+      // Refused as it's built, either way. The second never writes the array
+      // out (`==` stops at the lengths), so only what each `push` makes, charged
+      // by all it holds, refuses it.
       for (const template of [`${build}[{{ a }}]`, `${build}{% if a == e %}same{% endif %}`]) {
         expect(templateProblem(template)).toBeUndefined();
         const started = performance.now();
@@ -362,6 +364,18 @@ describe("the bounds' limits", () => {
       'memory alloc limit exceeded',
     );
     expect(renderTenantTemplate('{{ nested }}', { nested: [['x'.repeat(100)]] })).toHaveLength(100);
+  });
+
+  test('an item that writes nothing still counts 1, for the place it takes', () => {
+    withLiquid({ memoryLimit: 450 });
+    const nils = (length: number) => Array.from({ length }, () => null);
+    const empties = (length: number) => Array.from({ length }, () => '');
+    for (const items of [nils, empties]) {
+      expect(() => renderTenantTemplate('{{ items }}', { items: items(500) })).toThrow(
+        'memory alloc limit exceeded',
+      );
+      expect(renderTenantTemplate('{{ items }}', { items: items(400) })).toBe('');
+    }
   });
 
   test('on a self-hosted server, an output past the longest string says so', () => {
