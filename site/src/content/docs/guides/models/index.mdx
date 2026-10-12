@@ -322,7 +322,7 @@ worktree, after `--reset`, and on a teammate's machine.
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 // in kindgi.config.ts
 providers: [
   { preset: 'anthropic', models: ['claude-sonnet-5-5'] }, // its key, ANTHROPIC_API_KEY, from the env files
@@ -340,7 +340,7 @@ providers: [
 </TabItem>
 <TabItem label="Python">
 
-```toml
+```toml excerpt
 # in pyproject.toml
 [[tool.kindgi.providers]]
 preset = "anthropic"
@@ -436,8 +436,8 @@ kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
 - `ANTHROPIC_API_KEY` is the secret's name: the key name the provider reads.
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files.
-- `--scope=tenant` stores the secret for the whole tenant, where provider
-  keys live.
+- `--scope=tenant` is where the secret lives: the tenant, rather than one org
+  (`org:<orgId>`) or project (`project:<projectId>`).
 
 It prompts for the value and writes it to `.kindgi/secrets.env`, which your
 app doesn't load. In a script, pipe the value in and add `--from-stdin`. To
