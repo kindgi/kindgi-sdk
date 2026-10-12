@@ -30,9 +30,11 @@ cd my-pack
 ./mvnw -q test    # the template's tests: the tools, called directly
 ```
 
-- `npx --yes @kindgi/cli@0.1` runs the newest 0.1 release of the Kindgi CLI
-  without installing it ([Check this machine](../install/#check-this-machine)
-  says how).
+- `npx --yes @kindgi/cli@0.1` runs the newest 0.1 release of the Kindgi CLI,
+  the line these docs describe, without installing it
+  ([Check this machine](../install/#check-this-machine) says how). `@0.1` is
+  optional: `npx --yes @kindgi/cli init my-pack --template=java` runs the
+  newest release, which may be on a later line than these docs.
 - `init my-pack` makes the pack in a new folder, `my-pack`.
 - `--template=java` makes it a Java pack, with examples.
 - `./mvnw -q test` runs the template's tests with the pack's own Maven, quietly (`-q`).

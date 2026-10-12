@@ -24,8 +24,10 @@ uv run pytest    # the template's tests: the tools and the check, called directl
 ```
 
 - `uvx --from "kindgi-cli>=0.1,<0.2" kindgi` runs the newest 0.1 release of
-  the Kindgi CLI from PyPI without installing it
-  ([Check this machine](../install/#check-this-machine) says how).
+  the Kindgi CLI from PyPI, the line these docs describe, without installing
+  it ([Check this machine](../install/#check-this-machine) says how). The
+  range is optional: `uvx --from kindgi-cli kindgi init my-pack --template=python`
+  runs the newest release, which may be on a later line than these docs.
 - `init my-pack` makes the pack in a new folder, `my-pack`.
 - `--template=python` makes it a Python pack, with examples.
 

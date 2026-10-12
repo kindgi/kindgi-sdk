@@ -22,9 +22,11 @@ cd my-pack
 pnpm install
 ```
 
-- `npx --yes @kindgi/cli@0.1` runs the newest 0.1 release of the Kindgi CLI
-  without installing it ([Check this machine](../install/#check-this-machine)
-  says how).
+- `npx --yes @kindgi/cli@0.1` runs the newest 0.1 release of the Kindgi CLI,
+  the line these docs describe, without installing it
+  ([Check this machine](../install/#check-this-machine) says how). `@0.1` is
+  optional: `npx --yes @kindgi/cli init my-pack --template=sample` runs the
+  newest release, which may be on a later line than these docs.
 - `init my-pack` makes the pack in a new folder, `my-pack`.
 - `--template=sample` starts it with examples. The default, `minimal`, gives
   you the folders and none of the examples.

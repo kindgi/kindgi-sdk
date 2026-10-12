@@ -62,7 +62,9 @@ npx --yes @kindgi/cli@0.1 doctor
 
 - `npx` downloads `@kindgi/cli` and runs it. It asks before it downloads a
   package, and `--yes` answers for you.
-- `@0.1` takes the newest 0.1 release of the CLI.
+- `@0.1` takes the newest 0.1 release of the CLI, the line these docs
+  describe. It's optional: `npx --yes @kindgi/cli doctor` runs the newest
+  release, which may be on a later line than these docs.
 
 Without Node, run the CLI from PyPI instead:
 
@@ -72,7 +74,9 @@ uvx --from "kindgi-cli>=0.1,<0.2" kindgi doctor
 
 - `uvx` runs a command from a PyPI package without installing it.
 - `--from` names the package that has the `kindgi` command, here any 0.1
-  release of `kindgi-cli`.
+  release of `kindgi-cli`, the line these docs describe. The range is
+  optional: `uvx --from kindgi-cli kindgi doctor` runs the newest release,
+  which may be on a later line than these docs.
 
 In a project, run the project's own CLI instead:
 - `pnpm exec kindgi doctor` in a TypeScript project, or
