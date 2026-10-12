@@ -170,6 +170,18 @@ runtime: skip this step.
 
 ## Step 2: the project
 
+**If the folder you started in is an app already** (it has a `package.json`,
+`pyproject.toml`, `pom.xml` or `build.sbt`), ask the person: "Shall I add
+Kindgi to this app, or make a separate project?" To add it, read the page
+for the app's language:
+[TypeScript or Node](https://docs.kindgi.com/start/existing-app-typescript.md),
+[Python](https://docs.kindgi.com/start/existing-app-python.md),
+[Java](https://docs.kindgi.com/start/existing-app-java.md) or
+[Scala](https://docs.kindgi.com/start/existing-app-scala.md). Run its
+`kindgi init` and install steps, then go on to step 3 here, from the app's
+folder. At step 5, make the first tool from the app's own code and an agent
+that uses it, as that page shows. Otherwise:
+
 1. Ask the person for a name for their project, or use `my-agents`. Use
    TypeScript if doctor's `node` check passes and the person has no
    preference; Python if they ask for it, or if there's no Node (doctor's
