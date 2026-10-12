@@ -92,6 +92,54 @@ export function redirects({ lines }) {
     .join('');
 }
 
+/** The workspace's lockfile: a release's docs branch may change its `site` importer. */
+export const LOCKFILE = 'pnpm-lock.yaml';
+const SITE_IMPORTER = 'site';
+
+/**
+ * Each importer in a pnpm lockfile, by its path (`.`, `packages/api`,
+ * `site`), with its block of the `importers:` section exactly as written.
+ * The lockfile is YAML, and the site has no YAML library: the guard only
+ * compares blocks, so this splits the section at its two-space-indented
+ * keys, and a line at the left margin (the next top-level key, or a new
+ * document's `---`) ends it. pnpm can write more than one document (its
+ * own version and config dependencies in one before the main one), each
+ * with its own `importers:`: an importer in several keeps each document's
+ * block, in order.
+ *
+ * @param {string} text the lockfile
+ * @returns {Map<string, string>}
+ */
+export function lockfileImporters(text) {
+  const blocks = new Map();
+  let inImporters = false;
+  let block;
+  for (const line of text.split('\n')) {
+    if (/^\S/.test(line)) {
+      inImporters = line === 'importers:';
+      block = undefined;
+      continue;
+    }
+    if (!inImporters) continue;
+    const key = /^ {2}(\S.*):$/.exec(line);
+    if (key) {
+      const name = key[1].replace(/^'(.*)'$/, (_, quoted) => quoted.replaceAll("''", "'"));
+      block = [];
+      blocks.set(name, [...(blocks.get(name) ?? []), block]);
+    }
+    block?.push(line);
+  }
+  return new Map(
+    [...blocks].map(([name, list]) => [
+      name,
+      list.map((lines) => lines.join('\n').trimEnd()).join('\n---\n'),
+    ]),
+  );
+}
+
+/** An importer's name in a message: the workspace root's is `.`. */
+const importerName = (name) => (name === '.' ? '. (the workspace root)' : name);
+
 /**
  * Which git ref a release's docs build from (the pre-release on `/next/`
  * too). A release's docs are fixed after it ships on its
@@ -103,24 +151,55 @@ export function redirects({ lines }) {
  * fails the build: it would put under the release's docs code the release
  * doesn't have.
  *
- * @param {{ tag: string, branch?: string, startsAtTag?: boolean, changed?: readonly string[] }} source
+ * The one exception is `pnpm-lock.yaml`, so a fix can bring a dependency of
+ * the site's own, behind the site-only lockfile guard: every importer but
+ * `site` must be the same at the branch as at the tag, else the build fails
+ * naming the importers that differ.
+ *
+ * @param {{ tag: string, branch?: string, startsAtTag?: boolean, changed?: readonly string[], lockfiles?: { tag: string, branch: string } }} source
  *   `branch`: the release's docs branch, if there is one; `startsAtTag`: the
  *   tag is an ancestor of the branch; `changed`: the files the branch changes
- *   since the tag.
+ *   since the tag; `lockfiles`: `pnpm-lock.yaml` at the tag and at the branch,
+ *   when the branch changes it.
  * @returns {{ ref: string } | { error: string }}
  */
-export function docsSource({ tag, branch, startsAtTag = false, changed = [] }) {
+export function docsSource({ tag, branch, startsAtTag = false, changed = [], lockfiles }) {
   if (branch === undefined) return { ref: tag };
   if (!startsAtTag) {
     return {
       error: `${branch} doesn't start at ${tag}: a release's docs branch starts at its tag.`,
     };
   }
-  const outside = changed.filter((file) => !file.startsWith('site/'));
+  const outside = changed.filter((file) => !file.startsWith('site/') && file !== LOCKFILE);
   if (outside.length > 0) {
     return {
-      error: `${branch} changes files outside site/ since ${tag} (${outside.join(', ')}): a release's docs branch may change only its docs.`,
+      error: `${branch} changes files outside site/ since ${tag} (${outside.join(', ')}): a release's docs branch may change only its docs, and ${LOCKFILE} for the site's dependencies.`,
     };
+  }
+  if (changed.includes(LOCKFILE)) {
+    // The site-only lockfile guard: the branch may change the site's
+    // dependencies, and nothing the release's code installs.
+    const guard = 'the site-only lockfile guard';
+    if (lockfiles === undefined) {
+      return {
+        error: `${branch} changes ${LOCKFILE} since ${tag}, and ${guard} needs the lockfile at both to check it.`,
+      };
+    }
+    const before = lockfileImporters(lockfiles.tag);
+    const after = lockfileImporters(lockfiles.branch);
+    if (before.size === 0 || after.size === 0) {
+      return {
+        error: `${guard} finds no importers in ${LOCKFILE} at ${before.size === 0 ? tag : branch}: it can't check what ${branch} changes.`,
+      };
+    }
+    const names = new Set([...before.keys(), ...after.keys()]);
+    names.delete(SITE_IMPORTER);
+    const differ = [...names].filter((name) => before.get(name) !== after.get(name));
+    if (differ.length > 0) {
+      return {
+        error: `${branch} changes ${LOCKFILE} outside the site importer since ${tag} (${differ.map(importerName).join(', ')}): ${guard} lets a release's docs branch change only the site's dependencies.`,
+      };
+    }
   }
   return { ref: branch };
 }

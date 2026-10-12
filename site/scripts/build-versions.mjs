@@ -46,7 +46,7 @@ import {
   pinnedTutorials,
   tutorialRedirects,
 } from './tutorials-overlay.mjs';
-import { docsSource, menu, plan, redirects } from './versions-plan.mjs';
+import { LOCKFILE, docsSource, menu, plan, redirects } from './versions-plan.mjs';
 
 const args = process.argv.slice(2);
 const option = (name) => {
@@ -112,7 +112,17 @@ function releaseDocsRef(tag, version) {
         .split('\n')
         .filter(Boolean)
     : [];
-  const source = docsSource({ tag, branch, startsAtTag, changed });
+  // For the site-only lockfile guard: the lockfile at both, when it changed.
+  const lockfileAt = (ref) =>
+    execFileSync('git', ['show', `${ref}:${LOCKFILE}`], {
+      cwd: repo,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  const lockfiles = changed.includes(LOCKFILE)
+    ? { tag: lockfileAt(tag), branch: lockfileAt(branch) }
+    : undefined;
+  const source = docsSource({ tag, branch, startsAtTag, changed, lockfiles });
   if ('error' in source) throw new Error(`build-versions: ${source.error}`);
   return source.ref;
 }

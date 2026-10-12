@@ -63,10 +63,13 @@ the version menu keeps you on the same page when the other version has it.
 ships, without a new release: open a PR into its `release-docs/<version>`
 branch (create the branch at the release's tag first: `git push origin
 '@kindgi/sdk@0.1.4^{commit}:refs/heads/release-docs/0.1.4'`). The branch may
-change only `site/`, and must describe that version's behaviour, not a later
-one's. `docs:versions` builds a release from `origin/release-docs/<version>`
-when it exists (fetch first), else from its tag, and fails if the branch
-changes anything outside `site/` or doesn't start at the tag. The code and the
+change only `site/`, and `pnpm-lock.yaml` for the site's own dependencies, and
+must describe that version's behaviour, not a later one's. `docs:versions`
+builds a release from `origin/release-docs/<version>` when it exists (fetch
+first), else from its tag, and fails if the branch changes anything else
+outside `site/` or doesn't start at the tag. Its lockfile change passes the
+site-only lockfile guard only if every importer but `site` is the same as at
+the tag; the build fails naming those that differ. The code and the
 generated reference stay the tag's; `versions.json` and the redirects don't
 change. Land the same fix on `main` too, so the next release has it.
 
