@@ -14,10 +14,7 @@
   "guides/agents/typed-answer": 2,
   "guides/agents/write-an-agent": 1,
   "guides/approvals/decide-an-approval": 2,
-  "guides/evals/build-a-test-set": 2,
   "guides/evals/change-a-prompt-or-setting": 1,
-  "guides/evals/judge-a-runs-output": 2,
-  "guides/evals/release-an-agent-version": 1,
   "guides/guardrails/configure-a-guardrail": 3,
   "guides/guardrails/halt-or-record": 1,
   "guides/guardrails/use-a-built-in-check": 3,
@@ -35,13 +32,6 @@
   "guides/sso/sessions": 1,
   "guides/tools/write-a-tool": 1,
   "guides/webhooks/receive-run-finished": 2,
-  "start/existing-app": 9,
-  "start/install": 2,
-  "start/java-app": 1,
-  "start/quickstart-java": 1,
-  "start/quickstart-python": 1,
-  "start/quickstart-scala": 1,
-  "start/quickstart-typescript": 1,
-  "tutorials/support-desk-python": 1,
-  "tutorials/support-desk-typescript": 1
+  "start/existing-app": 6,
+  "start/install": 2
 }
