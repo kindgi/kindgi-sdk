@@ -138,7 +138,7 @@ describe('a license key, checked offline', () => {
   });
 
   test("Kindgi's own signing keys, as a released runtime trusts them", () => {
-    for (const kid of ['lk-2026-1', 'lk-2026-p1']) {
+    for (const kid of ['lk-2026-1', 'lk-2026-p2']) {
       const pub = KINDGI_LICENSE_PUBLIC_KEYS[kid];
       expect(Buffer.from(pub ?? '', 'base64'), kid).toHaveLength(32);
       // A key signed with anything else under that kid is refused.
