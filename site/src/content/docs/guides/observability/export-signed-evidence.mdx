@@ -44,11 +44,15 @@ Make a key for this alone:
 openssl genpkey -algorithm ed25519 -out export-signing.pem && chmod 600 export-signing.pem
 ```
 
+It prints nothing. The key is in `export-signing.pem`, readable only by you.
+
 The key's type sets the export's `algorithm`. An Ed25519 key signs `ed25519`, the default. An EC P-256 key signs `ecdsa-p256-sha256`, for a key store that has no Ed25519:
 
 ```sh
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out export-signing.pem && chmod 600 export-signing.pem
 ```
+
+It prints nothing either.
 
 The verifiers in [Check an export](#check-an-export) check either. They refuse an algorithm they don't know, as [An algorithm the verifier doesn't know](#an-algorithm-the-verifier-doesnt-know) shows.
 
@@ -150,6 +154,9 @@ Install the client with its verifier:
 ```sh
 pip install 'kindgi[verify]'
 ```
+
+It installs the client and `cryptography`, which the verifier uses. It
+prints the packages it installed.
 
 ```python
 # verify_export.py
