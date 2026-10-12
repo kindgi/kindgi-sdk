@@ -626,7 +626,7 @@ export const RunFailureSchema: JsonSchema = {
   additionalProperties: false,
   required: ['code', 'message'],
   description:
-    "Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …; `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed, its `message` naming the budget and when the tenant is under it again); any other failure is `run-failed`, with the run's failure message.",
+    "Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …; `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed, with `details` naming the budget); any other failure is `run-failed`, with the run's failure message.",
   properties: {
     code: { type: 'string' },
     message: { type: 'string' },
@@ -638,6 +638,12 @@ export const RunFailureSchema: JsonSchema = {
       type: 'string',
       description:
         "The error's own reason, when it gives one: for a turn that ended at its approval (`hitl-cancelled`), `timeout` when nobody decided in time. Absent from an older runtime and from errors without one; read `code` then.",
+    },
+    details: {
+      type: 'object',
+      additionalProperties: true,
+      description:
+        "The error's own facts, for a code that has them: for `rate-limit-exceeded`, `limit` (the budget that refused: `schema-compile-time` or `template-render-time`) and `budgetMs`, the names the API's `429` uses. Never the wait: read back later, it's stale. Absent for any other code, and from an older runtime.",
     },
   },
 };
@@ -11470,6 +11476,11 @@ export const FinishedRunSchema: JsonSchema = {
     failureMessage: {
       type: ['string', 'null'],
       description: 'Why the run failed or was cancelled; `null` when it completed.',
+    },
+    failure: {
+      $ref: '#/components/schemas/RunFailure',
+      description:
+        "A failed run's error, as `GET /v1/runs/{runId}` reads it back: its `code`, and the error's own `details` when it has them. Absent unless the run failed, and from a runtime that doesn't send it yet; read `failureMessage` then.",
     },
     createdAt: { type: 'string', format: 'date-time' },
     completedAt: { type: 'string', format: 'date-time' },
