@@ -275,6 +275,7 @@
           "run-resume-not-supported": 422,
           "semantic-unavailable": 422,
           "rate-limit-exceeded": 429,
+          "approvals-pending-limit": 429,
           "internal-server-error": 500,
           "journal-error": 500,
           "stuck": 500,
@@ -20738,6 +20739,16 @@
               }
             }
           },
+          "429": {
+            "description": "A limit of the tenant's (set by the runtime's operator): past its limit on runs waiting to start, `rate-limit-exceeded` with `details.limit: 'runs-pending'`; a turn whose gate asked for an approval past its limit on approvals waiting for a decision, `approvals-pending-limit` (`details.approvalsPending`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
             "content": {
@@ -24944,6 +24955,16 @@
           },
           "422": {
             "description": "`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.promotionId`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`approvals-pending-limit`: the gate wants an approval, and the tenant's approvals waiting for a decision are at its limit (set by the runtime's operator). Nothing is recorded.",
             "content": {
               "application/json": {
                 "schema": {

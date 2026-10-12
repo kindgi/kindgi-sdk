@@ -1429,6 +1429,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
       ),
+      '429': ErrorResponse(
+        "A limit of the tenant's (set by the runtime's operator): past its limit on runs waiting to start, `rate-limit-exceeded` with `details.limit: 'runs-pending'`; a turn whose gate asked for an approval past its limit on approvals waiting for a decision, `approvals-pending-limit` (`details.approvalsPending`).",
+      ),
     },
   },
   {
@@ -2420,6 +2423,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '422': ErrorResponse(
         '`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.promotionId`).',
+      ),
+      '429': ErrorResponse(
+        "`approvals-pending-limit`: the gate wants an approval, and the tenant's approvals waiting for a decision are at its limit (set by the runtime's operator). Nothing is recorded.",
       ),
       '501': ErrorResponse(
         "`promotion-gate-unsupported`: a gate policy applies, and the deployment can't record a gated promotion.",

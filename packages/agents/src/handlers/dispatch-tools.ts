@@ -17,6 +17,7 @@ import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import {
   type ToolInvocationError,
   type UnresolvedToolError,
+  approvalsPendingLimitOf,
   throwAgentTurnFailure,
 } from './errors.js';
 import { TOOL_CALL_GATE_SUBJECT, readGateDecision, withdrawnGateFailure } from './gate-decision.js';
@@ -317,8 +318,12 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
               provenanceRef: { runId: kctx.runId },
               expiresAt: expiresAt as never,
             });
-          } catch {
-            // Enqueue failure is soft — waitForToken parks either way.
+          } catch (cause) {
+            // Past the tenant's limit on approvals waiting, the step fails
+            // naming it: no approval was opened, so nobody would decide.
+            const limit = approvalsPendingLimitOf(cause);
+            if (limit !== undefined) throwAgentTurnFailure(limit);
+            // Any other enqueue failure is soft: waitForToken parks either way.
           }
         }
 
