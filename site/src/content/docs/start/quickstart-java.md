@@ -4,7 +4,7 @@ description: Create a Java pack with tools, an agent, a guardrail and a flow, ru
 sidebar:
   order: 4.5
   label: "Quickstart: Java"
-  badge: { text: 'Preview', variant: 'caution' }
+  badge: { text: 'Preview', variant: 'caution', class: 'kg-preview' }
 ---
 
 The same pack as the [TypeScript quickstart](../quickstart-typescript/), in
