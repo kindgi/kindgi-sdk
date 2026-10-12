@@ -22,6 +22,7 @@ function kindgi_uninstall_site(): void {
 	delete_option( 'kindgi_site_secret_key' );
 	delete_metadata( 'user', 0, $wpdb->get_blog_prefix() . 'kindgi_session', '', true );
 	delete_transient( 'kindgi_unreachable' );
+	delete_option( 'kindgi_webhooks_disabled_at' );
 	wp_clear_scheduled_hook( 'kindgi_people_retry' );
 	wp_clear_scheduled_hook( 'kindgi_people_check' );
 }

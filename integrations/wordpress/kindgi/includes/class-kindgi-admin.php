@@ -194,6 +194,7 @@ final class Kindgi_Admin {
 				</p>
 				<?php self::warnings( $site ); ?>
 			<?php endif; ?>
+			<?php self::webhooks_off(); ?>
 			<?php self::waiting(); ?>
 			<table class="form-table" role="presentation">
 				<tr><th scope="row"><?php esc_html_e( 'Origin', 'kindgi' ); ?></th><td><code><?php echo esc_html( Kindgi_Settings::home_origin() ); ?></code></td></tr>
@@ -304,6 +305,34 @@ final class Kindgi_Admin {
 		self::done( 'ok', __( 'Connected: your staff can use the Kindgi page now.', 'kindgi' ) );
 	}
 
+	/** WooCommerce webhooks to Kindgi that WooCommerce turned off, each with the way back on. */
+	private static function webhooks_off(): void {
+		$off = Kindgi_Webhooks::off();
+		if ( array() === $off ) {
+			return;
+		}
+		$when = get_option( 'date_format' ) . ' ' . get_option( 'time_format' );
+		echo '<div class="notice notice-error inline"><p><strong>' . esc_html__( 'WooCommerce turned off a webhook that delivers to Kindgi.', 'kindgi' ) . '</strong> '
+			. esc_html__( "It does that after 7 refused deliveries in a row, and Kindgi refuses deliveries past its receive limits (429, try again later). Until it's on again, nothing it sends reaches Kindgi, and WooCommerce never resends what it didn't deliver.", 'kindgi' )
+			. '</p><ul>';
+		foreach ( $off as $webhook ) {
+			echo '<li><a href="' . esc_url( Kindgi_Webhooks::edit_url( $webhook['id'] ) ) . '">' . esc_html( '' !== $webhook['name'] ? $webhook['name'] : '#' . $webhook['id'] ) . '</a>';
+			if ( null !== $webhook['since'] ) {
+				/* translators: %s: when WooCommerce turned the webhook off */
+				echo ' ' . esc_html( sprintf( __( '(off since %s)', 'kindgi' ), (string) wp_date( $when, $webhook['since'] ) ) );
+			}
+			if ( current_user_can( 'manage_woocommerce' ) ) {
+				echo ' <form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline">';
+				echo '<input type="hidden" name="action" value="' . esc_attr( Kindgi_Webhooks::ENABLE ) . '">';
+				echo '<input type="hidden" name="webhook" value="' . esc_attr( (string) $webhook['id'] ) . '">';
+				wp_nonce_field( Kindgi_Webhooks::ENABLE );
+				echo '<button type="submit" class="button button-small">' . esc_html__( 'Turn it on again', 'kindgi' ) . '</button></form>';
+			}
+			echo '</li>';
+		}
+		echo '</ul></div>';
+	}
+
 	/** People whose changes haven't reached Kindgi yet: wp-cron keeps trying. */
 	private static function waiting(): void {
 		$waiting = Kindgi_People::waiting();
@@ -380,7 +409,8 @@ final class Kindgi_Admin {
 	 *
 	 * @return never
 	 */
-	private static function done( string $kind, string $message ): void {
+	/** Back to the settings page, with a notice. Also `Kindgi_Webhooks`'s form. */
+	public static function done( string $kind, string $message ): void {
 		set_transient(
 			self::notice_key(),
 			array(

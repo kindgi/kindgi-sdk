@@ -88,6 +88,12 @@ A site's statements are exactly as strong as the site's own login, and as whoeve
   - With the signing key in `wp-config.php` or the environment, the seal's key is made from it, so reading the database alone opens no session.
   - With the key in the database, a copy of the database carries the key itself, and the sessions with it. That's one more reason to keep the key in `wp-config.php`.
 
+## When WooCommerce turns off a webhook to Kindgi
+
+WooCommerce turns a webhook off after 7 refused deliveries in a row (its `woocommerce_max_webhook_delivery_failures` filter, 5, is checked before the count goes up), and never resends a delivery. Kindgi answers a delivery past its receive limits with 429 and `Retry-After`, which counts as a refusal. So a webhook to Kindgi's receive URL (`/v1/hooks/<tenant id>/<webhook id>`, at any address) can stop after a burst.
+
+**Kindgi → Settings** lists the ones WooCommerce turned off, with when (from WooCommerce's `woocommerce_webhook_disabled_due_delivery_failures`), a link to each, and **Turn it on again** for someone with `manage_woocommerce`. That sets it active with its refusals counted from 0; orders from while it was off aren't resent.
+
 ## Store actions as an agent's tools
 
 To give an agent tools that act on the store (look up an order, refund it), WordPress's Abilities API and the MCP Adapter can expose them over MCP:
@@ -106,6 +112,7 @@ To give an agent tools that act on the store (look up an order, refund it), Word
 | The signing key, when it isn't in `wp-config.php` or the environment | The `kindgi_site_secret_key` option, not autoloaded |
 | Each person's subject, Kindgi id, and sealed session | User options `kindgi_subject`, `kindgi_user_id`, `kindgi_session` |
 | The people Kindgi knows (subject, user id, roles), and changes still waiting to reach it | The `kindgi_people` option, not autoloaded |
+| When WooCommerce turned off each webhook to Kindgi | The `kindgi_webhooks_disabled_at` option, not autoloaded |
 
 WordPress's personal-data tools (**Tools → Export Personal Data** and **Erase Personal Data**) cover each person's subject and Kindgi id. Erasing forgets the person on this site, and tells Kindgi they left, which ends their access there for good. Kindgi keeps its own record of the person, and their name stays on the records they're part of, decisions included.
 

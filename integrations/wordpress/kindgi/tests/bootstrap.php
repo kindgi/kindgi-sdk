@@ -25,6 +25,7 @@ function kindgi_test_reset(): void {
 		'actions'      => array(),
 		'cron'         => array(),
 		'transients'   => array(),
+		'webhooks'     => array(),
 	);
 	putenv( 'KINDGI_SITE_SECRET_KEY' );
 	kindgi_test_reset_request();
@@ -139,8 +140,8 @@ function add_user_meta( int $user_id, string $key, $value, bool $unique = false 
 	return 1;
 }
 
-function wp_parse_url( string $url ) {
-	return parse_url( $url );
+function wp_parse_url( string $url, int $component = -1 ) {
+	return parse_url( $url, $component );
 }
 
 function home_url(): string {
@@ -276,6 +277,7 @@ require_once dirname( __DIR__ ) . '/includes/class-kindgi-settings.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-http.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-sessions.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-people.php';
+require_once dirname( __DIR__ ) . '/includes/class-kindgi-webhooks.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-api.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-rest.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-admin.php';

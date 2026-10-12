@@ -355,6 +355,17 @@ Kindgi answers 401 `site-sign-in-refused` with a reason in
 
 Too many sign-ins at once get 429, with `Retry-After`.
 
+## When WooCommerce turns off a webhook to Kindgi
+
+A store's webhooks to Kindgi (to a receive URL, `/v1/hooks/…`, like the
+`woocommerce` template's order trigger) can stop. WooCommerce turns a
+webhook off after 7 refused deliveries in a row, and never resends one it
+didn't deliver. Past its receive limits, Kindgi answers 429 with
+`Retry-After`, which WooCommerce counts as a refusal like any other. When
+WooCommerce has turned one off, **Kindgi → Settings** says so, with when,
+and a **Turn it on again** button for someone who manages WooCommerce. Orders
+from while it was off aren't resent.
+
 ## Give the agent the store's actions
 
 WordPress's [Abilities API](https://developer.wordpress.org/apis/abilities-api/)
