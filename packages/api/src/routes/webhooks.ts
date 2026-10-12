@@ -605,6 +605,7 @@ function serializeFire(f: TriggerFire): Record<string, unknown> {
     outcome: f.outcome,
     ...(f.runId !== undefined && { runId: f.runId }),
     ...(f.detail !== undefined && { detail: f.detail }),
+    ...(f.countsTowardPause !== undefined && { countsTowardPause: f.countsTowardPause }),
     ...(f.duplicates !== undefined && f.duplicates > 0 && { duplicates: f.duplicates }),
     ...(f.lastDuplicateAt !== undefined && { lastDuplicateAt: f.lastDuplicateAt }),
   };

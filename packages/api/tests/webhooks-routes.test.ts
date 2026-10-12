@@ -231,6 +231,29 @@ describe('reading webhook triggers', () => {
     expect((await call('GET', `/${randomUUID()}/fires`)).status).toBe(404);
   });
 
+  test("a delivery refused for a limit says it didn't count toward the auto-pause; absent, nothing is said", async () => {
+    const { call, base, registry } = setup();
+    const t = (await call('POST', '', base)).body;
+    registry.recordFire({
+      triggerId: t.triggerId,
+      kind: 'webhook',
+      firedAt: '2026-10-10T10:00:00.000Z',
+      outcome: 'refused',
+      detail: "rate-limited: flow acme.orders didn't start: rate-limit-exceeded: …",
+      countsTowardPause: false,
+    });
+    registry.recordFire({
+      triggerId: t.triggerId,
+      kind: 'webhook',
+      firedAt: '2026-10-10T10:01:00.000Z',
+      outcome: 'failed',
+      detail: "flow acme.orders didn't start: internal: …",
+    });
+    const fires = (await call('GET', `/${t.triggerId}/fires`)).body.data;
+    expect(fires[1]).toMatchObject({ outcome: 'refused', countsTowardPause: false });
+    expect(fires[0]).not.toHaveProperty('countsTowardPause');
+  });
+
   test('taking ownership makes the caller the owner', async () => {
     const { call, base, registry } = setup();
     const t = (await call('POST', '', base)).body;
