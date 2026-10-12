@@ -1082,6 +1082,30 @@ function readBaseline() {
   return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
 }
 
+/** The slugs of the pages that are tracked files, or `undefined` outside a git checkout. */
+function trackedPages() {
+  const listed = run('git', ['ls-files', '-z'], docs);
+  if (!listed.ok) return undefined;
+  return new Set(
+    listed.stdout
+      .split('\0')
+      .filter((path) => PAGE.test(path))
+      .map((path) => path.replace(PAGE, '')),
+  );
+}
+
+/**
+ * The baseline lines for the failing pages that aren't tracked files: the
+ * generated reference pages. A change to the code one documents (a new
+ * export, method or command) adds blocks to a page its author never wrote;
+ * until the page's generator marks them, these lines let them pass.
+ */
+export function generatedBaseline(failing, tracked) {
+  return failing
+    .filter(({ page }) => !tracked.has(page))
+    .map(({ page, lines }) => `  ${JSON.stringify(page)}: ${lines.length},`);
+}
+
 /** The CLI's commands and global flags, from the workspace's built `@kindgi/cli`. */
 async function cliDescription() {
   const { describeCommands, describeGlobalFlags } = await import('@kindgi/cli');
@@ -1144,7 +1168,7 @@ function compileSamples(page, markdown, isPage) {
  * count in the baseline (the pages' problems when these rules came in) are
  * reported but don't fail; the pages' owners fix them, and the baseline is emptied.
  */
-function report({ ruleProblems, failures }) {
+function report({ ruleProblems, failures }, tracked) {
   const baseline = readBaseline();
   const failing = ruleProblems.filter(({ page, lines }) => lines.length > (baseline[page] ?? 0));
   const known = ruleProblems.filter((entry) => !failing.includes(entry));
@@ -1154,6 +1178,12 @@ function report({ ruleProblems, failures }) {
     sections.push(
       `check-samples: ${count(failing)} code block(s) that can't be pasted as they are. Make each whole and checked, or mark it \`excerpt\` (site/scripts/excerpts.mjs):\n\n${failing.flatMap(({ lines }) => lines).join('\n')}`,
     );
+    const generated = tracked ? generatedBaseline(failing, tracked) : [];
+    if (generated.length > 0) {
+      sections.push(
+        `check-samples: ${generated.length} of these page(s) are generated (git-ignored; \`pnpm run docs:build\` writes them), so a change to the code they document can add blocks to them. Until their generator marks those blocks, set these counts in site/scripts/${BASELINE}:\n\n${generated.join('\n')}`,
+      );
+    }
   }
   if (known.length > 0) {
     sections.push(
@@ -1215,7 +1245,7 @@ async function main() {
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
-  if (report(totals)) process.exit(1);
+  if (report(totals, trackedPages())) process.exit(1);
   const compiled = compile ? `${totals.checked} file samples check; ` : '';
   console.log(
     `check-samples: ${compiled}${totals.copyable} code blocks on the pages are offered for copying and checked; not offered: ${totals.excerpts} excerpt(s), ${totals.signatures} signature(s).`,

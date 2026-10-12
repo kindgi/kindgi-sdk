@@ -11,6 +11,7 @@ import {
   cliProblem,
   fileSamples,
   fillPlaceholders,
+  generatedBaseline,
   jsonProblem,
   kindgiArgs,
   missingGenerated,
@@ -361,4 +362,18 @@ test('every page, the generated reference included; a whole run needs it generat
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('a failing generated page gets the baseline line that lets it pass; a tracked one gets none', () => {
+  const failing = [
+    { page: 'guides/tools/write-a-tool', lines: ['a', 'b'] },
+    { page: 'reference/typescript/sdk/@kindgi/sdk/client/functions/newExport', lines: ['a'] },
+    { page: 'reference/python/client', lines: ['a', 'b', 'c'] },
+  ];
+  const tracked = new Set(['guides/tools/write-a-tool', 'reference/index']);
+  assert.deepEqual(generatedBaseline(failing, tracked), [
+    '  "reference/typescript/sdk/@kindgi/sdk/client/functions/newExport": 1,',
+    '  "reference/python/client": 3,',
+  ]);
+  assert.deepEqual(generatedBaseline(failing.slice(0, 1), tracked), []);
 });
