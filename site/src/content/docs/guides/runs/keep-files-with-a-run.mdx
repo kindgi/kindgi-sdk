@@ -21,7 +21,10 @@ It prints the artifact's record, with its `blobId`.
 
 - **Its project:** with `--run`, the run's project; else `--project`'s; else
   the tenant's Default project. A `--project` that isn't the run's is
-  refused, and so is a run that doesn't exist (`404 run-not-found`).
+  refused, and so is a run that doesn't exist (`404 run-not-found`). With an
+  API key limited to a project, an upload that names no project goes to the
+  key's, and one whose project (named, or its run's) is another is refused
+  (`403 key-project-mismatch`).
 - **Its name** is the file's, unless `--name` gives another. `--content-type`
   is `application/octet-stream` unless you say. `--tag=key=value` labels it
   (repeatable).

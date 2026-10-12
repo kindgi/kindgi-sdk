@@ -106,7 +106,8 @@ Idempotency-Key was reused with a different request body. Use a fresh key or the
   answering (its runtime crashed, say) frees its key within 30 seconds.
 - The key must come with the same request. The same key with a different
   body (another input, other options) is refused with a conflict, and nothing
-  starts, also while the first is still running.
+  starts, also while the first is still running. Bodies are compared byte for
+  byte, as they were sent.
 - Only an answer that succeeded is kept. A start that was refused (a flow
   that isn't registered yet, `404 flow-not-found`) isn't, so once you've
   fixed the cause, the same start with the same key runs.
