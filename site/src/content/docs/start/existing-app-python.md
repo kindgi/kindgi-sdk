@@ -10,8 +10,8 @@ This page adds Kindgi to a Python app you already have. The pack lives
 beside your code: its tools import your app's packages.
 
 **Before you start**, set up what the [Install page](../install/) describes:
-Python 3.11 or later, uv (or Poetry), Docker, and access to the runtime
-image.
+Python 3.11 or later, uv (or Poetry, or pip), Docker, and access to the
+runtime image.
 
 In the app's directory (where its `pyproject.toml` is):
 
