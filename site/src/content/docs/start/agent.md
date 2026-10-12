@@ -10,16 +10,18 @@ This page is written for a coding agent (Claude Code, Cursor, Codex, or any
 other). A person pastes this prompt into their agent:
 
 ```text
-Set up Kindgi for me: read https://docs.kindgi.com/start/agent/ and follow it step by step. Tell me whenever you need me to do something, and wait for me.
+Set up Kindgi for me: read https://docs.kindgi.com/start/agent.md and follow it step by step. Tell me whenever you need me to do something, and wait for me.
 ```
 
 If you are that agent: follow this page's steps in order. Do everything you
 can yourself. Ask the person only for what the steps say needs them, one
 thing at a time, and wait until they say they've done it.
 
-If your fetch tool cut this page short or summarized it, read its Markdown
-version: <https://docs.kindgi.com/start/agent.md>. Every page of these docs
-has one: replace the slash at the end of its URL with `.md`.
+Read this page whole. If your fetch tool cut it short or summarized it,
+fetch <https://docs.kindgi.com/start/agent.md> again with a tool that
+returns the text as it is, such as `curl -s`. Every page of these docs has
+a Markdown version like this one: replace the slash at the end of a page's
+URL with `.md`.
 
 ## Rules for the whole setup
 
@@ -48,7 +50,9 @@ has one: replace the slash at the end of its URL with `.md`.
 
 ## Step 0: check the machine
 
-Work out the clipboard command for this OS:
+Work out this machine's OS yourself, without asking the person: `uname -s`
+prints `Darwin` on macOS and `Linux` on Linux, and fails on Windows. Then
+pick its clipboard command:
 
 | OS | Read the clipboard | Clear it |
 | --- | --- | --- |
@@ -225,7 +229,10 @@ echo $!
 
 Use `kindgi` as the project runs it (`.kindgi/` is git-ignored). Keep
 `mkdir` on its own line: with `mkdir … && nohup … &`, `$!` is a subshell's
-id, and stopping it leaves `kindgi dev` running. It starts the runtime in
+id, and stopping it leaves `kindgi dev` running. If your tool runs commands
+in the background itself (Claude Code's background tasks do), start
+`kindgi dev` that way instead, with its output in `.kindgi/dev.log`, and tell
+the person how your tool stops it. It starts the runtime in
 Docker and answers with a stand-in model, `dev-echo`, until step 4 adds a
 real one.
 

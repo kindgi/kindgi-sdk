@@ -117,7 +117,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
 In Python:
 
-```python
+```python excerpt
 from kindgi.client import Kindgi, KindgiApiError
 
 kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev

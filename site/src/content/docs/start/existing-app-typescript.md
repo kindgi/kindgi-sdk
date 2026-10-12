@@ -63,6 +63,21 @@ pnpm install
 - the skills for your coding agent under `.claude/skills/`, and
   `.gitignore` entries (`.kindgi/`, `.kindgirc.json`, `.env.local`).
 
+If your app is on zod 3, `init` keeps it, and a Kindgi schema written with
+zod 3 doesn't compile: Kindgi takes zod 4 schemas. Write your tools' and
+agents' inputs and outputs as JSON Schema objects instead, or upgrade the
+app to zod 4 if its own code allows (zod 4 changes some of zod 3's API, such
+as `invalid_type_error`). A tool's input as JSON Schema:
+
+```ts excerpt
+input: {
+  type: 'object',
+  additionalProperties: false,
+  required: ['orderId'],
+  properties: { orderId: { type: 'string' } },
+},
+```
+
 It creates no env files: `kindgi dev` reads your app's own `.env` and
 `.env.local`, and keeps the secrets you store in its own
 `.kindgi/secrets.env`, which your app doesn't load. If your app lints with ESLint, leave out what Kindgi builds:
@@ -230,7 +245,7 @@ kindgi-index: file-import-failed: Failed to import kindgi/tools/find-order/index
 `prisma()` copies the schema into the image and runs `prisma generate` after
 the install:
 
-```ts
+```ts excerpt
 // in kindgi.config.ts
 import { prisma } from '@kindgi/sdk/build';
 
