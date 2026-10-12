@@ -23,8 +23,9 @@ from another system start a run, see
 - **`kindgi dev` running** in your pack's directory, with Kindgi 0.1's CLI.
 - **A flow to watch,** registered on that runtime. This guide filters on
   `acme.check-order-stock`; use your own flow's id.
-- **Your app's server,** on Node 22.12 or later or Python 3.11 or later,
-  with Kindgi 0.1's client and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+- **Your app's server,** on Node 22.12 or later, Python 3.11 or later, or
+  Java 17 or later, with Kindgi 0.1's client and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
 - **A route in your app that receives the request,** such as
   `http://localhost:8787/hooks/kindgi`.
   [Verify a webhook](../verify-a-webhook/) has receivers to start from.
@@ -56,6 +57,46 @@ from kindgi import webhooks
 
 print(webhooks.generate_secret())
 ```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/NewWebhookSecret.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+
+public final class NewWebhookSecret {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    System.out.println(kindgi.webhookEndpoints().generateSecret().secret());
+  }
+}
+```
+
+The Java client asks the runtime for the secret (`POST /v1/webhook-endpoints/generate-secret`), so this needs `KINDGI_API_URL` and `KINDGI_API_TOKEN`, or the running `kindgi dev`. It prints `whsec_` and the base64 of 32 random bytes.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/NewWebhookSecret.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+
+object NewWebhookSecret {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    println(kindgi.webhookEndpoints().generateSecret().secret)
+  }
+}
+```
+
+A Scala app uses the Java client, which asks the runtime for the secret (`POST /v1/webhook-endpoints/generate-secret`).
 
 </TabItem>
 </Tabs>
@@ -145,6 +186,74 @@ It prints the endpoint's id and URL:
 
 ```text
 07fec45a-f938-4694-8ac3-f72f38a938a4 http://localhost:8788/hooks/kindgi
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/RegisterWebhook.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.CreateWebhookEndpointBody;
+import com.kindgi.client.models.WebhookEndpoint;
+import com.kindgi.client.models.WebhookEndpointFilter;
+import com.kindgi.client.models.WebhookEventType;
+import com.kindgi.client.models.WebhookSecretRef;
+import java.util.List;
+
+public final class RegisterWebhook {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    WebhookEndpoint endpoint = kindgi.webhookEndpoints().create(CreateWebhookEndpointBody.builder()
+        .url("http://localhost:8787/hooks/kindgi")
+        .events(List.of(WebhookEventType.RUN_FINISHED))
+        .secretRef(WebhookSecretRef.builder().envName("local").name("ACME_WEBHOOK_SECRET").build())
+        .filter(WebhookEndpointFilter.builder().flowIds(List.of("acme.check-order-stock")).build()) // optional
+        .build());
+    System.out.println(endpoint.endpointId() + " " + endpoint.url());
+  }
+}
+```
+
+It prints the endpoint's id and URL:
+
+```text
+b755d953-6dbf-4ec6-bd5a-3b55b0a87fc2 http://localhost:8787/hooks/kindgi
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/RegisterWebhook.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{CreateWebhookEndpointBody, WebhookEndpointFilter, WebhookEventType, WebhookSecretRef}
+import scala.jdk.CollectionConverters._
+
+object RegisterWebhook {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    val endpoint = kindgi.webhookEndpoints().create(CreateWebhookEndpointBody.builder()
+      .url("http://localhost:8787/hooks/kindgi")
+      .events(List(WebhookEventType.RUN_FINISHED).asJava)
+      .secretRef(WebhookSecretRef.builder().envName("local").name("ACME_WEBHOOK_SECRET").build())
+      .filter(WebhookEndpointFilter.builder().flowIds(List("acme.check-order-stock").asJava).build()) // optional
+      .build())
+    println(s"${endpoint.endpointId} ${endpoint.url}")
+  }
+}
+```
+
+It prints the endpoint's id and URL:
+
+```text
+331103fc-6f6d-408f-904b-2a9299f9a2db http://localhost:8787/hooks/kindgi
 ```
 
 </TabItem>
