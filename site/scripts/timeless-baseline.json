@@ -17,9 +17,6 @@
   "guides/models/openai-compatible": 2,
   "guides/observability/trace-an-answer": 2,
   "guides/projects/organize-by-org-and-project": 1,
-  "guides/runs/cancel-a-run": 1,
-  "guides/runs/list-runs": 1,
-  "guides/runs/see-why-runs-failed": 2,
   "guides/runs/start-a-run": 1,
   "guides/tools/write-a-tool": 1,
   "start/existing-app": 6
