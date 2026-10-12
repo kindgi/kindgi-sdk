@@ -3,7 +3,15 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { docsSource, headers, lockfileImporters, menu, plan, redirects } from './versions-plan.mjs';
+import {
+  docsSource,
+  headers,
+  lockfileDocuments,
+  menu,
+  plan,
+  redirects,
+  snapshotKey,
+} from './versions-plan.mjs';
 
 const tag = (v) => `@kindgi/sdk@${v}`;
 const tags = (...versions) => versions.map(tag);
@@ -156,154 +164,284 @@ test("a release's docs branch that changes code, or doesn't start at the tag, fa
 
 /**
  * A lockfile as pnpm writes one: a first document with pnpm's own version,
- * then the workspace's importers and their packages.
+ * then the workspace's. `packages/api` reaches `foo` through `commander`,
+ * `zod` through `zod-openapi`'s peer, and `dotenv-expand` by an alias; only
+ * `site` reaches `astro` and `kleur`.
  */
-function lockfile({
-  pnpm = '12.4.2',
-  typescript = '5.9.3',
-  hono = '4.6.0',
-  site = ['      astro:', '        specifier: ^7.2.10', '        version: 7.2.10'],
-  packages = ['  astro@7.2.10:', '    resolution: {integrity: sha512-a}'],
-} = {}) {
-  return [
-    '---',
-    "lockfileVersion: '9.0'",
-    '',
-    'importers:',
-    '',
-    '  .:',
-    '    packageManagerDependencies:',
-    '      pnpm:',
-    `        specifier: ${pnpm}`,
-    `        version: ${pnpm}`,
-    '',
-    '---',
-    "lockfileVersion: '9.0'",
-    '',
-    'importers:',
-    '',
-    '  .:',
-    '    devDependencies:',
-    '      typescript:',
-    '        specifier: ^5.7.3',
-    `        version: ${typescript}`,
-    '',
-    '  packages/api:',
-    '    dependencies:',
-    '      hono:',
-    '        specifier: ^4.6.0',
-    `        version: ${hono}`,
-    '',
-    '  site:',
-    '    dependencies:',
-    ...site,
-    '',
-    'packages:',
-    '',
-    ...packages,
-    '',
-  ].join('\n');
+const LOCKFILE_TEXT = `---
+lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    packageManagerDependencies:
+      pnpm:
+        specifier: 12.4.2
+        version: 12.4.2
+
+packages:
+
+  '@pnpm/exe.darwin-arm64@12.4.2':
+    resolution: {integrity: sha512-p1}
+
+  pnpm@12.4.2:
+    resolution: {integrity: sha512-p2}
+
+snapshots:
+
+  '@pnpm/exe.darwin-arm64@12.4.2':
+    optional: true
+
+  pnpm@12.4.2:
+    optionalDependencies:
+      '@pnpm/exe.darwin-arm64': 12.4.2
+
+---
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+
+importers:
+
+  .:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/api:
+    dependencies:
+      '@kindgi/types':
+        specifier: workspace:*
+        version: link:../types
+      commander:
+        specifier: ^12.1.0
+        version: 12.1.0
+      dotenv-expand-10:
+        specifier: npm:dotenv-expand@10.0.0
+        version: dotenv-expand@10.0.0
+      zod-openapi:
+        specifier: ^1.0.0
+        version: 1.0.0(zod@4.0.0)
+
+  site:
+    dependencies:
+      astro:
+        specifier: ^7.2.10
+        version: 7.2.10
+      zod:
+        specifier: ^4.0.0
+        version: 4.0.0
+
+packages:
+
+  astro@7.2.10:
+    resolution: {integrity: sha512-a1}
+
+  commander@12.1.0:
+    resolution: {integrity: sha512-c1}
+
+  dotenv-expand@10.0.0:
+    resolution: {integrity: sha512-d1}
+
+  foo@1.2.0:
+    resolution: {integrity: sha512-f1}
+
+  kleur@4.1.5:
+    resolution: {integrity: sha512-k1}
+
+  typescript@5.9.3:
+    resolution: {integrity: sha512-t1}
+    hasBin: true
+
+  zod-openapi@1.0.0:
+    resolution: {integrity: sha512-o1}
+    peerDependencies:
+      zod: ^4.0.0
+
+  zod@4.0.0:
+    resolution: {integrity: sha512-z1}
+
+snapshots:
+
+  astro@7.2.10:
+    dependencies:
+      kleur: 4.1.5
+
+  commander@12.1.0:
+    dependencies:
+      foo: 1.2.0
+
+  dotenv-expand@10.0.0: {}
+
+  foo@1.2.0: {}
+
+  kleur@4.1.5: {}
+
+  typescript@5.9.3: {}
+
+  zod-openapi@1.0.0(zod@4.0.0):
+    dependencies:
+      zod: 4.0.0
+
+  zod@4.0.0: {}
+`;
+
+/** The lockfile with each `[from, to]` made, each `from` there exactly once. */
+function lockfileWith(...edits) {
+  let text = LOCKFILE_TEXT;
+  for (const [from, to] of edits) {
+    assert.equal(text.split(from).length, 2, `once in the lockfile: ${from}`);
+    text = text.replace(from, () => to);
+  }
+  return text;
 }
 
 const docsBranch = {
   tag: tag('0.1.4'),
   branch: 'origin/release-docs/0.1.4',
   startsAtTag: true,
+  changed: ['pnpm-lock.yaml', 'site/package.json'],
 };
 
-test("lockfileImporters: each importer's block, from every document, and nothing after", () => {
-  const importers = lockfileImporters(lockfile());
-  assert.deepEqual([...importers.keys()], ['.', 'packages/api', 'site']);
+/** What the guard says of a branch whose lockfile is `branch`. */
+const guarded = (branch) =>
+  docsSource({ ...docsBranch, lockfiles: { tag: LOCKFILE_TEXT, branch } });
+
+test('lockfileDocuments: each document, its keyed blocks as written, and the rest', () => {
+  const [env, workspace, ...more] = lockfileDocuments(LOCKFILE_TEXT);
+  assert.deepEqual(more, []);
+  assert.deepEqual([...env.importers.keys()], ['.']);
+  assert.deepEqual([...env.snapshots.keys()], ['@pnpm/exe.darwin-arm64@12.4.2', 'pnpm@12.4.2']);
+  assert.equal(env.rest, "lockfileVersion: '9.0'");
+  assert.deepEqual([...workspace.importers.keys()], ['.', 'packages/api', 'site']);
   assert.equal(
-    importers.get('.'),
-    [
-      '  .:',
-      '    packageManagerDependencies:',
-      '      pnpm:',
-      '        specifier: 12.4.2',
-      '        version: 12.4.2',
-      '---',
-      '  .:',
-      '    devDependencies:',
-      '      typescript:',
-      '        specifier: ^5.7.3',
-      '        version: 5.9.3',
-    ].join('\n'),
+    workspace.importers.get('site'),
+    '  site:\n    dependencies:\n      astro:\n        specifier: ^7.2.10\n        version: 7.2.10\n      zod:\n        specifier: ^4.0.0\n        version: 4.0.0',
   );
   assert.equal(
-    importers.get('site'),
-    '  site:\n    dependencies:\n      astro:\n        specifier: ^7.2.10\n        version: 7.2.10',
+    workspace.snapshots.get('zod-openapi@1.0.0(zod@4.0.0)'),
+    '  zod-openapi@1.0.0(zod@4.0.0):\n    dependencies:\n      zod: 4.0.0',
   );
-  assert.deepEqual(lockfileImporters("lockfileVersion: '9.0'\n"), new Map());
+  assert.equal(workspace.snapshots.get('foo@1.2.0'), '  foo@1.2.0: {}');
+  assert.equal(
+    workspace.packages.get('typescript@5.9.3'),
+    '  typescript@5.9.3:\n    resolution: {integrity: sha512-t1}\n    hasBin: true',
+  );
+  assert.equal(workspace.rest, "lockfileVersion: '9.0'\nsettings:\n  autoInstallPeers: true");
 });
 
-test("a release's docs branch may change the lockfile's site importer, and the packages it adds", () => {
-  const branchLockfile = lockfile({
-    site: [
-      '      astro:',
-      '        specifier: ^7.2.10',
-      '        version: 7.2.10',
-      '      remark-gfm:',
-      '        specifier: ^4.0.1',
-      '        version: 4.0.1',
+test('snapshotKey: name@version with its peers, an alias by its own name, no workspace link', () => {
+  assert.equal(snapshotKey('foo', '1.2.0'), 'foo@1.2.0');
+  assert.equal(snapshotKey('zod-openapi', '1.0.0(zod@4.0.0)'), 'zod-openapi@1.0.0(zod@4.0.0)');
+  assert.equal(snapshotKey('dotenv-expand-10', 'dotenv-expand@10.0.0'), 'dotenv-expand@10.0.0');
+  assert.equal(snapshotKey('@kindgi/types', 'link:../types'), undefined);
+});
+
+test("a release's docs branch may change the site importer, and what only it installs", () => {
+  const branch = lockfileWith(
+    [
+      '        specifier: ^7.2.10\n        version: 7.2.10',
+      '        specifier: ^7.3.0\n        version: 7.3.0\n      remark-gfm:\n        specifier: ^4.0.1\n        version: 4.0.1',
     ],
-    packages: [
-      '  astro@7.2.10:',
-      '    resolution: {integrity: sha512-a}',
-      '',
-      '  remark-gfm@4.0.1:',
-      '    resolution: {integrity: sha512-b}',
+    [
+      '  astro@7.2.10:\n    resolution: {integrity: sha512-a1}\n',
+      '  astro@7.3.0:\n    resolution: {integrity: sha512-a2}\n',
     ],
-  });
-  assert.deepEqual(
-    docsSource({
-      ...docsBranch,
-      changed: ['pnpm-lock.yaml', 'site/package.json', 'site/scripts/agent-markdown.mjs'],
-      lockfiles: { tag: lockfile(), branch: branchLockfile },
-    }),
-    { ref: 'origin/release-docs/0.1.4' },
+    [
+      '  kleur@4.1.5:\n    resolution: {integrity: sha512-k1}\n',
+      '  kleur@4.2.0:\n    resolution: {integrity: sha512-k2}\n\n  remark-gfm@4.0.1:\n    resolution: {integrity: sha512-r1}\n',
+    ],
+    [
+      '  astro@7.2.10:\n    dependencies:\n      kleur: 4.1.5',
+      '  astro@7.3.0:\n    dependencies:\n      kleur: 4.2.0',
+    ],
+    ['  kleur@4.1.5: {}', '  kleur@4.2.0: {}\n\n  remark-gfm@4.0.1: {}'],
+  );
+  assert.deepEqual(guarded(branch), { ref: 'origin/release-docs/0.1.4' });
+});
+
+test('a transitive change under another importer fails, though every importer is the same', () => {
+  // `pnpm dedupe` moved commander's foo: no importer's block changes.
+  const branch = lockfileWith(
+    ['      foo: 1.2.0', '      foo: 1.3.0'],
+    [
+      '  foo@1.2.0:\n    resolution: {integrity: sha512-f1}',
+      '  foo@1.3.0:\n    resolution: {integrity: sha512-f3}',
+    ],
+    ['  foo@1.2.0: {}', '  foo@1.3.0: {}'],
+  );
+  assert.match(
+    guarded(branch).error,
+    /^origin\/release-docs\/0\.1\.4 changes 5 entries of pnpm-lock\.yaml that importers other than site install \(commander@12\.1\.0 \(snapshot\), foo@1\.2\.0 \(snapshot\), foo@1\.2\.0 \(package\), foo@1\.3\.0 \(snapshot\), foo@1\.3\.0 \(package\)\) since @kindgi\/sdk@0\.1\.4: the site-only lockfile guard/,
+  );
+});
+
+test("a package another importer reaches changes: fails, through peers' suffixes and aliases too", () => {
+  const foo = guarded(lockfileWith(['sha512-f1', 'sha512-f2']));
+  assert.match(foo.error, /changes 1 entry of pnpm-lock\.yaml .* \(foo@1\.2\.0 \(package\)\)/);
+  // zod: site's own dependency, but packages/api reaches it through zod-openapi's peer.
+  const zod = guarded(lockfileWith(['sha512-z1', 'sha512-z2']));
+  assert.match(zod.error, /\(zod@4\.0\.0 \(package\)\)/);
+  const alias = guarded(lockfileWith(['sha512-d1', 'sha512-d2']));
+  assert.match(alias.error, /\(dotenv-expand@10\.0\.0 \(package\)\)/);
+  // pnpm's own packages, in the first document.
+  const pnpm = guarded(
+    lockfileWith([
+      "      '@pnpm/exe.darwin-arm64': 12.4.2",
+      "      '@pnpm/exe.darwin-arm64': 12.4.3",
+    ]),
+  );
+  assert.match(pnpm.error, /\(pnpm@12\.4\.2 \(snapshot\)\)/);
+});
+
+test('the guard names five differences, and counts them all', () => {
+  const branch = lockfileWith(
+    ...['t1', 'c1', 'd1', 'f1', 'o1', 'z1'].map((hash) => [`sha512-${hash}`, `sha512-${hash}x`]),
+  );
+  assert.match(
+    guarded(branch).error,
+    /changes 6 entries of pnpm-lock\.yaml that importers other than site install \(typescript@5\.9\.3 \(package\), commander@12\.1\.0 \(package\), dotenv-expand@10\.0\.0 \(package\), zod-openapi@1\.0\.0 \(package\), foo@1\.2\.0 \(package\), and 1 more\)/,
   );
 });
 
 test("a release's docs branch whose lockfile changes another importer fails, naming it", () => {
-  const api = docsSource({
-    ...docsBranch,
-    changed: ['pnpm-lock.yaml', 'site/package.json'],
-    lockfiles: { tag: lockfile(), branch: lockfile({ hono: '4.7.0' }) },
-  });
+  const api = guarded(
+    lockfileWith([
+      '        specifier: ^12.1.0\n        version: 12.1.0',
+      '        specifier: ^12.1.0\n        version: 12.2.0',
+    ]),
+  );
   assert.match(
     api.error,
-    /changes pnpm-lock\.yaml outside the site importer since @kindgi\/sdk@0\.1\.4 \(packages\/api\): the site-only lockfile guard/,
+    /changes pnpm-lock\.yaml outside the site importer \(packages\/api\) since @kindgi\/sdk@0\.1\.4: the site-only lockfile guard/,
   );
   // pnpm's own version sits in the first document's root importer.
-  const root = docsSource({
-    ...docsBranch,
-    changed: ['pnpm-lock.yaml'],
-    lockfiles: { tag: lockfile(), branch: lockfile({ pnpm: '12.5.0', typescript: '5.9.4' }) },
-  });
-  assert.match(root.error, /\(\. \(the workspace root\)\): the site-only lockfile guard/);
-  const added = docsSource({
-    ...docsBranch,
-    changed: ['pnpm-lock.yaml'],
-    lockfiles: {
-      tag: lockfile(),
-      branch: lockfile().replace(
-        '\n  site:\n',
-        '\n  packages/new:\n    dependencies: {}\n\n  site:\n',
-      ),
-    },
-  });
-  assert.match(added.error, /\(packages\/new\): the site-only lockfile guard/);
+  const root = guarded(
+    lockfileWith([
+      '        specifier: 12.4.2\n        version: 12.4.2',
+      '        specifier: 12.5.0\n        version: 12.5.0',
+    ]),
+  );
+  assert.match(root.error, /outside the site importer \(\. \(the workspace root\)\)/);
+  const added = guarded(
+    lockfileWith(['\n  site:\n', '\n  packages/new:\n    dependencies: {}\n\n  site:\n']),
+  );
+  assert.match(added.error, /outside the site importer \(packages\/new\)/);
+});
+
+test("the lockfile's settings and documents stay the tag's", () => {
+  const settings = guarded(lockfileWith(['autoInstallPeers: true', 'autoInstallPeers: false']));
+  assert.match(settings.error, /\(its top-level settings \(document 2\)\)/);
+  const one = guarded(LOCKFILE_TEXT.slice(LOCKFILE_TEXT.indexOf('---', 3)));
+  assert.match(one.error, /changes the number of documents in pnpm-lock\.yaml \(2 to 1\)/);
 });
 
 test('the lockfile guard needs both lockfiles, with importers in each', () => {
   const missing = docsSource({ ...docsBranch, changed: ['pnpm-lock.yaml'] });
   assert.match(missing.error, /the site-only lockfile guard needs the lockfile at both/);
-  const unreadable = docsSource({
-    ...docsBranch,
-    changed: ['pnpm-lock.yaml'],
-    lockfiles: { tag: lockfile(), branch: "lockfileVersion: '9.0'\n" },
-  });
+  const unreadable = guarded("lockfileVersion: '9.0'\n");
   assert.match(
     unreadable.error,
     /the site-only lockfile guard finds no importers in pnpm-lock\.yaml at origin\/release-docs\/0\.1\.4/,
@@ -314,7 +452,7 @@ test("a lockfile change doesn't let a release's docs branch change other files o
   const source = docsSource({
     ...docsBranch,
     changed: ['package.json', 'pnpm-lock.yaml', 'site/package.json'],
-    lockfiles: { tag: lockfile(), branch: lockfile() },
+    lockfiles: { tag: LOCKFILE_TEXT, branch: LOCKFILE_TEXT },
   });
   assert.match(source.error, /outside site\/ since @kindgi\/sdk@0\.1\.4 \(package\.json\)/);
 });
@@ -324,7 +462,7 @@ test("without a lockfile change, the lockfiles aren't read", () => {
     docsSource({
       ...docsBranch,
       changed: ['site/src/content/docs/start/install.mdx'],
-      lockfiles: { tag: lockfile(), branch: lockfile({ hono: '4.7.0' }) },
+      lockfiles: { tag: LOCKFILE_TEXT, branch: lockfileWith(['sha512-f1', 'sha512-f2']) },
     }),
     { ref: 'origin/release-docs/0.1.4' },
   );

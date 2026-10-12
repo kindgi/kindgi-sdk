@@ -69,9 +69,16 @@ change only `site/`, and `pnpm-lock.yaml` for the site's own dependencies, and
 must describe that version's behaviour, not a later one's. `docs:versions`
 builds a release from `origin/release-docs/<version>` when it exists (fetch
 first), else from its tag, and fails if the branch changes anything else
-outside `site/` or doesn't start at the tag. Its lockfile change passes the
-site-only lockfile guard only if every importer but `site` is the same as at
-the tag; the build fails naming those that differ. The code and the
+outside `site/` or doesn't start at the tag. The release's whole workspace
+installs from the branch's lockfile, so its change passes the site-only
+lockfile guard only if every other importer installs exactly what it does at
+the tag: in each of the lockfile's documents, the same lines outside
+`importers`, `packages` and `snapshots` (its version and settings); every
+importer's block but `site`'s; and every snapshot those importers reach,
+through `dependencies` and `optionalDependencies` at any depth, with its
+`packages` entry. What only `site` reaches may change, come or go. Else the
+build fails, naming what differs (the importers, or the first five entries
+and their count). The code and the
 generated reference stay the tag's; `versions.json` and the redirects don't
 change. Land the same fix on `main` too, so the next release has it.
 
