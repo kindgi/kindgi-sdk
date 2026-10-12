@@ -229,7 +229,7 @@ curl -s http://localhost:4000/ready
 
 `/ready` answers once the runtime is up and its database answers (`/health` checks only the process; see [Operate](../operate/#check-health-and-logs)). Its `erasures` says whether an erasure can be replayed after a backup restore: `unreplayable` until you set `KINDGI_ERASURE_LEDGER_KEY` ([Erasures and backups](../operate/#erasures-and-backups)).
 
-Open `http://localhost:4000/` in Chrome or Firefox: it leads to the console, at `/console/`, where you sign in with the API token from `kindgi.env`. Safari can't keep the local sign-in over http yet ([Known limitations](../operate/#known-limitations-in-015)). A runtime started without the console answers there with a short page naming what it serves (`/health`, `/ready`, the API reference at `/docs`).
+Open `http://localhost:4000/` in Chrome or Firefox: it leads to the console, at `/console/`, where you sign in with the API token from `kindgi.env`. Safari can't keep the local sign-in over http yet ([Known issues](../../releases/0.1.5/#known-issues)). A runtime started without the console answers there with a short page naming what it serves (`/health`, `/ready`, the API reference at `/docs`).
 
 Its log names what it's running with:
 

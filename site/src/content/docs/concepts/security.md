@@ -140,7 +140,7 @@ cloud metadata addresses stay refused.
 
 A model provider's calls carry only its own registration's settings and its
 own key: from 0.1.7, nothing of the server's environment goes with them
-([Security fixes in 0.1.7](../../deploy/operate/#security-fixes-in-017)).
+([Security fixes in 0.1.7](../../releases/0.1.7/#security-fixes)).
 
 ## Secrets by reference
 

@@ -514,7 +514,7 @@ The first request raises `ValueError`, naming what to set.
 
 The banner's first line, `Console`, is the console's address
 (`http://127.0.0.1:4000/console/`; `kindgi console` opens it). Sign in there
-with **Sign in as seeded user**, or with the same token. Open the console in Chrome or Firefox. Safari can't keep the local sign-in over http yet ([Known limitations](../../deploy/operate/#known-limitations-in-015)).
+with **Sign in as seeded user**, or with the same token. Open the console in Chrome or Firefox. Safari can't keep the local sign-in over http yet ([Known issues](../../releases/0.1.5/#known-issues)).
 
 The token stays the same when you restart `kindgi dev`. `kindgi dev --reset`
 starts the project over, dropping its database

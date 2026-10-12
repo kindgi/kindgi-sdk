@@ -616,4 +616,4 @@ Cloud Run hasn't released its addresses yet: run it again later.
 - **One runtime instance.** 0.1.6 and 0.1.7 fix the known reasons several
   instances couldn't share a database, but several together aren't verified
   yet, so the module runs one
-  ([Known limitations](../operate/#known-limitations-in-017)).
+  ([Known issues](../../releases/0.1.7/#known-issues)).

@@ -47,7 +47,7 @@ events as they happen, and receives signed webhooks when they finish.
   runtime's own address leads there (with `kindgi dev`,
   `http://127.0.0.1:4000/console/`; `kindgi console` opens it, in Chrome or
   Firefox: Safari can't keep the local sign-in over http yet,
-  see [Known limitations](../../deploy/operate/#known-limitations-in-015)). Each run has one page: what
+  see [Known issues](../../releases/0.1.5/#known-issues)). Each run has one page: what
   the agent was asked, the tools it called and their results, its answer, the
   model and the cost; its journal, one sentence per step; and where the answer
   came from. It also has approvals to approve or reject, conversations, and

@@ -121,6 +121,7 @@ export default defineConfig({
             { label: 'Guides', paths: ['guides/**'], description: 'how to do one thing' },
             { label: 'Concepts', paths: ['concepts/**'] },
             { label: 'Deploy', paths: ['deploy/**'] },
+            { label: 'Release notes', paths: ['releases/**'] },
             { label: 'CLI reference', paths: ['reference/cli/**'] },
             { label: 'Python SDK reference', paths: ['reference/python/**'] },
           ],
@@ -184,6 +185,7 @@ export default defineConfig({
         },
         { label: 'Concepts', items: [{ autogenerate: { directory: 'concepts' } }] },
         { label: 'Deploy', items: [{ autogenerate: { directory: 'deploy' } }] },
+        { label: 'Release notes', items: [{ autogenerate: { directory: 'releases' } }] },
         {
           label: 'Reference',
           items: [
