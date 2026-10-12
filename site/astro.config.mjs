@@ -67,18 +67,24 @@ export default defineConfig({
       description:
         'Build agents and flows in your own code, run them durably, and keep every step on the record.',
       favicon: '/favicon.svg',
+      // The plum tile beside the title, as the favicon draws it: the action
+      // colour of each theme (design/tokens.json).
+      logo: {
+        light: './src/assets/kindgi-tile-light.svg',
+        dark: './src/assets/kindgi-tile-dark.svg',
+      },
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/kindgi/kindgi-sdk' }],
       editLink: { baseUrl: 'https://github.com/kindgi/kindgi-sdk/edit/main/site/' },
       // The fonts are served from the site itself (Fontsource), so a page asks no
-      // other host for them.
+      // other host for them: Plex Sans with its width axis (headings narrow to
+      // --kg-narrow), its files kept in src/fonts so a release's docs branch can
+      // take the theme without a dependency change, and Plex Mono. Then the
+      // design tokens, and the theme that maps Starlight onto them.
       customCss: [
-        '@fontsource/ibm-plex-sans/400.css',
-        '@fontsource/ibm-plex-sans/500.css',
-        '@fontsource/ibm-plex-sans/600.css',
+        './src/fonts/ibm-plex-sans-variable/wdth.css',
         '@fontsource/ibm-plex-mono/400.css',
         '@fontsource/ibm-plex-mono/500.css',
-        '@fontsource/ibm-plex-serif/500.css',
-        '@fontsource/ibm-plex-serif/600.css',
+        '../design/tokens.css',
         './src/styles/kindgi.css',
       ],
       components: {
