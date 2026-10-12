@@ -21,7 +21,9 @@ import {
   Liquid,
   Tag,
   type TagToken,
+  type Template,
   type TopLevelToken,
+  toValue,
 } from 'liquidjs';
 
 /** What a template that uses a partial is told, at a publish and at a render alike. */
@@ -29,11 +31,8 @@ export const NO_PARTIALS = "templates can't use include, render or layout";
 
 class NoPartialsError extends Error {}
 
-/** A render whose output is longer than `memoryLimit` characters. */
-class OutputOverLimitError extends Error {}
-
-/** A tag class as liquidjs's tag map holds it. */
-type TagClass = Liquid['tags'][string];
+/** liquidjs's own message for a render over its memory limit. */
+const MEMORY_LIMIT_EXCEEDED = 'memory alloc limit exceeded';
 
 /** A filter's function, as liquidjs calls it. */
 type FilterHandler = Extract<FilterImplOptions, (...args: never[]) => unknown>;
@@ -51,20 +50,95 @@ class NoPartials extends Tag {
 }
 
 /**
- * liquidjs's `{% capture %}`, with the string it keeps charged to the
- * render's `memoryLimit`. liquidjs charges filters and ranges but not a
- * capture, so a capture that doubles itself in a loop grew past any limit.
+ * What a render writes, charged to its `memoryLimit` as it's written:
+ * liquidjs charges filters and ranges, not the output, and a capture is
+ * output kept. The text is liquidjs's own for a value (its `stringify`).
  */
-function chargedCapture(capture: TagClass): TagClass {
-  const { render } = (capture as unknown as { readonly prototype: Tag }).prototype;
-  return class ChargedCapture extends capture {
-    *render(ctx: Context, emitter: Emitter): Generator<unknown, void, unknown> {
-      yield* render.call(this, ctx, emitter) as Generator<unknown, unknown, unknown>;
-      const { variable } = this as unknown as { readonly variable: string };
-      const kept: unknown = (ctx.bottom() as Readonly<Record<string, unknown>>)[variable];
-      if (typeof kept === 'string') ctx.memoryLimit.use(kept.length);
-    }
+class ChargedEmitter implements Emitter {
+  buffer = '';
+
+  constructor(private readonly ctx: Context) {}
+
+  write(html: unknown): void {
+    this.ctx.memoryLimit.use(weigh(this.ctx, html));
+    this.buffer += text(html);
+  }
+}
+
+/**
+ * What a value weighs toward `memoryLimit`, before anything is made from
+ * it: a string its length, an array 1 plus what its items weigh, anything
+ * else its text's length. Each distinct array is weighed once a render
+ * (no template can change an array once it's made), so an array that
+ * holds the same arrays many times costs its distinct arrays to weigh,
+ * whatever its total. The walk stops as soon as the total
+ * passes what the render has left, and an array that holds itself is
+ * over any limit.
+ */
+function weigh(ctx: Context, value: unknown): number {
+  const root = toValue(value);
+  if (!Array.isArray(root)) return flatWeight(root);
+  let weighed = weightsByRender.get(ctx);
+  if (weighed === undefined) {
+    weighed = new WeakMap();
+    weightsByRender.set(ctx, weighed);
+  }
+  const known = weighed.get(root);
+  if (known !== undefined) return known;
+  const frames: { readonly array: unknown[]; index: number; total: number }[] = [];
+  const opened = new Set<unknown[]>();
+  let running = 0;
+  const add = (frame: { total: number }, weight: number) => {
+    frame.total += weight;
+    running += weight;
+    ctx.memoryLimit.check(running);
   };
+  const open = (array: unknown[]) => {
+    if (opened.has(array)) throw new Error(MEMORY_LIMIT_EXCEEDED);
+    opened.add(array);
+    frames.push({ array, index: 0, total: 0 });
+    add(frames[frames.length - 1] as { total: number }, 1);
+  };
+  open(root);
+  for (;;) {
+    const frame = frames[frames.length - 1] as (typeof frames)[number];
+    if (frame.index === frame.array.length) {
+      frames.pop();
+      opened.delete(frame.array);
+      weighed.set(frame.array, frame.total);
+      const parent = frames[frames.length - 1];
+      if (parent === undefined) return frame.total;
+      parent.total += frame.total;
+      continue;
+    }
+    const item = toValue(frame.array[frame.index]);
+    frame.index += 1;
+    if (!Array.isArray(item)) add(frame, flatWeight(item));
+    else {
+      const known = weighed.get(item);
+      if (known !== undefined) add(frame, known);
+      else open(item);
+    }
+  }
+}
+
+/** Each render's array weights, by the render's context. */
+const weightsByRender = new WeakMap<Context, WeakMap<unknown[], number>>();
+
+/** What a value that isn't an array weighs: the length of its text. */
+function flatWeight(item: unknown): number {
+  if (typeof item === 'string') return item.length;
+  if (item === null || item === undefined) return 0;
+  return String(item).length;
+}
+
+/** A value as liquidjs writes it out: a string, nothing for nil, an array's items joined. */
+function text(value: unknown): string {
+  const item = toValue(value);
+  if (typeof item === 'string') return item;
+  if (item === null || item === undefined) return '';
+  if (Array.isArray(item)) return item.map(text).join('');
+  return String(item);
 }
 
 /**
@@ -82,18 +156,14 @@ function chargedFilter(filter: FilterImplOptions): FilterImplOptions {
     *handler(this: ThisParameterType<FilterHandler>, value: unknown, ...args: unknown[]) {
       const result: unknown = yield handler.call(this, value, ...args);
       if (typeof result === 'string' || Array.isArray(result)) {
-        this.context.memoryLimit.use(result.length);
+        this.context.memoryLimit.use(weigh(this.context, result));
       }
       return result;
     },
   };
 }
 
-/**
- * A Liquid engine under the bounds' limits that resolves no partials.
- * It parses; a render goes through `renderTenantTemplate`, which also
- * bounds the output.
- */
+/** A Liquid engine under the bounds' limits that resolves no partials. */
 export function tenantLiquid(): Liquid {
   const { parseLimit, renderLimitMs, memoryLimit } = tenantInputBounds().liquid;
   const liquid = new Liquid({
@@ -108,9 +178,13 @@ export function tenantLiquid(): Liquid {
     memoryLimit,
   });
   for (const name of ['include', 'render', 'layout']) liquid.registerTag(name, NoPartials);
-  const capture = liquid.tags.capture;
-  if (capture === undefined) throw new Error('liquidjs has no capture tag');
-  liquid.registerTag('capture', chargedCapture(capture));
+  // Every emitter the renderer makes writes charged: the render's own,
+  // and each capture's. One it's given is one of these already.
+  const { renderer } = liquid;
+  const renderTemplates = renderer.renderTemplates.bind(renderer);
+  renderer.renderTemplates = function* (templates: Template[], ctx: Context, emitter?: Emitter) {
+    return yield* renderTemplates(templates, ctx, emitter ?? new ChargedEmitter(ctx));
+  };
   for (const [name, filter] of Object.entries(liquid.filters)) {
     liquid.registerFilter(name, chargedFilter(filter));
   }
@@ -118,17 +192,12 @@ export function tenantLiquid(): Liquid {
 }
 
 /**
- * A template rendered under the bounds' limits. What its filters, ranges
- * and captures make is charged to `memoryLimit` (`tenantLiquid`); its
- * output isn't, so the output may be no longer than `memoryLimit`
- * characters either.
+ * A template rendered under the bounds' limits: what its filters and
+ * ranges make, and what it writes (its output and its captures), count
+ * toward `memoryLimit` as they're made.
  */
 export function renderTenantTemplate(template: string, scope: object): string {
-  const { memoryLimit } = tenantInputBounds().liquid;
-  const rendered: string = tenantLiquid().parseAndRenderSync(template, scope);
-  // `length` doesn't flatten the string the render built, however long.
-  if (rendered.length > memoryLimit) throw new OutputOverLimitError();
-  return rendered;
+  return tenantLiquid().parseAndRenderSync(template, scope);
 }
 
 /**
@@ -158,10 +227,7 @@ export function liquidProblem(cause: unknown): string | undefined {
   const { parseLimit, renderLimitMs, memoryLimit } = tenantInputBounds().liquid;
   for (let error = cause; error instanceof Error; error = originalOf(error)) {
     if (error instanceof NoPartialsError) return NO_PARTIALS;
-    if (error instanceof OutputOverLimitError) {
-      return `the render went over its memory limit of ${memoryLimit}`;
-    }
-    // A string past the longest V8 makes, before the output's check could run.
+    // A string past the longest V8 makes, on a server with no memory limit.
     if (error instanceof RangeError && error.message === 'Invalid string length') {
       return Number.isFinite(memoryLimit)
         ? `the render went over its memory limit of ${memoryLimit}`
@@ -174,7 +240,7 @@ export function liquidProblem(cause: unknown): string | undefined {
     if (error.message === 'template render limit exceeded') {
       return `the render took over the limit of ${renderLimitMs} ms`;
     }
-    if (error.message === 'memory alloc limit exceeded') {
+    if (error.message === MEMORY_LIMIT_EXCEEDED) {
       return `the render went over its memory limit of ${memoryLimit}`;
     }
   }

@@ -248,13 +248,33 @@ describe("the bounds' limits", () => {
     );
   });
 
-  test('the output may be no longer than memoryLimit characters', () => {
-    withLiquid({ memoryLimit: 500 });
+  test('what the output writes counts toward memoryLimit as it is written', () => {
+    withLiquid({ memoryLimit: 600 });
+    // The range is charged 1 a number, and each `x` written 1.
     const repeated = (n: number) => `{% for i in (1..${n}) %}xxxxxxxxxx{% endfor %}`;
     expect(rendered(repeated(50))).toHaveLength(500);
-    expect(rendered(repeated(51))).toBe(
-      'Template render failed: the render went over its memory limit of 500',
+    expect(rendered(repeated(60))).toBe(
+      'Template render failed: the render went over its memory limit of 600',
     );
+  });
+
+  test.each([
+    [
+      'an array holding one string many times',
+      `{% assign s = "${'x'.repeat(100)}" %}{% assign a = "" | split: "," %}{% for i in (1..20) %}{% assign a = a | push: s %}{% endfor %}`,
+      '{{ a }}',
+    ],
+    ['a range', '', '{{ (1..400) }}'],
+  ])('%s, written out or captured, is charged as it is written', (_, setup, write) => {
+    withLiquid({ memoryLimit: 1000 });
+    for (const template of [
+      `${setup}${write}`,
+      `${setup}{% capture c %}${write}{% endcapture %}{{ c.size }}`,
+    ]) {
+      expect(rendered(template)).toBe(
+        'Template render failed: the render went over its memory limit of 1000',
+      );
+    }
   });
 
   test.each([
@@ -277,6 +297,71 @@ describe("the bounds' limits", () => {
     expect(rendered(template)).toBe(
       'Template render failed: the render went over its memory limit of 8388608',
     );
+  });
+
+  test.each([
+    ['the hosted bounds', HOSTED_BOUNDS, 8_388_608],
+    [
+      'a 64 Mi limit',
+      { ...SELF_HOSTED_BOUNDS, liquid: { ...SELF_HOSTED_BOUNDS.liquid, memoryLimit: 67_108_864 } },
+      67_108_864,
+    ],
+  ])(
+    'an array holding the same arrays many times is refused fast, under %s',
+    (_, bounds, limit) => {
+      restore = overrideTenantInputBounds(bounds);
+      // Each pass holds the last array twice: 2^26 arrays to walk, 26 distinct.
+      const build =
+        '{% assign e = "" | split: "," %}{% assign a = e %}{% for i in (1..26) %}{% assign a = e | push: a | push: a %}{% endfor %}';
+      // Written out, or compared, which walks it without writing it.
+      for (const template of [`${build}[{{ a }}]`, `${build}{% if a == e %}same{% endif %}`]) {
+        expect(templateProblem(template)).toBeUndefined();
+        const started = performance.now();
+        expect(rendered(template)).toBe(
+          `Template render failed: the render went over its memory limit of ${limit}`,
+        );
+        expect(performance.now() - started).toBeLessThan(500);
+      }
+    },
+  );
+
+  test('ordinary templates over a full-size input render without a limit, and are refused at the hosted one', () => {
+    const doc = '<p>Orders for <b>Acme &amp; Co</b>, "tenant-a" and tenant-b.</p>\n'.repeat(29_500);
+    const items = Array.from({ length: 9_000 }, (_, i) =>
+      `Order ${i} from <Acme & Co>: ${'two widgets, one gadget; '.repeat(8)}`.padEnd(213, '.'),
+    );
+    expect(doc.length).toBeGreaterThan(1.8 * 1024 * 1024);
+    expect(items.join('').length).toBeGreaterThan(1.8 * 1024 * 1024);
+    const chains: [string, object, RegExp][] = [
+      [
+        '{{ doc | strip_html | escape | strip }}',
+        { doc },
+        /^Orders for Acme &amp;amp; Co, &#34;tenant-a&#34; and tenant-b\./,
+      ],
+      [
+        '{% for item in items %}{{ item | escape | strip | truncate: 150 }}{% endfor %}',
+        { items },
+        /^Order 0 from &lt;Acme &amp; Co&gt;/,
+      ],
+    ];
+    for (const [template, scope, start] of chains) {
+      expect(renderTenantTemplate(template, scope)).toMatch(start);
+    }
+    // Each filter is charged for what it's given and what it gives back,
+    // and the output once more: about five times the input.
+    restore = overrideTenantInputBounds(HOSTED_BOUNDS);
+    for (const [template, scope] of chains) {
+      expect(() => renderTenantTemplate(template, scope)).toThrow('memory alloc limit exceeded');
+    }
+  });
+
+  test("an array from the render's input is weighed through its nested arrays", () => {
+    withLiquid({ memoryLimit: 1000 });
+    const nested = [Array.from({ length: 20 }, () => 'x'.repeat(100))];
+    expect(() => renderTenantTemplate('{{ nested }}', { nested })).toThrow(
+      'memory alloc limit exceeded',
+    );
+    expect(renderTenantTemplate('{{ nested }}', { nested: [['x'.repeat(100)]] })).toHaveLength(100);
   });
 
   test('on a self-hosted server, an output past the longest string says so', () => {

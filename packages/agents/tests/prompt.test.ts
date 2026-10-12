@@ -174,8 +174,8 @@ describe('renderInstructions — strict variables', () => {
 
 describe('renderInstructions — partials', () => {
   // A template stored before partials were refused at publish: `defineAgent`
-  // refuses these now. `package.json` would resolve from the package's
-  // directory, where the tests run.
+  // refuses these now. `package.json` is a file that exists, so this fails
+  // if partials ever resolve.
   test.each([
     ['include', "{% include 'package.json' %}"],
     ['render', "{% render 'package.json' %}"],

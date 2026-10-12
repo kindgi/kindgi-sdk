@@ -6,8 +6,11 @@
  * so every engine is `tenantLiquid`'s and every render goes through
  * `renderTenantTemplate`, and none can skip the bounds' limits or resolve
  * a partial. A value import of liquidjs anywhere else in the packages'
- * source (aliased, by namespace, or by `require` or `import()`) fails
- * this test until it moves onto the helper. A type-only import is fine.
+ * source (aliased, by namespace, from a path inside the package, or by
+ * `require` or `import()`) fails this test until it moves onto the helper.
+ * A type-only import is fine. It reads the source as text, so it can't
+ * see a name it doesn't spell out: `createRequire(import.meta.url)` called
+ * on `'liquidjs'`, or a module name computed at run time.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -28,7 +31,7 @@ const NOT_SERVER = new Set(['cli']);
  * captured, or a `require` or dynamic `import` of it.
  */
 const LIQUIDJS =
-  /\b(?:import|export)\s+(type\s+)?(?:[^'";]*?\bfrom\s*)?['"]liquidjs['"]|\b(?:require|import)\s*\(\s*['"]liquidjs['"]\s*\)/g;
+  /\b(?:import|export)\s+(type\s+)?(?:[^'"`;]*?\bfrom\s*)?[`'"]liquidjs(?:\/[^`'"]*)?[`'"]|\b(?:require|import)\s*\(\s*[`'"]liquidjs(?:\/[^`'"]*)?[`'"]\s*\)/g;
 
 /** How many times a file's source takes a value from liquidjs. */
 function valueImports(text: string): number {
@@ -89,6 +92,9 @@ describe('only the helper uses liquidjs', () => {
       ['agents/src/derive.ts', "const { Liquid } = require('liquidjs');"],
       ['agents/src/resolve.ts', "const { Liquid } = await import('liquidjs');"],
       ['agents/src/index.ts', "export { Liquid } from 'liquidjs';"],
+      ['agents/src/blocks-a.ts', "import { Liquid } from 'liquidjs/dist/liquid.node.js';"],
+      ['agents/src/blocks-b.ts', 'const { Liquid } = require(`liquidjs`);'],
+      ['agents/src/blocks-c.ts', 'const { Liquid } = await import(`liquidjs`);'],
       [
         'agents/src/liquid.ts',
         'import { Liquid } from \'liquidjs\';\nimport { Tag } from "liquidjs";',
@@ -101,6 +107,9 @@ describe('only the helper uses liquidjs', () => {
       'agents/src/derive.ts: 1, allowed 0',
       'agents/src/resolve.ts: 1, allowed 0',
       'agents/src/index.ts: 1, allowed 0',
+      'agents/src/blocks-a.ts: 1, allowed 0',
+      'agents/src/blocks-b.ts: 1, allowed 0',
+      'agents/src/blocks-c.ts: 1, allowed 0',
       'agents/src/liquid.ts: 2, allowed 1',
     ]);
     expect(unlisted(new Map())).toEqual(['agents/src/liquid.ts: allowed, but has none']);
