@@ -9,9 +9,56 @@
  * idempotency fingerprints the bytes themselves rather than their text.
  */
 
+import { tenantInputBounds } from '@kindgi/bounds';
 import type { Context, MiddlewareHandler } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 
+import { statusFor, toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
+
+/**
+ * Paths the API's body limit leaves alone: the webhook receiver reads its
+ * body under its own limit, before any lookup, and the S3-compatible
+ * routes take objects, not JSON.
+ */
+const OTHER_BODY_PATHS = ['/v1/hooks/', '/s3/'];
+
+/**
+ * The API's limit on a request body, `requestMaxBytes`, checked before
+ * anything reads the body and before the caller is known: a declared
+ * length over it is refused unread, and a streamed body as soon as it
+ * passes it. `413 request-too-large`, with `details.maxBytes`. A route in
+ * `ownLimits` is checked against its own limit instead, in `readBodyOnce`.
+ */
+export function requestBodyLimit(
+  ownLimits: readonly OwnBodyLimit[] = [],
+): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    if (
+      OTHER_BODY_PATHS.some((prefix) => c.req.path.startsWith(prefix)) ||
+      ownLimitOf(c, ownLimits)
+    ) {
+      return next();
+    }
+    const maxBytes = tenantInputBounds().requestMaxBytes;
+    return bodyLimit({
+      maxSize: maxBytes,
+      onError: (limited) => {
+        limited.status(statusFor('request-too-large') as never);
+        return limited.json(
+          toWireError(
+            {
+              code: 'request-too-large',
+              message: `The request body is over the limit of ${maxBytes} bytes`,
+              maxBytes,
+            },
+            limited.get('requestId'),
+          ),
+        );
+      },
+    })(c, next);
+  };
+}
 
 /** A route whose body has a size limit of its own, checked before the body is read. */
 export interface OwnBodyLimit {
@@ -32,12 +79,63 @@ export function readBodyOnce(ownLimits: readonly OwnBodyLimit[] = []): Middlewar
       c.set('requestBody', new Uint8Array(await c.req.arrayBuffer()));
       await next();
     };
-    const own = ownLimits.find(
-      (route) => route.method === c.req.method && route.path === c.req.path,
-    );
+    const own = ownLimitOf(c, ownLimits);
     if (own === undefined) return read();
     return own.limit(c, read);
   };
+}
+
+/** The route's own body limit: by method and path, exactly. */
+function ownLimitOf(
+  c: Context<AppEnv>,
+  ownLimits: readonly OwnBodyLimit[],
+): OwnBodyLimit | undefined {
+  return ownLimits.find((route) => route.method === c.req.method && route.path === c.req.path);
+}
+
+/**
+ * A JSON body nested deeper than `requestJsonMaxDepth` is `400 bad-input`,
+ * with `details.maxDepth`, before anything walks it: the checks after
+ * this one, idempotency and the route. A body that isn't JSON is the
+ * route's to refuse.
+ */
+export function refuseDeepJson(): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const first = firstJsonByte(c.get('requestBody'));
+    // Only an object or an array can nest.
+    if (first !== 0x7b && first !== 0x5b) return next();
+    let value: unknown;
+    try {
+      value = await c.req.json();
+    } catch {
+      return next();
+    }
+    const maxDepth = tenantInputBounds().requestJsonMaxDepth;
+    if (!nestsDeeperThan(value, maxDepth)) return next();
+    c.status(statusFor('bad-input') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'bad-input',
+          message: `The JSON body nests objects and arrays more than ${maxDepth} deep, the limit`,
+          maxDepth,
+        },
+        c.get('requestId'),
+      ),
+    );
+  };
+}
+
+/** Whether a parsed value nests objects and arrays more than `max` levels, its own being 1. */
+export function nestsDeeperThan(value: unknown, max: number): boolean {
+  const pending: [unknown, number][] = [[value, 1]];
+  while (pending.length > 0) {
+    const [item, depth] = pending.pop() as [unknown, number];
+    if (item === null || typeof item !== 'object') continue;
+    if (depth > max) return true;
+    for (const inner of Object.values(item)) pending.push([inner, depth + 1]);
+  }
+  return false;
 }
 
 /**
@@ -67,11 +165,16 @@ export function takeBody(c: Context<AppEnv>): ReadableStream<Uint8Array> {
  * byte-order mark and JSON whitespace is `{`. Unknown bytes could be.
  */
 export function mayBeJsonObject(bytes: Uint8Array | undefined): boolean {
-  if (bytes === undefined) return true;
+  return bytes === undefined || firstJsonByte(bytes) === 0x7b;
+}
+
+/** The first byte of kept bytes past a byte-order mark and JSON whitespace. */
+function firstJsonByte(bytes: Uint8Array | undefined): number | undefined {
+  if (bytes === undefined) return undefined;
   let i = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? 3 : 0;
   // Space, tab, line feed, carriage return: JSON's whitespace.
   while (bytes[i] === 0x20 || bytes[i] === 0x09 || bytes[i] === 0x0a || bytes[i] === 0x0d) i += 1;
-  return bytes[i] === 0x7b;
+  return bytes[i];
 }
 
 /**

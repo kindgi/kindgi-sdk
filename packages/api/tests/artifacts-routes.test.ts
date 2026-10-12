@@ -10,6 +10,8 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { HOSTED_BOUNDS } from '@kindgi/bounds';
+import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
@@ -161,7 +163,17 @@ function harness(options: { authz?: boolean; maxBytes?: number; defaultProject?:
     });
     return { status: res.status, body: (await res.json()) as Record<string, any> };
   };
-  return { upload, sendBytes, call, blobs };
+  /** A body sent as given (a stream included), multipart by its header. */
+  const sendRaw = async (as: string, body: Uint8Array | ReadableStream<Uint8Array>) => {
+    const res = await app.request('/v1/artifacts', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${as}`, 'content-type': 'multipart/form-data; boundary=x' },
+      body,
+      ...(body instanceof ReadableStream && { duplex: 'half' }),
+    } as RequestInit);
+    return { status: res.status, body: (await res.json()) as Record<string, any> };
+  };
+  return { upload, sendBytes, sendRaw, call, blobs };
 }
 
 describe('artifacts belong to a project', () => {
@@ -306,6 +318,32 @@ describe('a key limited to a project', () => {
 });
 
 describe('the upload cap', () => {
+  test("on hosted, an upload over the API's 2 MiB limit is under its own", async () => {
+    const restore = overrideTenantInputBounds(HOSTED_BOUNDS);
+    try {
+      const r = await harness().upload('alice', {}, 'x'.repeat(3 * 1024 * 1024));
+      expect(r.status).toBe(201);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a streamed upload is read no further than its cap', async () => {
+    const h = harness({ maxBytes: 256 * 1024 });
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pulled >= 10 * 1024 * 1024) return controller.close();
+        pulled += 64 * 1024;
+        controller.enqueue(new Uint8Array(64 * 1024));
+      },
+    });
+    const r = await h.sendRaw('alice', stream);
+    expect(r.status).toBe(413);
+    expect(r.body.error).toMatchObject({ code: 'artifact-too-large' });
+    expect(pulled).toBeLessThanOrEqual(256 * 1024 + 2 * 64 * 1024);
+  });
+
   test('over the cap is 413 artifact-too-large, saying how much is allowed', async () => {
     // The cap counts the whole request body, multipart framing included.
     const h = harness({ maxBytes: 1024 });

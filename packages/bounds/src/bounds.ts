@@ -57,7 +57,11 @@ export interface TenantInputBounds {
   readonly sseEventMaxBytes: number;
   /** The largest request body the API reads, in bytes (routes that take more set their own). */
   readonly requestMaxBytes: number;
-  /** The deepest a request's JSON may nest, objects and arrays. */
+  /**
+   * The deepest a request's JSON may nest, in levels of objects and arrays,
+   * the body's own being 1. It leaves room for a schema as deep as
+   * `schemaMaxDepth` inside the body that carries it.
+   */
   readonly requestJsonMaxDepth: number;
 }
 
@@ -112,7 +116,7 @@ export const HOSTED_BOUNDS: TenantInputBounds = deepFreeze({
   responseIdleMs: 60_000,
   sseEventMaxBytes: 10 * MiB,
   requestMaxBytes: 2 * MiB,
-  requestJsonMaxDepth: 64,
+  requestJsonMaxDepth: 128,
 });
 
 let configured: TenantInputBounds | undefined;

@@ -70,7 +70,12 @@ import { noStoreMiddleware } from './middleware/no-store.js';
 import { principalMiddleware } from './middleware/principal.js';
 import { PROJECT_REF_ROUTES, refuseBadProjectId } from './middleware/project-ref.js';
 import { publicRunCorsMiddleware, publicRunRouteMatcher } from './middleware/public-run-routes.js';
-import { readBodyOnce } from './middleware/request-body.js';
+import {
+  type OwnBodyLimit,
+  readBodyOnce,
+  refuseDeepJson,
+  requestBodyLimit,
+} from './middleware/request-body.js';
 import { requestIdMiddleware } from './middleware/request-id.js';
 import { requestLogMiddleware } from './middleware/request-log.js';
 import { sealedCursors } from './middleware/sealed-cursors.js';
@@ -1088,6 +1093,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   app.use('*', requestIdMiddleware());
   // The request's trace context and logger, and its access line.
   app.use('*', requestLogMiddleware(input.logger ?? noopLogger));
+  // An upload is read under its own limit, once the caller is known
+  // (`readBodyOnce`); every other body under the API's, before anything.
+  const ownBodyLimits: readonly OwnBodyLimit[] = [
+    {
+      method: 'POST',
+      path: '/v1/artifacts',
+      limit: artifactUploadLimit(input.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES),
+    },
+  ];
+  app.use('*', requestBodyLimit(ownBodyLimits));
   // No `/v1` answer is kept by a browser or a proxy (data and errors alike).
   app.use('/v1/*', noStoreMiddleware());
   // A thrown exception: a 500 wire error with its message and request id, logged.
@@ -1177,16 +1192,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // A write's body is read once, as the bytes it came with, before
   // anything parses it: the checks below, idempotency and the route all
   // read that copy. An upload is read under its own size limit.
-  v1.use(
-    '*',
-    readBodyOnce([
-      {
-        method: 'POST',
-        path: '/v1/artifacts',
-        limit: artifactUploadLimit(input.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES),
-      },
-    ]),
-  );
+  v1.use('*', readBodyOnce(ownBodyLimits));
+  // A JSON body nested past the bounds is refused before anything walks it.
+  v1.use('*', refuseDeepJson());
   // A key limited to a project names no other one.
   v1.use('*', refuseOtherProjectForKey(authorizer));
   // Page cursors are sealed at the edge, for every list.
