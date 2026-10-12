@@ -7,19 +7,28 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-A flow waits for a person through an agent step: when the agent asks for a
+This guide stops a flow until a person approves what an agent step is about
+to do, then continues on their decision.
+
+A flow waits for a person through an agent step. When the agent asks for a
 tool that needs approval, its turn stops, and the flow stops with it. A
 reviewer decides, and the flow continues from where it stopped.
 
-`acme.escalate-order` has an agent put an order on hold (every hold waits for
-a person), then emails the customer if the hold went through. It uses
-`acme.hold-order` from [Pass data between steps](../pass-data-between-steps/)
-and `acme.email-customer` from [Join branches](../join-branches/).
+## Before you start
+
+- **The tools** `acme.hold-order`, from
+  [Pass data between steps](../pass-data-between-steps/), and
+  `acme.email-customer`, from [Join branches](../join-branches/).
+- **A runtime such as `kindgi dev`,** with Kindgi 0.1's CLI.
+- **A registered model** that calls tools.
+
+`acme.escalate-order` has an agent put an order on hold, then emails the
+customer if the hold went through. Every hold waits for a person.
 
 ## The agent
 
-The agent gates `acme.hold-order` with `always_ask`, and returns a typed
-answer the flow can branch on:
+The agent's tool call is what waits. The agent gates `acme.hold-order` with
+`always_ask`, and returns a typed answer the flow can branch on:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -123,10 +132,12 @@ order_holder = Agent(
 </Tabs>
 
 [Ask before a tool runs](../../approvals/ask-before-a-tool-runs/) covers the
-gates (`always_ask`, `never_ask`, and the default for tools that aren't
-read-only).
+gates: `always_ask`, `never_ask`, and the default for tools that aren't
+read-only.
 
 ## The flow
+
+The flow runs the agent as a step, then branches on its answer:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -263,18 +274,23 @@ does. After the decision, `e3` or `e4` reads the agent's answer,
 
 ## Run it
 
-Only reviewers can decide approvals. Under `kindgi dev` you're one already; on
-any other runtime, register yourself once:
+Only reviewers can decide approvals. Under `kindgi dev` you're one already.
+On any other runtime, register yourself once:
 
 ```sh
 kindgi reviewers register --spec='{"role":"standard"}'
 ```
+
+`--spec` is the reviewer, as JSON: `role` is `standard`, `senior` or `admin`.
 
 Then start the flow:
 
 ```sh
 kindgi runs start --flow=acme.escalate-order --input='{"orderId":"A-200","reason":"Address looks wrong"}'
 ```
+
+`--flow` is the flow, and `--input` its input: the order and why to hold it.
+It prints the run, waiting:
 
 ```json
 {
@@ -288,8 +304,9 @@ kindgi runs start --flow=acme.escalate-order --input='{"orderId":"A-200","reason
 ```
 
 The run is `suspended`, and the command returns as soon as it waits. Nothing
-keeps running while it waits: the journal records where the run stopped, and
-the decision picks it up from there.
+keeps running while it waits. The journal records where the run stopped, and
+the decision picks it up from there. `kindgi runs journal <run-id>` prints
+it:
 
 ```json
 {"sequence": 5, "kind": "step.started", "nodeId": "hold", "payload": {"input": {"reason": "Address looks wrong", "orderId": "A-200"}}, …}
@@ -298,9 +315,14 @@ the decision picks it up from there.
 
 ## Decide
 
+The approval is what the reviewer decides. List the ones waiting:
+
 ```sh
 kindgi approvals list --status=pending
 ```
+
+`--status=pending` lists the ones nobody is assigned to yet. It prints the
+agent turn's approval:
 
 ```json
 {
@@ -333,15 +355,19 @@ kindgi approvals list --status=pending
 }
 ```
 
-`provenanceRef.runId` is the agent's turn, the step's own run; its
+`provenanceRef.runId` is the agent's turn, the step's own run. Its
 `parentRunId` is the flow's run. Approve it:
 
 ```sh
 kindgi approvals complete 0eaa2820-0afe-4147-a017-fc8a4d1657cc --decision=approve --rationale="Checked with the customer"
 ```
 
+The id is the approval's. `--decision` is `approve` or `reject`, and
+`--rationale` is kept with it.
+
 The decision resumes the agent's turn and then the flow, within the same
-call. By the time the command returns, the flow has finished:
+call. By the time the command returns, the flow has finished. Read the flow's
+run, with its id:
 
 ```sh
 kindgi runs get 7111dde4-bdd3-40a1-a6e8-2a550d0ad318
@@ -362,9 +388,9 @@ kindgi runs get 7111dde4-bdd3-40a1-a6e8-2a550d0ad318
 
 ## When the reviewer rejects
 
-A rejection doesn't fail the step. The tool doesn't run, the agent gets the
-rejection (with the rationale) as the tool's result, and answers. Here it
-answers `held: false`, so `e4` ends the run without the email:
+A rejection doesn't fail the step. The tool doesn't run, and the agent gets
+the rejection, with the rationale, as the tool's result. Then it answers.
+Here it answers `held: false`, so `e4` ends the run without the email:
 
 ```json
 {
@@ -379,5 +405,12 @@ from a field, not from the wording of a sentence.
 ## Stop waiting
 
 `kindgi runs cancel <run-id>` on the flow's run cancels it and the agent's
-turn. It doesn't close the approval: withdraw it as well, as
-[Decide an approval](../../approvals/decide-an-approval/) shows.
+turn. It also withdraws the approval the turn waited on, as
+[Cancel a run](../../runs/cancel-a-run/#approvals-of-a-cancelled-run)
+describes.
+
+## Next
+
+- [Decide an approval](../../approvals/decide-an-approval/)
+- [Ask before a tool runs](../../approvals/ask-before-a-tool-runs/)
+- [Branch a flow](../branch-a-flow/)

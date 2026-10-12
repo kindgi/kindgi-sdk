@@ -7,9 +7,22 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide retries a flow step that fails now and then, with backoff, and
+gives it a time limit.
+
 A step that calls something flaky can be retried before its failure fails the
-run. The retry policy goes on the **edge into the step**. `acme.reserve-stock`
-calls a warehouse that is busy for the first two calls per order:
+run. The retry policy goes on the **edge into the step**.
+
+## Before you start
+
+- **A pack on a runtime such as `kindgi dev`,** with Kindgi 0.1's CLI.
+- **A step that's safe to run twice,** as the caution in
+  [The policy](#the-policy) explains.
+
+## Retry a step
+
+`acme.reserve-stock` calls a warehouse that is busy for the first two calls
+per order. Write the tool, and a flow whose edge into the step retries it:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -133,9 +146,14 @@ reserve_order = Flow(
 </TabItem>
 </Tabs>
 
+Run it:
+
 ```sh
 kindgi runs start --flow=acme.reserve-order --input='{"orderId":"A-200"}'
 ```
+
+`--flow` is the flow, and `--input` its input. It prints the run, which
+completed at the third attempt:
 
 ```json
 {
@@ -151,8 +169,8 @@ kindgi runs start --flow=acme.reserve-order --input='{"orderId":"A-200"}'
 }
 ```
 
-The journal has each retry, with the error that caused it and the wait before
-the next attempt:
+The journal, which `kindgi runs journal <run-id>` prints, has each retry. It
+shows the error that caused it and the wait before the next attempt:
 
 ```json
 {"sequence": 2, "kind": "step.started", "nodeId": "reserve", "payload": {"input": {"orderId": "A-200"}}, …}
@@ -165,36 +183,43 @@ the next attempt:
 
 `policy.retry`:
 
-- **`maxAttempts`**: attempts in all, the first one included (at most 10).
-- **`delayMs`**: the wait before the first retry (0 by default).
-- **`backoff`**: `fixed` (the default: the same wait each time), `linear`
-  (`delayMs` × the retry's number) or `exponential` (doubling each time:
-  500, 1000, 2000 ms here). `exponential` needs **`maxDelayMs`**, the longest
-  wait.
+- **`maxAttempts`:** attempts in all, the first one included, at most 10.
+- **`delayMs`:** the wait before the first retry, 0 by default.
+- **`backoff`:** how the wait grows.
+  - `fixed`, the default: the same wait each time.
+  - `linear`: `delayMs` × the retry's number.
+  - `exponential`: doubling each time, 500, 1000, 2000 ms here. It needs
+    **`maxDelayMs`**, the longest wait.
 
 When the last attempt fails, the step fails and so does the run, with the last
 error.
 
 `policy.timeoutMs` limits each attempt. An attempt that takes longer is
-stopped and counts as a failed attempt; without retries, the step fails with
+stopped and counts as a failed attempt. Without retries, the step fails with
 `reason: "timeout"`:
 
 ```json
 {"sequence": 3, "kind": "step.failed", "nodeId": "reserve", "payload": {"reason": "timeout", "limitMs": 5, "message": "Handler for node \"reserve\" exceeded timeout of 5ms", "elapsedMs": 68}, …}
 ```
 
-(That was `timeoutMs: 5`, to show it.)
+That entry came from `timeoutMs: 5`, set that low to show it.
 
 :::caution
 Retry only a step that is safe to run twice. A tool that failed may have done
 part of its work: a payment that timed out may still have gone through. Make
-the tool idempotent (for example, pass the order id to the API as its
-idempotency key), or don't retry it.
+the tool idempotent, such as by passing the order id to the API as its
+idempotency key, or don't retry it.
 :::
 
 ## Where a policy applies
 
 A policy applies to the step its edge leads to, when that step has exactly one
-incoming edge. A step that joins branches (several incoming edges) ignores the
-policies on them. The other policy fields, `concurrencyKey` and `priority`,
-are in the [flow schema](../../../reference/schemas/flow/).
+incoming edge. A step that joins branches, with several incoming edges,
+ignores the policies on them. The other policy fields, `concurrencyKey` and
+`priority`, are in the [flow schema](../../../reference/schemas/flow/).
+
+## Next
+
+- [Run steps in parallel](../run-steps-in-parallel/)
+- [Retry a start safely](../../runs/retry-a-start-safely/)
+- [See why runs failed](../../runs/see-why-runs-failed/)
