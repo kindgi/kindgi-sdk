@@ -98,7 +98,7 @@ permission changes unapplied after a redeploy
 ([Runtime 0.1.4.1](../operate/#runtime-0141)). On 0.1.6 and 0.1.7,
 authorization also needs a database user that has `BYPASSRLS` or is a
 superuser, which a managed Postgres usually doesn't give you: use 0.1.8 or
-later there ([Known limitations in 0.1.6](../operate/#known-limitations-in-016)).
+later there ([Known limitations in 0.1.7](../operate/#known-limitations-in-017)).
 
 At its first start with it, the runtime creates an OpenFGA store for the
 tenant (`tenant-<tenant id>`) and makes the seed user its admin. The startup
