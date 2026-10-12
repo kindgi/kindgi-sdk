@@ -296,7 +296,8 @@ kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
 
 turns = kindgi.runs.list(agent_id="acme.desk-agent")
 for run in turns.data:
-    print(run.id, run.agent.version, run.agent.conversation_id, run.parent_run_id or "-")
+    if run.agent is not None:
+        print(run.id, run.agent.version, run.agent.conversation_id, run.parent_run_id or "-")
 ```
 
 ```text

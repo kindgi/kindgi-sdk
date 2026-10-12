@@ -88,11 +88,10 @@ Run it with `ACME_WEBHOOK_SECRET` set, the way your app runs TypeScript.
 </TabItem>
 <TabItem label="Python">
 
-Use `kindgi.webhooks.verify`. This receiver uses FastAPI. Any framework works
-the same way: pass the headers and the body's bytes.
+Use `kindgi.webhooks.verify`. This receiver, `receiver.py`, uses FastAPI. Any
+framework works the same way: pass the headers and the body's bytes.
 
 ```python
-# receiver.py
 import os
 
 from fastapi import FastAPI, Request, Response
