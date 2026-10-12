@@ -425,6 +425,12 @@ to finish, with the output `{"greeting":"Hello, Azure!"}`.
   Vault adds a key version on schedule. New secrets use it, and the ones
   stored before keep unwrapping with theirs. In the verification run, a secret
   stored before `az keyvault key rotate` read back the same after it.
+- **Renew the license key:** enroll once, then run
+  `$(terraform output -raw license_renew_command)` by hand or from your
+  scheduler. Or set `license_renewal_schedule` (a cron, in UTC), and the
+  module runs it as a job of its own, with an alert for a failed run and one
+  for a key within 7 days of its end
+  ([Renew the license key](../renew-the-license-key/#on-a-schedule)).
 - **A key the runtime can't use:** a new replica exits with code 2 and says
   why, and what to check:
 
