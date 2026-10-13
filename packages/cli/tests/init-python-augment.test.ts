@@ -242,6 +242,13 @@ describe('the appended tables and next steps', () => {
     const pip = pythonAugmentNextSteps('pip', true, published, true);
     expect(pip[1]).toMatch(/pip install "kindgi-cli>=/);
     expect(pip).toContain('Boot the dev server: kindgi dev');
+    // Models: plain words and the guide; the command stays in `kindgi doctor`.
+    expect(pip).toContainEqual(
+      expect.stringMatching(
+        /^Models: under kindgi dev, agents give placeholder replies until you connect a model: https:\/\/docs\.kindgi\.com\/v\d+\.\d+\/guides\/models\/$/,
+      ),
+    );
+    expect(pip.join('\n')).not.toMatch(/dev-echo|providers register/);
     // Already listed (e.g. `uv add --dev kindgi-cli` before `uv run kindgi init`): no step.
     expect(
       pythonAugmentNextSteps('uv', true, published, true, true).some((s) =>
