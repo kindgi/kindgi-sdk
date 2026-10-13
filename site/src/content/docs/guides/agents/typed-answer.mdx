@@ -146,7 +146,10 @@ public final class TicketTriage {
 }
 ```
 
-`output(Triage.class)` derives the schema from the record. It sets no `name`, so repairs and errors call the answer `output`; for `name` or `maxRepairs`, give the schema yourself: `.set("output", Map.of("schema", <JSON Schema as a Map>, "name", "triage", "maxRepairs", 2))`.
+`output(Triage.class)` derives the schema from the record. It sets no
+`name`, so repairs and errors call the answer `output`; for `name` or
+`maxRepairs`, give the schema yourself: `.set("output", Map.of("schema",
+<JSON Schema as a Map>, "name", "triage", "maxRepairs", 2))`.
 
 </TabItem>
 <TabItem label="Scala">
@@ -182,7 +185,10 @@ object TicketTriage {
 }
 ```
 
-`output[Triage]` derives the schema from the case class. It sets no `name`, so repairs and errors call the answer `output`; for `name` or `maxRepairs`, give the schema yourself with `.set("output", Map("schema" -> …, "name" -> "triage", "maxRepairs" -> 2))`.
+`output[Triage]` derives the schema from the case class. It sets no `name`,
+so repairs and errors call the answer `output`; for `name` or `maxRepairs`,
+give the schema yourself with `.set("output", Map("schema" -> …, "name" ->
+"triage", "maxRepairs" -> 2))`.
 
 </TabItem>
 </Tabs>
@@ -330,7 +336,8 @@ public final class ReadTriage {
 }
 ```
 
-The client's JSON reader doesn't see your types' Jackson annotations, so read the fields from the answer's map.
+The client's JSON reader doesn't see your types' Jackson annotations, so
+read the fields from the answer's map.
 
 </TabItem>
 <TabItem label="Scala">
@@ -350,7 +357,8 @@ object ReadTriage {
 
     val run = kindgi.runs().start(StartRunBody.WithAgent.builder()
       .agent("acme.ticket-triage")
-      .input(Map[String, AnyRef]("userMessage" -> "I was charged twice for order A-1001 and I need the money back today.").asJava)
+      .input(Map[String, AnyRef](
+        "userMessage" -> "I was charged twice for order A-1001 and I need the money back today.").asJava)
       .build())
     val answer = run.output.asInstanceOf[java.util.Map[String, AnyRef]].get("output")
     val triage = KindgiJson.read(KindgiJson.write(answer), classOf[Triage])

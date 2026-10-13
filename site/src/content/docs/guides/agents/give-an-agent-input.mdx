@@ -143,7 +143,9 @@ object Drafter {
         "parameters" -> Map("tone" -> "formal", "signature" -> "Sam at Acme").asJava).asJava)
       .build())
     run.output match {
-      case output: java.util.Map[_, _] => println(output.get("response").asInstanceOf[java.util.Map[_, _]].get("content"))
+      case output: java.util.Map[_, _] =>
+        val response = output.get("response").asInstanceOf[java.util.Map[_, _]]
+        println(response.get("content"))
       case _ => // a run that didn't complete has no output
         throw new IllegalStateException(s"Run ${run.id} ended ${run.status}: ${run.failureMessage}")
     }

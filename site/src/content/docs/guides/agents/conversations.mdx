@@ -341,7 +341,10 @@ conversation-closed Conversation "581d051c-4619-4f9b-a3c8-56980ce4ac85" is close
 [581d051c-4619-4f9b-a3c8-56980ce4ac85]
 ```
 
-A turn on a closed conversation throws `ConflictException`; its `serverCode()` is `conversation-closed`. `list` takes `agentId` and `status` (`ConversationStatus.OPEN` or `CLOSED`), and `scopeKind` with `scopeId` for one project's or org's.
+A turn on a closed conversation throws `ConflictException`; its
+`serverCode()` is `conversation-closed`. `list` takes `agentId` and `status`
+(`ConversationStatus.OPEN` or `CLOSED`), and `scopeKind` with `scopeId` for
+one project's or org's.
 
 </TabItem>
 <TabItem label="Scala">
@@ -395,6 +398,11 @@ closed 1
 conversation-closed Conversation "0c9b03fb-be50-4076-be4f-7c019c3bc634" is closed
 [0c9b03fb-be50-4076-be4f-7c019c3bc634, …]
 ```
+
+A turn on a closed conversation throws `ConflictException`; its `serverCode`
+is `conversation-closed`. `list` takes `agentId` and `status`
+(`ConversationStatus.OPEN` or `CLOSED`), and `scopeKind` with `scopeId` for
+one project's or org's.
 
 </TabItem>
 </Tabs>
