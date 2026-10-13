@@ -70,6 +70,33 @@ export interface GeminiProviderOptions {
 const CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 
 /**
+ * The Gemini Developer API host. Given explicitly in `httpOptions.baseUrl`
+ * so `GOOGLE_GEMINI_BASE_URL` in the server's environment can't move a
+ * tenant's Developer API calls, with the tenant's key, to another host:
+ * left unset, `@google/genai` reads that variable (its `getBaseUrl`).
+ */
+const GEMINI_DEVELOPER_BASE_URL = 'https://generativelanguage.googleapis.com/';
+
+/** The SDK's multi-regional Vertex locations: each has its own host. */
+const VERTEX_MULTI_REGIONAL = new Set(['us', 'eu']);
+
+/**
+ * The Vertex AI host for a location, given explicitly in `httpOptions.baseUrl`
+ * so `GOOGLE_VERTEX_BASE_URL` in the server's environment can't move a
+ * tenant's Vertex calls, with the tenant's key or the server's credentials,
+ * to another host (left unset, `@google/genai` reads that variable). Mirrors
+ * the SDK's own construction: `global` and the multi-regional locations each
+ * get a dedicated host, every other location a regional one.
+ */
+export function vertexBaseUrl(location: string): string {
+  if (location === 'global') return 'https://aiplatform.googleapis.com/';
+  if (VERTEX_MULTI_REGIONAL.has(location)) {
+    return `https://aiplatform.${location}.rep.googleapis.com/`;
+  }
+  return `https://${location}-aiplatform.googleapis.com/`;
+}
+
+/**
  * The SDK retries a call only when it's given `retryOptions`: three
  * attempts on a transient status (408, 429, 500, 502, 503, 504), backing
  * off from a second, with jitter, the OpenAI and Anthropic SDKs' default
@@ -118,7 +145,12 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
         // Given, so GOOGLE_GENAI_USE_VERTEXAI / _ENTERPRISE in the server's environment can't
         // move a Developer API provider to Vertex AI (the server's project and credentials).
         vertexai: false,
-        httpOptions: { fetch: attempts.fetch, retryOptions: { attempts: RETRY_ATTEMPTS } },
+        httpOptions: {
+          // Given, so GOOGLE_GEMINI_BASE_URL in the server's environment can't move the call.
+          baseUrl: GEMINI_DEVELOPER_BASE_URL,
+          fetch: attempts.fetch,
+          retryOptions: { attempts: RETRY_ATTEMPTS },
+        },
       });
       cached = { key, client };
       return client;
@@ -130,7 +162,12 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
       vertexai: true,
       project: vertex.project,
       location: vertex.location,
-      httpOptions: { fetch: attempts.fetch, retryOptions: { attempts: RETRY_ATTEMPTS } },
+      httpOptions: {
+        // Given, so GOOGLE_VERTEX_BASE_URL in the server's environment can't move the call.
+        baseUrl: vertexBaseUrl(vertex.location),
+        fetch: attempts.fetch,
+        retryOptions: { attempts: RETRY_ATTEMPTS },
+      },
       ...(key !== '' && {
         googleAuthOptions: {
           credentials: parseServiceAccountKey(key),
