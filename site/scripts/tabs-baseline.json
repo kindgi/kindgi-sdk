@@ -95,46 +95,6 @@
     "Java": 1,
     "Scala": 1
   },
-  "guides/observability/cost-per-run": {
-    "Java": 3,
-    "Scala": 3
-  },
-  "guides/observability/trace-an-answer": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/projects/organize-by-org-and-project": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/runs/cancel-a-run": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/runs/follow-from-the-browser": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/runs/list-runs": {
-    "Java": 4,
-    "Scala": 4
-  },
-  "guides/runs/read-the-journal": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/runs/retry-a-start-safely": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/runs/see-why-runs-failed": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/runs/show-runs-in-your-app": {
-    "Java": 1,
-    "Scala": 1
-  },
   "guides/webhooks/receive-run-finished": {
     "Java": 2,
     "Scala": 2

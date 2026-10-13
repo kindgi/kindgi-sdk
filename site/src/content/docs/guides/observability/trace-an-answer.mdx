@@ -156,9 +156,70 @@ for node in record.dag.nodes:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/Trace.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.ProvenanceRecord;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+
+public final class Trace {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    ProvenanceRecord record = kindgi.provenance().get(UUID.fromString(args[0]));
+    Map<String, ProvenanceRecord.CallUsageValue> usage =
+        Objects.requireNonNullElse(record.callUsage(), Map.of());
+    for (ProvenanceRecord.Dag.NodesItem node : record.dag().nodes()) {
+      Object callId = node.attributes() == null ? null : node.attributes().get("callId");
+      ProvenanceRecord.CallUsageValue call = callId instanceof String id ? usage.get(id) : null;
+      System.out.println(node.kind() + " " + Objects.toString(node.modelVersion(), "") + " "
+          + (call == null ? ""
+              : call.usage().promptTokens() + "+" + call.usage().completionTokens() + " tokens, "
+                  + call.costUsd() + " USD"));
+    }
+  }
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/Trace.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.ProvenanceRecord
+import java.util.UUID
+import scala.jdk.CollectionConverters._
+
+object Trace {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    val record = kindgi.provenance().get(UUID.fromString(args(0)))
+    val usage: Map[String, ProvenanceRecord.CallUsageValue] =
+      Option(record.callUsage).map(_.asScala.toMap).getOrElse(Map.empty)
+    for (node <- record.dag.nodes.asScala) {
+      val callId = Option(node.attributes).flatMap(a => Option(a.get("callId"))).collect { case id: String => id }
+      val call = callId.flatMap(usage.get)
+      val cost = call.map(c => s"${c.usage.promptTokens}+${c.usage.completionTokens} tokens, ${c.costUsd} USD").getOrElse("")
+      println(s"${node.kind} ${Option(node.modelVersion).getOrElse("")} $cost")
+    }
+  }
+}
+```
+
+</TabItem>
 </Tabs>
 
-Both print each node, with the tokens and cost of each model call:
+Each prints every node, with the tokens and cost of each model call:
 
 ```text
 input

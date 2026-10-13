@@ -542,7 +542,9 @@ export interface CreateAppInput {
   readonly blobStorage?: BlobStorageBinding;
   /**
    * The most bytes one artifact upload may carry (`POST /v1/artifacts`);
-   * more is `413 artifact-too-large`. Default 100 MB.
+   * more is `413 artifact-too-large`. Also the most one request to the
+   * S3-compatible routes may carry (`/s3/*`: an object, or a part of a
+   * multipart upload); more is S3's `400 EntityTooLarge`. Default 100 MB.
    */
   readonly artifactMaxBytes?: number;
   /**
@@ -769,7 +771,7 @@ export interface CreateAppInput {
    * `BlobStorageBinding` as the bespoke `/v1/artifacts/*` surface —
    * cross-surface interop is a first-class guardrail. Includes the
    * S3 multipart-upload operations (initiate / upload part / complete /
-   * list parts / abort).
+   * list parts / abort). A request's body is at most `artifactMaxBytes`.
    */
   readonly s3Credentials?: S3CredentialBinding;
   /**
@@ -1881,7 +1883,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // (auth); omitting either leaves /s3/* unmounted (Hono 404).
   if (input.blobStorage !== undefined && input.s3Credentials !== undefined) {
     const s3 = new Hono<AppEnv>();
-    s3.use('*', sigv4Middleware(input.s3Credentials));
+    s3.use(
+      '*',
+      sigv4Middleware(input.s3Credentials, input.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES),
+    );
     s3.route('/', s3Router(input.blobStorage));
     app.route('/s3', s3);
   }

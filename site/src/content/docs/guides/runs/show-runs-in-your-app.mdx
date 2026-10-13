@@ -17,10 +17,10 @@ app, in your UI.
 
 ## Before you start
 
-- **An app that starts runs** with Kindgi 0.1's TypeScript or Python client,
-  as [Start a run](../start-a-run/) shows.
-- **Node 22.12 or later**, or **Python 3.11 or later**, where your app's
-  server runs.
+- **An app that starts runs** with Kindgi 0.1's client, as
+  [Start a run](../start-a-run/) shows.
+- **Node 22.12 or later**, **Python 3.11 or later**, or **Java 17 or later**,
+  where your app's server runs.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set there: your runtime's URL
   and its API token. The client reads them.
 
@@ -107,6 +107,63 @@ def run_details(kindgi_run_id: str) -> dict[str, object]:
         "output": run.output,
         "steps": len(steps),
     }
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/RunDetails.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.Run;
+import java.time.OffsetDateTime;
+import java.util.UUID;
+
+public final class RunDetails {
+  private static final Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+  public record Details(
+      String status, OffsetDateTime startedAt, OffsetDateTime finishedAt, Object output, int steps) {}
+
+  /** What a ticket's page shows about its run, from the ticket's kindgi_run_id. */
+  public static Details runDetails(String kindgiRunId) {
+    UUID runId = UUID.fromString(kindgiRunId);
+    Run run = kindgi.runs().get(runId);
+    int steps = kindgi.runs().journal(runId).data().size();
+    return new Details(run.status().toString(), run.createdAt(), run.completedAt(), run.output(), steps);
+  }
+
+  private RunDetails() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/RunDetails.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import java.time.OffsetDateTime
+import java.util.UUID
+
+object RunDetails {
+  private val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
+
+  final case class Details(
+      status: String, startedAt: OffsetDateTime, finishedAt: OffsetDateTime, output: Any, steps: Int)
+
+  /** What a ticket's page shows about its run, from the ticket's kindgi_run_id. */
+  def runDetails(kindgiRunId: String): Details = {
+    val runId = UUID.fromString(kindgiRunId)
+    val run = kindgi.runs().get(runId)
+    val steps = kindgi.runs().journal(runId).data.size
+    Details(run.status.toString, run.createdAt, run.completedAt, run.output, steps)
+  }
+}
 ```
 
 </TabItem>
