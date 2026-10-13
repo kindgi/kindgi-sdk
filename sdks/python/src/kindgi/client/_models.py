@@ -930,6 +930,8 @@ class SystemKey(BaseModel):
     scopes: list[
         Literal[
             "system:tenants",
+            "system:tenants:create",
+            "system:tenants:image-prefix",
             "system:tenants:production",
             "system:tenants:limits",
             "system:tenants:contacts",
@@ -958,6 +960,8 @@ class MintSystemKeyBody(BaseModel):
         list[
             Literal[
                 "system:tenants",
+                "system:tenants:create",
+                "system:tenants:image-prefix",
                 "system:tenants:production",
                 "system:tenants:limits",
                 "system:tenants:contacts",
@@ -1000,6 +1004,8 @@ class MintSystemKeyResult(BaseModel):
     scopes: list[
         Literal[
             "system:tenants",
+            "system:tenants:create",
+            "system:tenants:image-prefix",
             "system:tenants:production",
             "system:tenants:limits",
             "system:tenants:contacts",
@@ -1043,6 +1049,8 @@ class Datum2(BaseModel):
     scopes: list[
         Literal[
             "system:tenants",
+            "system:tenants:create",
+            "system:tenants:image-prefix",
             "system:tenants:production",
             "system:tenants:limits",
             "system:tenants:contacts",
@@ -1090,6 +1098,8 @@ class RevokeSystemKeyResult(BaseModel):
     scopes: list[
         Literal[
             "system:tenants",
+            "system:tenants:create",
+            "system:tenants:image-prefix",
             "system:tenants:production",
             "system:tenants:limits",
             "system:tenants:contacts",
@@ -1111,6 +1121,190 @@ class RevokeSystemKeyResult(BaseModel):
     """
     The ids of the keys minted from it, however deep, revoked with it.
     """
+
+
+class SystemTenant(BaseModel):
+    """
+    A tenant, as the operator sees it: never its content.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    name: str
+    slug: str
+    state: Literal["active", "suspended", "closing"]
+    """
+    `closing`: readable and exportable with its own keys for its window, nothing runs. `suspended`: the same, reversibly. `closing` wins over `suspended`.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    test: bool
+    """
+    A test tenant: left out of usage, invoices and counts.
+    """
+    production_allowed: Annotated[bool, Field(alias="productionAllowed")]
+    image_prefix: Annotated[str | None, Field(alias="imagePrefix")] = None
+    """
+    The repository its deployments' images must sit at or under, `<host>/<path>`.
+    """
+    closing_at: Annotated[AwareDatetime | None, Field(alias="closingAt")] = None
+    suspended_at: Annotated[AwareDatetime | None, Field(alias="suspendedAt")] = None
+    suspended_reason: Annotated[str | None, Field(alias="suspendedReason")] = None
+
+
+class FirstAdmin(BaseModel):
+    """
+    The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    email: Annotated[str, Field(max_length=254)]
+    """
+    An email address.
+    """
+    name: Annotated[str, Field(max_length=100, min_length=1)]
+
+
+class CreateSystemTenantBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: Annotated[str, Field(max_length=100, min_length=1)]
+    slug: Annotated[str | None, Field(max_length=63, pattern="^[a-z0-9](?:-?[a-z0-9])*$")] = None
+    """
+    Lowercase letters, digits and single hyphens; generated when absent.
+    """
+    production_allowed: Annotated[bool | None, Field(alias="productionAllowed")] = None
+    """
+    Whether it may put projects in production. Absent: blocked, until the operator allows it; `true` takes `system:tenants:production`.
+    """
+    test: bool | None = None
+    """
+    A test tenant. The full system capability only.
+    """
+    image_prefix: Annotated[str | None, Field(alias="imagePrefix")] = None
+    """
+    The repository its deployments' images must sit in, `<host>/<path>` with no trailing slash; takes `system:tenants:image-prefix`. On a runtime serving many tenants, a tenant without one can't register a deployment.
+    """
+    first_admin: Annotated[FirstAdmin | None, Field(alias="firstAdmin")] = None
+    """
+    The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.
+    """
+
+
+class FirstAdmin1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    person_id: Annotated[str, Field(alias="personId")]
+
+
+class AdminKey(BaseModel):
+    """
+    The tenant's first admin key, without `firstAdmin`: shown once.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    token_id: Annotated[str, Field(alias="tokenId")]
+    token: str
+
+
+class CreateSystemTenantResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant: SystemTenant
+    first_admin: Annotated[FirstAdmin1 | None, Field(alias="firstAdmin")] = None
+    admin_key: Annotated[AdminKey | None, Field(alias="adminKey")] = None
+    """
+    The tenant's first admin key, without `firstAdmin`: shown once.
+    """
+
+
+class SystemTenantList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[SystemTenant]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque; absent when `hasMore` is false.
+    """
+
+
+class SetTenantSuspendedBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    suspended: bool
+    reason: Annotated[str | None, Field(max_length=500, min_length=1)] = None
+
+
+class SetTenantImagePrefixBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    prefix: str
+    """
+    `<host>/<path>`, with no trailing slash.
+    """
+
+
+class ProjectSuspension(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    suspended: bool
+    suspended_at: Annotated[AwareDatetime | None, Field(alias="suspendedAt")] = None
+    suspended_reason: Annotated[str | None, Field(alias="suspendedReason")] = None
+
+
+class Datum3(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId")]
+    email: str
+    display_name: Annotated[str | None, Field(alias="displayName")] = None
+
+
+class TenantAdminContacts(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: Annotated[list[Datum3], Field(max_length=100)]
+
+
+class SystemWhoami(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key_id: Annotated[str, Field(alias="keyId")]
+    """
+    The system key's id, or `boot` for the deployment's own token.
+    """
+    scopes: list[str]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
 
 
 class ApiKeyPrincipal(BaseModel):
@@ -5234,7 +5428,7 @@ class BlobMeta(BaseModel):
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
 
 
-class Datum4(BaseModel):
+class Datum5(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -5284,7 +5478,7 @@ class ArtifactCollectionPage(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Datum4]
+    data: list[Datum5]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
 
@@ -10959,7 +11153,7 @@ class AuditSignInsListResponse(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class Datum5(BaseModel):
+class Datum6(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -10985,7 +11179,7 @@ class AuditAuthzListResponse(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Datum5]
+    data: list[Datum6]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
@@ -11377,7 +11571,7 @@ class ApiToken(BaseModel):
     """
 
 
-class Datum3(BaseModel):
+class Datum4(BaseModel):
     """
     An API key. Never includes the secret. `principal` is whom it acts for; absent on a key that is a service account of its own (`service_account:<tokenId>`), as keys minted before principals are.
     """
@@ -11422,7 +11616,7 @@ class ApiTokenPage(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Datum3]
+    data: list[Datum4]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
     Opaque cursor for the next page. Absent when `hasMore: false`.
@@ -12222,6 +12416,10 @@ class Tenant(BaseModel):
     production_next: Annotated[str | None, Field(alias="productionNext")] = None
     """
     Where to go to be allowed to put projects in production, for example a billing page. Only while `productionAllowed` is `false`, and only when the runtime names one.
+    """
+    state: Literal["active", "suspended", "closing"] | None = None
+    """
+    On a runtime serving many tenants: `closing` (readable and exportable for its window, nothing changes) or `suspended` (the same, until restored). `closing` wins. Absent: active.
     """
     limits: TenantLimits | None = None
 

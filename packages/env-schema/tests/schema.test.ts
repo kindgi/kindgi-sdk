@@ -197,6 +197,15 @@ describe('envVarsForTarget', () => {
     ).toBe(false);
   });
 
+  test('KINDGI_TENANCY: the server only, optional, single or multi', () => {
+    const tenancy = envVarsForTarget({}).find((v) => v.name === 'KINDGI_TENANCY');
+    expect(tenancy).toMatchObject({ group: 'core', required: false });
+    expect(tenancy?.allowedValues).toEqual(['single', 'multi']);
+    expect(
+      envVarsForTarget({ component: 'pack-service' }).some((v) => v.name === 'KINDGI_TENANCY'),
+    ).toBe(false);
+  });
+
   test('KINDGI_WEBHOOK_PRIVATE_NETWORKS: the server only, optional, allow or deny', () => {
     const webhooks = envVarsForTarget({}).find((v) => v.name === 'KINDGI_WEBHOOK_PRIVATE_NETWORKS');
     expect(webhooks).toMatchObject({ group: 'core', required: false });

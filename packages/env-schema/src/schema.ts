@@ -218,6 +218,16 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_TENANCY',
+    description:
+      "Used from runtime 0.1.8; earlier runtimes ignore it. How many tenants the runtime serves. `single` (default): one, `KINDGI_TENANT_ID`'s, as before. `multi`: many, each created through `POST /v1/system/tenants`. A request's tenant comes from its key or session, so `KINDGI_TENANT_ID` is refused, and `KINDGI_API_TOKEN` acts as the operator (`kindgi:system`) in no tenant. The first `multi` boot keeps the existing tenant, with its data, keys and people, as the first of many.",
+    example: 'single',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+    allowedValues: ['single', 'multi'],
+  },
+  {
     name: 'KINDGI_API_TOKEN',
     description: 'Bearer token to seed / reuse. Default: fresh `kgi_bt_...` token per boot.',
     example: 'kgi_bt_my_stable_local_token',

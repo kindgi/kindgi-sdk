@@ -45,6 +45,7 @@ function makeApp() {
   const app = createApp({
     ...createStubAppBindings(),
     tenancy: 'multi',
+    tenantStates: { of: async () => undefined },
     resolveToken: async (token) => {
       const scopes = KEYS[token];
       if (scopes !== undefined) {

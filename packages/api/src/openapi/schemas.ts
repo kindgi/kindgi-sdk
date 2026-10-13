@@ -1296,6 +1296,177 @@ export const SystemKeyListSchema: JsonSchema = {
   properties: { data: { type: 'array', items: SystemKeySchema } },
 };
 
+export const SystemTenantSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'A tenant, as the operator sees it: never its content.',
+  required: ['id', 'name', 'slug', 'state', 'createdAt', 'test', 'productionAllowed'],
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    name: { type: 'string' },
+    slug: { type: 'string' },
+    state: {
+      type: 'string',
+      enum: ['active', 'suspended', 'closing'],
+      description:
+        '`closing`: readable and exportable with its own keys for its window, nothing runs. `suspended`: the same, reversibly. `closing` wins over `suspended`.',
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    test: {
+      type: 'boolean',
+      description: 'A test tenant: left out of usage, invoices and counts.',
+    },
+    productionAllowed: { type: 'boolean' },
+    imagePrefix: {
+      type: 'string',
+      description: "The repository its deployments' images must sit at or under, `<host>/<path>`.",
+    },
+    closingAt: { type: 'string', format: 'date-time' },
+    suspendedAt: { type: 'string', format: 'date-time' },
+    suspendedReason: { type: 'string' },
+  },
+};
+
+export const CreateSystemTenantBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name'],
+  properties: {
+    name: { type: 'string', minLength: 1, maxLength: 100 },
+    slug: {
+      type: 'string',
+      maxLength: 63,
+      pattern: '^[a-z0-9](?:-?[a-z0-9])*$',
+      description: 'Lowercase letters, digits and single hyphens; generated when absent.',
+    },
+    productionAllowed: {
+      type: 'boolean',
+      description:
+        'Whether it may put projects in production. Absent: blocked, until the operator allows it; `true` takes `system:tenants:production`.',
+    },
+    test: {
+      type: 'boolean',
+      description: 'A test tenant. The full system capability only.',
+    },
+    imagePrefix: {
+      type: 'string',
+      description:
+        "The repository its deployments' images must sit in, `<host>/<path>` with no trailing slash; takes `system:tenants:image-prefix`. On a runtime serving many tenants, a tenant without one can't register a deployment.",
+    },
+    firstAdmin: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['email', 'name'],
+      description:
+        "The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.",
+      properties: {
+        email: { type: 'string', maxLength: 254, description: 'An email address.' },
+        name: { type: 'string', minLength: 1, maxLength: 100 },
+      },
+    },
+  },
+};
+
+export const CreateSystemTenantResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tenant'],
+  properties: {
+    tenant: ref('SystemTenant'),
+    firstAdmin: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['personId'],
+      properties: { personId: { type: 'string' } },
+    },
+    adminKey: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tokenId', 'token'],
+      description: "The tenant's first admin key, without `firstAdmin`: shown once.",
+      properties: { tokenId: { type: 'string' }, token: { type: 'string' } },
+    },
+  },
+};
+
+export const SystemTenantListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: ref('SystemTenant') },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string', description: 'Opaque; absent when `hasMore` is false.' },
+  },
+};
+
+export const SetTenantSuspendedBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['suspended'],
+  properties: {
+    suspended: { type: 'boolean' },
+    reason: { type: 'string', minLength: 1, maxLength: 500 },
+  },
+};
+
+export const SetTenantImagePrefixBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['prefix'],
+  properties: {
+    prefix: { type: 'string', description: '`<host>/<path>`, with no trailing slash.' },
+  },
+};
+
+export const ProjectSuspensionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'suspended'],
+  properties: {
+    projectId: { type: 'string', format: 'uuid' },
+    suspended: { type: 'boolean' },
+    suspendedAt: { type: 'string', format: 'date-time' },
+    suspendedReason: { type: 'string' },
+  },
+};
+
+export const TenantAdminContactsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      maxItems: 100,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['userId', 'email'],
+        properties: {
+          userId: { type: 'string' },
+          email: { type: 'string' },
+          displayName: { type: 'string' },
+        },
+      },
+    },
+  },
+};
+
+export const SystemWhoamiSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['keyId', 'scopes'],
+  properties: {
+    keyId: {
+      type: 'string',
+      description: "The system key's id, or `boot` for the deployment's own token.",
+    },
+    scopes: { type: 'array', items: { type: 'string' } },
+    expiresAt: { type: 'string', format: 'date-time' },
+  },
+};
+
 export const MintTokenResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -10096,6 +10267,12 @@ export const TenantSchema: JsonSchema = {
       description:
         'Where to go to be allowed to put projects in production, for example a billing page. Only while `productionAllowed` is `false`, and only when the runtime names one.',
     },
+    state: {
+      type: 'string',
+      enum: ['active', 'suspended', 'closing'],
+      description:
+        'On a runtime serving many tenants: `closing` (readable and exportable for its window, nothing changes) or `suspended` (the same, until restored). `closing` wins. Absent: active.',
+    },
     limits: ref('TenantLimits'),
   },
 };
@@ -11957,6 +12134,15 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['MintSystemKeyResult', MintSystemKeyResultSchema],
   ['SystemKeyList', SystemKeyListSchema],
   ['RevokeSystemKeyResult', RevokeSystemKeyResultSchema],
+  ['SystemTenant', SystemTenantSchema],
+  ['CreateSystemTenantBody', CreateSystemTenantBodySchema],
+  ['CreateSystemTenantResult', CreateSystemTenantResultSchema],
+  ['SystemTenantList', SystemTenantListSchema],
+  ['SetTenantSuspendedBody', SetTenantSuspendedBodySchema],
+  ['SetTenantImagePrefixBody', SetTenantImagePrefixBodySchema],
+  ['ProjectSuspension', ProjectSuspensionSchema],
+  ['TenantAdminContacts', TenantAdminContactsSchema],
+  ['SystemWhoami', SystemWhoamiSchema],
   ['ApiToken', ApiTokenSchema],
   ['ApiTokenPage', ApiTokenPageSchema],
   ['ApiKeyPrincipal', ApiKeyPrincipalSchema],

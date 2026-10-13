@@ -158,6 +158,7 @@ function makeApp(tenancy: 'single' | 'multi' = 'multi') {
   const app = createApp({
     ...createStubAppBindings(),
     tenancy,
+    tenantStates: { of: async () => undefined },
     resolveToken: async (token) => {
       if (token === SINGLE_BOOT) {
         return {
@@ -635,6 +636,7 @@ describe("the operator's powers stay fenced in both ways", () => {
       createApp({
         ...createStubAppBindings(),
         tenancy: 'multi',
+        tenantStates: { of: async () => undefined },
         resolveToken: async () => null,
         runHandler: {} as RunHandlerBinding,
       } as CreateAppInput),
@@ -644,6 +646,8 @@ describe("the operator's powers stay fenced in both ways", () => {
 
 describe('every /v1/system/* operation, from OPERATIONS: a principal first, then a scope', () => {
   const systemOps = OPERATIONS.filter((op) => op.openapiPath.startsWith('/v1/system/'));
+  /** System routes any system principal may call, with no scope: a key's own identity. */
+  const NO_SCOPE: ReadonlySet<string> = new Set(['systemKeys.whoami']);
   const TENANT_KEY = 'kgi_ak_sweep_tenant';
   const ZERO_SCOPE = 'kgi_sy_sweep_zero';
 
@@ -687,6 +691,11 @@ describe('every /v1/system/* operation, from OPERATIONS: a principal first, then
       });
       const code = ((await res.json().catch(() => ({}))) as { error?: { code?: string } }).error
         ?.code;
+      if (expected === 'system-scope-missing' && NO_SCOPE.has(op.operationId)) {
+        if (res.status !== 200)
+          wrong.push(`${method} ${op.openapiPath}: ${res.status} (no scope needed)`);
+        continue;
+      }
       if (res.status !== 403 || code !== expected) {
         wrong.push(`${method} ${op.openapiPath}: ${res.status} ${code}`);
       }

@@ -60,8 +60,24 @@ export {
   type SystemTenantSettingsBinding,
 } from './routes/system-tenant-settings.js';
 export { systemKeysMintedFrom } from './routes/system-keys.js';
+export { tenantStateGate } from './middleware/tenant-state.js';
+export type { TenantStateBinding } from './middleware/tenant-state.js';
+export { systemTenantsRouter, systemWhoamiRouter } from './routes/system-tenants.js';
+export type {
+  SystemTenant,
+  SystemTenantCreateInput,
+  SystemTenantCreateOutcome,
+  SystemTenantsBinding,
+} from './routes/system-tenants.js';
 export { createInMemoryRateLimitStore } from './rate-limit-store.js';
 export type { RateLimitStore, RateLimitTake, RateLimitTakeInput } from './rate-limit-store.js';
+export {
+  imagePrefixesOverlap,
+  imageRefWithin,
+  parseImagePrefix,
+  parseImageRef,
+} from './image-ref.js';
+export type { ImagePrefix, ImageRef, ImageRefError } from './image-ref.js';
 export type {
   ClaimMappingScopesSpec,
   ClaimMappingSpec,

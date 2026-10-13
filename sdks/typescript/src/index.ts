@@ -363,11 +363,16 @@ export type {
   MintedSystemKey,
   RevokedSystemKey,
   SystemKey,
+  SystemKeyIdentity,
   SystemKeySpec,
   SystemKeysClient,
 } from './resources/system-keys.js';
 export type {
+  CreatedSystemTenant,
+  SystemTenant,
+  SystemTenantSpec,
   SystemTenantsClient,
+  TenantAdminContact,
   TenantLimitsShape,
 } from './resources/system-tenants.js';
 export { SIGNED_EXPORT_ALGORITHMS, verifySignedExport } from './verify-export.js';
