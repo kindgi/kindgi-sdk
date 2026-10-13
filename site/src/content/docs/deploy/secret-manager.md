@@ -263,7 +263,7 @@ KINDGI_SECRETS_VAULT_TOKEN_FILE=/var/run/kindgi/vault-token
   token file without the role.
 - **The policy** the token needs, on the mount (here `kindgi`):
 
-  ```hcl
+  ```hcl excerpt
   path "kindgi/data/*" {
     capabilities = ["create", "read", "update"]
   }
