@@ -29,6 +29,12 @@ These pages continue [Self-host Kindgi](../self-host/): the same containers
 
 ## Upgrade the runtime
 
+**Upgrade at least every 90 days while Kindgi is in preview.** From runtime
+0.1.8 until 1.0, a release stops starting 90 days after it was released, and
+the runtime warns from 30 days before
+([Licensing](../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
+A restart after that day doesn't come back up.
+
 1. [Back up Postgres.](../back-up-and-restore/#back-up-postgres)
 2. Pull the new version, and [restart](../restart-and-check-health/#restart-the-runtime) with it, with the same `kindgi.env`:
 
