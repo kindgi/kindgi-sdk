@@ -97,8 +97,8 @@ ids as `:runId`, not their values), its status and how long it took.
 
 | The request | Level |
 | --- | --- |
-| A write (`POST`, `PUT`, `PATCH`, `DELETE`), or any answer from 400 to 499 | `info` |
-| An answer of 500 or more | `error`, with the error |
+| A write (`POST`, `PUT`, `PATCH`, `DELETE`), any answer from 400 to 499, or a 501 (a route this runtime doesn't offer) | `info` |
+| Any other answer of 500 or more | `error`, with the error |
 | A read, a health probe (`/health`, `/ready`) or a stream | `debug` |
 
 So at the default level, a run's start shows and its polling doesn't:
