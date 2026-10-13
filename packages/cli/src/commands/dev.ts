@@ -141,6 +141,7 @@ import { PYPI_NO_BUNDLER } from '../esbuild-loader.js';
 import { openUrlInBrowser } from '../open-url.js';
 import { renderJson } from '../output.js';
 import { binDisplay, cliInstall, detectBinRunner } from '../package-manager.js';
+import { MODELS_GUIDE } from '../providers/models-guide.js';
 import { loadProviderPresets } from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
 import { consoleUrlOf, couldNotOpen } from './console.js';
@@ -905,7 +906,6 @@ async function runDevForPack(
     },
     kindgi,
   });
-  const registerProviderCommand = await registerProviderHint(kindgi);
   // A Vertex provider registered by hand (the `gemini` preset) has no
   // credentials either; a declared one was named before the start.
   if (google.credentials === undefined) {
@@ -921,7 +921,6 @@ async function runDevForPack(
     tenantId: server.tenantId,
     token: server.token,
     providers,
-    registerProviderCommand,
     packDir: args.packDir,
     bootIndex,
     bootReport,
@@ -1000,7 +999,7 @@ async function runDevForPack(
   emitProgress(`  Tenant     ${server.tenantId}`);
   emitProgress(`  Token      ${server.token}`);
   if (providers !== undefined) {
-    emitProgress(`  Providers  ${describeProviders(providers, registerProviderCommand)}`);
+    emitProgress(`  Models     ${describeModels(providers)}`);
   }
   emitProgress(`  Origins    ${describeBrowserOrigins(publicRunTokens.corsOrigins)}`);
   emitProgress('');
@@ -2028,8 +2027,6 @@ interface DevBannerInputs {
   readonly token: string;
   /** The tenant's model providers; `undefined` leaves the line out. */
   readonly providers?: readonly BannerProvider[] | undefined;
-  /** How to register a real model, in this pack's `kindgi`. */
-  readonly registerProviderCommand: string;
   readonly packDir: string;
   readonly bootIndex: IndexResult;
   readonly bootReport: RegistrationReport;
@@ -2054,42 +2051,17 @@ function describeBrowserOrigins(origins: readonly string[]): string {
 }
 
 /**
- * How to get a real model, for the banner: the presets that take an LLM
- * provider key and nothing else (anthropic, openai, gemini-api, groq,
- * openrouter…), as the dev-echo warning names them. A preset that also asks
- * for settings (azure-openai) doesn't fit a one-line hint; doctor names its
- * settings.
+ * The banner's models line: each real provider with its models. A fallback
+ * (dev's canned replies) isn't a model, so it's left out; with no real
+ * provider, what agents do until one is connected, and the guide to it.
  */
-async function registerProviderHint(kindgi: (...args: string[]) => string): Promise<string> {
-  const keyed = Object.values(await loadProviderPresets()).flatMap((p) =>
-    p.secret !== undefined && (p.adapterConfig ?? []).length === 0 ? [p.name] : [],
-  );
-  return keyed.length > 1
-    ? `set an LLM provider key, then ${kindgi('providers', 'register', `--preset=<${keyed.join('|')}>`)}`
-    : kindgi('providers', 'register', `--preset=${keyed[0] ?? 'anthropic'}`);
-}
-
-/**
- * The banner's providers line: each provider with its models, fallbacks
- * marked; when only fallbacks (or nothing) can answer, how to register a
- * real model.
- */
-function describeProviders(
-  providers: readonly BannerProvider[],
-  registerProviderCommand: string,
-): string {
-  if (providers.length === 0) {
-    return `none — this runtime has no dev-echo fallback, so agent turns fail until one is registered: ${registerProviderCommand}`;
+function describeModels(providers: readonly BannerProvider[]): string {
+  const real = providers.filter((p) => p.fallback !== true);
+  if (real.length > 0) {
+    return real.map((p) => `${p.id} (${p.models.map((m) => m.name).join(', ')})`).join(' · ');
   }
-  const named = providers
-    .map((p) =>
-      p.fallback === true
-        ? `${p.id} (fallback)`
-        : `${p.id} (${p.models.map((m) => m.name).join(', ')})`,
-    )
-    .join(' · ');
-  if (providers.some((p) => p.fallback !== true)) return named;
-  return `${named} — canned replies; for a real model: ${registerProviderCommand}`;
+  const meanwhile = providers.length > 0 ? 'Agents give placeholder replies' : 'Agent turns fail';
+  return `none yet. ${meanwhile} until you connect a model: ${MODELS_GUIDE}`;
 }
 
 /**
@@ -2119,9 +2091,7 @@ export function renderDevBanner(inputs: DevBannerInputs): readonly string[] {
   lines.push(`    Bearer token       ${inputs.token}`);
   lines.push(`    Pack dir           ${inputs.packDir}`);
   if (inputs.providers !== undefined) {
-    lines.push(
-      `    Providers          ${describeProviders(inputs.providers, inputs.registerProviderCommand)}`,
-    );
+    lines.push(`    Models             ${describeModels(inputs.providers)}`);
   }
   if (inputs.autoStartedServices !== undefined && inputs.autoStartedServices.length > 0) {
     lines.push(
