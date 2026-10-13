@@ -414,10 +414,50 @@ models = ["gpt-6.1-sol"]
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```jsonc excerpt
+// in kindgi.config.json
+"providers": [
+  { "preset": "anthropic", "models": ["claude-sonnet-5-5"] },
+  { "preset": "gemini", "project": "acme-gcp", "models": ["gemini-3.8-flash"] },
+  {
+    "preset": "azure-openai",
+    "resourceName": "acme-openai",
+    "deployments": { "gpt-6.1-sol": "gpt-6-1-sol" },
+    "models": ["gpt-6.1-sol"]
+  }
+]
+```
+
+The `anthropic` entry reads its key, `ANTHROPIC_API_KEY`, from the env
+files, and `deployments` maps each model to the deployment serving it.
+
+</TabItem>
+<TabItem label="Scala">
+
+```jsonc excerpt
+// in kindgi.config.json
+"providers": [
+  { "preset": "anthropic", "models": ["claude-sonnet-5-5"] },
+  { "preset": "gemini", "project": "acme-gcp", "models": ["gemini-3.8-flash"] },
+  {
+    "preset": "azure-openai",
+    "resourceName": "acme-openai",
+    "deployments": { "gpt-6.1-sol": "gpt-6-1-sol" },
+    "models": ["gpt-6.1-sol"]
+  }
+]
+```
+
+The `anthropic` entry reads its key, `ANTHROPIC_API_KEY`, from the env
+files, and `deployments` maps each model to the deployment serving it.
+
+</TabItem>
 </Tabs>
 
-A preset entry takes these keys, spelled the same in `kindgi.config.ts` and
-`pyproject.toml`:
+A preset entry takes these keys, spelled the same in `kindgi.config.ts`,
+`pyproject.toml` and `kindgi.config.json`:
 
 - **`preset`** is the preset's name.
 - **`models`** names the models to register.
