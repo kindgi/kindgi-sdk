@@ -23,3 +23,11 @@ export interface RenderRequest {
 export type RenderReply =
   | { readonly id: number; readonly rendered: string }
   | { readonly id: number; readonly error: TemplateRenderErrorInit };
+
+/** What a worker sends once, when it has started and can take renders. */
+export interface WorkerReady {
+  readonly ready: true;
+}
+
+/** Whatever a worker sends. */
+export type WorkerMessage = WorkerReady | RenderReply;

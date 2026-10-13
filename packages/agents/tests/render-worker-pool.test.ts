@@ -32,6 +32,8 @@ import {
 import { TemplateRenderError } from '../src/template-renderer.js';
 
 const FAKE = new URL('./fixtures/fake-render-thread.mjs', import.meta.url);
+const SLOW_START = new URL('./fixtures/slow-start-render-thread.mjs', import.meta.url);
+const FAILED_START = new URL('./fixtures/failed-start-render-thread.mjs', import.meta.url);
 
 let restore: (() => void) | undefined;
 const pools: WorkerPool[] = [];
@@ -45,10 +47,11 @@ afterEach(async () => {
 function poolOf(
   options: WorkerTemplateRendererOptions,
   bounds: TenantInputBounds = withRenderLimit(200),
+  script: URL = FAKE,
 ): WorkerPool {
   restore?.();
   restore = overrideTenantInputBounds(bounds);
-  const pool = new WorkerPool(FAKE, options);
+  const pool = new WorkerPool(script, options);
   pools.push(pool);
   return pool;
 }
@@ -166,6 +169,38 @@ describe('the render pool', () => {
     await expect(render(pool, 'next')).resolves.toBe('next');
   });
 
+  test('a worker’s start-up isn’t timed against the render limit, or charged to the tenant', async () => {
+    // Its worker takes 500 ms to start: past the 200 ms limit and its margin, and past the budget.
+    const pool = poolOf(
+      { workers: 1 },
+      { ...withRenderLimit(200), templateRenderBudgetMs: 100 },
+      SLOW_START,
+    );
+    await expect(runAsTenant(tenantA, () => render(pool, 'first'))).resolves.toBe('first');
+    await expect(runAsTenant(tenantA, () => render(pool, 'second'))).resolves.toBe('second');
+  });
+
+  test('a stopped worker is replaced at once, so the next render doesn’t wait for one to start', async () => {
+    const pool = poolOf({ workers: 1 }, withRenderLimit(200), SLOW_START);
+    await rejection(render(pool, 'spin'));
+    // Long enough for a worker started at the stop to be ready (500 ms), with room for a busy machine.
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    const started = performance.now();
+    await expect(render(pool, 'next')).resolves.toBe('next');
+    // A worker started only now would take 500 ms at least.
+    expect(performance.now() - started).toBeLessThan(450);
+  });
+
+  test('a worker that can’t start fails the renders waiting for it, and the next render tries again', async () => {
+    const pool = poolOf({ workers: 1 }, withRenderLimit(200), FAILED_START);
+    for (const template of ['first', 'second']) {
+      expect(await rejection(render(pool, template))).toMatchObject({
+        message: "The template's render worker couldn't start.",
+        cause: { message: 'the worker could not load' },
+      });
+    }
+  });
+
   test('a scope that can’t be copied to a worker fails its render; the worker takes the next', async () => {
     const pool = poolOf({ workers: 1 });
     const failure = await rejection(
@@ -177,6 +212,8 @@ describe('the render pool', () => {
 
   test('tenants waiting for a worker take turns', async () => {
     const pool = poolOf({ workers: 1 });
+    // The worker started, so the first render goes straight to it.
+    await render(pool, 'warm');
     const done: string[] = [];
     const queued = [
       ['busy:50', tenantA],

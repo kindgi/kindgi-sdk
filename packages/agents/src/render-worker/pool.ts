@@ -22,7 +22,7 @@ import {
   type TemplateRenderer,
 } from '../template-renderer.js';
 
-import type { RenderReply, RenderRequest, RenderWorkerData } from './messages.js';
+import type { RenderReply, RenderRequest, RenderWorkerData, WorkerMessage } from './messages.js';
 
 /**
  * How long past `renderLimitMs` a render's worker is stopped: the time
@@ -65,6 +65,8 @@ interface Job {
 
 interface Slot {
   readonly worker: Worker;
+  /** It has started and said so: only then is it sent renders, so its start-up is never timed or charged. */
+  ready: boolean;
   /** The render it's doing: `id` is the one sent to the worker. */
   running: { readonly id: number; readonly job: Job; readonly timer?: NodeJS.Timeout } | undefined;
 }
@@ -74,7 +76,11 @@ interface Slot {
  * (`createWorkerTemplateRenderer`), or a test's.
  */
 export class WorkerPool implements WorkerTemplateRenderer {
-  /** One place per worker: empty once its worker stopped, until a render needs it again. */
+  /**
+   * One place per worker. A stopped worker is replaced at once; a place
+   * stays empty only after a worker that couldn't start, or while closing,
+   * until a render needs it again.
+   */
   private readonly slots: (Slot | undefined)[];
   /** Each tenant's renders waiting for a worker; the tenants in the order they take turns. */
   private readonly queues = new Map<string, Job[]>();
@@ -139,23 +145,29 @@ export class WorkerPool implements WorkerTemplateRenderer {
     );
   }
 
-  /** Hands waiting renders to the workers that have none. */
+  /**
+   * Hands waiting renders to the ready workers that have none. While
+   * renders wait, a worker still starting keeps the process running.
+   */
   private dispatch(): void {
     for (let index = 0; index < this.slots.length; index += 1) {
-      while (this.slots[index]?.running === undefined) {
+      if (this.queues.size === 0) break;
+      let slot = this.slots[index];
+      if (slot === undefined) {
+        slot = this.spawn();
+        this.slots[index] = slot;
+      }
+      if (!slot.ready) {
+        slot.worker.ref();
+        continue;
+      }
+      while (slot.running === undefined) {
         const job = this.next();
-        if (job === undefined) {
-          this.checkDrained();
-          return;
-        }
-        let slot = this.slots[index];
-        if (slot === undefined) {
-          slot = this.spawn();
-          this.slots[index] = slot;
-        }
+        if (job === undefined) break;
         this.start(slot, index, job);
       }
     }
+    this.checkDrained();
   }
 
   /** The next render: the first waiting of the tenant whose turn it is, who then goes last. */
@@ -211,8 +223,16 @@ export class WorkerPool implements WorkerTemplateRenderer {
         resourceLimits: this.options.resourceLimits,
       }),
     });
-    const slot: Slot = { worker, running: undefined };
-    worker.on('message', (reply: RenderReply) => this.replied(slot, reply));
+    const slot: Slot = { worker, ready: false, running: undefined };
+    worker.on('message', (message: WorkerMessage) => {
+      if ('ready' in message) {
+        slot.ready = true;
+        this.dispatch();
+        if (slot.running === undefined) slot.worker.unref();
+      } else {
+        this.replied(slot, message);
+      }
+    });
     worker.on('messageerror', (error) => this.retire(slot, this.slots.indexOf(slot), error));
     worker.on('error', (error) => this.retire(slot, this.slots.indexOf(slot), this.crashed(error)));
     worker.on('exit', (code) =>
@@ -239,20 +259,42 @@ export class WorkerPool implements WorkerTemplateRenderer {
 
   /**
    * A worker done for (stopped at the render limit, out of memory, or
-   * gone): its render fails with `error`, it's stopped, and its place is
-   * empty until a render needs it.
+   * gone): its render fails with `error`, and it's stopped.
+   * - **One that had started** is replaced at once, so the next render
+   *   doesn't wait for a worker to start (none while closing: a render
+   *   still waiting then starts one).
+   * - **One that couldn't start** fails the renders waiting, with why, and
+   *   its place stays empty until the next render: a broken install
+   *   doesn't start workers without end.
    */
   private retire(slot: Slot, index: number, error: unknown): void {
     // Already retired: the exit that follows a crash, or a stop.
     if (index === -1 || this.slots[index] !== slot) return;
-    this.slots[index] = undefined;
     const running = slot.running;
     if (running !== undefined) {
       this.finish(slot);
       running.job.reject(error);
     }
     void slot.worker.terminate();
+    if (slot.ready) {
+      this.slots[index] = this.closing === undefined ? this.spawn() : undefined;
+    } else {
+      this.slots[index] = undefined;
+      this.rejectWaiting(
+        new Error("The template's render worker couldn't start.", { cause: error }),
+      );
+    }
     this.dispatch();
+  }
+
+  /** Fails every render waiting for a worker with `error`. */
+  private rejectWaiting(error: unknown): void {
+    const waiting = [...this.queues.values()].flat();
+    this.queues.clear();
+    for (const job of waiting) {
+      job.work.end();
+      job.reject(error);
+    }
   }
 
   /** What a worker's crash means for its render: the memory limit, when it ran out of heap. */

@@ -16,7 +16,7 @@ import { configureTenantInputBounds } from '@kindgi/bounds';
 import { renderTenantTemplate } from '../liquid.js';
 import { renderFailure } from '../prompt.js';
 
-import type { RenderReply, RenderRequest, RenderWorkerData } from './messages.js';
+import type { RenderReply, RenderRequest, RenderWorkerData, WorkerReady } from './messages.js';
 
 const port = parentPort;
 if (port === null) throw new Error('The render worker runs in a worker thread.');
@@ -26,6 +26,8 @@ configureTenantInputBounds((workerData as RenderWorkerData).bounds);
 port.on('message', (request: RenderRequest) => {
   port.postMessage(render(request));
 });
+// Started: the pool sends renders from now on, and times them from when it does.
+port.postMessage({ ready: true } satisfies WorkerReady);
 
 function render({ id, template, scope }: RenderRequest): RenderReply {
   try {

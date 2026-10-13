@@ -30,3 +30,4 @@ parentPort.on('message', ({ id, template, scope }) => {
   }
   parentPort.postMessage({ id, rendered: `${template}${scope.suffix ?? ''}` });
 });
+parentPort.postMessage({ ready: true });
