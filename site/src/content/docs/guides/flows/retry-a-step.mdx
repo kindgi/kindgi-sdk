@@ -144,6 +144,113 @@ reserve_order = Flow(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/tools/ReserveStock.java
+package acme.tools;
+
+import com.kindgi.pack.Tool;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+public final class ReserveStock {
+  public record Input(String orderId) {}
+
+  public record Output(String orderId, boolean reserved, int attempt) {}
+
+  // The warehouse API is busy for the first two calls per order.
+  private static final Map<String, Integer> CALLS = new ConcurrentHashMap<>();
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme.reserve-stock")
+      .description("Reserves the stock for an order at the warehouse.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .handler((input, ctx) -> {
+        int attempt = CALLS.merge(input.orderId(), 1, Integer::sum);
+        if (attempt < 3) throw new IllegalStateException("Warehouse busy (503)");
+        return new Output(input.orderId(), true, attempt);
+      });
+
+  private ReserveStock() {}
+}
+```
+
+```java
+// src/main/java/acme/flows/ReserveOrder.java
+package acme.flows;
+
+import com.kindgi.pack.Flow;
+import java.util.Map;
+
+public final class ReserveOrder {
+  public static final Flow FLOW = Flow.define("acme.reserve-order")
+      .version("0.1.0")
+      .set("name", "Reserve an order")
+      .set("description", "Reserves the stock for an order, retrying while the warehouse is busy.")
+      .node(Map.of("id", "reserve", "kind", "tool", "ref", "acme.reserve-stock"))
+      .edge(Map.of("id", "e1", "from", "$start", "to", "reserve",
+          "policy", Map.of(
+              "retry", Map.of("maxAttempts", 4, "delayMs", 500, "backoff", "exponential", "maxDelayMs", 5_000),
+              "timeoutMs", 10_000)))
+      .edge("e2", "reserve", "$end")
+      .build();
+
+  private ReserveOrder() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/tools/ReserveStock.scala
+package acme.tools
+
+import com.kindgi.pack.scaladsl._
+import java.util.concurrent.ConcurrentHashMap
+
+object ReserveStock {
+  final case class Input(orderId: String)
+  final case class Output(orderId: String, reserved: Boolean, attempt: Int)
+
+  // The warehouse API is busy for the first two calls per order.
+  private val calls = new ConcurrentHashMap[String, Integer]()
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme.reserve-stock")
+    .description("Reserves the stock for an order at the warehouse.")
+    .version("0.1.0")
+    .handler { (in, _) =>
+      val attempt: Int = calls.merge(in.orderId, 1, (a, b) => a + b)
+      if (attempt < 3) throw new IllegalStateException("Warehouse busy (503)")
+      Output(in.orderId, reserved = true, attempt)
+    }
+}
+```
+
+```scala
+// src/main/scala/acme/flows/ReserveOrder.scala
+package acme.flows
+
+import com.kindgi.pack.scaladsl._
+
+object ReserveOrder {
+  val flow: Flow = Flow("acme.reserve-order")
+    .version("0.1.0")
+    .set("name", "Reserve an order")
+    .set("description", "Reserves the stock for an order, retrying while the warehouse is busy.")
+    .node(Map("id" -> "reserve", "kind" -> "tool", "ref" -> "acme.reserve-stock"))
+    .edge(Map("id" -> "e1", "from" -> "$start", "to" -> "reserve",
+      "policy" -> Map(
+        "retry" -> Map("maxAttempts" -> 4, "delayMs" -> 500, "backoff" -> "exponential", "maxDelayMs" -> 5000),
+        "timeoutMs" -> 10000)))
+    .edge("e2", "reserve", "$end")
+    .build()
+}
+```
+
+</TabItem>
 </Tabs>
 
 Run it:

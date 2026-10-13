@@ -187,6 +187,8 @@ export interface RunHandlerFailure {
    * `details`, which clients hydrate into typed errors. A binding
    * forwards them as-is: for `guardrail-violation`, `violations` and
    * `evaluationErrors` from `@kindgi/agents`' `GuardrailViolationError`.
+   * For `rate-limit-exceeded` (`RateLimitExceededError`), `retryAfterMs`
+   * is answered as `Retry-After`, not in the body.
    */
   readonly details?: Readonly<Record<string, unknown>>;
 }

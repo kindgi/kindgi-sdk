@@ -5,12 +5,15 @@ import { Hono } from 'hono';
 
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
-import type { Cursor, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types';
+import type { Cursor, EnvName, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
+import { reservedToolMetadataKeys, reservedToolMetadataMessage } from '../reference-scope.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
+import { type SecretScopeDeps, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import type { ToolRecord, ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
@@ -49,9 +52,18 @@ export function toolsRouter(
   binding: ToolRegistryBinding,
   authorizer?: Authorizer,
   onWrite?: ToolWriteHook,
-  options: { readonly providerKeys?: ProviderKeys } = {},
+  options: {
+    readonly providerKeys?: ProviderKeys;
+    /** Where each secret a tool names is read is recorded at publish (`secret-scope.ts`). */
+    readonly secrets?: SecretScopeDeps['secrets'];
+    readonly projects?: SecretScopeDeps['projects'];
+    /** The env the runtime serves: where the secrets a tool's code declares are read. */
+    readonly envName?: EnvName;
+  } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // Every schema a publish compiles counts against its tenant's budget.
+  const publishCompiles = publishCompilesMiddleware();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
   // every write before anything else runs.
   r.use(
@@ -268,7 +280,7 @@ export function toolsRouter(
   });
 
   // ---------- POST / (register) ----------
-  r.post('/', async (c) => {
+  r.post('/', publishCompiles, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
 
@@ -327,6 +339,25 @@ export function toolsRouter(
       );
     }
 
+    // The runtime's own metadata (`kindgi.*`) is never a published tool's.
+    const reserved = reservedToolMetadataKeys(validated.value.metadata);
+    if (reserved.length > 0) {
+      c.status(statusFor('validation-failed') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'validation-failed',
+            message: reservedToolMetadataMessage(reserved[0] as string),
+            issues: reserved.map((key) => ({
+              path: `/metadata/${key}`,
+              message: reservedToolMetadataMessage(key),
+            })),
+          },
+          requestId,
+        ),
+      );
+    }
+
     // A model provider's key is never a tool's.
     const refusal = await refuseProviderKeys(
       options.providerKeys,
@@ -342,10 +373,19 @@ export function toolsRouter(
     const principal = c.get('principal') as Principal | undefined;
     const creatorUserId =
       principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
+    // Where each secret it names is read: decided now, as its publisher
+    // may read them, and kept with this version (`secret-scope.ts`).
+    const secretScopes = await secretScopesFor(
+      c,
+      { secrets: options.secrets, projects: options.projects, authorizer },
+      { kind: 'project', tenantId, projectId },
+      toolSecretRefs(validated.value, options.envName),
+    );
     const outcome = await binding.publish({
       tenantId,
       projectId,
       tool: validated.value,
+      ...(secretScopes !== undefined && { secretScopes }),
       enqueueTuples: (toolId) =>
         tuplesForCreate({ kind: 'tool', id: toolId as ToolId, tenantId, projectId }, creatorUserId),
     });

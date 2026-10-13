@@ -263,6 +263,29 @@ describe('a turn loads the blocks it references', () => {
     expect(AgentTurnFailure).toBeDefined();
   });
 
+  test("the reader is asked for the turn's project; a block it keeps from that project fails the turn", async () => {
+    const asked: { readonly projectId?: unknown }[] = [];
+    const inProject = (projectId: string): BlockReader => ({
+      getVersion: async (input) => {
+        asked.push(input);
+        return input.projectId === projectId ? reader().getVersion(input) : null;
+      },
+      activeVersions: async (input) => {
+        asked.push(input);
+        return input.projectId === projectId ? reader().activeVersions(input) : [];
+      },
+    });
+    const inProjectTurn = (blockReader: BlockReader) =>
+      ({
+        ...turn(agent(), blockReader),
+        input: { tenantId, conversationId: 'c-1', agent: agent(), projectId: 'project-1' },
+      }) as unknown as TurnContext;
+    expect(await resolveTurnBlocks(inProjectTurn(inProject('project-1')))).toBeDefined();
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked.every((input) => input.projectId === 'project-1')).toBe(true);
+    await expect(resolveTurnBlocks(inProjectTurn(inProject('project-2')))).rejects.toThrow();
+  });
+
   test('an agent that references no blocks loads none', async () => {
     expect(
       await resolveTurnBlocks(

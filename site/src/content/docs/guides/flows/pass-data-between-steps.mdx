@@ -75,6 +75,63 @@ def hold_order(input: HoldInput) -> Held:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/tools/HoldOrder.java
+package acme.tools;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.kindgi.pack.Tool;
+
+public final class HoldOrder {
+  public record Input(String orderId, String reason) {}
+
+  public enum Status {
+    @JsonProperty("held") HELD
+  }
+
+  public record Output(String orderId, Status status) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme.hold-order")
+      .description("Puts an order on hold for a person to review.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      // no mutating(false): it writes, so a dry run stops before it
+      .handler((input, ctx) -> new Output(input.orderId(), Status.HELD));
+
+  private HoldOrder() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/tools/HoldOrder.scala
+package acme.tools
+
+import com.kindgi.pack.scaladsl._
+
+object HoldOrder {
+  final case class Input(orderId: String, reason: String)
+
+  enum Status {
+    case held
+  }
+
+  final case class Output(orderId: String, status: Status)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme.hold-order")
+    .description("Puts an order on hold for a person to review.")
+    .version("0.1.0")
+    // no readOnly: it writes, so a dry run stops before it
+    .handler((in, _) => Output(in.orderId, Status.held))
+}
+```
+
+</TabItem>
 </Tabs>
 
 ## Map a step's input
@@ -190,6 +247,88 @@ hold_for_stock = Flow(
         },
     },
 )
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/flows/HoldForStock.java
+package acme.flows;
+
+import com.kindgi.pack.Flow;
+import java.util.List;
+import java.util.Map;
+
+public final class HoldForStock {
+  public static final Flow FLOW = Flow.define("acme.hold-for-stock")
+      .version("0.1.0")
+      .set("name", "Hold an order for stock")
+      .set("description", "Looks up an order and puts it on hold.")
+      .node(Map.of("id", "order", "kind", "tool", "ref", "acme.get-order",
+          "inputMapping", Map.of("orderId", Map.of("path", "runInput.orderId"))))
+      .node(Map.of("id", "hold", "kind", "tool", "ref", "acme.hold-order",
+          "inputMapping", Map.of(
+              "orderId", Map.of("path", "nodeOutputs.order.orderId"),
+              "reason", Map.of("literal", "Waiting for stock"))))
+      .edge("e1", "$start", "order")
+      .edge("e2", "order", "hold")
+      .edge("e3", "hold", "$end")
+      .set("output", Map.of(
+          "mapping", Map.of(
+              "orderId", Map.of("path", "runInput.orderId"),
+              "customer", Map.of("path", "nodeOutputs.order.customer"),
+              "status", Map.of("path", "nodeOutputs.hold.status")),
+          "schema", Map.of(
+              "type", "object",
+              "properties", Map.of(
+                  "orderId", Map.of("type", "string"),
+                  "customer", Map.of("type", "string"),
+                  "status", Map.of("type", "string")),
+              "required", List.of("orderId", "customer", "status"))))
+      .build();
+
+  private HoldForStock() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/flows/HoldForStock.scala
+package acme.flows
+
+import com.kindgi.pack.scaladsl._
+
+object HoldForStock {
+  val flow: Flow = Flow("acme.hold-for-stock")
+    .version("0.1.0")
+    .set("name", "Hold an order for stock")
+    .set("description", "Looks up an order and puts it on hold.")
+    .node(Map("id" -> "order", "kind" -> "tool", "ref" -> "acme.get-order",
+      "inputMapping" -> Map("orderId" -> Map("path" -> "runInput.orderId"))))
+    .node(Map("id" -> "hold", "kind" -> "tool", "ref" -> "acme.hold-order",
+      "inputMapping" -> Map(
+        "orderId" -> Map("path" -> "nodeOutputs.order.orderId"),
+        "reason" -> Map("literal" -> "Waiting for stock"))))
+    .edge("e1", "$start", "order")
+    .edge("e2", "order", "hold")
+    .edge("e3", "hold", "$end")
+    .set("output", Map(
+      "mapping" -> Map(
+        "orderId" -> Map("path" -> "runInput.orderId"),
+        "customer" -> Map("path" -> "nodeOutputs.order.customer"),
+        "status" -> Map("path" -> "nodeOutputs.hold.status")),
+      "schema" -> Map(
+        "type" -> "object",
+        "properties" -> Map(
+          "orderId" -> Map("type" -> "string"),
+          "customer" -> Map("type" -> "string"),
+          "status" -> Map("type" -> "string")),
+        "required" -> List("orderId", "customer", "status"))))
+    .build()
+}
 ```
 
 </TabItem>

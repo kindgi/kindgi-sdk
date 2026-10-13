@@ -39,8 +39,9 @@ interface DeployRefusal {
  *
  * A primitive whose id belongs to another project answers
  * `<primitive>-project-mismatch`, as publishing it on its own does: a
- * deploy never moves it. The project it belongs to (`projectId`) is for
- * the log, never the answer.
+ * deploy never moves it, and the message names the fix (a pack per client,
+ * whose ids carry its own pack id). The project it belongs to (`projectId`)
+ * is for the log, never the answer.
  */
 export class PublishRefused extends Error {
   /** The code the deploy answers with. */
@@ -68,7 +69,7 @@ export class PublishRefused extends Error {
         : outcome.kind;
     super(
       outcome.kind === 'project-mismatch'
-        ? `The ${primitive} ${id} wasn't published: it belongs to another project`
+        ? `The ${primitive} ${id} wasn't published: it belongs to another project (one pack per client: \`kindgi init\` a copy of the pack for this client, with its own pack id)`
         : `The ${primitive} ${id} wasn't published: ${code}`,
     );
     this.name = 'PublishRefused';
