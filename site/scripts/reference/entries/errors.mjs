@@ -901,13 +901,18 @@ export const ERROR_ENTRIES = {
           "the tenant's limit that was reached: `api-requests`, `webhook-receives`, `runs-pending`, or a budget, `schema-compile-time` or `template-render-time`. Absent when the limit isn't the tenant's",
       },
       {
+        key: 'runsPending',
+        meaning:
+          "the tenant's limit on runs waiting to start, on a `runs-pending` refusal; absent when the server doesn't name it",
+      },
+      {
         key: 'budgetMs',
         meaning:
           "for a budget, the milliseconds the tenant's work of that kind may take in 60 seconds",
       },
       {
         key: 'runId',
-        meaning: "the run of an agent's turn a budget refused, when it has one",
+        meaning: "when a budget refused an agent's turn, the run the turn belongs to",
       },
     ],
   },
