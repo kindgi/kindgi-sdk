@@ -76,7 +76,9 @@ public final class NewWebhookSecret {
 }
 ```
 
-The Java client asks the runtime for the secret (`POST /v1/webhook-endpoints/generate-secret`), so this needs `KINDGI_API_URL` and `KINDGI_API_TOKEN`, or the running `kindgi dev`. It prints `whsec_` and the base64 of 32 random bytes.
+The Java client asks the runtime for the secret (`POST
+/v1/webhook-endpoints/generate-secret`), so this needs `KINDGI_API_URL` and
+`KINDGI_API_TOKEN`, or the running `kindgi dev`.
 
 </TabItem>
 <TabItem label="Scala">
@@ -96,7 +98,9 @@ object NewWebhookSecret {
 }
 ```
 
-A Scala app uses the Java client, which asks the runtime for the secret (`POST /v1/webhook-endpoints/generate-secret`).
+The Java client asks the runtime for the secret (`POST
+/v1/webhook-endpoints/generate-secret`), so this needs `KINDGI_API_URL` and
+`KINDGI_API_TOKEN`, or the running `kindgi dev`.
 
 </TabItem>
 </Tabs>
