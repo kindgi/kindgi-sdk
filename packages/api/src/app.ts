@@ -622,6 +622,7 @@ export interface CreateAppInput {
   readonly imagePrefixes?: {
     of(tenantId: import('@kindgi/types').TenantId): Promise<string | undefined>;
   };
+  /**
    * Optional. Enforce each tenant's own limits (`TenantSummary.limits`,
    * set through `PUT /v1/system/tenants/:tenantId/limits`): API requests a
    * minute on every authenticated request a tenant makes, `/v1` and `/s3`
