@@ -151,7 +151,11 @@ export interface ProjectsClient {
    * staging. For tenant admins. Setting what's already set changes
    * nothing. With the runtime's production gate on, a tenant that isn't
    * allowed is refused with `403 production-not-allowed`, whose
-   * `details.next` says where to go when the runtime names it.
+   * `details.next` says where to go when the runtime names it. With the
+   * tenant's `projectsInProduction` limit set, another project is refused
+   * with `403 production-limit-reached` while the tenant has that many in
+   * production (`details.projectsInProduction`, `details.inProduction`);
+   * taking one out is never refused.
    *
    * @wire PUT /v1/projects/:projectId/production
    */

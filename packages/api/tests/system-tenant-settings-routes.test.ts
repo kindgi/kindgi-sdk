@@ -39,7 +39,8 @@ const KEYS: Readonly<Record<string, readonly string[]>> = {
 };
 const TENANT_ADMIN = 'kgi_ak_tenant_admin';
 
-function makeApp() {
+/** The app; with `counts`, its runtime counts each tenant's projects in production. */
+function makeApp(counts?: Map<string, number>) {
   const productionAllowed = new Map<string, boolean>();
   const limits = new Map<string, TenantLimits>();
   const audit: SystemAccessRecord[] = [];
@@ -96,6 +97,11 @@ function makeApp() {
         limits.set(tenantId, next);
         return next;
       },
+      ...(counts !== undefined && {
+        async inUse(tenantId: string) {
+          return { projectsInProduction: counts.get(tenantId) ?? 0 };
+        },
+      }),
     },
   });
   const call = async (token: string, method: string, path: string, body?: unknown) => {
@@ -208,6 +214,9 @@ describe('PUT /v1/system/tenants/:tenantId/limits', () => {
       const r = await t.call('kgi_sy_limits', 'PUT', path(active), { runsAtOnce: value });
       expect([r.status, t.code(r)], String(value)).toEqual([400, 'bad-input']);
     }
+    // No limit says "none": a tenant kept out of production is the switch's to say.
+    const zero = await t.call('kgi_sy_limits', 'PUT', path(active), { projectsInProduction: 0 });
+    expect([zero.status, t.code(zero)]).toEqual([400, 'bad-input']);
     expect(t.limits.size).toBe(0);
   });
 
@@ -225,29 +234,50 @@ describe('PUT /v1/system/tenants/:tenantId/limits', () => {
 
 describe('GET /v1/system/tenants/:tenantId/limits', () => {
   const path = (t: string) => `/v1/system/tenants/${t}/limits`;
-  const SIX = {
+  const ALL = {
     apiRequestsPerMinute: 600,
     webhookReceivesPerMinute: 3000,
     runsAtOnce: 20,
     runsPending: 2000,
     toolCallsInFlight: 50,
     approvalsPending: 500,
+    projectsInProduction: 1,
   };
 
-  test('answers the shape PUT takes: read, change one, put back, and the other five are kept', async () => {
+  test('answers the shape PUT takes: read, change one, put back, and the others are kept', async () => {
     const t = makeApp();
     expect(await t.call('kgi_sy_limits', 'GET', path(active))).toEqual({
       status: 200,
       body: { tenantId: active, limits: {} },
     });
-    await t.call('kgi_sy_limits', 'PUT', path(active), SIX);
+    await t.call('kgi_sy_limits', 'PUT', path(active), ALL);
     const read = await t.call('kgi_sy_limits', 'GET', path(active));
-    expect(read).toEqual({ status: 200, body: { tenantId: active, limits: SIX } });
-    const raised = { ...(read.body.limits as typeof SIX), runsAtOnce: 40 };
+    expect(read).toEqual({ status: 200, body: { tenantId: active, limits: ALL } });
+    const raised = { ...(read.body.limits as typeof ALL), runsAtOnce: 40 };
     expect((await t.call('kgi_sy_limits', 'PUT', path(active), raised)).status).toBe(200);
     expect((await t.call('kgi_sy_limits', 'GET', path(active))).body.limits).toEqual({
-      ...SIX,
+      ...ALL,
       runsAtOnce: 40,
+    });
+  });
+
+  test('from a runtime that counts it, inUse: what the tenant uses now, over a lowered limit too', async () => {
+    const counts = new Map([[active, 4]]);
+    const t = makeApp(counts);
+    await t.call('kgi_sy_limits', 'PUT', path(active), { projectsInProduction: 3 });
+    expect(await t.call('kgi_sy_limits', 'GET', path(active))).toEqual({
+      status: 200,
+      body: {
+        tenantId: active,
+        limits: { projectsInProduction: 3 },
+        inUse: { projectsInProduction: 4 },
+      },
+    });
+    // Counted whether a limit is set or not; a PUT answers what's stored, without it.
+    const put = await t.call('kgi_sy_limits', 'PUT', path(active), {});
+    expect(put.body).toEqual({ tenantId: active, limits: {} });
+    expect((await t.call('kgi_sy_limits', 'GET', path(active))).body.inUse).toEqual({
+      projectsInProduction: 4,
     });
   });
 

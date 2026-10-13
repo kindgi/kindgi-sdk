@@ -9695,6 +9695,10 @@ class TenantLimits(BaseModel):
     """
     Approvals waiting for a decision. Past it, the step that asks fails, naming the limit.
     """
+    projects_in_production: Annotated[int | None, Field(alias="projectsInProduction", ge=1)] = None
+    """
+    Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production.
+    """
 
 
 class ProductionAllowedBody(BaseModel):
@@ -9717,13 +9721,19 @@ class TenantProductionAllowed(BaseModel):
     production_allowed: Annotated[bool, Field(alias="productionAllowed")]
 
 
-class TenantLimitsResult(BaseModel):
+class TenantLimitsInUse(BaseModel):
+    """
+    How much of each limit that counts something the tenant uses now, whether the limit is set or not: on `GET …/limits` only, and only from a runtime that counts it. A limit can be lowered below it: nothing is taken back, and the next one waits until the count is under the limit.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    limits: TenantLimits
+    projects_in_production: Annotated[int, Field(alias="projectsInProduction", ge=0)]
+    """
+    The tenant's projects in production.
+    """
 
 
 class TenantConfigEntry(BaseModel):
@@ -12232,6 +12242,16 @@ class Tenant(BaseModel):
     Where to go to be allowed to put projects in production, for example a billing page. Only while `productionAllowed` is `false`, and only when the runtime names one.
     """
     limits: TenantLimits | None = None
+
+
+class TenantLimitsResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    limits: TenantLimits
+    in_use: Annotated[TenantLimitsInUse | None, Field(alias="inUse")] = None
 
 
 class ScheduleRecord(BaseModel):

@@ -158,7 +158,7 @@ kindgi.projects.production.set(str(project.id), production=False)
 - **Setting what's already set changes nothing,** and keeps the first
   `productionSince`. Reading the project shows it while it's in production.
 - **The production gate:** a runtime may require the tenant to be allowed
-  to put projects in production, for example once it has a payment card
+  to put projects in production, for example once it has paid
   (`KINDGI_PRODUCTION_GATE=on`). Until then, putting one in production is
   refused with `403 production-not-allowed`, and the error's `details.next`
   says where to go when the runtime names it
@@ -176,6 +176,33 @@ kindgi.projects.production.set(str(project.id), production=False)
         "next": "https://platform.example.com/account/billing"
       },
       "requestId": "req-04d7cdca-a8ca-4ff6-87ad-9939387223a0"
+    }
+  }
+  ```
+- **A limit on projects in production:** whoever runs the server can set
+  the tenant's `projectsInProduction` limit
+  (`PUT /v1/system/tenants/{tenantId}/limits`). With that many of its
+  projects in production, putting another one in is refused with
+  `403 production-limit-reached`. Its `details` give the limit
+  (`projectsInProduction`), the count (`inProduction`), and `next` when the
+  runtime names it. A project already in production answers its repeat
+  unchanged, and taking one out is never refused. Lowering the limit takes
+  no project out of production: the next one waits until the count is under
+  it. `GET /v1/tenant` shows the limit in `limits`.
+
+  ```json
+  {
+    "error": {
+      "code": "production-limit-reached",
+      "message": "This tenant's limit is 3 projects in production, and it has 3. To put another in production: https://platform.example.com/account/billing, or take one out of production first.",
+      "details": {
+        "projectId": "22792d5f-b8cb-4d57-a785-b1f00a57b38e",
+        "limit": "projects-in-production",
+        "projectsInProduction": 3,
+        "inProduction": 3,
+        "next": "https://platform.example.com/account/billing"
+      },
+      "requestId": "req-b455a4ea-669e-431f-9350-3142a35c991d"
     }
   }
   ```
