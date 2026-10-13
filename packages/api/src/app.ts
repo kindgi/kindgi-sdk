@@ -598,6 +598,15 @@ export interface CreateAppInput {
    */
   readonly tenantStates?: TenantStateBinding;
   /**
+   * Whether a project is suspended (`PUT
+   * /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`): a
+   * deploy into it is refused `409 project-suspended`. Absent: no check.
+   */
+  readonly projectSuspended?: (
+    tenantId: import('@kindgi/types').TenantId,
+    projectId: import('@kindgi/types').ProjectId,
+  ) => Promise<boolean>;
+  /**
    * Each tenant's image repository (`PUT /v1/system/tenants/{id}/image-prefix`),
    * which `POST /v1/deployments` checks before any registry read. With
    * `tenancy: 'multi'` only, where it's required and a tenant without one
@@ -1912,6 +1921,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           signingKeyRegistry: input.signingKeyRegistry,
           providerKeys,
           imageRegistry: input.imageRegistry,
+          // A runtime routing pack calls per deployment sends each check call
+          // by its id: a pack check must carry its pack's id.
+          ...(input.systemDeployments !== undefined && { requirePrefixedPackChecks: true }),
+          ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
           ...(input.toolRegistry !== undefined && { toolRegistry: input.toolRegistry }),
           ...(input.blockRegistry !== undefined && { blockRegistry: input.blockRegistry }),
           ...(input.guardrailRegistry !== undefined && {

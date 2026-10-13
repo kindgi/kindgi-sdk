@@ -465,6 +465,8 @@ It prints the deployment as JSON, then each step. The last steps:
   Runs already in flight continue on their pinned image.
 ```
 
+To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
+
 The runtime read your pack's image from the registry with its own identity
 (`KINDGI_IMAGE_REGISTRY_AUTH=azure`) to check it before registering it.
 The module sets `KINDGI_IMAGE_REGISTRY_HOST` to the registry's login server.

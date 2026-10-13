@@ -3,10 +3,10 @@
 
 import { createHash } from 'node:crypto';
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import { type Agent, type AgentId, type AgentPins, templateProblem } from '@kindgi/agents';
-import { tuplesForCreate } from '@kindgi/authz';
+import { ref, tuplesForCreate } from '@kindgi/authz';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
 import type { Flow, FlowPins } from '@kindgi/flow';
 import {
@@ -64,6 +64,7 @@ import { clampLimit } from './pagination.js';
 import { tenantResourceAccess } from './tenant-access.js';
 import { parseTimeInput } from './time-input.js';
 import type { ToolWriteHook } from './tools.js';
+import { UUID_RE } from './uuid-param.js';
 
 /**
  * Deployments resource routes — the landing surface for signed pack
@@ -144,6 +145,21 @@ export interface DeploymentsRouterBindings {
    * read, so nothing reads another tenant's image. Absent: no check.
    */
   readonly imagePrefixes?: DeploymentImagePrefixes;
+  /**
+   * The runtime sends each pack check call to the deployment that shipped
+   * its id (per-deployment routing), so a check that runs in the pack must
+   * carry the pack's id (`<packId>.`): two packs sharing a check id would
+   * serve each other's guardrails. Refused, before anything is written, as
+   * `deployment-validation-failed`. Absent: the build's warning only.
+   */
+  readonly requirePrefixedPackChecks?: boolean;
+  /**
+   * Whether a project is suspended: nothing new deploys into one (the
+   * named project, or the Default for a tenant-wide deploy), refused
+   * `409 project-suspended` before anything is written. Absent: no check,
+   * for a runtime without project suspension.
+   */
+  readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
   /** The tenant's model providers' keys: no tool a deployment brings may name one. */
   readonly providerKeys?: ProviderKeys;
   readonly deploymentRegistry: DeploymentBinding;
@@ -201,7 +217,33 @@ export function deploymentsRouter(
   authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
-  r.use('*', tenantResourceAccess(authorizer));
+  // A deploy into a named project needs admin on that project, as creating
+  // an agent there does; a tenant-wide deploy, and every other route here,
+  // the tenant's. (A key limited to another project was already refused,
+  // `refuseOtherProjectForKey`.)
+  const tenantAccess = tenantResourceAccess(authorizer);
+  r.use('*', async (c, next) => {
+    if (
+      authorizer === undefined ||
+      c.req.method !== 'POST' ||
+      !/\/deployments\/?$/.test(c.req.path)
+    ) {
+      return tenantAccess(c, next);
+    }
+    return authorizer.authorize('admin', async (ctx) => {
+      try {
+        const body = await ctx.req.json();
+        const pid =
+          body !== null && typeof body === 'object'
+            ? (body as Record<string, unknown>).projectId
+            : undefined;
+        if (typeof pid === 'string' && pid.length > 0) return ref('project', pid);
+      } catch {
+        // The handler answers 400 for a body that isn't JSON.
+      }
+      return ref('tenant', ctx.get('tenantId') as unknown as string);
+    })(c, next);
+  });
 
   // ---------- GET / (list, cursor-paginated) ----------
   r.get('/', async (c) => {
@@ -558,18 +600,11 @@ export function deploymentsRouter(
         }
       }
     }
-    if (keyIssues.length > 0) {
-      c.status(statusFor('deployment-validation-failed') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'deployment-validation-failed',
-            message: `Deployment manifest validation failed (${keyIssues.length} issue${keyIssues.length === 1 ? '' : 's'})`,
-            issues: keyIssues as unknown as Record<string, unknown>[],
-          },
-          requestId,
-        ),
-      );
+    if (keyIssues.length > 0) return validationFailed(c, keyIssues);
+
+    if (bindings.requirePrefixedPackChecks === true) {
+      const checkIssues = unprefixedPackChecks(validated.guardrails, imageIndex.packId);
+      if (checkIssues.length > 0) return validationFailed(c, checkIssues);
     }
 
     // A read-only registry (under `kindgi dev`, the pack's files) takes
@@ -580,9 +615,10 @@ export function deploymentsRouter(
     // ---- Registry upserts (with rollback tracking) ----
     //
     // Agent-registry, flow-registry, tool-registry, and
-    // guardrail-registry writes are all project-scoped. All four loops resolve
-    // the tenant's Default project via `projectBinding.getDefault(
-    // tenantId)` once per request and thread the resolved id into
+    // guardrail-registry writes are all project-scoped. All four loops write
+    // into the deploy's project: the body's `projectId`, else the tenant's
+    // Default project via `projectBinding.getDefault(tenantId)`, resolved
+    // once per request and threaded into
     // `AgentRegistryBinding.publish(...)` /
     // `FlowRegistryBinding.publish(...)` /
     // `ToolRegistryBinding.register(...)` /
@@ -610,8 +646,12 @@ export function deploymentsRouter(
         ),
       );
     }
-    let defaultProjectId: import('@kindgi/types').ProjectId | undefined;
-    if (needsProjectBinding && bindings.projectBinding !== undefined) {
+    let targetProjectId: ProjectId | undefined = wire.projectId;
+    if (
+      targetProjectId === undefined &&
+      needsProjectBinding &&
+      bindings.projectBinding !== undefined
+    ) {
       const defaultProject = await bindings.projectBinding.getDefault(tenantId);
       if (defaultProject === undefined) {
         c.status(statusFor('internal-server-error') as never);
@@ -626,7 +666,24 @@ export function deploymentsRouter(
           ),
         );
       }
-      defaultProjectId = defaultProject.id;
+      targetProjectId = defaultProject.id;
+    }
+    if (
+      targetProjectId !== undefined &&
+      bindings.projectSuspended !== undefined &&
+      (await bindings.projectSuspended(tenantId, targetProjectId))
+    ) {
+      c.status(statusFor('project-suspended') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'project-suspended',
+            message:
+              "The project is suspended, so nothing deploys into it until it's restored; nothing was deployed",
+          },
+          requestId,
+        ),
+      );
     }
 
     const rolled: RollbackAction[] = [];
@@ -635,9 +692,9 @@ export function deploymentsRouter(
     const deployedAgents: DeployedAgent[] = [];
     const deployedFlows: DeployedFlow[] = [];
     try {
-      if (bindings.toolRegistry !== undefined && defaultProjectId !== undefined) {
+      if (bindings.toolRegistry !== undefined && targetProjectId !== undefined) {
         for (const tool of validated.tools) {
-          const projectIdForTool = defaultProjectId;
+          const projectIdForTool = targetProjectId;
           const outcome = await bindings.toolRegistry.publish({
             tenantId,
             projectId: projectIdForTool,
@@ -663,9 +720,9 @@ export function deploymentsRouter(
           }
         }
       }
-      if (bindings.guardrailRegistry !== undefined && defaultProjectId !== undefined) {
+      if (bindings.guardrailRegistry !== undefined && targetProjectId !== undefined) {
         for (const guardrail of validated.guardrails) {
-          const projectIdForGuardrail = defaultProjectId;
+          const projectIdForGuardrail = targetProjectId;
           const outcome = await bindings.guardrailRegistry.register({
             tenantId,
             projectId: projectIdForGuardrail,
@@ -710,14 +767,14 @@ export function deploymentsRouter(
           }
         }
       }
-      if (bindings.agentRegistry !== undefined && defaultProjectId !== undefined) {
+      if (bindings.agentRegistry !== undefined && targetProjectId !== undefined) {
         deployedAgents.push(
           ...(await registerAgents({
             agents: bindings.agentRegistry,
             tools: bindings.toolRegistry,
             blocks: bindings.blockRegistry,
             tenantId,
-            projectId: defaultProjectId,
+            projectId: targetProjectId,
             defined: validated.agents,
             rolled,
           })),
@@ -725,7 +782,7 @@ export function deploymentsRouter(
       } else {
         deployedAgents.push(...validated.agents.map(deployedPrimitive));
       }
-      if (bindings.flowRegistry !== undefined && defaultProjectId !== undefined) {
+      if (bindings.flowRegistry !== undefined && targetProjectId !== undefined) {
         deployedFlows.push(
           ...(await registerFlows({
             flows: bindings.flowRegistry,
@@ -733,7 +790,7 @@ export function deploymentsRouter(
             agents: bindings.agentRegistry,
             ...(bindings.liveVersions !== undefined && { live: bindings.liveVersions }),
             tenantId,
-            projectId: defaultProjectId,
+            projectId: targetProjectId,
             defined: validated.flows,
             rolled,
           })),
@@ -812,6 +869,7 @@ export function deploymentsRouter(
         signature: wire.signature,
         publishedAt: wire.publishedAt,
         primitives,
+        ...(wire.projectId !== undefined && { projectId: wire.projectId }),
         ...(typeof imageIndex.packId === 'string' && { packId: imageIndex.packId }),
         packChecks: [
           ...new Set(
@@ -898,9 +956,8 @@ export function deploymentsRouter(
   //   `secret:` scheme so the developer can round-trip).
   //
   // Scope is derived from the target deployment record, NOT accepted from
-  // the wire (CRITICAL). The `Deployment` shape carries no `projectId`, so
-  // the scope is `{ kind: 'tenant', tenantId }`; `deriveScopeFromDeployment`
-  // switches to a project scope if a record does carry one.
+  // the wire (CRITICAL): the project the deploy named (`projectId`), else
+  // the tenant (`deriveScopeFromDeployment`).
   //
   // Capability: `secrets:write` (fail-closed).
   // Idempotency-Key: honoured by the middleware layer.
@@ -1117,19 +1174,12 @@ export function deploymentsRouter(
  * override on the wire (CRITICAL — scope MUST be inferred
  * server-side to prevent tenant/project confusion attacks).
  *
- * The `Deployment` type carries no `projectId`, so this normally returns
- * `{ kind: 'tenant', tenantId }`. If a binding's record does carry a
- * non-empty `projectId`, the helper returns a project scope instead. The
- * field is read dynamically because the type does not declare it.
+ * A deploy into a named project syncs its secrets into that project; a
+ * tenant-wide one (no `projectId`) syncs them tenant-wide.
  */
 function deriveScopeFromDeployment(d: Deployment): Scope {
-  const maybeProjectId = (d as Deployment & { readonly projectId?: unknown }).projectId;
-  if (typeof maybeProjectId === 'string' && maybeProjectId.length > 0) {
-    return {
-      kind: 'project',
-      tenantId: d.tenantId,
-      projectId: maybeProjectId as unknown as ProjectId,
-    } as Scope;
+  if (d.projectId !== undefined) {
+    return { kind: 'project', tenantId: d.tenantId, projectId: d.projectId } as Scope;
   }
   return { kind: 'tenant', tenantId: d.tenantId } as Scope;
 }
@@ -1150,6 +1200,8 @@ interface WireBody {
   readonly signerPublicKey: string;
   readonly signature: string;
   readonly publishedAt: string;
+  /** The project to deploy into; absent: the tenant's Default project. */
+  readonly projectId?: ProjectId;
 }
 
 interface Issue {
@@ -1215,6 +1267,12 @@ function parseWireBody(body: unknown): ParseResult {
   if (publishedAt !== undefined && parseTimeInput(publishedAt) === null) {
     issues.push({ path: 'publishedAt', message: 'publishedAt must be ISO-8601' });
   }
+  // Checked again by the project-ref middleware, which also answers 404 for
+  // a project of no tenant's; here only its shape, for a router mounted alone.
+  const projectId = b.projectId;
+  if (projectId !== undefined && (typeof projectId !== 'string' || !UUID_RE.test(projectId))) {
+    issues.push({ path: 'projectId', message: 'projectId must be a project id (a UUID)' });
+  }
 
   if (issues.length > 0) {
     return {
@@ -1233,8 +1291,52 @@ function parseWireBody(body: unknown): ParseResult {
       signerPublicKey: signerPublicKey as string,
       signature: signature as string,
       publishedAt: publishedAt as string,
+      ...(typeof projectId === 'string' && { projectId: projectId as unknown as ProjectId }),
     },
   };
+}
+
+/** `400 deployment-validation-failed`, naming each issue. */
+function validationFailed(c: Context<AppEnv>, issues: readonly ValidationDetail[]) {
+  c.status(statusFor('deployment-validation-failed') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'deployment-validation-failed',
+        message: `Deployment manifest validation failed (${issues.length} issue${issues.length === 1 ? '' : 's'})`,
+        issues: issues as unknown as Record<string, unknown>[],
+      },
+      c.get('requestId'),
+    ),
+  );
+}
+
+/**
+ * Each guardrail whose check runs in the pack (a module, not a built-in it
+ * merely names) and whose check id doesn't start with the pack's id: the
+ * issue the indexer warns about, refused where checks are routed by id.
+ */
+function unprefixedPackChecks(
+  guardrails: readonly Guardrail[],
+  packId: unknown,
+): ValidationDetail[] {
+  const issues: ValidationDetail[] = [];
+  for (const [index, guardrail] of guardrails.entries()) {
+    if (guardrail.codeArtifactRef === undefined || guardrail.checkBuiltIn === true) continue;
+    const check = guardrail.check as unknown as string;
+    if (typeof packId === 'string' && check.startsWith(`${packId}.`)) continue;
+    issues.push({
+      primitive: 'guardrail',
+      index,
+      id: guardrail.id as unknown as string,
+      path: '/check',
+      message:
+        typeof packId === 'string'
+          ? `check "${check}" doesn't start with this pack's id ("${packId}."). Name it "${packId}.checks.<name>": this runtime sends each check call to the deployment that shipped its id, so two packs' checks must never share one.`
+          : `check "${check}" runs in the pack, but the image's index names no pack id. Build it again with a current CLI, which writes one.`,
+    });
+  }
+  return issues;
 }
 
 /** The image's `/app/index.json` as an object, or `undefined` when it isn't one. */
@@ -1387,7 +1489,8 @@ async function keepRegisteredGuardrail(
       if (!(await guardrailInProject(registry, tenantId, projectId, guardrail.id))) {
         throw new PublishRefused('guardrail', guardrail.id, {
           code: 'guardrail-project-mismatch',
-          reason: 'it belongs to another project',
+          reason:
+            'it belongs to another project (one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id)',
         });
       }
       if (!sameGuardrailDefinition(existing, guardrail)) {
@@ -2083,6 +2186,7 @@ function serializeDeployment(d: Deployment): Record<string, unknown> {
     signature: d.signature,
     publishedAt: d.publishedAt,
     activatedAt: d.activatedAt,
+    ...(d.projectId !== undefined && { projectId: d.projectId as unknown as string }),
     ...(d.endpoint !== undefined && { endpoint: serializeEndpoint(d.endpoint) }),
     primitives: {
       tools: d.primitives.tools,

@@ -133,7 +133,9 @@ interface Fixtures {
     postCalls: number;
     buildCalls: number;
     syncCalls: number;
+    findCalls: number;
     capturedPost?: PostDeploymentOptions;
+    capturedFindSlug?: string;
     capturedBuild?: RunBuildOptions;
     capturedSync?: SyncSecretsOptions;
   };
@@ -151,6 +153,8 @@ interface FixtureOptions {
   /** Skip attaching a syncSecrets runner. Off by default; --sync-secrets
    * tests that expect the runner to be present rely on the default. */
   readonly omitSyncRunner?: boolean;
+  /** The tenant's projects, for `--project <slug>`; absent: no lookup runner. */
+  readonly projects?: readonly { id: string; name: string; slug: string; orgId?: string }[];
 }
 
 function makeFixtures(opts: FixtureOptions = {}): Fixtures {
@@ -159,6 +163,7 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
     postCalls: 0,
     buildCalls: 0,
     syncCalls: 0,
+    findCalls: 0,
   };
   const envelope = opts.envelope ?? makeEnvelope();
   const runners: DeployRunners = {
@@ -181,6 +186,19 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
       };
     },
   };
+  if (opts.projects !== undefined) {
+    const projects = opts.projects;
+    (runners as { findProjects?: DeployRunners['findProjects'] }).findProjects = async (o) => {
+      state.findCalls += 1;
+      state.capturedFindSlug = o.slug;
+      return {
+        kind: 'ok',
+        projects: projects
+          .filter((p) => p.slug === o.slug)
+          .map(({ id, name, orgId }) => ({ id, name, ...(orgId !== undefined && { orgId }) })),
+      };
+    };
+  }
   if (!opts.omitSyncRunner) {
     (runners as { syncSecrets?: DeployRunners['syncSecrets'] }).syncSecrets = async (o) => {
       state.syncCalls += 1;
@@ -966,5 +984,91 @@ describe("kindgi deploy — the pack service's env (preflight)", () => {
     });
     expect(out.exitCode).toBe(0);
     expect(out.stderr).not.toContain("The pack service's env");
+  });
+});
+
+describe('kindgi deploy --project: one project per client', () => {
+  const ACME = '3f2b8c1e-4a5d-4e6f-9a0b-1c2d3e4f5a6b';
+  const GLOBEX = '9a0b1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d';
+  const projects = [
+    { id: ACME, name: 'Acme shop', slug: 'acme-shop' },
+    { id: GLOBEX, name: 'Globex shop', slug: 'globex-shop' },
+    { id: '11111111-2222-4333-8444-555555555555', name: 'Shared', slug: 'shop', orgId: 'org-a' },
+    { id: '66666666-7777-4888-8999-aaaaaaaaaaaa', name: 'Shared', slug: 'shop', orgId: 'org-b' },
+  ];
+  const deploy = async (fixtures: Fixtures, ...flags: string[]) =>
+    runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, ...flags],
+    });
+  const body = (fixtures: Fixtures) =>
+    fixtures.state.capturedPost?.body as Record<string, unknown> | undefined;
+
+  test('an id goes as it is, without a lookup', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures({ projects });
+    const out = await deploy(fixtures, `--project=${GLOBEX}`);
+    expect(out.exitCode).toBe(0);
+    expect(body(fixtures)?.projectId).toBe(GLOBEX);
+    expect(fixtures.state.findCalls).toBe(0);
+  });
+
+  test('a slug is looked up, and its id is sent', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures({ projects });
+    const out = await deploy(fixtures, '--project=acme-shop');
+    expect(out.exitCode).toBe(0);
+    expect(fixtures.state.capturedFindSlug).toBe('acme-shop');
+    expect(body(fixtures)?.projectId).toBe(ACME);
+  });
+
+  test('without --project: tenant-wide, no projectId sent', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures({ projects });
+    await deploy(fixtures);
+    expect(body(fixtures)).toBeDefined();
+    expect(body(fixtures)?.projectId).toBeUndefined();
+  });
+
+  test('a slug of no project is refused, naming how to make one; nothing is sent', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures({ projects });
+    const out = await deploy(fixtures, '--project=initech-shop');
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('--project initech-shop: no project of this tenant has that slug');
+    expect(out.stderr).toContain('kindgi projects create');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('a slug two orgs share is refused, naming both ids; nothing is sent', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures({ projects });
+    const out = await deploy(fixtures, '--project=shop');
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('2 projects of this tenant have that slug');
+    expect(out.stderr).toContain('11111111-2222-4333-8444-555555555555');
+    expect(out.stderr).toContain('66666666-7777-4888-8999-aaaaaaaaaaaa');
+    expect(out.stderr).toContain('Pass the id.');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('two projects, two requests: the Idempotency-Key follows the project', async () => {
+    await writeAutoEnvelope();
+    const a = makeFixtures({ projects });
+    await deploy(a, `--project=${ACME}`);
+    const b = makeFixtures({ projects });
+    await deploy(b, `--project=${GLOBEX}`);
+    expect(a.state.capturedPost?.idempotencyKey).toBeDefined();
+    expect(a.state.capturedPost?.idempotencyKey).not.toBe(b.state.capturedPost?.idempotencyKey);
+  });
+
+  test('--dry-run shows the project in the body it would send', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures({ projects });
+    const out = await deploy(fixtures, '--project=acme-shop', '--dry-run');
+    expect(out.exitCode).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+    const summary = JSON.parse(out.stdout) as { wouldPost?: Record<string, unknown> };
+    expect(summary.wouldPost?.projectId).toBe(ACME);
   });
 });

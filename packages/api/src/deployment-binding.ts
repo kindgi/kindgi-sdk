@@ -2,7 +2,13 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { PinChange } from '@kindgi/agents';
-import type { Cursor, SigningKeyId, TenantId, VersionDerivationReason } from '@kindgi/types';
+import type {
+  Cursor,
+  ProjectId,
+  SigningKeyId,
+  TenantId,
+  VersionDerivationReason,
+} from '@kindgi/types';
 
 /**
  * Caller-plugged surface for the deployment ledger — the audit anchor
@@ -172,6 +178,13 @@ export interface Deployment {
   /** Server-side ledger timestamp — when `register` returned OK. ISO-8601. */
   readonly activatedAt: string;
   /**
+   * The project the deploy named: its agents, flows, tools and guardrails
+   * were registered into it, and its secret sync writes there. Absent for a
+   * tenant-wide deploy, whose primitives went into the tenant's Default
+   * project and whose secrets sync tenant-wide.
+   */
+  readonly projectId?: ProjectId;
+  /**
    * Its pack service's status, when the server routes pack calls per
    * deployment. Absent otherwise (one pack service for every deployment),
    * and from a binding that doesn't track it.
@@ -263,6 +276,15 @@ export interface DeploymentRegisterInput {
    * can tell one pack's deployments from another's.
    */
   readonly packId?: string;
+  /**
+   * The project the deploy named, which its primitives were registered
+   * into; absent for a tenant-wide deploy (the tenant's Default project).
+   * A binding keeps it on the deployment and, when it routes pack calls per
+   * deployment, keys each route by the project the primitives went into
+   * (this one, else the Default project), so a call reaches the deployment
+   * of its own project.
+   */
+  readonly projectId?: ProjectId;
   /**
    * The check ids the image's pack service serves: its guardrails whose
    * check runs in the image (a check module), not a built-in one. A
