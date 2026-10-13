@@ -47,38 +47,6 @@
     "Java": 2,
     "Scala": 2
   },
-  "guides/flows/branch-a-flow": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/flows/dry-run-a-flow": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/flows/join-branches": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/flows/loop": {
-    "Java": 3,
-    "Scala": 3
-  },
-  "guides/flows/pass-data-between-steps": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/flows/retry-a-step": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/flows/run-steps-in-parallel": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/flows/wait-for-an-approval": {
-    "Java": 2,
-    "Scala": 2
-  },
   "guides/guardrails/configure-a-guardrail": {
     "Java": 2,
     "Scala": 2
