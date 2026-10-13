@@ -1,8 +1,4 @@
 {
-  "deploy/retention": {
-    "Java": 2,
-    "Scala": 2
-  },
   "guides/agents/conversations": {
     "Java": 1,
     "Scala": 1
