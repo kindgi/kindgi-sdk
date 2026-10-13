@@ -144,7 +144,10 @@ export class WorkerPool implements WorkerTemplateRenderer {
     for (let index = 0; index < this.slots.length; index += 1) {
       while (this.slots[index]?.running === undefined) {
         const job = this.next();
-        if (job === undefined) return this.checkDrained();
+        if (job === undefined) {
+          this.checkDrained();
+          return;
+        }
         let slot = this.slots[index];
         if (slot === undefined) {
           slot = this.spawn();

@@ -25,15 +25,14 @@ const workerEntry = new URL('render-worker/index.js', dist);
 if (!existsSync(workerEntry)) {
   throw new Error(`${fileURLToPath(workerEntry)} isn't built: run \`pnpm build\` first.`);
 }
+type AgentsModule = typeof import('../src/index.js');
+type PromptModule = typeof import('../src/prompt.js');
+type RenderWorkerModule = typeof import('../src/render-worker/index.js');
 const { defineAgent, renderInstructions } = (await import(
   new URL('index.js', dist).href
-)) as typeof import('../src/index.js');
-const { renderInstructionsWith } = (await import(
-  new URL('prompt.js', dist).href
-)) as typeof import('../src/prompt.js');
-const { createWorkerTemplateRenderer } = (await import(
-  workerEntry.href
-)) as typeof import('../src/render-worker/index.js');
+)) as AgentsModule;
+const { renderInstructionsWith } = (await import(new URL('prompt.js', dist).href)) as PromptModule;
+const { createWorkerTemplateRenderer } = (await import(workerEntry.href)) as RenderWorkerModule;
 
 type Agent = import('../src/index.js').Agent;
 type Renderer = import('../src/render-worker/index.js').WorkerTemplateRenderer;
@@ -79,8 +78,21 @@ const context: RenderContext = {
   parameters: { firm: 'A&B <Co>' },
   conversation: { id: 'c-1', turn: 2 },
   input: {
-    order: { orderNumber: 1042, total: '59.90', currency: 'EUR', status: 'processing', flags: ['first order', 'high value'] },
-    event: { change: 'updated', nodeId: 7, revisionId: 31, moderationState: 'draft', flags: [], houseStyle: ['world-class'] },
+    order: {
+      orderNumber: 1042,
+      total: '59.90',
+      currency: 'EUR',
+      status: 'processing',
+      flags: ['first order', 'high value'],
+    },
+    event: {
+      change: 'updated',
+      nodeId: 7,
+      revisionId: 31,
+      moderationState: 'draft',
+      flags: [],
+      houseStyle: ['world-class'],
+    },
   },
   settings: { 'acme.weights': { recency: 0.4 } },
   clock: () => new Date('2026-10-12T00:00:00Z'),
@@ -89,9 +101,7 @@ const context: RenderContext = {
 /** What a render comes to: its output, or its error's code, message and parameter. */
 type Outcome = string | { code: string; message: string; parameterName?: string };
 
-function outcome(
-  result: ReturnType<typeof renderInstructions>,
-): Outcome {
+function outcome(result: ReturnType<typeof renderInstructions>): Outcome {
   if (result.ok) return result.value.rendered;
   const { code, message } = result.error;
   return {
@@ -123,8 +133,14 @@ const CASES: readonly (readonly [string, string])[] = [
   ['invalid Liquid', 'Hi {% if %}'],
   ['a literal {{', 'Answer as JSON like {{"a": 1}}'],
   ['a literal {%', 'Use {% to start'],
-  ['the auto-injected variables', '{{ today }} {{ now }} {{ agent.id }}@{{ agent.version }} {{ conversation.id }}#{{ conversation.turn }}'],
-  ['input and settings', '{{ input.order.flags | join: ", " }} {{ settings["acme.weights"].recency }}'],
+  [
+    'the auto-injected variables',
+    '{{ today }} {{ now }} {{ agent.id }}@{{ agent.version }} {{ conversation.id }}#{{ conversation.turn }}',
+  ],
+  [
+    'input and settings',
+    '{{ input.order.flags | join: ", " }} {{ settings["acme.weights"].recency }}',
+  ],
   ['a partial', "Hi {% include 'package.json' %}"],
   ['a partial by a variable', '{% assign name = "package.json" %}{% include name %}'],
 ];
@@ -144,7 +160,9 @@ describe('a render in a worker gives what it gives in-process', () => {
 
   test('a required parameter missing fails before any render, the same', async () => {
     const r = under(HOSTED_BOUNDS);
-    const agent = agentWith('For {{ client }}.', [{ name: 'client', type: 'string', required: true }]);
+    const agent = agentWith('For {{ client }}.', [
+      { name: 'client', type: 'string', required: true },
+    ]);
     const { here, there } = await both(r, agent);
     expect(here).toEqual({
       code: 'missing-parameter',
@@ -208,7 +226,9 @@ const STOCK = stockInstructions();
 describe("the stock packs' instructions", () => {
   test('are all found, the Liquid ones among them', () => {
     expect(STOCK.length).toBeGreaterThanOrEqual(5);
-    expect(STOCK.filter(({ template }) => template.includes('{{ input.')).length).toBeGreaterThanOrEqual(2);
+    expect(
+      STOCK.filter(({ template }) => template.includes('{{ input.')).length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   test.each(STOCK.map(({ name, template }) => [name, template] as const))(

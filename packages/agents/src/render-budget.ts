@@ -69,7 +69,7 @@ export function chargeRender<T>(render: () => T): T {
 }
 
 /** A render no budget counts: one done outside any tenant's scope. */
-const UNCOUNTED: TenantWork = Object.freeze({ start: () => {}, end: () => {} });
+const UNCOUNTED: TenantWork = Object.freeze({ start: () => undefined, end: () => undefined });
 
 /**
  * For a render done in a worker thread, as the current tenant's work:

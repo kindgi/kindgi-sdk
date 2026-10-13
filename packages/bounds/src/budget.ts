@@ -88,7 +88,7 @@ export interface TenantWork {
 }
 
 /** Work no budget counts. */
-const UNCOUNTED: TenantWork = Object.freeze({ start: () => {}, end: () => {} });
+const UNCOUNTED: TenantWork = Object.freeze({ start: () => undefined, end: () => undefined });
 
 /**
  * The time each tenant spent on one kind of work in the last 60 seconds,

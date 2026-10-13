@@ -93,11 +93,15 @@ async function longestLag(promise: Promise<unknown>): Promise<number> {
 describe('the render pool', () => {
   test('renders, and answers with what the worker gives back', async () => {
     const pool = poolOf({ workers: 2 });
-    await expect(pool.render({ tenantId: tenantA, template: 'Hi', scope: { suffix: '!' } }))
-      .resolves.toBe('Hi!');
+    await expect(
+      pool.render({ tenantId: tenantA, template: 'Hi', scope: { suffix: '!' } }),
+    ).resolves.toBe('Hi!');
     const failure = await rejection(render(pool, 'fail'));
     expect(failure).toBeInstanceOf(TemplateRenderError);
-    expect(failure).toMatchObject({ code: 'render-failure', message: 'Template render failed: as asked' });
+    expect(failure).toMatchObject({
+      code: 'render-failure',
+      message: 'Template render failed: as asked',
+    });
   });
 
   test('a render past renderLimitMs has its worker stopped, and this thread stays free meanwhile', async () => {

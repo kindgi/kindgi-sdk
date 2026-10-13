@@ -7,6 +7,9 @@
 const [entry] = process.argv.slice(2);
 const { createWorkerTemplateRenderer } = await import(entry);
 const renderer = createWorkerTemplateRenderer({ workers: 2 });
-console.log(
-  await renderer.render({ tenantId: 't', template: '{{ a | upcase }}', scope: { a: 'done' } }),
-);
+const rendered = await renderer.render({
+  tenantId: 't',
+  template: '{{ a | upcase }}',
+  scope: { a: 'done' },
+});
+process.stdout.write(`${rendered}\n`);

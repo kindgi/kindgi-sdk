@@ -9,7 +9,11 @@
  * which an app's bundler can't follow.
  */
 
-import { WorkerPool, type WorkerTemplateRenderer, type WorkerTemplateRendererOptions } from './pool.js';
+import {
+  WorkerPool,
+  type WorkerTemplateRenderer,
+  type WorkerTemplateRendererOptions,
+} from './pool.js';
 
 export { RENDERER_CLOSED, STOP_MARGIN_MS } from './pool.js';
 export type { WorkerTemplateRenderer, WorkerTemplateRendererOptions } from './pool.js';
