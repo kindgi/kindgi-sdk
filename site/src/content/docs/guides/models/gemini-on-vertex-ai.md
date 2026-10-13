@@ -130,6 +130,18 @@ To send an agent to Gemini when other providers are registered too, set
 Or require it, as
 [Choose the model an agent uses](../../agents/choose-a-model/) shows.
 
+## On a runtime that keeps tenants apart
+
+A runtime with `KINDGI_TENANT_HOST_ACCESS=isolated` doesn't lend its own Google
+credentials to what a tenant registers. There, put a service-account key (its
+JSON) in a secret and name it in the provider's `secret_ref`. Without one, the
+registration is refused, naming `secret_ref`:
+
+```text
+Error [invalid-request]: Provider "gemini" doesn't fit adapter @kindgi/adapter-model-gemini: uses Vertex AI without secret_ref, which signs in with the server's own Google credentials (Application Default Credentials); this deployment doesn't let tenant configuration use them (KINDGI_TENANT_HOST_ACCESS). Name a service-account key in secret_ref.
+  ✗ /secret_ref: uses Vertex AI without secret_ref, which signs in with the server's own Google credentials (Application Default Credentials); this deployment doesn't let tenant configuration use them (KINDGI_TENANT_HOST_ACCESS). Name a service-account key in secret_ref.
+```
+
 ## If you registered Gemini 2.5
 
 An earlier preset registered `gemini-2.5-pro` and `gemini-2.5-flash`.

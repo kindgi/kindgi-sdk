@@ -3,6 +3,8 @@
 
 import { describe, expect, test } from 'vitest';
 
+import { TenantBudgetError } from '@kindgi/bounds';
+
 import type { ModelProvider, ModelUsageRecord, TenantPolicy } from '@kindgi/capabilities';
 import { createProviderRegistry } from '@kindgi/capabilities';
 import type { AgentId, GuardrailId, RunId, TenantId, Timestamp, ToolId } from '@kindgi/types';
@@ -202,6 +204,14 @@ describe('evaluateGuardrail — a check that throws', () => {
       abortSignal: controller.signal,
     }).catch((e: unknown) => e);
     expect(thrown).toBe(reason);
+  });
+
+  test("work its tenant's budget refused isn't the check failing: the refusal propagates as it is", async () => {
+    const refusal = new TenantBudgetError('over the budget', 'schema-compile-time', 2_000, 1_500);
+    const thrown = await evaluateGuardrail(crashes, throwing(refusal), baseTrace()).catch(
+      (e: unknown) => e,
+    );
+    expect(thrown).toBe(refusal);
   });
 });
 

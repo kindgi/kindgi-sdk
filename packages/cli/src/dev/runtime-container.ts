@@ -18,6 +18,7 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
+import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
 import { lineReader } from './lines.js';
 import { parseRecord, textLines } from './log-view.js';
 import {
@@ -190,7 +191,7 @@ export async function ensureRuntimeImage(
     helper !== undefined
       ? `\n  ${credentialHelperHint(helper.helper)}`
       : isRegistryAuthFailure(pulled.stderr)
-        ? `\n  The runtime image is in private preview: request access at contact@kindgi.com, log in with the pull credentials you receive (${registryLoginCommand(image)}), then run kindgi dev again.`
+        ? `\n  The runtime image needs a pull credential: sign in with GitHub at ${KINDGI_ACCESS_ORIGIN} for one, log in (${registryLoginCommand(image)}), then run kindgi dev again.`
         : '';
   return { kind: 'error', message: `Couldn't pull ${image}: ${detail}${auth}` };
 }

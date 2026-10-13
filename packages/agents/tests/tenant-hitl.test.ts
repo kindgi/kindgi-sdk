@@ -3,6 +3,7 @@
 
 import { describe, expect, test } from 'vitest';
 
+import { TenantBudgetError } from '@kindgi/bounds';
 import type { ModelMessage } from '@kindgi/capabilities';
 import { type NodeContext, WaitpointCancelledError } from '@kindgi/handler';
 import type { HitlSpec } from '@kindgi/policy-contract';
@@ -108,6 +109,20 @@ describe('resolveTurnHitlPolicy', () => {
       message: "The tenant's hitl policy could not be applied: policy store unreachable",
       policyKind: 'hitl',
     });
+  });
+
+  test("work the tenant's budget refused isn't the policy's failure: the refusal goes on to the turn", async () => {
+    const refusal = new TenantBudgetError('over the budget', 'schema-compile-time', 2_000, 1_500);
+    const refused = turnCtx({
+      evaluate: async () => {
+        throw refusal;
+      },
+    });
+    const error = await resolveTurnHitlPolicy(refused).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(error).toBe(refusal);
   });
 });
 

@@ -7,6 +7,14 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-models`: **where a secret an item names is read**, as the server recorded it when the item was registered: `secretScopes` on a `Tool` and an `MCPEndpoint` (by secret name) and `hmacSecretScope` on a webhook trigger, each a `RecordedSecretScope` (`Tenant`, `Org` or `Project`), `null` when none is usable. `SecretResolveOutcome` gains `scope`. The generator now takes a nullable reference to a tagged union, alone or as a map's values.
+
+## 0.1.7
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.7-rc.0
+
 - `kindgi-client`: **`webhooks()`**, webhook triggers: a signed request from WooCommerce, Drupal's Webhooks module, GitHub, Shopify or a Standard Webhooks sender starts a flow run. `register`, `list`, `get`, `update`, `pause`, `resume`, `unregister`, `fires` and `takeOwnership`. The receive URL itself is the sender's (marked `x-kindgi-sender-only`), so the client has no method for it.
 
 ## 0.1.6

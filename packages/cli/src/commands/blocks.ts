@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
+import { callWaitingOutRateLimits } from '../rate-limit-wait.js';
 import { integerFlag, readJsonInput, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -146,7 +147,9 @@ const publish: LeafCommand = {
         const block = (await readJsonInput(spec)) as Parameters<
           ReturnType<CommandContext['client']>['blocks']['publish']
         >[0];
-        return await ctx.client().blocks.publish(block, { projectId });
+        return await callWaitingOutRateLimits(ctx, () =>
+          ctx.client().blocks.publish(block, { projectId }),
+        );
       }
       if (prompt !== undefined && settings !== undefined) {
         throw new UsageError('Give one of --prompt or --settings');
@@ -164,15 +167,17 @@ const publish: LeafCommand = {
                 schema: (await readJsonInput(schema)) as Record<string, unknown>,
               }),
             };
-      return await ctx.client().blocks.publish(
-        {
-          id: blockId,
-          version,
-          kind: prompt !== undefined ? 'prompt' : 'settings',
-          content,
-          ...(description !== undefined && { description }),
-        },
-        { projectId },
+      return await callWaitingOutRateLimits(ctx, () =>
+        ctx.client().blocks.publish(
+          {
+            id: blockId,
+            version,
+            kind: prompt !== undefined ? 'prompt' : 'settings',
+            content,
+            ...(description !== undefined && { description }),
+          },
+          { projectId },
+        ),
       );
     }),
 };

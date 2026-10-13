@@ -46,6 +46,13 @@ import {
   devOnlyImports,
   resolveHostInstall,
 } from '../build/host-install.js';
+import {
+  BuildServiceRefusal,
+  HOSTED_BUILD,
+  describeBuildRefusal,
+  hostedBuildEndpoint,
+  hostedUploadTooLarge,
+} from '../build/hosted.js';
 import { readImageConfig } from '../build/image-config.js';
 import { checkIntegrity } from '../build/integrity.js';
 import {
@@ -66,6 +73,7 @@ import {
 import type {
   BuildRunners,
   LocalIndexResult,
+  PostBuildResult,
   TarPackResult,
   TerminalPayload,
 } from '../build/runners.js';
@@ -80,6 +88,7 @@ import type { IndexedCounts } from '../dev/runners.js';
 import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import { isPackageVersion } from '../package-manager.js';
+import { isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
 import { timeFlagValue } from './helpers.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
@@ -113,7 +122,7 @@ export const buildCommand: LeafCommand = {
     "`--local` builds the image with this machine's Docker instead: no build service, no signing; " +
     'with `--push`, it pushes the image, signs it, and writes the envelope.',
   usage:
-    'kindgi build [--local [--push [<repository>]] [--platform <os/arch>]] [--target <t>] [--endpoint <url>] [--env <name>] [--out <dir>] ' +
+    'kindgi build [--local [--push [<repository>]] [--platform <os/arch>]] [--hosted [--project <id>]] [--target <t>] [--endpoint <url>] [--env <name>] [--out <dir>] ' +
     '[--artifact-version <v>] [--published-at <iso>] [--tenant <id>] [--signing-key <path>] ' +
     '[--registry-push-creds <ref>] [--skip-integrity-gate] [--skip-image-pull] [--skip-sign] [--path <dir>]',
   optionSpec: {
@@ -133,6 +142,16 @@ export const buildCommand: LeafCommand = {
       description:
         "With `--local`: the image's platform. Default: `linux/amd64` when pushing, else this machine's.",
     },
+    hosted: {
+      type: 'boolean',
+      description:
+        "Build on Kindgi hosted's build service, at the API's address under `/cloud`, with your API key; the image goes to your workspace's own repository. Same as the env block's `build: 'hosted'`.",
+    },
+    project: {
+      type: 'string',
+      description:
+        'With `--hosted`: the project the build is for, by id, kept as a label on the build.',
+    },
     target: {
       type: 'string',
       description:
@@ -140,7 +159,8 @@ export const buildCommand: LeafCommand = {
     },
     endpoint: {
       type: 'string',
-      description: "The build server. Default: the env block's `build`. Not used with `--local`.",
+      description:
+        "The build server. Default: the env block's `build`. Not used with `--local` or `--hosted`.",
     },
     env: {
       type: 'string',
@@ -164,7 +184,7 @@ export const buildCommand: LeafCommand = {
     tenant: {
       type: 'string',
       description:
-        "The tenant the signature names. Default: the env block's `tenantId`, else `KINDGI_TENANT_ID`.",
+        "The tenant the signature names. Default: the env block's `tenantId`, else `KINDGI_TENANT_ID`, else with `--hosted` your key's own tenant.",
     },
     'signing-key': {
       type: 'string',
@@ -219,6 +239,12 @@ interface ResolvedBuildArgs {
   readonly outDir: string;
   readonly envName: string;
   readonly endpoint: string;
+  /** `--hosted`, or the env block's `build: 'hosted'`: the hosted build service, with the API key. */
+  readonly hosted: boolean;
+  /** `Bearer <API key>`, for the hosted build service only. */
+  readonly authorization: string | undefined;
+  /** `--project`, with `--hosted`: a label on the build. */
+  readonly projectId: string | undefined;
   readonly buildTarget: string;
   readonly registryPushCredsRef: string | undefined;
   readonly artifactVersion: string;
@@ -260,7 +286,7 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
   };
   lines('');
   lines(`  Environment: ${args.envName}`);
-  lines(`  Build:       ${args.endpoint}`);
+  lines(`  Build:       ${args.hosted ? `hosted (${args.endpoint})` : args.endpoint}`);
   lines(`  Target:      ${args.buildTarget}`);
   lines(`  Tenant:      ${args.tenantId}`);
   lines(`  Signing key: ${args.signingKeyPath ?? '(--skip-sign)'}`);
@@ -276,17 +302,52 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
   lines('');
 
   // ---- 6. POST /v1/build + SSE stream ---------------------------------
+  if (args.hosted) {
+    const tooLarge = hostedUploadTooLarge(tarball.bytes.length);
+    if (tooLarge !== undefined) return failure(tooLarge);
+  }
+  const packId = (args.config.pack as { readonly id?: unknown } | undefined)?.id;
   lines('  Uploading to build service');
-  const posted = await runners.postBuild({
-    endpoint: args.endpoint,
-    tarballBytes: tarball.bytes,
-    tarballSha256: tarballHash,
-    buildTarget: args.buildTarget,
-    ...(args.registryPushCredsRef !== undefined && {
-      registryPushCredsRef: args.registryPushCredsRef,
-    }),
-    fetchImpl: ctx.fetch,
-  });
+  // A `429` with `Retry-After` is waited out and the same build sent
+  // again: the service keeps one job per pack and target.
+  const sent = await sendWaitingOutRateLimits(
+    ctx,
+    async (): Promise<{ readonly posted: PostBuildResult } | { readonly thrown: unknown }> => {
+      try {
+        return {
+          posted: await runners.postBuild({
+            endpoint: args.endpoint,
+            tarballBytes: tarball.bytes,
+            tarballSha256: tarballHash,
+            buildTarget: args.buildTarget,
+            ...(args.registryPushCredsRef !== undefined && {
+              registryPushCredsRef: args.registryPushCredsRef,
+            }),
+            ...(args.authorization !== undefined && { authorization: args.authorization }),
+            ...(args.hosted && typeof packId === 'string' && { packId }),
+            ...(args.projectId !== undefined && { projectId: args.projectId }),
+            fetchImpl: ctx.fetch,
+          }),
+        };
+      } catch (thrown) {
+        return { thrown };
+      }
+    },
+    (answer) =>
+      'thrown' in answer &&
+      answer.thrown instanceof BuildServiceRefusal &&
+      answer.thrown.status === 429 &&
+      isWait(answer.thrown.retryAfterSeconds)
+        ? { retryAfterSeconds: answer.thrown.retryAfterSeconds }
+        : undefined,
+  );
+  if ('thrown' in sent) {
+    if (sent.thrown instanceof BuildServiceRefusal) {
+      return failure(describeBuildRefusal(sent.thrown));
+    }
+    throw sent.thrown;
+  }
+  const posted = sent.posted;
   lines(`    ✓ POST /v1/build  →  buildJob: ${posted.buildJobId}`);
 
   let terminal: TerminalPayload;
@@ -297,18 +358,26 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
   } else {
     lines('    → Streaming build logs');
     const captured: string[] = [];
-    terminal = await runners.streamBuildLogs({
-      endpoint: args.endpoint,
-      buildJobId: posted.buildJobId,
-      fetchImpl: ctx.fetch,
-      onLog: (line: string): void => {
-        captured.push(line);
-        // Fold multi-line output into the banner one line at a time,
-        // so the build log reads as part of the summary.
-        lines(`        ${line}`);
-      },
-      ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
-    });
+    try {
+      terminal = await runners.streamBuildLogs({
+        endpoint: args.endpoint,
+        buildJobId: posted.buildJobId,
+        ...(args.authorization !== undefined && { authorization: args.authorization }),
+        fetchImpl: ctx.fetch,
+        onLog: (line: string): void => {
+          captured.push(line);
+          // Fold multi-line output into the banner one line at a time,
+          // so the build log reads as part of the summary.
+          lines(`        ${line}`);
+        },
+        ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+      });
+    } catch (err) {
+      if (err instanceof BuildServiceRefusal) {
+        return failure(describeBuildRefusal(err));
+      }
+      return failure(`${(err as Error).message}\n`);
+    }
   }
 
   if (terminal.status === 'failed') {
@@ -1167,12 +1236,58 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       ? targetFlag
       : (envBlock?.buildTarget ?? envName);
 
-  // --endpoint — flag > env block > error.
+  // --hosted, or the env block's `build: 'hosted'`: the hosted build
+  // service at the API's address, which takes the API key.
   const endpointFlag = ctx.options.endpoint;
-  const endpoint =
-    typeof endpointFlag === 'string' && endpointFlag !== ''
-      ? endpointFlag
-      : (envBlock?.build ?? '');
+  const explicitEndpoint =
+    typeof endpointFlag === 'string' && endpointFlag !== '' ? endpointFlag : undefined;
+  const hosted =
+    ctx.options.hosted === true ||
+    (explicitEndpoint === undefined && envBlock?.build === HOSTED_BUILD);
+  const projectFlag = ctx.options.project;
+  const projectId = typeof projectFlag === 'string' && projectFlag !== '' ? projectFlag : undefined;
+  const credsFlag = ctx.options['registry-push-creds'];
+  const registryPushCredsRef =
+    typeof credsFlag === 'string' && credsFlag !== '' ? credsFlag : undefined;
+  if (projectId !== undefined && !hosted) {
+    return failure('--project goes with --hosted: `kindgi build --hosted --project <id>`.\n');
+  }
+  let hostedService:
+    | { readonly endpoint: string; readonly apiUrl: string; readonly token: string }
+    | undefined;
+  if (hosted) {
+    const clash = local
+      ? "--local builds with this machine's Docker"
+      : explicitEndpoint !== undefined
+        ? '--endpoint names another build server'
+        : registryPushCredsRef !== undefined
+          ? "--registry-push-creds is for a build server's push; the hosted build service pushes to your workspace's own repository"
+          : undefined;
+    if (clash !== undefined) {
+      return failure(`--hosted builds on the hosted build service, and ${clash}: leave one out.\n`);
+    }
+    // The API: `--url` > the env block's `endpoint` > KINDGI_API_URL or `kindgi auth login`'s.
+    const apiUrl =
+      ctx.config.source.apiUrl === 'flag'
+        ? ctx.config.apiUrl
+        : (envBlock?.endpoint ?? ctx.config.apiUrl);
+    if (apiUrl === undefined || apiUrl === '') {
+      return failure(
+        `kindgi build --hosted builds at the API's address, and none is set. Set environments.${envName}.endpoint in kindgi.config.ts, run \`kindgi auth login --url <url>\`, or export KINDGI_API_URL.\n`,
+      );
+    }
+    const token = ctx.config.token;
+    if (token === undefined || token === '') {
+      return failure(
+        'kindgi build --hosted sends your API key to the build service, and none is set. ' +
+          'Run `kindgi auth login`, export KINDGI_API_TOKEN, or pass --token <key>.\n',
+      );
+    }
+    hostedService = { endpoint: hostedBuildEndpoint(apiUrl), apiUrl, token };
+  }
+
+  // --endpoint — flag > env block > error.
+  const endpoint = hostedService?.endpoint ?? explicitEndpoint ?? envBlock?.build ?? '';
   if (endpoint === '' && !local) {
     return {
       kind: 'error',
@@ -1204,15 +1319,26 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
     }
   }
 
-  // --tenant — flag > env block > KINDGI_TENANT_ID env var > error.
+  // --tenant — flag > env block > KINDGI_TENANT_ID env var > (hosted) the
+  // key's own tenant > error.
   const tenantFlag = ctx.options.tenant;
-  const tenantId =
+  let tenantId =
     typeof tenantFlag === 'string' && tenantFlag !== ''
       ? tenantFlag
       : (envBlock?.tenantId ??
         (typeof ctx.env.KINDGI_TENANT_ID === 'string'
           ? (ctx.env.KINDGI_TENANT_ID as string)
           : undefined));
+  if ((tenantId === undefined || tenantId === '') && hostedService !== undefined) {
+    try {
+      tenantId = (await ctx.clientFor(hostedService.apiUrl, hostedService.token).identity.whoami())
+        .tenantId as unknown as string;
+    } catch (err) {
+      return failure(
+        `kindgi build --hosted couldn't read your key's tenant from ${hostedService.apiUrl}: ${(err as Error).message}\n`,
+      );
+    }
+  }
   if ((tenantId === undefined || tenantId === '') && (!local || push !== undefined)) {
     return {
       kind: 'error',
@@ -1221,9 +1347,11 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
     };
   }
 
-  // --skip-integrity-gate / --skip-image-pull / --skip-sign
+  // --skip-integrity-gate / --skip-image-pull / --skip-sign. A hosted
+  // image stays in the workspace's repository, which this machine can't
+  // pull: it's checked by its index's hash.
   const skipIntegrityGate = ctx.options['skip-integrity-gate'] === true;
-  const skipImagePull = ctx.options['skip-image-pull'] === true;
+  const skipImagePull = ctx.options['skip-image-pull'] === true || hosted;
   const skipSign = ctx.options['skip-sign'] === true;
 
   // --signing-key — flag > env block; error only if we're actually
@@ -1271,11 +1399,6 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
         ? 'linux/amd64'
         : undefined;
 
-  // --registry-push-creds — opaque reference, empty means undefined.
-  const credsFlag = ctx.options['registry-push-creds'];
-  const registryPushCredsRef =
-    typeof credsFlag === 'string' && credsFlag !== '' ? credsFlag : undefined;
-
   return {
     kind: 'ok',
     args: {
@@ -1286,6 +1409,9 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       outDir,
       envName,
       endpoint,
+      hosted,
+      authorization: hostedService !== undefined ? `Bearer ${hostedService.token}` : undefined,
+      projectId,
       buildTarget,
       registryPushCredsRef,
       artifactVersion,

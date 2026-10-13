@@ -97,9 +97,12 @@ flags go with it:
 - **`--deployments=<model=deployment,…>`**, for `azure-openai`, is the
   deployment that serves each model, such as `gpt-6.1-sol=gpt-6-1-sol`. To
   sign in as the runtime's Entra identity instead of with a key, register
-  with a spec.
+  with a spec. A runtime with `KINDGI_TENANT_HOST_ACCESS=isolated` refuses
+  that ([What a tenant can't make the server do](../../concepts/security/#what-a-tenant-cant-make-the-server-do)).
 - **`--region=<region>`**, for `bedrock`, is the US AWS Region Bedrock runs
-  in, such as `us-east-2`. The runtime needs `KINDGI_AWS_IDENTITY`.
+  in, such as `us-east-2`. The runtime needs `KINDGI_AWS_IDENTITY`, and a
+  runtime with `KINDGI_TENANT_HOST_ACCESS=isolated` refuses the preset
+  ([With a Bedrock API key](#with-a-bedrock-api-key)).
 
 A preset carries its models' features, context windows, default output caps
 and prices. `pricesCheckedAt` is the date the prices were last compared with
@@ -161,6 +164,53 @@ vendor's:
   may cost more.
 - Past its end-of-life date, a request to it fails. An agent that prefers or
   requires it then needs a new version that names another model.
+
+#### With a Bedrock API key
+
+The `bedrock` preset signs in as the runtime's AWS identity. A runtime with
+`KINDGI_TENANT_HOST_ACCESS=isolated` refuses that
+([What a tenant can't make the server do](../../concepts/security/#what-a-tenant-cant-make-the-server-do)).
+There, register Bedrock from a [spec](#a-provider-spec) with a Bedrock API
+key:
+
+1. Make a long-term API key in the Region the provider uses. A short-term key
+   lasts 12 hours at most, so a registration can't keep one. AWS recommends
+   long-term keys for exploration only, and one works only in the Region it
+   was made in
+   ([Amazon Bedrock API keys](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html)).
+2. Store it as a tenant secret, such as
+   `kindgi secrets set BEDROCK_API_KEY --env=production --scope=tenant`
+   ([Keys](#keys)).
+3. Register a spec whose `adapter_config.auth` is `api-key` and whose
+   `secret_ref` names that secret:
+
+```json
+{
+  "adapter_id": "@kindgi/adapter-model-bedrock",
+  "adapter_config": { "auth": "api-key" },
+  "secret_ref": { "envName": "production", "name": "BEDROCK_API_KEY" },
+  "metadata": {
+    "id": "bedrock",
+    "region": "us-east-2",
+    "models": [
+      { "name": "us.anthropic.claude-haiku-4-5-20251001-v1:0", "contextWindow": 200000,
+        "maxOutputTokens": 16000, "features": ["tool-use", "parallel-tool-use"],
+        "cost": { "promptUsdPer1kTokens": 0.0011, "completionUsdPer1kTokens": 0.0055 } }
+    ]
+  }
+}
+```
+
+With the spec saved as `bedrock.json`,
+`kindgi providers register --spec=@bedrock.json` prints the provider's id:
+
+```json
+{
+  "providerId": "bedrock"
+}
+```
+
+The key is read when a turn calls the model, not when you register.
 
 ## A provider spec
 

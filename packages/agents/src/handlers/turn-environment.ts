@@ -10,9 +10,11 @@
  * on the in-memory `TurnContext`.
  */
 
+import { TenantBudgetError } from '@kindgi/bounds';
 import { route } from '@kindgi/capabilities';
 import type { TenantPolicy } from '@kindgi/capabilities';
 import type { HitlSpec, ToolErrorsSpec } from '@kindgi/policy-contract';
+import type { ToolRegistry } from '@kindgi/tools';
 
 import type { ConversationClosedError } from '../errors.js';
 import { resolveGuardrails } from '../guardrails-gate.js';
@@ -100,10 +102,8 @@ export async function resolveTurnEnvironment(
   }
   ctx.guardrails = invResolution.resolved;
 
-  // This turn's tools come from the tenant's own registry — never a
-  // registry shared across concurrent turns of other tenants.
-  const tenantTools = await ctx.bindings.toolRegistry.forTenant(ctx.input.tenantId);
-  ctx.tools = withRememberTool(ctx, resolveTurnTools(tenantTools, ctx.input.agent, pinnedTools));
+  const turnTools = await turnToolRegistry(ctx);
+  ctx.tools = withRememberTool(ctx, resolveTurnTools(turnTools, ctx.input.agent, pinnedTools));
   // The data blocks, at the versions pinned (the turn's own on resume).
   const blocks = await resolveTurnBlocks(ctx, pinnedBlocks);
   if (blocks !== undefined) ctx.blocks = blocks;
@@ -181,6 +181,22 @@ export async function resolveTurnEnvironment(
 }
 
 /**
+ * The registry a turn resolves its tools on: its project's reach when the
+ * registry knows projects (`forProject`), else the tenant's own registry;
+ * never one shared across concurrent turns of other tenants.
+ */
+export async function turnToolRegistry(ctx: TurnContext): Promise<ToolRegistry> {
+  const registry = ctx.bindings.toolRegistry;
+  return registry.forProject !== undefined
+    ? registry.forProject({
+        tenantId: ctx.input.tenantId,
+        projectId: ctx.input.projectId,
+        ...(ctx.input.orgId !== undefined && { orgId: ctx.input.orgId }),
+      })
+    : registry.forTenant(ctx.input.tenantId);
+}
+
+/**
  * The turn's approval rules: the agent's, held to the tenant's `hitl`
  * policy. A policy that can't be evaluated fails the turn — running
  * without it would skip the tenant's approvals.
@@ -194,6 +210,8 @@ export async function resolveTurnHitlPolicy(ctx: TurnContext): Promise<Effective
         HitlSpec | undefined
       >('hitl', { tenantId: ctx.input.tenantId });
     } catch (cause) {
+      // Work a budget kept per tenant refused isn't the policy's failure: the turn answers for it.
+      if (cause instanceof TenantBudgetError) throw cause;
       throwAgentTurnFailure({
         code: 'tenant-policy-unavailable',
         message: `The tenant's hitl policy could not be applied: ${cause instanceof Error ? cause.message : String(cause)}`,
