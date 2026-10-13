@@ -470,6 +470,36 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
     expect(sent.status).toBe(400);
   });
 
+  test("an MCP endpoint's header auth: each header's secret, recorded as a bearer secret is", async () => {
+    const h = items();
+    h.stored.set(keyOf(tenant, ENV, 'TENANT_KEY'), 'x');
+    h.stored.set(keyOf(project, ENV, 'P_SECRET'), 'y');
+    const res = await h.post('p-admin', '/v1/mcp/endpoints', {
+      endpointId: 'acme.shop',
+      name: 'Shop',
+      transport: 'streamable-http',
+      config: { transport: 'streamable-http', url: 'https://mcp.acme.test/mcp' },
+      auth: {
+        scheme: 'header',
+        headers: [
+          { name: 'X-Api-Key', secretRef: { envName: ENV, name: 'TENANT_KEY' } },
+          {
+            name: 'X-Api-Secret',
+            secretRef: { envName: ENV, name: 'P_SECRET' },
+            prefix: 'Secret ',
+          },
+        ],
+      },
+      scopeKind: 'project',
+      scopeId: P,
+    });
+    expect(res.status).toBe(201);
+    expect(h.endpoints.get('acme.shop')?.secretScopes).toEqual({
+      TENANT_KEY: { kind: 'project', projectId: P },
+      P_SECRET: { kind: 'project', projectId: P },
+    });
+  });
+
   test('a declared secret on a deployment that says no env: the broadest scope, without a lookup', async () => {
     const h = items({ envName: false });
     h.stored.set(keyOf(tenant, ENV, 'ACME_DECLARED'), 'x');

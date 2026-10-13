@@ -171,13 +171,17 @@ export function mcpAuthSecretRefs(auth: MCPEndpointAuth): readonly MCPEndpointSe
   return auth.scheme === 'header' ? auth.headers.map((h) => h.secretRef) : [auth.secretRef];
 }
 
-/** The secrets an endpoint names: its bearer `secretRef`, and its `auth`'s. */
+/**
+ * The secrets an endpoint names: its bearer `secretRef`, and its `auth`'s
+ * password, client secret or header secrets.
+ */
 export function mcpEndpointSecretRefs(
   endpoint: Pick<MCPEndpoint, 'secretRef' | 'auth'>,
 ): readonly MCPEndpointSecretRef[] {
-  return [endpoint.secretRef, endpoint.auth?.secretRef].filter(
-    (ref): ref is MCPEndpointSecretRef => ref !== undefined,
-  );
+  return [
+    ...(endpoint.secretRef !== undefined ? [endpoint.secretRef] : []),
+    ...(endpoint.auth !== undefined ? mcpAuthSecretRefs(endpoint.auth) : []),
+  ];
 }
 
 /**
