@@ -18,10 +18,11 @@ good.
 ## Before you start
 
 - **`admin` on the tenant.** Publishing a policy and sweeping both take it.
-- **A client:** the TypeScript SDK (`@kindgi/sdk`) or the Python SDK
-  (`kindgi`), with `KINDGI_API_URL` and `KINDGI_API_TOKEN` set for your
-  runtime. Under `kindgi dev`, the client finds the running runtime by
-  itself.
+- **A client:** the TypeScript SDK (`@kindgi/sdk`), the Python SDK
+  (`kindgi`), or the [Java client](../../start/java-app/)
+  (`com.kindgi:kindgi-client`, preview), which Scala uses too, with
+  `KINDGI_API_URL` and `KINDGI_API_TOKEN` set for your runtime. Under
+  `kindgi dev`, the client finds the running runtime by itself.
 
 ## What a policy covers
 
@@ -125,6 +126,10 @@ const published = await kindgi.policies.publish({
 console.log(published);
 ```
 
+```text
+{ policyId: 'acme.keep-providers', version: '1.0.0' }
+```
+
 </TabItem>
 <TabItem label="Python">
 
@@ -144,13 +149,78 @@ published = kindgi.policies.publish(
 print(published)
 ```
 
-</TabItem>
-</Tabs>
-
 ```text
-{ policyId: 'acme.keep-providers', version: '1.0.0' }
 policy_id='acme.keep-providers' version='1.0.1'
 ```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/RetentionPolicy.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.PolicyKind;
+import com.kindgi.client.models.PublishPolicyBody;
+import com.kindgi.client.models.PublishPolicyResult;
+import java.util.Map;
+
+public final class RetentionPolicy {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    // Removed model providers are kept 7 days, then the next sweep purges them.
+    PublishPolicyResult published = kindgi.policies().publish(PublishPolicyBody.builder()
+        .id("acme.keep-providers")
+        .version("1.0.0")
+        .kind(PolicyKind.RETENTION)
+        .spec(Map.of("domain", "provider", "graceSeconds", 7 * 86_400, "mode", "purge"))
+        .build());
+    System.out.println(published);
+  }
+}
+```
+
+```text
+PublishPolicyResult[policyId=acme.keep-providers, version=1.0.0]
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/com/acme/app/RetentionPolicy.scala
+package com.acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{PolicyKind, PublishPolicyBody}
+import scala.jdk.CollectionConverters._
+
+object RetentionPolicy {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    // Removed model providers are kept 7 days, then the next sweep purges them.
+    val published = kindgi.policies().publish(PublishPolicyBody.builder()
+      .id("acme.keep-providers")
+      .version("1.0.0")
+      .kind(PolicyKind.RETENTION)
+      .spec(Map[String, AnyRef]("domain" -> "provider", "graceSeconds" -> Int.box(7 * 86400), "mode" -> "purge").asJava)
+      .build())
+    println(published)
+  }
+}
+```
+
+A map with values of several types goes to the Java client as `Map[String, AnyRef]`, a number boxed (`Int.box`).
+
+```text
+PublishPolicyResult[policyId=acme.keep-providers, version=1.0.0]
+```
+
+</TabItem>
+</Tabs>
 
 - **One policy per domain,** plus one for `*`. To change a domain's grace,
   publish the next version of its policy, as the Python example does. A
@@ -179,7 +249,9 @@ A sweep purges what's due. The runtime sweeps on its own only when you set
   when.
 - `retention.sweep` purges every record past its grace, or one domain's.
 
-Each example lists what a sweep would purge now, then purges it.
+Each example lists what a sweep would purge now, then purges it. In the
+outputs, the policy is at 1.0.1, with no grace, as the Python example
+publishes it, and one removed provider is waiting.
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -196,6 +268,11 @@ console.log(due.data.map((row) => `${row.domain} ${row.id} (policy ${row.policyI
 
 const swept = await kindgi.retention.sweep({ domain: 'provider' });
 console.log(`${swept.totalPurged} purged`);
+```
+
+```text
+[ 'provider 01d0afee-d2c1-4532-aa24-1f85b3da395b (policy acme.keep-providers)' ]
+1 purged
 ```
 
 </TabItem>
@@ -215,13 +292,81 @@ swept = kindgi.retention.sweep(domain="provider")
 print(f"{swept.total_purged} purged")
 ```
 
-</TabItem>
-</Tabs>
-
 ```text
-[ 'provider 01d0afee-d2c1-4532-aa24-1f85b3da395b (policy acme.keep-providers)' ]
+['provider 7511b469-9389-49be-b396-348807010bfd (policy acme.keep-providers)']
 1 purged
 ```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/RetentionSweep.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.RetentionDomain;
+import com.kindgi.client.models.RetentionScheduledPage;
+import com.kindgi.client.models.RetentionSweepBody;
+import com.kindgi.client.models.RetentionSweepResult;
+import com.kindgi.client.resources.RetentionScheduledParams;
+
+public final class RetentionSweep {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    // What a sweep would purge now, then purge it.
+    RetentionScheduledPage due =
+        kindgi.retention().scheduled(RetentionScheduledParams.builder().pastGraceOnly(true).build());
+    System.out.println(due.data().stream()
+        .map(row -> row.domain() + " " + row.id() + " (policy " + row.policyId() + ")")
+        .toList());
+
+    RetentionSweepResult swept =
+        kindgi.retention().sweep(RetentionSweepBody.builder().domain(RetentionDomain.PROVIDER).build());
+    System.out.println(swept.totalPurged() + " purged");
+  }
+}
+```
+
+```text
+[provider 76fecb7f-3702-4661-a7d5-bfa5e71255b7 (policy acme.keep-providers)]
+1 purged
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/com/acme/app/RetentionSweep.scala
+package com.acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{RetentionDomain, RetentionSweepBody}
+import com.kindgi.client.resources.RetentionScheduledParams
+import scala.jdk.CollectionConverters._
+
+object RetentionSweep {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    // What a sweep would purge now, then purge it.
+    val due = kindgi.retention().scheduled(RetentionScheduledParams.builder().pastGraceOnly(true).build())
+    println(due.data.asScala.map(row => s"${row.domain} ${row.id} (policy ${row.policyId})").toList)
+
+    val swept = kindgi.retention().sweep(RetentionSweepBody.builder().domain(RetentionDomain.PROVIDER).build())
+    println(s"${swept.totalPurged} purged")
+  }
+}
+```
+
+```text
+List(provider b981ec8a-7d31-475b-9c59-9e8370f74cec (policy acme.keep-providers))
+1 purged
+```
+
+</TabItem>
+</Tabs>
 
 Each scheduled record has the policy that decides it and when it will be
 purged:

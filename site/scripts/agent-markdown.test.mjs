@@ -18,9 +18,24 @@ import {
 const origin = 'https://docs.kindgi.com';
 const siteDescription = 'The site.';
 
-/** A built page as Starlight writes one: a title, a description and its content. */
-function page({ title, description = siteDescription, content, head = '', sidebar = '' }) {
-  return `<!doctype html><html><head><title>${title} | Kindgi</title><meta name="description" content="${description}">${head}</head><body>${sidebar}<main><h1 id="_top">${title}</h1><div class="sl-markdown-content">${content}</div></main></body></html>`;
+/**
+ * A built page as Starlight writes one: a title, what's under it, a
+ * description and its content.
+ */
+function page({
+  title,
+  description = siteDescription,
+  content,
+  head = '',
+  sidebar = '',
+  underTitle = '',
+}) {
+  return `<!doctype html><html><head><title>${title} | Kindgi</title><meta name="description" content="${description}">${head}</head><body>${sidebar}<main><h1 id="_top">${title}</h1>${underTitle}<div class="sl-markdown-content">${content}</div></main></body></html>`;
+}
+
+/** The links under a page's title to its Markdown (PageTitle.astro), as built. */
+function markdownLinks(href) {
+  return `<div class="kindgi-page-actions print:hidden" data-markdown="${href}" data-pagefind-ignore><button type="button" data-copy hidden><span data-label aria-live="polite">Copy as Markdown</span></button><a href="${href}">View as Markdown</a></div>`;
 }
 
 const SIDEBAR = `<nav id="starlight__sidebar"><ul class="top-level">
@@ -347,6 +362,54 @@ test("a version's build links into its own base, and names its version", () => {
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the links under a page's title are to its own Markdown, which leaves them out", () => {
+  const dir = build({
+    'index.html': page({ title: 'Kindgi documentation', content: '<p>Welcome.</p>' }),
+    'start/install/index.html': page({
+      title: 'Install',
+      content: '<p>Install it.</p>',
+      underTitle: markdownLinks('/v0.1.6/start/install.md'),
+    }),
+  });
+  try {
+    done('/v0.1.6/', dir, '0.1.6');
+    assert.equal(
+      readFileSync(join(dir, twinPath('/start/install/', '/')), 'utf8'),
+      '# Install\n\nInstall it.\n',
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a page whose title links any Markdown but its own fails the build', () => {
+  for (const [files, message] of [
+    [
+      {
+        'start/install/index.html': page({
+          title: 'Install',
+          content: '<p>Install it.</p>',
+          underTitle: markdownLinks('/start/install.md'),
+        }),
+      },
+      '/v0.1.6/start/install/ links /start/install.md as its Markdown version, but its own is /v0.1.6/start/install.md.',
+    ],
+    [
+      {
+        'gone/index.html': `<html><body><main><h1 id="_top">Gone</h1>${markdownLinks('/v0.1.6/gone.md')}</main></body></html>`,
+      },
+      '/v0.1.6/gone/ links /v0.1.6/gone.md as its Markdown version, but it has none.',
+    ],
+  ]) {
+    const dir = build(files);
+    try {
+      assert.throws(() => done('/v0.1.6/', dir, '0.1.6'), { message });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 });
 

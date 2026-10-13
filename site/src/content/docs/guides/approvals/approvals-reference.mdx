@@ -51,7 +51,7 @@ Someone on the roster already isn't added again: "Eddie Park is already on
 the roster." **Remove** takes a reviewer off the roster at once, and their
 past decisions stay.
 
-![Approvals → Reviewers with the form open: Who, searched for "Ed", lists Eddie Park and Eda Brooks with their emails; Role, with "They decide approvals of this role and below."; and the roster: you, the seed user (admin, shown by id), and Ada Lovelace (standard), each active with a Remove button. Above it: "Email notifications: off."](../../../../assets/approvals/reviewers.png)
+![Approvals → Reviewers with the form open: Who, searched for "Ed", lists Eddie Park and Eda Brooks with their emails; Role, with "They decide approvals of this role and below."; and the roster: you, the seed user (admin, shown by id), and Ada Lovelace (standard), each active with a Remove button. At the top: "Email notifications: off."](../../../../assets/approvals/reviewers.png)
 
 The page also says whether reviewers are emailed, as
 [Reviewer email](../decide-an-approval/#reviewer-email) sets up: "Email
@@ -182,8 +182,8 @@ run has moved on by the time the call returns.
   the run that ended, which may be the run the approval's run is a step of,
   and its `status`.
 
-A decision recorded just before its run ended stands. The answer then has
-`waitpointResolved: false` and the run's `runStatus`.
+A decision recorded before its run ended stands, however close the two are.
+The answer then has `waitpointResolved: false` and the run's `runStatus`.
 
 **A turn that ends at its approval** fails with one of these codes. Each is a
 person's outcome, not an error:
@@ -221,9 +221,9 @@ approval is asked for, or the agent's own `hitl.timeoutMs`. For one hour:
 `conversationPolicy: { hitl: { tools: {}, timeoutMs: 3_600_000 } }`. When the
 deadline passes with no decision:
 
-- **Below `admin`,** the approval becomes `escalated`, and a new one asks the
-  next role up: `standard`, then `senior`, then `admin`. The new one's
-  deadline is as long again. The run keeps waiting.
+- **At `standard` or `senior`,** the approval becomes `escalated`, and a new
+  one asks the next role up: `senior`, then `admin`. The new one's deadline
+  is as long again. The run keeps waiting.
 - **At `admin`,** the approval becomes `expired`, and the run's turn fails:
 
   ```text
@@ -341,7 +341,7 @@ goes to the audit log with your rationale." On a run's gate:
 On an approval that needs a `senior`, the third choice reads **Send to an
 admin reviewer**. An approval that needs an `admin` has none.
 
-![An approval's page, "Approve the next turn of acme.support", pending, needing a standard reviewer. Your decision offers Approve, Reject, Send to a senior reviewer and Withdraw this request; Send to a senior reviewer is chosen, with "A new approval opens for senior reviewers; the run waits for that one.", a rationale, and a Send to a senior reviewer button. Below: the subject, required role, when it was requested and when it expires, and the waiting run, agent and conversation.](../../../../assets/approvals/decide.png)
+![An approval's page, "Approve the next turn of acme.support", pending, needing a standard reviewer. Your decision offers Approve, Reject, Send to a senior reviewer and Withdraw this request; Send to a senior reviewer is chosen, with "A new approval opens for senior reviewers; the run waits for that one.", a rationale, and a Send to a senior reviewer button. Then: the subject, required role, when it was requested and when it expires, and the waiting run, agent and conversation.](../../../../assets/approvals/decide.png)
 
 An agent promotion's approval says what each does to the version instead:
 "The version goes live where it was asked for.", or "The promotion is
@@ -351,8 +351,8 @@ run is told no.", with **Open the run**.
 
 - **Someone who can't decide it** reads why, in place of the choices: "You
   aren't on the reviewer roster, so you can't decide approvals. A tenant
-  admin can add you.", or, below its role, "This one needs a senior
-  reviewer."
+  admin can add you.", or, to a reviewer of a lower role, "This one needs a
+  senior reviewer."
 - **Whoever asked for it,** a person or a service account, isn't offered
   **Approve** when it needs someone else's (`separateApprover`): "You asked
   for this, so someone else approves it."
