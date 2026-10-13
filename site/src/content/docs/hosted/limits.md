@@ -112,10 +112,13 @@ trigger. A delivery is still answered `202`, with the fire's id.
 ### Tool calls in flight
 
 A tool call past the limit waits up to 60 seconds for a slot. If none frees
-in time, the call fails with `deadline-exceeded`, naming the limit:
+in time, the tool isn't run, and the call fails with `deadline-exceeded`,
+naming the limit. An agent's turn takes that as it takes any tool's failure.
+Here an agent's tool call waited out the minute, and its run failed with
+[`tool-invocation-failed`](../../reference/errors/#tool-invocation-failed):
 
 ```text
-CAPTURE: the tool calls in flight limit's deadline-exceeded message
+{"id":"…","tenantId":"…","projectId":"…","flowId":"agent.turn","flowVersion":"1.1.0","status":"failed",…,"createdAt":"2026-10-13T11:43:56.569Z",…,"completedAt":"2026-10-13T11:44:56.689Z",…,"failure":{"code":"tool-invocation-failed","message":"Tool \"acme.lookup-order\" was not run: deadline-exceeded: This tenant's limit on tool calls in flight (50) was reached, and no call finished before this one's deadline.","cause":{"code":"precondition-failed","message":"…","toolId":"acme.lookup-order","reason":"deadline-exceeded",…}},…}
 ```
 
 A run cancelled while its tool call waits stops waiting.
