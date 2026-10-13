@@ -1,5 +1,104 @@
 # @kindgi/api
 
+## 0.1.7
+
+### Patch Changes
+
+- b90e2c6: A person's sign-in history includes the events about them. From this release, when an admin ends someone's sessions, it shows on that person's history, saying who did it, and no longer on the admin's. Events recorded before keep their place (nothing is rewritten).
+  - **Audit events gain an optional `subject`:** the principal an event is about, when that isn't its actor (the person whose sessions an admin ended, or the person an anonymous request named). `AuditEventFilter.subject` matches events about a principal: `subject` where an event has one, else `actor`.
+  - **Bindings say whether they filter by it:** `AuditEventBinding.filtersBySubject`. The in-memory binding does. `GET /v1/audit/sign-ins?userId=` filters by `subject` with such a binding, and by `actor`, as before, with one that doesn't say so.
+  - **The sign-in event on the wire:** `userId` is the person the event is about, and the new `byUserId` is who acted, when that isn't them (the admin who ended their sessions).
+- a134048: A cookie-signed request refused for its origin (`403 csrf-origin-mismatch`) now names the address to use: "A request signed in by the session cookie can't come from http://localhost:4000; open the console at http://127.0.0.1:4000". The address is the first allowed origin. A server that checks same-origin only, with no list, keeps the old message.
+- b90e2c6: **Webhook triggers start runs: a signed request from WooCommerce, Drupal's Webhooks module, GitHub, Shopify or any Standard Webhooks sender starts a run of a flow.**
+  
+  - **The receiver, `POST /v1/hooks/{tenantId}/{webhookId}`,** sits outside the bearer chain. The request's signature, made with the trigger's secret over the raw body, is what lets it start the trigger's flow as the trigger's owner; a bearer token, if sent, is never read.
+    - **One answer for any request that doesn't prove its sender:** an unknown tenant or id, a missing, wrong or stale signature, or a secret that can't be read is `401 webhook-refused`. The reason goes only to the trigger's deliveries and, for the sender's own failures, the access audit (actor `webhook-sender`, the address in `evidence.clientAddress`); a secret that can't be read is the deployment's to fix, so it's on the deliveries only.
+    - **Gone and paused:** an unregistered trigger is `410 webhook-gone`, but only to a sender that proved itself. A paused trigger takes the delivery (`202`, a `skipped` fire) and starts nothing: the event is dropped.
+    - **Repeats:** a delivery whose dedupe key an earlier fire holds starts nothing (`200`, `duplicate: true`). The key is the trigger's delivery-id header and the body, because WooCommerce's delivery id is per second, not per event.
+    - **WooCommerce's ping:** its unsigned save-time ping (`webhook_id=<n>`) is answered `200` before any lookup.
+    - **Limits:**
+      - a body past 1 MiB, or past the trigger's `bodyLimitBytes` (default 256 KiB), is `413 webhook-body-too-large`;
+      - deliveries past the trigger's `rateLimitPerMinute` (default 600) are `429`;
+      - past 60 refusals a minute from one address (`webhookReceiver.clientAddress`), that address's further refusals are `429` and not recorded. The limit is checked only after verification: a validly signed delivery is never refused because of anyone's refusals, its own address's included. An unreadable secret never counts against a sender;
+      - a trigger records 20 refusals and skipped deliveries a minute, then only counts them (`suppressedRefusals`).
+    - **The signing key:** the receiver keeps a trigger's key for up to 10 seconds (`WEBHOOK_SIGNING_KEY_TTL_MS`), as a `KeyObject`, never a string, so a flood of bad signatures costs one secret read a trigger. A write through `createApp`'s secrets routes drops it at once; another instance's write is seen within those 10 seconds.
+    - **The event:** the flow's event is the body, parsed as JSON for a JSON content type (else `400 webhook-body-not-json`), or its text otherwise.
+    - **Mounting:** the receiver mounts with `createApp`'s new `webhookReceiver` (`envName`, `clientAddress`, `rateLimitStore`) when the trigger registry implements `findWebhook`, `fireWebhook` and `recordWebhookRefusal`, which replace `fetchActiveByWebhookId` (as `SchedulerBinding.fireByWebhookId` goes).
+  - **Webhook triggers are served again** (`/v1/webhooks` was hidden while no runtime served it), on the schedules model:
+    - **Project and owner:** a trigger has a project (`projectId`; the Default project if none is named) and an owner (the registrant, rechecked at every delivery).
+    - **Access:** it follows the project: `read`, `write`, `admin` to take ownership, plus `execute` on the flow to register, change the version or take ownership.
+    - **The signing scheme:** register and update take `signature` (`hmac-sha256` with a `hex` or `base64` header and an optional prefix, or `standard-webhooks`), `deliveryIdHeader`, `bodyLimitBytes` and `rateLimitPerMinute`. An update also takes `hmacSecretName`; `null` clears the last three.
+    - **Provider keys:** a model provider's key is refused as a trigger's secret (`400 provider-key-refused`); the receiver reads its secret through a guarded binding (`SecretUser` `'a webhook trigger'`), and `provider-key-in-use` names webhook triggers too.
+    - **New routes:** `GET /v1/webhooks?projectId=`, `GET /v1/webhooks/{id}/fires` (the deliveries; a fire keeps the event only until its run starts) and `POST /v1/webhooks/{id}/owner`.
+    - **The receive URL:** records carry `receiveUrl`, made from `createApp`'s new `publicUrl`, never from a request's `Host`. They also carry `owner`, `signature`, `bodyLimitBytes`, `rateLimitPerMinute` and `statusReason`.
+  - **`@kindgi/crypto`'s `verifyInboundSignature`** checks a request in a trigger's scheme, with Standard Webhooks through `verifyWebhook`; it takes the secret, or the `KeyObject` that `inboundSigningKey(scheme, secret)` derives from it (which `JSON.stringify` shows as `{}`). `@kindgi/types` has `WebhookSignatureScheme`.
+  - **The OpenAPI marks the receiver `x-kindgi-sender-only`:** the client generators skip it, because the receive URL is the sender's path, not a client's.
+  - **The TypeScript client** has `webhooks` again (`register`, `list`, `get`, `update`, `pause`, `resume`, `unregister`, `fires`, `takeOwnership`), and `@kindgi/sdk` exports `WebhooksClient`. The Python client has `client.webhooks`.
+  - **The CLI adds `kindgi webhooks`:** `register`, `list`, `get`, `update`, `pause`, `resume`, `fires`, `take-ownership` and `unregister`.
+    - **`register --preset=woocommerce|drupal-webhooks|github|shopify|standard-webhooks`** sets a sender's scheme and delivery-id header.
+    - **`--generate-secret --env=<env>`** makes a new secret (letters and digits; `whsec_…` for Standard Webhooks), stores it once the trigger is registered (a refused register leaves none behind), and shows it once.
+    - **The receive URL:** register and get print it, or why there's none (no `KINDGI_PUBLIC_URL`).
+    - **`pause`** says that a paused trigger drops events.
+- b90e2c6: A page cursor a list didn't issue answers `400 bad-input` on the agents, flows, policies and eval-suites `/versions` lists and on an agent's promotions, instead of the first page again.
+  - **The bindings say so:** the agent, flow, policy and eval-suite registries gain an optional `issuedCursor(list: 'versions', cursor)`, and the promotions binding an optional `issuedCursor(list: 'promotions', cursor)`. The route asks before it reads the list, and answers `400 bad-input` ("`cursor` is malformed") when the binding says no. A binding without the method gets any cursor, as before.
+  - **Why:** a binding that reads a cursor it didn't issue as no cursor hands back the first page, so a client paging until done would start over. The cursor stays opaque to the API: only the binding that issued it knows its shape.
+  - **The OpenAPI document** now lists the `400` on these operations, and on the blocks and tools `/versions` lists, which already answered it.
+- b90e2c6: `GET /v1/license`: where the deployment's license key stands. The response has `mode` (`licensed`, or `development` under `KINDGI_DEV`), `name`, `use`, `expiresAt`, `startsUntil` (until when the runtime still starts with the key), `daysLeft`, `standing` (`valid`; `expiring` with 30 days or fewer left; `grace` once expired, while the runtime still starts with it; `expired` after that) and `renewBy` (`command`, a key the deployment renews with `kindgi license renew`; `contact`, a key Kindgi issued). From 30 days before the key expires there's also `renew`: how to get the next key, as the startup banner says it, with where the deployment keeps its key and renewer. The key itself is never included.
+  
+  The license is the deployment's, not a tenant's. The deployment's own token reads all of it. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`), never whose key it is or where it's kept. Anyone else gets `403 license-operator-only`, recorded as an access decision. `createApp({ license })` takes a `LicenseStatusBinding`: `status()` is read on each request, and `soleTenant()` names the one tenant the deployment serves, or `null`. Without `soleTenant`, only the deployment's own token reads the license. Without a binding, the route isn't mounted (404). The TypeScript client has `client.license.get()`, and the Python client gets the same method.
+- b90e2c6: **An MCP endpoint can sign in with a user name and password, or with OAuth client credentials.** A new optional `auth` on the endpoint, beside `secretRef` (which stays the plain bearer form):
+  - **`basic`:** a `username` and a password secret (`secretRef`), sent as `Authorization: Basic`. For a WordPress site's MCP Adapter with an Application Password, for one.
+  - **`oauth2-client-credentials`:** a `tokenUrl`, a `clientId`, the client secret (`secretRef`), and optionally `scope`, `audience` and `clientAuth` (`client_secret_basic`, the default, or `client_secret_post`). The runtime fetches the access token and refreshes it before it expires. For a Drupal site's MCP Server with Simple OAuth, for one.
+  - **Secrets stay by reference:** registration stores and answers the reference only.
+  - **Refused at registration (`invalid-mcp-endpoint`):**
+    - `auth` with `secretRef` (`auth-with-secret-ref`);
+    - `auth` on a `stdio` endpoint (`auth-on-stdio`);
+    - `auth` beside an `Authorization` header in `config.headers` (`auth-with-authorization-header`);
+    - a token URL that isn't https, or http to a loopback host (`invalid-token-url`).
+  - **Model provider keys:** a key the tenant's providers use is refused as an `auth` secret too, and registering a provider whose key an endpoint's `auth` names answers `409 provider-key-in-use`.
+  - **New exports:** `MCPEndpointAuth` and its two scheme types, and `mcpEndpointSecretNames()`, which lists the secrets an endpoint names.
+  - **Clients:** the TypeScript and Python clients carry the new types.
+- ae6d594: **Security: a key can no longer mint a key that outlives it.** Before, `POST /v1/tokens` took the new key's `expiresAt` as given. A short-lived key, even one limited to a project, could therefore mint a key that never expires, and that key kept working after the short-lived one expired or was revoked.
+  - **A key that expires** mints only keys that expire no later than it does. A later `expiresAt`, or none at all, is refused with 403 `token-expiry-exceeds-minter`; the error's `details.latestExpiresAt` is the latest allowed time.
+  - **A console session opened by token sign-in** mints as the key it was opened with: the same limit and the same refusal. Once that key is revoked, the session's mint is refused with 401 `auth-revoked`.
+  - **Unchanged:**
+    - the deployment's own token and keys without an expiry, which may still mint keys that never expire;
+    - sessions from any other sign-in (an identity provider, a social sign-in, the emailed link).
+- b90e2c6: A judging rule's results count the runs their judgments come from: `runsWithJudgments` on each group (`GET /v1/projects/{projectId}/judging-rules/{ruleId}/results`). It counts the queued runs with at least one live judgment, whether the run's item is closed as `judged` yet or still `open`. Several people judging one run make several `judgments` but one run here, so a yes share's sample can be sized by runs, not only by judgments. It's optional: a runtime that doesn't count them leaves it out. The TypeScript client's types and the Python client (`runs_with_judgments`) carry it.
+- b90e2c6: Adding a team member names a person of the tenant, as adding a project member does.
+  - **`POST /v1/teams/{teamId}/memberships`:** someone who isn't a person of this tenant, was removed from it, or is named by an id that isn't one, is refused with 404 `identity-user-not-found`, and nothing is added. Before, a well-formed id the tenant doesn't have was added as a member, and a malformed one could fail with a 500 on a runtime's database.
+  - **`teamsRouter`** takes the identity directory (`createApp` passes `identityDirectory`, as it does to `projectsRouter`). Without a directory, an id is taken as given.
+  - **`TeamProjectGrant.grantedAt`** says it's also absent for a grant from before 0.1.6.
+- Updated dependencies [7bd61d6]
+- Updated dependencies [597173e]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [72f3582]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [fdb644c]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [dab4296]
+- Updated dependencies [049966d]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [f080a20]
+  - @kindgi/capabilities@0.1.7
+  - @kindgi/agents@0.1.7
+  - @kindgi/audit-events@0.1.7
+  - @kindgi/tools@0.1.7
+  - @kindgi/runtime@0.1.7
+  - @kindgi/crypto@0.1.7
+  - @kindgi/types@0.1.7
+  - @kindgi/compliance@0.1.7
+  - @kindgi/policy-contract@0.1.7
+  - @kindgi/platform@0.1.7
+  - @kindgi/guardrails@0.1.7
+  - @kindgi/flow@0.1.7
+  - @kindgi/provenance@0.1.7
+  - @kindgi/schema@0.1.7
+  - @kindgi/authz@0.1.7
+  - @kindgi/blob-binding@0.1.7
+  - @kindgi/memory@0.1.7
+  - @kindgi/log@0.1.7
+
 ## 0.1.7-rc.0
 
 ### Patch Changes
