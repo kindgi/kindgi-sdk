@@ -219,6 +219,7 @@ export type {
   ProjectMembershipsClient,
   ProjectTeamGrantsClient,
   ProjectPage,
+  ProjectProductionShape,
   ProjectRecordShape,
   ProjectRoleValue,
   TeamProjectGrantPage,
@@ -365,6 +366,10 @@ export type {
   SystemKeySpec,
   SystemKeysClient,
 } from './resources/system-keys.js';
+export type {
+  SystemTenantsClient,
+  TenantLimitsShape,
+} from './resources/system-tenants.js';
 export { SIGNED_EXPORT_ALGORITHMS, verifySignedExport } from './verify-export.js';
 export { docsUrl } from './docs-links.js';
 export type {

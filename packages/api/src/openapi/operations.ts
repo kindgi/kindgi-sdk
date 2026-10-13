@@ -1941,6 +1941,73 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
     },
   },
+  // ---------- system: tenant settings and usage ----------
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/production-allowed',
+    openapiPath: '/v1/system/tenants/{tenantId}/production-allowed',
+    operationId: 'systemTenants.setProductionAllowed',
+    summary: 'Allow a tenant production, or stop it',
+    description:
+      "The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant is allowed until it's switched off. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('ProductionAllowedBody') },
+    responses: {
+      '200': { description: "The tenant's switch now.", schema: ref('TenantProductionAllowed') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:production` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
+      ),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/limits',
+    openapiPath: '/v1/system/tenants/{tenantId}/limits',
+    operationId: 'systemTenants.setLimits',
+    summary: "Set a tenant's limits",
+    description:
+      "Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('TenantLimits') },
+    responses: {
+      '200': { description: "The tenant's limits now.", schema: ref('TenantLimitsResult') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:limits` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
+      ),
+    },
+  },
   // ---------- service accounts ----------
   {
     method: 'post',
@@ -7471,6 +7538,33 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'put',
+    honoPath: '/v1/projects/:projectId/production',
+    openapiPath: '/v1/projects/{projectId}/production',
+    operationId: 'projects.production.set',
+    summary: 'Put a project in production, or take it out',
+    description:
+      "A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the tenant), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the tenant isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. 501 `production-unsupported` from a runtime whose projects can't be put in production.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('ProjectProductionBody') },
+    responses: {
+      '200': {
+        description: 'The project is now as asked.',
+        schema: ref('ProjectProduction'),
+      },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "Not a tenant admin (`permission-denied`); or the tenant isn't allowed to put projects in production (`production-not-allowed`, `details.projectId`, `details.next` when the runtime names one).",
+      ),
+      '404': ErrorResponse('No project with that id under this tenant (`project-not-found`).'),
+      '501': ErrorResponse(
+        "The runtime's projects can't be put in production (`production-unsupported`).",
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/projects/:projectId/team-grants',
     openapiPath: '/v1/projects/{projectId}/team-grants',
@@ -7650,7 +7744,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tenant.get',
     summary: "Fetch the caller's tenant",
     description:
-      'Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant.',
+      "Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), and one that sets limits adds the tenant's `limits`.",
     tags: ['tenant'],
     security: 'bearer',
     responses: {
