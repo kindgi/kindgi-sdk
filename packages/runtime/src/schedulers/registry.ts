@@ -241,9 +241,9 @@ export interface TriggerFire {
    * `skipped`, as `detail` says: a webhook trigger was paused; what the
    * target waits for wasn't there (an `improve` schedule's threshold, or its
    * monthly cap); its project is suspended (`project-suspended`); or its run
-   * hadn't started when its tenant was suspended, and the restore concluded
-   * it (`tenant-suspended`). A skip for a suspension doesn't reset the count
-   * of refusals and failures in a row either.
+   * or pass hadn't started when its tenant was suspended, and the restore
+   * concluded it (`tenant-suspended`). A skip for a suspension doesn't reset
+   * the count of refusals and failures in a row either.
    */
   readonly outcome:
     | 'pending'

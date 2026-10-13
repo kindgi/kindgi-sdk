@@ -1733,7 +1733,7 @@ class SystemTenantsResource:
     ) -> _models.SystemTenant:
         """Suspend a tenant, or restore it. `PUT /v1/system/tenants/{tenantId}/suspended`
 
-        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
+        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
         """
         return self._client._request(
             _OPERATIONS["systemTenants.setSuspended"],
@@ -9474,7 +9474,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.SystemTenant:
         """Suspend a tenant, or restore it. `PUT /v1/system/tenants/{tenantId}/suspended`
 
-        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
+        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.setSuspended"],
