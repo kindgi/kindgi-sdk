@@ -109,19 +109,20 @@ export interface ProjectBinding {
    * runtime that meters usage records each change (`project.production`,
    * `on` or `off`) in the same transaction as the change.
    *
-   * With `options.projectsInProduction` (the tenant's limit), putting a
-   * project in production counts the tenant's projects already in
-   * production, and answers `limit-reached` without a change when they're
-   * at the limit or past it. The count and the change are one step: two
-   * projects put in production at once can't both pass on the last place.
-   * Taking a project out, and a project already in production, are never
-   * counted.
+   * With the tenant's limit set (`TenantLimits.projectsInProduction`),
+   * putting a project in production reads the limit, counts the tenant's
+   * projects already in production, and answers `limit-reached` without a
+   * change when they're at the limit or past it. The binding reads the
+   * limit itself, where the runtime keeps it, and the read, the count and
+   * the change are one step: two projects put in production at once can't
+   * both pass on the last place, and a limit changed meanwhile is the one
+   * counted against. Taking a project out, and a project already in
+   * production, are never counted.
    */
   setProduction?(
     tenantId: TenantId,
     projectId: ProjectId,
     production: boolean,
-    options?: ProjectProductionOptions,
   ): Promise<ProjectProductionOutcome>;
 }
 
@@ -189,12 +190,6 @@ export type ProjectCreateOutcome =
       readonly kind: 'org-not-found';
       readonly orgId: OrgId;
     };
-
-/** `ProjectBinding.setProduction`'s options. */
-export interface ProjectProductionOptions {
-  /** The tenant's limit on projects in production (`TenantLimits.projectsInProduction`); none when absent. */
-  readonly projectsInProduction?: number;
-}
 
 /** What `ProjectBinding.setProduction` did. */
 export type ProjectProductionOutcome =

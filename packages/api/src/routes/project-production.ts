@@ -4,12 +4,7 @@
 import { type Context, Hono } from 'hono';
 
 import { ref } from '@kindgi/authz';
-import type {
-  ProjectBinding,
-  ProjectProductionOptions,
-  TenantHierarchyBinding,
-  TenantSummary,
-} from '@kindgi/platform';
+import type { ProjectBinding, TenantHierarchyBinding, TenantSummary } from '@kindgi/platform';
 import type { ProjectId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
@@ -57,8 +52,9 @@ export interface ProjectProductionRouterOptions {
  *   project already in production stays so, and a repeat answers 200.
  * - **The limit:** with the tenant's `projectsInProduction` set, turning
  *   it on is refused with `403 production-limit-reached` while that many
- *   of its projects are in production, or more. The binding counts and
- *   sets in one step. Taking a project out is never refused.
+ *   of its projects are in production, or more. The binding reads the
+ *   limit, counts and sets in one step, so a limit changed meanwhile is
+ *   the one counted against. Taking a project out is never refused.
  * - **Repeats answer 200 unchanged:** setting what's already set writes
  *   nothing, and keeps the first `productionSince`.
  * - **The answer:** `{ projectId, productionSince }`, `null` when it's out
@@ -96,15 +92,15 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
     const project = await projects.get(tenantId, projectId);
     if (project === undefined) return refuse(c, requestId, projectNotFound(projectId));
 
-    // The gate and the limit guard going into production, not staying
-    // there: a project already in production answers its repeat unchanged.
-    const entry =
-      production && project.productionSince === undefined
-        ? await goingIn(tenantId, projectId)
-        : { options: undefined };
-    if ('refusal' in entry) return refuse(c, requestId, entry.refusal);
+    // The gate guards going into production, not staying there: a project
+    // already in production answers its repeat unchanged. The binding
+    // checks the limit.
+    if (gate && production && project.productionSince === undefined) {
+      const closed = gateRefusal(await tenantHierarchy.getTenant(tenantId), tenantId, projectId);
+      if (closed !== undefined) return refuse(c, requestId, closed);
+    }
 
-    const outcome = await projects.setProduction(tenantId, projectId, production, entry.options);
+    const outcome = await projects.setProduction(tenantId, projectId, production);
     if (outcome.kind === 'project-not-found') {
       return refuse(c, requestId, projectNotFound(projectId));
     }
@@ -116,24 +112,6 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
       productionSince: outcome.productionSince as unknown as string | null,
     });
   });
-
-  /**
-   * A project going into production: the gate's refusal, or what
-   * `setProduction` counts against (the tenant's limit, when it has one).
-   * The tenant is read fresh, so a limit just set or lowered applies.
-   */
-  async function goingIn(
-    tenantId: TenantId,
-    projectId: ProjectId,
-  ): Promise<
-    { readonly refusal: Refusal } | { readonly options: ProjectProductionOptions | undefined }
-  > {
-    const tenant = await tenantHierarchy.getTenant(tenantId);
-    const closed = gate ? gateRefusal(tenant, tenantId, projectId) : undefined;
-    if (closed !== undefined) return { refusal: closed };
-    const projectsInProduction = tenant?.limits?.projectsInProduction;
-    return { options: projectsInProduction !== undefined ? { projectsInProduction } : undefined };
-  }
 
   /**
    * Why the gate keeps the tenant out of production, or `undefined` when it

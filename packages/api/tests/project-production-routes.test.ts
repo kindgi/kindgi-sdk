@@ -47,7 +47,10 @@ interface Setup {
 }
 
 function makeApp(setup: Setup = {}) {
-  const trio = makeInMemoryProjectBinding();
+  // The binding reads the tenant's limit itself, as a runtime's does where it keeps it.
+  const trio = makeInMemoryProjectBinding({
+    productionLimit: () => setup.tenant?.limits?.projectsInProduction,
+  });
   const stubs = createStubAppBindings();
   const tenantHierarchyBinding: TenantHierarchyBinding = {
     ...stubs.tenantHierarchyBinding,

@@ -63,6 +63,11 @@ export function runProjectBindingConformance(
     readonly projects: ProjectBinding;
     readonly memberships: ProjectMembershipBinding;
     readonly grants: TeamProjectGrantBinding;
+    /**
+     * With `productionLimit`: set the tenant's limit on projects in
+     * production (`undefined` for none) where this binding reads it.
+     */
+    readonly setProductionLimit?: (tenantId: TenantId, limit: number | undefined) => Promise<void>;
   },
   label = 'ProjectBinding',
   options: {
@@ -78,9 +83,10 @@ export function runProjectBindingConformance(
      */
     readonly production?: boolean;
     /**
-     * Its `setProduction` counts against `options.projectsInProduction`:
-     * only the tenant's own projects, only going in, and two at once can't
-     * both take the last place.
+     * Its `setProduction` reads the tenant's limit (set through
+     * `setProductionLimit`) and counts against it: only the tenant's own
+     * projects, only going in, the limit as it is at the call, and two at
+     * once can't both take the last place.
      */
     readonly productionLimit?: boolean;
   } = {},
@@ -198,8 +204,6 @@ export function runProjectBindingConformance(
 
   if (options.productionLimit === true) {
     describe(`${label} — the limit on projects in production`, () => {
-      const limitOf = (projectsInProduction: number) => ({ projectsInProduction });
-
       async function threeProjects(projects: ProjectBinding, tenant: TenantId) {
         const ids: ProjectId[] = [];
         for (const name of ['One', 'Two', 'Three']) {
@@ -208,19 +212,23 @@ export function runProjectBindingConformance(
         return ids as [ProjectId, ProjectId, ProjectId];
       }
 
-      function setter(projects: ProjectBinding) {
-        const set = projects.setProduction?.bind(projects);
+      /** A fresh binding, its `setProduction`, and the setter of the tenant's limit. */
+      function limited() {
+        const made = makeBinding();
+        const set = made.projects.setProduction?.bind(made.projects);
         if (set === undefined) throw new Error('this binding has no setProduction');
-        return set;
+        const limit = made.setProductionLimit;
+        if (limit === undefined) throw new Error('productionLimit needs setProductionLimit');
+        return { projects: made.projects, set, limit };
       }
 
       it('at the limit: limit-reached, and nothing changes', async () => {
-        const { projects } = makeBinding();
+        const { projects, set, limit } = limited();
         const [a, b, c] = await threeProjects(projects, T1);
-        const set = setter(projects);
-        expect((await set(T1, a, true, limitOf(2))).kind).toBe('ok');
-        expect((await set(T1, b, true, limitOf(2))).kind).toBe('ok');
-        expect(await set(T1, c, true, limitOf(2))).toEqual({
+        await limit(T1, 2);
+        expect((await set(T1, a, true)).kind).toBe('ok');
+        expect((await set(T1, b, true)).kind).toBe('ok');
+        expect(await set(T1, c, true)).toEqual({
           kind: 'limit-reached',
           projectsInProduction: 2,
           inProduction: 2,
@@ -229,31 +237,49 @@ export function runProjectBindingConformance(
       });
 
       it("only the tenant's own projects count", async () => {
-        const { projects } = makeBinding();
+        const { projects, set, limit } = limited();
         const theirs = await threeProjects(projects, T2);
-        const set = setter(projects);
         for (const id of theirs) await set(T2, id, true);
         const [mine] = await threeProjects(projects, T1);
-        expect((await set(T1, mine, true, limitOf(1))).kind).toBe('ok');
+        await limit(T1, 1);
+        expect((await set(T1, mine, true)).kind).toBe('ok');
       });
 
       it('a repeat, and taking one out, are never counted', async () => {
-        const { projects } = makeBinding();
+        const { projects, set, limit } = limited();
         const [a, b] = await threeProjects(projects, T1);
-        const set = setter(projects);
-        expect((await set(T1, a, true, limitOf(1))).kind).toBe('ok');
-        expect(await set(T1, a, true, limitOf(1))).toMatchObject({ kind: 'ok', changed: false });
-        expect(await set(T1, a, false, limitOf(1))).toMatchObject({ kind: 'ok', changed: true });
-        expect((await set(T1, b, true, limitOf(1))).kind).toBe('ok');
+        await limit(T1, 1);
+        expect((await set(T1, a, true)).kind).toBe('ok');
+        expect(await set(T1, a, true)).toMatchObject({ kind: 'ok', changed: false });
+        expect(await set(T1, a, false)).toMatchObject({ kind: 'ok', changed: true });
+        expect((await set(T1, b, true)).kind).toBe('ok');
+      });
+
+      it('the limit as it is at the call: raised, lowered, then unset', async () => {
+        const { projects, set, limit } = limited();
+        const [a, b, c] = await threeProjects(projects, T1);
+        await limit(T1, 1);
+        expect((await set(T1, a, true)).kind).toBe('ok');
+        expect((await set(T1, b, true)).kind).toBe('limit-reached');
+        await limit(T1, 2);
+        expect((await set(T1, b, true)).kind).toBe('ok');
+        await limit(T1, 1);
+        expect(await set(T1, c, true)).toEqual({
+          kind: 'limit-reached',
+          projectsInProduction: 1,
+          inProduction: 2,
+        });
+        await limit(T1, undefined);
+        expect((await set(T1, c, true)).kind).toBe('ok');
       });
 
       it('a limit below the count refuses the next, and takes none out', async () => {
-        const { projects } = makeBinding();
+        const { projects, set, limit } = limited();
         const [a, b, c] = await threeProjects(projects, T1);
-        const set = setter(projects);
         await set(T1, a, true);
         await set(T1, b, true);
-        expect(await set(T1, c, true, limitOf(1))).toEqual({
+        await limit(T1, 1);
+        expect(await set(T1, c, true)).toEqual({
           kind: 'limit-reached',
           projectsInProduction: 1,
           inProduction: 2,
@@ -263,13 +289,10 @@ export function runProjectBindingConformance(
       });
 
       it('two projects put in production at once, with one place left: one goes in', async () => {
-        const { projects } = makeBinding();
+        const { projects, set, limit } = limited();
         const [a, b] = await threeProjects(projects, T1);
-        const set = setter(projects);
-        const outcomes = await Promise.all([
-          set(T1, a, true, limitOf(1)),
-          set(T1, b, true, limitOf(1)),
-        ]);
+        await limit(T1, 1);
+        const outcomes = await Promise.all([set(T1, a, true), set(T1, b, true)]);
         expect(outcomes.map((o) => o.kind).sort()).toEqual(['limit-reached', 'ok']);
         const live = [await projects.get(T1, a), await projects.get(T1, b)].filter(
           (p) => p?.productionSince !== undefined,
