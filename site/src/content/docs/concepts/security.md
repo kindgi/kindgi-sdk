@@ -146,7 +146,8 @@ controls that:
   connects all the same ([Set up SSO](../../guides/sso/)).
 - **`isolated`** is for a runtime whose tenants don't trust one another. It
   refuses all that `deployed` does, and also private networks (RFC 1918,
-  CGNAT and IPv6 unique-local addresses) wherever configuration names a host,
+  CGNAT, and IPv6 unique-local and site-local addresses) wherever
+  configuration names a host,
   and the runtime's own cloud credentials: a model provider can't sign in as
   the runtime. A Gemini provider on Vertex AI then needs a service-account key
   in `secret_ref`, and Azure OpenAI's `auth: entra` and Bedrock's
