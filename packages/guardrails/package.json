@@ -30,6 +30,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@kindgi/bounds": "workspace:*",
     "@kindgi/capabilities": "workspace:*",
     "@kindgi/compliance": "workspace:*",
     "@kindgi/schema": "workspace:*",

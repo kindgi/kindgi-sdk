@@ -10,6 +10,8 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { HOSTED_BOUNDS } from '@kindgi/bounds';
+import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
@@ -32,12 +34,18 @@ const GRANTS: Readonly<Record<string, readonly string[]>> = {
   bob: [],
 };
 
+/** `alice-key-p1` is alice with an API key limited to project P1. */
 const resolveToken: TokenResolver = async (token) =>
   token === 'alice' || token === 'bob'
     ? { tenantId, userId: token as UserId, scopes: [], capabilities: [] }
-    : null;
+    : token === 'alice-key-p1'
+      ? { tenantId, userId: 'alice' as UserId, scopes: [], capabilities: [], tokenProjectId: P1 }
+      : null;
 
-function memoryBlobs(): BlobStorageBinding & { readonly rows: Map<string, BlobMeta> } {
+function memoryBlobs(): BlobStorageBinding & {
+  readonly rows: Map<string, BlobMeta>;
+  readonly bytes: Map<string, Uint8Array>;
+} {
   const rows = new Map<string, BlobMeta>();
   const bytes = new Map<string, Uint8Array>();
   const read = async (b: ReadableStream<Uint8Array> | Uint8Array) =>
@@ -85,7 +93,7 @@ function memoryBlobs(): BlobStorageBinding & { readonly rows: Map<string, BlobMe
       return { kind: 'ok', value: { deleted: rows.delete(id) } };
     },
   };
-  return Object.assign(binding as BlobStorageBinding, { rows });
+  return Object.assign(binding as BlobStorageBinding, { rows, bytes });
 }
 
 function decision(user: string, action: Action, resource: ResourceRef): Decision {
@@ -97,7 +105,7 @@ function decision(user: string, action: Action, resource: ResourceRef): Decision
   };
 }
 
-function harness(options: { authz?: boolean; maxBytes?: number } = {}) {
+function harness(options: { authz?: boolean; maxBytes?: number; defaultProject?: string } = {}) {
   const stubs = createStubAppBindings();
   const blobs = memoryBlobs();
   const run = {
@@ -109,7 +117,7 @@ function harness(options: { authz?: boolean; maxBytes?: number } = {}) {
     ...stubs,
     kernelBinding: { ...stubs.kernelBinding, run },
     projectBinding: {
-      getDefault: async () => ({ id: P1 as ProjectId }),
+      getDefault: async () => ({ id: (options.defaultProject ?? P1) as ProjectId }),
     } as never,
     resolveToken,
     runHandler: {} as RunHandlerBinding,
@@ -142,7 +150,30 @@ function harness(options: { authz?: boolean; maxBytes?: number } = {}) {
     const text = await res.text();
     return { status: res.status, text, json: () => JSON.parse(text) as Record<string, any> };
   };
-  return { upload, call, blobs };
+  /** A multipart body sent as the same bytes each time, as a client's retry sends it. */
+  const sendBytes = async (as: string, sent: Request, headers: Record<string, string> = {}) => {
+    const res = await app.request('/v1/artifacts', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${as}`,
+        'content-type': sent.headers.get('content-type') ?? '',
+        ...headers,
+      },
+      body: await sent.clone().arrayBuffer(),
+    });
+    return { status: res.status, body: (await res.json()) as Record<string, any> };
+  };
+  /** A body sent as given (a stream included), multipart by its header. */
+  const sendRaw = async (as: string, body: Uint8Array | ReadableStream<Uint8Array>) => {
+    const res = await app.request('/v1/artifacts', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${as}`, 'content-type': 'multipart/form-data; boundary=x' },
+      body,
+      ...(body instanceof ReadableStream && { duplex: 'half' }),
+    } as RequestInit);
+    return { status: res.status, body: (await res.json()) as Record<string, any> };
+  };
+  return { upload, sendBytes, sendRaw, call, blobs };
 }
 
 describe('artifacts belong to a project', () => {
@@ -221,7 +252,125 @@ describe('reading and deleting', () => {
   });
 });
 
+describe('an upload sent with an Idempotency-Key', () => {
+  test('keeps its bytes as sent, and a repeat replays the first answer', async () => {
+    const h = harness();
+    const binary = new Uint8Array([0xff, 0x00, 0x80, 0xfe, 0x41]);
+    const form = new FormData();
+    form.set('file', new Blob([binary], { type: 'application/octet-stream' }), 'b.bin');
+    const sent = new Request('http://localhost/', { method: 'POST', body: form });
+    const key = { 'idempotency-key': 'upload-1' };
+    const first = await h.sendBytes('alice', sent, key);
+    expect(first.status).toBe(201);
+    expect(h.blobs.bytes.get(first.body.blobId)).toEqual(binary);
+    const again = await h.sendBytes('alice', sent, key);
+    expect(again).toEqual(first);
+    expect(h.blobs.rows.size).toBe(1);
+  });
+});
+
+describe('a key limited to a project', () => {
+  test("an upload naming nothing lands in the key's project, not the tenant's default", async () => {
+    const h = harness({ defaultProject: P2 });
+    const r = await h.upload('alice-key-p1');
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ projectId: P1, createdBy: 'user:alice' });
+  });
+
+  test('its own project is fine; another, named or through an owner run, is refused', async () => {
+    const h = harness();
+    expect((await h.upload('alice-key-p1', { projectId: P1 })).status).toBe(201);
+    for (const fields of [{ projectId: P2 }, { ownerRunId: RUN_IN_P2 }]) {
+      const r = await h.upload('alice-key-p1', fields);
+      expect(r.status).toBe(403);
+      expect(r.body.error).toMatchObject({
+        code: 'key-project-mismatch',
+        details: { keyProjectId: P1, projectId: P2 },
+      });
+    }
+    expect(h.blobs.rows.size).toBe(1);
+  });
+
+  test('an upload sent again with its Idempotency-Key replays the first answer', async () => {
+    const h = harness();
+    const form = new FormData();
+    form.set('file', new Blob(['hello'], { type: 'text/plain' }), 'note.txt');
+    const sent = new Request('http://localhost/', { method: 'POST', body: form });
+    const key = { 'idempotency-key': 'upload-p1' };
+    const first = await h.sendBytes('alice-key-p1', sent, key);
+    expect(first.status).toBe(201);
+    expect(await h.sendBytes('alice-key-p1', sent, key)).toEqual(first);
+    expect(h.blobs.rows.size).toBe(1);
+  });
+
+  test('a JSON body labelled multipart is bad input, and nothing is stored', async () => {
+    const h = harness();
+    const json = new Request('http://localhost/', {
+      method: 'POST',
+      headers: { 'content-type': 'multipart/form-data; boundary=x' },
+      body: JSON.stringify({ name: 'note.txt' }),
+    });
+    const r = await h.sendBytes('alice-key-p1', json);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatchObject({ code: 'bad-input' });
+    expect(h.blobs.rows.size).toBe(0);
+  });
+});
+
+describe("an upload's body is never read as JSON", () => {
+  const multipartBytes = (text: string) => new TextEncoder().encode(text);
+
+  test('a JSON body over 2 MiB nested past the limit, labelled multipart, is the route’s to refuse', async () => {
+    const restore = overrideTenantInputBounds(HOSTED_BOUNDS);
+    try {
+      const deep = `${'['.repeat(129)}${' '.repeat(2 * 1024 * 1024)}${']'.repeat(129)}`;
+      const r = await harness().sendRaw('alice', multipartBytes(deep));
+      expect(r.status).toBe(400);
+      expect(r.body.error).toEqual(
+        expect.objectContaining({ code: 'bad-input', message: 'Malformed multipart body' }),
+      );
+      expect(r.body.error.details).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
+  test('a key limited to a project: a JSON body naming another project, labelled multipart, is the route’s to refuse', async () => {
+    const h = harness();
+    const r = await h.sendRaw('alice-key-p1', multipartBytes(JSON.stringify({ projectId: P2 })));
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatchObject({ code: 'bad-input', message: 'Malformed multipart body' });
+    expect(h.blobs.rows.size).toBe(0);
+  });
+});
+
 describe('the upload cap', () => {
+  test("on hosted, an upload over the API's 2 MiB limit is under its own", async () => {
+    const restore = overrideTenantInputBounds(HOSTED_BOUNDS);
+    try {
+      const r = await harness().upload('alice', {}, 'x'.repeat(3 * 1024 * 1024));
+      expect(r.status).toBe(201);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a streamed upload is read no further than its cap', async () => {
+    const h = harness({ maxBytes: 256 * 1024 });
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pulled >= 10 * 1024 * 1024) return controller.close();
+        pulled += 64 * 1024;
+        controller.enqueue(new Uint8Array(64 * 1024));
+      },
+    });
+    const r = await h.sendRaw('alice', stream);
+    expect(r.status).toBe(413);
+    expect(r.body.error).toMatchObject({ code: 'artifact-too-large' });
+    expect(pulled).toBeLessThanOrEqual(256 * 1024 + 2 * 64 * 1024);
+  });
+
   test('over the cap is 413 artifact-too-large, saying how much is allowed', async () => {
     // The cap counts the whole request body, multipart framing included.
     const h = harness({ maxBytes: 1024 });

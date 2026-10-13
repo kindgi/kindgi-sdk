@@ -1,285 +1,36 @@
 ---
 title: Operate a self-hosted runtime
-description: Check, back up, restore and upgrade a self-hosted Kindgi runtime, and rotate its tokens and keys.
+description: Restart, check, back up, restore and upgrade a self-hosted Kindgi runtime, and rotate its tokens and keys.
 sidebar:
   order: 3
 ---
 
-This page continues [Self-host Kindgi](../self-host/): the same containers (`kindgi-server`, `kindgi-db`, `kindgi-pack`), the same `kindgi.env` and `pack.env`, and the same pack. Commands that take your API token read it from `$KINDGI_API_TOKEN`.
-
-## Restart the runtime
-
-The runtime reads its settings when it starts, so most changes on this page take a restart:
-
-```sh
-docker stop --time 30 kindgi-server
-docker rm kindgi-server
-docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
-  --add-host registry.localhost:host-gateway \
-  -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.6
-```
-
-On a stop, the runtime stops taking requests and gives the runs it's executing up to 7 seconds to finish, then exits with code 0. `--time 30` gives it that time before Docker kills it.
-
-:::caution[Runs in flight]
-A run that was executing when the runtime stopped, and didn't finish in time, can be left `running`: nothing resumes it. Cancel it, and start it again:
-
-```sh
-pnpm exec kindgi runs cancel <run id> --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
-```
-
-To avoid it, restart when no runs are executing.
-:::
-
-## Check health and logs
-
-The log lines on this page are in the pretty format. A runtime in a container
-logs JSON unless `KINDGI_LOG_FORMAT=pretty` is set; [Logs](../logs/) has both
-formats, the levels, and how to follow one request.
-
-```sh
-curl -s http://localhost:4000/health
-```
-
-```text
-{"ok":true}
-```
-
-Point a load balancer's health check at `/ready` (or `/health`), not `/`:
-`/` leads to the console (a `302`), and without the console it answers `200`
-even while the database is down, so a check on `/` would pass a broken
-runtime.
-
-`/health` says the process is up. `/ready` says its database answers too, within two seconds. Neither needs a token:
-
-```sh
-curl -s http://localhost:4000/ready
-```
-
-```text
-{"ok":true,"database":"ok"}
-```
-
-While Postgres is unreachable, `/ready` answers `503` with `{"ok":false,"database":"unreachable"}`, and `/health` still answers `{"ok":true}`. Use `/ready` for a load balancer's or platform's readiness check. The image's own health check uses it, so `docker ps` shows the runtime's state:
-
-```sh
-docker ps --filter name=kindgi-server --format 'table {{.Names}}\t{{.Status}}'
-```
-
-```text
-NAMES           STATUS
-kindgi-server   Up 34 seconds (healthy)
-```
-
-`docker ps` shows `(unhealthy)` while the database is down, and the runtime's log says why:
-
-```text
-17:37:34.151 WARN  [ready] the database doesn't answer: no answer within 2000 ms
-```
-
-A route that reads the database answers `500` and names the cause. With Postgres unreachable, `GET /v1/deployments` answers:
-
-```sh
-curl -s http://localhost:4000/v1/deployments -H "authorization: Bearer $KINDGI_API_TOKEN"
-```
-
-```text
-{"error":{"code":"internal-server-error","message":"Deployment list failed: deployments: Tenant-scoped query failed: host not found (getaddrinfo ENOTFOUND kindgi-db)","requestId":"req-…"}}
-```
-
-### The startup log
-
-The runtime prints what it's running with when it starts (`docker logs kindgi-server`; in the JSON format they're the `lines` of its `boot` record). The lines to check after a change:
-
-```text
-  Token:   kgi_bt_…3236 (provided)
-  …
-  Public run tokens: off (no signing key)
-  …
-  License: …
-  …
-  Env: production (tool secrets resolve in it)
-  Tenant host access: deployed (stdio MCP endpoints refused; tenant-chosen hosts can't reach the metadata server or this host; KINDGI_TENANT_HOST_ACCESS)
-  Pack service: http://…:8080 — acme-pack (artifact …), protocol 2, 3 tools, 1 check
-```
-
-- **`Token`:** the last four characters of the API token it accepts.
-- **`License`:** who the key is for, its kind and its end date. A warning follows within 30 days of the end.
-- **`Pack service`:** the pack it reached, with its artifact version. When it can't reach it, a warning takes this line's place, with the reason.
-
-### After a crash
-
-When the runtime comes back after stopping without a shutdown, its sweep
-repairs the runs the stop left mid-way
-([If the runtime stops](../../concepts/runs/#if-the-runtime-stops)). Each
-repair is a line in its log:
-
-```text
-<time> INFO  [leases] resuming run <run id> (tenant <tenant id>): its wait resolved and nothing resumed it
-<time> INFO  [leases] woke the flow run waiting on child run <run id> …: the child had moved on
-<time> INFO  [leases] ended run <run id> …: its parent run had ended
-```
-
-### Where errors show
-
-- **A setting the runtime refuses** (a missing license key, or a log setting it can't use): it exits with code 2, and its log says what to fix.
-- **A database it can't reach while starting:** it exits with code 1, and its log says which database and why, never the password. Here Postgres wasn't running:
-
-  ```sh
-  docker inspect --format '{{.State.ExitCode}}' kindgi-server
-  docker logs kindgi-server
-  ```
-
-  ```text
-  1
-  Can't connect to the database at kindgi-db:5432/kindgi: host not found (getaddrinfo ENOTFOUND kindgi-db). Check KINDGI_DATABASE_URL, and that Postgres is up and reachable from here.
-  ```
-
-- **Another failure while starting:** it exits with code 1, and the log's first line starts with `kindgi-runtime: fatal:` and ends with the cause.
-
-- **A run that fails:** its `failureMessage`, in `pnpm exec kindgi runs get <run id>`.
-
-## Back up Postgres
-
-The runtime keeps its state in Postgres: deployments, trusted keys, providers, runs and their journals. Back it up with `pg_dump`, while the runtime runs:
-
-```sh
-docker exec kindgi-db pg_dump -U kindgi -Fc kindgi > kindgi-backup.dump
-```
-
-`-Fc` is pg_dump's custom format, which `pg_restore` reads. The dump holds your runs' inputs and outputs: store it like the database.
-
-If the runtime stores model keys ([Models that need a key](../self-host/#8-add-a-model-and-run-a-flow)), the dump holds them encrypted, but not the keys that open them. Back up the secrets store's keys too, apart from the dump: the AAD key, and the local key (with Google Cloud KMS, that key stays in KMS). A restore needs the same ones. A runtime started with another local key stops with exit code 2:
-
-```text
-The secrets' local key changed: tenant 207f5388-1737-45c0-a02c-b5388ca12da0's secrets were stored under local:42080424744213e5, and this key is local:f6bc4a15bef0d446. Start with the key they were stored under (KINDGI_SECRETS_LOCAL_KEY_PATH or KINDGI_SECRETS_LOCAL_KEY).
-```
-
-A different AAD key isn't checked when the runtime starts, so keep the two keys together.
-
-## Restore into a fresh database
-
-Start a new Postgres, and restore the backup into it once it accepts connections:
-
-```sh
-docker run -d --name kindgi-db-restored --network kindgi \
-  -e POSTGRES_USER=kindgi -e POSTGRES_PASSWORD="$DB_PASSWORD" -e POSTGRES_DB=kindgi \
-  -v kindgi-db-restored:/var/lib/postgresql/data \
-  pgvector/pgvector:pg16
-
-docker exec kindgi-db-restored pg_isready -U kindgi -d kindgi
-docker exec -i kindgi-db-restored pg_restore -U kindgi -d kindgi --no-privileges < kindgi-backup.dump
-```
-
-`--no-privileges` leaves out the backup's grants. The runtime grants its database role what it needs every time it starts, and a fresh server doesn't have that role yet.
-
-Point the runtime at the new database in `kindgi.env`:
-
-```sh
-KINDGI_DATABASE_URL=postgres://kindgi:<DB_PASSWORD>@kindgi-db-restored:5432/kindgi
-```
-
-Then [restart the runtime](#restart-the-runtime). A run from before the backup is there:
-
-```sh
-pnpm exec kindgi runs get <run id> --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
-```
-
-```text
-  "status": "completed",
-  …
-  "output": {
-    "reply": "Hello, Ada! It's great to meet you. How can I assist you today?",
-    "greeting": "Hello, Ada!"
-  }
-```
-
-A backup taken before an [erasure](../../guides/agents/erase-a-persons-data/)
-brings back what it cleared: replay the erasures next
-([Erasures and backups](#erasures-and-backups)).
-
-## Erasures and backups
-
-An erasure keeps no identifier of whom it erased, only a keyed hash in the
-erasure ledger, so a replay after a restore can find them again. Give the
-runtime the ledger's key:
-
-- **`KINDGI_ERASURE_LEDGER_KEY_PATH`:** the absolute path of a file holding
-  32 random bytes (`openssl rand 32`), mode `0600`;
-- **or `KINDGI_ERASURE_LEDGER_KEY`:** the same 32 bytes, base64, where secrets
-  come as environment variables.
-
-Use the same key on every replica, whatever the secrets backend, and keep it
-the same across a restore: losing it means losing replay. Without it,
-erasures still run, but each answers with an `erasure-unmatchable` warning,
-and a replay can't find whom it erased.
-
-Three places say whether erasures can be replayed:
-- **the startup log's `Erasures` line**, with the key:
-
-  ```text
-  …
-    Erasures: on; the ledger is replayable after a backup restore (key from KINDGI_ERASURE_LEDGER_KEY)
-  …
-  ```
-
-  and without it:
-
-  ```text
-  …
-    Erasures: on, but NOT replayable after a backup restore: no KINDGI_ERASURE_LEDGER_KEY, so the ledger can't keep a keyed hash
-  …
-  ```
-
-- **`/ready`'s `erasures`:** `replayable` or `unreplayable`;
-- **`kindgi doctor`'s `erasures` check.** It never fails, since a runtime
-  without the key is fine for development. With the key, then without it:
-
-  ```text
-  …
-    ✓ Erasures: Erasures can be replayed after a backup restore: the runtime has the erasure ledger key.
-  …
-  ```
-
-  ```text
-  …
-    – Erasures: Erasures run, but a replay after a backup restore can't find whom they erased: the runtime has no KINDGI_ERASURE_LEDGER_KEY. Fine for development; set it where you run in production.
-  …
-  ```
-
-Then:
-
-1. **Export the ledger off-box, regularly:** a restore rolls it back with
-   everything else.
-
-   ```sh
-   kindgi memory erasures export --out=erasures-$(date +%F).json
-   ```
-
-2. **After a restore, replay the latest export** before the runtime serves
-   anyone. It erases again whoever the restored database holds:
-
-   ```sh
-   kindgi memory erasures replay erasures-<date>.json
-   ```
-
-   Its answer lists the erasures it `replayed`, the ones it `restored` to the
-   ledger, and any it couldn't match (`unmatched`).
-
-Two more things keep erasures complete:
-
-- **End users' ids are opaque:** give `participantId` an id your app uses
-  for the person, never an email or a name. Ids stay on records an erasure
-  keeps.
-- **Postgres can keep a cleared row's old version on disk** until it's
-  vacuumed. Where that matters, run `VACUUM` (and `REINDEX` for indexes) on
-  the database after erasures.
+This page leads to everything you do to keep a self-hosted runtime running,
+and says what to check at each upgrade.
+
+These pages continue [Self-host Kindgi](../self-host/): the same containers
+(`kindgi-server`, `kindgi-db`, `kindgi-pack`), the same `kindgi.env` and
+`pack.env`, and the same pack. Commands that take your API token read it from
+`$KINDGI_API_TOKEN`.
+
+- [Restart the runtime and check its health](../restart-and-check-health/):
+  a restart that loses no runs, the health routes, the startup log, and where
+  errors show.
+- [Back up and restore the runtime's database](../back-up-and-restore/):
+  `pg_dump`, the keys a restore needs, a restore into a fresh database, and
+  replaying erasures after it.
+- [Rotate the runtime's tokens and keys](../rotate-keys/): the API token, the
+  pack service token, the license key, a signing key and the public run
+  token key.
+- [Renew the license key](../renew-the-license-key/): by hand or on a
+  schedule.
+- [Logs](../logs/): the log formats, the levels, and how to follow one
+  request.
 
 ## Upgrade the runtime
 
-1. [Back up Postgres.](#back-up-postgres)
-2. Pull the new version, and [restart](#restart-the-runtime) with it, with the same `kindgi.env`:
+1. [Back up Postgres.](../back-up-and-restore/#back-up-postgres)
+2. Pull the new version, and [restart](../restart-and-check-health/#restart-the-runtime) with it, with the same `kindgi.env`:
 
    ```sh
    docker pull quay.io/kindgi/runtime:<version>
@@ -293,7 +44,7 @@ Two more things keep erasures complete:
 
 When it starts, the runtime brings the database up to date: it applies the migrations the database doesn't have yet, then serves. On a database that has them all, it applies nothing, so a restart on the same version changes nothing. The log doesn't list them: once the `Kindgi API server listening` lines appear, they're done. If one fails, the runtime exits with code 1, and its log says `kindgi-runtime: fatal: Error: migration failed for …` and why.
 
-Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
+Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](../back-up-and-restore/#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
 
 ### Checks you can run before upgrading
 
@@ -330,6 +81,231 @@ The runtime logs the same at every start, one `WARN` per tool version or endpoin
 ```json
 {"time":"2026-10-10T10:15:40.130Z","level":"warn","severity":"WARNING","subsystem":"providers.keys","message":"provider-key-declared tenant=… tool=acme.translate@1.0.0 secret=ANTHROPIC_API_KEY provider=anthropic: a model provider's key is used by its provider only, so this tool's calls are refused. Store the key it needs under its own name and use that name","tenantId":"…","kind":"tool","id":"acme.translate","version":"1.0.0","secretName":"ANTHROPIC_API_KEY","providerId":"anthropic"}
 ```
+
+### From 0.1.6 to 0.1.7
+
+The database migrates when 0.1.7 starts. One step adds a check to the table
+of trigger fires: Postgres reads the table under a lock while it adds it,
+and since fires are kept 30 days, that's short.
+
+#### Security fixes in 0.1.7
+
+- **The server's environment reached model providers' calls.** The model
+  SDKs fill options a call leaves out from environment variables. On a
+  runtime whose environment set them:
+  - `ANTHROPIC_AUTH_TOKEN` was sent as a bearer beside each Anthropic
+    provider's own key;
+  - `ANTHROPIC_BASE_URL` sent every Anthropic provider's calls, with that
+    provider's key, to that address instead of Anthropic's API;
+  - `OPENAI_ORG_ID` and `OPENAI_PROJECT_ID` went as headers to each
+    OpenAI-compatible provider's base URL;
+  - `GOOGLE_GENAI_USE_VERTEXAI` (or `GOOGLE_GENAI_USE_ENTERPRISE`) moved a
+    Gemini Developer API provider to Vertex AI, in the project the
+    environment named.
+
+  0.1.7's adapters set these options themselves, so nothing of the server's
+  environment goes out with a provider's call. If your runtime's environment
+  set `ANTHROPIC_BASE_URL` to an address you don't fully trust, rotate the
+  Anthropic keys of the providers it ran, and `ANTHROPIC_AUTH_TOKEN` too if
+  it was set.
+- **A tenant's identity provider skipped the egress guard.** The requests to
+  a tenant's SSO identity provider (OIDC discovery when the provider is
+  registered; the token, JWKS and userinfo requests at sign-in) didn't go
+  through `KINDGI_TENANT_HOST_ACCESS`'s checks, as the other hosts tenant
+  configuration names do. In 0.1.7 they do, checked at each connection; a
+  discovery the guard refuses answers `422 identity-provider-invalid`.
+  Origins listed in `KINDGI_AUTH_PRIVATE_IDP_ORIGINS` connect as before
+  ([What a tenant can't make the server do](../../concepts/security/#what-a-tenant-cant-make-the-server-do)).
+- **A key could mint a key that outlived it.** A key that expires, even one
+  limited to a project, could make a key that never expires, which kept
+  working after the first one expired or was revoked. In 0.1.7, from a key
+  that expires, a new key needs an `expiresAt` (`--expires` in the CLI) no
+  later than it (`403 token-expiry-exceeds-minter`). A console signed in
+  with a key mints as that key. The deployment's token, keys without an
+  expiry and other sign-ins are unchanged
+  ([API keys](../people-and-keys/#api-keys)).
+
+#### What to check, and what's different
+
+What to check before you upgrade, and what's different after:
+
+- **Rebuild your packs with the 0.1.7 CLI:**
+  - **A parameter named `input` is refused** when an agent or a prompt block
+    is defined, as `today`, `now`, `agent`, `conversation` and `settings`
+    were. Before, it was accepted, and a turn's structured input silently
+    replaced its value. Rename it.
+  - **A pack's `providers` declarations are checked against their
+    preset:** a preset's own settings are required, and another preset's
+    are refused, by the types and by `kindgi dev`, which names whose setting
+    it is. In TypeScript, `preset` is one of the preset names
+    (`KindgiPresetName`, from `@kindgi/handler-runtime`), so a name computed
+    at run time needs `as KindgiPresetName`
+    ([Declare them in your pack's config](../../guides/models/#declare-them-in-your-packs-config)).
+- **The runtime image carries the `kindgi` CLI,** which runs the license
+  renewal jobs. On linux/amd64 it downloads 290 MB, up from 276 MB.
+- **Embedding `@kindgi/agents`:** `AGENTS_MIGRATIONS_DIR` is only on the
+  runtime-only subpath `@kindgi/agents/migrations` now, with no alias.
+- **The API:**
+  - A page cursor a list didn't issue answers `400 bad-input` on the
+    agents, flows, policies and eval-suites `/versions` lists and on an
+    agent's promotions, as it does on blocks' and tools' `/versions`.
+  - When an admin ends someone's sessions, it shows on that person's
+    sign-in history (`GET /v1/audit/sign-ins?userId=`), with `byUserId`
+    saying who, and no longer on the admin's.
+  - Adding a team member who isn't a person of the tenant, was removed, or
+    is named by a malformed id is refused with `404 identity-user-not-found`,
+    as adding a project member is. Before, an unknown id was added.
+  - A judging rule's results count the runs their judgments come from
+    (`runsWithJudgments`).
+- **Models:**
+  - Claude Haiku 4.5 asks for up to 16,000 output tokens by default in the
+    `anthropic` and `bedrock` presets (it was 8,192). A model's
+    `maxOutputTokens` is the default cap a call gets when its agent sets
+    none, not the model's own limit. A provider you registered from the
+    preset by hand keeps 8,192 until you register the preset again
+    (`kindgi providers unregister <id>`, then `register --preset=…`); one
+    your pack declares updates at the next `kindgi dev` start. An agent with
+    its own `maxOutputTokens` isn't affected.
+  - A typed agent is told its output's name and JSON Schema from the first
+    model call, so most typed turns no longer pay for a repair call.
+- **The console:**
+  - Its data pages are one kind of table: headers that sort, a search box on
+    the lists, a **Columns** menu, and each view kept in the page's address.
+    The judging queue's **Show more** reads **Load more**, and a flow run's
+    row on the Runs page opens to its agent turns.
+  - On a run's Overview, a step that ended with its run reads **Cancelled**
+    ("Stopped: the run failed" in a failed run), and the Journal marks each
+    such start
+    ([After a cancel](../../guides/runs/cancel-a-run/#after-a-cancel)).
+  - Signing in with an emailed link, or with Google, Microsoft or GitHub,
+    returns you to the console page you were opening, and a console link
+    without its workspace (`/console/projects/…`) opens in yours.
+  - A tenant admin sees a line on every console page from 30 days before
+    the license key expires, with how to renew.
+- **`kindgi dev`:**
+  - **There's one per pack.** A second `kindgi dev` in the same pack exits
+    with code 3 ("kindgi dev is already running for this pack") and says
+    where the running one is: its process id, the console and the API
+    (with `--json`, as `{ "running": {…} }`). Before, it took over the
+    first one's runtime. `--reset` and
+    `--recreate-services` are refused the same way while one runs
+    ([Your coding agent](../../start/coding-agents/#what-it-runs)).
+  - The console works at `localhost`, `127.0.0.1` or `[::1]` on the
+    runtime's port. A request from anywhere else is refused, and the refusal
+    now names the address to use
+    ([Requests from other sites](../../guides/sso/sessions/#requests-from-other-sites)).
+  - It says what it's doing while it starts: pulling the image (with its
+    size and progress), starting the container, migrating the database, and
+    waiting for it to serve, each with its time.
+- **The CLI:**
+  - In an app Kindgi was added to, `kindgi init` sets up the tests
+    `kindgi test` runs (vitest and vite, and a `vitest.config.mts` that maps
+    your tsconfig paths); an app that runs vitest already keeps its own
+    setup and is told what to add. It pins zod, vitest and vite exactly when
+    your app pins exactly, else as a range.
+  - `kindgi doctor` names the config file it found.
+  - `kindgi guardrails list --table` prints a table.
+  - Printed npm commands read `npx --no -- kindgi …`, so a flag such as
+    `--help` reaches Kindgi rather than npx.
+  - An app that imports an agent file (for its output schema) builds with
+    Next.js or webpack, with no `serverExternalPackages`.
+- **Fixed:**
+  - **A runtime starting while another serves the same database no longer
+    fails** with `enable-rls … deadlock detected`, and the serving one no
+    longer answers `500` "Tenant-scoped query failed: deadlock detected". A
+    start on an up-to-date database now takes no lock a serving instance's
+    writes wait for, so a deploy, restart or scale-up no longer stalls
+    writes.
+  - **An MCP tool whose name contains `__` can be called.** Two tools that
+    would go to the model under one name (`acme.a__b` and `acme.a.b`) are
+    refused before the call, naming both: rename one of them.
+- **New in 0.1.7:**
+  - **Webhook triggers:** a signed request from WooCommerce, Drupal's
+    Webhooks module, GitHub, Shopify or any Standard Webhooks sender starts
+    a run of a flow, acting as whoever registered the trigger
+    (`kindgi webhooks`, and
+    `webhooks` in the TypeScript, Python and Java clients;
+    [Start runs from WooCommerce, Drupal or any signed webhook](../../guides/webhooks/start-runs-from-webhooks/)).
+  - **A webhook's event, typed:** `parseEvent` in `@kindgi/sdk/webhooks`
+    reads the event in a verified request's body, as Python's
+    `webhooks.parse_event` does
+    ([Verify a webhook](../../guides/webhooks/verify-a-webhook/#a-receiver)).
+  - **An MCP endpoint can sign in** with a user name and password, or with
+    OAuth client credentials
+    ([Send a credential](../../guides/tools/mcp-servers/#send-a-credential)).
+  - **Azure OpenAI and Amazon Bedrock as model providers,** with the
+    `azure-openai` and `bedrock` presets
+    ([Presets](../../guides/models/#presets)).
+  - **AWS Secrets Manager** for the secrets set through Kindgi's API
+    ([Keep secrets in your own secret manager](../secret-manager/#aws-secrets-manager)).
+  - **Azure Container Apps,** from Kindgi's Terraform module
+    ([Deploy on Azure Container Apps](../azure-container-apps/)).
+  - **A deployment can renew its own license key:** `kindgi license enroll`
+    once, then `kindgi license renew` by hand or on a schedule, which the
+    Azure module can run for you. It works once access.kindgi.com has it on
+    ([Renew the license key](../renew-the-license-key/)).
+  - **Where the license stands:** `GET /v1/license` answers its `standing`
+    (`valid`, `expiring`, `grace` or `expired`), `daysLeft` and its dates.
+    The deployment's token reads all of it; where the deployment serves one
+    tenant, that tenant's admins read the countdown only, and anyone else
+    gets `403 license-operator-only`.
+  - **A tool's env values in a unit test:** `invokeToolForTest` and
+    `toolContextForTest` in `@kindgi/sdk/define` decide them as a run does
+    ([Give a tool per-project values](../../guides/tools/give-a-tool-env-values/#test-it)).
+  - **Two templates:** `kindgi init --template=woocommerce`, agents for a
+    WooCommerce store, where a larger refund, a price change and publishing
+    a product each wait for a person; and `--template=drupal`, agents for a
+    Drupal site through its MCP Server, with a review flow a Drupal webhook
+    starts.
+  - **Coding agents:** a `kindgi-using` skill, with which your coding
+    agent guides you in using what was built: the CLI's answer and the
+    console page beside it
+    ([Your coding agent](../../start/coding-agents/#skills-loaded-for-the-task)).
+
+#### Known limitations in 0.1.7
+
+- **In a tenant with several projects, flows and agents can use tools,
+  agents and other items defined in another project of the same tenant.** Checks inside a
+  run (`ctx.authorize`, `can`, `check`) aren't enforced yet; route-level
+  permissions are. Until 0.1.8, give project admin roles only to people
+  trusted across all of a tenant's projects, or use a separate tenant per
+  customer.
+- **A project's tools and MCP endpoints use the tenant's secrets.** A secret
+  one of them names is looked up at the tenant, whoever registered it. Until
+  0.1.8, give project admin roles only to people you'd trust with every
+  secret in the tenant. From 0.1.8, each item reads a secret it names at one
+  scope, recorded when it's registered, which the person registering it must
+  administer.
+- **A webhook trigger's signing secret is read at the tenant,** in the env
+  the runtime serves (`KINDGI_ENV`). Store it there, as `--generate-secret`
+  does ([Start runs from webhooks](../../guides/webhooks/start-runs-from-webhooks/)):
+  a secret set only for a project or an org isn't read, and every delivery
+  is refused. Give each trigger's secret a name of its own, since triggers
+  that name the same secret share its value, and rotating it changes them
+  all. From 0.1.8, a trigger records the scope its secret is read at when
+  it's registered or its secret is changed.
+- **With authorization on, a runtime whose database user has no `BYPASSRLS`
+  (and isn't a superuser) doesn't start.** That's the usual case on a managed
+  Postgres. To check, run this as the runtime's database user:
+
+  ```sql
+  SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user;
+  ```
+
+  If both are `f`, use 0.1.8 or later for production with authorization on:
+  0.1.8 fixes it. Without authorization, the runtime starts as before.
+- **A tenant SSO sign-in whose identity provider's userinfo request fails**
+  (the provider is down, or `KINDGI_TENANT_HOST_ACCESS` refuses its address)
+  **ends at an empty 500 page** instead of the sign-in page with an error. No
+  session is created. Token and JWKS failures go back to the sign-in page as
+  expected.
+- **Run one runtime instance.** 0.1.6 and 0.1.7 fix the known reasons
+  several instances couldn't share a database: boot migrations wait their
+  turn, the sign-in limit is shared, guardrail, tool and provider changes
+  reach every instance, page cursors work across instances with one
+  `KINDGI_PAGINATION_KEY`, and from 0.1.7 a start takes no lock a serving
+  instance's writes wait for. Several instances together aren't verified on a
+  platform yet, so the Cloud Run module still runs one.
 
 ### From 0.1.5 to 0.1.6
 
@@ -576,7 +552,7 @@ What to check before you upgrade, and what's different after:
     ([Receive webhooks](../../guides/webhooks/receive-run-finished/)).
   - **The console:** a reviewer's **Inbox** across projects, where you can
     decide several approvals in one go or by keyboard
-    ([Decide an approval](../../guides/approvals/decide-an-approval/#in-the-console-your-inbox)).
+    ([Decide an approval](../../guides/approvals/approvals-reference/#the-inbox)).
     A project gets pages for its failed runs
     ([What failed](../../guides/runs/list-runs/#what-failed)),
     [schedules](../../guides/runs/run-on-a-schedule/#in-the-console),
@@ -584,11 +560,11 @@ What to check before you upgrade, and what's different after:
     [guardrails](../../guides/guardrails/write-a-guardrail/#in-the-console) and
     [members](../authorization/#in-the-console-members), each with a page of
     its own, plus
-    [Quality](../../guides/evals/judge-a-runs-output/#in-the-console) for
+    [Quality](../../guides/evals/judging-reference/#in-the-console) for
     judging, and [costs](../../guides/observability/cost-per-run/#cost-in-the-console)
     for the project and each run. The tenant gets
     [Teams](../authorization/#in-the-console-teams),
-    [Webhooks](../../guides/webhooks/receive-run-finished/#in-the-console),
+    [Webhooks](../../guides/webhooks/webhook-events/#in-the-console),
     [Sign-in](../../guides/sso/#from-the-console), **My access** and its own
     costs. A page or action shows only to the roles that can use it
     ([The console, by role](../authorization/#the-console-by-role)).
@@ -617,6 +593,28 @@ What to check before you upgrade, and what's different after:
 
 #### Known limitations in 0.1.6
 
+- **In a tenant with several projects, flows and agents can use tools,
+  agents and other items defined in another project of the same tenant.** Checks inside a
+  run (`ctx.authorize`, `can`, `check`) aren't enforced in 0.1.6;
+  route-level permissions are. Until 0.1.8, give project admin roles only
+  to people trusted across all of a tenant's projects, or use a separate
+  tenant per customer.
+- **A project's tools and MCP endpoints use the tenant's secrets.** A secret
+  one of them names is looked up at the tenant, whoever registered it. Until
+  0.1.8, give project admin roles only to people you'd trust with every
+  secret in the tenant. From 0.1.8, each item reads a secret it names at one
+  scope, recorded when it's registered, which the person registering it must
+  administer.
+- **With authorization on, a runtime whose database user has no `BYPASSRLS`
+  (and isn't a superuser) doesn't start.** That's the usual case on a managed
+  Postgres. To check, run this as the runtime's database user:
+
+  ```sql
+  SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user;
+  ```
+
+  If both are `f`, use 0.1.8 or later for production with authorization on:
+  0.1.8 fixes it. Without authorization, the runtime starts as before.
 - **Run one runtime instance.** 0.1.6 fixes the known reasons several
   instances couldn't share a database: boot migrations wait their turn, the
   sign-in limit is shared, guardrail, tool and provider changes reach every
@@ -637,7 +635,7 @@ What to check before you upgrade, and what's different after:
   model answers without it.
   Drupal's MCP Server Tool Bridge names its tools this way (`tool_api__…`).
   There's no workaround for a server whose tool names you don't choose:
-  0.1.7 fixes it.
+  0.1.7 fixes it ([From 0.1.6 to 0.1.7](#from-016-to-017)).
 - **A runtime starting while another serves the same database can fail to
   start.** Each start applies row-level security to every tenant table
   again, under locks that a write in flight can deadlock with. So a new
@@ -651,7 +649,8 @@ What to check before you upgrade, and what's different after:
   Starting it again serves. While it happens, the runtime that's serving can
   answer some writes with `500 internal-server-error`, "Tenant-scoped query
   failed: deadlock detected", and keeps serving (in our test, some project
-  creations). This isn't new in 0.1.6, and a fix is planned for 0.1.7.
+  creations). This isn't new in 0.1.6: 0.1.7 fixes it
+  ([From 0.1.6 to 0.1.7](#from-016-to-017)).
 
 ### Runtime 0.1.5.1
 
@@ -725,7 +724,7 @@ and what's different after:
   `KINDGI_SEED_USER_ID` to keep one user across token changes
   ([Point the runtime at it](../authorization/#point-the-runtime-at-it)).
   Changing `KINDGI_API_TOKEN` also signs out the console sessions the old
-  token opened ([Rotate the API token](#rotate-the-api-token)).
+  token opened ([Rotate the API token](../rotate-keys/#rotate-the-api-token)).
 - **Signing a person out everywhere works.** In 0.1.4,
   `POST /v1/identity/users/<id>/revoke-sessions` answered as if it had, and
   ended nothing. Revoking an API key now ends the console sessions it opened,
@@ -859,7 +858,7 @@ and what's different after:
   ([Export signed evidence](../../guides/observability/export-signed-evidence/#give-the-deployment-its-key)).
 - **The runtime's own address, `/`, leads to the console,** or lists what it
   serves; it answered `404`. Health checks stay on `/ready`
-  ([Check health and logs](#check-health-and-logs)).
+  ([Check health and logs](../restart-and-check-health/#check-health-and-logs)).
 - **The console:** a run whose answer a guardrail blocked shows that answer
   as not sent, with the guardrail; it used to look sent
   ([A halted turn](../../guides/guardrails/halt-or-record/#a-halted-turn)).
@@ -1011,7 +1010,7 @@ restart `kindgi dev`.
 Run 0.1.4.2, pulled by its digest, with the same `kindgi.env`. It has no
 migration, and it carries 0.1.4.1's fix ([Runtime 0.1.4.1](#runtime-0141)).
 Keep `--restart unless-stopped` on the runtime's container either way
-([Restart the runtime](#restart-the-runtime)):
+([Restart the runtime](../restart-and-check-health/#restart-the-runtime)):
 
 ```sh
 docker pull quay.io/kindgi/runtime:0.1.4.2@sha256:420826ad9bac0c2fdb021c49517aabebeac1ff7ec236e02af47e90a31f5b825e
@@ -1107,171 +1106,3 @@ one at a time, and logs it at `info`.
 - **Gemini calls retry a temporary failure** (a rate limit `429`, an overloaded model `503`, and the like), three attempts in all, as the Anthropic and OpenAI-compatible adapters already did.
 - **A waited start that outlasts the client's timeout** (30 seconds in TypeScript, now settable with `timeoutMs`; 60 seconds in Python) fails on the client without the run's id, and says to start the run in the background and follow it ([Wait for the result](../../guides/runs/start-a-run/#wait-for-the-result)).
 - **In 0.1.2 and 0.1.3, the Python client could start a waited run up to three times** when it outlasted the client's timeout. 0.1.4's client never sends a call again once it may be running: upgrade the client. A start you repeat yourself with the same idempotency key still returns the first run only once the first request has answered ([Retry a start safely](../../guides/runs/retry-a-start-safely/)).
-
-## Rotate the API token
-
-Make a new token, replace `KINDGI_API_TOKEN` in `kindgi.env` with it, and [restart](#restart-the-runtime):
-
-```sh
-printf 'kgi_bt_%s\n' "$(openssl rand -hex 32)"
-```
-
-The `Token` line in the log now shows the new token's last four characters, and the old token is refused:
-
-```text
-{"error":{"code":"auth-missing","message":"Bearer token is not recognized","requestId":"req-…"}}
-```
-
-`KINDGI_API_TOKEN` is one token: switch your CLI and apps to the new one when you restart.
-
-Console sessions signed in with the old token end at the restart, and people
-sign in again. The startup log counts them:
-
-```text
-  Signed out: 1 console session an earlier token opened
-```
-
-A request with such a session afterwards answers `401`.
-
-## Rotate the pack service token
-
-The runtime and your pack's service share this token. Make a new one:
-
-```sh
-openssl rand -base64 32
-```
-
-Put it in both files, `KINDGI_PACK_SERVICE_TOKEN` in `pack.env` and in `kindgi.env`. Then restart the pack's service with the same image:
-
-```sh
-docker stop --time 30 kindgi-pack
-docker rm kindgi-pack
-docker run -d --name kindgi-pack --network kindgi --env-file pack.env \
-  registry.localhost:5050/acme-pack@sha256:<your pack's digest>
-```
-
-And [restart the runtime](#restart-the-runtime). While the two tokens differ, the pack's service refuses the runtime's calls, and your tools fail. The runtime's log says so:
-
-```text
-  ⚠ Pack service at http://kindgi-pack:8080 isn't answering (pack-service-unauthorized: The pack service rejected the pack token). The server is up; pack tools and checks fail until it answers.
-```
-
-Once both sides have the same token, the runtime's calls go through again, with no further restart.
-
-## Rotate the license key
-
-Replace `KINDGI_LICENSE_KEY` in `kindgi.env` with the new key, [restart](#restart-the-runtime), and check the `License` line in the log:
-
-```text
-  License: Docs example · non-production · until 2026-11-02
-```
-
-## Rotate a signing key
-
-Rotate under a new key id. A key id stays bound to its public key, and a revoked id can't be trusted again.
-
-1. Create a key, and trust it:
-
-   ```sh
-   pnpm exec kindgi key create acme-selfhost-2 --env selfhost
-   pnpm exec kindgi key trust acme-selfhost-2 --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
-   ```
-
-2. Sign your next release with it. In the `selfhost` block of `kindgi.config.ts`:
-
-   ```ts
-   signingKey: '~/.kindgi/keys/acme-selfhost-2.pem',
-   signerKeyId: 'acme-selfhost-2',
-   ```
-
-   Then build and deploy as usual, and run the new image as your pack's service ([step 4](../self-host/#4-run-your-packs-service)). The first line keeps the old key's envelope, to check the revocation below:
-
-   ```sh
-   cp .kindgi/build/deploy-envelope.json old-envelope.json
-   pnpm exec kindgi build --local --push --env selfhost
-   pnpm exec kindgi deploy --env selfhost --token "$KINDGI_API_TOKEN"
-   ```
-
-   ```text
-     Registering deployment
-       ✓ POST /v1/deployments  →  201 Created
-         deploymentId:    3c4f4d76-f4a4-4d5f-8339-f05b0497b462
-         artifactVersion: 20261008.193855
-   ```
-
-   The artifact version defaults to the build time, `YYYYMMDD.HHMMSS` in UTC, so a second build the same day gets its own tag.
-
-3. Revoke the old key:
-
-   ```sh
-   pnpm exec kindgi key revoke acme-selfhost --reason "rotated to acme-selfhost-2" \
-     --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
-   ```
-
-   ```text
-     ✓ Revoked acme-selfhost
-   ```
-
-   A revoked id can't be trusted again: `kindgi key trust` says so, and how to
-   trust another key.
-
-From then on, the runtime refuses a deploy signed by the old key. Here, an envelope it signed earlier:
-
-```sh
-pnpm exec kindgi deploy --env selfhost --from-envelope old-envelope.json \
-  --idempotency-key redeploy-old --token "$KINDGI_API_TOKEN"
-```
-
-```text
-  Registering deployment
-    ✗ POST /v1/deployments  →  HTTP 403
-      code:    signer-not-trusted
-      message: Signer key "acme-selfhost" is not on this tenant's trust list
-```
-
-Without `--idempotency-key`, the CLI's key is a hash of the envelope. Sending an envelope you already deployed then returns the first answer again (for 24 hours), and deploys nothing.
-
-The runtime checks signatures when you deploy. A deployment the revoked key signed keeps running, through restarts too. The revoked key stays listed for audit:
-
-```sh
-curl -s "http://localhost:4000/v1/signing-keys?includeRevoked=true" -H "authorization: Bearer $KINDGI_API_TOKEN"
-```
-
-Each key in the list has its `revokedAt` and `revokedReason`, if it was revoked.
-
-## Rotate the public run token key
-
-If browsers [follow runs](../../guides/runs/follow-from-the-browser/), the runtime signs their public run tokens with a key of its own. Make one:
-
-```sh
-openssl genpkey -algorithm ed25519 -out public-token-signing.pem
-chmod 600 public-token-signing.pem
-```
-
-Give it to the runtime as a file: add this line to `kindgi.env`, and [restart](#restart-the-runtime) with the file mounted:
-
-```sh
-KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH=/etc/kindgi/public-token-signing.pem
-```
-
-```sh
-docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
-  --add-host registry.localhost:host-gateway \
-  -v "$PWD/public-token-signing.pem:/etc/kindgi/public-token-signing.pem:ro" \
-  -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.6
-```
-
-The file must have mode 0600, and the runtime's user in the container (uid 10001) must be able to read it. The log says:
-
-```text
-  Public run tokens: on (browsers follow runs; no CORS origins)
-```
-
-To rotate it, replace the file with a new key (the same two commands), and restart with the same mount. Tokens signed with the old key are refused from then on:
-
-```text
-{"error":{"code":"auth-missing","message":"Bearer token is not recognized","requestId":"req-…"}}
-```
-
-Tokens minted after the restart work as before.

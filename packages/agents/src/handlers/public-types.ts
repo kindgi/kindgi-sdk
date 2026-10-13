@@ -105,18 +105,10 @@ export interface InvokeAgentInput {
   readonly dryRun?: boolean;
   /**
    * Authorization — the Principal on whose authority this agent turn
-   * runs. When set together with `authz`, the underlying run checks
-   * every tool invocation (and subgraph dispatch, if any) against this
-   * principal at its enforcement point.
+   * runs.
    *
-   * Typical caller construction:
-   *   principal = delegate(
-   *     { kind: 'agent', id: input.agent.id, tenantId },
-   *     userPrincipalFromSession
-   *   )
-   * — establishes the confused-deputy-safe intersection semantic.
-   *
-   * Absent = tool invocations are not authorization-checked.
+   * Not enforced in 0.1.7: the runtime doesn't yet decide authorization
+   * checks inside a run (route-level permissions apply). Planned for 0.1.8.
    */
   readonly principal?: Principal;
   readonly authz?: {

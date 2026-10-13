@@ -118,11 +118,21 @@ export interface NodeContext {
    * No-op when the run was started without `authz` configured —
    * exists so handlers can be written uniformly for runs with and
    * without authorization.
+   *
+   * Not enforced in 0.1.7: the runtime doesn't yet decide these checks
+   * inside a run (route-level permissions apply). Planned for 0.1.8.
+   * The same goes for `can` and `check`.
    */
   authorize(action: Action, resource: ResourceRef): Promise<void>;
-  /** Non-throwing check — returns a boolean. For conditional logic. */
+  /**
+   * Non-throwing check — returns a boolean. For conditional logic.
+   * Not enforced in 0.1.7 (see `authorize`).
+   */
   can(action: Action, resource: ResourceRef): Promise<boolean>;
-  /** Full Decision — for advanced cases needing reason/evidence. */
+  /**
+   * Full Decision — for advanced cases needing reason/evidence.
+   * Not enforced in 0.1.7 (see `authorize`).
+   */
   check(action: Action, resource: ResourceRef): Promise<Decision>;
   /**
    * Read the clock, as `record` does: each call journals `Date.now()`.
