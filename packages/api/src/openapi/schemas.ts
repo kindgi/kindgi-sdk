@@ -11159,7 +11159,7 @@ export const WebhookFireSchema: JsonSchema = {
     detail: {
       type: 'string',
       description:
-        "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, or the owner's lost access.",
+        "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access.",
     },
     duplicates: {
       type: 'integer',

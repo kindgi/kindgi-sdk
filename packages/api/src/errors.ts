@@ -266,6 +266,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'agent-version-live': 409,
   /** An artifact upload over the runtime's cap (`KINDGI_ARTIFACT_MAX_BYTES`). */
   'artifact-too-large': 413,
+  /** A request body over the API's limit (`requestMaxBytes`); `details.maxBytes` says how much. */
+  'request-too-large': 413,
   'run-not-finished': 409,
   'item-not-found': 400,
   // The judgment binding can't list judged runs, so no test sets from judgments.

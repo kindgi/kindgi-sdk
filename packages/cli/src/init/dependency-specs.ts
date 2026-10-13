@@ -246,7 +246,7 @@ export type KindgiJavaSource =
 
 /** What a Java or Scala pack's "preview" means, said wherever one is made. */
 export const JVM_PREVIEW =
-  'Java and Scala support is in preview: tested and supported, but the API may still change in 0.1.6 without the usual deprecation period.';
+  'Java and Scala support is in preview: tested and supported, but the API may still change in a later release without the usual deprecation period.';
 
 /**
  * The resolver an sbt build needs for kindgi-pack: none from Maven Central;
