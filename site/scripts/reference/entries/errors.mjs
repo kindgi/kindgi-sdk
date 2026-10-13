@@ -902,7 +902,8 @@ export const ERROR_ENTRIES = {
     details: [
       {
         key: 'approvalsPending',
-        meaning: "the tenant's limit on approvals waiting for a decision",
+        meaning:
+          "the tenant's limit on approvals waiting for a decision; absent when the server doesn't name it",
       },
     ],
   },
