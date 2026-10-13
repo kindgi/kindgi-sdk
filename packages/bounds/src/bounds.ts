@@ -55,6 +55,13 @@ export interface TenantInputBounds {
    * keep working.
    */
   readonly schemaCompileBudgetMs: number;
+  /**
+   * The time a tenant's templates may spend rendering in any 60 seconds,
+   * in milliseconds, for renders done as its work (`runAsTenant`). Past it,
+   * the tenant's next render is refused until the window moves on. A
+   * render holds the event loop while it runs.
+   */
+  readonly templateRenderBudgetMs: number;
   /** A template's limits (liquidjs's own). */
   readonly liquid: {
     /** The longest template parsed, in characters. */
@@ -111,6 +118,7 @@ export const SELF_HOSTED_BOUNDS: TenantInputBounds = deepFreeze({
   schemaCacheEntries: 1_000,
   schemaCacheMaxBytes: Number.POSITIVE_INFINITY,
   schemaCompileBudgetMs: Number.POSITIVE_INFINITY,
+  templateRenderBudgetMs: Number.POSITIVE_INFINITY,
   liquid: {
     parseLimit: Number.POSITIVE_INFINITY,
     renderLimitMs: Number.POSITIVE_INFINITY,
@@ -133,6 +141,7 @@ export const HOSTED_BOUNDS: TenantInputBounds = deepFreeze({
   schemaCacheEntries: 512,
   schemaCacheMaxBytes: 8 * MiB,
   schemaCompileBudgetMs: 2_000,
+  templateRenderBudgetMs: 5_000,
   liquid: {
     parseLimit: 262_144,
     renderLimitMs: 1_000,

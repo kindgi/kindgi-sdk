@@ -162,7 +162,7 @@ import { providersRouter } from './routes/providers.js';
 import { publicRunTokensRouter } from './routes/public-run-tokens.js';
 import { retentionRouter } from './routes/retention.js';
 import { reviewersRouter } from './routes/reviewers.js';
-import { runsRouter } from './routes/runs.js';
+import { type RunsRouterOptions, runsRouter } from './routes/runs.js';
 import { s3Router } from './routes/s3.js';
 import { schedulesRouter } from './routes/schedules.js';
 import { secretsRouter } from './routes/secrets.js';
@@ -662,7 +662,9 @@ export interface CreateAppInput {
   readonly blobStorage?: BlobStorageBinding;
   /**
    * The most bytes one artifact upload may carry (`POST /v1/artifacts`);
-   * more is `413 artifact-too-large`. Default 100 MB.
+   * more is `413 artifact-too-large`. Also the most one request to the
+   * S3-compatible routes may carry (`/s3/*`: an object, or a part of a
+   * multipart upload); more is S3's `400 EntityTooLarge`. Default 100 MB.
    */
   readonly artifactMaxBytes?: number;
   /**
@@ -710,9 +712,9 @@ export interface CreateAppInput {
   /**
    * How far tenant configuration may reach into the server's host
    * (`KINDGI_TENANT_HOST_ACCESS`, see `tenant-host-access.ts`): under
-   * `deployed`, registering a stdio MCP endpoint answers `403
-   * host-access-denied`. Default `deployed`; the runtime passes `local`
-   * only for a development server.
+   * `deployed` and `isolated`, registering a stdio MCP endpoint answers
+   * `403 host-access-denied`. Default `deployed`; the runtime passes
+   * `local` only for a development server.
    */
   readonly tenantHostAccess?: TenantHostAccess;
   /**
@@ -889,7 +891,7 @@ export interface CreateAppInput {
    * `BlobStorageBinding` as the bespoke `/v1/artifacts/*` surface —
    * cross-surface interop is a first-class guardrail. Includes the
    * S3 multipart-upload operations (initiate / upload part / complete /
-   * list parts / abort).
+   * list parts / abort). A request's body is at most `artifactMaxBytes`.
    */
   readonly s3Credentials?: S3CredentialBinding;
   /**
@@ -1407,6 +1409,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
                 : (await input.flowRegistry?.get({ tenantId, flowId: target.id as never })) !==
                   null,
           }),
+        // Who a turn runs as, for the participant rule (`participantRefusal`).
+        ...participantLookups(input),
         ...(publicRunTokenLimits !== undefined && {
           publicRunTokens: {
             mint: (tenantId, runIds) =>
@@ -2164,7 +2168,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // (auth); omitting either leaves /s3/* unmounted (Hono 404).
   if (input.blobStorage !== undefined && input.s3Credentials !== undefined) {
     const s3 = new Hono<AppEnv>();
-    s3.use('*', sigv4Middleware(input.s3Credentials));
+    s3.use(
+      '*',
+      sigv4Middleware(input.s3Credentials, input.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES),
+    );
     // A frozen tenant's artifacts are read, not written, here too.
     s3.use('*', tenantStateGate(input.tenantStates, { surface: 's3' }));
     // The tenant's API requests a minute count here too, once SigV4 names it.
@@ -2196,4 +2203,44 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   });
 
   return app;
+}
+
+/**
+ * Whose memory a turn would run with, for the runs router's participant rule:
+ * a conversation's stored participant and project, and a target's own project.
+ */
+function participantLookups(
+  input: Pick<CreateAppInput, 'conversationBinding' | 'agentRegistry' | 'flowRegistry'>,
+): Pick<RunsRouterOptions, 'conversationOf' | 'targetProject'> {
+  return {
+    conversationOf: async (tenantId, conversationId) => {
+      const got = await input.conversationBinding.getConversation(
+        tenantId,
+        conversationId as never,
+      );
+      if (got.kind !== 'ok') {
+        if (got.error.code === 'conversation-not-found') return null;
+        // Any other failure isn't "no conversation": the turn would then run
+        // as the stored participant unchecked. A 500, and no turn.
+        throw new Error(
+          "Couldn't read the conversation's participant, so the turn wasn't started",
+          {
+            cause: got.error,
+          },
+        );
+      }
+      const { participantId, projectId } = got.value;
+      return {
+        ...(participantId !== undefined && { participantId }),
+        ...(projectId !== undefined && { projectId: projectId as unknown as string }),
+      };
+    },
+    targetProject: async (tenantId, target) => {
+      const record =
+        target.kind === 'agent'
+          ? await input.agentRegistry?.get({ tenantId, agentId: target.id as never })
+          : await input.flowRegistry?.get({ tenantId, flowId: target.id as never });
+      return record?.projectId as unknown as string | undefined;
+    },
+  };
 }

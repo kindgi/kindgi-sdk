@@ -151,6 +151,26 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'participant-not-allowed': {
+    description:
+      "A turn would run as a participant, and you may not read that participant's memory. A turn reads and keeps its participant's memory, so running as one takes what the memory API takes: you're the participant yourself (that user, with their session or their own API key, never a service account's key), or you hold `write` on the turn's project. When the turn's project isn't known, only the participant may. It's checked wherever a turn gets a participant: `input.participantId` on `POST /v1/runs`, `participantId` on `POST /v1/conversations`, and a conversation's own participant when you post a turn into it, whatever the body names. Nothing was started or opened. Use a key or role with `write` on the turn's project, or have the participant run it.",
+    details: [
+      {
+        key: 'action',
+        meaning: 'the action that was refused: `write`',
+      },
+      {
+        key: 'resource',
+        meaning:
+          "what it was refused on, as type:id: `conversation:<id>` when you posted into a conversation (never its participant or project), else `project:<id>`, the turn's project, or `tenant:<id>` when that isn't known",
+      },
+      {
+        key: 'reason',
+        meaning:
+          "why it was refused; when you posted into a conversation, it names neither the conversation's participant nor its project",
+      },
+    ],
+  },
   'host-access-denied': {
     description:
       "The deployment doesn't let tenant configuration reach its host, so a `stdio` MCP endpoint (a command on the host) is refused. Use an HTTP endpoint instead, or ask whoever runs the deployment.",
@@ -893,8 +913,28 @@ export const ERROR_ENTRIES = {
   },
   'rate-limit-exceeded': {
     description:
-      'You sent too many requests: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, or too many sign-in lookups came from one source. Retry after the `Retry-After` header.',
-    details: [],
+      "You sent too many requests, or a tenant reached one of its limits: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, too many sign-in lookups came from one source, or the tenant reached its limit on API requests or webhook deliveries a minute, or on runs waiting to start. A tenant's API requests to `/v1` and `/s3` count together; on `/s3`, its limit answers as S3 does, with `503 SlowDown` and `Retry-After`, not with this code. On a server with budgets kept per tenant (Kindgi Cloud), it's also the answer when the tenant's schemas took their budget compiling, or its instructions templates rendering, in the last 60 seconds; an agent's turn refused this way fails its run with this code. Retry after the `Retry-After` header; a refusal by the limit on runs waiting to start has none: retry once some have started.",
+    details: [
+      {
+        key: 'limit',
+        meaning:
+          "the tenant's limit that was reached: `api-requests`, `webhook-receives`, `runs-pending`, or a budget, `schema-compile-time` or `template-render-time`. Absent when the limit isn't the tenant's",
+      },
+      {
+        key: 'runsPending',
+        meaning:
+          "the tenant's limit on runs waiting to start, on a `runs-pending` refusal; absent when the server doesn't name it",
+      },
+      {
+        key: 'budgetMs',
+        meaning:
+          "for a budget, the milliseconds the tenant's work of that kind may take in 60 seconds",
+      },
+      {
+        key: 'runId',
+        meaning: "when a budget refused an agent's turn, the run the turn belongs to",
+      },
+    ],
   },
   'approvals-pending-limit': {
     description:
@@ -2415,6 +2455,34 @@ export const ERROR_ENTRIES = {
         key: 'next',
         meaning:
           'where to go to be allowed, for example a billing page (`KINDGI_PRODUCTION_NEXT_URL`); absent when the server names none',
+      },
+    ],
+  },
+  'production-limit-reached': {
+    description:
+      "You put a project in production while the tenant already had as many projects in production as its limit allows, or more (`projectsInProduction`, set by whoever runs the server). Nothing changed. A project already in production isn't counted again, and taking one out is never refused. Take a project out of production, or go where `details.next` says when the server names a place, or ask whoever runs it to raise the limit; then put the project in production again.",
+    details: [
+      {
+        key: 'projectId',
+        meaning: "the project that wasn't put in production",
+      },
+      {
+        key: 'limit',
+        meaning: 'which limit: `projects-in-production`',
+      },
+      {
+        key: 'projectsInProduction',
+        meaning: "the tenant's limit on projects in production",
+      },
+      {
+        key: 'inProduction',
+        meaning:
+          "how many of the tenant's projects are in production; over the limit when the limit was lowered below it",
+      },
+      {
+        key: 'next',
+        meaning:
+          'where to go for a higher limit, for example a billing page (`KINDGI_PRODUCTION_NEXT_URL`); absent when the server names none',
       },
     ],
   },

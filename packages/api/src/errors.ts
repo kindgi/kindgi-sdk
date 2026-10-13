@@ -132,8 +132,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'run-resume-not-supported': 422,
   /** Memory was asked to search by meaning, and no embedding model is configured. */
   'semantic-unavailable': 422,
-  // 429 — rate limit. No route in this package emits it; a rate limiter
-  // in front of the routes can.
+  // 429 — a limit over a time window: the sign-in lookups' and a webhook
+  // trigger's, a budget kept per tenant (a refused publish, an agent
+  // turn's work), or a rate limiter in front of the routes. With
+  // `Retry-After`.
   'rate-limit-exceeded': 429,
   // A gate asked for an approval past the tenant's limit on approvals waiting.
   'approvals-pending-limit': 429,
@@ -245,6 +247,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'role-exceeds-principal': 403,
   /** A key limited to one project, on a request that names another. */
   'key-project-mismatch': 403,
+  /** A turn run as a participant whose memory the caller may not read (not themselves, and no `write` on the turn's project). */
+  'participant-not-allowed': 403,
   /** Mint: a key that would outlive the key minting it (a later or absent `expiresAt`). */
   'token-expiry-exceeds-minter': 403,
   /** Mint: a capability a tenant's key can't carry (`system:*`; `kindgi:system` on a runtime serving many tenants). */
@@ -389,6 +393,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'project-not-found': 404,
   /** Putting a project in production while the tenant isn't allowed to (the production gate; `details.next`). */
   'production-not-allowed': 403,
+  /** Putting a project in production while the tenant's projects in production are at its limit (`details.limit`, `projectsInProduction`, `inProduction`). */
+  'production-limit-reached': 403,
   /** The production route on a runtime whose project binding can't set it. */
   'production-unsupported': 501,
   'team-membership-not-found': 404,
@@ -472,6 +478,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
  */
 export function statusFor(code: string): number {
   return ERROR_CODE_TO_STATUS[code] ?? 500;
+}
+
+/** A wait as `Retry-After`'s whole seconds: rounded up, at least one. */
+export function retryAfterSeconds(waitMs: number): number {
+  return Math.max(Math.ceil(waitMs / 1000), 1);
 }
 
 /** Build a wire error body from a domain error + requestId. */

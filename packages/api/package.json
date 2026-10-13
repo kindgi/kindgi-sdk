@@ -58,7 +58,7 @@
     "@kindgi/tools": "workspace:*",
     "@kindgi/types": "workspace:*",
     "@scalar/hono-api-reference": "^0.12.2",
-    "hono": "^4.6.14"
+    "hono": "^4.13.8"
   },
   "devDependencies": {
     "@kindgi/audit-events-inmemory": "workspace:*",

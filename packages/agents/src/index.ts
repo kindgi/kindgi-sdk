@@ -80,6 +80,7 @@ export type {
   InvokeAgentInput,
   ModelInvocationError,
   OutputSchemaViolationError,
+  RateLimitExceededError,
   ResumeAgentTurnInput,
   RunSnapshotError,
   SemanticUnavailableError,
@@ -120,6 +121,7 @@ export type {
   TurnStartedEvent,
 } from './streaming.js';
 export { AUTO_INJECTED_VARS, renderInstructions } from './prompt.js';
+export { TemplateRenderBudgetError } from './render-budget.js';
 export {
   EARLIER_ANSWER_NOTE,
   MEMORY_DATA_RULE,

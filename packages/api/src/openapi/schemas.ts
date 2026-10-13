@@ -632,7 +632,7 @@ export const RunFailureSchema: JsonSchema = {
   additionalProperties: false,
   required: ['code', 'message'],
   description:
-    "Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …); any other failure is `run-failed`, with the run's failure message.",
+    "Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …; `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed, with `details` naming the budget); any other failure is `run-failed`, with the run's failure message.",
   properties: {
     code: { type: 'string' },
     message: { type: 'string' },
@@ -644,6 +644,12 @@ export const RunFailureSchema: JsonSchema = {
       type: 'string',
       description:
         "The error's own reason, when it gives one: for a turn that ended at its approval (`hitl-cancelled`), `timeout` when nobody decided in time. Absent from an older runtime and from errors without one; read `code` then.",
+    },
+    details: {
+      type: 'object',
+      additionalProperties: true,
+      description:
+        "The error's own facts, for a code that has them: for `rate-limit-exceeded`, `limit` (the budget that refused: `schema-compile-time` or `template-render-time`) and `budgetMs`, the names the API's `429` uses. Never the wait: read back later, it's stale. Absent for any other code, and from an older runtime.",
     },
   },
 };
@@ -2112,7 +2118,8 @@ export const LicenseStatusSchema: JsonSchema = {
     mode: {
       type: 'string',
       enum: ['development', 'licensed'],
-      description: '`development`: no key needed (`KINDGI_DEV`); the other fields are absent.',
+      description:
+        "`development`: no key needed (`KINDGI_DEV`); the key's fields are absent, and `preview` may be present.",
     },
     name: { type: 'string', description: 'Whose key: the name the banner prints.' },
     use: { type: 'string', enum: ['production', 'non-production'] },
@@ -2143,6 +2150,34 @@ export const LicenseStatusSchema: JsonSchema = {
       type: 'string',
       description:
         "How to get the next key, as the banner says it, with where the deployment keeps its key and renewer. Present from 30 days before the key expires, and only to the deployment's own token.",
+    },
+    preview: { $ref: '#/components/schemas/LicensePreview' },
+  },
+};
+
+export const LicensePreviewSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['version', 'releasedAt', 'expiresAt', 'daysLeft', 'standing'],
+  description:
+    "This build's own expiry, before Kindgi 1.0: a preview release stops starting 90 days after it was released, in every mode, unless a production key exempts it. Absent when nothing expires: a 1.0 or later release, a build from source, or a production key.",
+  properties: {
+    version: { type: 'string', description: "This build's release, `0.1.8`." },
+    releasedAt: { type: 'string', format: 'date-time' },
+    expiresAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'From then on, it no longer starts: `releasedAt` plus 90 days.',
+    },
+    daysLeft: {
+      type: 'integer',
+      description: 'Whole days until then; negative once it has passed.',
+    },
+    standing: {
+      type: 'string',
+      enum: ['valid', 'expiring', 'expired'],
+      description:
+        "`expiring`: 30 days or fewer left. `expired`: past it: this server runs on, but won't start again; run a newer release.",
     },
   },
 };
@@ -2209,7 +2244,7 @@ export const CompleteApprovalResultSchema: JsonSchema = {
     runStatus: RunStatusSchema,
     resume: {
       description:
-        "How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.",
+        "How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.",
       oneOf: [
         {
           type: 'object',
@@ -10597,6 +10632,27 @@ export const TenantLimitsSchema: JsonSchema = {
       description:
         'Approvals waiting for a decision. Past it, the step that asks fails, naming the limit.',
     },
+    projectsInProduction: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        'Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production.',
+    },
+  },
+};
+
+export const TenantLimitsInUseSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectsInProduction'],
+  description:
+    'How much of each limit that counts something the tenant uses now, whether the limit is set or not: on `GET …/limits` only, and only from a runtime that counts it. A limit can be lowered below it: nothing is taken back, and the next one waits until the count is under the limit.',
+  properties: {
+    projectsInProduction: {
+      type: 'integer',
+      minimum: 0,
+      description: "The tenant's projects in production.",
+    },
   },
 };
 
@@ -10629,6 +10685,7 @@ export const TenantLimitsResultSchema: JsonSchema = {
   properties: {
     tenantId: { type: 'string', format: 'uuid' },
     limits: ref('TenantLimits'),
+    inUse: ref('TenantLimitsInUse'),
   },
 };
 
@@ -12157,6 +12214,11 @@ export const FinishedRunSchema: JsonSchema = {
       type: ['string', 'null'],
       description: 'Why the run failed or was cancelled; `null` when it completed.',
     },
+    failure: {
+      $ref: '#/components/schemas/RunFailure',
+      description:
+        "A failed run's error, as `GET /v1/runs/{runId}` reads it back: its `code`, and the error's own `details` when it has them. Absent unless the run failed, and from a runtime that doesn't send it yet; read `failureMessage` then.",
+    },
     createdAt: { type: 'string', format: 'date-time' },
     completedAt: { type: 'string', format: 'date-time' },
     usage: { $ref: '#/components/schemas/RunTreeUsage' },
@@ -12891,6 +12953,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ProductionAllowedBody', ProductionAllowedBodySchema],
   ['TenantProductionAllowed', TenantProductionAllowedSchema],
   ['TenantLimitsResult', TenantLimitsResultSchema],
+  ['TenantLimitsInUse', TenantLimitsInUseSchema],
   ['TenantConfigKind', TenantConfigKindSchema],
   ['TenantConfigEntry', TenantConfigEntrySchema],
   ['TenantConfigCollectionPage', TenantConfigCollectionPageSchema],
@@ -12973,6 +13036,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WebhookDeliveryStatus', WebhookDeliveryStatusSchema],
   ['WebhookDelivery', WebhookDeliverySchema],
   ['WebhookDeliveryCollectionPage', WebhookDeliveryCollectionPageSchema],
+  ['LicensePreview', LicensePreviewSchema],
 ] as const;
 
 /** Convenience `$ref` builder. */

@@ -569,7 +569,7 @@ class UnpinBody(BaseModel):
 
 class RunFailure(BaseModel):
     """
-    Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …); any other failure is `run-failed`, with the run's failure message.
+    Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …; `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed, with `details` naming the budget); any other failure is `run-failed`, with the run's failure message.
     """
 
     model_config = ConfigDict(
@@ -585,6 +585,10 @@ class RunFailure(BaseModel):
     reason: str | None = None
     """
     The error's own reason, when it gives one: for a turn that ended at its approval (`hitl-cancelled`), `timeout` when nobody decided in time. Absent from an older runtime and from errors without one; read `code` then.
+    """
+    details: dict[str, Any] | None = None
+    """
+    The error's own facts, for a code that has them: for `rate-limit-exceeded`, `limit` (the budget that refused: `schema-compile-time` or `template-render-time`) and `budgetMs`, the names the API's `429` uses. Never the wait: read back later, it's stale. Absent for any other code, and from an older runtime.
     """
 
 
@@ -1708,7 +1712,7 @@ class CompleteApprovalBody(BaseModel):
 
 class Resume(BaseModel):
     """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
     """
 
     model_config = ConfigDict(
@@ -1720,7 +1724,7 @@ class Resume(BaseModel):
 
 class Resume1(BaseModel):
     """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
     """
 
     model_config = ConfigDict(
@@ -1834,43 +1838,6 @@ class ExportSigningKeyList(BaseModel):
     data: list[ExportSigningKey]
     """
     Active first. Empty when the deployment doesn't sign exports.
-    """
-
-
-class LicenseStatus(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    mode: Literal["development", "licensed"]
-    """
-    `development`: no key needed (`KINDGI_DEV`); the other fields are absent.
-    """
-    name: str | None = None
-    """
-    Whose key: the name the banner prints.
-    """
-    use: Literal["production", "non-production"] | None = None
-    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
-    starts_until: Annotated[AwareDatetime | None, Field(alias="startsUntil")] = None
-    """
-    Until when the runtime starts with this key: `expiresAt` plus the 14-day grace.
-    """
-    days_left: Annotated[int | None, Field(alias="daysLeft")] = None
-    """
-    Whole days until it expires; negative once it has.
-    """
-    standing: Literal["valid", "expiring", "grace", "expired"] | None = None
-    """
-    `expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days). `expired`: past the grace too: this server runs on, but won't start with it again.
-    """
-    renew_by: Annotated[Literal["command", "contact"] | None, Field(alias="renewBy")] = None
-    """
-    Which way to the next key applies: `command`, a key this deployment renews itself (`kindgi license renew`); `contact`, a key Kindgi issued (write to Kindgi).
-    """
-    renew: str | None = None
-    """
-    How to get the next key, as the banner says it, with where the deployment keeps its key and renewer. Present from 30 days before the key expires, and only to the deployment's own token.
     """
 
 
@@ -9988,6 +9955,10 @@ class TenantLimits(BaseModel):
     """
     Approvals waiting for a decision. Past it, the step that asks fails, naming the limit.
     """
+    projects_in_production: Annotated[int | None, Field(alias="projectsInProduction", ge=1)] = None
+    """
+    Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production.
+    """
 
 
 class ProductionAllowedBody(BaseModel):
@@ -10010,13 +9981,19 @@ class TenantProductionAllowed(BaseModel):
     production_allowed: Annotated[bool, Field(alias="productionAllowed")]
 
 
-class TenantLimitsResult(BaseModel):
+class TenantLimitsInUse(BaseModel):
+    """
+    How much of each limit that counts something the tenant uses now, whether the limit is set or not: on `GET …/limits` only, and only from a runtime that counts it. A limit can be lowered below it: nothing is taken back, and the next one waits until the count is under the limit.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    limits: TenantLimits
+    projects_in_production: Annotated[int, Field(alias="projectsInProduction", ge=0)]
+    """
+    The tenant's projects in production.
+    """
 
 
 class TenantConfigEntry(BaseModel):
@@ -11251,6 +11228,34 @@ class WebhookTestEvent(BaseModel):
     data: Data2
 
 
+class LicensePreview(BaseModel):
+    """
+    This build's own expiry, before Kindgi 1.0: a preview release stops starting 90 days after it was released, in every mode, unless a production key exempts it. Absent when nothing expires: a 1.0 or later release, a build from source, or a production key.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    """
+    This build's release, `0.1.8`.
+    """
+    released_at: Annotated[AwareDatetime, Field(alias="releasedAt")]
+    expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
+    """
+    From then on, it no longer starts: `releasedAt` plus 90 days.
+    """
+    days_left: Annotated[int, Field(alias="daysLeft")]
+    """
+    Whole days until then; negative once it has passed.
+    """
+    standing: Literal["valid", "expiring", "expired"]
+    """
+    `expiring`: 30 days or fewer left. `expired`: past it: this server runs on, but won't start again; run a newer release.
+    """
+
+
 class SystemOpenapiResponse(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -11978,8 +11983,46 @@ class CompleteApprovalResult(BaseModel):
     ] = None
     resume: Resume | Resume1 | None = None
     """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
     """
+
+
+class LicenseStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    mode: Literal["development", "licensed"]
+    """
+    `development`: no key needed (`KINDGI_DEV`); the key's fields are absent, and `preview` may be present.
+    """
+    name: str | None = None
+    """
+    Whose key: the name the banner prints.
+    """
+    use: Literal["production", "non-production"] | None = None
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    starts_until: Annotated[AwareDatetime | None, Field(alias="startsUntil")] = None
+    """
+    Until when the runtime starts with this key: `expiresAt` plus the 14-day grace.
+    """
+    days_left: Annotated[int | None, Field(alias="daysLeft")] = None
+    """
+    Whole days until it expires; negative once it has.
+    """
+    standing: Literal["valid", "expiring", "grace", "expired"] | None = None
+    """
+    `expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days). `expired`: past the grace too: this server runs on, but won't start with it again.
+    """
+    renew_by: Annotated[Literal["command", "contact"] | None, Field(alias="renewBy")] = None
+    """
+    Which way to the next key applies: `command`, a key this deployment renews itself (`kindgi license renew`); `contact`, a key Kindgi issued (write to Kindgi).
+    """
+    renew: str | None = None
+    """
+    How to get the next key, as the banner says it, with where the deployment keeps its key and renewer. Present from 30 days before the key expires, and only to the deployment's own token.
+    """
+    preview: LicensePreview | None = None
 
 
 class JudgeClass(BaseModel):
@@ -12666,6 +12709,16 @@ class Tenant(BaseModel):
     limits: TenantLimits | None = None
 
 
+class TenantLimitsResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    limits: TenantLimits
+    in_use: Annotated[TenantLimitsInUse | None, Field(alias="inUse")] = None
+
+
 class ScheduleRecord(BaseModel):
     """
     A schedule: what it runs (a flow at a version, or an agent), when (a cron expression in a timezone), as whom (its owner), and what it does after a gap or while a run is still going.
@@ -12895,6 +12948,10 @@ class FinishedRun(BaseModel):
     failure_message: Annotated[str | None, Field(alias="failureMessage")]
     """
     Why the run failed or was cancelled; `null` when it completed.
+    """
+    failure: RunFailure | None = None
+    """
+    A failed run's error, as `GET /v1/runs/{runId}` reads it back: its `code`, and the error's own `details` when it has them. Absent unless the run failed, and from a runtime that doesn't send it yet; read `failureMessage` then.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     completed_at: Annotated[AwareDatetime, Field(alias="completedAt")]

@@ -3,11 +3,11 @@
 
 /**
  * Whose work this is: the tenant a budget kept per tenant charges
- * (`schemaCompileBudgetMs`), and which of its compiles count. The API runs
- * each authenticated request with `runAsTenant`, and a request that
- * publishes schemas in a scope of its own that counts every compile; a
- * server that does a tenant's work outside a request (a run, a job) wraps
- * it the same way. The scope is an
+ * (`schemaCompileBudgetMs`, `templateRenderBudgetMs`), and which of its
+ * compiles count. The API runs each authenticated request with
+ * `runAsTenant`, and a request that publishes schemas in a scope of its
+ * own that counts every compile; a server that does a tenant's work
+ * outside a request (a run, a job) wraps it the same way. The scope is an
  * `AsyncLocalStorage` context: it follows `fn`'s own awaits and callbacks,
  * never another request's, however they interleave. Outside any scope
  * (boot, Kindgi's own work), nothing is charged.

@@ -186,10 +186,10 @@ describe('envVarsForTarget', () => {
     expect(dev?.required).toBe(false);
   });
 
-  test('KINDGI_TENANT_HOST_ACCESS: the server only, optional, local or deployed', () => {
+  test('KINDGI_TENANT_HOST_ACCESS: the server only, optional, local, deployed or isolated', () => {
     const access = envVarsForTarget({}).find((v) => v.name === 'KINDGI_TENANT_HOST_ACCESS');
     expect(access).toMatchObject({ group: 'core', required: false });
-    expect(access?.allowedValues).toEqual(['local', 'deployed']);
+    expect(access?.allowedValues).toEqual(['local', 'deployed', 'isolated']);
     expect(
       envVarsForTarget({ component: 'pack-service' }).some(
         (v) => v.name === 'KINDGI_TENANT_HOST_ACCESS',
@@ -347,6 +347,7 @@ describe('envVarsForTarget — the pack service', () => {
     'KINDGI_PACK_ENV_CHECK',
     'KINDGI_PACK_ENV_FILTER',
     'KINDGI_PACK_ENV_DECLARED',
+    'KINDGI_PACK_TENANT_ID',
   ];
 
   test("component=pack-service is the pack service's vars and none of the server's", () => {
@@ -361,6 +362,20 @@ describe('envVarsForTarget — the pack service', () => {
       expect(names).not.toContain('KINDGI_PACK_SERVICE_TOKEN');
       expect(names).not.toContain('KINDGI_PACK_CALL_TIMEOUT_MS');
       expect(names).not.toContain('KINDGI_PACK_INDEX');
+    }
+  });
+
+  test("the per-deployment routing settings are the server's, offered whatever its transport", () => {
+    for (const target of [
+      {},
+      { component: 'server' as const },
+      { packTransport: 'http' as const },
+    ]) {
+      const names = envVarsForTarget(target).map((v) => v.name);
+      expect(names).toEqual(
+        expect.arrayContaining(['KINDGI_PACK_ROUTING', 'KINDGI_PACK_ENDPOINT_HOSTS']),
+      );
+      expect(names).not.toContain('KINDGI_PACK_TENANT_ID');
     }
   });
 
@@ -474,6 +489,9 @@ describe('validateEnvForTarget', () => {
     ]);
     expect(envVarsForTarget({}).map((v) => v.name)).not.toContain('KINDGI_PACK_SERVICE_AUTH');
     const server = new Map(envVarsForTarget({}).map((v) => [v.name, v]));
+    expect(server.get('KINDGI_OPENFGA_AUTH')?.allowedValues).toEqual(['none', 'google-id-token']);
+    expect(server.get('KINDGI_OPENFGA_PRESHARED_KEY')?.required).toBe(false);
+    expect(server.get('KINDGI_OPENFGA_PRESHARED_KEY')?.example).toBe('');
     expect(server.get('KINDGI_IMAGE_REGISTRY_AUTH')?.allowedValues).toEqual([
       'static',
       'google',

@@ -26,6 +26,7 @@ import {
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
+import { participantRefusal } from './participant-access.js';
 import { parseListScope } from './scope-params.js';
 import { refuseMalformedUuidParam } from './uuid-param.js';
 
@@ -246,6 +247,12 @@ export function conversationsRouter(
       ]);
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
+    // Opening it for a participant: its turns run with their memory.
+    const notAllowed = await participantRefusal(c, authorizer, {
+      participantId: parsed.value.participantId,
+      projectId: projectId as unknown as string | undefined,
+    });
+    if (notAllowed !== undefined) return notAllowed;
 
     const opened = await conversationBinding.openConversation({
       tenantId,

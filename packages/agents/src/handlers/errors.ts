@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { TenantBudgetError, TenantBudgetLimit } from '@kindgi/bounds';
 import type { EvaluationResult } from '@kindgi/guardrails';
 import type { PolicyKind } from '@kindgi/policy-contract';
 
@@ -21,6 +22,7 @@ export type InvokeAgentError =
   | ModelInvocationError
   | ToolInvocationError
   | BudgetExceededError
+  | RateLimitExceededError
   | AgentTurnAbortedError
   | HitlRequiredError
   | GuardrailViolationError
@@ -186,6 +188,23 @@ export interface BudgetExceededError {
   readonly kind: 'steps' | 'cost' | 'wall-time';
   readonly limit: number;
   readonly observed: number;
+}
+
+/**
+ * Work the turn needed was refused by a budget kept per tenant (its
+ * template renders, its schema compiles): the tenant spent `budgetMs` of
+ * that work (`limit`) in the last 60 seconds. Not the turn's own failure:
+ * the same turn may run once the tenant is under the budget again, after
+ * `retryAfterMs`. Over HTTP it answers as the API's own refusal by that
+ * budget does: `429`, with `details.limit` and `details.budgetMs`, and
+ * the wait in `Retry-After`.
+ */
+export interface RateLimitExceededError {
+  readonly code: 'rate-limit-exceeded';
+  readonly message: string;
+  readonly limit: TenantBudgetLimit;
+  readonly budgetMs: number;
+  readonly retryAfterMs: number;
 }
 
 /**
@@ -356,6 +375,22 @@ function tryParseChunk(chunk: string): InvokeAgentError | undefined {
 /** Helper for handlers to short-circuit with a structured error. */
 export function throwAgentTurnFailure(error: InvokeAgentError): never {
   throw new AgentTurnFailure(error);
+}
+
+/**
+ * The turn's failure when a budget kept per tenant refused its work
+ * (`TenantBudgetError`): `rate-limit-exceeded`, with the budget and the
+ * wait. Both places a turn's work runs answer with it: its node handlers
+ * (`buildHandlers`), and a resumed turn's rebuild from its journal.
+ */
+export function budgetRefusal(cause: TenantBudgetError): RateLimitExceededError {
+  return {
+    code: 'rate-limit-exceeded',
+    message: cause.message,
+    limit: cause.limit,
+    budgetMs: cause.budgetMs,
+    retryAfterMs: cause.retryAfterMs,
+  };
 }
 
 /**

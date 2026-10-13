@@ -158,6 +158,38 @@ describe('createTransport', () => {
     },
   );
 
+  it("an agent turn refused by its tenant's render budget is rate-limited, with the budget and the wait", async () => {
+    const stub = recordingFetch([
+      {
+        status: 429,
+        headers: { 'Retry-After': '12' },
+        body: JSON.stringify({
+          error: {
+            code: 'rate-limit-exceeded',
+            message: 'Templates rendered for this tenant took its budget',
+            details: { limit: 'template-render-time', budgetMs: 5000, runId: 'run-1' },
+            requestId: 'req-test',
+          },
+        }),
+      },
+    ]);
+    const transport = createTransport({
+      apiUrl: 'https://api.example.com',
+      auth: { kind: 'apiToken', token: 'tk' },
+      fetch: stub.fetch,
+    });
+    const thrown = await transport
+      .request({ method: 'POST', path: '/v1/runs', body: {} })
+      .catch((e: unknown) => e);
+    expect(thrown).toBeInstanceOf(KindgiApiError);
+    expect((thrown as KindgiApiError).error).toMatchObject({
+      code: 'rate-limited',
+      serverCode: 'rate-limit-exceeded',
+      limit: 'template-render-time',
+      retryAfterSeconds: 12,
+    });
+  });
+
   it('a 429 without Retry-After has no retryAfterSeconds; another error ignores the header', async () => {
     const transport = (status: number, code: string) =>
       createTransport({
