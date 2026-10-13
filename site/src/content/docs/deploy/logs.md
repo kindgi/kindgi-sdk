@@ -97,7 +97,7 @@ ids as `:runId`, not their values), its status and how long it took.
 
 | The request | Level |
 | --- | --- |
-| A write (`POST`, `PUT`, `PATCH`, `DELETE`), any answer from 400 to 499, or a 501 (a route this runtime doesn't offer) | `info` |
+| A write (`POST`, `PUT`, `PATCH`, `DELETE`), any answer from 400 to 499, or a 501 (something this runtime doesn't support) | `info` |
 | Any other answer of 500 or more | `error`, with the error |
 | A read, a health probe (`/health`, `/ready`) or a stream | `debug` |
 

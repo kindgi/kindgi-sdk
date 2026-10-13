@@ -118,7 +118,7 @@ describe('the access line', () => {
     expect(h.records()).toEqual([]);
   });
 
-  test("a 501 (a route this runtime doesn't offer) is info like a 4xx, not an error: nothing failed", async () => {
+  test("a 501 (something this runtime doesn't support) is info like a 4xx, not an error: nothing failed", async () => {
     const h = harness();
     const res = await h.send('GET', '/v1/identity/me/permissions');
     expect(res.status).toBe(501);

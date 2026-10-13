@@ -15,11 +15,12 @@ const WRITES: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 /**
  * The access line's level, so `info` stays readable with a console open
  * (it polls every few seconds): a write, and every 4xx, at `info`; every
- * 5xx at `error`, except a 501, which is `info` like a 4xx: it answers a
- * route this runtime doesn't offer (the permissions read without an
- * access store, say), and nothing failed; a successful read (`GET`,
- * `HEAD`: the polling), the health and readiness probes, the spec and the
- * console's files, and a stream's opening, at `debug`.
+ * 5xx at `error`, except a 501, which is `info` like a 4xx: it answers
+ * something this runtime doesn't support (the permissions read without an
+ * access store, a memory operation its store can't do), and nothing
+ * failed; a successful read (`GET`, `HEAD`: the polling), the health and
+ * readiness probes, the spec and the console's files, and a stream's
+ * opening, at `debug`.
  */
 export function accessLevel(c: Context<AppEnv>): LogLevel {
   const status = c.res.status;
