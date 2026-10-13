@@ -20,7 +20,8 @@
  *   5. Compute `Idempotency-Key: sha256(canonicalBody)` (or `--idempotency-key`).
  *   6. If `--dry-run`: print the curl-equivalent + body + headers to
  *      stderr, exit 0.
- *   7. Otherwise POST via `ctx.fetch`.
+ *   7. Otherwise POST via `ctx.fetch`, waiting out the server's rate
+ *      limits (`429` with `Retry-After`) for up to 10 minutes in all.
  *   8. Handle response (201 / 200 / 4xx / 5xx / transport).
  *   9. Warn on out-of-band secrets sync if `.env.<envName>` exists.
  */
@@ -41,6 +42,7 @@ import { renderResponse } from '../deploy/response.js';
 import type {
   DeployRunners,
   PostDeploymentBody,
+  PostDeploymentResult,
   RunBuildResult,
   SyncSecretsBody,
 } from '../deploy/runners.js';
@@ -53,6 +55,7 @@ import {
 import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import type { OptionValue } from '../parse.js';
+import { type RateLimitRefusal, isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
 import { runBuild } from './build.js';
 import type { EnvironmentConfig, PackConfig } from './build.js';
 import type { CommandResult, LeafCommand } from './types.js';
@@ -67,7 +70,7 @@ export const deployCommand: LeafCommand = {
     'Deploy a signed pack image to Kindgi. Reads deploy-envelope.json (or runs `kindgi build` inline) + POSTs to /v1/deployments.',
   usage:
     'kindgi deploy [--env <name>] [--from-envelope <path>] [--endpoint <url>] [--token <bearer>] ' +
-    '[--tenant <id>] [--idempotency-key <str>] [--dry-run] [--sync-secrets] [--allow-missing-env] ' +
+    '[--tenant <id>] [--project <id|slug>] [--idempotency-key <str>] [--dry-run] [--sync-secrets] [--allow-missing-env] ' +
     '[--target <t>] [--build-endpoint <url>] [--out <dir>] [--artifact-version <v>] [--published-at <iso>] ' +
     '[--signing-key <path>] [--signer-key-id <id>] [--registry-push-creds <ref>] ' +
     '[--skip-integrity-gate] [--skip-image-pull] [--skip-sign] [--path <dir>]',
@@ -91,6 +94,11 @@ export const deployCommand: LeafCommand = {
       type: 'string',
       description:
         'Refuse unless the envelope was signed for this tenant (checked before sending). Also passed to an inline build.',
+    },
+    project: {
+      type: 'string',
+      description:
+        "The project to deploy into, one per client: its id, or its slug. A slug two orgs share is refused: pass the id. Default: a tenant-wide deploy, into the tenant's Default project.",
     },
     'idempotency-key': {
       type: 'string',
@@ -187,6 +195,8 @@ interface ResolvedDeployArgs {
   readonly envelopeSource: 'explicit' | 'auto-detect';
   readonly explicitEnvelope: boolean;
   readonly explicitTenantId: string | undefined;
+  /** `--project`: an id or a slug, resolved before the POST. */
+  readonly projectRef: string | undefined;
   readonly idempotencyKeyOverride: string | undefined;
   readonly dryRun: boolean;
   /**
@@ -278,10 +288,17 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
     );
   }
 
-  // ---- 5. Build POST body + Idempotency-Key ---------------------------
+  // ---- 5. The project to deploy into (--project) ---------------------
+  const project = await resolveProject(args, runners, ctx);
+  if (project.kind === 'error') return failure(project.message);
+
+  // ---- 6. Build POST body + Idempotency-Key ---------------------------
   let postBody: PostDeploymentBody;
   try {
-    postBody = buildPostBody(envelope);
+    postBody = {
+      ...buildPostBody(envelope),
+      ...(project.id !== undefined && { projectId: project.id }),
+    };
   } catch (err) {
     return failure(`Internal error building POST body: ${(err as Error).message}\n`);
   }
@@ -290,7 +307,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
       ? args.idempotencyKeyOverride
       : deriveIdempotencyKey(postBody);
 
-  // ---- 6. Secrets sync detection + warning ---------------------------
+  // ---- 7. Secrets sync detection + warning ---------------------------
   //
   // `POST /v1/deployments/:id/secrets` lands after a successful
   // deploy iff `--sync-secrets` is passed. Default OFF (regulated
@@ -315,7 +332,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
     line('');
   }
 
-  // ---- 7. Dry-run ------------------------------------------------------
+  // ---- 8. Dry-run ------------------------------------------------------
   if (args.dryRun) {
     line('  Dry run — would POST the following:');
     line('');
@@ -346,17 +363,26 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
     };
   }
 
-  // ---- 8. POST ---------------------------------------------------------
-  const result = await runners.postDeployment({
-    endpoint: args.endpoint,
-    token: args.token,
-    body: postBody,
-    idempotencyKey,
-    fetchImpl: ctx.fetch,
-    ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
-  });
+  // ---- 9. POST ---------------------------------------------------------
+  //
+  // A `429 rate-limit-exceeded` with `Retry-After` is waited out and the
+  // same request sent again, with the same Idempotency-Key: the server
+  // keeps no answer to a refused request under its key.
+  const result = await sendWaitingOutRateLimits(
+    ctx,
+    () =>
+      runners.postDeployment({
+        endpoint: args.endpoint,
+        token: args.token,
+        body: postBody,
+        idempotencyKey,
+        fetchImpl: ctx.fetch,
+        ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+      }),
+    deployRefusal,
+  );
 
-  // ---- 9. Render response ---------------------------------------------
+  // ---- 10. Render response ---------------------------------------------
   const rendered = renderResponse(result, {
     envName: args.envName,
     endpoint: args.endpoint,
@@ -378,7 +404,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
     };
   }
 
-  // ---- 10. Post-deploy secrets sync ----------------------------------
+  // ---- 11. Post-deploy secrets sync ----------------------------------
   //
   // Runs iff `--sync-secrets` is passed AND the deploy landed OK AND
   // `.env.<envName>` has entries. Otherwise no-op (default path).
@@ -402,6 +428,27 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   return {
     kind: 'ok',
     rendered: { stdout: jsonOut.stdout, stderr: `${banner.join('\n')}\n` },
+  };
+}
+
+/**
+ * A refused deployment to wait out: `429 rate-limit-exceeded` with a
+ * `Retry-After`. Not a replayed one (a runtime before 0.1.3 replays
+ * refusals): sent again, it would answer the same.
+ */
+function deployRefusal(result: PostDeploymentResult): RateLimitRefusal | undefined {
+  if (
+    result.kind !== 'wire-error' ||
+    result.status !== 429 ||
+    result.error.code !== 'rate-limit-exceeded' ||
+    result.idempotentReplay === true ||
+    !isWait(result.retryAfterSeconds)
+  ) {
+    return undefined;
+  }
+  return {
+    retryAfterSeconds: result.retryAfterSeconds,
+    ...(result.error.limit !== undefined && { limit: result.error.limit }),
   };
 }
 
@@ -678,6 +725,67 @@ function buildInlineArgv(ctx: CommandContext, args: ResolvedDeployArgs): readonl
 }
 
 // ---------------------------------------------------------------------
+// The project a deploy goes into
+// ---------------------------------------------------------------------
+
+const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * `--project`: an id goes as it is (the server answers 404 for one of no
+ * project of the tenant); a slug is looked up, and refused when it names
+ * no project, or several (a slug is unique within an org, so two orgs may
+ * share one). Absent: tenant-wide.
+ */
+async function resolveProject(
+  args: ResolvedDeployArgs,
+  runners: DeployRunners,
+  ctx: CommandContext,
+): Promise<
+  | { readonly kind: 'ok'; readonly id?: string }
+  | { readonly kind: 'error'; readonly message: string }
+> {
+  const ref = args.projectRef;
+  if (ref === undefined) return { kind: 'ok' };
+  if (PROJECT_ID_RE.test(ref)) return { kind: 'ok', id: ref };
+  if (runners.findProjects === undefined) {
+    return {
+      kind: 'error',
+      message: `--project ${ref}: this build can't look a slug up. Pass the project's id.\n`,
+    };
+  }
+  const found = await runners.findProjects({
+    endpoint: args.endpoint,
+    token: args.token,
+    slug: ref,
+    fetchImpl: ctx.fetch,
+    ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+  });
+  if (found.kind === 'error') {
+    return {
+      kind: 'error',
+      message: `--project ${ref}: couldn't list the tenant's projects: ${found.message}\n`,
+    };
+  }
+  const [only, ...more] = found.projects;
+  if (only === undefined) {
+    return {
+      kind: 'error',
+      message: `--project ${ref}: no project of this tenant has that slug. \`kindgi projects list\` shows them; create one per client with \`kindgi projects create\`.\n`,
+    };
+  }
+  if (more.length > 0) {
+    const ids = found.projects.map(
+      (p) => `${p.id} (${p.name}${p.orgId === undefined ? '' : `, org ${p.orgId}`})`,
+    );
+    return {
+      kind: 'error',
+      message: `--project ${ref}: ${found.projects.length} projects of this tenant have that slug, in different orgs: ${ids.join(', ')}. Pass the id.\n`,
+    };
+  }
+  return { kind: 'ok', id: only.id };
+}
+
+// ---------------------------------------------------------------------
 // Argument resolution
 // ---------------------------------------------------------------------
 
@@ -753,6 +861,10 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       : resolve(ctx.cwd, fromFlag as string)
     : join(outDir, 'deploy-envelope.json');
 
+  const projectFlag = ctx.options.project;
+  const projectRef =
+    typeof projectFlag === 'string' && projectFlag !== '' ? projectFlag : undefined;
+
   const idempotencyKeyFlag = ctx.options['idempotency-key'];
   const idempotencyKeyOverride =
     typeof idempotencyKeyFlag === 'string' && idempotencyKeyFlag !== ''
@@ -782,6 +894,7 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       envelopeSource: explicitEnvelope ? 'explicit' : 'auto-detect',
       explicitEnvelope,
       explicitTenantId,
+      projectRef,
       idempotencyKeyOverride,
       dryRun,
       syncSecrets,

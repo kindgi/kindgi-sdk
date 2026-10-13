@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
+import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import { type Guardrail, guardrailConfigProblems } from '@kindgi/guardrails';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
@@ -17,6 +19,7 @@ import type {
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
+import { expectCompileBudgetRefused } from './support/compile-budget.js';
 
 /**
  * Guardrails route tests.
@@ -475,6 +478,25 @@ describe("API — guardrails register: the config against its check's configSche
       config: { maxChars: 60 },
     });
     expect(res.status).toBe(201);
+  });
+
+  test("a built-in check's config schema compiles against the tenant's budget, the first compile included: refused, nothing is stored", async () => {
+    const { app, binding } = makeApp();
+    const register = () =>
+      post(app, {
+        id: 'acme.no-refunds',
+        check: 'never-call-tool',
+        config: { tools: ['acme.refund'] },
+      });
+    const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
+    try {
+      const refused = await register();
+      await expectCompileBudgetRefused(refused);
+      expect((await binding.list({ tenantId, limit: 10 })).data).toEqual([]);
+    } finally {
+      restore();
+    }
+    expect((await register()).status).toBe(201);
   });
 
   test('a check with nothing to check against → 201', async () => {

@@ -71,6 +71,7 @@ export const CLI_DEFAULTS = {
     'idempotency-key': 'a hash of the request body',
     out: '`.kindgi/build` under the pack root',
     path: 'the current directory',
+    project: "none: a tenant-wide deploy, into the tenant's Default project",
     'published-at': 'for an inline build: the build time',
     'registry-push-creds': 'none',
     'signer-key-id':
@@ -555,7 +556,6 @@ export const CLI_DEFAULTS = {
   'webhooks register': {
     'body-limit': '`262144` bytes (256 KiB)',
     'delivery-id-header': 'none, or the header the preset sets',
-    env: 'required with `--generate-secret`',
     flow: 'required',
     'flow-version': 'required',
     'generate-secret': 'none',

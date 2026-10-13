@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { TenantBudgetError } from '@kindgi/bounds';
 import type { Logger } from '@kindgi/log';
 import type { Context } from 'hono';
 
-import { statusFor, toWireError } from '../errors.js';
+import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 
 /**
  * The app's error handler (`app.onError`). Any exception a route or
@@ -20,6 +21,13 @@ import { statusFor, toWireError } from '../errors.js';
  * An exception that carries its own response (Hono's `HTTPException`,
  * `getResponse()`) answers with it, as Hono's default handler does.
  *
+ * Work a budget kept per tenant refused (`TenantBudgetError`: a schema
+ * compile past `schemaCompileBudgetMs`, a render past
+ * `templateRenderBudgetMs`) is a limit, not a failure:
+ * `429 rate-limit-exceeded` with the budget in `details.limit`
+ * (`schema-compile-time`, `template-render-time`) and `details.budgetMs`,
+ * and `Retry-After`.
+ *
  * The requestId embedded in the response body matches
  * `middleware/request-id.ts`, so a caller can correlate.
  *
@@ -34,6 +42,21 @@ export function mapThrownError(cause: Error, c: Context): Response {
     return c.newResponse(res.body, res);
   }
   const requestId = (c.get('requestId') as string | undefined) ?? 'req-unknown';
+  if (cause instanceof TenantBudgetError) {
+    c.header('Retry-After', String(retryAfterSeconds(cause.retryAfterMs)));
+    c.status(statusFor('rate-limit-exceeded') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'rate-limit-exceeded',
+          message: cause.message,
+          limit: cause.limit,
+          budgetMs: cause.budgetMs,
+        },
+        requestId,
+      ),
+    );
+  }
   // A 500 is something an operator should look at: logged, with the error.
   (c.get('log') as Logger | undefined)?.error('unhandled error', { err: cause });
   const body = toWireError(

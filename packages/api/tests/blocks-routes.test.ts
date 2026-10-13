@@ -13,6 +13,8 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
+import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import { createLogger } from '@kindgi/log';
 import type { OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
@@ -20,6 +22,7 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
+import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -79,7 +82,12 @@ function harness(authz?: Authz) {
       ...(body !== undefined && { body: JSON.stringify(body) }),
     });
     const text = await res.text();
-    return { status: res.status, text, body: JSON.parse(text) as Record<string, any> };
+    return {
+      status: res.status,
+      headers: res.headers,
+      text,
+      body: JSON.parse(text) as Record<string, any>,
+    };
   };
   return { call, binding, logLines };
 }
@@ -303,6 +311,20 @@ describe('/v1/blocks: publish and read', () => {
       wasTombstoned: true,
     });
     expect((await call('GET', '/v1/blocks/acme.intake-prompt')).body.version).toBe('1.1.0');
+  });
+
+  test("its schema's compile counts against the tenant's budget, the first one included: refused, nothing is stored", async () => {
+    const { call } = harness();
+    const publish = () =>
+      call('POST', '/v1/blocks', weights('1.0.0', { recency: 0.3, relevance: 0.7 }, weightsSchema));
+    const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
+    try {
+      await expectCompileBudgetRefused(await publish());
+      expect((await call('GET', '/v1/blocks')).body.data).toEqual([]);
+    } finally {
+      restore();
+    }
+    expect((await publish()).status).toBe(201);
   });
 });
 

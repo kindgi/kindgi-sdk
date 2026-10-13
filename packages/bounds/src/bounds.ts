@@ -20,7 +20,12 @@
  * test than in the server.
  */
 export interface TenantInputBounds {
-  /** The engine a tenant's pattern runs on: V8's, or RE2's, which runs in linear time. */
+  /**
+   * The engine a tenant's pattern runs on: V8's, or RE2's, which runs in
+   * linear time. On RE2, a tenant's JSON Schema checks its data in linear
+   * time too (`@kindgi/schema`): its patterns run on RE2, its formats are
+   * ajv-formats' `fast` ones, and `uniqueItems` compares items by a key.
+   */
   readonly regex: 'v8' | 're2';
   /** The longest a tenant's pattern may be: its source plus its flags, in characters. */
   readonly patternMaxLength: number;
@@ -34,8 +39,29 @@ export interface TenantInputBounds {
   readonly schemaMaxBytes: number;
   /** The deepest a schema may nest, objects and arrays. */
   readonly schemaMaxDepth: number;
-  /** Compiled schemas kept, by their canonical JSON, the least recently used dropped first. */
+  /** Compiled schemas kept, by their JSON, the least recently used dropped first. */
   readonly schemaCacheEntries: number;
+  /**
+   * The most schema JSON those compiled schemas may add up to, in bytes: a
+   * compiled schema takes 4 to 15 times its JSON in memory for real API
+   * schemas, and up to about 20 times for the worst shapes measured.
+   */
+  readonly schemaCacheMaxBytes: number;
+  /**
+   * The time a tenant's schemas may spend compiling in any 60 seconds, in
+   * milliseconds: the compiles that count (`runAsTenant` says whose work
+   * it is, and which count). Past it, the tenant's next compile that
+   * counts is refused until the window moves on; schemas already compiled
+   * keep working.
+   */
+  readonly schemaCompileBudgetMs: number;
+  /**
+   * The time a tenant's templates may spend rendering in any 60 seconds,
+   * in milliseconds, for renders done as its work (`runAsTenant`). Past it,
+   * the tenant's next render is refused until the window moves on. A
+   * render holds the event loop while it runs.
+   */
+  readonly templateRenderBudgetMs: number;
   /** A template's limits (liquidjs's own). */
   readonly liquid: {
     /** The longest template parsed, in characters. */
@@ -69,9 +95,12 @@ const KiB = 1024;
 const MiB = 1024 * KiB;
 
 /*
- * The numbers: proposed, fitted to limits the code already enforces (a
- * pack service's body and an HTTP tool's response 10 MiB, a webhook body
- * 256 KiB, MCP sign-in 64 KiB), until hosted usage confirms them.
+ * The numbers: fitted to limits the code already enforces (a pack
+ * service's body and an HTTP tool's response 10 MiB, a webhook body
+ * 256 KiB, MCP sign-in 64 KiB), until hosted usage tunes them. The
+ * compile cache's bytes and the compile budget are measured: a 256 KiB
+ * schema compiles to 4–5 MiB of heap in up to 0.75 s, and a 100 KiB one
+ * derived from a public OpenAPI document in 0.1–0.2 s.
  */
 
 /**
@@ -87,6 +116,9 @@ export const SELF_HOSTED_BOUNDS: TenantInputBounds = deepFreeze({
   schemaMaxBytes: 1 * MiB,
   schemaMaxDepth: 64,
   schemaCacheEntries: 1_000,
+  schemaCacheMaxBytes: Number.POSITIVE_INFINITY,
+  schemaCompileBudgetMs: Number.POSITIVE_INFINITY,
+  templateRenderBudgetMs: Number.POSITIVE_INFINITY,
   liquid: {
     parseLimit: Number.POSITIVE_INFINITY,
     renderLimitMs: Number.POSITIVE_INFINITY,
@@ -105,8 +137,11 @@ export const HOSTED_BOUNDS: TenantInputBounds = deepFreeze({
   patternMaxLength: 1_024,
   mustCiteMaxCitations: 100,
   schemaMaxBytes: 256 * KiB,
-  schemaMaxDepth: 32,
+  schemaMaxDepth: 64,
   schemaCacheEntries: 512,
+  schemaCacheMaxBytes: 8 * MiB,
+  schemaCompileBudgetMs: 2_000,
+  templateRenderBudgetMs: 5_000,
   liquid: {
     parseLimit: 262_144,
     renderLimitMs: 1_000,

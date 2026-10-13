@@ -5,9 +5,8 @@ import {
   type Agent,
   type AgentId,
   type AgentPins,
-  MODEL_SETTINGS_SCHEMA,
+  modelSettingsIssues,
   pinsDigest,
-  settingsSchemaIssues,
 } from '@kindgi/agents';
 import type { TupleEnqueueHook } from '@kindgi/authz';
 import { latestVersion, nextVersion } from '@kindgi/tools';
@@ -196,7 +195,7 @@ async function blockProblem(
   const wanted = kind === 'prompts' ? 'prompt' : 'settings';
   if (block.kind !== wanted) return `${what} is a ${block.kind} block, not ${wanted}`;
   if (block.kind === 'settings' && from.modelSettings?.id === id) {
-    const issues = settingsSchemaIssues(block.content.values, MODEL_SETTINGS_SCHEMA);
+    const issues = modelSettingsIssues(block.content.values);
     if (issues.length > 0) {
       return `${what} isn't model settings: ${issues.map((i) => `${i.path} ${i.message}`).join('; ')}`;
     }

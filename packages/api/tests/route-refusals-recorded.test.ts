@@ -54,6 +54,10 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'judge-class-not-allowed',
   'host-access-denied',
   'license-operator-only',
+  'capability-not-mintable',
+  'system-key-on-tenant-route',
+  'system-principal-required',
+  'system-scope-missing',
 ]);
 
 /**
@@ -65,6 +69,8 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
  */
 const NOT_A_REFUSAL_OF_THE_CALLER: Readonly<Record<string, string>> = {
   'signer-not-trusted': 'it refuses an artifact, not a caller',
+  'production-not-allowed':
+    "it refuses the tenant's state (not yet allowed production), not the caller, who is a tenant admin",
   'csrf-origin-mismatch': "the request may not be the principal's",
   'role-exceeds-principal':
     "a limit on the key being minted: the caller may mint, the key's principal isn't a tenant admin",
@@ -84,6 +90,12 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'POST /v1/auth/token-sign-in token-sign-in-not-allowed',
     // The license is the deployment's: only its own token reads it here.
     'GET /v1/license license-operator-only',
+    // A tenant's key never reaches a system route.
+    'POST /v1/system/keys system-principal-required',
+    'GET /v1/system/keys system-principal-required',
+    'POST /v1/system/keys/{keyId}/revoke system-principal-required',
+    'PUT /v1/system/tenants/{tenantId}/production-allowed system-principal-required',
+    'PUT /v1/system/tenants/{tenantId}/limits system-principal-required',
   ],
   // An admin key without the capability a write needs; a caller who isn't a reviewer.
   [NO_CAPS_KEY]: [
@@ -91,6 +103,11 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'POST /v1/secrets',
     'GET /v1/approvals',
     'GET /v1/license license-operator-only',
+    'POST /v1/system/keys system-principal-required',
+    'GET /v1/system/keys system-principal-required',
+    'POST /v1/system/keys/{keyId}/revoke system-principal-required',
+    'PUT /v1/system/tenants/{tenantId}/production-allowed system-principal-required',
+    'PUT /v1/system/tenants/{tenantId}/limits system-principal-required',
   ],
 };
 

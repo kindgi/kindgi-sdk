@@ -16,8 +16,11 @@ export const ENV_DEFAULTS = {
     'none: the address the server binds (shown as `http://localhost:<port>` when it binds all interfaces)',
   KINDGI_DATABASE_URL: '`postgres://localhost:5432/kindgi`',
   KINDGI_OPENFGA_API_URL: 'none: authorization is not enforced',
+  KINDGI_OPENFGA_PRESHARED_KEY: 'none: calls to OpenFGA carry no key',
+  KINDGI_OPENFGA_AUTH: '`none`',
   KINDGI_TENANT_ID:
     'none: a new tenant with a generated UUID is created at each start and printed in the startup banner',
+  KINDGI_TENANCY: "`single`: the runtime serves one tenant, `KINDGI_TENANT_ID`'s",
   KINDGI_API_TOKEN:
     'none: a new `kgi_bt_` token is generated at each start and printed in the startup banner',
   KINDGI_SEED_USER_ID: 'none: the user the token had at an earlier start, else a new user',
@@ -25,6 +28,10 @@ export const ENV_DEFAULTS = {
   KINDGI_DEV: '`false`',
   KINDGI_TENANT_HOST_ACCESS: '`local` when `KINDGI_DEV` is on, else `deployed`',
   KINDGI_WEBHOOK_PRIVATE_NETWORKS: '`deny`',
+  KINDGI_PRODUCTION_GATE: '`off`: no gate, and any tenant admin can put a project in production',
+  KINDGI_PRODUCTION_NEXT_URL:
+    'none: `production-not-allowed` says to ask whoever runs the server, and `production-limit-reached` to take a project out of production or ask whoever runs the server to raise the limit',
+  KINDGI_USAGE_METERING: '`off`: model calls are counted, nothing else',
   KINDGI_LICENSE_KEY:
     'none: outside development mode the server refuses to start; development mode needs none',
   KINDGI_LICENSE_KEY_REF: 'none: expiry warnings print a placeholder in the renew command',
@@ -93,6 +100,9 @@ export const ENV_DEFAULTS = {
   KINDGI_ERASURE_LEDGER_KEY_PATH:
     'none (with `KINDGI_ERASURE_LEDGER_KEY` unset): erasures run but cannot be replayed after a restore',
   KINDGI_ERASURE_LEDGER_KEY: 'none: same as `KINDGI_ERASURE_LEDGER_KEY_PATH`',
+  KINDGI_ERASURE_LEDGER_EXPORT: 'none: the ledger stays in the database only',
+  KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS: '`3600000` (an hour); at least `60000`',
+  KINDGI_PASSIVE: '`off`',
   KINDGI_PAGINATION_KEY_PATH:
     'none (with `KINDGI_PAGINATION_KEY` unset): a random key made at start and kept nowhere',
   KINDGI_PAGINATION_KEY: 'none: same as `KINDGI_PAGINATION_KEY_PATH`',
@@ -139,6 +149,10 @@ export const ENV_DEFAULTS = {
   KINDGI_PACK_ENV_FILTER: '`on`',
   KINDGI_PACK_ENV_DECLARED:
     'none: the launcher drops nothing (an image built by `kindgi build` sets it)',
+  KINDGI_PACK_TENANT_ID: "none: no check, the pack service answers any tenant's calls",
+  KINDGI_PACK_ROUTING: '`single`: one pack service, `KINDGI_PACK_SERVICE_URL`, for every call',
+  KINDGI_PACK_ENDPOINT_HOSTS:
+    'none: every endpoint is refused, so per-deployment routing is never open by default',
   KINDGI_IMAGE_REGISTRY_HOST: 'none: every registry is read anonymously',
   KINDGI_IMAGE_REGISTRY_USERNAME: 'none: no credentials (anonymous reads)',
   KINDGI_IMAGE_REGISTRY_PASSWORD: 'none: no credentials (anonymous reads)',
@@ -157,6 +171,10 @@ export const ENV_DEFAULTS = {
  * parentheses, which a pasted shell line can't hold.
  */
 export const ENV_EXAMPLES = {
+  KINDGI_OPENFGA_PRESHARED_KEY: {
+    value: '<long random value without spaces or commas>',
+    make: 'openssl rand -hex 32',
+  },
   KINDGI_LICENSE_KEY: {
     value: 'kgi_lk_<payload>.<signature>',
   },
@@ -229,6 +247,9 @@ export const ENV_EXAMPLES = {
   KINDGI_PACK_SERVICE_TOKEN: {
     value: '<long random value, printable ASCII without spaces>',
     make: 'openssl rand -hex 32',
+  },
+  KINDGI_PACK_TENANT_ID: {
+    value: '<UUID of the tenant this pack service serves>',
   },
   KINDGI_IMAGE_REGISTRY_PASSWORD: {
     value: '<registry password or read-only access token>',
