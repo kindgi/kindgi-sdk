@@ -184,7 +184,7 @@ export const buildCommand: LeafCommand = {
     tenant: {
       type: 'string',
       description:
-        "The tenant the signature names. Default: the env block's `tenantId`, else `KINDGI_TENANT_ID`.",
+        "The tenant the signature names. Default: the env block's `tenantId`, else `KINDGI_TENANT_ID`, else with `--hosted` your key's own tenant.",
     },
     'signing-key': {
       type: 'string',
