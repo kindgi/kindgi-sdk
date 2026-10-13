@@ -6,9 +6,11 @@ import { Hono } from 'hono';
 import { ref } from '@kindgi/authz';
 import type { TenantId } from '@kindgi/types';
 
+import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { hasCapability, refused } from './denied.js';
+import { parseTimeInput } from './time-input.js';
 
 /**
  * Where the deployment's license key stands, as its startup banner says
@@ -47,9 +49,37 @@ export interface LicenseStatus {
   readonly renew?: string;
 }
 
+/**
+ * How much the deployment was used in a period: what a free key's renewal
+ * carries, so Kindgi can see production-like use. Counts only: no content,
+ * names or ids.
+ */
+export interface LicenseUsage {
+  /** ISO 8601: the period's start, as asked. */
+  readonly since: string;
+  /** ISO 8601: when they were counted. */
+  readonly until: string;
+  /** The runtime's version. */
+  readonly runtimeVersion: string;
+  /** Runs started in the period: not dry runs, replays, evals or child runs. */
+  readonly runs: number;
+  /**
+   * Distinct people who started runs or decided approvals in the period,
+   * counted in each tenant and summed: a person in two tenants counts twice.
+   */
+  readonly people: number;
+  /** Projects in production at `until`; absent when the runtime has no such setting. */
+  readonly projectsInProduction?: number;
+}
+
 /** The deployment's license status, worked out on each read (the days left move). */
 export interface LicenseStatusBinding {
   status(): LicenseStatus | Promise<LicenseStatus>;
+  /**
+   * The deployment's use from `since` to `until`, across every tenant it
+   * serves. Without it, `GET /v1/license/usage` isn't served (404).
+   */
+  usage?(period: { readonly since: Date; readonly until: Date }): Promise<LicenseUsage>;
   /**
    * The one tenant this deployment serves, or `null` when it serves none
    * or several: the deployment's own record of its tenants, never anything
@@ -75,6 +105,19 @@ export function operatorLicenseView(status: LicenseStatus): LicenseStatus {
     ...(name !== undefined && { name }),
     ...(use !== undefined && { use }),
     ...(renew !== undefined && { renew }),
+  };
+}
+
+/** The usage the deployment's own token reads: every field named, so nothing a binding adds leaves. */
+export function operatorUsageView(usage: LicenseUsage): LicenseUsage {
+  const { since, until, runtimeVersion, runs, people, projectsInProduction } = usage;
+  return {
+    since,
+    until,
+    runtimeVersion,
+    runs,
+    people,
+    ...(projectsInProduction !== undefined && { projectsInProduction }),
   };
 }
 
@@ -137,5 +180,37 @@ export function licenseRouter(
       code: 'license-operator-only',
     });
   });
+  const usage = binding.usage?.bind(binding);
+  if (usage !== undefined) {
+    // `GET /v1/license/usage`: the deployment's use since a time, for its
+    // key's renewal (`kindgi license renew --runtime`). Only the deployment's
+    // own token: it's every tenant's.
+    r.get('/usage', async (c) => {
+      if (!hasCapability(c, 'kindgi:system')) {
+        return refused(c, authorizer, {
+          action: 'read',
+          resource: ref('tenant', c.get('tenantId') as unknown as string),
+          message: LICENSE_OPERATOR_ONLY_MESSAGE,
+          failing: 'scope',
+          code: 'license-operator-only',
+        });
+      }
+      const until = new Date();
+      const since = parseTimeInput(c.req.query('since'));
+      if (since === null || since.getTime() > until.getTime()) {
+        c.status(statusFor('bad-input') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'bad-input',
+              message: '`since` is required: an ISO 8601 time with a zone, not in the future.',
+            },
+            c.get('requestId'),
+          ),
+        );
+      }
+      return c.json(operatorUsageView(await usage({ since, until })));
+    });
+  }
   return r;
 }

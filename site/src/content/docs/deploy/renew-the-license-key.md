@@ -128,6 +128,13 @@ kindgi license renew --key gcp:projects/acme-prod/secrets/kindgi-license-key \
 - `--renewer` is where `enroll` kept the renewer's private key.
 - With a `kindgi.env`, `--env-file kindgi.env` stands for
   `--key env-file:kindgi.env#KINDGI_LICENSE_KEY`.
+- `--runtime <url>` with `--runtime-token <ref>`: this deployment's runtime,
+  and where its own token (`KINDGI_API_TOKEN`) is kept, as a reference from
+  [Where the keys are kept](#where-the-keys-are-kept). The renewal then
+  carries counts of the deployment's use since the current key was issued
+  ([What renewing sends](#what-renewing-sends)). They're for a
+  non-production key, and need the CLI and the runtime at 0.1.8 or later.
+  Without them, the key still renews.
 
 `renew` checks the answer offline before it writes anything: Kindgi's
 signature, the same licensee and use, and no earlier end date. It writes
@@ -138,6 +145,11 @@ only a key that's new, and prints one line:
   on the key it started with.
 - `unchanged: …` when there's no newer key. A non-production key gets its
   next one in its last 30 days.
+
+With `--runtime`, a second line says what the renewal carried:
+`counts: sent (<runs> runs, <people> people since <date>, runtime <version>)`,
+or `counts: not sent (<why>)` when the runtime couldn't say. Without
+counts, the key still renews.
 
 In the key's last 30 days, `renew` adds a line that starts
 `⚠ It expires in <N> days`. It says how to get a key if `renew` keeps
@@ -163,6 +175,7 @@ A refusal from access.kindgi.com names its code, `refused (<code>): …`:
 | `not-entitled` | A production key is renewed with your contract: write to contact@kindgi.com. |
 | `term-ended` | The contract's term has ended, and the key you have runs until its own date. Write to contact@kindgi.com to extend the term. |
 | `key-revoked`, `denied` | Write to contact@kindgi.com. |
+| `held-for-review` | This deployment's use is above what a non-production key covers, so no new key is issued until Kindgi reviews it: write to contact@kindgi.com about a production license. The key you have runs until its own date. A renewal before the key is due gets the same key back. |
 
 ## On a schedule
 
@@ -186,9 +199,27 @@ The module's README has the details.
 
 ## What renewing sends
 
-Only the renewal request: the renewer's id, the time and a one-time value,
-signed with the renewer's private key. No license key, run or data leaves
-the deployment. Nothing is sent between runs of `renew`.
+The renewal request: the renewer's id, the time and a one-time value, signed
+with the renewer's private key. No license key, run or data leaves the
+deployment. Nothing is sent between runs of `renew`.
+
+With `--runtime`, the request also carries counts of the deployment's use
+since its current key was issued, signed with the rest. `renew` reads them
+from the runtime (`GET /v1/license/usage`, which only the deployment's own
+token can read):
+
+- **runs:** the runs started, not counting dry runs, replays, evals or the
+  runs another run starts;
+- **people:** the distinct people who started runs or decided approvals,
+  counted in each tenant and summed, so a person in two tenants counts twice;
+- **projects in production,** when the runtime has that setting;
+- **the runtime's version,** and the period they cover.
+
+They're counts only: no content, names or ids. access.kindgi.com keeps them
+with the renewal's record, which lasts 400 days. Kindgi reads them to see
+production-like use of non-production keys. Above levels Kindgi sets, a
+non-production key's renewal is held for review once a new key is due
+(`held-for-review`).
 
 ## The runtime's warnings
 

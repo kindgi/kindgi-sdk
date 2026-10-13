@@ -2749,6 +2749,13 @@ export const ACCESS_ERRORS = {
       seeAlso: ['deploy/renew-the-license-key'],
     },
     {
+      error: 'held-for-review',
+      status: 403,
+      description:
+        "This deployment's use, from the counts its renewal carried (`kindgi license renew --runtime`), is above what a non-production key covers, so no new key is issued until Kindgi reviews it. Write to contact@kindgi.com about a production license. The key you have runs until its own date, and a renewal before the key is due gets the same key back.",
+      seeAlso: ['deploy/renew-the-license-key'],
+    },
+    {
       error: 'unavailable',
       status: 503,
       description:

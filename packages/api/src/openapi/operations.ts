@@ -582,6 +582,15 @@ const ObservationConversationIdQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
+const LicenseUsageSinceQueryParam: ParameterSpec = {
+  name: 'since',
+  in: 'query',
+  required: true,
+  description:
+    "The period's start (ISO 8601, with a zone, not in the future): `kindgi license renew` sends when the current key was issued.",
+  schema: { type: 'string', format: 'date-time' },
+};
+
 const ObservationSinceQueryParam: ParameterSpec = {
   name: 'since',
   in: 'query',
@@ -3852,6 +3861,26 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse(
         "Not the deployment's own token, nor an admin of the one tenant it serves (`license-operator-only`).",
       ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/license/usage',
+    openapiPath: '/v1/license/usage',
+    operationId: 'license.usage',
+    summary: 'How much the deployment was used since a time',
+    description:
+      "What a free license key's renewal carries (`kindgi license renew --runtime`): the runs started since `since` (not dry runs, replays, evals or child runs), the distinct people who started runs or decided approvals (counted in each tenant and summed, so a person in two tenants counts twice), the projects in production when the runtime has that setting, and the runtime's version. Counts only: no content, names or ids. Only the deployment's own token (`KINDGI_API_TOKEN`) reads it. A deployment that doesn't report it answers 404.",
+    tags: ['system'],
+    security: 'bearer',
+    parameters: [LicenseUsageSinceQueryParam],
+    responses: {
+      '200': { description: 'The counts.', schema: ref('LicenseUsage') },
+      '400': ErrorResponse(
+        '`since` is missing, not a time with a zone, or in the future (`bad-input`).',
+      ),
+      ...CommonAuthErrors,
+      '403': ErrorResponse("Not the deployment's own token (`license-operator-only`)."),
     },
   },
   {

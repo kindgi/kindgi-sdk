@@ -1757,6 +1757,34 @@ export const LicenseStatusSchema: JsonSchema = {
   },
 };
 
+export const LicenseUsageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['since', 'until', 'runtimeVersion', 'runs', 'people'],
+  properties: {
+    since: { type: 'string', format: 'date-time', description: "The period's start, as asked." },
+    until: { type: 'string', format: 'date-time', description: 'When they were counted.' },
+    runtimeVersion: { type: 'string', description: "The runtime's version." },
+    runs: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Runs started in the period: not dry runs, replays, evals or child runs.',
+    },
+    people: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Distinct people who started runs or decided approvals in the period, counted in each tenant and summed.',
+    },
+    projectsInProduction: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Projects in production at `until`; absent when the runtime has no such setting.',
+    },
+  },
+};
+
 export const ExportSigningKeyListSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -11787,6 +11815,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ExportSigningKey', ExportSigningKeySchema],
   ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['LicenseStatus', LicenseStatusSchema],
+  ['LicenseUsage', LicenseUsageSchema],
   ['ExportAuditBundleBody', ExportAuditBundleBodySchema],
   ['ExportAuditBundleResult', ExportAuditBundleResultSchema],
   ['ObservationStatus', ObservationStatusSchema],

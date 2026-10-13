@@ -214,6 +214,8 @@ export const CLI_DEFAULTS = {
     'env-file': 'none (give this or `--key`)',
     key: 'none (give this or `--env-file`)',
     renewer: 'required',
+    runtime: 'none (give it with `--runtime-token`: the renewal then carries no counts)',
+    'runtime-token': 'none (give it with `--runtime`)',
   },
   'mcp add': {
     env: '`local`',

@@ -123,6 +123,21 @@ export function renewSigningInput(origin: string, body: Uint8Array): string {
   return `kindgi-license-renew-v1\nPOST ${origin}${RENEW_PATH}\n${digest}`;
 }
 
+/**
+ * The deployment's use in the current key's period, as a renewal carries it
+ * (`GET /v1/license/usage` on its runtime): counts only, no content, names
+ * or ids. The service records them; above its thresholds it holds a free
+ * key's renewal for review instead of issuing a new key.
+ */
+export interface RenewalUsage {
+  readonly since: string;
+  readonly until: string;
+  readonly runtimeVersion: string;
+  readonly runs: number;
+  readonly people: number;
+  readonly projectsInProduction?: number;
+}
+
 /** A renewal request, signed: its body and the signature header's value. */
 export function signRenewRequest(
   key: RenewerKey,
@@ -131,12 +146,15 @@ export function signRenewRequest(
     /** Seconds since the epoch. */
     readonly now?: number;
     readonly nonce?: string;
+    /** Sent in the body, so the signature covers it too. */
+    readonly usage?: RenewalUsage;
   } = {},
 ): { readonly body: string; readonly signature: string } {
   const body = JSON.stringify({
     renewerId: key.renewerId,
     ts: options.now ?? Math.floor(Date.now() / 1000),
     nonce: options.nonce ?? randomBytes(16).toString('base64url'),
+    ...(options.usage !== undefined && { usage: usageFields(options.usage) }),
   });
   const signature = sign(
     null,
@@ -144,4 +162,17 @@ export function signRenewRequest(
     key.privateKey,
   ).toString('base64url');
   return { body, signature };
+}
+
+/** The usage's fields, named one by one: nothing else a runtime answers is sent. */
+function usageFields(usage: RenewalUsage): RenewalUsage {
+  const { since, until, runtimeVersion, runs, people, projectsInProduction } = usage;
+  return {
+    since,
+    until,
+    runtimeVersion,
+    runs,
+    people,
+    ...(projectsInProduction !== undefined && { projectsInProduction }),
+  };
 }

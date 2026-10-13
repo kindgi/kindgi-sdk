@@ -1187,7 +1187,7 @@ describe('the license key', () => {
       /^octo's non-production key expires in 12 days \(\d{4}-\d{2}-\d{2}\)\.$/,
     );
     expect(check?.fix).toBe(
-      'Renew it: from this deployment (kindgi license renew --env-file kindgi.env --renewer <its renewer key>), or sign in at https://access.kindgi.com',
+      "Renew it: from this deployment (kindgi license renew --env-file kindgi.env --renewer <its renewer key>), or sign in at https://access.kindgi.com, which shows its latest key and renews it unless a deployment renewed it this week and it hasn't expired",
     );
   });
 
@@ -1198,7 +1198,7 @@ describe('the license key', () => {
       KINDGI_LICENSE_RENEWER_REF: ' gcp:projects/acme/secrets/kindgi-license-renewer ',
     });
     expect(check?.fix).toBe(
-      'Renew it: from this deployment (kindgi license renew --key gcp:projects/acme/secrets/kindgi-license-key --renewer gcp:projects/acme/secrets/kindgi-license-renewer), or sign in at https://access.kindgi.com',
+      "Renew it: from this deployment (kindgi license renew --key gcp:projects/acme/secrets/kindgi-license-key --renewer gcp:projects/acme/secrets/kindgi-license-renewer), or sign in at https://access.kindgi.com, which shows its latest key and renews it unless a deployment renewed it this week and it hasn't expired",
     );
   });
 
@@ -1219,7 +1219,7 @@ describe('the license key', () => {
       `KINDGI_LICENSE_KEY=${key({ exp: NOW / 1000 + 12 * DAY })}\nKINDGI_LICENSE_RENEWER_REF=file:/etc/kindgi/renewer.key\n`,
     );
     expect((await licenseOf())?.fix).toBe(
-      'Renew it: from this deployment (kindgi license renew --env-file kindgi.env --renewer file:/etc/kindgi/renewer.key), or sign in at https://access.kindgi.com',
+      "Renew it: from this deployment (kindgi license renew --env-file kindgi.env --renewer file:/etc/kindgi/renewer.key), or sign in at https://access.kindgi.com, which shows its latest key and renews it unless a deployment renewed it this week and it hasn't expired",
     );
   });
 
@@ -1249,7 +1249,7 @@ describe('the license key', () => {
       seam: { ...seam(), now: () => NOW, licensePublicKeys },
     });
     expect(report?.checks.find((c) => c.id === 'license')?.fix).toBe(
-      `Renew it: from this deployment (kindgi license renew --env-file ${join('deploy', 'kindgi.env')} --renewer file:/etc/kindgi/renewer.key), or sign in at https://access.kindgi.com`,
+      `Renew it: from this deployment (kindgi license renew --env-file ${join('deploy', 'kindgi.env')} --renewer file:/etc/kindgi/renewer.key), or sign in at https://access.kindgi.com, which shows its latest key and renews it unless a deployment renewed it this week and it hasn't expired`,
     );
   });
 

@@ -21,18 +21,21 @@
  * `aws:<region>:<name>` (`license/stores.ts`).
  */
 
+import { KindgiApiError } from '@kindgi/client';
+
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import { LICENSE_WARN_DAYS, isSelfServe } from '../license/expiry.js';
 import type { LicenseClaims } from '../license/license-key.js';
 import {
   KINDGI_ACCESS_ORIGIN,
+  type RenewalUsage,
   decodeRenewerPrivateKey,
   encodeRenewerPrivateKey,
   enrollLine,
   generateRenewerKey,
 } from '../license/protocol.js';
-import { renewLicense } from '../license/renew.js';
+import { type CountsSent, renewLicense } from '../license/renew.js';
 import {
   SecretRefError,
   type SecretStore,
@@ -74,6 +77,68 @@ function accessOrigin(ctx: CommandContext): string {
     );
   }
   return url.origin;
+}
+
+/**
+ * `--runtime <url>` with `--runtime-token <ref>`: the deployment's runtime and
+ * where its own token is (`KINDGI_API_TOKEN`), to read its use since the
+ * current key was issued (`GET /v1/license/usage`). Both or neither.
+ */
+function runtimeUsage(ctx: CommandContext): ((since: Date) => Promise<RenewalUsage>) | undefined {
+  const runtime = stringFlag(ctx, 'runtime');
+  const tokenRef = stringFlag(ctx, 'runtime-token');
+  if ((runtime === undefined) !== (tokenRef === undefined)) {
+    throw new UsageError(
+      'Give --runtime <url> and --runtime-token <ref> together: the runtime, and where its own token (KINDGI_API_TOKEN) is kept.',
+    );
+  }
+  if (runtime === undefined || tokenRef === undefined) return undefined;
+  let url: URL;
+  try {
+    url = new URL(runtime);
+  } catch {
+    throw new UsageError(`--runtime must be a URL. Got "${runtime}".`);
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new UsageError(`--runtime must be an http(s) URL. Got "${runtime}".`);
+  }
+  const tokens = store(ctx, 'runtime-token', tokenRef);
+  return async (since) => {
+    const token = (await tokens.read())?.trim();
+    if (token === undefined || token === '') {
+      throw new Error(`there's no token in ${tokens.describe}`);
+    }
+    try {
+      return await ctx.clientFor(url.origin, token).license.usage({ since });
+    } catch (cause) {
+      throw new Error(usageProblem(url.origin, cause));
+    }
+  };
+}
+
+/** Why the runtime gave no counts, in a line: its refusal, an older runtime, or no answer. */
+function usageProblem(runtime: string, cause: unknown): string {
+  if (cause instanceof KindgiApiError) {
+    if (cause.error.code === 'not-found') {
+      return `${runtime} doesn't report its use (a runtime before 0.1.8)`;
+    }
+    return `${runtime} answered: ${cause.error.message}`;
+  }
+  return `${runtime} couldn't be asked (${cause instanceof Error ? cause.message : String(cause)})`;
+}
+
+/** The counts line, when a runtime was asked. */
+function countsLine(counts: CountsSent | undefined): string[] {
+  if (counts === undefined) return [];
+  if (!counts.sent) {
+    return [`counts: not sent (${counts.reason}); this renewal goes without them.`];
+  }
+  const u = counts.usage;
+  const production =
+    u.projectsInProduction === undefined ? '' : `, ${u.projectsInProduction} in production`;
+  return [
+    `counts: sent (${u.runs} runs, ${u.people} people${production} since ${day(new Date(u.since))}, runtime ${u.runtimeVersion})`,
+  ];
 }
 
 function required(ctx: CommandContext, flag: string, what: string): string {
@@ -159,7 +224,7 @@ const renew: LeafCommand = {
   description:
     "Renew this deployment's license key: asks access.kindgi.com for the next one, checks it offline, and writes it only when it's new.",
   usage:
-    'kindgi license renew (--key <ref> | --env-file <path>) --renewer <ref> [--access-url <origin>]',
+    'kindgi license renew (--key <ref> | --env-file <path>) --renewer <ref> [--runtime <url> --runtime-token <ref>] [--access-url <origin>]',
   optionSpec: {
     key: {
       type: 'string',
@@ -178,9 +243,20 @@ const renew: LeafCommand = {
       type: 'string',
       description: 'Another instance of the service (default https://access.kindgi.com).',
     },
+    runtime: {
+      type: 'string',
+      description:
+        "This deployment's runtime: the renewal carries its use since the current key was issued (counts only), read with --runtime-token.",
+    },
+    'runtime-token': {
+      type: 'string',
+      description:
+        "Where the runtime's own token (KINDGI_API_TOKEN) is kept: file:…, env-file:…#NAME, gcp:…, azure:…, aws:….",
+    },
   },
   async run(ctx): Promise<CommandResult> {
     try {
+      const usage = runtimeUsage(ctx);
       const keyFlag = stringFlag(ctx, 'key');
       const envFile = stringFlag(ctx, 'env-file');
       if ((keyFlag === undefined) === (envFile === undefined)) {
@@ -196,13 +272,20 @@ const renew: LeafCommand = {
       );
       const origin = accessOrigin(ctx);
       const outcome = await renewLicense(
-        { key: store(ctx, 'key', keyRef), renewer: store(ctx, 'renewer', renewerRef), origin },
+        {
+          key: store(ctx, 'key', keyRef),
+          renewer: store(ctx, 'renewer', renewerRef),
+          origin,
+          ...(usage !== undefined && { usage }),
+        },
         { fetch: ctx.fetch, ...(ctx.licenseDeps?.renew ?? {}) },
       );
       if (outcome.kind === 'refused') {
         return {
           kind: 'error',
-          stderr: `refused (${outcome.error}): ${outcome.message}\n`,
+          stderr: [...countsLine(outcome.counts), `refused (${outcome.error}): ${outcome.message}`]
+            .map((l) => `${l}\n`)
+            .join(''),
           exitCode: 1,
         };
       }
@@ -213,11 +296,14 @@ const renew: LeafCommand = {
       // A key Kindgi issued is renewed when Kindgi extends its term; a
       // self-serve one, in its last 30 days. By its subject, as `kindgi
       // doctor` and the runtime's banner tell them apart (`isSelfServe`).
+      // A sign-in leaves a key this deployment renews to it, so the renewer
+      // is stopped first (the page's Renewing deployments).
       const nextKey = isSelfServe(outcome.claims.subject)
-        ? `sign in at ${origin} for a new key`
+        ? `stop this deployment's renewer at ${origin}, then sign in there for a new key`
         : 'write to contact@kindgi.com to extend the term';
       const lines = [
         `${outcome.kind}: ${describeKey(outcome.claims)} (renewer ${outcome.renewerId})`,
+        ...countsLine(outcome.counts),
         ...(outcome.kind === 'renewed'
           ? [
               'The runtime uses the new key from its next start; until then it runs on the one it started with.',
