@@ -28,9 +28,11 @@ export interface ProductionGateOptions {
    */
   readonly gate?: boolean;
   /**
-   * Where a tenant that isn't allowed goes to be allowed, for example a
-   * billing page (`KINDGI_PRODUCTION_NEXT_URL`). It's the refusal's
-   * `details.next`, and `GET /v1/tenant`'s `productionNext`.
+   * Where a tenant goes to put more projects in production, for example a
+   * billing page (`KINDGI_PRODUCTION_NEXT_URL`). It's the `details.next` of
+   * both refusals: the gate's (`production-not-allowed`), and the limit's
+   * (`production-limit-reached`). It's also `GET /v1/tenant`'s
+   * `productionNext` while the tenant isn't allowed.
    */
   readonly next?: string;
 }
