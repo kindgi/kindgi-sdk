@@ -1,5 +1,11 @@
 # @kindgi/specs
 
+## 0.1.7
+
+### Patch Changes
+
+- 72f3582: The tool call idempotency key's description now says how its JSON is written: as `JSON.stringify` writes it, no whitespace, and characters beyond ASCII as themselves, never `\u` escapes. In Python that's `json.dumps(parts, separators=(',', ':'), ensure_ascii=False)`; the default `json.dumps` escapes them and gives another key. The key itself is unchanged.
+
 ## 0.1.7-rc.0
 
 ### Patch Changes
