@@ -1,6 +1,6 @@
 ---
 title: Export your data
-description: Export what your Kindgi hosted workspace holds as files, with the API or the CLI, while your account is open and for 30 days after it closes.
+description: Export what your Kindgi Cloud workspace holds as files, with the API or the CLI, while your account is open and for 30 days after it closes.
 sidebar:
   order: 20
 ---
@@ -48,7 +48,7 @@ from kindgi.client import Kindgi, paginate
 
 kindgi = Kindgi()  # KINDGI_API_URL and KINDGI_API_TOKEN
 out = Path("kindgi-export")
-ENVIRONMENTS = ["prod"]  # the environment Kindgi hosted serves
+ENVIRONMENTS = ["prod"]  # the environment Kindgi Cloud serves
 
 
 def save(name, items):
@@ -198,7 +198,7 @@ page. Kinds marked "API" have no CLI command.
 ## Secrets and env values
 
 Secrets and env values are kept per environment and scope (the tenant, an
-org or a project). On Kindgi hosted, your tools read them in the `prod`
+org or a project). On Kindgi Cloud, your tools read them in the `prod`
 environment, so the script lists `prod` in every scope. A secret's entry has
 its name, its current version, its tags and its dates, never its value
 ([Store a secret](../../guides/secrets/store-a-secret/)).
