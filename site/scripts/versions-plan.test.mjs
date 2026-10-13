@@ -111,22 +111,40 @@ test('_redirects: each line path goes to its newest release, page for page', () 
   );
 });
 
-test('_headers: every Markdown page, at the root and under every version, is noindex', () => {
-  assert.equal(headers(), '/*.md\n  X-Robots-Tag: noindex\n');
+test('_headers: every Markdown page is noindex, and the Markdown and text files say UTF-8', () => {
+  assert.equal(
+    headers(),
+    '/*.md\n  Content-Type: text/markdown; charset=utf-8\n  X-Robots-Tag: noindex\n/*.txt\n  Content-Type: text/plain; charset=utf-8\n',
+  );
   // Matched as Cloudflare documents a splat: greedily, any characters, slashes too.
-  const [pattern] = headers().split('\n');
   const literal = (part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const rule = new RegExp(`^${pattern.split('*').map(literal).join('.*')}$`);
+  const rules = headers()
+    .split('\n')
+    .filter((line) => line.startsWith('/'))
+    .map((pattern) => new RegExp(`^${pattern.split('*').map(literal).join('.*')}$`));
+  const [markdown, text] = rules;
   for (const path of [
     '/index.md',
     '/start/install.md',
     '/v0.1.7/start/install.md',
     '/next/guides/tools/write-a-tool.md',
   ]) {
-    assert.ok(rule.test(path), path);
+    assert.ok(markdown.test(path), path);
+    assert.ok(!text.test(path), path);
   }
-  for (const path of ['/start/install/', '/v0.1.7/', '/llms.txt', '/versions.json']) {
-    assert.ok(!rule.test(path), path);
+  for (const path of [
+    '/llms.txt',
+    '/llms-full.txt',
+    '/llms-small.txt',
+    '/_llms-txt/start.txt',
+    '/v0.1.7/llms.txt',
+    '/next/_llms-txt/guides.txt',
+  ]) {
+    assert.ok(text.test(path), path);
+    assert.ok(!markdown.test(path), path);
+  }
+  for (const path of ['/start/install/', '/v0.1.7/', '/versions.json']) {
+    assert.ok(!rules.some((rule) => rule.test(path)), path);
   }
 });
 

@@ -75,9 +75,12 @@ skills are behind, and `kindgi skills sync` refreshes them (see
   only in `devDependencies`: the message says which, and the agent fixes it
   and runs again.
 - **These docs, for agents.** Every page has a Markdown version: replace
-  the slash at the end of its URL with `.md`.
-  [`docs.kindgi.com/llms.txt`](https://docs.kindgi.com/llms.txt) lists
-  every page's Markdown version by section, and links one file per section.
+  the slash at the end of its URL with `.md`. Under each page's title,
+  **Copy as Markdown** copies it, to paste into a chat with your agent, and
+  **View as Markdown** opens it.
+  [`docs.kindgi.com/llms.txt`](https://docs.kindgi.com/llms.txt), linked at
+  the bottom of every page, lists every page's Markdown version by section,
+  and links one file per section.
   [`llms-full.txt`](https://docs.kindgi.com/llms-full.txt) is all of it.
   Point an agent there when it needs more than the skills.
 
