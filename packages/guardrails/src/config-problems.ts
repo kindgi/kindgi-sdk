@@ -9,7 +9,8 @@
  * call is refused up front instead.
  */
 
-import { SchemaCompileBudgetError, compileJsonSchema } from '@kindgi/schema';
+import { TenantBudgetError } from '@kindgi/bounds';
+import { compileJsonSchema } from '@kindgi/schema';
 import type { ValidateFunction } from 'ajv';
 
 /**
@@ -88,7 +89,7 @@ function validatorFor(schema: Readonly<Record<string, unknown>>): ValidateFuncti
     // annotation) mustn't stop the check of the keywords it does.
     return compileJsonSchema(schema, { dialects: ['2020-12'], strict: false });
   } catch (cause) {
-    if (cause instanceof SchemaCompileBudgetError) throw cause;
+    if (cause instanceof TenantBudgetError) throw cause;
     return null;
   }
 }

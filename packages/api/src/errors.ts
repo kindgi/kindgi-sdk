@@ -132,8 +132,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'run-resume-not-supported': 422,
   /** Memory was asked to search by meaning, and no embedding model is configured. */
   'semantic-unavailable': 422,
-  // 429 — rate limit. No route in this package emits it; a rate limiter
-  // in front of the routes can.
+  // 429 — a limit over a time window: the sign-in lookups' and a webhook
+  // trigger's, a budget kept per tenant (a refused publish, an agent
+  // turn's work), or a rate limiter in front of the routes. With
+  // `Retry-After`.
   'rate-limit-exceeded': 429,
   // A gate asked for an approval past the tenant's limit on approvals waiting.
   'approvals-pending-limit': 429,
@@ -476,6 +478,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
  */
 export function statusFor(code: string): number {
   return ERROR_CODE_TO_STATUS[code] ?? 500;
+}
+
+/** A wait as `Retry-After`'s whole seconds: rounded up, at least one. */
+export function retryAfterSeconds(waitMs: number): number {
+  return Math.max(Math.ceil(waitMs / 1000), 1);
 }
 
 /** Build a wire error body from a domain error + requestId. */

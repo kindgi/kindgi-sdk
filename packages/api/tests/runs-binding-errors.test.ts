@@ -40,7 +40,11 @@ async function startRun(
     headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
-  return { status: res.status, body: (await res.json()) as { error: Record<string, unknown> } };
+  return {
+    status: res.status,
+    retryAfter: res.headers.get('retry-after'),
+    body: (await res.json()) as { error: Record<string, unknown> },
+  };
 }
 
 describe('POST /v1/runs — binding failures on the wire', () => {
@@ -83,6 +87,39 @@ describe('POST /v1/runs — binding failures on the wire', () => {
       message: 'Tool lookup failed',
       details: { toolId: 'search' },
     });
+  });
+
+  test("a turn its tenant's budget refused: 429, the wait in Retry-After, as the API's own refusal by it", async () => {
+    const { status, retryAfter, body } = await startRun(
+      appFailingWith({
+        code: 'rate-limit-exceeded',
+        message: 'Templates rendered for this tenant took its budget',
+        details: {
+          limit: 'template-render-time',
+          budgetMs: 5000,
+          retryAfterMs: 11_200,
+          runId: 'run-1',
+        },
+      }),
+    );
+    expect([status, retryAfter]).toEqual([429, '12']);
+    expect(body.error).toMatchObject({
+      code: 'rate-limit-exceeded',
+      details: { limit: 'template-render-time', budgetMs: 5000, runId: 'run-1' },
+    });
+    expect(body.error.details).not.toHaveProperty('retryAfterMs');
+  });
+
+  test("another failure's retryAfterMs is only a detail: no Retry-After", async () => {
+    const { retryAfter, body } = await startRun(
+      appFailingWith({
+        code: 'unresolved-tool',
+        message: 'Tool lookup failed',
+        details: { toolId: 'search', retryAfterMs: 1000 },
+      }),
+    );
+    expect(retryAfter).toBeNull();
+    expect(body.error).toMatchObject({ details: { toolId: 'search', retryAfterMs: 1000 } });
   });
 
   test('no details → no wire details', async () => {

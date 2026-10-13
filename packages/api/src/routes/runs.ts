@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
 import type { KernelRunRecord, ListRunsInput, RunBinding, RunStatus } from '@kindgi/runtime';
@@ -19,7 +19,7 @@ import type {
 
 import { type Principal, denyPayload, ref } from '@kindgi/authz';
 
-import { type WireErrorBody, statusFor, toWireError } from '../errors.js';
+import { type WireErrorBody, retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type { EventBusBinding, EventPayload, Subscription } from '../event-bus-binding.js';
 import type {
   RunHandlerBinding,
@@ -298,6 +298,7 @@ export function runsRouter(
 
     if (invocation.kind === 'err') {
       c.status(statusFor(invocation.error.code) as never);
+      answerBudgetWait(c, invocation.error);
       return c.json(runFailureToWire(invocation.error, requestId));
     }
 
@@ -769,7 +770,30 @@ export function runsRouter(
  */
 function runFailureToWire(failure: RunHandlerFailure, requestId: string): WireErrorBody {
   const { details, ...rest } = failure as RunHandlerFailure & Readonly<Record<string, unknown>>;
-  return toWireError({ ...details, ...rest }, requestId);
+  // A budget's wait is answered in `Retry-After` (`budgetWaitOf`), not in the body.
+  const { retryAfterMs: _answered, ...withoutWait } = details ?? {};
+  const shown = budgetWaitOf(failure) === undefined ? details : withoutWait;
+  return toWireError({ ...shown, ...rest }, requestId);
+}
+
+/**
+ * `Retry-After` for a turn refused by a budget kept per tenant
+ * (`budgetWaitOf`), as the API's own refusal by that budget answers it.
+ */
+function answerBudgetWait(c: Context<AppEnv>, failure: RunHandlerFailure): void {
+  const wait = budgetWaitOf(failure);
+  if (wait !== undefined) c.header('Retry-After', String(retryAfterSeconds(wait)));
+}
+
+/**
+ * The wait of a turn refused by a budget kept per tenant
+ * (`rate-limit-exceeded`, `details.retryAfterMs`): answered in
+ * `Retry-After`, as the API's own refusal by that budget is, with
+ * `details.limit` and `details.budgetMs` in the body.
+ */
+function budgetWaitOf(failure: RunHandlerFailure): number | undefined {
+  const wait = failure.details?.retryAfterMs;
+  return failure.code === 'rate-limit-exceeded' && typeof wait === 'number' ? wait : undefined;
 }
 
 /** Hand a parsed start body to the binding: an agent turn or a flow run. */

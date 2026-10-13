@@ -6,7 +6,7 @@ import type { Context, MiddlewareHandler } from 'hono';
 import type { TenantHierarchyBinding, TenantLimits } from '@kindgi/platform';
 import type { TenantId } from '@kindgi/types';
 
-import { statusFor, toWireError } from '../errors.js';
+import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import { type RateLimitStore, createInMemoryRateLimitStore } from '../rate-limit-store.js';
 import type { AppEnv } from '../types.js';
 import { errorXml } from '../xml.js';
@@ -121,11 +121,6 @@ export function createTenantLimiter(
       }
     },
   };
-}
-
-/** Whole seconds to wait, at least 1 (`Retry-After`). */
-function retryAfterSeconds(retryAfterMs: number): number {
-  return Math.max(Math.ceil(retryAfterMs / 1000), 1);
 }
 
 /** `429 rate-limit-exceeded` for a tenant's limit, with `Retry-After` and `details.limit`. */

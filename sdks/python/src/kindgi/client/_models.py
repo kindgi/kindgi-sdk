@@ -569,7 +569,7 @@ class UnpinBody(BaseModel):
 
 class RunFailure(BaseModel):
     """
-    Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …); any other failure is `run-failed`, with the run's failure message.
+    Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …; `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed, with `details` naming the budget); any other failure is `run-failed`, with the run's failure message.
     """
 
     model_config = ConfigDict(
@@ -585,6 +585,10 @@ class RunFailure(BaseModel):
     reason: str | None = None
     """
     The error's own reason, when it gives one: for a turn that ended at its approval (`hitl-cancelled`), `timeout` when nobody decided in time. Absent from an older runtime and from errors without one; read `code` then.
+    """
+    details: dict[str, Any] | None = None
+    """
+    The error's own facts, for a code that has them: for `rate-limit-exceeded`, `limit` (the budget that refused: `schema-compile-time` or `template-render-time`) and `budgetMs`, the names the API's `429` uses. Never the wait: read back later, it's stale. Absent for any other code, and from an older runtime.
     """
 
 
@@ -1708,7 +1712,7 @@ class CompleteApprovalBody(BaseModel):
 
 class Resume(BaseModel):
     """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
     """
 
     model_config = ConfigDict(
@@ -1720,7 +1724,7 @@ class Resume(BaseModel):
 
 class Resume1(BaseModel):
     """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
     """
 
     model_config = ConfigDict(
@@ -11979,7 +11983,7 @@ class CompleteApprovalResult(BaseModel):
     ] = None
     resume: Resume | Resume1 | None = None
     """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
     """
 
 
@@ -12944,6 +12948,10 @@ class FinishedRun(BaseModel):
     failure_message: Annotated[str | None, Field(alias="failureMessage")]
     """
     Why the run failed or was cancelled; `null` when it completed.
+    """
+    failure: RunFailure | None = None
+    """
+    A failed run's error, as `GET /v1/runs/{runId}` reads it back: its `code`, and the error's own `details` when it has them. Absent unless the run failed, and from a runtime that doesn't send it yet; read `failureMessage` then.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     completed_at: Annotated[AwareDatetime, Field(alias="completedAt")]

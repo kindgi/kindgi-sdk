@@ -384,6 +384,13 @@ export interface RunFailure {
    * `code` then.
    */
   readonly reason?: string;
+  /**
+   * The error's own facts, for a code that has them: for
+   * `rate-limit-exceeded`, `limit` and `budgetMs`, as the API's 429 names
+   * them. Never the wait: read back later, it's stale. Absent for any
+   * other code, and from an older runtime.
+   */
+  readonly details?: Readonly<Record<string, unknown>>;
 }
 
 /**

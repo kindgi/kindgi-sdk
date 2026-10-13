@@ -9,6 +9,14 @@ export {
   tenantInputBounds,
 } from './bounds.js';
 export {
+  BUDGET_WINDOW_MS,
+  type BudgetClock,
+  SYSTEM_CLOCK,
+  TenantBudgetError,
+  type TenantBudgetLimit,
+  TenantTimeBudget,
+} from './budget.js';
+export {
   type CompiledTenantPattern,
   type TenantPattern,
   compileTenantPattern,
