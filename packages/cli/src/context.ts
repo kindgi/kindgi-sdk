@@ -17,6 +17,7 @@ import type { LicenseCommandDeps } from './license/renew.js';
 import type { OpenUrl } from './open-url.js';
 import type { PackageManager } from './package-manager.js';
 import type { GlobalFlags, OptionValue } from './parse.js';
+import type { RateLimitWaitSeam } from './rate-limit-wait.js';
 import type { TestRunners } from './test/runners.js';
 
 /**
@@ -160,6 +161,12 @@ export interface CommandContext {
    * Tests inject it; production leaves it undefined (the system's opener).
    */
   readonly openUrl: OpenUrl | undefined;
+  /**
+   * The sleep, clock and output the publishing commands wait out the
+   * server's rate limits with (`rate-limit-wait.ts`). Tests inject them;
+   * production leaves this undefined (a timer, the clock, stderr).
+   */
+  readonly rateLimitWaits?: RateLimitWaitSeam;
 }
 
 export interface InitSeam {
@@ -193,6 +200,7 @@ export interface BuildContextInputs {
   readonly initSeam?: InitSeam;
   readonly doctorSeam?: DoctorSeam;
   readonly openUrl?: OpenUrl;
+  readonly rateLimitWaits?: RateLimitWaitSeam;
 }
 
 export function buildContext(inputs: BuildContextInputs): CommandContext {
@@ -244,5 +252,6 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     initSeam: inputs.initSeam,
     doctorSeam: inputs.doctorSeam,
     openUrl: inputs.openUrl,
+    ...(inputs.rateLimitWaits !== undefined && { rateLimitWaits: inputs.rateLimitWaits }),
   };
 }

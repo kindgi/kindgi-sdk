@@ -17,7 +17,7 @@ import {
   type ResponseSpec,
   honoToOpenapiPath,
 } from './operations.js';
-import { COMPONENT_SCHEMAS, type JsonSchema } from './schemas.js';
+import { COMPONENT_SCHEMAS, type JsonSchema, ref } from './schemas.js';
 
 export interface OpenApiInfo {
   readonly title?: string;
@@ -53,6 +53,12 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'The public keys this deployment signs its exports with (audit bundles, provenance, compliance evidence): what a verifier pins.',
   'signing-keys':
     'The deployment trust list: the public keys whose signatures `POST /v1/deployments` accepts. Revoked keys stay readable for audit.',
+  'system-tenants':
+    "The operator's tenants on a runtime serving many: create, list, read, close and suspend them (a project too), and what the control plane sets on each (production, limits, the image prefix), plus the admins' contacts for service notices. System keys only, each route under its own scope.",
+  'system-keys':
+    "The operator's system keys (`kgi_sy_…`), on a runtime serving many tenants: each acts in no tenant, with the least system scope its service needs (sign-up, the orchestrator, billing, the license renewal), and only the full system capability mints them. A runtime serving one tenant has none.",
+  'system-deployments':
+    "Per-deployment routing, on a runtime serving many tenants: whatever runs each deployment's own pack service (an orchestrator) lists the deployments that need one or should lose theirs, and records where each runs, under `system:deployments`. Support suspends a pack under `system:suspend`. No tenant input ever names a pack's URL.",
   tokens:
     'API token administration (mint + revoke), and public run tokens: short-lived, read-only tokens a browser uses to follow specific runs.',
   approvals: 'Human-in-the-loop review queue (role-scoped).',
@@ -293,12 +299,26 @@ function buildPaths(ops: readonly OperationSpec[]): Record<string, Record<string
   return paths;
 }
 
+/**
+ * What an operation with a body may answer when the body is over the
+ * API's limit, unless it declares a 413 of its own (an upload's cap).
+ */
+const REQUEST_TOO_LARGE: ResponseSpec = {
+  description:
+    "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+  schema: ref('WireError'),
+};
+
 function buildOperation(op: OperationSpec): Record<string, unknown> {
+  const responses =
+    op.requestBody !== undefined && op.responses['413'] === undefined
+      ? { ...op.responses, '413': REQUEST_TOO_LARGE }
+      : op.responses;
   const doc: Record<string, unknown> = {
     operationId: op.operationId,
     summary: op.summary,
     tags: [...op.tags],
-    responses: buildResponses(op.responses),
+    responses: buildResponses(responses),
   };
   if (op.description !== undefined) doc.description = op.description;
   if (op.senderOnly !== undefined) doc['x-kindgi-sender-only'] = true;

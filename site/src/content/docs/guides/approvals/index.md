@@ -13,8 +13,10 @@ A flow with that agent as a step waits with it.
 
 - [Ask before a tool runs](ask-before-a-tool-runs/): turn approval gates on in
   an agent.
-- [Decide an approval](decide-an-approval/): reviewers and their roles, the
-  four decisions, and deciding from your app.
+- [Decide an approval](decide-an-approval/): register reviewers, find what
+  waits, and decide it from the CLI or your app.
+- [Approvals reference](approvals-reference/): roles, an approval's fields,
+  the decisions and their codes, deadlines, and the console's Inbox.
 - [Ask before a long conversation continues](ask-after-n-turns/): a gate on
   the number of turns.
 - [Set approval rules for every agent](approval-rules-for-every-agent/): a

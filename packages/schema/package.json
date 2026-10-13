@@ -30,6 +30,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@kindgi/bounds": "workspace:*",
     "@kindgi/types": "workspace:*",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1"

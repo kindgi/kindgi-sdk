@@ -779,6 +779,9 @@ function serializeProject(p: Project): Record<string, unknown> {
     slug: p.slug,
     isDefault: p.isDefault,
     ...(p.description !== undefined && { description: p.description }),
+    ...(p.productionSince !== undefined && {
+      productionSince: p.productionSince as unknown as string,
+    }),
     createdAt: p.createdAt as unknown as string,
     updatedAt: p.updatedAt as unknown as string,
   };

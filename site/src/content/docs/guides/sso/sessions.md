@@ -5,12 +5,16 @@ sidebar:
   order: 2
 ---
 
+This page explains how long a console sign-in lasts, how it ends, and how it
+differs from an API token.
+
 Signing in to the console starts a **session**: a cookie the browser sends
 with each request, `__Host-kindgi_session`. It's `HttpOnly`, so the page's
-own scripts can't read it, and the runtime stores only its hash. Signing in
-also uses two short-lived cookies: `__Host-kindgi_pick`, while you choose a
-workspace, and `__Host-kindgi_link_asked`, for a day after you ask for a
-sign-in link.
+own scripts can't read it. The runtime stores only its hash. Signing in also
+uses two short-lived cookies:
+
+- `__Host-kindgi_pick`, while you choose a workspace;
+- `__Host-kindgi_link_asked`, for a day after you ask for a sign-in link.
 
 ## How long it lasts
 
@@ -31,8 +35,8 @@ request with it afterwards gets `401 auth-revoked`.
 Sessions also end when what they came from goes:
 
 - **An admin signs a person out everywhere**
-  (`POST /v1/identity/users/<id>/revoke-sessions`), or removes them, who then
-  can't sign in again either.
+  (`POST /v1/identity/users/<id>/revoke-sessions`), or removes them. A
+  removed person can't sign in again either.
 - **Revoking an API key** ends the console sessions that key opened, and
   changing the runtime's own token (`KINDGI_API_TOKEN`) ends the ones the
   old token opened.
@@ -42,13 +46,22 @@ Sessions also end when what they came from goes:
 
 ## Requests from other sites
 
-A request signed in by the session cookie that changes something (any
-method but `GET`, `HEAD` and `OPTIONS`) must say where it comes from, in its
-`Origin` header, and come from the console's own address. One without an
-`Origin`, or from anywhere else, is refused with `403 csrf-origin-mismatch`,
-so another site can't act through your session. A runtime without
-`KINDGI_PUBLIC_URL` accepts such a request only from an `https` origin, or
-`http` on `localhost`.
+A request that changes something uses any method but `GET`, `HEAD` and
+`OPTIONS`. When the session cookie signs it in, it must say where it comes
+from, in its `Origin` header, and come from the console's own address. One
+without an `Origin`, or from anywhere else, is refused with
+`403 csrf-origin-mismatch`, so another site can't act through your session.
+A runtime without `KINDGI_PUBLIC_URL` accepts such a request only from an
+`https` origin, or `http` on `localhost`.
+
+Under `kindgi dev`, the console works at `localhost`, `127.0.0.1` or `[::1]`
+on the runtime's port. A browser takes each of these for a different
+address. Anywhere else is refused, and the refusal names the address to open
+the console at. Here, from another port:
+
+```json
+{"error":{"code":"csrf-origin-mismatch","message":"A request signed in by the session cookie can't come from http://localhost:18097; open the console at http://localhost:18096","requestId":"…"}}
+```
 
 ## Sessions and API tokens
 

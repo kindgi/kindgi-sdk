@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Liquid } from 'liquidjs';
-
-import { compileInlineSchema } from '@kindgi/schema';
-import type { Result, TenantId } from '@kindgi/types';
+import { runOutsideTenant } from '@kindgi/bounds';
+import { type CompiledInlineSchema, compileInlineSchema, compileJsonSchema } from '@kindgi/schema';
+import type { ProjectId, Result, TenantId } from '@kindgi/types';
 
 import { validatePromptParameters } from './define.js';
+import { templateProblem } from './liquid.js';
 import type { PromptParameter } from './types.js';
 
 /**
@@ -129,9 +129,36 @@ export function settingsSchemaIssues(
   if (compiled.kind === 'err') {
     return [{ path: '/content/schema', message: compiled.error.message }];
   }
-  const checked = compiled.value.validate(values);
+  return valueIssues(compiled.value, values, path);
+}
+
+/** `MODEL_SETTINGS_SCHEMA`'s validator, compiled by the first `modelSettingsIssues`. */
+let modelSettingsValidator: ReturnType<typeof compileJsonSchema> | undefined;
+
+/**
+ * Whether `values` are model settings (`MODEL_SETTINGS_SCHEMA`): the
+ * problems, none when they are. The schema is Kindgi's and never
+ * changes, so it's compiled once in a process, outside any tenant's
+ * scope (`runOutsideTenant`), and its validator kept here: checking model
+ * settings never counts against a tenant's compile budget.
+ */
+export function modelSettingsIssues(values: unknown, path = '/content/values'): BlockIssue[] {
+  modelSettingsValidator ??= runOutsideTenant(() =>
+    compileJsonSchema(MODEL_SETTINGS_SCHEMA, { dialects: ['2020-12'] }),
+  );
+  if (modelSettingsValidator(values)) return [];
+  return errorIssues(modelSettingsValidator.errors ?? [], path);
+}
+
+function valueIssues(schema: CompiledInlineSchema, values: unknown, path: string): BlockIssue[] {
+  const checked = schema.validate(values);
   if (checked.kind === 'ok') return [];
-  return checked.error.errors.map((e) => {
+  return errorIssues(checked.error.errors, path);
+}
+
+/** A validator's errors, as issues under `path`. */
+function errorIssues(errors: readonly unknown[], path: string): BlockIssue[] {
+  return errors.map((e) => {
     const err = e as { readonly instancePath?: string; readonly message?: string };
     return { path: `${path}${err.instancePath ?? ''}`, message: err.message ?? 'invalid' };
   });
@@ -148,14 +175,8 @@ function promptIssues(content: unknown): BlockIssue[] {
     return [{ path: '/content/template', message: 'template must be a non-empty string' }];
   }
   const issues: BlockIssue[] = [];
-  try {
-    new Liquid().parse(c.template);
-  } catch (cause) {
-    issues.push({
-      path: '/content/template',
-      message: `template isn't valid Liquid: ${cause instanceof Error ? cause.message : String(cause)}`,
-    });
-  }
+  const problem = templateProblem(c.template);
+  if (problem !== undefined) issues.push({ path: '/content/template', message: problem });
   if (c.parameters !== undefined && !Array.isArray(c.parameters)) {
     issues.push({ path: '/content/parameters', message: 'parameters must be an array' });
   } else {
@@ -197,8 +218,8 @@ function invalid(issues: readonly BlockIssue[]): Result<never, InvalidBlock> {
 
 /**
  * What a model-settings block's values may set: the model-call knobs a
- * turn passes on. Checked when an agent version that references the
- * block (`Agent.modelSettings`) is published.
+ * turn passes on. Checked (`modelSettingsIssues`) when an agent version
+ * that references the block (`Agent.modelSettings`) is published.
  */
 export const MODEL_SETTINGS_SCHEMA: Readonly<Record<string, unknown>> = {
   type: 'object',
@@ -220,16 +241,23 @@ export interface ModelSettings {
  * one included, for the agent versions that pin it), and a block's
  * active versions (to resolve a range for an agent version with no
  * pins). The runtime supplies it over its block registry.
+ *
+ * `projectId` is the turn's project: a reader that knows projects answers
+ * only for blocks a run there may reach (`null`, no versions, otherwise),
+ * so a turn never reads another project's prompts or settings. Absent:
+ * every block of the tenant.
  */
 export interface BlockReader {
   getVersion(input: {
     readonly tenantId: TenantId;
     readonly blockId: string;
     readonly version: string;
+    readonly projectId?: ProjectId;
   }): Promise<BlockDefinition | null>;
   activeVersions(input: {
     readonly tenantId: TenantId;
     readonly blockId: string;
+    readonly projectId?: ProjectId;
   }): Promise<readonly string[]>;
 }
 

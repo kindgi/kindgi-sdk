@@ -5,9 +5,10 @@ sidebar:
   order: 7
 ---
 
-This page covers four things: what keeps one tenant's data from another's,
-who may call the API, what a tenant can't make the server do, and where
-secrets live. It ends with what to check before you deploy.
+This page explains what keeps each tenant's data and secrets safe in Kindgi,
+so you know what to check before you deploy it. It covers what keeps one
+tenant's data from another's, who may call the API, what a tenant can't make
+the server do, and where secrets live.
 
 ## Tenants and isolation
 
@@ -19,21 +20,16 @@ so a query that forgot its tenant finds nothing rather than another
 tenant's rows.
 
 A runtime serves the tenant it's started with, `KINDGI_TENANT_ID`. Without
-one, it creates a new tenant at every start and prints its id, so set it
-for anything that should keep its data across restarts. For hard
-separation between customers or environments, give each its own runtime
-and database.
+one, it creates a new tenant at every start and prints its id. So set it for
+anything that should keep its data across restarts. For hard separation
+between customers or environments, give each its own runtime and database.
 
 ## Calling the API
 
-Every `/v1` request carries the deployment's API token:
-
-```sh
-curl -H "Authorization: Bearer $KINDGI_API_TOKEN" "$KINDGI_API_URL/v1/runs?limit=1"
-```
-
-Set it with `KINDGI_API_TOKEN` (a `kgi_bt_…` value from your secrets
-store). Without it, the runtime generates one at each start and prints it.
+Every `/v1` request carries the deployment's API token, in an
+`Authorization: Bearer` header. The runtime reads the token from
+`KINDGI_API_TOKEN`, a `kgi_bt_…` value you set from your secrets store.
+Without it, the runtime generates a token at each start and prints it.
 Tokens are compared in constant time. A wrong or missing token gets `401`:
 
 ```json
@@ -42,25 +38,44 @@ Tokens are compared in constant time. A wrong or missing token gets `401`:
 
 To rotate the token, restart the runtime with a new value.
 
+A request's body is at most 10 MiB. A bigger one is refused with
+`413 request-too-large`, with the limit in `details.maxBytes`, as soon as
+it's past the limit: a body that declares its length up front isn't read at
+all. A JSON body that nests objects and arrays more than 128 levels deep is
+refused with `400 bad-input`, with the limit in `details.maxDepth`, a
+webhook delivery's included. An artifact upload and a webhook delivery have
+size limits of their own
+([Keep files with a run](../../guides/runs/keep-files-with-a-run/),
+[Start runs from webhooks](../../guides/webhooks/start-runs-from-webhooks/)).
+
+Rendering an agent's instructions template may use 16,777,216 of the
+template engine's memory units, roughly the characters of the strings the
+render builds and the items of its arrays. A render past it fails the
+agent's turn with `model-invocation-failed`:
+`Prompt render failed: Template render failed: the render went over its memory limit of 16777216`.
+No setting changes it.
+
 With [authorization](../../deploy/authorization/) on, people and service
-accounts have API keys of their own (`kgi_ak_…`), each acting with its
-holder's grants and no more; revoking one refuses it from its next request
-([People, API keys and service accounts](../../deploy/people-and-keys/)).
+accounts have API keys of their own, `kgi_ak_…`. Each key acts with its
+holder's grants and no more. A revoked key is refused from its next request.
+[People, API keys and service accounts](../../deploy/people-and-keys/) shows
+how keys are made and revoked.
 
 ## Signing in to the console
 
-People sign in to the console with their email first; the sign-in page then
-offers the ways in the deployment has ([Turn on sign-in](../../deploy/sign-in/)):
+People sign in to the console with their email first. The sign-in page then
+offers the ways in the deployment has, which
+[Turn on sign-in](../../deploy/sign-in/) sets up:
 
 - **Only people already added to a workspace get in,** by an email their
   provider has proved. Nobody is created by signing in, and roles stay
   Kindgi's: an identity provider says who someone is, not what they may do.
 - **Google and Microsoft speak for a work email only through the company's
-  own accounts,** and a workspace with its own identity provider signs its
-  domain's people in with it alone.
+  own accounts.** A workspace with its own identity provider signs its
+  domain's people in with that provider alone.
 - **The buttons a person sees grant nothing.** Which "Continue with" buttons
-  appear depends on the email's domain alone; access is decided after the
-  provider signs them in.
+  appear depends on the email's domain alone. Access is decided after the
+  provider signs the person in.
 - **A workspace's own identity provider is offered only for a domain
   verified for that workspace,** so one workspace can't claim another
   company's domain and catch its people.
@@ -86,11 +101,18 @@ A public run token is:
 - **limited to the runs it names:** up to 50;
 - **short-lived:** 15 minutes by default, 24 hours at most.
 
-With it, a browser can follow the run:
+With it, a browser can follow the run. The same request with `curl`:
 
 ```sh
 curl -H "Authorization: Bearer $PUBLIC_TOKEN" "$KINDGI_API_URL/v1/runs/$RUN_ID/progress"
 ```
+
+- `$PUBLIC_TOKEN` is the public run token, such as the run's
+  `publicAccessToken`.
+- `$KINDGI_API_URL` is your runtime's URL.
+- `$RUN_ID` is the id of a run the token names.
+
+It prints the run's progress:
 
 ```json
 {"id":"086f8e9b-9368-4f3a-9c28-9a84fb3f1a09","flowId":"agent.turn","flowVersion":"1.1.0","status":"completed","createdAt":"2026-10-03T15:21:50.698Z","updatedAt":"2026-10-03T15:21:52.115Z","completedAt":"2026-10-03T15:21:52.115Z"}
@@ -103,9 +125,9 @@ Anything else it tries is refused with `403`, even reading the same run:
 ```
 
 Outside development mode, public run tokens are on only when the runtime has
-a signing key (`KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH`, an Ed25519 key used for
-nothing else). Browser origins that may call those routes are listed in
-`KINDGI_CORS_ORIGINS`; with none listed, no CORS headers are sent.
+a signing key. `KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH` names it: an Ed25519
+key used for nothing else. `KINDGI_CORS_ORIGINS` lists the browser origins
+that may call those routes. With none listed, no CORS headers are sent.
 
 ## What a tenant can't make the server do
 
@@ -118,7 +140,19 @@ controls that:
   registered and when the runtime connects to it. Run MCP servers over HTTP
   instead. It also refuses connections to the runtime's own host (a loopback
   address) and the cloud metadata endpoints, wherever configuration names a
-  host: an image registry, a model provider, an HTTP tool, an MCP server.
+  host: an image registry, a model provider, an HTTP tool, an MCP server,
+  and a tenant's SSO identity provider. An identity provider
+  whose origin the operator allows in `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`
+  connects all the same ([Set up SSO](../../guides/sso/)).
+- **`isolated`** is for a runtime whose tenants don't trust one another. It
+  refuses all that `deployed` does, and also private networks (RFC 1918,
+  CGNAT and IPv6 unique-local addresses) wherever configuration names a host,
+  and the runtime's own cloud credentials: a model provider can't sign in as
+  the runtime. A Gemini provider on Vertex AI then needs a service-account key
+  in `secret_ref`, and Azure OpenAI's `auth: entra` and Bedrock's
+  `auth: aws-identity` are refused; use their API keys. The runtime won't start
+  with it in development mode, or with `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`
+  or `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`.
 - **`local`** (the default in development mode) allows it. Use it only on a
   machine where everyone holding an API token may run commands anyway.
 
@@ -133,7 +167,11 @@ https. Kindgi checks this when the webhook is registered, and again at every
 delivery, for every address the receiver's name resolves to. A self-hosted runtime whose receiver is on
 its own private network sets `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`, which
 opens RFC 1918, CGNAT and IPv6 unique-local addresses. Loopback and the
-cloud metadata addresses stay refused.
+cloud metadata addresses stay refused. `KINDGI_TENANT_HOST_ACCESS=isolated`
+refuses that setting.
+
+A model provider's calls carry only its own registration's settings and its
+own key: nothing of the server's environment goes with them.
 
 ## Secrets by reference
 
@@ -152,11 +190,13 @@ can:
   runtime none, whatever login this machine has
   ([Connect Gemini on Vertex AI](../../guides/models/gemini-on-vertex-ai/)).
 
-The values live where your other secrets live: in development, Kindgi's own
-`.kindgi/secrets.env` beside your app's env files, a file your app doesn't
-load; in production Postgres, envelope-encrypted with a key held in your
-cloud's KMS (`KINDGI_SECRETS_BACKEND=postgres`,
-`KINDGI_SECRETS_BACKEND_KMS=gcp`).
+The values live where your other secrets live:
+
+- **In development,** in Kindgi's own `.kindgi/secrets.env`, beside your
+  app's env files. Your app doesn't load that file.
+- **In production,** in Postgres, envelope-encrypted with a key held in your
+  cloud's KMS. `KINDGI_SECRETS_BACKEND=postgres` and
+  `KINDGI_SECRETS_BACKEND_KMS=gcp` set that up.
 
 Webhooks the runtime sends (such as `run.finished`) are signed with the
 endpoint's secret, so your app can check that they came from your runtime.
@@ -167,9 +207,8 @@ endpoint's secret, so your app can check that they came from your runtime.
 The runtime's database user needs `CREATEROLE` and must own the runtime's
 database: the runtime uses it to set up the restricted role that requests run
 as. It needn't be a superuser, so managed Postgres services such as Cloud SQL,
-Amazon RDS and AlloyDB work. Create the `vector` extension once
-([Self-host](../../deploy/self-host/)). With Kindgi 0.1.0, it had to be a
-superuser.
+Amazon RDS and AlloyDB work. Create the `vector` extension once, as
+[Self-host](../../deploy/self-host/) shows.
 :::
 
 - **Development mode is for development.** `KINDGI_DEV=true` turns on
@@ -181,7 +220,7 @@ superuser.
   key that protects stored secrets.
 
 :::note[Access to the runtime image]
-The runtime image is in private preview: request access at contact@kindgi.com.
-You get its pull credentials, a robot name and a token, and log in once with
-`kindgi auth registry` (see [Install](../../start/install/#access-to-the-runtime-image)).
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
+runtime image's pull credentials, and log in once with `kindgi auth registry`
+(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
 :::
