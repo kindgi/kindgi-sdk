@@ -22,6 +22,8 @@
  *                out, whatever the newest release's own copy says; the
  *                releases' and `/next/`'s copies redirect to it
  *                (`tutorials-overlay.mjs`)
+ *   *.md         every page's Markdown, for coding agents, at the root and
+ *                under every version: never indexed, UTF-8 (`/_headers`)
  *
  * Only releases are public: readers install a release, so the site
  * describes what they have. What's merged but not released is checked in a
@@ -43,10 +45,11 @@ import { dirname, join, resolve } from 'node:path';
 import {
   TUTORIALS,
   missingImports,
+  pinnedPagePaths,
   pinnedTutorials,
   tutorialRedirects,
 } from './tutorials-overlay.mjs';
-import { docsSource, menu, plan, redirects } from './versions-plan.mjs';
+import { LOCKFILE, docsSource, headers, menu, plan, redirects } from './versions-plan.mjs';
 
 const args = process.argv.slice(2);
 const option = (name) => {
@@ -112,7 +115,17 @@ function releaseDocsRef(tag, version) {
         .split('\n')
         .filter(Boolean)
     : [];
-  const source = docsSource({ tag, branch, startsAtTag, changed });
+  // For the site-only lockfile guard: the lockfile at both, when it changed.
+  const lockfileAt = (ref) =>
+    execFileSync('git', ['show', `${ref}:${LOCKFILE}`], {
+      cwd: repo,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  const lockfiles = changed.includes(LOCKFILE)
+    ? { tag: lockfileAt(tag), branch: lockfileAt(branch) }
+    : undefined;
+  const source = docsSource({ tag, branch, startsAtTag, changed, lockfiles });
   if ('error' in source) throw new Error(`build-versions: ${source.error}`);
   return source.ref;
 }
@@ -201,14 +214,14 @@ if (next) {
   console.log(`build-versions: next (v${next.parsed.version}) from ${from(next.tag, ref)}`);
   atTag(ref, 'next', (worktree) => buildDocs(worktree, '/next/', next.tag, join(out, 'next')));
 }
-// A pinned tutorial lives under /tutorials/ only: the other builds' copies go, and redirect there.
+// A pinned tutorial lives under /tutorials/ only: the other builds' copies
+// go, their Markdown too, and both redirect there.
 const builds = [...releases.map(({ parsed }) => `v${parsed.version}`), ...(next ? ['next'] : [])];
 for (const build of builds) {
   for (const slug of overlay.pages) {
-    rmSync(join(out, build, 'tutorials', ...(slug === '' ? ['index.html'] : [slug])), {
-      recursive: true,
-      force: true,
-    });
+    for (const path of pinnedPagePaths(slug)) {
+      rmSync(join(out, build, ...path), { recursive: true, force: true });
+    }
   }
 }
 writeFileSync(join(out, 'versions.json'), `${JSON.stringify(menu(planned), null, 2)}\n`);
@@ -216,4 +229,5 @@ writeFileSync(
   join(out, '_redirects'),
   redirects(planned) + tutorialRedirects(planned, overlay.pages),
 );
+writeFileSync(join(out, '_headers'), headers());
 console.log(`build-versions: ${out}`);

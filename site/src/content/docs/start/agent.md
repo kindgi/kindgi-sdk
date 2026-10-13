@@ -10,16 +10,18 @@ This page is written for a coding agent (Claude Code, Cursor, Codex, or any
 other). A person pastes this prompt into their agent:
 
 ```text
-Set up Kindgi for me: read https://docs.kindgi.com/start/agent/ and follow it step by step. Tell me whenever you need me to do something, and wait for me.
+Set up Kindgi for me: read https://docs.kindgi.com/start/agent.md and follow it step by step. Tell me whenever you need me to do something, and wait for me.
 ```
 
-If you are that agent: follow the steps below in order. Do everything you
+If you are that agent: follow this page's steps in order. Do everything you
 can yourself. Ask the person only for what the steps say needs them, one
 thing at a time, and wait until they say they've done it.
 
-If your fetch tool cut this page short, read it from
-<https://docs.kindgi.com/_llms-txt/start.txt>: the Start section as plain
-text, with this page under "Set up Kindgi with your coding agent".
+Read this page whole. If your fetch tool cut it short or summarized it,
+fetch <https://docs.kindgi.com/start/agent.md> again with a tool that
+returns the text as it is, such as `curl -s`. Every page of these docs has
+a Markdown version like this one: replace the slash at the end of a page's
+URL with `.md`.
 
 ## Rules for the whole setup
 
@@ -30,16 +32,21 @@ text, with this page under "Set up Kindgi with your coding agent".
 - **If a pipe from the clipboard doesn't work,** ask the person to run the
   command themselves, in their own terminal, without `--password-stdin` or
   `--from-stdin`: it then asks for the value without showing it.
-- **When something fails, run doctor** (below) and read what it says before
+- **When something fails, run doctor** (step 0) and read what it says before
   you guess.
-- **`kindgi` in the commands below** means, until step 2 makes a project:
+- **Leave the person's code and settings as they are** unless a page says to
+  change them, and ask before you change anything else. That includes an
+  app's `package.json` name (pass `--pack-id` instead), its `zod` version,
+  and its package manager's settings, such as pnpm's `minimumReleaseAge`.
+- **`kindgi` in this page's commands** means, until step 2 makes a project:
   `npx --yes @kindgi/cli@0.1` if `node --version` works; else, for someone
   using Python without Node, `uvx --from "kindgi-cli>=0.1,<0.2" kindgi`
   (the CLI from PyPI; it needs no Node). From step 2 on, from the project's
   folder:
   - a TypeScript project: `pnpm exec kindgi` if `pnpm --version` works,
-    else `npx --no -- kindgi` (the `--` passes every flag, `--help`
-    included, to Kindgi rather than to npx);
+    else `npx --no -- kindgi`. `--no` keeps npx from downloading anything,
+    so it runs the project's own CLI. The `--` passes every flag, `--help`
+    included, to Kindgi rather than to npx;
   - a Python project: `uv run kindgi` (the project's dev dependencies bring
     the CLI);
   - a Java or Scala project: `./kindgiw` (the CLI version the project pins in
@@ -47,14 +54,17 @@ text, with this page under "Set up Kindgi with your coding agent".
 
 ## Step 0: check the machine
 
-Work out the clipboard command for this OS:
+Work out this machine's OS yourself, without asking the person: `uname -s`
+prints `Darwin` on macOS and `Linux` on Linux, WSL included. On Windows it
+fails, or prints a name that starts with `MINGW` or `CYGWIN`. Then pick its
+clipboard command:
 
 | OS | Read the clipboard | Clear it |
 | --- | --- | --- |
 | macOS | `pbpaste` | `pbcopy < /dev/null` |
 | Linux (Wayland) | `wl-paste --no-newline` | `wl-copy --clear` |
 | Linux (X11) | `xclip -o -selection clipboard` | `xclip -selection clipboard < /dev/null` |
-| Windows | use the fallback below | |
+| Windows | use the fallback (next paragraph) | |
 
 Before you pipe the clipboard, check it isn't empty, without printing it:
 `[ -n "$(pbpaste)" ]` (with this OS's command). If the clipboard command
@@ -76,7 +86,7 @@ running and no model key yet:
 ```json
 {
   "ok": false,
-  "cliVersion": "0.1.6",
+  "cliVersion": "0.1.7",
   "project": {
     "dir": "…/my-agents",
     "language": "node"
@@ -147,11 +157,11 @@ step 1.
 If doctor's `registry` check passes, this machine can already pull the
 runtime: skip this step.
 
-1. Ask the person for the runtime image's pull credentials, a robot name
-   and a pull token: "Copy your Kindgi pull token, and tell me when you're
-   done. Also tell me your robot name (it isn't secret)." The image is in
-   private preview: someone without credentials requests access at
-   contact@kindgi.com, and you stop here until they have them.
+1. Ask the person: "Sign in at https://access.kindgi.com with GitHub. Under
+   **1. Pull the runtime image**, copy the token, and tell me when you're
+   done. Also tell me the robot name in its command, after `--username` (it
+   isn't secret)." If the page doesn't give them a token, stop here until
+   they have one.
 2. When they say they're done, pipe the clipboard into the login, with the
    robot name they gave you:
 
@@ -159,10 +169,28 @@ runtime: skip this step.
    <read the clipboard> | kindgi auth registry --username <robot name> --password-stdin
    ```
 
+   It ends with:
+
+   ```text
+   ✓ You can pull quay.io/kindgi/runtime:…@sha256:…, the image this CLI runs.
+   ```
+
 3. Clear the clipboard, if this OS lets you.
 4. Run doctor again; `registry` should pass.
 
 ## Step 2: the project
+
+**If the folder you started in is an app already** (it has a `package.json`,
+`pyproject.toml`, `pom.xml` or `build.sbt`), ask the person: "Shall I add
+Kindgi to this app, or make a separate project?" To add it, read the page
+for the app's language:
+[TypeScript or Node](https://docs.kindgi.com/start/existing-app-typescript.md),
+[Python](https://docs.kindgi.com/start/existing-app-python.md),
+[Java](https://docs.kindgi.com/start/existing-app-java.md) or
+[Scala](https://docs.kindgi.com/start/existing-app-scala.md). Run its
+`kindgi init` and install steps, then go on to step 3 here, from the app's
+folder. At step 5, make the first tool from the app's own code and an agent
+that uses it, as that page shows. Otherwise:
 
 1. Ask the person for a name for their project, or use `my-agents`. Use
    TypeScript if doctor's `node` check passes and the person has no
@@ -201,6 +229,27 @@ runtime: skip this step.
    sbt -batch test
    ```
 
+   `--template` picks the project's language: `python`, `java` or `scala`.
+   Without it, `init` makes a TypeScript project.
+
+   `init` prints what it made, then the next steps. For TypeScript, with
+   `pnpm install` after it:
+
+   ```text
+   …
+   ✓ Pack scaffolded at …/my-agents/
+   ✓ package.json pins pnpm@10.28.0 (packageManager)
+   …
+   Done in 13.3s using pnpm v10.28.0
+   ```
+
+   For Python it's `✓ Python pack scaffolded at …/my-agents/`, and `uv sync`
+   ends with `Installed 26 packages in 457ms`. For Java,
+   `✓ Java pack scaffolded at …/my-agents/ (preview)`, and `./mvnw -q test`
+   prints nothing when the tests pass. For Scala,
+   `✓ Scala pack scaffolded at …/my-agents/ (preview)`, and sbt ends with
+   `[info] Passed: Total 3, Failed 0, Errors 0, Passed 3`.
+
 3. Run doctor again from the project's folder; `project` and
    `dependencies` should pass.
 
@@ -211,29 +260,38 @@ are how you write tools and agents for this project.
 ## Step 3: start Kindgi
 
 Start `kindgi dev` from the project's folder so that it keeps running after
-your turn ends: detached, with its output in a log, and note its process id:
+your turn ends, with its output in `.kindgi/dev.log`. Run
+`mkdir -p .kindgi` first, on its own, so the log's folder exists. Then:
 
-```sh
-mkdir -p .kindgi
-nohup kindgi dev > .kindgi/dev.log 2>&1 &
-echo $!
-```
+- **If your tool runs commands in the background itself** (Claude Code's
+  background tasks do), start it that way: `kindgi dev`, as a background
+  task, with its output in `.kindgi/dev.log`, and no `&` or `nohup`: the
+  task is in the background already. Your tool can stop it.
+- **Otherwise,** start it detached, and note its process id:
 
-Use `kindgi` as the project runs it (`.kindgi/` is git-ignored). Keep
-`mkdir` on its own line: with `mkdir … && nohup … &`, `$!` is a subshell's
-id, and stopping it leaves `kindgi dev` running. It starts the runtime in
-Docker and answers with a stand-in model, `dev-echo`, until step 4 adds a
-real one.
+  ```sh
+  nohup kindgi dev > .kindgi/dev.log 2>&1 &
+  echo $!
+  ```
+
+  `echo $!` prints the process id, a number such as `76907`.
+
+  Run the `mkdir` before it, not as `mkdir … && nohup … &`: then `$!` is a
+  subshell's id, and stopping it leaves `kindgi dev` running.
+
+Use `kindgi` as the project runs it (`.kindgi/` is git-ignored). It starts
+the runtime in Docker and answers with a stand-in model, `dev-echo`, until
+step 4 adds a real one.
 
 Run doctor every few seconds until `runtime` passes. `model-key` and
 `provider` still fail: that's expected until step 4. Then tell the person
-it's running, and how to stop it: `kill <the process id>`. Also tell them
+it's running, and how to stop it: `kill <the process id>`, or, if your
+tool started it, how your tool stops it. If your tool's background tasks end
+with your session, tell them `kindgi dev` stops then too. Also tell them
 where the console is: the `Console` line of `.kindgi/dev.log`, its first
 address (`kindgi doctor --json` has it as `consoleUrl`, and `kindgi console`
 opens it in their browser). They sign in there with **Sign in as seeded
-user**, which needs no token: don't print the token in the chat. Tell them
-to use Chrome or Firefox: Safari can't keep the local sign-in over http yet
-([Known limitations](../../deploy/operate/#known-limitations-in-015)).
+user**, which needs no token: don't print the token in the chat.
 
 ## Step 4: the model key
 
@@ -266,18 +324,36 @@ to use Chrome or Firefox: Safari can't keep the local sign-in over http yet
    kindgi providers register --preset=openai
    ```
 
-   `secrets set` writes the key to Kindgi's own `.kindgi/secrets.env`, which
-   git ignores and the app doesn't load. It needs `kindgi dev` running. `kindgi providers presets` lists
-   the presets and their models.
+   - `secrets set` writes the key to Kindgi's own `.kindgi/secrets.env`,
+     which git ignores and the app doesn't load. It needs `kindgi dev`
+     running.
+   - `--from-stdin` reads the key from the pipe, so it's never shown.
+   - `--env=local` is the environment the secret belongs to. Under
+     `kindgi dev`, `local` is the pack's env files, `.kindgi/secrets.env`
+     among them.
+   - `--scope=tenant` is where the secret lives: the tenant, rather than one
+     org or project.
+   - `--preset=openai` registers OpenAI's models from Kindgi's built-in
+     preset, which reads the key from that provider's secret in the table,
+     `OPENAI_API_KEY` here. `kindgi providers presets` lists the presets and
+     their models.
+
+   The two commands print:
+
+   ```text
+   …
+     Set OPENAI_API_KEY at tenant in local.
+   …
+   ✓ Registered openai: gpt-6.1-sol (default), gpt-6-astra, gpt-6-luna — key OPENAI_API_KEY (env local)
+   ```
 3. Clear the clipboard, if this OS lets you.
 4. Run doctor again; `model-key` and `provider` should pass.
 
 Doctor's `model-key` only checks that a key is saved: a wrong key shows as a
 `401` on the first run. Then don't open, measure or print
-`.kindgi/secrets.env` or the app's env files. Ask
-the person to copy the key again (they can check it in their provider's
-console), and run the
-`secrets set` command again with `--write-mode=add-version`: without it, a
+`.kindgi/secrets.env` or the app's env files. Ask the person to copy the key
+again (they can check it in their provider's console), and run the
+`secrets set` command again with `--write-mode=add-version`. Without it, a
 key that's already stored is refused (`Version conflict: OPENAI_API_KEY
 already exists`). The new key is used from the next run: there's no need to
 register the provider again or to restart `kindgi dev`.
@@ -296,15 +372,26 @@ register the provider again or to restart `kindgi dev`.
    kindgi runs start --agent=<pack id>.<agent name> --input='{"userMessage":"…"}'
    ```
 
-   It waits for the run and prints it; the answer is in its `output`.
+   `--agent` names the agent by its id, and `--input` is its input as JSON:
+   the person's message goes in `userMessage`. The command waits for the
+   run and prints it. The answer is in its `output`.
+
+   ```text
+   …
+     "status": "completed",
+   …
+       "output": {
+   …
+   ```
 
 ## Step 6: wrap up
 
 Tell the person, in your own words:
 
 > **Your first agent answered.** It runs on your machine, with your model
-> key in `.kindgi/secrets.env`; Kindgi keeps running in the background until you stop
-> it with `kill <the process id>`. Three things to try next:
+> key in `.kindgi/secrets.env`. Kindgi keeps running in the background until
+> you stop it (with `kill <the process id>`, or the way I told you), or, if
+> my tool started it, until this session ends. Three things to try next:
 >
 > 1. **Give it a tool:** ask me "add a tool that looks up an order, and let
 >    the agent call it".

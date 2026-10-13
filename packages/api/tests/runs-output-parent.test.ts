@@ -311,6 +311,28 @@ describe('GET /v1/runs/:runId: why a failed run failed', () => {
     expect((await call(h, `/v1/runs/${routed.runId}`)).body.failure).not.toHaveProperty('reason');
   });
 
+  test("a budget's refusal: the budget in details, never the wait; in lists too", async () => {
+    const refused = row({
+      status: 'failed',
+      failureMessage: turnFailureMessage({
+        code: 'rate-limit-exceeded',
+        message: 'Template render budget reached for this tenant (5000 ms a minute)',
+        limit: 'template-render-time',
+        budgetMs: 5_000,
+        retryAfterMs: 2_500,
+      }),
+    });
+    const h = harness([refused]);
+    const expected = {
+      code: 'rate-limit-exceeded',
+      message: 'Template render budget reached for this tenant (5000 ms a minute)',
+      details: { limit: 'template-render-time', budgetMs: 5_000 },
+    };
+    expect((await call(h, `/v1/runs/${refused.runId}`)).body.failure).toEqual(expected);
+    const list = (await call(h, '/v1/runs')).body.data as Record<string, unknown>[];
+    expect(list.map((r) => r.failure)).toEqual([expected]);
+  });
+
   test('only a failed run has one, in lists too', async () => {
     const done = row({ status: 'completed' });
     const cancelled = row({ status: 'cancelled', failureMessage: 'cancelled by user:alice' });

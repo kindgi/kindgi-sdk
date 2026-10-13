@@ -49,6 +49,9 @@ import { RuntimeOwnedElsewhere, RuntimeStartStopped } from '../src/dev/runtime-c
 import { type RunCliInputs, runCli } from '../src/main.js';
 import { CLI_VERSION } from '../src/version-info.js';
 
+/** The models guide on this CLI's release line, as the banner links it. */
+const MODELS_GUIDE_URL = `https://docs.kindgi.com/v${CLI_VERSION.split('.').slice(0, 2).join('.')}/guides/models/`;
+
 /** vi.waitFor's own default (1 s) is too short on a loaded machine; a passing wait returns as soon as it holds. */
 const WAIT = { timeout: 15_000 } as const;
 
@@ -659,6 +662,24 @@ describe('kindgi dev — the project env files', () => {
     );
   });
 
+  test('the live "Kindgi is up" block says what models agents have, as the exit banner does', async () => {
+    const fixtures = makeFixtures();
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      await runCli({ ...baseInputs(fixtures), argv: ['dev', '--no-watch', `--path=${packDir}`] });
+    } finally {
+      spy.mockRestore();
+    }
+    const up = writes.join('').split('✓ Kindgi is up')[1] ?? '';
+    expect(up).toContain(
+      `  Models     none yet. Agents give placeholder replies until you connect a model: ${MODELS_GUIDE_URL}\n`,
+    );
+  });
+
   test('public run tokens: the key file when KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH is set', async () => {
     const keyPath = join(packDir, 'public-token.pem');
     const { privateKey } = generateKeyPairSync('ed25519');
@@ -1184,11 +1205,14 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(out.stderr).toContain('1 agents');
     expect(out.stderr).toContain('1 flows');
     expect(out.stderr).toContain(
-      'Providers          dev-echo (fallback) — canned replies; for a real model: set an LLM provider key, then npx --no -- kindgi providers register --preset=<anthropic|gemini-api|groq|openai|openrouter>',
+      `Models             none yet. Agents give placeholder replies until you connect a model: ${MODELS_GUIDE_URL}\n`,
     );
+    // Plain words: no fallback's name, and the command stays in `kindgi doctor`.
+    expect(out.stderr).not.toContain('dev-echo');
+    expect(out.stderr).not.toContain('providers register');
   });
 
-  test('the providers line lists real providers with their models, fallbacks marked', async () => {
+  test('the models line lists real providers with their models, and leaves the fallback out', async () => {
     const fixtures = makeFixtures({
       providers: [
         { id: 'anthropic', region: 'unspecified', models: [{ name: 'claude-haiku-4-5' }] },
@@ -1199,9 +1223,7 @@ describe('kindgi dev — boot flow (no watch)', () => {
       ...baseInputs(fixtures),
       argv: ['dev', '--no-watch', `--path=${packDir}`],
     });
-    expect(out.stderr).toContain(
-      'Providers          anthropic (claude-haiku-4-5) · dev-echo (fallback)\n',
-    );
+    expect(out.stderr).toContain('Models             anthropic (claude-haiku-4-5)\n');
   });
 
   test('providers the config declares are registered on boot, and left alone on the next', async () => {
@@ -1231,9 +1253,7 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(first).toContain(
       '  ⚠ anthropic: not registered: ANTHROPIC_API_KEY is not in .env, .env.local, .kindgi/secrets.env. Set it (npx --no -- kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant), then restart kindgi dev',
     );
-    expect(first).toContain(
-      'Providers          dev-echo (fallback) · gemini (gemini-3.5-flash-lite)\n',
-    );
+    expect(first).toContain('Models             gemini (gemini-3.5-flash-lite)\n');
     const record = JSON.parse(
       await readFile(join(packDir, '.kindgi', 'dev', 'providers.json'), 'utf8'),
     ) as { readonly runtimes: Record<string, Record<string, unknown>> };
@@ -1280,14 +1300,14 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  test('with no providers, the banner says turns fail until one is registered', async () => {
+  test('with no providers at all, the banner says turns fail until a model is connected', async () => {
     const fixtures = makeFixtures({ providers: [] });
     const out = await runCli({
       ...baseInputs(fixtures),
       argv: ['dev', '--no-watch', `--path=${packDir}`],
     });
     expect(out.stderr).toContain(
-      'Providers          none — this runtime has no dev-echo fallback, so agent turns fail until one is registered: set an LLM provider key, then npx --no -- kindgi providers register --preset=<anthropic|gemini-api|groq|openai|openrouter>',
+      `Models             none yet. Agent turns fail until you connect a model: ${MODELS_GUIDE_URL}\n`,
     );
   });
 

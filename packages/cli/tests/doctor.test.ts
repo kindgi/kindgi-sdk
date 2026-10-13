@@ -112,6 +112,10 @@ async function doctor(
     providers?: unknown[] | Error;
     /** `providers.check` per provider id: its issues (default none), or an error it throws. */
     checks?: Record<string, { path: string; message: string }[]> | Error;
+    /** The MCP endpoints `mcp.endpoints.list` answers, page by page (default none), or an error it throws. */
+    mcpPages?: unknown[][] | Error;
+    /** Each `mcp.endpoints.list` call's filter. */
+    mcpCalls?: unknown[];
     json?: boolean;
     /** More of doctor's arguments (`--path`). */
     args?: string[];
@@ -135,6 +139,22 @@ async function doctor(
             if (options.checks instanceof Error) throw options.checks;
             const issues = options.checks?.[providerId] ?? [];
             return { providerId, adapterId: '@acme/adapter', checked: true, issues };
+          },
+        },
+        mcp: {
+          endpoints: {
+            list: async (filter?: { cursor?: string }) => {
+              options.mcpCalls?.push(filter);
+              if (options.mcpPages instanceof Error) throw options.mcpPages;
+              const pages = options.mcpPages ?? [[]];
+              const at = filter?.cursor === undefined ? 0 : Number(filter.cursor);
+              const more = at + 1 < pages.length;
+              return {
+                data: pages[at] ?? [],
+                hasMore: more,
+                ...(more && { nextCursor: String(at + 1) }),
+              };
+            },
           },
         },
       }) as never,
@@ -190,6 +210,7 @@ describe('outside a project', () => {
       'dev-sandbox',
       'console-sign-in',
       'license',
+      'mcp-headers',
       'project',
       'dependencies',
       'model-key',
@@ -203,6 +224,8 @@ describe('outside a project', () => {
     expect(check('project')?.message).toContain(
       'no kindgi.config.ts, kindgi.config.mts, kindgi.config.mjs, kindgi.config.js, kindgi.config.cjs,',
     );
+    expect(check('mcp-headers')).toMatchObject({ status: 'skip' });
+    expect(check('mcp-headers')?.message).toContain('no runtime to ask');
     expect(check('node')).toMatchObject({ status: 'pass', message: 'Node 22.12.0.' });
     expect(check('python')).toMatchObject({ status: 'skip' });
     expect(check('python')?.message).toContain('Python 3.12.4 is installed');
@@ -287,13 +310,11 @@ describe('the machine', () => {
     const { check } = await doctor({ seam: seam({ docker: dockerThat('no-access') }) });
     expect(check('registry')).toMatchObject({ status: 'fail' });
     expect(check('registry')?.fix).toMatch(
-      /npx @kindgi\/cli@\S+ auth registry --username <robot name> --password-stdin/,
+      /npx @kindgi\/cli@\S+ auth registry --username <your robot name> --password-stdin/,
     );
-    // Where pull credentials come from, the same as `kindgi auth registry` and `kindgi dev` say.
     expect(check('registry')?.fix).toContain(
-      'request the robot name and token at contact@kindgi.com',
+      'the robot name and the token are on https://access.kindgi.com once you sign in with GitHub',
     );
-    expect(check('registry')?.fix).not.toContain('access.kindgi.com');
   });
 
   test("a credential helper Docker can't run: named, with the fix, not a network problem", async () => {
@@ -1284,5 +1305,101 @@ describe('the license key', () => {
       fix: 'Update the Kindgi CLI, then run kindgi doctor again.',
     });
     expect(await licenseOf({ KINDGI_LICENSE_KEY: 'not-a-key' })).toMatchObject({ status: 'fail' });
+  });
+});
+
+describe('MCP endpoint headers: a credential kept in plaintext config.headers, on the runtime the CLI points at', () => {
+  const RUNTIME = 'https://kindgi.acme.example';
+  const env = { KINDGI_API_URL: RUNTIME, KINDGI_API_TOKEN: 'kgi_admin' };
+  const endpoint = (endpointId: string, headers?: Record<string, string>) => ({
+    endpointId,
+    name: endpointId,
+    transport: 'streamable-http',
+    config: { transport: 'streamable-http', url: 'https://mcp.acme.example/mcp', headers },
+  });
+  const stdio = {
+    endpointId: 'acme.local',
+    name: 'local',
+    transport: 'stdio',
+    config: { transport: 'stdio', command: 'acme-mcp' },
+  };
+
+  test('none registered: pass', async () => {
+    const { check } = await doctor({ env, fetchImpl: healthy });
+    expect(check('mcp-headers')).toMatchObject({
+      status: 'pass',
+      message: 'No MCP endpoint is registered.',
+    });
+  });
+
+  test('endpoints with plain headers only: pass, saying how many were checked', async () => {
+    const { check } = await doctor({
+      env,
+      fetchImpl: healthy,
+      mcpPages: [[endpoint('acme.docs', { 'X-Tenant': 'acme' }), endpoint('acme.search'), stdio]],
+    });
+    expect(check('mcp-headers')).toMatchObject({
+      status: 'pass',
+      message: 'No MCP endpoint keeps a credential in config.headers (3 checked).',
+    });
+  });
+
+  test('the headers the API redacted, on every page: a warning naming each endpoint and header, exit 0', async () => {
+    const calls: unknown[] = [];
+    const { out, check } = await doctor({
+      env,
+      fetchImpl: healthy,
+      mcpCalls: calls,
+      mcpPages: [
+        [endpoint('acme.docs', { 'X-Tenant': 'acme' })],
+        [
+          endpoint('acme.inventory', {
+            'X-Api-Key': '[redacted]',
+            'X-Region': 'eu',
+            Cookie: '[redacted]',
+          }),
+          endpoint('acme.billing', { Authorization: '[redacted]' }),
+        ],
+      ],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(calls).toEqual([{ limit: 100 }, { limit: 100, cursor: '1' }]);
+    const found = check('mcp-headers');
+    expect(found?.status).toBe('warn');
+    expect(found?.message).toContain(
+      '2 MCP endpoints keep a credential in plaintext config.headers, from before that was refused. They still work, but each value is stored as given, not as a secret.',
+    );
+    expect(found?.details).toEqual([
+      'acme.inventory: X-Api-Key, Cookie',
+      'acme.billing: Authorization',
+    ]);
+    expect(found?.fix).toContain('kindgi secrets set');
+    expect(found?.fix).toContain('auth: { scheme: "header", headers: [{ name: "<header>"');
+  });
+
+  test("the endpoints can't be listed: not checked, saying why", async () => {
+    const { check } = await doctor({
+      env,
+      fetchImpl: healthy,
+      mcpPages: new Error('HTTP 404: Not Found'),
+    });
+    expect(check('mcp-headers')).toMatchObject({ status: 'skip' });
+    expect(check('mcp-headers')?.message).toBe(
+      `Not checked: the MCP endpoints at ${RUNTIME} couldn't be listed (HTTP 404: Not Found).`,
+    );
+  });
+
+  test('the text output: the warning, each endpoint and the fix', async () => {
+    const { out } = await doctor({
+      env,
+      json: false,
+      fetchImpl: healthy,
+      mcpPages: [[endpoint('acme.inventory', { 'X-Api-Key': '[redacted]' })]],
+    });
+    expect(out.stdout).toContain(
+      '! MCP endpoint headers: An MCP endpoint keeps a credential in plaintext config.headers, from before that was refused. It still works, but the value is stored as given, not as a secret.',
+    );
+    expect(out.stdout).toContain('      ✗ acme.inventory: X-Api-Key');
+    expect(out.stdout).toContain('      Fix: Store each value as a secret');
   });
 });

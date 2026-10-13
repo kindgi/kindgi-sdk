@@ -16,6 +16,8 @@ import { describe, expect, test } from 'vitest';
 
 import { type Agent, createAgentRegistry, pinsDigest } from '@kindgi/agents';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
+import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import type {
   LiveScope,
   ProjectId,
@@ -43,10 +45,12 @@ import type {
   JudgedComparisonSummary,
   LivePin,
   Promotion,
+  ReferenceScopeBinding,
   RunHandlerBinding,
   StartImprovementPassInput,
   TokenResolver,
 } from '../src/index.js';
+import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
 import { inMemoryProposals } from './support/in-memory-proposals.js';
 
@@ -55,6 +59,7 @@ const projectId = randomUUID() as ProjectId;
 const TOKEN = 'proposals-token';
 const AGENT = 'acme.scorer';
 const WEIGHTS = 'acme.scoring-weights';
+const MODEL = 'acme.scorer-model';
 const NOW = '2026-10-07T00:00:00.000Z' as Timestamp;
 const SEGMENT: LiveScope = {
   kind: 'segment',
@@ -448,6 +453,9 @@ async function harness(
     passes?: ImprovementPassBinding;
     /** Instructions inline, not from a pinned prompt block. */
     inlineInstructions?: boolean;
+    /** The agent takes its model settings from block `MODEL`. */
+    modelSettings?: boolean;
+    referenceScope?: ReferenceScopeBinding;
   } = {},
 ) {
   const agents = agentBinding();
@@ -492,10 +500,22 @@ async function harness(
       content: { template: 'Score it.' },
     },
   });
+  if (opts.modelSettings === true) {
+    await blocks.publish({
+      tenantId,
+      projectId,
+      block: {
+        id: MODEL,
+        version: '1.0.0',
+        kind: 'settings',
+        content: { values: { temperature: 0.2 } },
+      },
+    });
+  }
   const pinned = {
     tools: {},
     prompts: opts.inlineInstructions === true ? {} : { 'acme.scorer-prompt': '1.0.0' },
-    settings: { [WEIGHTS]: '1.0.0' },
+    settings: { [WEIGHTS]: '1.0.0', ...(opts.modelSettings === true && { [MODEL]: '1.0.0' }) },
   };
   await agents.publish({
     tenantId,
@@ -509,6 +529,7 @@ async function harness(
           ? 'Score it.'
           : { prompt: 'acme.scorer-prompt', version: '^1.0.0' },
       settings: [{ id: WEIGHTS, version: '^1.0.0' }],
+      ...(opts.modelSettings === true && { modelSettings: { id: MODEL, version: '^1.0.0' } }),
       capabilities: [],
       tools: [],
       retrieval: [],
@@ -535,6 +556,7 @@ async function harness(
     agentReleases: releases.releases,
     supervisor: proposals,
     ...(opts.passes !== undefined && { improvementPasses: opts.passes }),
+    ...(opts.referenceScope !== undefined && { referenceScope: opts.referenceScope }),
     ...(grants !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -574,7 +596,9 @@ const DRAFT = {
 };
 
 /** A draft, with the tenant pinned to 1.0.0 so it can be evaluated. */
-async function drafted(opts: { grants?: readonly string[] } = {}) {
+async function drafted(
+  opts: { grants?: readonly string[]; referenceScope?: ReferenceScopeBinding } = {},
+) {
   const h = await harness(opts);
   h.releases.pin({ kind: 'tenant' }, '1.0.0');
   const res = await h.call('POST', '/v1/proposals', DRAFT);
@@ -583,8 +607,8 @@ async function drafted(opts: { grants?: readonly string[] } = {}) {
 }
 
 /** A proposal whose comparison finished with `delta`. */
-async function evaluated(delta: number) {
-  const h = await drafted();
+async function evaluated(delta: number, opts: { referenceScope?: ReferenceScopeBinding } = {}) {
+  const h = await drafted(opts);
   const res = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
     suiteId: 'acme.scoring-judged',
   });
@@ -744,6 +768,49 @@ describe('POST /v1/proposals/:id/evaluate', () => {
         comparison: expect.objectContaining({ repetitions: 3, classWeights: 'restricted-only' }),
       }),
     ]);
+  });
+
+  test("model settings that aren't are refused (400) before the block version is written", async () => {
+    const { call, releases, blocks, agents, evalRuns } = await harness({ modelSettings: true });
+    releases.pin({ kind: 'tenant' }, '1.0.0');
+    const created = await call('POST', '/v1/proposals', {
+      ...DRAFT,
+      change: { blockId: MODEL, content: { values: { temperature: 5 } } },
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const res = await call('POST', `/v1/proposals/${created.body.id}/evaluate`, {
+      suiteId: 'acme.scoring-judged',
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(res.body.error).toMatchObject({
+      code: 'validation-failed',
+      message: `The proposal's content isn't model settings, which block "${MODEL}" is`,
+    });
+    expect([...blocks.rows.keys()].filter((k) => k.startsWith(MODEL))).toEqual([`${MODEL}@1.0.0`]);
+    expect(
+      await agents.getVersion({ tenantId, agentId: AGENT as never, version: '1.0.1' as Semver }),
+    ).toBeNull();
+    expect(evalRuns.started).toHaveLength(0);
+  });
+
+  test("its schemas' compiles count against the tenant's budget, first ones included: refused, nothing is stored", async () => {
+    const { call, id, blocks, agents, evalRuns } = await drafted();
+    const evaluate = () =>
+      call('POST', `/v1/proposals/${id}/evaluate`, { suiteId: 'acme.scoring-judged' });
+    const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
+    try {
+      await expectCompileBudgetRefused(await evaluate());
+      expect([...blocks.rows.keys()].filter((k) => k.startsWith(WEIGHTS))).toEqual([
+        `${WEIGHTS}@1.0.0`,
+      ]);
+      expect(
+        await agents.getVersion({ tenantId, agentId: AGENT as never, version: '1.0.1' as Semver }),
+      ).toBeNull();
+      expect(evalRuns.started).toHaveLength(0);
+    } finally {
+      restore();
+    }
+    expect((await evaluate()).status).toBe(202);
   });
 
   test.each([
@@ -1173,6 +1240,100 @@ describe('a proposal a drafter wrote (not a person)', () => {
       version: '1.0.1' as Semver,
     });
     expect(derived?.derivedFrom).toMatchObject({ by: 'service:improvement-pass' });
+  });
+});
+
+/**
+ * The agent's project reaches its own items, but for the ids in `out`;
+ * another project reaches none of them.
+ */
+function reach(out: Set<string>): ReferenceScopeBinding {
+  return {
+    async reachable({ fromProjectId, ref }) {
+      return fromProjectId === projectId && !out.has(ref.id);
+    },
+  };
+}
+
+const OTHER_SEGMENT = {
+  kind: 'segment',
+  projectId: randomUUID(),
+  path: [{ key: 'company', value: 'acme' }],
+};
+
+/** The `reference-out-of-scope` refusal's issues, as `path kind id`. */
+function refused(res: { status: number; body: Record<string, any> }): string[] {
+  expect(res.status, JSON.stringify(res.body)).toBe(400);
+  expect(res.body.error.code).toBe('reference-out-of-scope');
+  return (res.body.error.details.issues as { path: string; kind: string; id: string }[]).map(
+    (i) => `${i.path} ${i.kind} ${i.id}`,
+  );
+}
+
+describe("what a proposal names must be in its agent's project's reach", () => {
+  test('a draft for a scope in another project is refused', async () => {
+    const { call, proposals } = await harness({ referenceScope: reach(new Set()) });
+    const res = await call('POST', '/v1/proposals', { ...DRAFT, scope: OTHER_SEGMENT });
+    expect(refused(res)).toEqual([`/scope agent ${AGENT}`]);
+    expect(proposals.rows.size).toBe(0);
+  });
+
+  test('a draft editing a block out of reach is refused, before the block is read', async () => {
+    const { call, proposals } = await harness({ referenceScope: reach(new Set([WEIGHTS])) });
+    const res = await call('POST', '/v1/proposals', DRAFT);
+    expect(refused(res)).toEqual([`/change/blockId block ${WEIGHTS}`]);
+    expect(proposals.rows.size).toBe(0);
+  });
+
+  test('evaluating on a suite out of reach is refused, and starts no eval run', async () => {
+    const out = new Set<string>();
+    const { call, id, evalRuns } = await drafted({ referenceScope: reach(out) });
+    out.add('acme.scoring-judged');
+    const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
+      suiteId: 'acme.scoring-judged',
+    });
+    expect(refused(res)).toEqual(['/suiteId suite acme.scoring-judged']);
+    expect(evalRuns.started).toEqual([]);
+  });
+
+  test("requesting asks it too: a scope that no longer reaches the agent isn't promoted", async () => {
+    const out = new Set<string>();
+    const { call, id, releases } = await evaluated(0.1, { referenceScope: reach(out) });
+    out.add(AGENT);
+    const res = await call('POST', `/v1/proposals/${id}/request`, {});
+    expect(refused(res)).toEqual([`/scope agent ${AGENT}`]);
+    expect(releases.calls.filter((c) => c.method === 'request')).toEqual([]);
+  });
+
+  test('improve on a suite out of reach, or for a scope in another project, starts no pass', async () => {
+    for (const [out, body, issue] of [
+      [
+        new Set(['acme.scoring-judged']),
+        { agentId: AGENT, scope: SEGMENT_WIRE, suiteId: 'acme.scoring-judged' },
+        '/suiteId suite acme.scoring-judged',
+      ],
+      [
+        new Set<string>(),
+        {
+          agentId: AGENT,
+          scope: OTHER_SEGMENT,
+          fromVersion: '1.0.0',
+          suiteId: 'acme.scoring-judged',
+        },
+        `/scope agent ${AGENT}`,
+      ],
+    ] as const) {
+      const passes = inMemoryPasses();
+      const h = await harness({
+        tunable: true,
+        passes: passes.binding,
+        referenceScope: reach(out),
+      });
+      h.releases.pin({ kind: 'tenant' }, '1.0.0');
+      const res = await h.call('POST', '/v1/proposals/improve', body);
+      expect(refused(res)).toEqual([issue]);
+      expect(passes.started).toEqual([]);
+    }
   });
 });
 

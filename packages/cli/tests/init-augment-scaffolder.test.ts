@@ -252,6 +252,13 @@ describe('runInitAugment — end-to-end', () => {
     expect(summary.nextSteps).toContain('Install: pnpm install');
     expect(summary.nextSteps).toContain('Boot the dev server: pnpm exec kindgi dev');
     expect(summary.nextSteps.join('\n')).not.toMatch(/pnpm redirect/);
+    // Models: plain words and the guide; the command stays in `kindgi doctor`.
+    expect(summary.nextSteps).toContainEqual(
+      expect.stringMatching(
+        /^Models: under kindgi dev, agents give placeholder replies until you connect a model: https:\/\/docs\.kindgi\.com\/v\d+\.\d+\/guides\/models\/$/,
+      ),
+    );
+    expect(summary.nextSteps.join('\n')).not.toMatch(/dev-echo|providers register/);
   });
 
   test('derives dot-namespaced pack id from scoped package name', async () => {
