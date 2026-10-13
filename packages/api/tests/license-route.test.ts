@@ -424,7 +424,7 @@ describe("GET /v1/license/usage: the deployment's use, for its key's renewal", (
       expect(answer.body.error, token).toMatchObject({
         code: 'license-operator-only',
         message:
-          "The deployment's use counts every tenant's: only the deployment's own token (KINDGI_API_TOKEN) reads it.",
+          "The deployment's use counts every tenant's: only the deployment's own token (KINDGI_API_TOKEN), or a system key holding system:license, reads it.",
       });
     }
     // Each refusal recorded once, against the caller's own tenant.

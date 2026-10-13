@@ -220,7 +220,7 @@ deployment. Nothing is sent between runs of `renew`.
 With `--runtime`, the request also carries counts of the deployment's use
 since its current key was issued, signed with the rest. `renew` reads them
 from the runtime (`GET /v1/license/usage`, which only the deployment's own
-token can read):
+token, or a system key holding `system:license`, can read):
 
 - **runs:** the runs started, not counting dry runs, replays, evals or the
   runs another run starts;

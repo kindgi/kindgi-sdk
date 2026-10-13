@@ -362,7 +362,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'identity-providers-operator-managed': 403,
   // `GET /v1/license` by a caller who may not read it: the license is the
   // deployment's (its own token), or a sole tenant's admins' countdown.
-  // `GET /v1/license/usage` by anyone but the deployment's own token.
+  // `GET /v1/license/usage` by anyone but the deployment's own token or a
+  // system key holding `system:license`.
   'license-operator-only': 403,
   'invalid-provider-config': 400,
   'auth-not-session-token': 400,

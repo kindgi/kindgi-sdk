@@ -526,7 +526,8 @@ refused:
 - the operator's identity-provider lock (`identity-providers-operator-managed`);
 - reading the deployment's license (`GET /v1/license`) without its own token,
   unless you're an admin of the one tenant it serves, or its use
-  (`GET /v1/license/usage`) without its own token (`license-operator-only`);
+  (`GET /v1/license/usage`) without its own token or a system key holding
+  `system:license` (`license-operator-only`);
 - console token sign-in's refusals (`token-sign-in-not-allowed`,
   `token-sign-in-off`);
 - a stdio MCP endpoint where the deployment runs no commands

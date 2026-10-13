@@ -120,9 +120,9 @@ export interface LicenseStatusBinding {
 export const LICENSE_OPERATOR_ONLY_MESSAGE =
   "The license is this deployment's: read it with the deployment's own token (KINDGI_API_TOKEN). A tenant admin reads its standing only where the deployment serves that one tenant.";
 
-/** The refusal of a caller who may not read the deployment's use: every caller but its own token. */
+/** The refusal of a caller who may not read the deployment's use: every caller but its own token or a `system:license` key. */
 export const LICENSE_USAGE_OPERATOR_ONLY_MESSAGE =
-  "The deployment's use counts every tenant's: only the deployment's own token (KINDGI_API_TOKEN) reads it.";
+  "The deployment's use counts every tenant's: only the deployment's own token (KINDGI_API_TOKEN), or a system key holding system:license, reads it.";
 
 /**
  * How far ahead of this runtime's clock `since` may be: a key issued
@@ -241,10 +241,11 @@ export function licenseRouter(
   const usage = binding.usage?.bind(binding);
   if (usage !== undefined) {
     // `GET /v1/license/usage`: the deployment's use since a time, for its
-    // key's renewal (`kindgi license renew --runtime`). Only the deployment's
-    // own token: it's every tenant's.
+    // key's renewal (`kindgi license renew --runtime`). Only as the operator
+    // reads the license (its own token, or a system key holding
+    // `system:license`): it's every tenant's.
     r.get('/usage', async (c) => {
-      if (!hasCapability(c, 'kindgi:system')) {
+      if (!readsAsOperator(c)) {
         return refused(c, authorizer, {
           action: 'read',
           resource: ref('tenant', c.get('tenantId') as unknown as string),

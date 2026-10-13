@@ -1742,7 +1742,7 @@ export const ERROR_ENTRIES = {
   },
   'system-key-on-tenant-route': {
     description:
-      "A system key was sent to a route it can't use. A system key acts in no tenant, so it reaches `/v1/system/*` and `GET /v1/license` only: use one of the tenant's keys.",
+      "A system key was sent to a route it can't use. A system key acts in no tenant, so it reaches `/v1/system/*`, `GET /v1/license` and `GET /v1/license/usage` only: use one of the tenant's keys.",
     details: [
       {
         key: 'action',
@@ -2218,7 +2218,7 @@ export const ERROR_ENTRIES = {
   },
   'license-operator-only': {
     description:
-      "`GET /v1/license` is for the deployment's own token, or for an admin of the tenant when the deployment serves a single tenant. `GET /v1/license/usage` is for the deployment's own token only. Other callers are refused, and the refusal recorded.",
+      "`GET /v1/license` is for the deployment's own token, or for an admin of the tenant when the deployment serves a single tenant. `GET /v1/license/usage` is for the deployment's own token, or a system key holding `system:license`, only. Other callers are refused, and the refusal recorded.",
     details: [],
   },
   'invalid-provider-config': {
