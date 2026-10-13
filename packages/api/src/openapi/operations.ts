@@ -3544,7 +3544,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tools.register',
     summary: 'Register a tool manifest',
     description:
-      "Body is a `ToolManifest` (Tool minus its runtime handler). Server validates via `@kindgi/tools.validateToolManifest`. Metadata only: the handler is not uploaded through this route and must already be available to the runtime. A tool never gets a model provider's key: one that declares (`needsSpec.secrets`) or sends (`spec.authorization.secretRef`) a secret a provider registration of the tenant names, in any env, is refused.",
+      "Body is a `ToolManifest` (Tool minus its runtime handler). Server validates via `@kindgi/tools.validateToolManifest`. Metadata only: the handler is not uploaded through this route and must already be available to the runtime. A tool never gets a model provider's key: one that declares (`needsSpec.secrets`) or sends (`spec.authorization.secretRef`) a secret a provider registration of the tenant names, in any env, is refused. Where each secret it names is read is recorded on the version (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only.",
     tags: ['tools'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5107,7 +5107,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mcp.endpoints.register',
     summary: 'Register an MCP endpoint',
     description:
-      "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
+      "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
     tags: ['mcp'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -8987,7 +8987,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.register',
     summary: 'Register a webhook trigger',
     description:
-      "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow.",
+      "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow.",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -8998,7 +8998,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key.",
       ),
-      '409': ErrorResponse('Route-minted webhookId collided (astronomically rare).'),
+      '409': ErrorResponse(
+        "`secret-write-conflict`: with `generateSecret`, the trigger's project already has a secret of that name (it's never overwritten, and no trigger is left). Or the route-minted webhookId collided (astronomically rare).",
+      ),
     },
   },
   {

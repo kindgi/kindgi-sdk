@@ -3415,61 +3415,6 @@ class ToolSpec(RootModel[HttpToolSpec]):
     """
 
 
-class Tool1(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: Annotated[str, Field(min_length=1)]
-    """
-    ToolId — dotted namespace (e.g. `acme.verify-citation`).
-    """
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    """
-    The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
-    """
-    description: Annotated[str, Field(min_length=1)]
-    version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
-    input: dict[str, Any]
-    """
-    JSON Schema (Draft 2020-12) for the tool input.
-    """
-    output: dict[str, Any]
-    """
-    JSON Schema (Draft 2020-12) for the tool output.
-    """
-    needs: list[ToolNeed] | None = None
-    effects: list[ToolEffect] | None = None
-    transport: Literal["auto", "native", "mcp"] | None = None
-    mcp_endpoint: Annotated[str | None, Field(alias="mcpEndpoint")] = None
-    metadata: dict[str, Any] | None = None
-    mutating: bool | None = None
-    """
-    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
-    """
-    sandbox: Literal["none", "context-isolated", "strict"] | None = None
-    """
-    Isolation posture the runtime enforces around the handler. Optional additive field.
-    """
-    limits: RuntimeLimits | None = None
-    network: NetworkPolicy1 | NetworkPolicy2 | None = None
-    """
-    Network egress policy. Optional additive field. Discriminated on `kind`.
-    """
-    needs_spec: Annotated[TypedNeeds | None, Field(alias="needsSpec")] = None
-    code_artifact_ref: Annotated[
-        CodeArtifactRef1 | CodeArtifactRef2 | None, Field(alias="codeArtifactRef")
-    ] = None
-    """
-    Handler-artifact pointer. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the pack's on-disk handler file. Production servers SHOULD reject `filesystem`.
-    """
-    spec: ToolSpec | None = None
-    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
-    """
-    Present only on an unregistered version: a retired tool (every version unregistered) as `GET /v1/tools?includeRetired=true` lists it.
-    """
-
-
 class RegisterToolBody(BaseModel):
     """
     ToolManifest — Tool minus its runtime `handler`. Validated server-side via `@kindgi/tools.validateToolManifest`. Metadata-only registration: the handler is not uploaded and must already be available to the runtime.
@@ -3554,87 +3499,6 @@ class ReinstateToolVersionResult(BaseModel):
     """
     `true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op).
     """
-
-
-class ToolCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[Tool1]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. Absent when `hasMore: false`.
-    """
-    has_more: Annotated[bool, Field(alias="hasMore")]
-
-
-class ToolVersionRow(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: Annotated[str, Field(min_length=1)]
-    """
-    ToolId — dotted namespace (e.g. `acme.verify-citation`).
-    """
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    """
-    The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
-    """
-    description: Annotated[str, Field(min_length=1)]
-    version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
-    input: dict[str, Any]
-    """
-    JSON Schema (Draft 2020-12) for the tool input.
-    """
-    output: dict[str, Any]
-    """
-    JSON Schema (Draft 2020-12) for the tool output.
-    """
-    needs: list[ToolNeed] | None = None
-    effects: list[ToolEffect] | None = None
-    transport: Literal["auto", "native", "mcp"] | None = None
-    mcp_endpoint: Annotated[str | None, Field(alias="mcpEndpoint")] = None
-    metadata: dict[str, Any] | None = None
-    mutating: bool | None = None
-    """
-    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
-    """
-    sandbox: Literal["none", "context-isolated", "strict"] | None = None
-    """
-    Isolation posture the runtime enforces around the handler. Optional additive field.
-    """
-    limits: RuntimeLimits | None = None
-    network: NetworkPolicy1 | NetworkPolicy2 | None = None
-    """
-    Network egress policy. Optional additive field. Discriminated on `kind`.
-    """
-    needs_spec: Annotated[TypedNeeds | None, Field(alias="needsSpec")] = None
-    code_artifact_ref: Annotated[
-        CodeArtifactRef1 | CodeArtifactRef2 | None, Field(alias="codeArtifactRef")
-    ] = None
-    """
-    Handler-artifact pointer. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the pack's on-disk handler file. Production servers SHOULD reject `filesystem`.
-    """
-    spec: ToolSpec | None = None
-    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
-    """
-    ISO 8601 timestamp — present iff this version has been soft-tombstoned via `POST /versions/:v/unregister`. Absent on active versions.
-    """
-
-
-class ToolVersionCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[ToolVersionRow]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. Absent when `hasMore: false`.
-    """
-    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class Retry(BaseModel):
@@ -5947,6 +5811,44 @@ class Config2(BaseModel):
     transport: Literal["streamable-http"]
     url: AnyUrl
     headers: dict[str, str] | None = None
+
+
+class RecordedSecretScope1(BaseModel):
+    """
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["tenant"]
+
+
+class RecordedSecretScope2(BaseModel):
+    """
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["org"]
+    org_id: Annotated[UUID, Field(alias="orgId")]
+
+
+class RecordedSecretScope3(BaseModel):
+    """
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["project"]
+    project_id: Annotated[UUID, Field(alias="projectId")]
 
 
 class MCPEndpointSecretRef(BaseModel):
@@ -10392,6 +10294,10 @@ class SecretResolveOutcome(BaseModel):
     name: str
     version_id: Annotated[int, Field(alias="versionId", ge=1)]
     value: str
+    scope: Scope2 | Scope3 | Scope4 | None = None
+    """
+    Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
+    """
 
 
 class SecretRotateOutcome1(BaseModel):
@@ -10785,7 +10691,18 @@ class WebhookTriggerRecord(BaseModel):
     """
     hmac_secret_name: Annotated[str, Field(alias="hmacSecretName", min_length=1)]
     """
-    The signing secret, by name (written with `POST /v1/secrets`). Read in the env the deployment serves.
+    The signing secret, by name (written with `POST /v1/secrets`, or made by `generateSecret`). Read in the env the deployment serves, at `hmacSecretScope`.
+    """
+    hmac_secret_scope: Annotated[
+        RecordedSecretScope1 | RecordedSecretScope2 | RecordedSecretScope3 | None,
+        Field(alias="hmacSecretScope"),
+    ] = None
+    """
+    Where the signing secret is read, recorded when the trigger was registered (or its secret named again). `null`: none usable, so no delivery verifies until an admin names it again. Absent on triggers registered before it was recorded: read at the tenant, as before.
+    """
+    signing_secret: Annotated[str | None, Field(alias="signingSecret")] = None
+    """
+    Only in the answer to a register with `generateSecret`: the new signing secret, shown this once, to paste into the sender. It's stored as `hmacSecretName` in the trigger's own scope; no later read shows it.
     """
     signature: WebhookSignature1 | WebhookSignature2
     """
@@ -10927,7 +10844,11 @@ class RegisterWebhookTriggerBody(BaseModel):
     config: Config8 | None = None
     hmac_secret_name: Annotated[str, Field(alias="hmacSecretName", min_length=1)]
     """
-    The signing secret, by name: written first with `POST /v1/secrets`. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing).
+    The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing).
+    """
+    generate_secret: Annotated[bool | None, Field(alias="generateSecret")] = None
+    """
+    Make a new signing secret, store it as `hmacSecretName` in the trigger's own project (in the env the deployment serves), and return it once as `signingSecret`. Needs only `write` on the project. A name the project already has is refused (`secret-write-conflict`, 409), never overwritten. Letters and digits, or `whsec_…` for `standard-webhooks`.
     """
     signature: WebhookSignature1 | WebhookSignature2 | None = None
     """
@@ -12200,6 +12121,156 @@ class AgentCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class Tool1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: Annotated[str, Field(min_length=1)]
+    """
+    ToolId — dotted namespace (e.g. `acme.verify-citation`).
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
+    """
+    description: Annotated[str, Field(min_length=1)]
+    version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
+    input: dict[str, Any]
+    """
+    JSON Schema (Draft 2020-12) for the tool input.
+    """
+    output: dict[str, Any]
+    """
+    JSON Schema (Draft 2020-12) for the tool output.
+    """
+    needs: list[ToolNeed] | None = None
+    effects: list[ToolEffect] | None = None
+    transport: Literal["auto", "native", "mcp"] | None = None
+    mcp_endpoint: Annotated[str | None, Field(alias="mcpEndpoint")] = None
+    metadata: dict[str, Any] | None = None
+    mutating: bool | None = None
+    """
+    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
+    """
+    sandbox: Literal["none", "context-isolated", "strict"] | None = None
+    """
+    Isolation posture the runtime enforces around the handler. Optional additive field.
+    """
+    limits: RuntimeLimits | None = None
+    network: NetworkPolicy1 | NetworkPolicy2 | None = None
+    """
+    Network egress policy. Optional additive field. Discriminated on `kind`.
+    """
+    needs_spec: Annotated[TypedNeeds | None, Field(alias="needsSpec")] = None
+    code_artifact_ref: Annotated[
+        CodeArtifactRef1 | CodeArtifactRef2 | None, Field(alias="codeArtifactRef")
+    ] = None
+    """
+    Handler-artifact pointer. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the pack's on-disk handler file. Production servers SHOULD reject `filesystem`.
+    """
+    spec: ToolSpec | None = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Present only on an unregistered version: a retired tool (every version unregistered) as `GET /v1/tools?includeRetired=true` lists it.
+    """
+    secret_scopes: Annotated[
+        dict[str, RecordedSecretScope1 | RecordedSecretScope2 | RecordedSecretScope3 | None] | None,
+        Field(alias="secretScopes"),
+    ] = None
+    """
+    Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.
+    """
+
+
+class ToolCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Tool1]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class ToolVersionRow(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: Annotated[str, Field(min_length=1)]
+    """
+    ToolId — dotted namespace (e.g. `acme.verify-citation`).
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
+    """
+    description: Annotated[str, Field(min_length=1)]
+    version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
+    input: dict[str, Any]
+    """
+    JSON Schema (Draft 2020-12) for the tool input.
+    """
+    output: dict[str, Any]
+    """
+    JSON Schema (Draft 2020-12) for the tool output.
+    """
+    needs: list[ToolNeed] | None = None
+    effects: list[ToolEffect] | None = None
+    transport: Literal["auto", "native", "mcp"] | None = None
+    mcp_endpoint: Annotated[str | None, Field(alias="mcpEndpoint")] = None
+    metadata: dict[str, Any] | None = None
+    mutating: bool | None = None
+    """
+    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
+    """
+    sandbox: Literal["none", "context-isolated", "strict"] | None = None
+    """
+    Isolation posture the runtime enforces around the handler. Optional additive field.
+    """
+    limits: RuntimeLimits | None = None
+    network: NetworkPolicy1 | NetworkPolicy2 | None = None
+    """
+    Network egress policy. Optional additive field. Discriminated on `kind`.
+    """
+    needs_spec: Annotated[TypedNeeds | None, Field(alias="needsSpec")] = None
+    code_artifact_ref: Annotated[
+        CodeArtifactRef1 | CodeArtifactRef2 | None, Field(alias="codeArtifactRef")
+    ] = None
+    """
+    Handler-artifact pointer. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the pack's on-disk handler file. Production servers SHOULD reject `filesystem`.
+    """
+    spec: ToolSpec | None = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    ISO 8601 timestamp — present iff this version has been soft-tombstoned via `POST /versions/:v/unregister`. Absent on active versions.
+    """
+    secret_scopes: Annotated[
+        dict[str, RecordedSecretScope1 | RecordedSecretScope2 | RecordedSecretScope3 | None] | None,
+        Field(alias="secretScopes"),
+    ] = None
+    """
+    Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.
+    """
+
+
+class ToolVersionCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ToolVersionRow]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
 class EvaluateProposalBody(BaseModel):
     """
     Compare the proposal's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).
@@ -12935,6 +13006,13 @@ class MCPEndpoint(BaseModel):
     send_traceparent: Annotated[bool | None, Field(alias="sendTraceparent")] = None
     """
     Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
+    """
+    secret_scopes: Annotated[
+        dict[str, RecordedSecretScope1 | RecordedSecretScope2 | RecordedSecretScope3 | None] | None,
+        Field(alias="secretScopes"),
+    ] = None
+    """
+    Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.
     """
 
 

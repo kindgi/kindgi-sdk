@@ -140,31 +140,40 @@ The agent gets only what the check passed on.
 ## 2. Register the trigger
 
 Each sender signs in its own way. `--preset` sets the scheme for a known
-sender, and `--generate-secret` makes a signing secret, stores it, and shows
-it once so you can paste it into the sender:
+sender, and `--generate-secret` has your runtime make a signing secret, store
+it in the trigger's project, and show it once so you can paste it into the
+sender:
 
 ```sh
 kindgi webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
-  --preset=woocommerce --secret=acme-woo-orders --generate-secret --env=production
+  --preset=woocommerce --secret=acme-woo-orders --generate-secret
 ```
 
 It prints the trigger as JSON, then where to point the sender: the trigger's
 id, its **receive URL** (`https://<your runtime>/v1/hooks/<tenant id>/<webhook id>`),
 the signing secret, shown this once, with where it's stored, and, with a
-preset, where to paste them. From a WooCommerce run, the secret left out:
+preset, where to paste them. With the WooCommerce preset, the secret left out:
 
 ```text
-  Registered webhook trigger 4988b936-ec4e-445a-92aa-53d214c593d1: each signed delivery starts acme-shop.order-review@0.1.0.
-  Receive URL (the sender posts here): …/v1/hooks/9639c5a8-7f96-4e47-aad9-bd983fa64822/5ea2595a-134f-44e0-8a80-8428ab616a40
-  Signing secret (stored as acme-woo-orders in production; shown this once): …
+  Registered webhook trigger 71fb612e-efc4-4659-8bb3-dfb69c96aa15: each signed delivery starts acme-shop.order-review@0.1.0.
+  Receive URL (the sender posts here): …/v1/hooks/695e8098-30be-469a-89d8-1a88487f8967/2003c201-f368-4d76-be29-109cc906bc48
+  Signing secret (stored as acme-woo-orders in project 685834cd-17a6-4cfa-9c46-0fbc5dde84fa; shown this once): …
   In WooCommerce: Settings → Advanced → Webhooks → Add webhook. One webhook per topic (`order.created`, …); Delivery URL: the receive URL; Secret: the secret. WooCommerce never resends a delivery Kindgi refuses, and switches the webhook off after 7 in a row.
 ```
 
-- **`--env`** is the env your runtime serves (`KINDGI_ENV`; `local` under
-  `kindgi dev`). The secret is stored there, at the tenant, and the receiver
-  reads it there. To use a secret you already stored with
-  [`kindgi secrets set`](../../secrets/), leave out `--generate-secret`. A
-  model provider's key is refused: give the trigger a secret of its own.
+- **Where the secret lives:** `--generate-secret` stores it in the trigger's
+  project, in the env your runtime serves (`KINDGI_ENV`; `local` under
+  `kindgi dev`), and the receiver reads it there. It needs only `write` on
+  the project. It never replaces a secret: if the project already has one of
+  that name, it's refused (`secret-write-conflict`), so pick another
+  `--secret`. To use a secret you already stored with
+  [`kindgi secrets set`](../../secrets/), leave out `--generate-secret`. The
+  trigger records where the secret is (`hmacSecretScope`): the first of its
+  project, that project's org and the tenant that has it, among the scopes
+  you administer. The receiver reads it there only, so store the secret
+  before you register the trigger. To move it, name the secret again:
+  `kindgi webhooks update <trigger-id> --secret=<name>`. A model provider's
+  key is refused: give the trigger a secret of its own.
 - **The receive URL** comes from your runtime's public address
   (`KINDGI_PUBLIC_URL`). Without one, the trigger is still registered, and
   the CLI says how to set it. `kindgi webhooks get <id>` shows the URL once

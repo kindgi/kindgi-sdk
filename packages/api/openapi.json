@@ -7239,6 +7239,20 @@
             "type": "string",
             "format": "date-time",
             "description": "Present only on an unregistered version: a retired tool (every version unregistered) as `GET /v1/tools?includeRetired=true` lists it."
+          },
+          "secretScopes": {
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/RecordedSecretScope"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store."
           }
         }
       },
@@ -7501,6 +7515,20 @@
             "type": "string",
             "format": "date-time",
             "description": "ISO 8601 timestamp — present iff this version has been soft-tombstoned via `POST /versions/:v/unregister`. Absent on active versions."
+          },
+          "secretScopes": {
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/RecordedSecretScope"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store."
           }
         }
       },
@@ -11473,8 +11501,76 @@
           "sendTraceparent": {
             "type": "boolean",
             "description": "Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none."
+          },
+          "secretScopes": {
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/RecordedSecretScope"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store."
           }
         }
+      },
+      "RecordedSecretScope": {
+        "description": "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "tenant"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "orgId"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "org"
+              },
+              "orgId": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "projectId"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "project"
+              },
+              "projectId": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          }
+        ]
       },
       "MCPEndpointSecretRef": {
         "type": "object",
@@ -19564,6 +19660,9 @@
           },
           "value": {
             "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
           }
         }
       },
@@ -20522,7 +20621,22 @@
           "hmacSecretName": {
             "type": "string",
             "minLength": 1,
-            "description": "The signing secret, by name (written with `POST /v1/secrets`). Read in the env the deployment serves."
+            "description": "The signing secret, by name (written with `POST /v1/secrets`, or made by `generateSecret`). Read in the env the deployment serves, at `hmacSecretScope`."
+          },
+          "hmacSecretScope": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RecordedSecretScope"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the signing secret is read, recorded when the trigger was registered (or its secret named again). `null`: none usable, so no delivery verifies until an admin names it again. Absent on triggers registered before it was recorded: read at the tenant, as before."
+          },
+          "signingSecret": {
+            "type": "string",
+            "description": "Only in the answer to a register with `generateSecret`: the new signing secret, shown this once, to paste into the sender. It's stored as `hmacSecretName` in the trigger's own scope; no later read shows it."
           },
           "signature": {
             "$ref": "#/components/schemas/WebhookSignature"
@@ -20753,7 +20867,11 @@
           "hmacSecretName": {
             "type": "string",
             "minLength": 1,
-            "description": "The signing secret, by name: written first with `POST /v1/secrets`. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing)."
+            "description": "The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing)."
+          },
+          "generateSecret": {
+            "type": "boolean",
+            "description": "Make a new signing secret, store it as `hmacSecretName` in the trigger's own project (in the env the deployment serves), and return it once as `signingSecret`. Needs only `write` on the project. A name the project already has is refused (`secret-write-conflict`, 409), never overwritten. Letters and digits, or `whsec_…` for `standard-webhooks`."
           },
           "signature": {
             "$ref": "#/components/schemas/WebhookSignature"
@@ -30271,7 +30389,7 @@
             }
           }
         },
-        "description": "Body is a `ToolManifest` (Tool minus its runtime handler). Server validates via `@kindgi/tools.validateToolManifest`. Metadata only: the handler is not uploaded through this route and must already be available to the runtime. A tool never gets a model provider's key: one that declares (`needsSpec.secrets`) or sends (`spec.authorization.secretRef`) a secret a provider registration of the tenant names, in any env, is refused.",
+        "description": "Body is a `ToolManifest` (Tool minus its runtime handler). Server validates via `@kindgi/tools.validateToolManifest`. Metadata only: the handler is not uploaded through this route and must already be available to the runtime. A tool never gets a model provider's key: one that declares (`needsSpec.secrets`) or sends (`spec.authorization.secretRef`) a secret a provider registration of the tenant names, in any env, is refused. Where each secret it names is read is recorded on the version (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -37206,7 +37324,7 @@
             }
           }
         },
-        "description": "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
+        "description": "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -51226,7 +51344,7 @@
             }
           },
           "409": {
-            "description": "Route-minted webhookId collided (astronomically rare).",
+            "description": "`secret-write-conflict`: with `generateSecret`, the trigger's project already has a secret of that name (it's never overwritten, and no trigger is left). Or the route-minted webhookId collided (astronomically rare).",
             "content": {
               "application/json": {
                 "schema": {
@@ -51256,7 +51374,7 @@
             }
           }
         },
-        "description": "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow.",
+        "description": "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow.",
         "parameters": [
           {
             "name": "Idempotency-Key",

@@ -84,7 +84,13 @@ function setup(options: { publicUrl?: string; webhookReceivesPerMinute?: number 
     return release;
   };
   const secrets = {
-    async resolve(input: { name: string }) {
+    // One store for every scope, so a read is at the scope asked for: where a
+    // trigger's secret is read is the scope test's (`webhook-secret-scope.test.ts`),
+    // not this one's.
+    async get(input: { name: string }) {
+      return stored.has(input.name) ? { name: input.name, currentVersion: 1 } : null;
+    },
+    async resolve(input: { name: string; scope: unknown }) {
       resolved.push(input.name);
       const failure = failing.get(input.name);
       if (failure !== undefined) {
@@ -97,7 +103,7 @@ function setup(options: { publicUrl?: string; webhookReceivesPerMinute?: number 
             kind: 'err',
             error: { code: 'secret-not-found', message: 'not found', name: input.name },
           }
-        : { kind: 'ok', value: { name: input.name, versionId: 1, value } };
+        : { kind: 'ok', value: { name: input.name, versionId: 1, value, scope: input.scope } };
     },
     // `POST /v1/secrets`, as the app's own write.
     async set(input: { scope: unknown; envName: string; name: string; value: string }) {

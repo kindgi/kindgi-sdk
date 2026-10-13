@@ -3122,6 +3122,47 @@ export const ToolSpecSchema: JsonSchema = {
   oneOf: [{ $ref: '#/components/schemas/HttpToolSpec' }],
 };
 
+export const RecordedSecretScopeSchema: JsonSchema = {
+  description:
+    "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind'],
+      properties: { kind: { type: 'string', const: 'tenant' } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'orgId'],
+      properties: {
+        kind: { type: 'string', const: 'org' },
+        orgId: { type: 'string', format: 'uuid' },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'projectId'],
+      properties: {
+        kind: { type: 'string', const: 'project' },
+        projectId: { type: 'string', format: 'uuid' },
+      },
+    },
+  ],
+};
+
+/** Where each secret an item names is read (`RecordedSecretScope`), by name; the server's, never a caller's. */
+const SecretScopesProperty: JsonSchema = {
+  type: 'object',
+  additionalProperties: {
+    oneOf: [{ $ref: '#/components/schemas/RecordedSecretScope' }, { type: 'null' }],
+  },
+  description:
+    'Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.',
+};
+
 export const ToolSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -3169,14 +3210,16 @@ export const ToolSchema: JsonSchema = {
       description:
         'Present only on an unregistered version: a retired tool (every version unregistered) as `GET /v1/tools?includeRetired=true` lists it.',
     },
+    secretScopes: SecretScopesProperty,
   },
 };
 
 /** `Tool`'s properties but what the registry sets on a read (a register body never carries it). */
-const { unregisteredAt: _readOnly, ...toolManifestProperties } = ToolSchema.properties as Record<
-  string,
-  JsonSchema
->;
+const {
+  unregisteredAt: _readOnly,
+  secretScopes: _recordedScopes,
+  ...toolManifestProperties
+} = ToolSchema.properties as Record<string, JsonSchema>;
 
 export const RegisterToolBodySchema: JsonSchema = {
   description:
@@ -6341,8 +6384,13 @@ export const MCPEndpointSchema: JsonSchema = {
       description:
         "Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.",
     },
+    secretScopes: SecretScopesProperty,
   },
 };
+
+/** `MCPEndpoint`'s properties but what the server records (a register body never carries it). */
+const { secretScopes: _recorded, ...mcpEndpointBodyProperties } =
+  MCPEndpointSchema.properties as Record<string, JsonSchema>;
 
 export const MCPEndpointCollectionPageSchema: JsonSchema = {
   type: 'object',
@@ -6363,7 +6411,7 @@ export const RegisterMCPEndpointBodySchema: JsonSchema = {
   ...MCPEndpointSchema,
   required: ['endpointId', 'name', 'transport', 'config', 'scopeKind'],
   properties: {
-    ...(MCPEndpointSchema.properties as Record<string, JsonSchema>),
+    ...mcpEndpointBodyProperties,
     scopeKind: { $ref: '#/components/schemas/ScopeKind' },
     scopeId: {
       type: 'string',
@@ -10843,6 +10891,7 @@ export const SecretResolveOutcomeSchema: JsonSchema = {
     name: { type: 'string' },
     versionId: { type: 'integer', minimum: 1 },
     value: { type: 'string' },
+    scope: { $ref: '#/components/schemas/Scope' },
   },
 };
 
@@ -11626,7 +11675,17 @@ export const WebhookTriggerRecordSchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        'The signing secret, by name (written with `POST /v1/secrets`). Read in the env the deployment serves.',
+        'The signing secret, by name (written with `POST /v1/secrets`, or made by `generateSecret`). Read in the env the deployment serves, at `hmacSecretScope`.',
+    },
+    hmacSecretScope: {
+      oneOf: [{ $ref: '#/components/schemas/RecordedSecretScope' }, { type: 'null' }],
+      description:
+        'Where the signing secret is read, recorded when the trigger was registered (or its secret named again). `null`: none usable, so no delivery verifies until an admin names it again. Absent on triggers registered before it was recorded: read at the tenant, as before.',
+    },
+    signingSecret: {
+      type: 'string',
+      description:
+        "Only in the answer to a register with `generateSecret`: the new signing secret, shown this once, to paste into the sender. It's stored as `hmacSecretName` in the trigger's own scope; no later read shows it.",
     },
     signature: { $ref: '#/components/schemas/WebhookSignature' },
     deliveryIdHeader: {
@@ -11786,7 +11845,12 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        "The signing secret, by name: written first with `POST /v1/secrets`. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing).",
+        "The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing).",
+    },
+    generateSecret: {
+      type: 'boolean',
+      description:
+        "Make a new signing secret, store it as `hmacSecretName` in the trigger's own project (in the env the deployment serves), and return it once as `signingSecret`. Needs only `write` on the project. A name the project already has is refused (`secret-write-conflict`, 409), never overwritten. Letters and digits, or `whsec_…` for `standard-webhooks`.",
     },
     ...WebhookDeliveryProperties,
     label: { type: 'string' },
@@ -12563,6 +12627,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ProviderCheckResult', ProviderCheckResultSchema],
   ['MCPTransport', MCPTransportSchema],
   ['MCPEndpoint', MCPEndpointSchema],
+  ['RecordedSecretScope', RecordedSecretScopeSchema],
   ['MCPEndpointSecretRef', MCPEndpointSecretRefSchema],
   ['MCPEndpointAuth', MCPEndpointAuthSchema],
   ['MCPBasicAuth', MCPBasicAuthSchema],

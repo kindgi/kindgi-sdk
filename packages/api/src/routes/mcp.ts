@@ -23,9 +23,11 @@ import {
   MCP_OAUTH_CLIENT_AUTH,
   MCP_TRANSPORTS,
   mcpEndpointSecretNames,
+  mcpEndpointSecretRefs,
 } from '../mcp-endpoint-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
+import { type SecretScopeDeps, secretScopesFor } from '../secret-scope.js';
 import { type TenantHostAccess, deniesHostReach, stdioRefusal } from '../tenant-host-access.js';
 import type { AppEnv } from '../types.js';
 import { refused } from './denied.js';
@@ -51,7 +53,13 @@ export function mcpRouter(
   binding: MCPEndpointRegistryBinding,
   clientProbe: MCPClientProbeBinding | undefined,
   authorizer: Authorizer | undefined,
-  options: { readonly hostAccess: TenantHostAccess; readonly providerKeys?: ProviderKeys },
+  options: {
+    readonly hostAccess: TenantHostAccess;
+    readonly providerKeys?: ProviderKeys;
+    /** Where each secret an endpoint names is read is recorded at registration (`secret-scope.ts`). */
+    readonly secrets?: SecretScopeDeps['secrets'];
+    readonly projects?: SecretScopeDeps['projects'];
+  },
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -248,9 +256,18 @@ export function mcpRouter(
     }
 
     const registerScope = scopeParsed.scope;
+    // Where each secret it names is read: decided now, as its registrant
+    // may read them, and kept with it (`secret-scope.ts`).
+    const secretScopes = await secretScopesFor(
+      c,
+      { secrets: options.secrets, projects: options.projects, authorizer },
+      registerScope,
+      mcpEndpointSecretRefs(validation.value),
+    );
     const outcome = await binding.register({
       tenantId,
-      endpoint: validation.value,
+      endpoint:
+        secretScopes === undefined ? validation.value : { ...validation.value, secretScopes },
       scope: registerScope,
       enqueueTuples: (endpointId) =>
         tuplesForCreate({
