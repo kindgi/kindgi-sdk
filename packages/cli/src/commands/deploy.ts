@@ -31,6 +31,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 
 import { LOCAL_ENV_NAME, type PackEnv, packValues, readPackEnv } from '@kindgi/secrets-dotenv';
 
+import { HOSTED_BUILD } from '../build/hosted.js';
 import type { CommandContext } from '../context.js';
 import { isEnvelopeSigned } from '../deploy/envelope-loader.js';
 import {
@@ -41,6 +42,8 @@ import {
 import { renderResponse } from '../deploy/response.js';
 import type {
   DeployRunners,
+  DeploymentEndpointRecord,
+  DeploymentRecord,
   PostDeploymentBody,
   PostDeploymentResult,
   RunBuildResult,
@@ -70,7 +73,7 @@ export const deployCommand: LeafCommand = {
     'Deploy a signed pack image to Kindgi. Reads deploy-envelope.json (or runs `kindgi build` inline) + POSTs to /v1/deployments.',
   usage:
     'kindgi deploy [--env <name>] [--from-envelope <path>] [--endpoint <url>] [--token <bearer>] ' +
-    '[--tenant <id>] [--project <id|slug>] [--idempotency-key <str>] [--dry-run] [--sync-secrets] [--allow-missing-env] ' +
+    '[--tenant <id>] [--project <id|slug>] [--hosted] [--idempotency-key <str>] [--dry-run] [--sync-secrets] [--allow-missing-env] ' +
     '[--target <t>] [--build-endpoint <url>] [--out <dir>] [--artifact-version <v>] [--published-at <iso>] ' +
     '[--signing-key <path>] [--signer-key-id <id>] [--registry-push-creds <ref>] ' +
     '[--skip-integrity-gate] [--skip-image-pull] [--skip-sign] [--path <dir>]',
@@ -99,6 +102,11 @@ export const deployCommand: LeafCommand = {
       type: 'string',
       description:
         "The project to deploy into, one per client: its id, or its slug. A slug two orgs share is refused: pass the id. Default: a tenant-wide deploy, into the tenant's Default project.",
+    },
+    hosted: {
+      type: 'boolean',
+      description:
+        "Deploy to Kindgi hosted: an inline build runs on the hosted build service (as `kindgi build --hosted`), and after the deploy it waits, up to 5 minutes, for the deployment's pack service to be ready. Same as the env block's `build: 'hosted'`.",
     },
     'idempotency-key': {
       type: 'string',
@@ -197,6 +205,8 @@ interface ResolvedDeployArgs {
   readonly explicitTenantId: string | undefined;
   /** `--project`: an id or a slug, resolved before the POST. */
   readonly projectRef: string | undefined;
+  /** `--hosted`, or the env block's `build: 'hosted'`: build there, then wait for the pack service. */
+  readonly hosted: boolean;
   readonly idempotencyKeyOverride: string | undefined;
   readonly dryRun: boolean;
   /**
@@ -253,11 +263,18 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   const envRefusal = checkPackEnv(args, line);
   if (envRefusal !== undefined) return envRefusal;
 
-  // ---- 1. Ensure envelope on disk -------------------------------------
-  const envelopeReady = await ensureEnvelopeExists(ctx, args, runners, line);
+  // ---- 1. The project to deploy into (--project) ---------------------
+  //
+  // Resolved first: a project that isn't there fails before a build, and
+  // a hosted build carries the project's id as its label.
+  const project = await resolveProject(args, runners, ctx);
+  if (project.kind === 'error') return failure(project.message);
+
+  // ---- 2. Ensure envelope on disk -------------------------------------
+  const envelopeReady = await ensureEnvelopeExists(ctx, args, runners, line, project.id);
   if (envelopeReady.kind === 'error') return envelopeReady;
 
-  // ---- 2. Load + validate envelope ------------------------------------
+  // ---- 3. Load + validate envelope ------------------------------------
   const loaded = await runners.loadEnvelope({ path: args.envelopePath });
   if (loaded.kind === 'err') {
     return failure(
@@ -268,7 +285,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   }
   const envelope = loaded.envelope;
 
-  // ---- 3. Signed-envelope gate ----------------------------------------
+  // ---- 4. Signed-envelope gate ----------------------------------------
   if (!isEnvelopeSigned(envelope)) {
     if (!args.dryRun) {
       return failure(
@@ -281,16 +298,12 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
     line('');
   }
 
-  // ---- 4. Consistency check: envelope.tenantId vs --tenant override ---
+  // ---- 5. Consistency check: envelope.tenantId vs --tenant override ---
   if (args.explicitTenantId !== undefined && args.explicitTenantId !== envelope.tenantId) {
     return failure(
       `--tenant mismatch: envelope was signed against tenantId="${envelope.tenantId}", but --tenant was passed as "${args.explicitTenantId}". The server re-canonicalises using the token's tenantId + verifies the signature — a mismatch would fail with signature-invalid. Either drop --tenant or re-run \`kindgi build --tenant=${args.explicitTenantId}\`.\n`,
     );
   }
-
-  // ---- 5. The project to deploy into (--project) ---------------------
-  const project = await resolveProject(args, runners, ctx);
-  if (project.kind === 'error') return failure(project.message);
 
   // ---- 6. Build POST body + Idempotency-Key ---------------------------
   let postBody: PostDeploymentBody;
@@ -421,8 +434,25 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
     Object.assign(syncSummary, syncOutcome);
   }
 
+  // ---- 12. Hosted: wait for the deployment's pack service --------------
+  //
+  // After the secrets sync, so the service starts with them. The
+  // deployment is in place whatever the wait finds.
+  let packService: DeploymentEndpointRecord | undefined;
+  if (args.hosted && deployedRecord !== null && deployedRecord.endpoint !== undefined) {
+    const waited = await waitForPackService(ctx, args, runners, deployedRecord, line);
+    if (waited.kind === 'error') {
+      return { kind: 'error', stderr: `${banner.join('\n')}\n${waited.message}`, exitCode: 1 };
+    }
+    packService = waited.endpoint;
+  }
+
   const jsonOut = renderJson(
-    { ...rendered.summary, ...(args.syncSecrets && { syncSecrets: syncSummary }) },
+    {
+      ...rendered.summary,
+      ...(args.syncSecrets && { syncSecrets: syncSummary }),
+      ...(packService !== undefined && { packService }),
+    },
     ctx.globals.format,
   );
   return {
@@ -578,6 +608,7 @@ async function ensureEnvelopeExists(
   args: ResolvedDeployArgs,
   runners: DeployRunners,
   line: (s: string) => void,
+  projectId: string | undefined,
 ): Promise<{ readonly kind: 'ok' } | (CommandResult & { readonly kind: 'error' })> {
   const exists = await pathExists(args.envelopePath);
   if (exists) return { kind: 'ok' };
@@ -592,7 +623,7 @@ async function ensureEnvelopeExists(
   line(`  Envelope missing — running \`kindgi build --env=${args.envName}\` inline...`);
   line('');
   if (runners.runBuild !== undefined) {
-    const buildArgv = buildInlineArgv(ctx, args);
+    const buildArgv = buildInlineArgv(ctx, args, projectId);
     const outcome: RunBuildResult = await runners.runBuild({
       buildArgv,
       packDir: args.packDir,
@@ -626,7 +657,7 @@ async function ensureEnvelopeExists(
   // No inline runner available — invoke the same-package `runBuild`
   // directly. This is the production path when
   // `deployRunners.runBuild` is omitted (see `deploy/defaults.ts`).
-  const built = await runInlineBuild(ctx, args);
+  const built = await runInlineBuild(ctx, args, projectId);
   if (built.kind === 'error') return built;
   if (built.banner.length > 0) {
     line(built.banner);
@@ -645,12 +676,24 @@ async function ensureEnvelopeExists(
 async function runInlineBuild(
   ctx: CommandContext,
   args: ResolvedDeployArgs,
+  projectId: string | undefined,
 ): Promise<
   | { readonly kind: 'ok'; readonly banner: string }
   | { readonly kind: 'error'; readonly stderr: string; readonly exitCode: number }
 > {
-  const buildOptions = buildInlineOptions(ctx, args);
-  const buildCtx: CommandContext = { ...ctx, options: buildOptions };
+  const buildOptions = buildInlineOptions(ctx, args, projectId);
+  // A hosted build runs at the API this deploy goes to.
+  const buildCtx: CommandContext = {
+    ...ctx,
+    options: buildOptions,
+    ...(args.hosted && {
+      config: {
+        ...ctx.config,
+        apiUrl: args.endpoint,
+        source: { ...ctx.config.source, apiUrl: 'flag' as const },
+      },
+    }),
+  };
   const result = await runBuild(buildCtx);
   if (result.kind === 'error') {
     return {
@@ -677,11 +720,16 @@ async function runInlineBuild(
 function buildInlineOptions(
   ctx: CommandContext,
   args: ResolvedDeployArgs,
+  projectId: string | undefined,
 ): Record<string, OptionValue> {
   const opts: Record<string, OptionValue> = {};
   opts.env = args.envName;
   opts.path = args.packDir;
   opts.out = args.outDir;
+  if (args.hosted) {
+    opts.hosted = true;
+    if (projectId !== undefined) opts.project = projectId;
+  }
   const pass = (key: string, alias?: string): void => {
     const val = ctx.options[alias ?? key];
     if (val !== undefined) opts[key] = val;
@@ -710,8 +758,12 @@ function buildInlineOptions(
  * argv-style array. Used when a test-supplied `DeployRunners.runBuild`
  * wants to see the exact CLI form the command would have invoked.
  */
-function buildInlineArgv(ctx: CommandContext, args: ResolvedDeployArgs): readonly string[] {
-  const opts = buildInlineOptions(ctx, args);
+function buildInlineArgv(
+  ctx: CommandContext,
+  args: ResolvedDeployArgs,
+  projectId: string | undefined,
+): readonly string[] {
+  const opts = buildInlineOptions(ctx, args, projectId);
   const out: string[] = ['build'];
   for (const [k, v] of Object.entries(opts)) {
     if (v === undefined) continue;
@@ -722,6 +774,158 @@ function buildInlineArgv(ctx: CommandContext, args: ResolvedDeployArgs): readonl
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------
+// Hosted: the deployment's pack service
+// ---------------------------------------------------------------------
+
+/** How long `--hosted` waits for the pack service. */
+const PACK_SERVICE_WAIT_MS = 5 * 60 * 1000;
+/** How often it reads the deployment again meanwhile. */
+const PACK_SERVICE_POLL_MS = 2_000;
+/** Reads in a row that may fail before it stops waiting. */
+const PACK_SERVICE_READ_TRIES = 3;
+
+/** Why a deployment has no pack service yet, by its `problem.code`. */
+const PACK_SERVICE_PROBLEMS: Readonly<Record<string, string>> = {
+  'tenant-not-provisioned': 'your workspace has nowhere to run pack services yet',
+  'capacity-unavailable': 'there is no room for another pack service just now',
+  'service-start-failed': "the pack's image was deployed but didn't start",
+  'image-not-allowed': "the image is outside your workspace's own repository",
+  'endpoint-url-invalid': "the platform couldn't connect the pack service",
+  'endpoint-host-not-allowed': "the platform couldn't connect the pack service",
+  'endpoint-name-mismatch': "the platform couldn't connect the pack service",
+  'endpoint-unreachable': "the pack service didn't answer",
+  'endpoint-info-mismatch': 'the pack service answered as another pack or version',
+};
+
+/**
+ * Waits for the deployment's own pack service to be `ready`, reading the
+ * deployment again every 2 s and saying each new state once. Fails when
+ * it's `cleared`, after 5 minutes, after a few failed reads in a row, or
+ * on Ctrl+C. The deployment is in place whatever it finds.
+ */
+async function waitForPackService(
+  ctx: CommandContext,
+  args: ResolvedDeployArgs,
+  runners: DeployRunners,
+  record: DeploymentRecord,
+  line: (s: string) => void,
+): Promise<
+  | { readonly kind: 'ok'; readonly endpoint: DeploymentEndpointRecord }
+  | { readonly kind: 'error'; readonly message: string }
+> {
+  const read = runners.getDeployment;
+  if (read === undefined) {
+    return {
+      kind: 'error',
+      message: 'Internal error: kindgi deploy --hosted needs the getDeployment runner wired.\n',
+    };
+  }
+  const sleep = runners.sleep ?? sleepUnlessStopped;
+  const now = runners.now ?? Date.now;
+  const id = record.deploymentId;
+  const started = now();
+  let endpoint = record.endpoint as DeploymentEndpointRecord;
+  let said = '';
+  let failedReads = 0;
+  line('  Waiting for the pack service');
+  for (;;) {
+    const settled = settledPackService(endpoint, id);
+    if (settled !== undefined) {
+      if (settled.kind === 'ok') line('    ✓ ready\n');
+      return settled;
+    }
+    const state = pendingState(endpoint);
+    if (state !== said) line(`    … ${state}`);
+    said = state;
+    if (now() - started >= PACK_SERVICE_WAIT_MS) {
+      return stoppedWaiting(`The pack service isn't ready after 5 minutes: ${state}`, id);
+    }
+    await sleep(PACK_SERVICE_POLL_MS, ctx.stopSignal);
+    if (ctx.stopSignal?.aborted === true) {
+      return stoppedWaiting(`Stopped waiting for the pack service: ${state}`, id);
+    }
+    const got = await readPackService(read, ctx, args, id);
+    if (got.kind === 'ok') {
+      failedReads = 0;
+      endpoint = got.endpoint ?? endpoint;
+      continue;
+    }
+    failedReads += 1;
+    if (failedReads >= PACK_SERVICE_READ_TRIES) {
+      return stoppedWaiting(
+        `Couldn't read the deployment while waiting for its pack service: ${got.message}`,
+        id,
+      );
+    }
+  }
+}
+
+/** The deployment's pack service now, read again. */
+async function readPackService(
+  read: NonNullable<DeployRunners['getDeployment']>,
+  ctx: CommandContext,
+  args: ResolvedDeployArgs,
+  deploymentId: string,
+): Promise<
+  | { readonly kind: 'ok'; readonly endpoint: DeploymentEndpointRecord | undefined }
+  | { readonly kind: 'error'; readonly message: string }
+> {
+  const got = await read({
+    endpoint: args.endpoint,
+    token: args.token,
+    deploymentId,
+    fetchImpl: ctx.fetch,
+    ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+  });
+  return got.kind === 'ok' ? { kind: 'ok', endpoint: got.record.endpoint } : got;
+}
+
+/** The wait stopped, with the deployment in place: why, and how to wait again. */
+function stoppedWaiting(why: string, deploymentId: string) {
+  return {
+    kind: 'error' as const,
+    message: `${why}. deploymentId ${deploymentId}. Run the same \`kindgi deploy --hosted\` again to keep waiting: it sends the same deployment, and the server answers with this one.\n`,
+  };
+}
+
+/** A pack service that's done with: `ready`, or `cleared` (a failure); else undefined. */
+function settledPackService(
+  endpoint: DeploymentEndpointRecord,
+  id: string,
+):
+  | { readonly kind: 'ok'; readonly endpoint: DeploymentEndpointRecord }
+  | { readonly kind: 'error'; readonly message: string }
+  | undefined {
+  if (endpoint.status === 'ready') return { kind: 'ok', endpoint };
+  if (endpoint.status === 'cleared') {
+    return {
+      kind: 'error',
+      message: `The deployment's pack service was taken down before it was ready (cleared). deploymentId ${id}.\n`,
+    };
+  }
+  return undefined;
+}
+
+/** A pending pack service, as the wait says it: `pending`, and why when there's a problem. */
+function pendingState(endpoint: DeploymentEndpointRecord): string {
+  if (endpoint.problem === undefined) return 'pending';
+  const why = PACK_SERVICE_PROBLEMS[endpoint.problem.code] ?? 'not ready yet';
+  return `pending (${endpoint.problem.code}): ${why}`;
+}
+
+function sleepUnlessStopped(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener('abort', done, { once: true });
+  });
 }
 
 // ---------------------------------------------------------------------
@@ -865,6 +1069,16 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   const projectRef =
     typeof projectFlag === 'string' && projectFlag !== '' ? projectFlag : undefined;
 
+  const hosted = ctx.options.hosted === true || envBlock?.build === HOSTED_BUILD;
+  if (ctx.options.hosted === true && ctx.options['build-endpoint'] !== undefined) {
+    return {
+      kind: 'error',
+      stderr:
+        '--hosted builds on the hosted build service, and --build-endpoint names another build server: leave one out.\n',
+      exitCode: 1,
+    };
+  }
+
   const idempotencyKeyFlag = ctx.options['idempotency-key'];
   const idempotencyKeyOverride =
     typeof idempotencyKeyFlag === 'string' && idempotencyKeyFlag !== ''
@@ -895,6 +1109,7 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       explicitEnvelope,
       explicitTenantId,
       projectRef,
+      hosted,
       idempotencyKeyOverride,
       dryRun,
       syncSecrets,

@@ -62,6 +62,7 @@ import { loadLocalEnvSettings } from '../env/project-env.js';
 import { extractKindgiError } from '../errors.js';
 import { LICENSE_GRACE_DAYS, renewAdvice, standingOf } from '../license/expiry.js';
 import { checkLicenseKey } from '../license/license-key.js';
+import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
 import { secretStoreFor } from '../license/stores.js';
 import { renderJson } from '../output.js';
 import {
@@ -726,7 +727,7 @@ async function registryCheck(
 ): Promise<DoctorCheck> {
   const access = await checkImageAccess(run, image);
   const host = registryOf(image);
-  const login = `${kindgi('auth', 'registry', '--username', '<robot name>', '--password-stdin')} (request the robot name and token at contact@kindgi.com; pipe the token in, never paste it into a chat)`;
+  const login = `${kindgi('auth', 'registry', '--username', '<your robot name>', '--password-stdin')} (the robot name and the token are on ${KINDGI_ACCESS_ORIGIN} once you sign in with GitHub; pipe the token in, never paste it into a chat)`;
   switch (access.kind) {
     case 'ok':
       return pass('registry', `Docker can pull the runtime image (${image}).`);

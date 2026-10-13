@@ -9,7 +9,8 @@ No API key. The client uses **Google Application Default Credentials**:
 - on a laptop, `gcloud auth application-default login`;
 - on Cloud Run and other Google Cloud runtimes, the attached service account;
 - elsewhere, a service-account key (its JSON) passed as `credentials` — through a provider row's `secret_ref` when registered with a Kindgi server.
-- a Kindgi server with `KINDGI_TENANT_HOST_ACCESS=isolated` doesn't let tenant configuration sign in as the server (`serverCredentials: false`), so a registration there needs `secret_ref`; without one, the check and the factory refuse it, naming `secret_ref`.
+
+A Kindgi server with `KINDGI_TENANT_HOST_ACCESS=isolated` doesn't let tenant configuration sign in as the server (`serverCredentials: false`): a registration there needs `secret_ref`, and without one the check and the factory refuse it, naming `secret_ref`.
 
 The account needs the Vertex AI User role (`roles/aiplatform.user`) in the project.
 
