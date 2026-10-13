@@ -293,19 +293,15 @@ What to check before you upgrade, and what's different after:
   trusted across all of a tenant's projects, or use a separate tenant per
   customer.
 - **A project's tools and MCP endpoints use the tenant's secrets.** A secret
-  one of them names is looked up at the tenant, whoever registered it. Until
-  0.1.8, give project admin roles only to people you'd trust with every
-  secret in the tenant. From 0.1.8, each item reads a secret it names at one
-  scope, recorded when it's registered, which the person registering it must
-  administer.
+  one of them names is looked up at the tenant, whoever registered it. Give
+  project admin roles only to people you'd trust with every secret in the
+  tenant. 0.1.8 fixes it.
 - **A webhook trigger's signing secret is read at the tenant,** in the env
-  the runtime serves (`KINDGI_ENV`). Store it there, as `--generate-secret`
-  does ([Start runs from webhooks](../../guides/webhooks/start-runs-from-webhooks/)):
-  a secret set only for a project or an org isn't read, and every delivery
-  is refused. Give each trigger's secret a name of its own, since triggers
-  that name the same secret share its value, and rotating it changes them
-  all. From 0.1.8, a trigger records the scope its secret is read at when
-  it's registered or its secret is changed.
+  the runtime serves (`KINDGI_ENV`). Give each trigger's secret a name of its
+  own, since triggers that name the same secret share its value, and
+  rotating it changes them all. Store it at the tenant in that env, as
+  0.1.7's `--generate-secret` does: a secret set only for a project or an
+  org isn't read, and every delivery is refused. 0.1.8 fixes it.
 - **With authorization on, a runtime whose database user has no `BYPASSRLS`
   (and isn't a superuser) doesn't start.** That's the usual case on a managed
   Postgres. To check, run this as the runtime's database user:
@@ -622,11 +618,9 @@ What to check before you upgrade, and what's different after:
   to people trusted across all of a tenant's projects, or use a separate
   tenant per customer.
 - **A project's tools and MCP endpoints use the tenant's secrets.** A secret
-  one of them names is looked up at the tenant, whoever registered it. Until
-  0.1.8, give project admin roles only to people you'd trust with every
-  secret in the tenant. From 0.1.8, each item reads a secret it names at one
-  scope, recorded when it's registered, which the person registering it must
-  administer.
+  one of them names is looked up at the tenant, whoever registered it. Give
+  project admin roles only to people you'd trust with every secret in the
+  tenant. 0.1.8 fixes it.
 - **With authorization on, a runtime whose database user has no `BYPASSRLS`
   (and isn't a superuser) doesn't start.** That's the usual case on a managed
   Postgres. To check, run this as the runtime's database user:
