@@ -21,10 +21,12 @@ import type { TenantId, UserId } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
-import type { RunHandlerBinding, TokenResolution } from '../src/index.js';
+import type { ReferenceScopeBinding, RunHandlerBinding, TokenResolution } from '../src/index.js';
 
 const tenantId = randomUUID() as TenantId;
 const P1 = randomUUID();
+/** A second project, which a run may be filed under by name. */
+const P2 = randomUUID();
 const ALICE = randomUUID() as UserId;
 const BOBS_CONVERSATION = randomUUID();
 const HIS_OWN = randomUUID();
@@ -54,6 +56,11 @@ const KEYS: Record<string, { readonly who: TokenResolution; readonly grants: rea
       who: { tenantId, serviceAccountId: 'sa-desk', tokenId: 'tok-desk' as never },
       grants: [...RUN, `write project:${P1}`],
     },
+    // A person with `write` on P2 only: may file a run there, not act in P1.
+    p2Writer: {
+      who: { tenantId, userId: randomUUID() as UserId },
+      grants: [...RUN, `write project:${P2}`],
+    },
   };
 
 function decision(grants: readonly string[], action: Action, resource: ResourceRef): Decision {
@@ -76,11 +83,13 @@ const conversations = new Map<string, { participantId: string; projectId: string
   [HIS_OWN, { participantId: ALICE, projectId: P1 }],
 ]);
 
-function makeApp(withAuthz = true) {
+function makeApp(withAuthz = true, referenceScope?: ReferenceScopeBinding) {
   let current = 'caller';
+  let opened = 0;
   const stub = createStubAppBindings();
   const app = createApp({
     ...stub,
+    ...(referenceScope !== undefined && { referenceScope }),
     resolveToken: async (token) => KEYS[token]?.who ?? null,
     // Reaching the run handler means the participant rule let it through.
     runHandler: {
@@ -133,19 +142,22 @@ function makeApp(withAuthz = true) {
               },
             };
       },
-      openConversation: async (input: { participantId?: string }) => ({
-        kind: 'ok',
-        value: {
-          id: randomUUID(),
-          agentId: 'acme.desk',
-          agentVersion: '1.0.0',
-          title: '',
-          ...(input.participantId !== undefined && { participantId: input.participantId }),
-          projectId: P1,
-          scope: { tenantId },
-          openedAt: new Date().toISOString(),
-        },
-      }),
+      openConversation: async (input: { participantId?: string }) => {
+        opened += 1;
+        return {
+          kind: 'ok',
+          value: {
+            id: randomUUID(),
+            agentId: 'acme.desk',
+            agentVersion: '1.0.0',
+            title: '',
+            ...(input.participantId !== undefined && { participantId: input.participantId }),
+            projectId: P1,
+            scope: { tenantId },
+            openedAt: new Date().toISOString(),
+          },
+        };
+      },
     } as never,
     ...(withAuthz && {
       authz: {
@@ -187,6 +199,14 @@ function makeApp(withAuthz = true) {
           input: { userMessage: 'hello', ...input },
         }),
       runFlow: (input: Record<string, unknown>) => post('/v1/runs', { flow: 'acme.triage', input }),
+      /** An agent's run filed under the project it names. */
+      runIn: (projectId: string, input: Record<string, unknown>) =>
+        post('/v1/runs', {
+          agent: 'acme.desk',
+          agentVersion: '1.0.0',
+          projectId,
+          input: { userMessage: 'hello', ...input },
+        }),
       open: (participantId?: string) =>
         post('/v1/conversations', {
           agentId: 'acme.desk',
@@ -196,7 +216,7 @@ function makeApp(withAuthz = true) {
         }),
     };
   };
-  return { as };
+  return { as, opened: () => opened };
 }
 
 const refusedForParticipant = (r: { status: number; code?: string | undefined }) =>
@@ -314,6 +334,37 @@ describe('looking up the conversation', () => {
       refusedForParticipant(
         await as('caller').run({ conversationId: 'not-a-uuid', participantId: 'cus_bob' }),
       ),
+    ).toBe(true);
+  });
+});
+
+describe("a project that doesn't reach the agent, and a participant the caller may not act for", () => {
+  // Both would refuse. The reach check answers first, before anything is written.
+  const unreachable: ReferenceScopeBinding = { reachable: async () => false };
+  const outOfScope = (r: { status: number; code?: string | undefined }) =>
+    r.status === 400 && r.code === 'reference-out-of-scope';
+
+  test('opening a conversation answers reference-out-of-scope, and opens none', async () => {
+    const { as, opened } = makeApp(true, unreachable);
+    expect(outOfScope(await as('caller').open('cus_bob'))).toBe(true);
+    expect(opened()).toBe(0);
+  });
+
+  test('a run filed under the project answers reference-out-of-scope, and starts no turn', async () => {
+    // Bob's conversation is in P1, where p2Writer may not act for him.
+    const r = await makeApp(true, unreachable)
+      .as('p2Writer')
+      .runIn(P2, { conversationId: BOBS_CONVERSATION });
+    expect(outOfScope(r)).toBe(true);
+  });
+
+  test('with the project reaching it, the participant is refused', async () => {
+    const reachable: ReferenceScopeBinding = { reachable: async () => true };
+    const { as, opened } = makeApp(true, reachable);
+    expect(refusedForParticipant(await as('caller').open('cus_bob'))).toBe(true);
+    expect(opened()).toBe(0);
+    expect(
+      refusedForParticipant(await as('p2Writer').runIn(P2, { conversationId: BOBS_CONVERSATION })),
     ).toBe(true);
   });
 });
