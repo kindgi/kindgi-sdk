@@ -70,6 +70,15 @@ test('a format, a type or a oneOf it cannot check fails the generation', () => {
   assert.throws(() => shapesOf(union), /a oneOf without a discriminator/);
 });
 
+test('a field with no type is any JSON value; a keyword on it fails the generation', () => {
+  const failure = runFields(shapesOf(openapi())).optional.failure;
+  assert.deepEqual(failure.optional.cause, { kind: 'any' });
+  assert.deepEqual(failure.optional.details, { kind: 'object' });
+  const doc = openapi();
+  schemas(doc).RunFailure.properties.cause.minimum = 0;
+  assert.throws(() => shapesOf(doc), /RunFailure\.cause: "minimum" without a type isn't a keyword/);
+});
+
 test("LiveScope's variants are keyed by their kind, and a nullable type is kept nullable", () => {
   const shapes = shapesOf(openapi());
   const scope = shapes['improvement-pass.finished'].required.data.required.pass.required.scope;

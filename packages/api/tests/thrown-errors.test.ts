@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { HTTPException } from 'hono/http-exception';
 import { describe, expect, test } from 'vitest';
 
+import { TenantBudgetError } from '@kindgi/bounds';
 import type { RunBinding } from '@kindgi/runtime';
 import type { TenantId } from '@kindgi/types';
 
@@ -91,6 +92,27 @@ describe('a thrown exception on the wire', () => {
     expect(text).not.toContain('alice@acme.example');
     expect(text).not.toContain('select');
   });
+
+  test.each([
+    ['template-render-time', 2_500, '3'],
+    ['schema-compile-time', 0, '1'],
+  ] as const)(
+    'work a budget kept per tenant refused (%s): 429 rate-limit-exceeded, the budget, and Retry-After',
+    async (limit, retryAfterMs, retryAfter) => {
+      const refused = new TenantBudgetError('Over the budget', limit, 5_000, retryAfterMs);
+      const { res, text } = await get(appWhoseRunReadsThrow(refused), '/v1/runs');
+      expect(res.status).toBe(429);
+      expect(res.headers.get('Retry-After')).toBe(retryAfter);
+      expect(JSON.parse(text)).toEqual({
+        error: {
+          code: 'rate-limit-exceeded',
+          message: 'Over the budget',
+          requestId: expect.any(String),
+          details: { limit, budgetMs: 5_000 },
+        },
+      });
+    },
+  );
 
   test('an exception that carries its own response answers with it', async () => {
     const thrown = new HTTPException(413, { message: 'Too big' });

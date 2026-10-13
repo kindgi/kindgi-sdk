@@ -16,6 +16,8 @@
  *                   to the module root (`kindgi build` writes
  *                   `dist/bundle-map.json`): modules load from the bundles
  *   - token:        `KINDGI_PACK_SERVICE_TOKEN` (required)
+ *   - tenant pin:   `KINDGI_PACK_TENANT_ID` (optional): the one tenant it
+ *                   serves; a call for another is refused with 421
  *   - concurrency:  `KINDGI_PACK_SERVICE_MAX_CONCURRENCY` (default 32)
  *   - env check:    `KINDGI_PACK_ENV_CHECK`, `strict` (default) | `warn`:
  *                   whether a required env name the index declares and the
@@ -38,11 +40,17 @@
  * for callers that start it with `PORT=0`.
  */
 
+import { createHash } from 'node:crypto';
 import { access, readFile } from 'node:fs/promises';
 import { type Server, createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { dirname, isAbsolute, resolve } from 'node:path';
-import { PACK_SERVICE_TOKEN_VAR, parsePackServiceToken } from '@kindgi/env-schema';
+import {
+  PACK_SERVICE_TOKEN_VAR,
+  PACK_TENANT_ID_VAR,
+  parsePackServiceToken,
+  parsePackTenantId,
+} from '@kindgi/env-schema';
 
 import { isProcessEntrypoint } from '../entrypoint.js';
 import type { Index } from '../kindgi-index.js';
@@ -79,6 +87,8 @@ export interface PackServiceConfig {
    * an in-process caller's environment is left alone.
    */
   readonly envFilter?: PackEnvFilter;
+  /** The one tenant this service serves (`KINDGI_PACK_TENANT_ID`). Absent: no pin. */
+  readonly tenantId?: string;
 }
 
 type ConfigOutcome =
@@ -122,6 +132,12 @@ export function readPackServiceConfig(
   if (envCheck.kind === 'err') problems.push(envCheck.message);
   const envFilter = parsePackEnvFilter(env[PACK_ENV_FILTER_VAR]);
   if (envFilter.kind === 'err') problems.push(envFilter.message);
+  let tenantId: string | undefined;
+  try {
+    tenantId = parsePackTenantId(env[PACK_TENANT_ID_VAR]);
+  } catch (err) {
+    problems.push((err as Error).message);
+  }
   if (
     problems.length > 0 ||
     envCheck.kind === 'err' ||
@@ -142,6 +158,7 @@ export function readPackServiceConfig(
       ...(maxConcurrency !== undefined && { maxConcurrency }),
       envCheck: envCheck.value,
       envFilter: envFilter.value,
+      ...(tenantId !== undefined && { tenantId }),
     },
   };
 }
@@ -176,8 +193,12 @@ export async function startPackService(
   const legacy = typeof logs === 'function' ? logs : undefined;
   const records = typeof logs === 'function' ? undefined : logs;
   let index: Index;
+  let indexHash: string;
   try {
-    index = JSON.parse(await readFile(config.indexPath, 'utf8')) as Index;
+    const bytes = await readFile(config.indexPath);
+    // The hash a deployment signs (`indexHash`): of the file's bytes, as built.
+    indexHash = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+    index = JSON.parse(bytes.toString('utf8')) as Index;
   } catch (cause) {
     return { kind: 'err', problems: [`Cannot read the pack index: ${describe(cause)}`] };
   }
@@ -215,6 +236,8 @@ export async function startPackService(
     index,
     resolveModule,
     token: config.token,
+    indexHash,
+    ...(config.tenantId !== undefined && { tenantId: config.tenantId }),
     ...(config.maxConcurrency !== undefined && { maxConcurrency: config.maxConcurrency }),
     ...(config.envCheck !== undefined && { envCheck: config.envCheck }),
     ...(legacy !== undefined && { logger: legacy }),

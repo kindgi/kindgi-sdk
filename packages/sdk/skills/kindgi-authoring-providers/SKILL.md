@@ -23,7 +23,7 @@ description: >
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.13"
+version: "0.9.14"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 sources:
@@ -498,7 +498,9 @@ The account (locally) or the service account (deployed) needs the
 **Vertex AI User** role (`roles/aiplatform.user`) in the project. Running
 outside Google Cloud: put a service-account key (its JSON) in a secret
 (`kindgi secrets set GEMINI_SA_KEY --env=local --scope=tenant`) and add
-`"secret_ref": { "envName": "local", "name": "GEMINI_SA_KEY" }`.
+`"secret_ref": { "envName": "local", "name": "GEMINI_SA_KEY" }`. A runtime
+with `KINDGI_TENANT_HOST_ACCESS=isolated` requires that key: it doesn't lend
+its own credentials to tenant configuration.
 
 **Step 2 — `provider.json`:**
 ```json

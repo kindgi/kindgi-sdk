@@ -147,6 +147,17 @@ describe('usersOfSecret: MCP endpoints', () => {
       },
       {
         ...http,
+        endpointId: 'acme.header',
+        auth: {
+          scheme: 'header',
+          headers: [
+            { name: 'X-Api-Key', secretRef: { envName, name: 'INVENTORY_KEY' } },
+            { name: 'X-Api-Secret', secretRef },
+          ],
+        },
+      },
+      {
+        ...http,
         endpointId: 'acme.other',
         auth: { scheme: 'basic', username: 'agent', secretRef: { envName, name: 'SHOP_PASSWORD' } },
       },
@@ -160,6 +171,7 @@ describe('usersOfSecret: MCP endpoints', () => {
       { kind: 'mcp-endpoint', id: 'acme.bearer' },
       { kind: 'mcp-endpoint', id: 'acme.basic' },
       { kind: 'mcp-endpoint', id: 'acme.oauth' },
+      { kind: 'mcp-endpoint', id: 'acme.header' },
     ]);
   });
 });

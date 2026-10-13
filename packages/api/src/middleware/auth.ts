@@ -12,6 +12,7 @@ import type { SigningKeyBinding } from '@kindgi/crypto';
 import { statusFor, toWireError } from '../errors.js';
 import { PUBLIC_RUN_TOKEN_PREFIX, verifyPublicRunToken } from '../public-run-token.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
+import { SYSTEM_TENANT_ID, type SystemPrincipal } from '../system.js';
 
 /**
  * Resolve an API token → tenant identity. For static bearer tokens this
@@ -71,6 +72,13 @@ export interface TokenResolution {
    * action on the tenant.
    */
   readonly tokenProjectId?: string;
+  /**
+   * Set when the token is the deployment's operator's, acting in no tenant:
+   * a system key (`kgi_sy_…`), or the deployment's own token on a runtime
+   * serving many tenants. Its scopes are its `capabilities`. The middleware
+   * gives such a request `SYSTEM_TENANT_ID` whatever `tenantId` says.
+   */
+  readonly system?: SystemPrincipal;
   /**
    * Optional session id. Populated by the session-token verifier path
    * (`kgi_sk_*` tokens) so `/v1/identity/whoami` and `/v1/auth/logout`
@@ -353,7 +361,12 @@ export function bearerAuthMiddleware(
       }
     }
 
-    c.set('tenantId', resolution.tenantId);
+    if (resolution.system !== undefined) {
+      c.set('systemPrincipal', resolution.system);
+      c.set('tenantId', SYSTEM_TENANT_ID);
+    } else {
+      c.set('tenantId', resolution.tenantId);
+    }
     if (resolution.reviewerRole !== undefined) {
       c.set('reviewerRole', resolution.reviewerRole);
     }

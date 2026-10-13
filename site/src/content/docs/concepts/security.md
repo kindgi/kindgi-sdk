@@ -144,6 +144,16 @@ controls that:
   and a tenant's SSO identity provider. An identity provider
   whose origin the operator allows in `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`
   connects all the same ([Set up SSO](../../guides/sso/)).
+- **`isolated`** is for a runtime whose tenants don't trust one another. It
+  refuses all that `deployed` does, and also private networks (RFC 1918,
+  CGNAT, and IPv6 unique-local and site-local addresses) wherever
+  configuration names a host,
+  and the runtime's own cloud credentials: a model provider can't sign in as
+  the runtime. A Gemini provider on Vertex AI then needs a service-account key
+  in `secret_ref`, and Azure OpenAI's `auth: entra` and Bedrock's
+  `auth: aws-identity` are refused; use their API keys. The runtime won't start
+  with it in development mode, or with `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`
+  or `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`.
 - **`local`** (the default in development mode) allows it. Use it only on a
   machine where everyone holding an API token may run commands anyway.
 
@@ -158,7 +168,8 @@ https. Kindgi checks this when the webhook is registered, and again at every
 delivery, for every address the receiver's name resolves to. A self-hosted runtime whose receiver is on
 its own private network sets `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`, which
 opens RFC 1918, CGNAT and IPv6 unique-local addresses. Loopback and the
-cloud metadata addresses stay refused.
+cloud metadata addresses stay refused. `KINDGI_TENANT_HOST_ACCESS=isolated`
+refuses that setting.
 
 A model provider's calls carry only its own registration's settings and its
 own key: nothing of the server's environment goes with them.
