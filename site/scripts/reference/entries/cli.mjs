@@ -47,11 +47,13 @@ export const CLI_DEFAULTS = {
   },
   build: {
     'artifact-version': 'the build time, as `YYYYMMDD.HHMMSS` (UTC)',
-    endpoint: "the env block's `build`; required when there is none (not used with `--local`)",
+    endpoint:
+      "the env block's `build`; required when there is none (not used with `--local` or `--hosted`, which builds at the API's address under `/cloud`)",
     env: '`staging`',
     out: '`.kindgi/build` under the pack root',
     path: 'the current directory (the pack root is resolved from it)',
     platform: "with `--local`: `linux/amd64` when pushing, else this machine's",
+    project: 'none: the build carries no project label (with `--hosted` only)',
     'published-at': 'the build time',
     push: "none; a bare `--push` uses the env block's `registry` + `/<packId>`",
     'registry-push-creds': 'none',
@@ -59,7 +61,7 @@ export const CLI_DEFAULTS = {
     'signing-key': "the env block's `signingKey`; required to sign (unless `--skip-sign`)",
     target: "the env block's `buildTarget`, else the env name",
     tenant:
-      "the env block's `tenantId`, else `KINDGI_TENANT_ID`; required unless `--local` without `--push`",
+      "the env block's `tenantId`, else `KINDGI_TENANT_ID`, else with `--hosted` the API key's own tenant; required unless `--local` without `--push`",
   },
   deploy: {
     'artifact-version': 'for an inline build: the build time, as `YYYYMMDD.HHMMSS` (UTC)',
