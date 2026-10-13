@@ -18,6 +18,7 @@ export const ENV_DEFAULTS = {
   KINDGI_OPENFGA_API_URL: 'none: authorization is not enforced',
   KINDGI_TENANT_ID:
     'none: a new tenant with a generated UUID is created at each start and printed in the startup banner',
+  KINDGI_TENANCY: "`single`: the runtime serves one tenant, `KINDGI_TENANT_ID`'s",
   KINDGI_API_TOKEN:
     'none: a new `kgi_bt_` token is generated at each start and printed in the startup banner',
   KINDGI_SEED_USER_ID: 'none: the user the token had at an earlier start, else a new user',
@@ -25,6 +26,10 @@ export const ENV_DEFAULTS = {
   KINDGI_DEV: '`false`',
   KINDGI_TENANT_HOST_ACCESS: '`local` when `KINDGI_DEV` is on, else `deployed`',
   KINDGI_WEBHOOK_PRIVATE_NETWORKS: '`deny`',
+  KINDGI_PRODUCTION_GATE: '`off`: no gate, and any tenant admin can put a project in production',
+  KINDGI_PRODUCTION_NEXT_URL:
+    'none: the `production-not-allowed` refusal says to ask whoever runs the server',
+  KINDGI_USAGE_METERING: '`off`: model calls are counted, nothing else',
   KINDGI_LICENSE_KEY:
     'none: outside development mode the server refuses to start; development mode needs none',
   KINDGI_LICENSE_KEY_REF: 'none: expiry warnings print a placeholder in the renew command',

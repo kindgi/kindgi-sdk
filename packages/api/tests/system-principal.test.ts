@@ -259,6 +259,10 @@ describe('the fence: a system principal reaches /v1/system/* and the license onl
     const r = await call(MULTI_BOOT, 'GET', '/v1/tenant');
     expect(r.status).toBe(403);
     expect(code(r)).toBe('system-key-on-tenant-route');
+    // The refusal names every route a system key reaches.
+    expect((r.body.error as { message: string }).message).toContain(
+      'it reaches /v1/system/* and GET /v1/license only, not GET /v1/tenant',
+    );
   });
 
   test('a system key holding system:license reads the license as the operator does', async () => {
