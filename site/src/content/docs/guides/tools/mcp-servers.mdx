@@ -37,7 +37,7 @@ An MCP server that speaks Streamable HTTP works. This one, written with the
 Python MCP SDK, version 1.x, has two tools:
 
 ```python
-# server.py: an MCP server with two tools, over Streamable HTTP.
+# server.py
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("inventory", host="127.0.0.1", port=8791)
@@ -86,6 +86,14 @@ INFO:     Uvicorn running on http://127.0.0.1:8791 (Press CTRL+C to quit)
 
 It keeps running, and serves at `http://localhost:8791/mcp`. Under
 `kindgi dev`, the runtime reaches your machine's `localhost`.
+
+{/* check-samples: the reader's install step, which the docs' sample check runs before it checks server.py; readers don't see it.
+
+```sh
+uv add 'mcp<2'
+```
+
+*/}
 
 ## Register the endpoint
 

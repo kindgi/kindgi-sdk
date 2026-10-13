@@ -114,10 +114,12 @@ export default defineConfig({
         './src/styles/kindgi.css',
       ],
       components: {
+        // The title, with the page's Markdown version under it.
+        PageTitle: './src/components/PageTitle.astro',
         // The version menu and the "not the latest" notice.
         ThemeSelect: './src/components/ThemeSelect.astro',
         Banner: './src/components/Banner.astro',
-        // "Edit page" (hand-written pages) and "Report a problem" (every page).
+        // "Report a problem", "Your coding agent" and `llms.txt` (every page).
         EditLink: './src/components/EditLink.astro',
         // "See also" on the HTTP API's operation pages.
         MarkdownContent: './src/components/MarkdownContent.astro',

@@ -10,9 +10,9 @@ In ten minutes: a pack with two tools, an agent that calls them, a guardrail
 on its answers and a flow, running on your machine.
 
 **Before you start**, set up what the [Install page](../install/) describes:
-Node 22.12, Docker, and access to the runtime image. The image is in private
-preview: request access at contact@kindgi.com, then log in once with
-`kindgi auth registry`.
+Node 22.12, Docker, and access to the runtime image: sign in at
+[access.kindgi.com](https://access.kindgi.com) with GitHub for its pull
+credentials, then log in once with `kindgi auth registry`.
 
 ## 1. Create the pack
 
@@ -22,12 +22,27 @@ cd my-pack
 pnpm install
 ```
 
-- `npx --yes @kindgi/cli@0.1` runs the newest 0.1 release of the Kindgi CLI
-  without installing it ([Check this machine](../install/#check-this-machine)
-  says how).
+- `npx --yes @kindgi/cli@0.1` runs the newest 0.1 release of the Kindgi CLI,
+  the line these docs describe, without installing it
+  ([Check this machine](../install/#check-this-machine) says how). `@0.1` is
+  optional: `npx --yes @kindgi/cli init my-pack --template=sample` runs the
+  newest release, which may be on a later line than these docs.
 - `init my-pack` makes the pack in a new folder, `my-pack`.
 - `--template=sample` starts it with examples. The default, `minimal`, gives
   you the folders and none of the examples.
+
+`init` prints what it made, as JSON and then as a summary. `pnpm install`
+ends with `Done`:
+
+```text
+{
+  "template": "sample",
+  "packId": "my-pack",
+…
+✓ Pack scaffolded at …/my-pack/
+…
+Done in 4.4s using pnpm v10.28.0
+```
 
 `my-pack` is also the pack's id: every tool, agent and flow in it is named
 `my-pack.<name>`. The `sample` template gives you:
@@ -183,28 +198,48 @@ up.
 
 ## 6. Connect a real model
 
-Store an Anthropic key as a secret, then register the provider:
+Store your AI model provider's API key as a secret, then register the
+provider:
 
 ```sh
-pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
-pnpm exec kindgi providers register --preset=anthropic
+pnpm exec kindgi secrets set <KEY_NAME> --env=local --scope=tenant
+pnpm exec kindgi providers register --preset=<preset>
 ```
 
-- `secrets set ANTHROPIC_API_KEY` asks for the key without showing it, and
+`<KEY_NAME>` and `<preset>` depend on the provider:
+
+| Provider | `<KEY_NAME>` | `<preset>` |
+| --- | --- | --- |
+| Anthropic | `ANTHROPIC_API_KEY` | `anthropic` |
+| OpenAI | `OPENAI_API_KEY` | `openai` |
+| Gemini (a Google AI Studio key) | `GEMINI_API_KEY` | `gemini-api` |
+| Groq | `GROQ_API_KEY` | `groq` |
+| OpenRouter (a hosted gateway) | `OPENROUTER_API_KEY` | `openrouter` |
+
+- `secrets set <KEY_NAME>` asks for the key without showing it, and
   writes it to Kindgi's own `.kindgi/secrets.env`.
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files, that one among them.
 - `--scope=tenant` is where the secret lives: the tenant, rather than one
   org (`org:<orgId>`) or project (`project:<projectId>`).
-- `--preset=anthropic` registers Anthropic's models from Kindgi's built-in
-  preset, which reads the `ANTHROPIC_API_KEY` secret. `kindgi providers
-  presets` lists the others.
+- `--preset=<preset>` registers the provider's models from Kindgi's built-in
+  preset, which reads the `<KEY_NAME>` secret. `kindgi providers presets`
+  lists every preset.
+
+With Anthropic's key, for example, the two commands print:
+
+```text
+…
+  Set ANTHROPIC_API_KEY at tenant in local.
+…
+✓ Registered anthropic: claude-opus-5-5, claude-sonnet-5-5 (default), claude-haiku-5-5, claude-haiku-4-5 — key ANTHROPIC_API_KEY (env local)
+```
 
 The provider takes over from `dev-echo` at the next turn. Run the agent again and it
 answers with a real model, still calling your tools. Gemini on Vertex AI
 has a preset too: `--preset=gemini --project=<gcp-project>`, where
 `--project` names your Google Cloud project. Any OpenAI-compatible endpoint
-(vLLM, llama.cpp, Ollama, OpenRouter) registers from a short spec file.
+(vLLM, llama.cpp, Ollama) registers from a short spec file.
 
 The registration is in this project's dev database. To have `kindgi dev`
 register the model on every boot, in each worktree and after `--reset`,

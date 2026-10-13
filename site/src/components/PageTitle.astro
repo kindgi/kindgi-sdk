@@ -1,0 +1,129 @@
+---
+/*
+ * The page's title, and under it the page's Markdown version, for people
+ * who work with a coding agent: "Copy as Markdown" puts it on the
+ * clipboard, to paste into a chat, and "View as Markdown" opens it.
+ *
+ * `scripts/agent-markdown.mjs` writes the Markdown at the end of the build,
+ * and fails it if a page links any Markdown but its own. The 404 page has
+ * none, so no link; the home page has a hero instead of this title.
+ */
+import { Icon } from '@astrojs/starlight/components';
+import Default from '@astrojs/starlight/components/PageTitle.astro';
+
+import { twinPath } from '../../scripts/agent-markdown.mjs';
+
+const { id } = Astro.locals.starlightRoute.entry;
+const base = import.meta.env.BASE_URL.replace(/\/?$/, '/');
+const notFound = id === '404' || id.endsWith('/404');
+const markdown = notFound ? undefined : twinPath(Astro.url.pathname, base);
+---
+
+<Default />
+{
+  markdown && (
+    <div class="kindgi-page-actions print:hidden" data-markdown={markdown} data-pagefind-ignore>
+      <button type="button" data-copy hidden>
+        <svg
+          aria-hidden="true"
+          width="1.2em"
+          height="1.2em"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <rect x="4" y="8" width="12" height="13" />
+          <path d="M8 8V4h12v13h-4" />
+        </svg>
+        <span data-label aria-live="polite">Copy as Markdown</span>
+      </button>
+      <a href={markdown}>
+        <Icon name="document" size="1.2em" />
+        View as Markdown
+      </a>
+    </div>
+  )
+}
+
+<script>
+  /**
+   * The page's Markdown, for the clipboard. Safari only lets a page write
+   * to the clipboard while it handles the click, so the clipboard item
+   * takes this promise rather than waiting for the fetch.
+   */
+  async function markdownBlob(href: string): Promise<Blob> {
+    const response = await fetch(href);
+    if (!response.ok) throw new Error(`${href}: ${response.status}`);
+    return new Blob([await response.text()], { type: 'text/plain' });
+  }
+
+  async function copy(href: string): Promise<void> {
+    if (typeof ClipboardItem === 'function' && navigator.clipboard.write) {
+      await navigator.clipboard.write([new ClipboardItem({ 'text/plain': markdownBlob(href) })]);
+    } else {
+      await navigator.clipboard.writeText(await (await markdownBlob(href)).text());
+    }
+  }
+
+  // The copy button shows only where the page can use the clipboard.
+  for (const actions of document.querySelectorAll<HTMLElement>('.kindgi-page-actions')) {
+    const href = actions.dataset.markdown;
+    const button = actions.querySelector<HTMLButtonElement>('button[data-copy]');
+    const label = button?.querySelector<HTMLElement>('[data-label]');
+    if (!href || !button || !label || !navigator.clipboard) continue;
+    const idle = label.textContent;
+    let reset: ReturnType<typeof setTimeout> | undefined;
+    button.hidden = false;
+    button.addEventListener('click', () => {
+      clearTimeout(reset);
+      copy(href)
+        .then(
+          () => {
+            label.textContent = 'Copied';
+          },
+          () => {
+            label.textContent = "Couldn't copy";
+          },
+        )
+        .finally(() => {
+          reset = setTimeout(() => {
+            label.textContent = idle;
+          }, 2000);
+        });
+    });
+  }
+</script>
+
+<style>
+  .kindgi-page-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    margin-top: 0.75rem;
+    font-size: var(--sl-text-sm);
+  }
+  :is(a, button):not([hidden]) {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  a,
+  button {
+    text-decoration: none;
+    color: var(--sl-color-gray-3);
+  }
+  button {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    cursor: pointer;
+  }
+  :is(a, button):hover {
+    color: var(--sl-color-white);
+  }
+  :is(a, button):focus-visible {
+    outline-offset: 0.25rem;
+  }
+</style>

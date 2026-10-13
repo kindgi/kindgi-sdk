@@ -32,8 +32,29 @@ pnpm install
 - `npx --yes @kindgi/cli@0.1` runs the newest 0.1 release of the Kindgi CLI
   without installing it ([Check this machine](../install/#check-this-machine)
   says how).
-- `init` with no pack name adds Kindgi to the app in this folder.
+- `init` with no pack name adds Kindgi to the app in this folder. The
+  pack's id comes from the `name` in the app's `package.json`. If there's no
+  name, or `init` says it doesn't make a pack id, add `--pack-id=<id>`:
+  lowercase letters, digits and dashes, starting with a letter, such as
+  `--pack-id=acme-support`. The app's `name` stays as it is.
 - Run your app's own package manager's install in place of `pnpm install`.
+- If your app's pnpm sets `minimumReleaseAge`, `pnpm install` refuses a
+  Kindgi release younger than that. Wait until the release is old enough, or
+  install the release before it (`@kindgi/cli@<version>` and
+  `@kindgi/sdk@<version>`). The setting protects your app's dependencies, so
+  leave it as it is.
+
+`init` prints what it made, as JSON and then as a summary. `pnpm install`
+ends with `Done`:
+
+```text
+…
+  Kindgi added to …/acme-support (augment mode).
+  Pack id: acme-support    Version: 0.1.0
+  Wrote 19 files; skipped 0.
+…
+Done in 4.9s using pnpm v10.28.0
+```
 
 `init` adds:
 
@@ -67,9 +88,10 @@ pnpm install
 
 If your app is on zod 3, `init` keeps it, and a Kindgi schema written with
 zod 3 doesn't compile: Kindgi takes zod 4 schemas. Write your tools' and
-agents' inputs and outputs as JSON Schema objects instead, or upgrade the
-app to zod 4 if its own code allows (zod 4 changes some of zod 3's API, such
-as `invalid_type_error`). A tool's input as JSON Schema:
+agents' inputs and outputs as JSON Schema objects instead. Moving the app
+to zod 4 is a change to the app's own code (zod 4 changes some of zod 3's
+API, such as `invalid_type_error`), so it's the app owner's decision. A
+tool's input as JSON Schema:
 
 ```ts excerpt
 input: {
@@ -178,18 +200,35 @@ pnpm exec kindgi dev
 `kindgi dev` builds the pack from `kindgi/`, runs its tools in a process
 started from your app's root, and reloads on every save.
 
+When it's up, its banner names the project and its database:
+
+```text
+…
+    ✓ Kindgi is up
+…
+    Project    acme-support · database kindgi_acme_support
+…
+```
+
 Until you register a model, agents answer with `dev-echo`, which only checks
 the wiring: it calls the agent's first tool with `{"message": …}` and can't
 produce a typed answer, so this agent fails with `output-schema-violation`.
-Register a model first:
+Register a model first, with your AI model provider's API key:
 
 ```sh
-pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # prompts for the key; it isn't echoed
-pnpm exec kindgi providers register --preset=anthropic
+pnpm exec kindgi secrets set <KEY_NAME> --env=local --scope=tenant   # prompts for the key; it isn't echoed
+pnpm exec kindgi providers register --preset=<preset>
 pnpm exec kindgi runs start --agent=acme-support.triage --input='{"userMessage":"Triage REQ-1002"}'
 ```
 
+With Anthropic's key, for example, the three commands print:
+
 ```text
+…
+  Set ANTHROPIC_API_KEY at tenant in local.
+…
+✓ Registered anthropic: claude-opus-5-5, claude-sonnet-5-5 (default), claude-haiku-5-5, claude-haiku-4-5 — key ANTHROPIC_API_KEY (env local)
+…
   "status": "completed",
 …
     "output": {
@@ -197,6 +236,16 @@ pnpm exec kindgi runs start --agent=acme-support.triage --input='{"userMessage":
       "priority": "urgent"
     },
 ```
+
+`<KEY_NAME>` and `<preset>` depend on the provider:
+
+| Provider | `<KEY_NAME>` | `<preset>` |
+| --- | --- | --- |
+| Anthropic | `ANTHROPIC_API_KEY` | `anthropic` |
+| OpenAI | `OPENAI_API_KEY` | `openai` |
+| Gemini (a Google AI Studio key) | `GEMINI_API_KEY` | `gemini-api` |
+| Groq | `GROQ_API_KEY` | `groq` |
+| OpenRouter (a hosted gateway) | `OPENROUTER_API_KEY` | `openrouter` |
 
 To have `kindgi dev` register the model on every boot, in each worktree and
 after `--reset`, declare it in the pack's config:
@@ -209,6 +258,15 @@ A tool's tests go beside it (`kindgi/tools/get-request/index.test.ts`), and
 
 ```sh
 pnpm exec kindgi test
+```
+
+With two tests beside `get-request`, it prints vitest's summary:
+
+```text
+…
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+…
 ```
 
 `init` sets this up. It writes `vitest.config.mts` at the app's
