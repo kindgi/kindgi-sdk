@@ -271,8 +271,9 @@ It prints the endpoint's id and URL:
   `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`. That opens RFC 1918, CGNAT and
   IPv6 unique-local addresses, still over https only. Loopback and the cloud
   metadata addresses stay refused. A URL the deployment refuses gets
-  `400 webhook-url-refused`, with the reason: `The deployment refuses this
-  URL: private network addresses are not allowed`.
+  `400 webhook-url-refused` with a reason. For a private address, it's
+  `The deployment refuses this URL: private network addresses are not
+  allowed`.
 - **`events`** lists the events to send: `run.finished` here.
   `improvement-pass.finished` and `approval.requested` are the others, as
   [Webhook events and deliveries](../webhook-events/) describes.
