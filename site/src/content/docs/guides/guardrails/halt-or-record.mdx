@@ -195,6 +195,16 @@ scope={"when": "always", "agents": ["my-pack.echo-agent"]},
 - `when` is `always`, `runtime-only` or `ci-only`. A `ci-only` guardrail
   doesn't run in an agent's turn.
 
+:::caution[A scope with `flows` never applies]
+The scope also takes `flows`, a list of flow ids, but a guardrail whose scope
+lists `flows` never checks a turn, in those flows' steps or anywhere else. A
+turn doesn't say which flow it runs in, so the guardrail skips it without a
+word: it never blocks, and its [outcome counts](#how-a-guardrail-is-doing)
+stay at zero. Leave `flows` out. To check only a flow's steps, run them with
+an agent of their own that lists the guardrail
+([Known issues](../../../releases/0.1.7/#known-issues)).
+:::
+
 ## How a guardrail is doing
 
 Every check a guardrail runs on an agent's turn is recorded with its
