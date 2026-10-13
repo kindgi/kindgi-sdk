@@ -63,6 +63,8 @@ export interface PostDeploymentBody {
   readonly signerPublicKey: string;
   readonly signature: string;
   readonly publishedAt: string;
+  /** The project to deploy into (`--project`); absent: tenant-wide, the Default project. */
+  readonly projectId?: string;
 }
 
 /**
@@ -138,10 +140,14 @@ export type PostDeploymentResult =
       readonly status: number;
       /** A replay of an earlier answer to this Idempotency-Key (a runtime before 0.1.3 also replays refusals). */
       readonly idempotentReplay?: boolean;
+      /** The answer's `Retry-After`, in seconds, when it has one in whole seconds. */
+      readonly retryAfterSeconds?: number;
       readonly error: {
         readonly code: string;
         readonly message: string;
         readonly details?: readonly Record<string, unknown>[];
+        /** Which limit refused it (the wire's `details.limit`, on a `429`), when the server named one. */
+        readonly limit?: string;
       };
     }
   | {
@@ -256,6 +262,30 @@ export type SyncSecretsResult =
  * branch without ever booting `kindgi build`, hitting a real
  * api-server, or reading a real envelope file.
  */
+/** `kindgi deploy --project <slug>`: the tenant's projects with that slug. */
+export interface FindProjectsOptions {
+  readonly endpoint: string;
+  readonly token: string;
+  readonly slug: string;
+  readonly fetchImpl: typeof fetch;
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * Every project of the tenant with the slug: none, one, or (a slug is
+ * unique within an org, so two orgs may share one) several.
+ */
+export type FindProjectsResult =
+  | {
+      readonly kind: 'ok';
+      readonly projects: readonly {
+        readonly id: string;
+        readonly name: string;
+        readonly orgId?: string;
+      }[];
+    }
+  | { readonly kind: 'error'; readonly message: string };
+
 export interface DeployRunners {
   /** Read `deploy-envelope.json` from disk + structurally validate. */
   readonly loadEnvelope: (opts: LoadEnvelopeOptions) => Promise<LoadEnvelopeResult>;
@@ -281,4 +311,6 @@ export interface DeployRunners {
    * "runner not wired" error even when the flag is passed.
    */
   readonly syncSecrets?: (opts: SyncSecretsOptions) => Promise<SyncSecretsResult>;
+  /** `--project <slug>`: the projects with that slug (`GET /v1/projects`, every page). */
+  readonly findProjects?: (opts: FindProjectsOptions) => Promise<FindProjectsResult>;
 }

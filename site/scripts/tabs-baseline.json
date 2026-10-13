@@ -27,18 +27,6 @@
     "Java": 3,
     "Scala": 3
   },
-  "guides/approvals/ask-after-n-turns": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/approvals/ask-before-a-tool-runs": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/approvals/decide-an-approval": {
-    "Java": 1,
-    "Scala": 1
-  },
   "guides/evals/build-a-test-set": {
     "Java": 1,
     "Scala": 1
@@ -56,38 +44,6 @@
     "Scala": 3
   },
   "guides/evals/release-an-agent-version": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/flows/branch-a-flow": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/flows/dry-run-a-flow": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/flows/join-branches": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/flows/loop": {
-    "Java": 3,
-    "Scala": 3
-  },
-  "guides/flows/pass-data-between-steps": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/flows/retry-a-step": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/flows/run-steps-in-parallel": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/flows/wait-for-an-approval": {
     "Java": 2,
     "Scala": 2
   },
@@ -146,17 +102,5 @@
   "guides/tools/read-only-tools": {
     "Java": 1,
     "Scala": 1
-  },
-  "guides/webhooks/receive-run-finished": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/webhooks/start-runs-from-webhooks": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/webhooks/test-and-replay": {
-    "Java": 2,
-    "Scala": 2
   }
 }

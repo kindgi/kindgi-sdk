@@ -433,6 +433,8 @@ It prints the deployment as JSON, then each step. The last steps:
   Runs already in flight continue on their pinned image.
 ```
 
+To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
+
 The runtime read your pack's image from Artifact Registry with its own token
 (`KINDGI_IMAGE_REGISTRY_AUTH=google`) to check it before registering it.
 
@@ -566,6 +568,13 @@ A new grant can take a minute or two to apply.
 
 ## Operate it
 
+- **Upgrade at least every 90 days while Kindgi is in preview.** Until
+  Kindgi 1.0, a release stops starting 90 days after it was released. Cloud
+  Run starts new instances on its own, and after that day none comes up. The
+  runtime warns from 30 days before, at startup and once a day, in a log
+  record with `jsonPayload.event = "kindgi.preview_expiry"`: set a log-based
+  alert on it
+  ([Licensing](../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
 - **Upgrade:** back up Cloud SQL, copy the new runtime image by digest, set
   `server_image`, and apply. The new revision takes all the traffic.
   Migrations only go forward: never run two runtime versions on one

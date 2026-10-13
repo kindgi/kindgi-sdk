@@ -271,7 +271,10 @@ conversation-closed Conversation "b3135493-47bd-4f78-90ac-fe0ff3e21e8d" is close
   `Untitled conversation`. A conversation that a turn opens takes the agent's
   name as its title.
 - `participantId` is kept on the conversation. A first turn can set it too,
-  with `participantId` in its input.
+  with `participantId` in its input. Every turn in it runs as that
+  participant, which only they (by their user id) or someone with `write` on
+  the project may do, as reading their memory takes. Anyone else gets
+  `403 participant-not-allowed`.
 - `close` is safe to repeat: closing a closed conversation returns it as it is.
 - `list` filters by agent and by `status` (`open` or `closed`), newest first;
   `get` fetches one conversation. From the CLI:

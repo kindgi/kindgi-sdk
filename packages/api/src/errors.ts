@@ -31,6 +31,8 @@ export interface WireError {
 export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // 400 — bad request
   'validation-failed': 400,
+  // A flow, agent, trigger or run names an item its project doesn't reach (`reference-scope.ts`).
+  'reference-out-of-scope': 400,
   'kind-not-applied': 400,
   'unknown-field': 400,
   'bad-input': 400,
@@ -130,9 +132,13 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'run-resume-not-supported': 422,
   /** Memory was asked to search by meaning, and no embedding model is configured. */
   'semantic-unavailable': 422,
-  // 429 — rate limit. No route in this package emits it; a rate limiter
-  // in front of the routes can.
+  // 429 — a limit over a time window: the sign-in lookups' and a webhook
+  // trigger's, a budget kept per tenant (a refused publish, an agent
+  // turn's work), or a rate limiter in front of the routes. With
+  // `Retry-After`.
   'rate-limit-exceeded': 429,
+  // A gate asked for an approval past the tenant's limit on approvals waiting.
+  'approvals-pending-limit': 429,
   // An agent turn's memory, charged by size, is past the tenant's share or
   // the runtime's whole (a runtime's limit, as Kindgi Cloud sets). No
   // `Retry-After`: there's no honest time to give.
@@ -245,8 +251,52 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'role-exceeds-principal': 403,
   /** A key limited to one project, on a request that names another. */
   'key-project-mismatch': 403,
+  /** A turn run as a participant whose memory the caller may not read (not themselves, and no `write` on the turn's project). */
+  'participant-not-allowed': 403,
   /** Mint: a key that would outlive the key minting it (a later or absent `expiresAt`). */
   'token-expiry-exceeds-minter': 403,
+  /** Mint: a capability a tenant's key can't carry (`system:*`; `kindgi:system` on a runtime serving many tenants). */
+  'capability-not-mintable': 403,
+  /** A system key (it acts in no tenant) on a route outside `/v1/system/*`. */
+  'system-key-on-tenant-route': 403,
+  /** A system route called with a tenant's key or session. */
+  'system-principal-required': 403,
+  /** A system key without the scope the system route takes (`details.scope`). */
+  'system-scope-missing': 403,
+  /** No system key with that id. */
+  'system-key-not-found': 404,
+  /** A full system key minted by another system key, with no `expiresAt`: only the deployment's own token mints one that never expires. */
+  'system-key-expiry-required': 403,
+  /** The operator's access record can't be written, so a system request that would change something was not acted on. */
+  'access-record-unavailable': 503,
+  /** A system route naming a tenant in a state it refuses. */
+  'tenant-closing': 409,
+  'tenant-suspended': 409,
+  /** A system route naming a deployment whose project, or pack, is suspended. */
+  'project-suspended': 409,
+  'pack-suspended': 409,
+  /** A deployment's endpoint refused: its URL isn't `https://<host>`, with no user info or path. */
+  'endpoint-url-invalid': 400,
+  /** A deployment's endpoint refused: its host isn't on the operator's allowlist. */
+  'endpoint-host-not-allowed': 422,
+  /** A deployment's endpoint refused: its host doesn't name the deployment's own pack service. */
+  'endpoint-name-mismatch': 422,
+  /** A deployment's endpoint refused: the pack service didn't answer `/v1/info`. */
+  'endpoint-unreachable': 422,
+  /** A deployment's endpoint refused: the pack service answered as another pack or version. */
+  'endpoint-info-mismatch': 422,
+  /** A problem recorded for a deployment whose endpoint isn't pending. */
+  'endpoint-not-pending': 409,
+  /** Creating a tenant with a slug another tenant has. */
+  'tenant-slug-taken': 409,
+  /** A deployment's image outside its tenant's repository (`details.imagePrefix`, the tenant's own). */
+  'image-not-allowed': 409,
+  /** A deployment on a runtime serving many tenants, by a tenant with no image repository set. */
+  'image-prefix-unset': 409,
+  /** An image prefix that equals, holds or sits inside another tenant's. */
+  'image-prefix-taken': 409,
+  /** The tenant's state can't be read, so a write is refused (`Retry-After`). */
+  'tenant-state-unavailable': 503,
   'service-account-not-found': 404,
   /** An active service account of the tenant already has the name. */
   'service-account-name-taken': 409,
@@ -345,6 +395,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'org-not-found': 404,
   'team-not-found': 404,
   'project-not-found': 404,
+  /** Putting a project in production while the tenant isn't allowed to (the production gate; `details.next`). */
+  'production-not-allowed': 403,
+  /** Putting a project in production while the tenant's projects in production are at its limit (`details.limit`, `projectsInProduction`, `inProduction`). */
+  'production-limit-reached': 403,
+  /** The production route on a runtime whose project binding can't set it. */
+  'production-unsupported': 501,
   'team-membership-not-found': 404,
   'project-membership-not-found': 404,
   // Re-adding a member with another role: the role they hold is kept.
@@ -426,6 +482,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
  */
 export function statusFor(code: string): number {
   return ERROR_CODE_TO_STATUS[code] ?? 500;
+}
+
+/** A wait as `Retry-After`'s whole seconds: rounded up, at least one. */
+export function retryAfterSeconds(waitMs: number): number {
+  return Math.max(Math.ceil(waitMs / 1000), 1);
 }
 
 /** Build a wire error body from a domain error + requestId. */

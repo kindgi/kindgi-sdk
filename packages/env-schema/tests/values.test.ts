@@ -9,10 +9,14 @@ import {
   CORS_ORIGINS_VAR,
   KINDGI_ENV_SCHEMA,
   PUBLIC_TOKEN_KEY_PATH_VAR,
+  packEndpointHostAllowed,
   parseAzureKeyId,
   parseAzureVaultUrl,
   parseCorsOrigins,
+  parsePackEndpointHosts,
+  parsePackRouting,
   parsePackServiceToken,
+  parsePackTenantId,
   parsePublicUrl,
 } from '../src/index.js';
 
@@ -171,5 +175,149 @@ describe('parsePublicUrl (T219)', () => {
     ]) {
       expect(() => parsePublicUrl(bad)).toThrow(/^KINDGI_PUBLIC_URL must be an http\(s\) URL/);
     }
+  });
+});
+
+describe('parsePackTenantId', () => {
+  test('a tenant id, without its surrounding whitespace; unset or blank is undefined (no pin)', () => {
+    expect(parsePackTenantId(' 4fc847d5-95b4-4c68-bf9d-618a241c9771\n')).toBe(
+      '4fc847d5-95b4-4c68-bf9d-618a241c9771',
+    );
+    expect(parsePackTenantId('4FC847D5-95B4-4C68-BF9D-618A241C9771')).toBe(
+      '4FC847D5-95B4-4C68-BF9D-618A241C9771',
+    );
+    expect(parsePackTenantId(undefined)).toBeUndefined();
+    expect(parsePackTenantId(' ')).toBeUndefined();
+  });
+
+  test.each([
+    ['t-1'],
+    ['acme'],
+    ['two words'],
+    ['caf\u00e9'],
+    ['nul\u0000'],
+    ['4fc847d5-95b4-4c68-bf9d-618a241c977'],
+    ['4fc847d5-95b4-4c68-bf9d-618a241c9771x'],
+    ['{4fc847d5-95b4-4c68-bf9d-618a241c9771}'],
+    ['4fc847d595b44c68bf9d618a241c9771'],
+  ])('refuses %j at startup: not a tenant id, so it would refuse every call', (raw) => {
+    expect(() => parsePackTenantId(raw)).toThrow(
+      "KINDGI_PACK_TENANT_ID must be the tenant's id, a UUID",
+    );
+  });
+
+  test.each([['00000000-0000-4000-8000-000000000000'], [' 00000000-0000-4000-8000-000000000000 ']])(
+    'refuses %j, the id no tenant has',
+    (raw) => {
+      expect(() => parsePackTenantId(raw)).toThrow('the id no tenant has');
+    },
+  );
+});
+
+describe('parsePackRouting', () => {
+  test('unset or blank is single; per-deployment as given', () => {
+    expect(parsePackRouting(undefined)).toBe('single');
+    expect(parsePackRouting('')).toBe('single');
+    expect(parsePackRouting('per-deployment')).toBe('per-deployment');
+  });
+
+  test('anything else fails at startup, naming the setting', () => {
+    expect(() => parsePackRouting('per-tenant')).toThrow('KINDGI_PACK_ROUTING');
+  });
+});
+
+describe('KINDGI_PACK_ENDPOINT_HOSTS', () => {
+  const allowed = parsePackEndpointHosts('*.packs.internal, pack.internal');
+
+  test('unset or blank: none, so every endpoint is refused', () => {
+    expect(parsePackEndpointHosts(undefined)).toEqual([]);
+    expect(packEndpointHostAllowed('pack.internal', parsePackEndpointHosts(''))).toBe(false);
+  });
+
+  test('`*.` matches exactly one more label in front of the domain', () => {
+    expect(allowed[0]).toEqual({ kind: 'suffix', suffix: 'packs.internal' });
+    expect(packEndpointHostAllowed('kp-abcdefghijklmnopqrst.packs.internal', allowed)).toBe(true);
+    expect(packEndpointHostAllowed('KP-ABC.PACKS.INTERNAL', allowed)).toBe(true);
+    expect(packEndpointHostAllowed('packs.internal', allowed)).toBe(false);
+    expect(packEndpointHostAllowed('a.b.packs.internal', allowed)).toBe(false);
+    expect(packEndpointHostAllowed('kp-x.other.internal', allowed)).toBe(false);
+    expect(packEndpointHostAllowed('evilpacks.internal', allowed)).toBe(false);
+  });
+
+  test.each([
+    ['*.run.app'],
+    ['*.a.run.app'],
+    ['*.us-central1.run.app'],
+    ['pack.internal, *.europe-west1.run.app'],
+  ])("refuses %j at startup: Cloud Run's shared domain admits anyone's service", (raw) => {
+    expect(() => parsePackEndpointHosts(raw)).toThrow(
+      /KINDGI_PACK_ENDPOINT_HOSTS refuses "\*\.(?:[a-z0-9-]+\.)?run\.app": run\.app is Cloud Run's shared domain.*List the exact hosts, or name one project with `\*-<project number>\.<region>\.run\.app`/,
+    );
+  });
+
+  test.each([['*-uc.a.run.app'], ['*-abc.us-central1.run.app'], ['*-123abc.run.app']])(
+    "refuses %j at startup: under run.app, a tail other than a project number admits anyone's service",
+    (raw) => {
+      expect(() => parsePackEndpointHosts(raw)).toThrow(
+        `KINDGI_PACK_ENDPOINT_HOSTS refuses "${raw}": run.app is Cloud Run's shared domain`,
+      );
+    },
+  );
+
+  test('a tail outside run.app may be any label', () => {
+    expect(parsePackEndpointHosts('*-anything.packs.internal')).toEqual([
+      { kind: 'tail', tail: 'anything', domain: 'packs.internal' },
+    ]);
+  });
+
+  test('on Cloud Run, the tail form and exact hosts are taken; a domain that only ends in run.app is not Cloud Run', () => {
+    expect(
+      parsePackEndpointHosts(
+        '*-123456789012.us-central1.run.app, kp-abc-123456789012.us-central1.run.app, *.notrun.app',
+      ),
+    ).toEqual([
+      { kind: 'tail', tail: '123456789012', domain: 'us-central1.run.app' },
+      { kind: 'exact', host: 'kp-abc-123456789012.us-central1.run.app' },
+      { kind: 'suffix', suffix: 'notrun.app' },
+    ]);
+  });
+
+  test("`*-<tail>.` matches one more label that ends with `-<tail>`: one Cloud Run project, not anyone's", () => {
+    const project = parsePackEndpointHosts('*-123456789012.us-central1.run.app');
+    expect(project).toEqual([
+      { kind: 'tail', tail: '123456789012', domain: 'us-central1.run.app' },
+    ]);
+    expect(
+      packEndpointHostAllowed('kp-abcdefghijklmnopqrst-123456789012.us-central1.run.app', project),
+    ).toBe(true);
+    // The same service name in someone else's project: refused.
+    expect(
+      packEndpointHostAllowed('kp-abcdefghijklmnopqrst-999999999999.us-central1.run.app', project),
+    ).toBe(false);
+    expect(packEndpointHostAllowed('kp-x123456789012.us-central1.run.app', project)).toBe(false);
+    expect(packEndpointHostAllowed('123456789012.us-central1.run.app', project)).toBe(false);
+    expect(packEndpointHostAllowed('a.kp-x-123456789012.us-central1.run.app', project)).toBe(false);
+  });
+
+  test('an exact host matches only itself', () => {
+    expect(packEndpointHostAllowed('pack.internal', allowed)).toBe(true);
+    expect(packEndpointHostAllowed('x.pack.internal', allowed)).toBe(false);
+  });
+
+  test.each([
+    ['https://x.run.app'],
+    ['x.run.app:443'],
+    ['x.run.app/path'],
+    ['*'],
+    ['*.app'],
+    ['localhost'],
+    ['Upper.Example.com'],
+    ['*-.us-central1.run.app'],
+    ['*-123'],
+    ['*-12_3.run.app'],
+  ])('refuses %j at startup', (raw) => {
+    expect(() => parsePackEndpointHosts(raw)).toThrow(
+      'KINDGI_PACK_ENDPOINT_HOSTS takes host names',
+    );
   });
 });

@@ -18,11 +18,88 @@ export {
 } from './middleware/auth.js';
 export type { SessionCookieOptions, TokenResolution, TokenResolver } from './middleware/auth.js';
 export type { SignInOptionsRateLimit } from './routes/sign-in-options.js';
-export type { LicenseStatus, LicenseStatusBinding } from './routes/license.js';
+export type { LicensePreview, LicenseStatus, LicenseStatusBinding } from './routes/license.js';
 export { WRITE_AUDIT_KINDS } from './routes/write-audit.js';
+export type { ProductionGateOptions } from './routes/project-production.js';
+export { USAGE_CLASSES, USAGE_KINDS, type UsageClass, type UsageKind } from './usage.js';
 export type { WriteAuditKind } from './routes/write-audit.js';
+export {
+  FULL_SYSTEM_CAPABILITY,
+  SYSTEM_PRINCIPAL_ALLOWED_ROUTES,
+  SYSTEM_SCOPES,
+  SYSTEM_TENANT_ID,
+  holdsSystemScope,
+  isSystemCapability,
+  isSystemScope,
+} from './system.js';
+export type { SystemPrincipal, SystemScope } from './system.js';
+export {
+  requireFullSystem,
+  requireSystemScope,
+  systemPrincipalFence,
+  systemReadAcrossTenants,
+  withSystemTenantContext,
+} from './middleware/system.js';
+export type {
+  SystemAccessAttempt,
+  SystemAccessAuditBinding,
+  SystemAccessOutcome,
+  SystemAccessRecord,
+  SystemTenantDirectory,
+  SystemTenantOptions,
+  SystemTenantState,
+} from './middleware/system.js';
+export type {
+  SystemKeyMintInput,
+  SystemKeyRecord,
+  SystemKeysBinding,
+} from './routes/system-keys.js';
+export {
+  TENANT_LIMIT_MAX,
+  TENANT_LIMIT_NAMES,
+  type SystemTenantSettingsBinding,
+  type TenantLimitsInUse,
+} from './routes/system-tenant-settings.js';
+export { systemKeysMintedFrom } from './routes/system-keys.js';
+export {
+  PACK_ENDPOINT_AUTHS,
+  SYSTEM_DEPLOYMENT_RETIRE_REASONS,
+} from './routes/system-deployments.js';
+export type {
+  DeploymentRef,
+  PackEndpointAuth,
+  SetPackEndpointInput,
+  SetPackEndpointOutcome,
+  SystemDeploymentEntry,
+  SystemDeploymentPage,
+  SystemDeploymentRetireReason,
+  SystemDeploymentsBinding,
+  SystemDeploymentsOptions,
+  SystemDeploymentToRetire,
+} from './routes/system-deployments.js';
+export { tenantStateGate } from './middleware/tenant-state.js';
+export type { TenantStateBinding } from './middleware/tenant-state.js';
+export { systemTenantsRouter, systemWhoamiRouter } from './routes/system-tenants.js';
+export type {
+  SystemTenant,
+  SystemTenantCreateInput,
+  SystemTenantCreateOutcome,
+  SystemTenantsBinding,
+} from './routes/system-tenants.js';
 export { createInMemoryRateLimitStore } from './rate-limit-store.js';
+export type {
+  TenantLimiter,
+  TenantLimitsOptions,
+  TenantRateLimitName,
+} from './middleware/tenant-limits.js';
 export type { RateLimitStore, RateLimitTake, RateLimitTakeInput } from './rate-limit-store.js';
+export {
+  imagePrefixesOverlap,
+  imageRefWithin,
+  parseImagePrefix,
+  parseImageRef,
+} from './image-ref.js';
+export type { ImagePrefix, ImageRef, ImageRefError } from './image-ref.js';
 export type {
   ClaimMappingScopesSpec,
   ClaimMappingSpec,
@@ -371,12 +448,17 @@ export type {
   ProviderUnregisterOutcome,
 } from './provider-binding.js';
 export {
+  isCredentialHeaderName,
+  MCP_AUTH_HEADERS_MAX,
   MCP_AUTH_SCHEMES,
   MCP_OAUTH_CLIENT_AUTH,
   MCP_TRANSPORTS,
+  mcpAuthSecretRefs,
   mcpEndpointSecretNames,
+  REDACTED_HEADER_VALUE,
 } from './mcp-endpoint-binding.js';
 export type {
+  MCPAuthHeader,
   MCPAuthScheme,
   MCPBasicAuth,
   MCPClientProbeBinding,
@@ -391,6 +473,7 @@ export type {
   MCPEndpointRegisterOutcome,
   MCPEndpointRegistryBinding,
   MCPEndpointUnregisterInput,
+  MCPHeaderAuth,
   MCPEndpointUnregisterOutcome,
   MCPGetPromptOutcome,
   MCPHttpSseConfig,
@@ -797,6 +880,12 @@ export type {
   ProposalAction,
   ProposalEvaluationOutcome,
 } from './proposal-status.js';
+export {
+  PACK_SERVICE_NAME_PREFIX,
+  hostNamesPackService,
+  packServiceName,
+} from './pack-service-name.js';
+export { DEPLOYMENT_ENDPOINT_PROBLEM_CODES } from './deployment-binding.js';
 export type {
   Deployment,
   DeploymentBinding,
@@ -809,6 +898,10 @@ export type {
   DeployedPrimitive,
   DeployedVersion,
   DeploymentContents,
+  DeploymentEndpoint,
+  DeploymentEndpointProblem,
+  DeploymentEndpointProblemCode,
+  DeploymentEndpointStatus,
   DeploymentPrimitiveCounts,
   DeploymentRegisterInput,
   DeploymentRegisterOutcome,
@@ -877,6 +970,7 @@ export type {
   SecretVersionRecord,
 } from './secrets-binding.js';
 export { RESERVED_SECRET_NAME_PREFIX } from './secrets-binding.js';
+export { resolveAtScope, scopeOfRecorded } from './secret-scope.js';
 // A model provider's key is used by its provider only.
 export {
   guardProviderKeys,
@@ -929,6 +1023,13 @@ export type {
   SecretProviderScope,
 } from './secrets-provider-binding.js';
 export { statusFor, toWireError, ERROR_CODE_TO_STATUS } from './errors.js';
+export { agentReferences, flowReferences, referencesOutOfScope } from './reference-scope.js';
+export type {
+  ItemReference,
+  ReferenceKind,
+  ReferenceOutOfScopeError,
+  ReferenceScopeBinding,
+} from './reference-scope.js';
 export type { WireError, WireErrorBody } from './errors.js';
 export { generateOpenApiDocument } from './openapi/generate.js';
 export type { GenerateOptions, OpenApiInfo, OpenApiServer } from './openapi/generate.js';

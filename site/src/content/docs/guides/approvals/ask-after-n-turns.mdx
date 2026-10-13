@@ -45,6 +45,22 @@ Give the agent's conversation policy a limit:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acmeops/agents/EchoAgent.java
+      .set("conversationPolicy", Map.of("historyLimit", 10, "hitl", Map.of("afterTurns", 2)))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acmeops/agents/EchoAgent.scala
+    .set("conversationPolicy", Map("historyLimit" -> 10, "hitl" -> Map("afterTurns" -> 2)))
+```
+
+</TabItem>
 </Tabs>
 
 `afterTurns: 2` lets two turns run as usual. From the third on, each turn of
