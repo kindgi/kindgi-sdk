@@ -21,8 +21,9 @@ decision, code and console page.
 - **A run that waits for an approval.**
   [Ask before a tool runs](../ask-before-a-tool-runs/) makes one.
 - **`kindgi dev` running** in your pack's directory, with Kindgi 0.1's CLI.
-- **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
-  Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or Java
+  17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
 
 ## Reviewers and roles
 
@@ -356,6 +357,90 @@ It prints each pending approval, then the decision's outcome:
 ```text
 0afd1543-fe4e-45ca-af34-2effc1095bab HITL review: acme-ops.post-update {'callId': 'dev-echo-call-1', 'toolId': 'acme-ops.post-update', 'agentId': 'acme-ops.status-agent', …, 'arguments': {'message': 'Search is back.'}, …}
 approved True
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/Review.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.Approval;
+import com.kindgi.client.models.ApprovalCollectionPage;
+import com.kindgi.client.models.ApprovalStatus;
+import com.kindgi.client.models.CompleteApprovalBody;
+import com.kindgi.client.models.CompleteApprovalResult;
+import com.kindgi.client.resources.ApprovalsListParams;
+import java.util.List;
+
+public final class Review {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    ApprovalCollectionPage pending = kindgi.approvals().list(
+        ApprovalsListParams.builder().status(List.of(ApprovalStatus.PENDING)).build());
+    for (Approval approval : pending.data()) {
+      System.out.println(approval.id() + " " + approval.title() + " " + approval.subjectRef());
+    }
+
+    if (!pending.data().isEmpty()) {
+      CompleteApprovalResult result = kindgi.approvals().complete(pending.data().get(0).id(),
+          CompleteApprovalBody.builder()
+              .decision(CompleteApprovalBody.Decision.APPROVE)
+              .rationale("Checked the dashboard")
+              .build());
+      System.out.println(result.approval().status() + " " + result.waitpointResolved());
+    }
+  }
+}
+```
+
+It prints each pending approval, then the decision's outcome:
+
+```text
+6faa8787-ff70-476e-b68b-74044b3711cc HITL review: acme-ops.post-update {callId=dev-echo-call-1, toolId=acme-ops.post-update, agentId=acme-ops.status-agent, …, arguments={message=Checkout is slow for some customers.}, …}
+approved true
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/Review.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{ApprovalStatus, CompleteApprovalBody}
+import com.kindgi.client.resources.ApprovalsListParams
+import scala.jdk.CollectionConverters._
+
+object Review {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    val pending = kindgi.approvals().list(
+      ApprovalsListParams.builder().status(List(ApprovalStatus.PENDING).asJava).build()).data.asScala
+    for (approval <- pending) println(s"${approval.id} ${approval.title} ${approval.subjectRef}")
+
+    for (first <- pending.headOption) {
+      val result = kindgi.approvals().complete(first.id,
+        CompleteApprovalBody.builder()
+          .decision(CompleteApprovalBody.Decision.APPROVE)
+          .rationale("Checked the dashboard")
+          .build())
+      println(s"${result.approval.status} ${result.waitpointResolved}")
+    }
+  }
+}
+```
+
+It prints each pending approval, then the decision's outcome:
+
+```text
+d7ae0dec-8c01-41f9-bc18-df650233847c HITL review: acme-ops.post-update {callId=dev-echo-call-1, toolId=acme-ops.post-update, agentId=acme-ops.status-agent, …, arguments={message=Search is back.}, …}
+approved true
 ```
 
 </TabItem>
