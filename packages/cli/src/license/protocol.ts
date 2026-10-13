@@ -143,7 +143,7 @@ export interface RenewalUsage {
  * when it isn't, as access.kindgi.com reads them: counts are whole numbers
  * from 0 to a billion, the period two instants in UTC from 2026 (its start
  * no later than its end), the version a short token. Nothing else is signed
- * and sent, so counts this sends are counts the service keeps, and an
+ * and sent, so counts this sends are counts the service accepts, and an
  * answer that isn't counts is never quoted.
  */
 export function readRenewalUsage(answer: unknown): RenewalUsage | undefined {
@@ -179,7 +179,7 @@ export function readRenewalUsage(answer: unknown): RenewalUsage | undefined {
 /** A runtime's version as it reports it: `0.1.8`, `0.1.8-rc.1`, `dev`. */
 const RUNTIME_VERSION = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$/;
 
-/** More than any deployment gets near in a key's period: the service files a larger count as no counts. */
+/** More than any deployment gets near in a key's period: the service refuses a larger count as malformed. */
 const MAX_COUNT = 1_000_000_000;
 
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;

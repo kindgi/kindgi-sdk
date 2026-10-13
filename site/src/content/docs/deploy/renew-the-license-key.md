@@ -162,7 +162,7 @@ With `--runtime`, a line says what the renewal carried:
 - `counts: not sent (<why>); this renewal goes without them.` when there
   are none to send: a production key's renewal, a token that can't be read
   or sent, or a runtime that couldn't say (no answer, a 404 from a runtime
-  that doesn't report its use, a refusal, or an answer that isn't counts as
+  that doesn't report its use, a refusal, or an answer that isn't counts, as
   access.kindgi.com reads them). The key still renews.
 
 On a refusal, the line goes to stderr, before `refused (…)`.
