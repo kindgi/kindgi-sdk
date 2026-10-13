@@ -295,7 +295,8 @@ public final class RefundCheck {
 }
 ```
 
-`ctx.settings()` maps each settings block the calling agent version pins, by id, to its values.
+`ctx.settings()` maps each settings block the calling agent version pins, by
+id, to its values.
 
 </TabItem>
 <TabItem label="Scala">
@@ -326,7 +327,8 @@ object RefundCheck {
 }
 ```
 
-`ctx.settings` maps each settings block the calling agent version pins, by id, to its values (a Java map).
+`ctx.settings` maps each settings block the calling agent version pins, by
+id, to its values (a Java map).
 
 </TabItem>
 </Tabs>
@@ -494,7 +496,7 @@ public final class PublishBlock {
 }
 ```
 
-With 1.0.0 published first, it prints both versions, newest first, as the TS tab does; this kit printed `[1.1.0]`, having no 1.0.0.
+It prints the list as `[1.1.0, 1.0.0]`.
 
 </TabItem>
 <TabItem label="Scala">
@@ -519,13 +521,17 @@ object PublishBlock {
       .id("acme.reply-style")
       .version("1.1.0")
       .kind(BlockKind.SETTINGS)
-      .content(SettingsBlockContent.builder().values(Map[String, AnyRef]("maxSentences" -> Int.box(3), "refundLimit" -> Int.box(100)).asJava).build())
+      .content(SettingsBlockContent.builder()
+        .values(Map[String, AnyRef]("maxSentences" -> Int.box(3), "refundLimit" -> Int.box(100)).asJava)
+        .build())
       .build())
 
     println(kindgi.blocks().versions().list("acme.reply-style").data.asScala.map(_.version).mkString("[", ", ", "]"))
   }
 }
 ```
+
+It prints the list as `[1.1.0, 1.0.0]`.
 
 </TabItem>
 </Tabs>
