@@ -14,8 +14,9 @@ started, the runs inside one run, or one agent's turns.
 
 - **Runs to list,** on a runtime such as `kindgi dev`, with Kindgi 0.1's
   CLI.
-- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or Java
-  17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
+  Java 17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
 
 ## From the CLI
 
@@ -130,7 +131,7 @@ import com.kindgi.client.resources.RunsListParams;
 
 public final class ListRuns {
   public static void main(String[] args) {
-    Kindgi kindgi = Kindgi.create();
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
 
     // The newest runs your app started, without the agent turns inside them
     RunsListParams params = RunsListParams.builder().topLevel(true).limit(3L).build();
@@ -149,13 +150,14 @@ public final class ListRuns {
 ```
 
 ```text
-b627328a-d5ac-4230-b305-4bac6b307213 acme.reserve-order cancelled
-1e6dcd0a-7a2c-4240-a55c-517415f38d2a agent.turn completed
-a9dc9e8c-733c-4b4f-a520-3dfb760979ce agent.turn completed
+b6a0ff1e-a891-49c4-857a-aca3ba8dd75e acme.reserve-order cancelled
+51a59895-3fad-4e49-8fef-f2e2be8881a9 acme.review-order completed
+e3cf4013-a78d-48f8-b7f1-e729000fc994 acme.review-order completed
 3 true
 ```
 
-The params are a record with a builder; `toBuilder()` makes the next page's from them.
+The params are a record with a builder; `toBuilder()` makes the next
+page's from them.
 
 </TabItem>
 <TabItem label="Scala">
@@ -170,7 +172,7 @@ import scala.jdk.CollectionConverters._
 
 object ListRuns {
   def main(args: Array[String]): Unit = {
-    val kindgi = Kindgi.create()
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
 
     // The newest runs your app started, without the agent turns inside them
     val params = RunsListParams.builder().topLevel(true).limit(3L).build()
@@ -187,11 +189,14 @@ object ListRuns {
 ```
 
 ```text
-3e8b649e-14f9-4791-b54e-8a7af90f956c acme.process-order completed
-b627328a-d5ac-4230-b305-4bac6b307213 acme.reserve-order cancelled
-1e6dcd0a-7a2c-4240-a55c-517415f38d2a agent.turn completed
+b6a0ff1e-a891-49c4-857a-aca3ba8dd75e acme.reserve-order cancelled
+51a59895-3fad-4e49-8fef-f2e2be8881a9 acme.review-order completed
+e3cf4013-a78d-48f8-b7f1-e729000fc994 acme.review-order completed
 3 true
 ```
+
+The params are a Java record with a builder; `toBuilder` makes the next
+page's from them.
 
 </TabItem>
 </Tabs>
@@ -285,7 +290,7 @@ import java.util.List;
 
 public final class ListEnded {
   public static void main(String[] args) {
-    Kindgi kindgi = Kindgi.create();
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
 
     RunCollectionPage ended = kindgi.runs().list(RunsListParams.builder()
         .status(List.of(RunStatus.FAILED, RunStatus.CANCELLED))
@@ -322,7 +327,7 @@ import scala.jdk.CollectionConverters._
 
 object ListEnded {
   def main(args: Array[String]): Unit = {
-    val kindgi = Kindgi.create()
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
 
     val ended = kindgi.runs().list(RunsListParams.builder()
       .status(List(RunStatus.FAILED, RunStatus.CANCELLED).asJava)
@@ -404,7 +409,7 @@ import java.util.Map;
 
 public final class ListChildren {
   public static void main(String[] args) {
-    Kindgi kindgi = Kindgi.create();
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
 
     Run run = kindgi.runs().start(StartRunBody.WithFlow.builder()
         .flow("acme.process-order")
@@ -436,7 +441,7 @@ import scala.jdk.CollectionConverters._
 
 object ListChildren {
   def main(args: Array[String]): Unit = {
-    val kindgi = Kindgi.create()
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
 
     val run = kindgi.runs().start(StartRunBody.WithFlow.builder()
       .flow("acme.process-order")
@@ -533,7 +538,7 @@ import java.util.Objects;
 
 public final class ListTurns {
   public static void main(String[] args) {
-    Kindgi kindgi = Kindgi.create();
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
 
     RunCollectionPage turns = kindgi.runs().list(RunsListParams.builder().agentId("acme.desk-agent").build());
     for (RunCollectionPage.DataItem run : turns.data()) {
@@ -562,7 +567,7 @@ import scala.jdk.CollectionConverters._
 
 object ListTurns {
   def main(args: Array[String]): Unit = {
-    val kindgi = Kindgi.create()
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
 
     val turns = kindgi.runs().list(RunsListParams.builder().agentId("acme.desk-agent").build())
     for (run <- turns.data.asScala) {

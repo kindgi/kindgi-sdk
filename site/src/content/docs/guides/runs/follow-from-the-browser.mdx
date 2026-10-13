@@ -128,7 +128,7 @@ import java.util.Map;
 import java.util.UUID;
 
 public final class RunTokens {
-  private static final Kindgi kindgi = Kindgi.create();
+  private static final Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
 
   public record Started(UUID runId, String token) {}
 
@@ -153,8 +153,6 @@ public final class RunTokens {
 }
 ```
 
-Checked under `kindgi dev`: the start answers a token, and `mintPublic` a fresh one.
-
 </TabItem>
 <TabItem label="Scala">
 
@@ -168,7 +166,7 @@ import java.util.UUID
 import scala.jdk.CollectionConverters._
 
 object RunTokens {
-  private val kindgi = Kindgi.create()
+  private val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
 
   final case class Started(runId: UUID, token: String)
 

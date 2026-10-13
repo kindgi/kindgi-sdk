@@ -89,8 +89,6 @@ public final class RunCost {
 }
 ```
 
-Checked on a turn `dev-echo` answered under `kindgi dev`: `2 dev-echo-v1 ok 30 12 0.0`, `1 dev-echo-v1 ok 20 6 0.0`. The page shows the output after the tabs.
-
 </TabItem>
 <TabItem label="Scala">
 
@@ -353,6 +351,8 @@ public final class CustomerCost {
 ```
 
 `groupBy` takes the dimensions comma-separated, as the API does.
+`KindgiJson.write` prints the answer as JSON on one line; the answer below
+is indented to read.
 
 </TabItem>
 <TabItem label="Scala">
@@ -397,6 +397,10 @@ object CustomerCost {
   }
 }
 ```
+
+`groupBy` takes the dimensions comma-separated, as the API does.
+`KindgiJson.write` prints the answer as JSON on one line; the answer below
+is indented to read.
 
 </TabItem>
 </Tabs>
