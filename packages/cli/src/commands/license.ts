@@ -139,10 +139,15 @@ function runtimeBase(raw: string): string {
   return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
 }
 
-/** Why the runtime gave no counts, in a line: no answer, an answer without the route, or its refusal. */
+/** Why the runtime gave no counts, in a line: no answer, an answer without the route or not JSON, or its refusal. */
 function usageProblem(runtime: string, cause: unknown): string {
   if (cause instanceof KindgiApiError) {
     const error = cause.error;
+    // A 200 whose body isn't JSON (the client's `network` error, its cause
+    // the parser's): an auth proxy's sign-in page, say. Never quoted.
+    if (error.code === 'network' && error.cause instanceof SyntaxError) {
+      return `${runtime} answered, but not with counts: a page from a proxy or another server, perhaps`;
+    }
     if (error.code === 'network') {
       const why = error.timeoutMs !== undefined ? 'no answer in time' : networkReason(error.cause);
       return `${runtime} couldn't be asked (${why})`;

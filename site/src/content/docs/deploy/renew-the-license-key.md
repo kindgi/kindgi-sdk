@@ -159,9 +159,11 @@ With `--runtime`, a line says what the renewal carried:
 - `counts: sent (<runs> runs, <people> people, <n> in production since <date>, runtime <version>)`.
   The `, <n> in production` part comes only from a runtime that can put
   projects in production.
-- `counts: not sent (<why>); this renewal goes without them.` when the
-  runtime couldn't say: no answer, a 404 from a runtime that doesn't report
-  its use, a refusal, or an answer that isn't counts. The key still renews.
+- `counts: not sent (<why>); this renewal goes without them.` when there
+  are none to send: a production key's renewal, a token that can't be read
+  or sent, or a runtime that couldn't say (no answer, a 404 from a runtime
+  that doesn't report its use, a refusal, or an answer that isn't counts as
+  access.kindgi.com reads them). The key still renews.
 
 On a refusal, the line goes to stderr, before `refused (…)`.
 
@@ -230,8 +232,8 @@ token, or a system key holding `system:license`, can read):
   [put projects in production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production);
 - **the runtime's version,** and the period they cover.
 
-They're counts only: no content, names or ids. Until the date on
-access.kindgi.com's [privacy page](https://kindgi.com/privacy), the service
+They're counts only: no content, names or ids. Until the date on Kindgi's
+[privacy page](https://www.kindgi.com/privacy), access.kindgi.com
 keeps only whether a renewal carried counts. From that date, it keeps them
 with the renewal's record, kept 400 days, and the latest ones with the
 deployment's renewer, kept until the account is deleted. Kindgi reads them to

@@ -140,9 +140,11 @@ export interface RenewalUsage {
 
 /**
  * A runtime's answer as counts, its fields named one by one, or `undefined`
- * when it isn't: counts are whole numbers from 0, the period two times, the
- * version a short token. Nothing else is signed and sent, and an answer
- * that isn't counts is never quoted.
+ * when it isn't, as access.kindgi.com reads them: counts are whole numbers
+ * from 0 to a billion, the period two instants in UTC from 2026 (its start
+ * no later than its end), the version a short token. Nothing else is signed
+ * and sent, so counts this sends are counts the service keeps, and an
+ * answer that isn't counts is never quoted.
  */
 export function readRenewalUsage(answer: unknown): RenewalUsage | undefined {
   if (typeof answer !== 'object' || answer === null) return undefined;
@@ -151,12 +153,11 @@ export function readRenewalUsage(answer: unknown): RenewalUsage | undefined {
     unknown
   >;
   const count = (value: unknown): value is number =>
-    Number.isSafeInteger(value) && (value as number) >= 0;
-  const time = (value: unknown): value is string =>
-    typeof value === 'string' && value.length <= 40 && Number.isFinite(Date.parse(value));
+    Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= MAX_COUNT;
   if (
-    !time(since) ||
-    !time(until) ||
+    !isInstant(since) ||
+    !isInstant(until) ||
+    Date.parse(since) > Date.parse(until) ||
     typeof runtimeVersion !== 'string' ||
     !RUNTIME_VERSION.test(runtimeVersion) ||
     !count(runs) ||
@@ -176,7 +177,30 @@ export function readRenewalUsage(answer: unknown): RenewalUsage | undefined {
 }
 
 /** A runtime's version as it reports it: `0.1.8`, `0.1.8-rc.1`, `dev`. */
-const RUNTIME_VERSION = /^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$/;
+const RUNTIME_VERSION = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$/;
+
+/** More than any deployment gets near in a key's period: the service files a larger count as no counts. */
+const MAX_COUNT = 1_000_000_000;
+
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
+
+/** No key was issued before this, so no period starts earlier. */
+const EARLIEST = Date.parse('2026-01-01T00:00:00Z');
+
+/**
+ * An instant in UTC that exists, as the runtime answers it (`toISOString()`).
+ * `Date.parse` alone takes `canary 2026` and rolls 30 February into March,
+ * so the form is checked and the time read back.
+ */
+function isInstant(value: unknown): value is string {
+  if (typeof value !== 'string' || !ISO_INSTANT.test(value)) return false;
+  const ms = Date.parse(value);
+  return (
+    Number.isFinite(ms) &&
+    ms >= EARLIEST &&
+    new Date(ms).toISOString().slice(0, 19) === value.slice(0, 19)
+  );
+}
 
 /** A renewal request, signed: its body and the signature header's value. */
 export function signRenewRequest(

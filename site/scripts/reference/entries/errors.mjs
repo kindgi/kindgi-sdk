@@ -2218,7 +2218,7 @@ export const ERROR_ENTRIES = {
   },
   'license-operator-only': {
     description:
-      "`GET /v1/license` is for the deployment's own token, or for an admin of the tenant when the deployment serves a single tenant. `GET /v1/license/usage` is for the deployment's own token, or a system key holding `system:license`, only. Other callers are refused, and the refusal recorded.",
+      "`GET /v1/license` and `GET /v1/license/usage` are for the deployment's own token, or a system key holding `system:license`. Where the deployment serves a single tenant, that tenant's admins also read the license's countdown, never its use. Other callers are refused, and the refusal recorded.",
     details: [],
   },
   'invalid-provider-config': {

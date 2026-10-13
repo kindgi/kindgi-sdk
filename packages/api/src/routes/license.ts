@@ -118,7 +118,7 @@ export interface LicenseStatusBinding {
 
 /** The refusal of a caller who may not read the license. */
 export const LICENSE_OPERATOR_ONLY_MESSAGE =
-  "The license is this deployment's: read it with the deployment's own token (KINDGI_API_TOKEN). A tenant admin reads its standing only where the deployment serves that one tenant.";
+  "The license is this deployment's: read it with the deployment's own token (KINDGI_API_TOKEN), or a system key holding system:license. A tenant admin reads its standing only where the deployment serves that one tenant.";
 
 /** The refusal of a caller who may not read the deployment's use: every caller but its own token or a `system:license` key. */
 export const LICENSE_USAGE_OPERATOR_ONLY_MESSAGE =

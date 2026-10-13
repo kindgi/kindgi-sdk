@@ -4544,7 +4544,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The license status.', schema: ref('LicenseStatus') },
       ...CommonAuthErrors,
       '403': ErrorResponse(
-        "Not the deployment's own token, nor an admin of the one tenant it serves (`license-operator-only`).",
+        "Not the deployment's own token, a system key holding `system:license`, or an admin of the one tenant it serves (`license-operator-only`).",
       ),
     },
   },
@@ -4565,7 +4565,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "`since` is missing, not a time with a zone, or more than five minutes ahead of the runtime's clock (`bad-input`).",
       ),
       ...CommonAuthErrors,
-      '403': ErrorResponse("Not the deployment's own token (`license-operator-only`)."),
+      '403': ErrorResponse(
+        "Not the deployment's own token or a system key holding `system:license` (`license-operator-only`).",
+      ),
     },
   },
   {

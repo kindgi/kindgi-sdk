@@ -475,6 +475,18 @@ describe('kindgi license renew', () => {
       { ...USAGE, runs: 1.5 },
       { ...USAGE, projectsInProduction: '2' },
       { ...USAGE, since: 'canary-time' },
+      // Times Date.parse takes, as access.kindgi.com doesn't: a name, an
+      // offset (even a zero one), more than nine digits of a second, a day
+      // that doesn't exist, a time before any key.
+      { ...USAGE, since: 'canary 2026' },
+      { ...USAGE, until: 'canary@acme.example 2026' },
+      { ...USAGE, since: '2026-10-05T14:00:00+02:00' },
+      { ...USAGE, since: '2026-10-05T12:00:00+00:00' },
+      { ...USAGE, until: '2026-10-25T12:00:00.0000000000Z' },
+      { ...USAGE, since: '2026-02-30T00:00:00Z' },
+      { ...USAGE, since: '2025-12-31T23:59:59Z' },
+      { ...USAGE, since: USAGE.until, until: USAGE.since },
+      { ...USAGE, runs: 1_000_000_001 },
       { ...USAGE, runtimeVersion: 'canary version with spaces' },
       { ...USAGE, runtimeVersion: `0.${'1'.repeat(80)}` },
     ]) {
@@ -500,6 +512,28 @@ describe('kindgi license renew', () => {
       );
       expect(`${out.stdout}${out.stderr}`, what).not.toMatch(/canary|1111/);
     }
+  });
+
+  test('counts at the edges access.kindgi.com keeps are sent: a version with `_`, a billion runs', async () => {
+    const { dir, renewer } = await enrolled();
+    writeFileSync(join(dir, 'runtime.token'), 'kgi_bt_test\n');
+    const bodies: Record<string, unknown>[] = [];
+    const fetchImpl = service(renewer, () => Response.json({ licenseKey: NEXT_KEY }));
+    const recording = (async (url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    const edge = { ...USAGE, runtimeVersion: '0.1.8+build_7', runs: 1_000_000_000 };
+    const out = await cli(dir, RENEW_WITH_RUNTIME, {
+      ...deps,
+      fetchImpl: recording,
+      clientFactory: runtime(async () => edge).clientFactory,
+    });
+    expect(out.exitCode).toBe(0);
+    expect(bodies[0]?.usage).toEqual(edge);
+    expect(out.stdout).toContain(
+      'counts: sent (1000000000 runs, 4 people since 2026-10-05, runtime 0.1.8+build_7)',
+    );
   });
 
   test("a production key's renewal: the runtime isn't asked", async () => {
@@ -538,6 +572,52 @@ describe('kindgi license renew', () => {
     expect(out.exitCode).toBe(0);
     expect(out.stdout).toContain(
       "counts: not sent (https://runtime.acme.example couldn't be asked (connect ECONNREFUSED 10.0.0.5:443)); this renewal goes without them.",
+    );
+  });
+
+  test("a 200 that isn't JSON, through the client: an answer, not counts, its body never quoted", async () => {
+    const { dir, renewer } = await enrolled();
+    writeFileSync(join(dir, 'runtime.token'), 'kgi_bt_test\n');
+    // An auth proxy's sign-in page, answered with 200.
+    const signIn = (async () =>
+      new Response('<!DOCTYPE html><title>canary sign-in</title>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      })) as unknown as typeof fetch;
+    const out = await cli(dir, RENEW_WITH_RUNTIME, {
+      ...deps,
+      fetchImpl: service(renewer, () => Response.json({ licenseKey: licenseKey() })),
+      clientFactory: (url: string, token: string) =>
+        createClient({ apiUrl: url, auth: { kind: 'apiToken', token }, fetch: signIn }),
+    });
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).toContain(
+      'counts: not sent (https://runtime.acme.example answered, but not with counts: a page from a proxy or another server, perhaps); this renewal goes without them.',
+    );
+    expect(`${out.stdout}${out.stderr}`).not.toMatch(/canary|DOCTYPE|JSON/);
+  });
+
+  test('a runtime with no answer in time, through the client: said so', async () => {
+    const { dir, renewer } = await enrolled();
+    writeFileSync(join(dir, 'runtime.token'), 'kgi_bt_test\n');
+    const silent = ((_url: string, init: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+      })) as unknown as typeof fetch;
+    const out = await cli(dir, RENEW_WITH_RUNTIME, {
+      ...deps,
+      fetchImpl: service(renewer, () => Response.json({ licenseKey: licenseKey() })),
+      clientFactory: (url: string, token: string) =>
+        createClient({
+          apiUrl: url,
+          auth: { kind: 'apiToken', token },
+          fetch: silent,
+          timeoutMs: 20,
+        }),
+    });
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).toContain(
+      "counts: not sent (https://runtime.acme.example couldn't be asked (no answer in time)); this renewal goes without them.",
     );
   });
 
