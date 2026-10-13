@@ -11889,8 +11889,9 @@ export const WebhookReceiptSchema: JsonSchema = {
     },
     skipped: {
       type: 'string',
-      enum: ['paused'],
-      description: 'The trigger is paused: no run started, and the event was dropped.',
+      enum: ['paused', 'tenant-suspended', 'project-suspended'],
+      description:
+        "No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's tenant or project is suspended, and nothing was recorded.",
     },
     received: {
       type: 'string',
