@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { Context } from 'hono';
 import { Hono } from 'hono';
 
 import { ref } from '@kindgi/authz';
 import type { TenantId } from '@kindgi/types';
 
 import type { Authorizer } from '../middleware/authorize.js';
+import { holdsSystemScope } from '../system.js';
 import type { AppEnv } from '../types.js';
 import { hasCapability, refused } from './denied.js';
 
@@ -97,10 +99,25 @@ export function tenantAdminLicenseView(status: LicenseStatus): LicenseStatus {
 }
 
 /**
+ * Whether the caller reads the license as the operator does: the
+ * deployment's own token (`kindgi:system`), or a system key holding
+ * `system:license` (the renewal job's). A tenant's key never gets that
+ * scope.
+ */
+function readsAsOperator(c: Context<AppEnv>): boolean {
+  if (hasCapability(c, 'kindgi:system')) return true;
+  if (c.get('systemPrincipal') === undefined) return false;
+  if (!holdsSystemScope(c.get('capabilities'), 'system:license')) return false;
+  c.set('systemScopeUsed', 'system:license');
+  return true;
+}
+
+/**
  * `GET /v1/license`: where the deployment's license key stands. The
  * license is the deployment's, not a tenant's:
- * - the deployment's own token (`kindgi:system`) reads all of it, `renew`
- *   with the secret references included;
+ * - the deployment's own token (`kindgi:system`), or a system key holding
+ *   `system:license`, reads all of it, `renew` with the secret references
+ *   included;
  * - on a deployment serving exactly one tenant, that tenant's admins read
  *   the countdown (`tenantAdminLicenseView`), for the console's warning;
  * - anyone else, and every tenant of a deployment serving several, is
@@ -115,7 +132,7 @@ export function licenseRouter(
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   r.get('/', async (c) => {
-    if (hasCapability(c, 'kindgi:system')) {
+    if (readsAsOperator(c)) {
       return c.json(operatorLicenseView(await binding.status()));
     }
     const tenantId = c.get('tenantId') as unknown as string;

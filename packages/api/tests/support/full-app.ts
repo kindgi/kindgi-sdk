@@ -650,5 +650,12 @@ export function fullAppInput(): CreateAppInput {
     webhookReceiver: { envName: 'test' as EnvName },
     publicUrl: 'https://kindgi.acme.example',
     license: { status: () => ({ mode: 'development' }) },
+    systemKeys: {
+      mint: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
+      list: async () => [],
+      revoke: async () => null,
+    },
   };
 }

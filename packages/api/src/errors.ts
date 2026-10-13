@@ -243,6 +243,23 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'key-project-mismatch': 403,
   /** Mint: a key that would outlive the key minting it (a later or absent `expiresAt`). */
   'token-expiry-exceeds-minter': 403,
+  /** Mint: a capability a tenant's key can't carry (`system:*`; `kindgi:system` on a runtime serving many tenants). */
+  'capability-not-mintable': 403,
+  /** A system key (it acts in no tenant) on a route outside `/v1/system/*`. */
+  'system-key-on-tenant-route': 403,
+  /** A system route called with a tenant's key or session. */
+  'system-principal-required': 403,
+  /** A system key without the scope the system route takes (`details.scope`). */
+  'system-scope-missing': 403,
+  /** No system key with that id. */
+  'system-key-not-found': 404,
+  /** A full system key minted by another system key, with no `expiresAt`: only the deployment's own token mints one that never expires. */
+  'system-key-expiry-required': 403,
+  /** The operator's access record can't be written, so a system request that would change something was not acted on. */
+  'access-record-unavailable': 503,
+  /** A system route naming a tenant in a state it refuses. */
+  'tenant-closing': 409,
+  'tenant-suspended': 409,
   'service-account-not-found': 404,
   /** An active service account of the tenant already has the name. */
   'service-account-name-taken': 409,

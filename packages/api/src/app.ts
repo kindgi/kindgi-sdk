@@ -80,6 +80,7 @@ import { requestIdMiddleware } from './middleware/request-id.js';
 import { requestLogMiddleware } from './middleware/request-log.js';
 import { sealedCursors } from './middleware/sealed-cursors.js';
 import { sigv4Middleware } from './middleware/sigv4.js';
+import { type SystemAccessAuditBinding, systemPrincipalFence } from './middleware/system.js';
 import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
@@ -151,6 +152,7 @@ import { secretsRouter } from './routes/secrets.js';
 import { serviceAccountsRouter } from './routes/service-accounts.js';
 import { type SignInOptionsRateLimit, signInOptionsRouter } from './routes/sign-in-options.js';
 import { signingKeysRouter } from './routes/signing-keys.js';
+import { type SystemKeysBinding, systemKeysRouter } from './routes/system-keys.js';
 import { projectTeamGrantsRouter, teamProjectGrantsRouter } from './routes/team-grants.js';
 import { teamsRouter } from './routes/teams.js';
 import { tenantRouter } from './routes/tenant.js';
@@ -520,6 +522,24 @@ export interface CreateAppInput {
    * route isn't mounted (404), as on a deployment that doesn't report it.
    */
   readonly license?: LicenseStatusBinding;
+  /**
+   * Optional. How many tenants the runtime serves (default `single`). With
+   * `multi`, a tenant's key is never minted holding `kindgi:system`: the
+   * operator acts through system keys, which act in no tenant.
+   */
+  readonly tenancy?: 'single' | 'multi';
+  /**
+   * Optional. The operator's system keys (`kgi_sy_…`), outside every
+   * tenant: `/v1/system/keys`, for the full system capability only.
+   * Without it the routes aren't mounted (404).
+   */
+  readonly systemKeys?: SystemKeysBinding;
+  /**
+   * The record of every request a system principal makes (its key,
+   * scope, route and target tenant). Required with `tenancy: 'multi'`;
+   * optional otherwise, where there is no system principal.
+   */
+  readonly systemAccessAudit?: SystemAccessAuditBinding;
   /**
    * Optional. Issue and accept public run tokens (`kgi_pt_…`):
    * short-lived, read-only tokens a browser uses to follow specific runs
@@ -1062,6 +1082,13 @@ export interface ScalarDocsConfig {
 const DEFAULT_TOKEN_SIGN_IN_TTL_MS = 12 * 60 * 60 * 1000;
 
 export function createApp(input: CreateAppInput): Hono<AppEnv> {
+  // The operator's requests are on record wherever the operator acts in no
+  // tenant: the access procedure and the processing terms rely on it.
+  if (input.tenancy === 'multi' && input.systemAccessAudit === undefined) {
+    throw new Error(
+      "createApp: a runtime serving many tenants needs systemAccessAudit, the record of every request the operator's system keys make",
+    );
+  }
   // Every secret route and reader goes through one binding, whose writes
   // the webhook receiver hears: it keeps a trigger's signing key for a few
   // seconds, and drops it at once when its secret is written here.
@@ -1189,6 +1216,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   });
   const authorizer: Authorizer | undefined =
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
+  // A system principal acts in no tenant: it reaches /v1/system/* (and the
+  // deployment's license), nothing else, and each of its requests is recorded.
+  v1.use(
+    '*',
+    systemPrincipalFence({
+      ...(input.systemAccessAudit !== undefined && { audit: input.systemAccessAudit }),
+      ...(authorizer !== undefined && { authorizer }),
+      ...(input.tenancy !== undefined && { tenancy: input.tenancy }),
+    }),
+  );
   // A write's body is read once, as the bytes it came with, before
   // anything parses it: the checks below, idempotency and the route all
   // read that copy. An upload is read under its own size limit, any
@@ -1251,7 +1288,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   if (input.tokenAdmin !== undefined) {
-    v1.route('/tokens', tokensRouter(input.tokenAdmin, authorizer));
+    v1.route(
+      '/tokens',
+      tokensRouter(input.tokenAdmin, authorizer, {
+        ...(input.tenancy !== undefined && { tenancy: input.tenancy }),
+      }),
+    );
   }
   if (input.serviceAccountBinding !== undefined) {
     v1.route('/service-accounts', serviceAccountsRouter(input.serviceAccountBinding, authorizer));
@@ -1420,6 +1462,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   v1.route('/export-signing-keys', exportSigningKeysRouter(exportSigning));
   if (input.license !== undefined) {
     v1.route('/license', licenseRouter(input.license, authorizer));
+  }
+  if (input.systemKeys !== undefined) {
+    v1.route('/system/keys', systemKeysRouter(input.systemKeys, authorizer));
   }
   v1.route(
     '/provenance',

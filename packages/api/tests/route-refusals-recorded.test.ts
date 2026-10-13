@@ -54,6 +54,10 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'judge-class-not-allowed',
   'host-access-denied',
   'license-operator-only',
+  'capability-not-mintable',
+  'system-key-on-tenant-route',
+  'system-principal-required',
+  'system-scope-missing',
 ]);
 
 /**
@@ -84,6 +88,10 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'POST /v1/auth/token-sign-in token-sign-in-not-allowed',
     // The license is the deployment's: only its own token reads it here.
     'GET /v1/license license-operator-only',
+    // A tenant's key never reaches a system route.
+    'POST /v1/system/keys system-principal-required',
+    'GET /v1/system/keys system-principal-required',
+    'POST /v1/system/keys/{keyId}/revoke system-principal-required',
   ],
   // An admin key without the capability a write needs; a caller who isn't a reviewer.
   [NO_CAPS_KEY]: [
@@ -91,6 +99,9 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'POST /v1/secrets',
     'GET /v1/approvals',
     'GET /v1/license license-operator-only',
+    'POST /v1/system/keys system-principal-required',
+    'GET /v1/system/keys system-principal-required',
+    'POST /v1/system/keys/{keyId}/revoke system-principal-required',
   ],
 };
 

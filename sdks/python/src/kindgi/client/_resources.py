@@ -46,6 +46,11 @@ OPERATIONS: dict[str, Operation] = {
     "tokens.revoke": Operation(
         "tokens.revoke", "POST", "/v1/tokens/{tokenId}/revoke", "json", True
     ),
+    "systemKeys.list": Operation("systemKeys.list", "GET", "/v1/system/keys", "json", False),
+    "systemKeys.mint": Operation("systemKeys.mint", "POST", "/v1/system/keys", "json", True),
+    "systemKeys.revoke": Operation(
+        "systemKeys.revoke", "POST", "/v1/system/keys/{keyId}/revoke", "json", True
+    ),
     "serviceAccounts.list": Operation(
         "serviceAccounts.list", "GET", "/v1/service-accounts", "json", False
     ),
@@ -1466,6 +1471,71 @@ class TokensResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.MintPublicRunTokenBody, body, fields),
             response=_models.MintPublicRunTokenResult,
+            timeout=timeout,
+        )
+
+
+class SystemKeysResource:
+    """`client.system_keys` — the `systemKeys` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(self, /, *, timeout: float | None = None) -> _models.SystemKeyList:
+        """List system keys. `GET /v1/system/keys`
+
+        The operator's system keys (`kgi_sy_…`) on a runtime serving many tenants: each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them.
+        """
+        return self._client._request(
+            _OPERATIONS["systemKeys.list"],
+            path={},
+            query={},
+            headers={},
+            response=_models.SystemKeyList,
+            timeout=timeout,
+        )
+
+    def mint(
+        self,
+        body: _models.MintSystemKeyBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MintSystemKeyResult:
+        """Mint a system key. `POST /v1/system/keys`
+
+        A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. A runtime serving one tenant has no system keys: there, the deployment's own token is that tenant's, and this route isn't mounted.
+        """
+        return self._client._request(
+            _OPERATIONS["systemKeys.mint"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.MintSystemKeyBody, body, fields),
+            response=_models.MintSystemKeyResult,
+            timeout=timeout,
+        )
+
+    def revoke(
+        self,
+        key_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.RevokeSystemKeyResult:
+        """Revoke a system key. `POST /v1/system/keys/{keyId}/revoke`
+
+        Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.
+        """
+        return self._client._request(
+            _OPERATIONS["systemKeys.revoke"],
+            path={"keyId": key_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.RevokeSystemKeyResult,
             timeout=timeout,
         )
 
@@ -3672,7 +3742,7 @@ class LicenseResource:
     def get(self, /, *, timeout: float | None = None) -> _models.LicenseStatus:
         """Where the deployment's license key stands. `GET /v1/license`
 
-        Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`) reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.
+        Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.
         """
         return self._client._request(
             _OPERATIONS["license.get"],
@@ -8733,6 +8803,71 @@ class AsyncTokensResource:
         )
 
 
+class AsyncSystemKeysResource:
+    """`client.system_keys` — the `systemKeys` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(self, /, *, timeout: float | None = None) -> _models.SystemKeyList:
+        """List system keys. `GET /v1/system/keys`
+
+        The operator's system keys (`kgi_sy_…`) on a runtime serving many tenants: each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemKeys.list"],
+            path={},
+            query={},
+            headers={},
+            response=_models.SystemKeyList,
+            timeout=timeout,
+        )
+
+    async def mint(
+        self,
+        body: _models.MintSystemKeyBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MintSystemKeyResult:
+        """Mint a system key. `POST /v1/system/keys`
+
+        A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. A runtime serving one tenant has no system keys: there, the deployment's own token is that tenant's, and this route isn't mounted.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemKeys.mint"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.MintSystemKeyBody, body, fields),
+            response=_models.MintSystemKeyResult,
+            timeout=timeout,
+        )
+
+    async def revoke(
+        self,
+        key_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.RevokeSystemKeyResult:
+        """Revoke a system key. `POST /v1/system/keys/{keyId}/revoke`
+
+        Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemKeys.revoke"],
+            path={"keyId": key_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.RevokeSystemKeyResult,
+            timeout=timeout,
+        )
+
+
 class AsyncServiceAccountsResource:
     """`client.service_accounts` — the `serviceAccounts` operations."""
 
@@ -10945,7 +11080,7 @@ class AsyncLicenseResource:
     async def get(self, /, *, timeout: float | None = None) -> _models.LicenseStatus:
         """Where the deployment's license key stands. `GET /v1/license`
 
-        Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`) reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.
+        Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.
         """
         return await self._client._request(
             _OPERATIONS["license.get"],
@@ -15493,6 +15628,7 @@ class Resources:
     runs: RunsResource
     signing_keys: SigningKeysResource
     tokens: TokensResource
+    system_keys: SystemKeysResource
     service_accounts: ServiceAccountsResource
     approvals: ApprovalsResource
     agents: AgentsResource
@@ -15542,6 +15678,7 @@ class Resources:
         self.runs = RunsResource(client)
         self.signing_keys = SigningKeysResource(client)
         self.tokens = TokensResource(client)
+        self.system_keys = SystemKeysResource(client)
         self.service_accounts = ServiceAccountsResource(client)
         self.approvals = ApprovalsResource(client)
         self.agents = AgentsResource(client)
@@ -15593,6 +15730,7 @@ class AsyncResources:
     runs: AsyncRunsResource
     signing_keys: AsyncSigningKeysResource
     tokens: AsyncTokensResource
+    system_keys: AsyncSystemKeysResource
     service_accounts: AsyncServiceAccountsResource
     approvals: AsyncApprovalsResource
     agents: AsyncAgentsResource
@@ -15642,6 +15780,7 @@ class AsyncResources:
         self.runs = AsyncRunsResource(client)
         self.signing_keys = AsyncSigningKeysResource(client)
         self.tokens = AsyncTokensResource(client)
+        self.system_keys = AsyncSystemKeysResource(client)
         self.service_accounts = AsyncServiceAccountsResource(client)
         self.approvals = AsyncApprovalsResource(client)
         self.agents = AsyncAgentsResource(client)

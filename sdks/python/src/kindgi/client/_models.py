@@ -910,6 +910,209 @@ class Capability(RootModel[str]):
     root: Annotated[str, Field(max_length=100, min_length=1)]
 
 
+class SystemKey(BaseModel):
+    """
+    A system key (`kgi_sy_…`): the operator's, acting in no tenant. Never its secret.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The key's id.
+    """
+    label: str | None = None
+    """
+    What the key is for, as given at mint.
+    """
+    scopes: list[
+        Literal[
+            "system:tenants",
+            "system:tenants:production",
+            "system:tenants:limits",
+            "system:tenants:contacts",
+            "system:tenants:purge",
+            "system:suspend",
+            "system:deployments",
+            "system:license",
+            "kindgi:system",
+        ]
+    ]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    revoked_at: Annotated[AwareDatetime | None, Field(alias="revokedAt")] = None
+    minted_by: Annotated[str, Field(alias="mintedBy")]
+    """
+    Who minted it: a system key's id, or `boot` for the deployment's own token.
+    """
+
+
+class MintSystemKeyBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    scopes: Annotated[
+        list[
+            Literal[
+                "system:tenants",
+                "system:tenants:production",
+                "system:tenants:limits",
+                "system:tenants:contacts",
+                "system:tenants:purge",
+                "system:suspend",
+                "system:deployments",
+                "system:license",
+                "kindgi:system",
+            ]
+        ],
+        Field(min_length=1),
+    ]
+    """
+    The least the key's service needs; `kindgi:system` alone for a full key.
+    """
+    label: Annotated[str | None, Field(max_length=100, min_length=1)] = None
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    """
+    When it stops working. A minter that expires mints only keys expiring no later than it.
+    """
+
+
+class MintSystemKeyResult(BaseModel):
+    """
+    The new system key, plus its secret.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The key's id.
+    """
+    label: str | None = None
+    """
+    What the key is for, as given at mint.
+    """
+    scopes: list[
+        Literal[
+            "system:tenants",
+            "system:tenants:production",
+            "system:tenants:limits",
+            "system:tenants:contacts",
+            "system:tenants:purge",
+            "system:suspend",
+            "system:deployments",
+            "system:license",
+            "kindgi:system",
+        ]
+    ]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    revoked_at: Annotated[AwareDatetime | None, Field(alias="revokedAt")] = None
+    minted_by: Annotated[str, Field(alias="mintedBy")]
+    """
+    Who minted it: a system key's id, or `boot` for the deployment's own token.
+    """
+    token: str
+    """
+    Plaintext bearer token (`kgi_sy_…`). Returned exactly once at mint time.
+    """
+
+
+class Datum2(BaseModel):
+    """
+    A system key (`kgi_sy_…`): the operator's, acting in no tenant. Never its secret.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The key's id.
+    """
+    label: str | None = None
+    """
+    What the key is for, as given at mint.
+    """
+    scopes: list[
+        Literal[
+            "system:tenants",
+            "system:tenants:production",
+            "system:tenants:limits",
+            "system:tenants:contacts",
+            "system:tenants:purge",
+            "system:suspend",
+            "system:deployments",
+            "system:license",
+            "kindgi:system",
+        ]
+    ]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    revoked_at: Annotated[AwareDatetime | None, Field(alias="revokedAt")] = None
+    minted_by: Annotated[str, Field(alias="mintedBy")]
+    """
+    Who minted it: a system key's id, or `boot` for the deployment's own token.
+    """
+
+
+class SystemKeyList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Datum2]
+
+
+class RevokeSystemKeyResult(BaseModel):
+    """
+    The revoked system key, and the keys revoked with it because they were minted from it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The key's id.
+    """
+    label: str | None = None
+    """
+    What the key is for, as given at mint.
+    """
+    scopes: list[
+        Literal[
+            "system:tenants",
+            "system:tenants:production",
+            "system:tenants:limits",
+            "system:tenants:contacts",
+            "system:tenants:purge",
+            "system:suspend",
+            "system:deployments",
+            "system:license",
+            "kindgi:system",
+        ]
+    ]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    revoked_at: Annotated[AwareDatetime | None, Field(alias="revokedAt")] = None
+    minted_by: Annotated[str, Field(alias="mintedBy")]
+    """
+    Who minted it: a system key's id, or `boot` for the deployment's own token.
+    """
+    also_revoked: Annotated[list[str], Field(alias="alsoRevoked")]
+    """
+    The ids of the keys minted from it, however deep, revoked with it.
+    """
+
+
 class ApiKeyPrincipal(BaseModel):
     """
     Whom an API key acts for: a person, or a service account.
@@ -5031,7 +5234,7 @@ class BlobMeta(BaseModel):
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
 
 
-class Datum3(BaseModel):
+class Datum4(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -5081,7 +5284,7 @@ class ArtifactCollectionPage(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Datum3]
+    data: list[Datum4]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
 
@@ -10675,7 +10878,7 @@ class AuditSignInsListResponse(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class Datum4(BaseModel):
+class Datum5(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -10701,7 +10904,7 @@ class AuditAuthzListResponse(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Datum4]
+    data: list[Datum5]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
@@ -11093,7 +11296,7 @@ class ApiToken(BaseModel):
     """
 
 
-class Datum2(BaseModel):
+class Datum3(BaseModel):
     """
     An API key. Never includes the secret. `principal` is whom it acts for; absent on a key that is a service account of its own (`service_account:<tokenId>`), as keys minted before principals are.
     """
@@ -11138,7 +11341,7 @@ class ApiTokenPage(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Datum2]
+    data: list[Datum3]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
     Opaque cursor for the next page. Absent when `hasMore: false`.

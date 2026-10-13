@@ -52,6 +52,7 @@ import {
 } from './resources/service-accounts.js';
 import { type SigningKeysClient, makeSigningKeysClient } from './resources/signing-keys.js';
 import { type SupervisorClient, makeSupervisorClient } from './resources/supervisor.js';
+import { type SystemKeysClient, makeSystemKeysClient } from './resources/system-keys.js';
 import { type TeamsClient, makeTeamsClient } from './resources/teams.js';
 import { type TenantClient, makeTenantClient } from './resources/tenant.js';
 import { type TokensClient, makeTokensClient } from './resources/tokens.js';
@@ -125,6 +126,8 @@ export interface KindgiClient {
   /** The keys this deployment signs its exports with (audit bundles, provenance, compliance evidence). */
   readonly exportSigningKeys: ExportSigningKeysClient;
   readonly license: LicenseClient;
+  /** The operator's system keys, on a runtime serving many tenants: the full system capability only. */
+  readonly systemKeys: SystemKeysClient;
   readonly tokens: TokensClient;
   /** Non-human principals with their own grants; they act through API keys. */
   readonly serviceAccounts: ServiceAccountsClient;
@@ -197,6 +200,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     signingKeys: makeSigningKeysClient(transport),
     exportSigningKeys: makeExportSigningKeysClient(transport),
     license: makeLicenseClient(transport),
+    systemKeys: makeSystemKeysClient(transport),
     tokens: makeTokensClient(transport),
     serviceAccounts: makeServiceAccountsClient(transport),
     mcp: makeMcpClient(transport),
