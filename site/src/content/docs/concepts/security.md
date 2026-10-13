@@ -173,6 +173,26 @@ Error [invalid-request]: Provider "bedrock" doesn't fit adapter @kindgi/adapter-
   ✗ /adapter_config/auth: adapter_config.auth = aws-identity (the default) signs in as the runtime's own AWS identity, which this deployment doesn't let tenant configuration use (KINDGI_TENANT_HOST_ACCESS). Set auth = api-key, with secret_ref naming a Bedrock API key.
 ```
 
+A provider registered before the runtime moved to `isolated`, and that signs
+in as the runtime, isn't used there. Here, a `bedrock` preset registration:
+a turn that needs it fails with `422 capability-routing-failed`:
+
+```json
+{"error":{"code":"capability-routing-failed","message":"No registered provider satisfies the capability declaration","details":{"runId":"7023ea0b-ddf3-4795-9b62-f68cdfe4b808"},"requestId":"req-82f50c49-8e4f-4cce-b221-f0a33d051dd0"}}
+```
+
+The runtime's log says why:
+
+```text
+16:50:24.757 WARN  [providers] factory throw traceId=… tenantId=… projectId=… runId=7023ea0b-ddf3-4795-9b62-f68cdfe4b808 agentId=acme.helper agentVersion=1.0.0 conversationId=… providerId=bedrock adapterId=@kindgi/adapter-model-bedrock err="Error: @kindgi/adapter-model-bedrock: provider \"bedrock\": adapter_config.auth = aws-identity (the default) signs in as the runtime's own AWS identity, which this deployment doesn't let tenant configuration use (KINDGI_TENANT_HOST_ACCESS). Set auth = api-key, with secret_ref naming a Bedrock API key."
+```
+
+Unregister such a provider, and register it again with a key of its own:
+for Bedrock, [an API key](../../guides/models/#with-a-bedrock-api-key); for
+Gemini on Vertex AI,
+[a service-account key](../../guides/models/gemini-on-vertex-ai/#on-a-runtime-that-keeps-tenants-apart);
+for Azure OpenAI, the `azure-openai` preset, with the resource's key.
+
 Outside development, a webhook goes only to a public address, and only over
 https. Kindgi checks this when the webhook is registered, and again at every
 delivery, for every address the receiver's name resolves to. A self-hosted runtime whose receiver is on
