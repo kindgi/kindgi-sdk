@@ -4,7 +4,8 @@
 import type { UsageSink } from '@kindgi/capabilities';
 import type { EvaluationOutcome, GuardrailCheckOutcome } from '@kindgi/guardrails';
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
-import type { Timestamp } from '@kindgi/types';
+import type { KernelRunRecord, RunBinding } from '@kindgi/runtime';
+import type { FlowId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
 import {
   buildRunTrace,
@@ -34,7 +35,8 @@ import { parseJsonAnswer } from './structured-output.js';
  * `guardrail-violation` whose `evaluationErrors` say why), and the step's
  * output lists every error, so the journal shows it. Also records the
  * response's `model-output` provenance node, which the guardrail checks
- * link to.
+ * link to. The trace names the flow whose step started the turn
+ * (`flowOfTurn`), which a guardrail scoped to flows applies by.
  */
 export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
   return async (input: unknown, kctx) => {
@@ -81,6 +83,7 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
       ctx.input.agent.output !== undefined && !kctx.dryRun
         ? parseJsonAnswer(final.message.content)
         : undefined;
+    const flowId = await flowOfTurn(ctx, kctx);
     const trace = buildRunTrace({
       runId: kctx.runId,
       tenantId: ctx.input.tenantId,
@@ -89,6 +92,7 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
       conversationId: ctx.input.conversationId,
       turnNumber: (ctx.conversation?.turnCount ?? 0) + 1,
       agent: ctx.input.agent,
+      ...(flowId !== undefined && { flowId }),
       userMessage: ctx.input.userMessage,
       ...(ctx.input.input !== undefined && { stepInput: ctx.input.input }),
       ...(structured?.kind === 'ok' && { structuredOutput: structured.value }),
@@ -201,6 +205,53 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
       })),
     };
   };
+}
+
+/**
+ * The flow whose step started this turn, which a guardrail scoped to
+ * flows (`scope.flows`) applies by: the flow of the turn's parent run.
+ * Undefined for a turn outside any flow, and unread for a turn with no
+ * guardrails. A started turn's input names the parent (`parent`); a
+ * resumed turn's doesn't, so its own run's record does. A run that
+ * can't be read fails the step, so a guardrail scoped to flows never
+ * passes over a turn whose flow went unread.
+ */
+async function flowOfTurn(ctx: TurnContext, kctx: NodeContext): Promise<FlowId | undefined> {
+  if (ctx.guardrails === undefined || ctx.guardrails.length === 0) return undefined;
+  const runs = ctx.bindings.runBinding;
+  if (runs === undefined) {
+    throw new Error('evaluate-guardrails: bindings.runBinding is required.');
+  }
+  const { tenantId } = ctx.input;
+  const parentRunId =
+    ctx.input.parent?.runId ?? (await readRun(runs, tenantId, kctx.runId)).parentRunId;
+  if (parentRunId === undefined || parentRunId === null) return undefined;
+  return (await readRun(runs, tenantId, parentRunId)).flowId as FlowId;
+}
+
+async function readRun(
+  runs: RunBinding,
+  tenantId: TenantId,
+  runId: RunId,
+): Promise<KernelRunRecord> {
+  let run: KernelRunRecord | null;
+  try {
+    run = await runs.getRun(tenantId, runId);
+  } catch (cause) {
+    throwAgentTurnFailure({
+      code: 'persistence-error',
+      message: `Run ${runId} couldn't be read to find the turn's flow: ${cause instanceof Error ? cause.message : String(cause)}`,
+      cause,
+    });
+  }
+  if (run === null) {
+    throwAgentTurnFailure({
+      code: 'persistence-error',
+      message: `Run ${runId} wasn't found, so the turn's flow is unknown`,
+      cause: null,
+    });
+  }
+  return run;
 }
 
 /**

@@ -1,0 +1,231 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+/**
+ * A guardrail scoped to flows (`scope.flows`) applies to the turns of
+ * those flows' steps, and to no other turn: the gate gives the trace the
+ * flow whose step started the turn, read from the turn's parent run, or
+ * from the turn's own run once it has resumed. A run that can't be read
+ * fails the step, so the guardrail is never passed over unseen.
+ */
+
+import { describe, expect, test } from 'vitest';
+
+import type { Guardrail, RunTrace } from '@kindgi/guardrails';
+import { createCheckRegistry } from '@kindgi/guardrails';
+import type { RunBinding } from '@kindgi/runtime';
+import type { GuardrailId, NodeId, RunId, TenantId } from '@kindgi/types';
+
+import { AGENT_TURN_FLOW_ID } from '../src/agent-turn-flow.js';
+import { defineAgent } from '../src/define.js';
+import type { TurnContext } from '../src/handlers/context.js';
+import { AgentTurnFailure } from '../src/handlers/errors.js';
+import { buildEvaluateGuardrailsHandler } from '../src/handlers/evaluate-guardrails.js';
+import type { InvokeAgentBindings } from '../src/handlers/public-types.js';
+import type { ConversationId } from '../src/types.js';
+
+import { testNodeContext } from './node-context.js';
+import { type TestRun, runsOf } from './turn-runs.js';
+
+const tenantId = 'acme' as TenantId;
+const TURN = 'run-turn-1';
+const FLOW_RUN = 'run-flow-1';
+
+/** Halts in the refunds flow's steps only. */
+const REFUNDS_ONLY = {
+  id: 'acme.refund-limit' as GuardrailId,
+  kind: 'zero-llm',
+  check: 'acme.over-limit',
+  action: { 'on-violation': 'halt' },
+  scope: { flows: ['acme.refunds'] },
+} as unknown as Guardrail;
+
+/** Logs on every turn: shows the gate ran. */
+const EVERYWHERE = {
+  id: 'acme.tone',
+  kind: 'zero-llm',
+  check: 'acme.tone-check',
+  action: { 'on-violation': 'log-only' },
+} as unknown as Guardrail;
+
+interface Turn {
+  readonly ctx: TurnContext;
+  /** The traces each check saw, by check. */
+  readonly seen: Record<string, RunTrace[]>;
+  readonly reads: string[];
+}
+
+function turn(options: {
+  /** The flow run that started the turn, as a started step's input names it. */
+  readonly parent?: string;
+  readonly runs?: Readonly<Record<string, TestRun>>;
+  readonly runBinding?: RunBinding;
+}): Turn {
+  const agent = defineAgent({
+    id: 'acme.refunds-agent',
+    version: '1.0.0',
+    name: 'Refunds',
+    instructions: 'Decide the refund.',
+    capabilities: [{ needs: [] }],
+    tools: [],
+    retrieval: [],
+    guardrails: [REFUNDS_ONLY.id, EVERYWHERE.id],
+  });
+  if (agent.kind === 'err') throw new Error('agent spec invalid');
+  const seen: Record<string, RunTrace[]> = { 'acme.over-limit': [], 'acme.tone-check': [] };
+  const checks = createCheckRegistry();
+  for (const id of Object.keys(seen)) {
+    checks.register({
+      id,
+      kind: 'zero-llm',
+      evaluate: async (_config, trace) => {
+        seen[id]?.push(trace);
+        return { passed: false, reason: 'refund of $900 is over the $500 limit' };
+      },
+    });
+  }
+  const { runBinding, reads } =
+    options.runBinding !== undefined
+      ? { runBinding: options.runBinding, reads: [] }
+      : runsOf(tenantId, options.runs ?? {});
+  const ctx = {
+    input: {
+      tenantId,
+      projectId: 'p-1' as never,
+      agent: agent.value,
+      conversationId: 'c-1' as ConversationId,
+      userMessage: '{ "order": "A-1042", "amount": 900 }',
+      ...(options.parent !== undefined && {
+        parent: { runId: options.parent as RunId, nodeId: 'decide' as NodeId, scope: '' },
+      }),
+    },
+    bindings: { checks, runBinding } as unknown as InvokeAgentBindings,
+    turnAbort: new AbortController(),
+    startedAt: Date.now(),
+    appended: [],
+    usage: { steps: 1, promptTokens: 1, completionTokens: 1, totalCostUsd: 0 },
+    abortReason: undefined,
+    guardrails: [REFUNDS_ONLY, EVERYWHERE],
+  } as unknown as TurnContext;
+  return { ctx, seen, reads };
+}
+
+const loopOutput = {
+  finalOutput: {
+    finishReason: 'stop',
+    message: { role: 'assistant', content: 'Refund A-1042: $900, approved.' },
+    iterationAppended: [],
+    iterationUsage: { promptTokens: 1, completionTokens: 1, costUsd: 0 },
+    provider: { id: 'echo', model: 'echo-1' },
+    finishedTurn: true,
+    nextMessages: [],
+  },
+  iterations: 1,
+  stopReason: 'exit-condition',
+};
+
+const evaluate = (ctx: TurnContext): Promise<unknown> =>
+  buildEvaluateGuardrailsHandler(ctx)(
+    loopOutput,
+    testNodeContext({ runId: TURN as RunId, nodeId: 'evaluate-guardrails' as NodeId }),
+  ).catch((e: unknown) => e);
+
+const outsideAnyFlow: TestRun = { flowId: AGENT_TURN_FLOW_ID };
+const stepOf = (parentRunId: string): TestRun => ({ flowId: AGENT_TURN_FLOW_ID, parentRunId });
+
+describe('a guardrail scoped to flows', () => {
+  test("in a step of its flow, it runs: the turn's trace names the flow, and the halt fails the turn", async () => {
+    const { ctx, seen, reads } = turn({
+      parent: FLOW_RUN,
+      runs: { [TURN]: stepOf(FLOW_RUN), [FLOW_RUN]: { flowId: 'acme.refunds' } },
+    });
+    const thrown = await evaluate(ctx);
+    expect(thrown).toBeInstanceOf(AgentTurnFailure);
+    expect((thrown as AgentTurnFailure).payload).toMatchObject({
+      code: 'guardrail-violation',
+      violations: [{ guardrailId: 'acme.refund-limit' }],
+    });
+    expect(seen['acme.over-limit']?.map((t) => t.flowId)).toEqual(['acme.refunds']);
+    expect(seen['acme.tone-check']?.map((t) => t.flowId)).toEqual(['acme.refunds']);
+    // A started step's input names its flow run: the turn's own run isn't read.
+    expect(reads).toEqual([FLOW_RUN]);
+  });
+
+  test('in a step of another flow, it is skipped; the turn goes on', async () => {
+    const { ctx, seen } = turn({
+      parent: FLOW_RUN,
+      runs: { [TURN]: stepOf(FLOW_RUN), [FLOW_RUN]: { flowId: 'acme.orders' } },
+    });
+    const output = await evaluate(ctx);
+    expect(output).not.toBeInstanceOf(Error);
+    expect(seen['acme.over-limit']).toEqual([]);
+    expect(seen['acme.tone-check']?.map((t) => t.flowId)).toEqual(['acme.orders']);
+  });
+
+  test('outside any flow, it is skipped, and the trace names no flow', async () => {
+    const { ctx, seen, reads } = turn({ runs: { [TURN]: outsideAnyFlow } });
+    const output = await evaluate(ctx);
+    expect(output).not.toBeInstanceOf(Error);
+    expect(seen['acme.over-limit']).toEqual([]);
+    expect(seen['acme.tone-check']?.map((t) => t.flowId)).toEqual([undefined]);
+    expect(reads).toEqual([TURN]);
+  });
+
+  test("in a step's resumed turn, its own run names the flow run, and it runs", async () => {
+    // A resumed turn's input is rebuilt from its snapshot, which keeps no parent.
+    const { ctx, seen, reads } = turn({
+      runs: { [TURN]: stepOf(FLOW_RUN), [FLOW_RUN]: { flowId: 'acme.refunds' } },
+    });
+    const thrown = await evaluate(ctx);
+    expect((thrown as AgentTurnFailure).payload).toMatchObject({ code: 'guardrail-violation' });
+    expect(seen['acme.over-limit']?.map((t) => t.flowId)).toEqual(['acme.refunds']);
+    expect(reads).toEqual([TURN, FLOW_RUN]);
+  });
+});
+
+describe("a run that can't be read fails the step; no guardrail is passed over", () => {
+  test('a flow run that is not there', async () => {
+    const { ctx, seen } = turn({ parent: FLOW_RUN, runs: { [TURN]: stepOf(FLOW_RUN) } });
+    const thrown = await evaluate(ctx);
+    expect(thrown).toBeInstanceOf(AgentTurnFailure);
+    expect((thrown as AgentTurnFailure).payload).toMatchObject({
+      code: 'persistence-error',
+      message: `Run ${FLOW_RUN} wasn't found, so the turn's flow is unknown`,
+    });
+    expect(seen['acme.over-limit']).toEqual([]);
+    expect(seen['acme.tone-check']).toEqual([]);
+  });
+
+  test("a resumed turn's own run that is not there", async () => {
+    const { ctx } = turn({ runs: {} });
+    const thrown = await evaluate(ctx);
+    expect((thrown as AgentTurnFailure).payload).toMatchObject({
+      code: 'persistence-error',
+      message: `Run ${TURN} wasn't found, so the turn's flow is unknown`,
+    });
+  });
+
+  test('a read that fails, saying why', async () => {
+    const cause = new Error('connection reset');
+    const { ctx, seen } = turn({
+      parent: FLOW_RUN,
+      runBinding: {
+        getRun: () => Promise.reject(cause),
+      } as unknown as RunBinding,
+    });
+    const thrown = await evaluate(ctx);
+    expect((thrown as AgentTurnFailure).payload).toMatchObject({
+      code: 'persistence-error',
+      message: `Run ${FLOW_RUN} couldn't be read to find the turn's flow: connection reset`,
+      cause,
+    });
+    expect(seen['acme.over-limit']).toEqual([]);
+  });
+});
+
+test('a turn with no guardrails reads no run', async () => {
+  const { ctx, reads } = turn({ parent: FLOW_RUN, runs: {} });
+  const output = await evaluate({ ...ctx, guardrails: [] });
+  expect(output).not.toBeInstanceOf(Error);
+  expect(reads).toEqual([]);
+});

@@ -23,6 +23,8 @@ import type { InvokeAgentBindings } from '../src/handlers/public-types.js';
 import type { TurnEvent } from '../src/streaming.js';
 import type { ConversationId } from '../src/types.js';
 
+import { OUTSIDE_ANY_FLOW } from './turn-runs.js';
+
 const tenantId = 'acme' as TenantId;
 
 /** A guardrail naming `check`, with `action`. */
@@ -72,6 +74,7 @@ function turn(
     bindings: {
       ...(checks !== undefined && { checks }),
       onEvent: (e: TurnEvent) => void seen.events.push(e),
+      runBinding: OUTSIDE_ANY_FLOW,
     } as unknown as InvokeAgentBindings,
     provenance: {
       addNode: (n: { id: string; kind: string; attributes?: Record<string, unknown> }) =>
