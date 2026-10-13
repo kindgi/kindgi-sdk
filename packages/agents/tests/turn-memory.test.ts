@@ -63,10 +63,12 @@ function turn(options: {
   if (agent.kind === 'err') throw new Error(JSON.stringify(agent.error.issues));
   const log: string[] = [];
   const charges: number[] = [];
+  const runs: string[] = [];
   const events: string[] = [];
   const turnMemory: TurnMemoryBinding = {
-    charge: async (bytes) => {
+    charge: async (bytes, turn) => {
       charges.push(bytes);
+      runs.push(turn.runId);
       log.push('charge');
       return options.answer?.(bytes) ?? { ok: true };
     },
@@ -99,7 +101,7 @@ function turn(options: {
     tools: { definitions: [], byName: new Map() },
     userMessage: { sequence: 1 },
   } as unknown as TurnContext;
-  return { ctx, log, charges, events };
+  return { ctx, log, charges, runs, events };
 }
 
 const kctx = (dryRun = false) =>
@@ -124,6 +126,8 @@ describe('turn memory: charged by size before each model call', () => {
     await call({ nextMessages: first }, kctx());
     await call({ nextMessages: second }, kctx());
     expect(t.charges).toEqual([4 * sizeOf(first), 5 * sizeOf(second)]);
+    // The turn's own run, for the runtime's record of a refusal.
+    expect(t.runs).toEqual(['run-1', 'run-1']);
     expect(t.log).toEqual(['charge', 'model', 'charge', 'model']);
   });
 

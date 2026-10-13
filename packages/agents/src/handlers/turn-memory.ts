@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { ModelMessage } from '@kindgi/capabilities';
+import type { RunId } from '@kindgi/types';
 
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
@@ -34,8 +35,11 @@ export type TurnMemoryCharge =
  * is charged.
  */
 export interface TurnMemoryBinding {
-  /** Replaces this turn's charge with `bytes`. */
-  charge(bytes: number): Promise<TurnMemoryCharge>;
+  /**
+   * Replaces this turn's charge with `bytes`. `turn.runId` is the turn's
+   * own run, for the runtime's record of a refusal.
+   */
+  charge(bytes: number, turn: { readonly runId: RunId }): Promise<TurnMemoryCharge>;
 }
 
 /**
@@ -60,12 +64,15 @@ export function turnMemoryBytes(
  */
 export async function chargeTurnMemory(
   ctx: TurnContext,
+  turn: { readonly runId: RunId },
   nextMessages: readonly ModelMessage[],
   iterationsDone: number,
 ): Promise<void> {
   const binding = ctx.bindings.turnMemory;
   if (binding === undefined) return;
-  const charged = await binding.charge(turnMemoryBytes(nextMessages, iterationsDone));
+  const charged = await binding.charge(turnMemoryBytes(nextMessages, iterationsDone), {
+    runId: turn.runId,
+  });
   if (charged.ok) return;
   const whose = charged.limit === 'tenant' ? "the tenant's share of" : "the runtime's";
   throwAgentTurnFailure({

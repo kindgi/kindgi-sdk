@@ -55,7 +55,7 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
 
     // What the turn holds, charged before the model is called: the iterations
     // done so far are its steps (restored on a resume). A dry run holds nothing.
-    if (!kctx.dryRun) await chargeTurnMemory(ctx, nextMessages, ctx.usage.steps);
+    if (!kctx.dryRun) await chargeTurnMemory(ctx, kctx, nextMessages, ctx.usage.steps);
 
     ctx.usage.steps += 1;
     const step = ctx.usage.steps;
