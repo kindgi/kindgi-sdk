@@ -81,6 +81,16 @@ export interface PackServiceOptions {
   readonly envCheck?: PackEnvCheck;
   /** Test seam: how a module is loaded from its absolute path. */
   readonly importModule?: (absolutePath: string) => Promise<unknown>;
+  /**
+   * The one tenant this service serves (`KINDGI_PACK_TENANT_ID`). Set: a call
+   * to `/v1/invoke` or `/v1/info` whose `kindgi-tenant-id` header is missing
+   * or names another tenant, or a tool call whose context names another, is
+   * refused with 421 before any pack code runs. A backstop for a misrouted
+   * call: the server's routing is the boundary.
+   */
+  readonly tenantId?: string;
+  /** `sha256:<hex>` of the index file's bytes, reported by `/v1/info`. */
+  readonly indexHash?: string;
 }
 
 export type PackServiceLogEvent =
@@ -103,6 +113,11 @@ export type PackServiceLogEvent =
       readonly kind: 'missing-env';
       readonly check: PackEnvCheck;
       readonly names: readonly string[];
+    }
+  | {
+      /** A call for another tenant, refused with 421 (`KINDGI_PACK_TENANT_ID`). */
+      readonly kind: 'tenant-mismatch';
+      readonly via: 'header' | 'context';
     };
 
 export interface PackService {
@@ -116,6 +131,9 @@ export interface PackService {
 }
 
 const DEFAULT_MAX_CONCURRENCY = 32;
+
+/** `dispatch`'s answer for a tool call whose context names another tenant. */
+const MISDIRECTED = Symbol('misdirected');
 const DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 120_000;
 
@@ -128,6 +146,9 @@ export function createPackService(options: PackServiceOptions): PackService {
   const importModule =
     options.importModule ?? ((p: string) => import(pathToFileURL(p).href) as Promise<unknown>);
   const expectedToken = Buffer.from(options.token);
+  // Tenant ids are UUIDs: compared without regard to case, so an orchestrator
+  // that sets one in capitals doesn't refuse every call.
+  const pinnedTenant = options.tenantId?.toLowerCase();
 
   // Every version of a tool the pack holds, side by side: one agent version
   // may pin tool@1 while another pins tool@2 (keyed by id and version).
@@ -212,6 +233,7 @@ export function createPackService(options: PackServiceOptions): PackService {
       packId: options.index.packId,
       packVersion: options.index.packVersion,
       artifactVersion: options.index.artifactVersion,
+      ...(options.indexHash !== undefined && { indexHash: options.indexHash }),
       tools: [...tools.values()].map((t) => ({
         id: t.id,
         ...(t.version && { version: t.version }),
@@ -329,6 +351,10 @@ export function createPackService(options: PackServiceOptions): PackService {
       const body = await readBody(req, maxBodyBytes);
       const response = body === undefined ? undefined : await dispatch(req, res, body);
       if (res.writableEnded || res.destroyed) return;
+      if (response === MISDIRECTED) {
+        reply(res, misdirected('context'));
+        return;
+      }
       reply(
         res,
         response === undefined
@@ -351,7 +377,7 @@ export function createPackService(options: PackServiceOptions): PackService {
     req: IncomingMessage,
     res: ServerResponse,
     body: string,
-  ): Promise<PackResponse> {
+  ): Promise<PackResponse | typeof MISDIRECTED> {
     let json: unknown;
     try {
       json = JSON.parse(body);
@@ -361,6 +387,14 @@ export function createPackService(options: PackServiceOptions): PackService {
     const parsed = parsePackRequest(json);
     if (parsed.kind === 'err') return parsed.error;
     const message = parsed.value;
+    // The header matched (refuseRequest); a tool call's own context must too.
+    if (
+      pinnedTenant !== undefined &&
+      message.kind === 'invoke' &&
+      String(message.ctx.tenantId).toLowerCase() !== pinnedTenant
+    ) {
+      return MISDIRECTED;
+    }
     const target = message.kind === 'invoke' ? 'tool' : 'check';
     const id = message.kind === 'invoke' ? message.tool.id : message.check.id;
 
@@ -413,7 +447,36 @@ export function createPackService(options: PackServiceOptions): PackService {
     if (route === undefined) return { status: 404, body: { error: `No route ${req.url ?? '/'}` } };
     if (req.method !== route.method) return { status: 405, body: { error: `Use ${route.method}` } };
     if (route.auth && !authorized(req)) return { status: 401, body: { error: 'Bad pack token' } };
+    // Every route the token opens (`/v1/invoke`, `/v1/info`): a misrouted
+    // call gets nothing, not even what the pack holds. The probes stay open.
+    if (route.auth && pinnedTenant !== undefined) {
+      const named = req.headers[PACK_HEADERS.tenantId];
+      if (typeof named !== 'string' || named.toLowerCase() !== pinnedTenant) {
+        return misdirected('header');
+      }
+    }
     return undefined;
+  }
+
+  /**
+   * A call for another tenant: 421 Misdirected Request ("not the server for
+   * this request"), so the caller can tell it from the platform's 403. It
+   * names neither tenant.
+   */
+  function misdirected(via: 'header' | 'context'): Reply {
+    logger({ kind: 'tenant-mismatch', via });
+    log.warn('A call for another tenant was refused', {
+      event: 'tenant-mismatch',
+      kind: 'tenant-mismatch',
+      via,
+    });
+    return {
+      status: 421,
+      body: {
+        error: 'This pack service serves another tenant',
+        code: 'pack-tenant-mismatch',
+      },
+    };
   }
 
   function probe(name: Route['name']): Reply {

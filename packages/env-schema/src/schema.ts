@@ -1221,6 +1221,34 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'pack-service',
   },
   {
+    name: 'KINDGI_PACK_TENANT_ID',
+    description:
+      "The one tenant this pack service serves: the tenant's id, a UUID, checked at startup. It needs a runtime that sends the `kindgi-tenant-id` header on its pack calls, 0.1.8 or later: with an earlier runtime, every call is refused. Set: the service refuses, with 421 (`pack-tenant-mismatch`), a call to `/v1/invoke` or `/v1/info` whose `kindgi-tenant-id` header is missing or names another tenant, and a tool call whose context names another tenant, before any pack code runs. The health probes stay open. The server sends the header on every call, from the deployment it routed the call to. An orchestrator that runs a pack service per tenant sets it. Unset: no check. It's a backstop for a misrouted call to an honest pack, not a boundary: the server's routing is.",
+    example: '',
+    required: false,
+    appliesTo: appliesToPackService,
+    group: 'pack-service',
+  },
+  {
+    name: 'KINDGI_PACK_ROUTING',
+    description:
+      'Used from runtime 0.1.8; earlier runtimes ignore it. How the server finds the pack service for a call. `single` (default): one pack service, `KINDGI_PACK_SERVICE_URL`, for every call. `per-deployment` needs `KINDGI_TENANCY=multi`: the endpoints are recorded through the system API, which a runtime serving one tenant does not have, so the server refuses to start with it there. Each call then goes to the newest deployment that shipped the tool or check, at the endpoint recorded for it by whatever runs the services (an orchestrator, or a script) with a `system:deployments` key. Each endpoint carries its own token and auth, so `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused; `KINDGI_PACK_CALL_TIMEOUT_MS` still applies. A call whose deployment has no endpoint yet fails (`pack-endpoint-pending`): it never falls back to an older deployment or another service. Deployments registered before it was turned on have no routes; deploy them again.',
+    example: 'single',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'pack-service',
+    allowedValues: ['single', 'per-deployment'],
+  },
+  {
+    name: 'KINDGI_PACK_ENDPOINT_HOSTS',
+    description:
+      "Used from runtime 0.1.8; earlier runtimes ignore it. With `KINDGI_PACK_ROUTING=per-deployment`: the hosts a deployment's pack endpoint may name, comma-separated. Each is a host name; `*.` and a domain, which matches one more label in front of it; or `*-`, a tail and a domain, which matches one more label ending with `-` and the tail. On Cloud Run, name each pack project with `*-<project number>.<region>.run.app`: Cloud Run URLs are `<service>-<project number>.<region>.run.app` for every project, so `*.`, or a `*-` tail that isn't a project number, with `run.app` or a domain under it would admit anyone's service, and the server refuses to start with one. Lowercase, with no scheme, port or path. Without it, every endpoint is refused, so per-deployment routing is never open by default. An endpoint's host must also begin with its deployment's own service name (`kp-` and 20 characters, then `-` or `.`), so an endpoint can't point one tenant's deployment at another's service.",
+    example: '*-123456789012.us-central1.run.app',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'pack-service',
+  },
+  {
     name: 'KINDGI_IMAGE_REGISTRY_HOST',
     description:
       'The registry host the credentials below are for, with its port when it has one (e.g. `registry.example`, `ghcr.io`). Other registries are read anonymously.',
