@@ -90,7 +90,10 @@ gives their values, keyed by their wire names, which are the aliases:
       });
 ```
 
-The `Config` record describes the settings: its fields' types and annotations make the schema, and `@JsonProperty(defaultValue = …)` a default. `set("config", …)` gives their values, keyed by their wire names. The check gets those values as a `Config`.
+The `Config` record describes the settings: its fields' types and
+annotations make the schema, and `@JsonProperty(defaultValue = …)` a
+default. `set("config", …)` gives their values, keyed by their wire names.
+The check gets those values as a `Config`.
 
 </TabItem>
 <TabItem label="Scala">
@@ -108,7 +111,9 @@ The `Config` record describes the settings: its fields' types and annotations ma
     }
 ```
 
-The case class describes the settings: a field's default value is the schema's default. `set("config", …)` gives their values, keyed by their wire names. The check gets those values as a `Config`.
+The case class describes the settings: a field's default value is the
+schema's default. `set("config", …)` gives their values, keyed by their wire
+names. The check gets those values as a `Config`.
 
 </TabItem>
 </Tabs>
@@ -222,23 +227,42 @@ The check gets `config` parsed into its type:
 
 The check gets `config` as a `Config`:
 
-- **Defaults are filled in.** A guardrail without `set("config", …)` runs with the schema's defaults; here, a limit of 500.
-- **A value that doesn't fit isn't caught before a turn.** Indexing the pack and `kindgi dev` accept `Map.of("maxChars", -5)`. The pack service checks the config on every call, so the check can't run: with `halt`, every turn the guardrail checks fails, and `./kindgiw runs start` exits 1 with:
+- **Defaults are filled in.** A guardrail without `set("config", …)` runs
+  with the schema's defaults; here, a limit of 500.
+- **A value that doesn't fit isn't caught before a turn.** Indexing the pack
+  and `kindgi dev` accept `Map.of("maxChars", -5)`. The pack service checks
+  the config on every call, so the check can't run: with `halt`, every turn
+  the guardrail checks fails, and `./kindgiw runs start` exits 1 with:
 
   ```text
   Error [guardrail-violation]: Turn blocked: guardrail 'my-pack.answer-length' couldn't run its check (check-failed: guardrail "my-pack.answer-length": its check threw: input-validation-failed: Check "my-pack.checks.answer-length" config failed validation at /maxChars: must be > 0)
   ```
 
-  With another action, the turn completes, and the error is recorded as [When the check can't run](../halt-or-record/#when-the-check-cant-run) describes. Fix the value and save.
-- **`set("config", …)` is keyed by wire names**, as the schema names them: `maxChars`.
+  With another action, the turn completes, and the error is recorded as
+  [When the check can't run](../halt-or-record/#when-the-check-cant-run)
+  describes. Fix the value and save.
+- **`set("config", …)` is keyed by wire names**, as the schema names them:
+  `maxChars`.
 
 </TabItem>
 <TabItem label="Scala">
 
-The check gets `config` as a `Config`, as in Java:
+The check gets `config` as a `Config`:
 
-- **Defaults are filled in** from the case class's default values: without `set("config", …)`, a limit of 500.
-- **A value that doesn't fit isn't caught before a turn.** Indexing and `kindgi dev` accept `Map("maxChars" -> -5)`, and the check can't run on any turn: with `halt`, every turn it checks fails with the error in the Java tab.
+- **Defaults are filled in** from the case class's default values: without
+  `set("config", …)`, a limit of 500.
+- **A value that doesn't fit isn't caught before a turn.** Indexing and
+  `kindgi dev` accept `Map("maxChars" -> -5)`. The pack service checks the
+  config on every call, so the check can't run: with `halt`, every turn the
+  guardrail checks fails, and `./kindgiw runs start` exits 1 with:
+
+  ```text
+  Error [guardrail-violation]: Turn blocked: guardrail 'my-pack.answer-length' couldn't run its check (check-failed: guardrail "my-pack.answer-length": its check threw: input-validation-failed: Check "my-pack.checks.answer-length" config failed validation at /maxChars: must be > 0)
+  ```
+
+  With another action, the turn completes, and the error is recorded as
+  [When the check can't run](../halt-or-record/#when-the-check-cant-run)
+  describes. Fix the value and save.
 - **`set("config", …)` is keyed by wire names**, as the schema names them.
 
 </TabItem>

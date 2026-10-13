@@ -134,7 +134,9 @@ public final class FindOrder {
 }
 ```
 
-`needsSpec` goes in with `set("needsSpec", …)`, as the API names it. `ctx.env()` holds the declared values, by name, with a `default` filled in where no scope sets one.
+`needsSpec` goes in with `set("needsSpec", …)`, as the API names it.
+`ctx.env()` holds the declared values, by name, with a `default` filled in
+where no scope sets one.
 
 </TabItem>
 
@@ -165,7 +167,9 @@ object FindOrder {
 }
 ```
 
-`needsSpec` goes in with `set("needsSpec", …)`, as the API names it. `ctx.env` holds the declared values, by name, with a `default` filled in where no scope sets one.
+`needsSpec` goes in with `set("needsSpec", …)`, as the API names it.
+`ctx.env` holds the declared values, by name, with a `default` filled in
+where no scope sets one.
 
 </TabItem>
 </Tabs>
@@ -339,7 +343,10 @@ def test_builds_the_url_from_the_env_values():
 </TabItem>
 <TabItem label="Java">
 
-`new ToolContext(…)` takes the env values as the handler gets them. Nothing fills in a default or checks a value against its schema, as `invokeToolForTest` does in TypeScript, so the test sets each name the handler reads.
+`new ToolContext(…)` takes the env values as the handler gets them. Nothing
+fills in a default or checks a value against its schema, as
+`invokeToolForTest` does in TypeScript, so the test sets each name the
+handler reads.
 
 ```java
 // src/test/java/mypack/tools/FindOrderTest.java
@@ -369,7 +376,10 @@ class FindOrderTest {
 
 <TabItem label="Scala">
 
-`new ToolContext(…)` takes the env values as the handler gets them. Nothing fills in a default or checks a value against its schema, as `invokeToolForTest` does in TypeScript, so the test sets each name the handler reads.
+`new ToolContext(…)` takes the env values as the handler gets them. Nothing
+fills in a default or checks a value against its schema, as
+`invokeToolForTest` does in TypeScript, so the test sets each name the
+handler reads.
 
 ```scala
 // src/test/scala/mypack/tools/FindOrderSuite.scala
