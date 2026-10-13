@@ -249,7 +249,7 @@ export const ENV_EXAMPLES = {
     make: 'openssl rand -hex 32',
   },
   KINDGI_PACK_TENANT_ID: {
-    value: '<the tenant id this pack service serves, a UUID>',
+    value: '<UUID of the tenant this pack service serves>',
   },
   KINDGI_IMAGE_REGISTRY_PASSWORD: {
     value: '<registry password or read-only access token>',
