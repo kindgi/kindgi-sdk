@@ -147,6 +147,10 @@ export const ENV_DEFAULTS = {
   KINDGI_PACK_ENV_FILTER: '`on`',
   KINDGI_PACK_ENV_DECLARED:
     'none: the launcher drops nothing (an image built by `kindgi build` sets it)',
+  KINDGI_PACK_TENANT_ID: "none: no check, the pack service answers any tenant's calls",
+  KINDGI_PACK_ROUTING: '`single`: one pack service, `KINDGI_PACK_SERVICE_URL`, for every call',
+  KINDGI_PACK_ENDPOINT_HOSTS:
+    'none: every endpoint is refused, so per-deployment routing is never open by default',
   KINDGI_IMAGE_REGISTRY_HOST: 'none: every registry is read anonymously',
   KINDGI_IMAGE_REGISTRY_USERNAME: 'none: no credentials (anonymous reads)',
   KINDGI_IMAGE_REGISTRY_PASSWORD: 'none: no credentials (anonymous reads)',
@@ -237,6 +241,9 @@ export const ENV_EXAMPLES = {
   KINDGI_PACK_SERVICE_TOKEN: {
     value: '<long random value, printable ASCII without spaces>',
     make: 'openssl rand -hex 32',
+  },
+  KINDGI_PACK_TENANT_ID: {
+    value: '<the tenant id this pack service serves, a UUID>',
   },
   KINDGI_IMAGE_REGISTRY_PASSWORD: {
     value: '<registry password or read-only access token>',
