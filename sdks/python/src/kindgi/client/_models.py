@@ -13008,23 +13008,14 @@ class RegisterMCPEndpointBody(BaseModel):
     """
     Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
     """
-    secret_scopes: Annotated[
-        dict[str, RecordedSecretScope1 | RecordedSecretScope2 | RecordedSecretScope3 | None] | None,
-        Field(alias="secretScopes"),
-    ] = None
+    scope_kind: Annotated[Literal["tenant", "org", "project"], Field(alias="scopeKind")]
     """
-    Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.
+    Discriminator for the ?scopeKind + ?scopeId + ?inherit triplet. Tenant carries no id (implicit from session); org/project require scopeId.
     """
-
-
-class MCPEndpointCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[MCPEndpoint]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    has_more: Annotated[bool, Field(alias="hasMore")]
+    scope_id: Annotated[str | None, Field(alias="scopeId", min_length=1)] = None
+    """
+    Required when `scopeKind` is `org` or `project`; absent for `tenant` (implicit from the session).
+    """
 
 
 class PersonGrants(BaseModel):
@@ -13093,6 +13084,13 @@ class MCPEndpoint(BaseModel):
     send_traceparent: Annotated[bool | None, Field(alias="sendTraceparent")] = None
     """
     Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
+    """
+    secret_scopes: Annotated[
+        dict[str, RecordedSecretScope1 | RecordedSecretScope2 | RecordedSecretScope3 | None] | None,
+        Field(alias="secretScopes"),
+    ] = None
+    """
+    Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.
     """
 
 
