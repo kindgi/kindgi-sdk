@@ -1198,8 +1198,6 @@ export interface ScalarDocsConfig {
 const DEFAULT_TOKEN_SIGN_IN_TTL_MS = 12 * 60 * 60 * 1000;
 
 export function createApp(input: CreateAppInput): Hono<AppEnv> {
-  // The operator's requests are on record wherever the operator acts in no
-  // tenant: the access procedure and the processing terms rely on it.
   // A frozen tenant stays frozen whatever way it comes in: the gate needs to know.
   if (input.tenancy === 'multi' && input.tenantStates === undefined) {
     throw new Error(
@@ -1216,6 +1214,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       'createApp: a runtime serving many tenants needs imagePrefixes, so a tenant deploys only images in its own repository',
     );
   }
+  // The operator's requests are on record wherever the operator acts in no
+  // tenant: the access procedure and the processing terms rely on it.
   if (input.tenancy === 'multi' && input.systemAccessAudit === undefined) {
     throw new Error(
       "createApp: a runtime serving many tenants needs systemAccessAudit, the record of every request the operator's system keys make",
