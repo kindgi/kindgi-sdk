@@ -377,8 +377,8 @@ variable "server_env" {
     error_message = "server_env: a name is upper-case letters, digits and underscores."
   }
   validation {
-    condition     = alltrue([for name in keys(var.server_env) : !can(regex("SECRET|_SMTP_URL$", name))])
-    error_message = "server_env: a secret (a *SECRET* name, or the SMTP URL with its password) goes in server_secret_env, by reference to Secret Manager, so its value isn't in the plan, the state or the service's configuration."
+    condition     = alltrue([for name in keys(var.server_env) : !can(regex("SECRET|_SMTP_URL$|_PRESHARED_KEY$", name))])
+    error_message = "server_env: a secret (a *SECRET* name, a preshared key, or the SMTP URL with its password) goes in server_secret_env, by reference to Secret Manager, so its value isn't in the plan, the state or the service's configuration."
   }
 }
 
