@@ -28,7 +28,7 @@ export const ENV_DEFAULTS = {
   KINDGI_WEBHOOK_PRIVATE_NETWORKS: '`deny`',
   KINDGI_PRODUCTION_GATE: '`off`: no gate, and any tenant admin can put a project in production',
   KINDGI_PRODUCTION_NEXT_URL:
-    'none: the `production-not-allowed` refusal says to ask whoever runs the server',
+    'none: `production-not-allowed` says to ask whoever runs the server, and `production-limit-reached` to take a project out of production or ask whoever runs the server to raise the limit',
   KINDGI_USAGE_METERING: '`off`: model calls are counted, nothing else',
   KINDGI_LICENSE_KEY:
     'none: outside development mode the server refuses to start; development mode needs none',
