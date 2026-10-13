@@ -1997,7 +1997,7 @@ export const ERROR_ENTRIES = {
   },
   'license-operator-only': {
     description:
-      "`GET /v1/license` is for the deployment's own token, or for an admin of the tenant when the deployment serves a single tenant. Other callers are refused.",
+      "`GET /v1/license` is for the deployment's own token, or for an admin of the tenant when the deployment serves a single tenant. `GET /v1/license/usage` is for the deployment's own token only. Other callers are refused, and the refusal recorded.",
     details: [],
   },
   'invalid-provider-config': {
@@ -2752,7 +2752,7 @@ export const ACCESS_ERRORS = {
       error: 'held-for-review',
       status: 403,
       description:
-        "This deployment's use, from the counts its renewal carried (`kindgi license renew --runtime`), is above what a non-production key covers, so no new key is issued until Kindgi reviews it. Write to contact@kindgi.com about a production license. The key you have runs until its own date, and a renewal before the key is due gets the same key back.",
+        "This renewal's counts (`kindgi license renew --runtime`) are above what a non-production key covers, so it got no new key: write to contact@kindgi.com about a production license. Kindgi can release the deployment after a review, and its renewals then aren't held until a date. The key you have runs until its own date. A renewal before the key is due gets the same key back.",
       seeAlso: ['deploy/renew-the-license-key'],
     },
     {

@@ -22,6 +22,7 @@
  */
 
 import { KindgiApiError } from '@kindgi/client';
+import { bearerValueProblem } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
@@ -35,7 +36,7 @@ import {
   enrollLine,
   generateRenewerKey,
 } from '../license/protocol.js';
-import { type CountsSent, renewLicense } from '../license/renew.js';
+import { type CountsSent, networkReason, renewLicense } from '../license/renew.js';
 import {
   SecretRefError,
   type SecretStore,
@@ -80,9 +81,11 @@ function accessOrigin(ctx: CommandContext): string {
 }
 
 /**
- * `--runtime <url>` with `--runtime-token <ref>`: the deployment's runtime and
- * where its own token is (`KINDGI_API_TOKEN`), to read its use since the
- * current key was issued (`GET /v1/license/usage`). Both or neither.
+ * `--runtime <url>` with `--runtime-token <ref>`: the deployment's runtime (its
+ * URL, as `KINDGI_API_URL` gives it) and where its own token is kept, to read
+ * its use since the current key was issued (`GET /v1/license/usage`). Both or
+ * neither. Neither value is printed: a URL can hold credentials, and a
+ * reference given wrong can be the token itself.
  */
 function runtimeUsage(ctx: CommandContext): ((since: Date) => Promise<RenewalUsage>) | undefined {
   const runtime = stringFlag(ctx, 'runtime');
@@ -93,36 +96,61 @@ function runtimeUsage(ctx: CommandContext): ((since: Date) => Promise<RenewalUsa
     );
   }
   if (runtime === undefined || tokenRef === undefined) return undefined;
-  let url: URL;
-  try {
-    url = new URL(runtime);
-  } catch {
-    throw new UsageError(`--runtime must be a URL. Got "${runtime}".`);
-  }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    throw new UsageError(`--runtime must be an http(s) URL. Got "${runtime}".`);
-  }
+  const base = runtimeBase(runtime);
   const tokens = store(ctx, 'runtime-token', tokenRef);
   return async (since) => {
     const token = (await tokens.read())?.trim();
     if (token === undefined || token === '') {
       throw new Error(`there's no token in ${tokens.describe}`);
     }
+    // Checked before it's sent: fetch's own error would quote it.
+    const problem = bearerValueProblem(token);
+    if (problem !== undefined) {
+      throw new Error(
+        `the token in ${tokens.describe} can't be sent in a header: it has ${problem}`,
+      );
+    }
     try {
-      return await ctx.clientFor(url.origin, token).license.usage({ since });
+      return await ctx.clientFor(base, token).license.usage({ since });
     } catch (cause) {
-      throw new Error(usageProblem(url.origin, cause));
+      throw new Error(usageProblem(base, cause));
     }
   };
 }
 
-/** Why the runtime gave no counts, in a line: its refusal, an older runtime, or no answer. */
+/** `--runtime`: an http(s) URL with no credentials in it, as its origin and path. */
+function runtimeBase(raw: string): string {
+  let url: URL | undefined;
+  try {
+    url = new URL(raw);
+  } catch {
+    url = undefined;
+  }
+  if (
+    url === undefined ||
+    (url.protocol !== 'https:' && url.protocol !== 'http:') ||
+    url.username !== '' ||
+    url.password !== ''
+  ) {
+    throw new UsageError(
+      "--runtime must be the runtime's http(s) URL as KINDGI_API_URL gives it, with no credentials in it, like https://kindgi.acme.example.",
+    );
+  }
+  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+}
+
+/** Why the runtime gave no counts, in a line: no answer, an answer without the route, or its refusal. */
 function usageProblem(runtime: string, cause: unknown): string {
   if (cause instanceof KindgiApiError) {
-    if (cause.error.code === 'not-found') {
-      return `${runtime} doesn't report its use (a runtime before 0.1.8)`;
+    const error = cause.error;
+    if (error.code === 'network') {
+      const why = error.timeoutMs !== undefined ? 'no answer in time' : networkReason(error.cause);
+      return `${runtime} couldn't be asked (${why})`;
     }
-    return `${runtime} answered: ${cause.error.message}`;
+    if (error.code === 'not-found') {
+      return `${runtime} answered 404: it doesn't report its use (GET /v1/license/usage)`;
+    }
+    return `${runtime} answered: ${error.message}`;
   }
   return `${runtime} couldn't be asked (${cause instanceof Error ? cause.message : String(cause)})`;
 }
@@ -297,7 +325,7 @@ const renew: LeafCommand = {
       // self-serve one, in its last 30 days. By its subject, as `kindgi
       // doctor` and the runtime's banner tell them apart (`isSelfServe`).
       // A sign-in leaves a key this deployment renews to it, so the renewer
-      // is stopped first (the page's Renewing deployments).
+      // is stopped first (the page's "Renew the key from your deployment").
       const nextKey = isSelfServe(outcome.claims.subject)
         ? `stop this deployment's renewer at ${origin}, then sign in there for a new key`
         : 'write to contact@kindgi.com to extend the term';

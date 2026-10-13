@@ -138,6 +138,46 @@ export interface RenewalUsage {
   readonly projectsInProduction?: number;
 }
 
+/**
+ * A runtime's answer as counts, its fields named one by one, or `undefined`
+ * when it isn't: counts are whole numbers from 0, the period two times, the
+ * version a short token. Nothing else is signed and sent, and an answer
+ * that isn't counts is never quoted.
+ */
+export function readRenewalUsage(answer: unknown): RenewalUsage | undefined {
+  if (typeof answer !== 'object' || answer === null) return undefined;
+  const { since, until, runtimeVersion, runs, people, projectsInProduction } = answer as Record<
+    string,
+    unknown
+  >;
+  const count = (value: unknown): value is number =>
+    Number.isSafeInteger(value) && (value as number) >= 0;
+  const time = (value: unknown): value is string =>
+    typeof value === 'string' && value.length <= 40 && Number.isFinite(Date.parse(value));
+  if (
+    !time(since) ||
+    !time(until) ||
+    typeof runtimeVersion !== 'string' ||
+    !RUNTIME_VERSION.test(runtimeVersion) ||
+    !count(runs) ||
+    !count(people) ||
+    (projectsInProduction !== undefined && !count(projectsInProduction))
+  ) {
+    return undefined;
+  }
+  return {
+    since,
+    until,
+    runtimeVersion,
+    runs,
+    people,
+    ...(projectsInProduction !== undefined && { projectsInProduction }),
+  };
+}
+
+/** A runtime's version as it reports it: `0.1.8`, `0.1.8-rc.1`, `dev`. */
+const RUNTIME_VERSION = /^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$/;
+
 /** A renewal request, signed: its body and the signature header's value. */
 export function signRenewRequest(
   key: RenewerKey,

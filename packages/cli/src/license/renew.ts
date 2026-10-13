@@ -26,6 +26,7 @@ import {
   type RenewalUsage,
   type RenewerKey,
   decodeRenewerPrivateKey,
+  readRenewalUsage,
   signRenewRequest,
 } from './protocol.js';
 import type { SecretStore } from './stores.js';
@@ -90,7 +91,8 @@ export async function renewLicense(input: RenewInput, deps: RenewDeps = {}): Pro
   const { renewerId } = held.renewer;
 
   // The counts are the period's since the current key was issued; a runtime
-  // that can't say renews without them (the service marks it), never not at all.
+  // that can't say renews without them (the service records that), never
+  // not at all.
   const counts =
     input.usage === undefined ? undefined : await countUsage(input.usage, held.current);
   const request = signRenewRequest(held.renewer, {
@@ -146,16 +148,28 @@ export async function renewLicense(input: RenewInput, deps: RenewDeps = {}): Pro
   return { kind: 'renewed', claims: renewed.claims, renewerId, ...sent };
 }
 
-/** The deployment's use since the current key was issued, or why it couldn't be had. */
+/**
+ * The deployment's use since the current key was issued, or why it wasn't
+ * had: a production key's renewal carries none (counts are for free keys),
+ * and the runtime is asked only for a free one.
+ */
 async function countUsage(
   usage: (since: Date) => Promise<RenewalUsage>,
   current: LicenseClaims,
 ): Promise<CountsSent> {
+  if (current.use === 'production') {
+    return { sent: false, reason: "a production key's renewal carries no counts" };
+  }
+  let answer: unknown;
   try {
-    return { sent: true, usage: await usage(current.issuedAt) };
+    answer = await usage(current.issuedAt);
   } catch (cause) {
     return { sent: false, reason: cause instanceof Error ? cause.message : String(cause) };
   }
+  const counts = readRenewalUsage(answer);
+  return counts === undefined
+    ? { sent: false, reason: "the runtime's answer isn't counts" }
+    : { sent: true, usage: counts };
 }
 
 /** The current key (checked) and the renewer's key, or what's missing. */

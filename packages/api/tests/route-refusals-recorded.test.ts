@@ -84,6 +84,8 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'POST /v1/auth/token-sign-in token-sign-in-not-allowed',
     // The license is the deployment's: only its own token reads it here.
     'GET /v1/license license-operator-only',
+    // Refused before its `since` is read: no 400 for a caller who may not ask.
+    'GET /v1/license/usage license-operator-only',
   ],
   // An admin key without the capability a write needs; a caller who isn't a reviewer.
   [NO_CAPS_KEY]: [
@@ -91,6 +93,7 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'POST /v1/secrets',
     'GET /v1/approvals',
     'GET /v1/license license-operator-only',
+    'GET /v1/license/usage license-operator-only',
   ],
 };
 

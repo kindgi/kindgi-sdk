@@ -587,7 +587,7 @@ const LicenseUsageSinceQueryParam: ParameterSpec = {
   in: 'query',
   required: true,
   description:
-    "The period's start (ISO 8601, with a zone, not in the future): `kindgi license renew` sends when the current key was issued.",
+    "The period's start (ISO 8601, with a zone): `kindgi license renew` sends when the current key was issued. Up to five minutes ahead of the runtime's clock is taken as now, since clocks differ; further ahead is refused.",
   schema: { type: 'string', format: 'date-time' },
 };
 
@@ -3870,14 +3870,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'license.usage',
     summary: 'How much the deployment was used since a time',
     description:
-      "What a free license key's renewal carries (`kindgi license renew --runtime`): the runs started since `since` (not dry runs, replays, evals or child runs), the distinct people who started runs or decided approvals (counted in each tenant and summed, so a person in two tenants counts twice), the projects in production when the runtime has that setting, and the runtime's version. Counts only: no content, names or ids. Only the deployment's own token (`KINDGI_API_TOKEN`) reads it. A deployment that doesn't report it answers 404.",
+      "What a free license key's renewal carries (`kindgi license renew --runtime`): the runs started since `since` (not dry runs, replays, evals or child runs), the distinct people who started runs or decided approvals (counted in each tenant and summed, so a person in two tenants counts twice), the projects in production when the runtime can put projects in production (`PUT /v1/projects/{projectId}/production`), and the runtime's version. Counts only: no content, names or ids. Only the deployment's own token (`KINDGI_API_TOKEN`) reads it; anyone else is refused (`license-operator-only`), and the refusal recorded, before `since` is read. A deployment that doesn't report it answers 404.",
     tags: ['system'],
     security: 'bearer',
     parameters: [LicenseUsageSinceQueryParam],
     responses: {
       '200': { description: 'The counts.', schema: ref('LicenseUsage') },
       '400': ErrorResponse(
-        '`since` is missing, not a time with a zone, or in the future (`bad-input`).',
+        "`since` is missing, not a time with a zone, or more than five minutes ahead of the runtime's clock (`bad-input`).",
       ),
       ...CommonAuthErrors,
       '403': ErrorResponse("Not the deployment's own token (`license-operator-only`)."),

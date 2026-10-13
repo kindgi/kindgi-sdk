@@ -94,6 +94,16 @@ export interface LicenseStatusBinding {
 export const LICENSE_OPERATOR_ONLY_MESSAGE =
   "The license is this deployment's: read it with the deployment's own token (KINDGI_API_TOKEN). A tenant admin reads its standing only where the deployment serves that one tenant.";
 
+/** The refusal of a caller who may not read the deployment's use: every caller but its own token. */
+export const LICENSE_USAGE_OPERATOR_ONLY_MESSAGE =
+  "The deployment's use counts every tenant's: only the deployment's own token (KINDGI_API_TOKEN) reads it.";
+
+/**
+ * How far ahead of this runtime's clock `since` may be: a key issued
+ * moments ago, by a clock a little ahead, asks from just after now.
+ */
+const USAGE_CLOCK_SKEW_MS = 5 * 60_000;
+
 /**
  * What the deployment's own token reads: every field of `LicenseStatus`,
  * named, so nothing a binding adds leaves outside the schema.
@@ -190,26 +200,29 @@ export function licenseRouter(
         return refused(c, authorizer, {
           action: 'read',
           resource: ref('tenant', c.get('tenantId') as unknown as string),
-          message: LICENSE_OPERATOR_ONLY_MESSAGE,
+          message: LICENSE_USAGE_OPERATOR_ONLY_MESSAGE,
           failing: 'scope',
           code: 'license-operator-only',
         });
       }
       const until = new Date();
       const since = parseTimeInput(c.req.query('since'));
-      if (since === null || since.getTime() > until.getTime()) {
+      if (since === null || since.getTime() > until.getTime() + USAGE_CLOCK_SKEW_MS) {
         c.status(statusFor('bad-input') as never);
         return c.json(
           toWireError(
             {
               code: 'bad-input',
-              message: '`since` is required: an ISO 8601 time with a zone, not in the future.',
+              message:
+                "`since` is required: an ISO 8601 time with a zone, no more than five minutes ahead of the runtime's clock.",
             },
             c.get('requestId'),
           ),
         );
       }
-      return c.json(operatorUsageView(await usage({ since, until })));
+      // Ahead within the skew: an empty period, from now.
+      const from = since.getTime() > until.getTime() ? until : since;
+      return c.json(operatorUsageView(await usage({ since: from, until })));
     });
   }
   return r;

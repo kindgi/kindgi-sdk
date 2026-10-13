@@ -28,8 +28,10 @@ export interface LicenseClient {
    * renewal carries (`kindgi license renew --runtime`). The runs started
    * (not dry runs, replays, evals or child runs), the distinct people who
    * started runs or decided approvals (counted in each tenant and summed),
-   * the projects in production when the runtime has that setting, and its
-   * version. Counts only. Only the deployment's own token reads it;
+   * the projects in production when the runtime can put projects in
+   * production, and its version. Counts only. A `since` up to five minutes
+   * ahead of the runtime's clock is taken as now. Only the deployment's own
+   * token reads it;
    * anyone else gets 403 `license-operator-only`. A deployment that
    * doesn't report it answers 404.
    *
