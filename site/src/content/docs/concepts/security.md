@@ -163,13 +163,28 @@ Registering a `stdio` endpoint with the default:
 {"error":{"code":"host-access-denied","message":"MCP endpoint \"acme.docs\" uses the stdio transport, which runs a command on the server's host; KINDGI_TENANT_HOST_ACCESS=deployed refuses that. Run the MCP server over HTTP (streamable-http) instead.","requestId":"req-61bc35bf-9ca4-4894-b041-a5babbc7ec3f"}}
 ```
 
+With `isolated`, a provider that would sign in as the runtime is refused
+when it's registered, and nothing is stored. The `bedrock` preset signs in
+as the runtime's AWS identity, so
+`kindgi providers register --preset=bedrock --region=us-east-2` prints:
+
+```text
+Error [invalid-request]: Provider "bedrock" doesn't fit adapter @kindgi/adapter-model-bedrock: adapter_config.auth = aws-identity (the default) signs in as the runtime's own AWS identity, which this deployment doesn't let tenant configuration use (KINDGI_TENANT_HOST_ACCESS). Set auth = api-key, with secret_ref naming a Bedrock API key.
+  ✗ /adapter_config/auth: adapter_config.auth = aws-identity (the default) signs in as the runtime's own AWS identity, which this deployment doesn't let tenant configuration use (KINDGI_TENANT_HOST_ACCESS). Set auth = api-key, with secret_ref naming a Bedrock API key.
+```
+
 Outside development, a webhook goes only to a public address, and only over
 https. Kindgi checks this when the webhook is registered, and again at every
 delivery, for every address the receiver's name resolves to. A self-hosted runtime whose receiver is on
 its own private network sets `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`, which
-opens RFC 1918, CGNAT and IPv6 unique-local addresses. Loopback and the
-cloud metadata addresses stay refused. `KINDGI_TENANT_HOST_ACCESS=isolated`
-refuses that setting.
+opens RFC 1918, CGNAT, and IPv6 unique-local and site-local addresses.
+Loopback and the cloud metadata addresses stay refused. A runtime with
+`KINDGI_TENANT_HOST_ACCESS=isolated` doesn't start with that setting (exit
+code 2):
+
+```text
+KINDGI_TENANT_HOST_ACCESS=isolated refuses private networks to tenant configuration, and KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow opens them to webhooks: set one of them, not both.
+```
 
 A model provider's calls carry only its own registration's settings and its
 own key: nothing of the server's environment goes with them.
