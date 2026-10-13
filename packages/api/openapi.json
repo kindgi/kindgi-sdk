@@ -27757,7 +27757,7 @@
             }
           },
           "429": {
-            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi hosted): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
+            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi Cloud): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -28040,7 +28040,7 @@
             }
           },
           "429": {
-            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi hosted): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
+            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi Cloud): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -30041,7 +30041,7 @@
             }
           },
           "429": {
-            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi hosted): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
+            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi Cloud): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -30711,7 +30711,7 @@
             }
           },
           "429": {
-            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi hosted): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
+            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi Cloud): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -31392,7 +31392,7 @@
             }
           },
           "429": {
-            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi hosted): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
+            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi Cloud): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -34219,7 +34219,7 @@
             }
           },
           "429": {
-            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi hosted): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
+            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi Cloud): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -37686,7 +37686,7 @@
             }
           },
           "429": {
-            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi hosted): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
+            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi Cloud): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -41093,7 +41093,7 @@
             }
           },
           "429": {
-            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi hosted): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
+            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi Cloud): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -44077,7 +44077,7 @@
             }
           },
           "429": {
-            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi hosted): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
+            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi Cloud): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
             "content": {
               "application/json": {
                 "schema": {

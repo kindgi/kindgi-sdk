@@ -1365,7 +1365,7 @@ const ErrorResponse = (description: string): ResponseSpec => ({
  * budget before it stored anything.
  */
 const SCHEMA_COMPILE_BUDGET = ErrorResponse(
-  '`rate-limit-exceeded` with `details.limit: "schema-compile-time"`, on a server with a compile budget (Kindgi hosted): this tenant\'s schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.',
+  '`rate-limit-exceeded` with `details.limit: "schema-compile-time"`, on a server with a compile budget (Kindgi Cloud): this tenant\'s schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.',
 );
 
 const CommonAuthErrors: Readonly<Record<string, ResponseSpec>> = {
