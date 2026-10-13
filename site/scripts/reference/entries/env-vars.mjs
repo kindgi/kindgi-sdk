@@ -16,6 +16,8 @@ export const ENV_DEFAULTS = {
     'none: the address the server binds (shown as `http://localhost:<port>` when it binds all interfaces)',
   KINDGI_DATABASE_URL: '`postgres://localhost:5432/kindgi`',
   KINDGI_OPENFGA_API_URL: 'none: authorization is not enforced',
+  KINDGI_OPENFGA_PRESHARED_KEY: 'none: calls to OpenFGA carry no key',
+  KINDGI_OPENFGA_AUTH: '`none`',
   KINDGI_TENANT_ID:
     'none: a new tenant with a generated UUID is created at each start and printed in the startup banner',
   KINDGI_TENANCY: "`single`: the runtime serves one tenant, `KINDGI_TENANT_ID`'s",
@@ -169,6 +171,10 @@ export const ENV_DEFAULTS = {
  * parentheses, which a pasted shell line can't hold.
  */
 export const ENV_EXAMPLES = {
+  KINDGI_OPENFGA_PRESHARED_KEY: {
+    value: '<long random value without spaces or commas>',
+    make: 'openssl rand -hex 32',
+  },
   KINDGI_LICENSE_KEY: {
     value: 'kgi_lk_<payload>.<signature>',
   },
