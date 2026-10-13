@@ -1655,6 +1655,165 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'capability-not-mintable': {
+    description:
+      "A tenant's key can't carry a system capability (`system:*`, or `kindgi:system` on a runtime serving many tenants): those are system keys' alone. Mint the key without them, or mint a system key with `POST /v1/system/keys`.",
+    details: [
+      {
+        key: 'capabilities',
+        meaning: "the capabilities asked for that a tenant's key can't carry",
+      },
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+    seeAlso: ['POST /v1/tokens', 'POST /v1/system/keys'],
+  },
+  'system-key-on-tenant-route': {
+    description:
+      "A system key was sent to a route outside `/v1/system/*`. A system key acts in no tenant, so it reaches the system routes only: use one of the tenant's keys.",
+    details: [
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+    seeAlso: ['GET /v1/system/whoami'],
+  },
+  'system-principal-required': {
+    description:
+      "The route is a system route (`/v1/system/*`), and it was called with a tenant's key or a session. Call it with a system key (`kgi_sy_…`).",
+    details: [
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+  },
+  'system-scope-missing': {
+    description:
+      "The system key doesn't hold the scope this route takes. Minting a system key takes the full system capability, which a scoped key doesn't hold. Use a key with that scope.",
+    details: [
+      {
+        key: 'scope',
+        meaning: 'the scope the route takes',
+      },
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+  },
+  'system-key-not-found': {
+    description: 'No system key has that id.',
+    details: [],
+  },
+  'system-key-expiry-required': {
+    description:
+      "A full system key minted by another system key must expire: set `expiresAt`. Only the deployment's own token mints one that never expires.",
+    details: [],
+  },
+  'access-record-unavailable': {
+    description:
+      "The record of the operator's requests couldn't be written, so a system key's request did nothing. Retry after the `Retry-After` header.",
+    details: [],
+  },
+  'tenant-closing': {
+    description:
+      "The tenant is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, erasures, signing in and out, and the signed exports still work. A system route that changes a tenant refuses a closing one. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+    details: [
+      {
+        key: 'state',
+        meaning: '`closing`',
+      },
+      {
+        key: 'tenantId',
+        meaning: 'the tenant; from a system route only',
+      },
+    ],
+  },
+  'tenant-suspended': {
+    description:
+      "The tenant is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, erasures, signing in and out, and the signed exports still work. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+    details: [
+      {
+        key: 'state',
+        meaning: '`suspended`',
+      },
+      {
+        key: 'tenantId',
+        meaning: 'the tenant; from a system route only',
+      },
+    ],
+  },
+  'tenant-slug-taken': {
+    description: 'Another tenant has that slug. Choose another.',
+    details: [
+      {
+        key: 'slug',
+        meaning: 'the slug that is taken',
+      },
+    ],
+  },
+  'image-not-allowed': {
+    description:
+      "The deployment's image is outside the tenant's image repository: a tenant deploys only images at or under its image prefix.",
+    details: [
+      {
+        key: 'imagePrefix',
+        meaning: "the tenant's image prefix; from `POST /v1/deployments` only",
+      },
+    ],
+  },
+  'image-prefix-unset': {
+    description:
+      "The tenant has no image repository set, so it can't register a deployment yet. Its operator sets one with `PUT /v1/system/tenants/{tenantId}/image-prefix`.",
+    details: [],
+  },
+  'image-prefix-taken': {
+    description:
+      "The image prefix equals, holds or sits inside another tenant's. Each tenant's repository is its own: choose a prefix that doesn't overlap another tenant's.",
+    details: [],
+  },
+  'tenant-state-unavailable': {
+    description:
+      "The tenant's state couldn't be read, so the request changed nothing. Retry after the `Retry-After` header. On the S3-compatible surface, the same answer is S3's `503 ServiceUnavailable`.",
+    details: [],
+    seeAlso: ['GET /v1/tenant'],
+  },
   'service-account-not-found': {
     description: 'No service account with that id exists in this tenant.',
     details: [],

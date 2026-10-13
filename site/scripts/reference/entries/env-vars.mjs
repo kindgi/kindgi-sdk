@@ -18,6 +18,7 @@ export const ENV_DEFAULTS = {
   KINDGI_OPENFGA_API_URL: 'none: authorization is not enforced',
   KINDGI_TENANT_ID:
     'none: a new tenant with a generated UUID is created at each start and printed in the startup banner',
+  KINDGI_TENANCY: "`single`: the runtime serves one tenant, `KINDGI_TENANT_ID`'s",
   KINDGI_API_TOKEN:
     'none: a new `kgi_bt_` token is generated at each start and printed in the startup banner',
   KINDGI_SEED_USER_ID: 'none: the user the token had at an earlier start, else a new user',
