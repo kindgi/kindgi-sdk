@@ -40,7 +40,7 @@ A restart after that day doesn't come back up.
 
    ```sh
    docker pull quay.io/kindgi/runtime:<version>
-   docker stop --time 30 kindgi-server
+   docker stop -t 30 kindgi-server
    docker rm kindgi-server
    docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
      --add-host registry.localhost:host-gateway \
