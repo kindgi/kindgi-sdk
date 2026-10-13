@@ -1,6 +1,7 @@
 ---
 "@kindgi/api": patch
 "@kindgi/client": patch
+"@kindgi/env-schema": patch
 "@kindgi/platform": patch
 ---
 
@@ -11,3 +12,4 @@
 - **Order:** with the production gate on, a tenant that isn't allowed is refused `production-not-allowed` first.
 - **The binding:** `ProjectBinding.setProduction` takes an optional `{ projectsInProduction }` and answers `limit-reached` (with the limit and the count) without a change. It counts the tenant's projects in production and changes the project in one step, so two projects put in production at once can't both take the last place. The in-memory binding does. The conformance suite's `productionLimit` option checks a binding against it.
 - **The count, read:** `GET /v1/system/tenants/{tenantId}/limits` answers an optional `inUse: { projectsInProduction }` from a runtime whose `SystemTenantSettingsBinding` has the new optional `inUse(tenantId)`. The count can be over a limit that was lowered below it.
+- **`KINDGI_PRODUCTION_NEXT_URL`** is the `details.next` of both refusals, `production-not-allowed` and `production-limit-reached`, and its description says so. `KINDGI_PRODUCTION_GATE`'s no longer assumes a payment card.

@@ -286,7 +286,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PRODUCTION_NEXT_URL',
     description:
-      "Where a tenant that isn't allowed to put projects in production goes to be allowed, for example a billing page: an https URL. It's the `production-not-allowed` refusal's `details.next`, and `GET /v1/tenant`'s `productionNext` while the tenant isn't allowed. Unset: the refusal says to ask whoever runs the server.",
+      "Where a tenant goes to put more projects in production, for example a billing page: an https URL. It's the `details.next` of two refusals: `production-not-allowed`, for a tenant that isn't allowed to put projects in production, and `production-limit-reached`, for one at its limit on projects in production. It's also `GET /v1/tenant`'s `productionNext` while the tenant isn't allowed. Unset: the first refusal says to ask whoever runs the server, and the second to take a project out of production or ask whoever runs the server to raise the limit.",
     example: 'https://platform.example.com/account/billing',
     required: false,
     appliesTo: appliesToServer,
