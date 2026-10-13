@@ -1701,7 +1701,7 @@ export const ERROR_ENTRIES = {
   },
   'system-key-on-tenant-route': {
     description:
-      "A system key was sent to a route outside `/v1/system/*`. A system key acts in no tenant, so it reaches the system routes only: use one of the tenant's keys.",
+      "A system key was sent to a route it can't use. A system key acts in no tenant, so it reaches `/v1/system/*` and `GET /v1/license` only: use one of the tenant's keys.",
     details: [
       {
         key: 'action',
@@ -1738,11 +1738,11 @@ export const ERROR_ENTRIES = {
   },
   'system-scope-missing': {
     description:
-      "The system key doesn't hold the scope this route takes. Minting a system key takes the full system capability, which a scoped key doesn't hold. Use a key with that scope.",
+      "The system key doesn't hold the scope this request takes, which `scope` names: the route's own, or more for what the request asks (creating a tenant without `firstAdmin`, for one). Every `/v1/system/keys` route takes the full system capability, which a scoped key doesn't hold.",
     details: [
       {
         key: 'scope',
-        meaning: 'the scope the route takes',
+        meaning: 'the scope the request takes',
       },
       {
         key: 'action',
@@ -1774,7 +1774,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-closing': {
     description:
-      "The tenant is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, erasures, signing in and out, and the signed exports still work. A system route that changes a tenant refuses a closing one. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+      "The tenant is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, revocations, erasures, signing in and out, and the signed exports still work. The system routes that change its settings, limits, image prefix, a suspension or a deployment's endpoint refuse a closing tenant; clearing its deployments' endpoints, which retires its pack services, still works. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
     details: [
       {
         key: 'state',
@@ -1788,7 +1788,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-suspended': {
     description:
-      "The tenant is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, erasures, signing in and out, and the signed exports still work. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+      "The tenant is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, revocations, erasures, signing in and out, and the signed exports still work. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
     details: [
       {
         key: 'state',
