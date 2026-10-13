@@ -10813,9 +10813,9 @@ class WebhookReceipt(BaseModel):
     """
     An earlier fire holds this delivery's dedupe key: nothing new started.
     """
-    skipped: Literal["paused"] | None = None
+    skipped: Literal["paused", "tenant-suspended", "project-suspended"] | None = None
     """
-    The trigger is paused: no run started, and the event was dropped.
+    No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's tenant or project is suspended, and nothing was recorded.
     """
     received: Literal["ping"] | None = None
     """

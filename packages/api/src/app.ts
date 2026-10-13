@@ -609,13 +609,16 @@ export interface CreateAppInput {
   /**
    * Each tenant's state, for freezing a closing or suspended tenant's
    * writes (`tenantStateGate`), on every way in: keys, sessions, SigV4.
+   * A closing tenant's webhook deliveries are refused too, and a suspended
+   * one's are skipped.
    * Required with `tenancy: 'multi'`; a runtime serving one tenant has none.
    */
   readonly tenantStates?: TenantStateBinding;
   /**
    * Whether a project is suspended (`PUT
    * /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`): a
-   * deploy into it is refused `409 project-suspended`. Absent: no check.
+   * deploy into it is refused `409 project-suspended`, and a webhook
+   * delivery to one of its triggers is skipped. Absent: no check.
    */
   readonly projectSuspended?: (
     tenantId: import('@kindgi/types').TenantId,
@@ -2128,6 +2131,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         }),
         ...(input.webhookReceiver.rateLimitStore !== undefined && {
           rateLimitStore: input.webhookReceiver.rateLimitStore,
+        }),
+        ...(input.tenantStates !== undefined && { tenantStates: input.tenantStates }),
+        ...(input.projectSuspended !== undefined && {
+          projectSuspended: input.projectSuspended,
         }),
       }),
     );
