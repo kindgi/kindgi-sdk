@@ -1123,6 +1123,124 @@ class RevokeSystemKeyResult(BaseModel):
     """
 
 
+class SystemDeploymentEntry(BaseModel):
+    """
+    A deployment as whatever runs its pack service needs it: ids and the image, nothing of the tenant beyond its id. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). In the `retire` list, `reason` says why the service should go.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    deployment_id: Annotated[str, Field(alias="deploymentId", min_length=1)]
+    pack_id: Annotated[str, Field(alias="packId", min_length=1)]
+    """
+    The pack it deploys (the image index's `packId`): keep the newest few superseded deployments per tenant and pack.
+    """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project the deploy was scoped to. Absent for a tenant-wide deploy.
+    """
+    image_ref: Annotated[str, Field(alias="imageRef")]
+    """
+    Digest-pinned, as registered: the pack service is created from exactly this.
+    """
+    image_digest: Annotated[str, Field(alias="imageDigest", pattern="^sha256:[0-9a-f]{64}$")]
+    artifact_version: Annotated[str, Field(alias="artifactVersion")]
+    activated_at: Annotated[AwareDatetime, Field(alias="activatedAt")]
+    reason: (
+        Literal[
+            "superseded",
+            "tenant-closing",
+            "tenant-suspended",
+            "project-suspended",
+            "pack-suspended",
+        ]
+        | None
+    ) = None
+    """
+    In the `retire` list only. `superseded`: no live or promoted version routes to it any more (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.
+    """
+
+
+class SystemDeploymentPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[SystemDeploymentEntry]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class SetPackEndpointBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    url: str
+    """
+    `https://<host>`: no user info, path, query or fragment. Its host must be on the operator's allowlist (`KINDGI_PACK_ENDPOINT_HOSTS`) and begin with the deployment's own service name (`packServiceName`), then `-` or `.`.
+    """
+    auth: Literal["google-id-token", "token"]
+    """
+    How the server calls it: `google-id-token` adds an ID token for the URL (Cloud Run's invoker check) to the pack token; `token` sends the pack token only.
+    """
+    token: Annotated[str, Field(max_length=512, min_length=16)]
+    """
+    The pack service's token (`KINDGI_PACK_SERVICE_TOKEN`), printable ASCII without spaces. Stored wrapped; never returned, logged or recorded.
+    """
+
+
+class RecordDeploymentProblemBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: Literal[
+        "endpoint-url-invalid",
+        "endpoint-host-not-allowed",
+        "endpoint-name-mismatch",
+        "endpoint-unreachable",
+        "endpoint-info-mismatch",
+        "image-not-allowed",
+        "tenant-not-provisioned",
+        "capacity-unavailable",
+        "service-start-failed",
+    ]
+    """
+    Why the pack service couldn't be created, or was refused: one of `DEPLOYMENT_ENDPOINT_PROBLEM_CODES`. The tenant sees the code, never more.
+    """
+
+
+class SetPackSuspendedBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    suspended: bool
+    reason: Annotated[str | None, Field(max_length=500, min_length=1)] = None
+    """
+    Why, for the operator's record.
+    """
+
+
+class PackSuspension(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    suspended: bool
+    since: AwareDatetime
+    """
+    When it last changed.
+    """
+
+
 class SystemTenant(BaseModel):
     """
     A tenant, as the operator sees it: never its content.
@@ -8772,6 +8890,42 @@ class DeploymentContents(BaseModel):
     flows: list[Flow2]
 
 
+class DeploymentEndpointProblem(BaseModel):
+    """
+    With `pending` only: the last reason the deployment has no pack service yet, gone once the status changes. A fixed code, never free text.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: str
+    """
+    One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start).
+    """
+    since: AwareDatetime
+    """
+    When it was recorded.
+    """
+
+
+class DeploymentEndpoint(BaseModel):
+    """
+    Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`). Carries no URL and no token.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    status: Literal["pending", "ready", "cleared"]
+    since: AwareDatetime
+    """
+    When the status last changed.
+    """
+    problem: DeploymentEndpointProblem | None = None
+
+
 class DeploymentRecord(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -8812,6 +8966,7 @@ class DeploymentRecord(BaseModel):
     """
     Server-side ledger timestamp — when the register call succeeded.
     """
+    endpoint: DeploymentEndpoint | None = None
     primitives: DeploymentPrimitiveCounts
     contents: DeploymentContents
 

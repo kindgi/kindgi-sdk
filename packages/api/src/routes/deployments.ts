@@ -38,6 +38,7 @@ import type {
   DeployedVersion,
   Deployment,
   DeploymentBinding,
+  DeploymentEndpoint,
   DeploymentPrimitiveCounts,
   DeploymentRegisterOutcome,
 } from '../deployment-binding.js';
@@ -811,6 +812,15 @@ export function deploymentsRouter(
         signature: wire.signature,
         publishedAt: wire.publishedAt,
         primitives,
+        ...(typeof imageIndex.packId === 'string' && { packId: imageIndex.packId }),
+        packChecks: [
+          ...new Set(
+            validated.guardrails
+              // Its check runs in the image: a module, and not a built-in it merely names.
+              .filter((g) => g.codeArtifactRef !== undefined && g.checkBuiltIn !== true)
+              .map((g) => g.check as unknown as string),
+          ),
+        ],
         contents: {
           tools: validated.tools.map((t) => ({
             id: t.id as unknown as string,
@@ -2050,6 +2060,16 @@ async function rollback(actions: readonly RollbackAction[]): Promise<void> {
   }
 }
 
+/** Named fields only: an endpoint's URL and token never reach a tenant. */
+function serializeEndpoint(e: DeploymentEndpoint): Record<string, unknown> {
+  return {
+    status: e.status,
+    since: e.since,
+    ...(e.status === 'pending' &&
+      e.problem !== undefined && { problem: { code: e.problem.code, since: e.problem.since } }),
+  };
+}
+
 function serializeDeployment(d: Deployment): Record<string, unknown> {
   return {
     deploymentId: d.deploymentId,
@@ -2063,6 +2083,7 @@ function serializeDeployment(d: Deployment): Record<string, unknown> {
     signature: d.signature,
     publishedAt: d.publishedAt,
     activatedAt: d.activatedAt,
+    ...(d.endpoint !== undefined && { endpoint: serializeEndpoint(d.endpoint) }),
     primitives: {
       tools: d.primitives.tools,
       guardrails: d.primitives.guardrails,

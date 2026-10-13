@@ -37,6 +37,10 @@
       "description": "The operator's tenants on a runtime serving many: create, list, read, close and suspend them (a project too), and what the control plane sets on each (production, limits, the image prefix), plus the admins' contacts for service notices. System keys only, each route under its own scope."
     },
     {
+      "name": "system-deployments",
+      "description": "Per-deployment routing, on a runtime serving many tenants: whatever runs each deployment's own pack service (an orchestrator) lists the deployments that need one or should lose theirs, and records where each runs, under `system:deployments`. Support suspends a pack under `system:suspend`. No tenant input ever names a pack's URL."
+    },
+    {
       "name": "service-accounts"
     },
     {
@@ -373,6 +377,14 @@
           "access-record-unavailable": 503,
           "tenant-closing": 409,
           "tenant-suspended": 409,
+          "project-suspended": 409,
+          "pack-suspended": 409,
+          "endpoint-url-invalid": 400,
+          "endpoint-host-not-allowed": 422,
+          "endpoint-name-mismatch": 422,
+          "endpoint-unreachable": 422,
+          "endpoint-info-mismatch": 422,
+          "endpoint-not-pending": 409,
           "tenant-slug-taken": 409,
           "image-not-allowed": 409,
           "image-prefix-unset": 409,
@@ -2711,6 +2723,177 @@
               "type": "string"
             },
             "description": "The ids of the keys minted from it, however deep, revoked with it."
+          }
+        }
+      },
+      "SystemDeploymentEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A deployment as whatever runs its pack service needs it: ids and the image, nothing of the tenant beyond its id. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). In the `retire` list, `reason` says why the service should go.",
+        "required": [
+          "tenantId",
+          "deploymentId",
+          "packId",
+          "imageRef",
+          "imageDigest",
+          "artifactVersion",
+          "activatedAt"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deploymentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "packId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The pack it deploys (the image index's `packId`): keep the newest few superseded deployments per tenant and pack."
+          },
+          "projectId": {
+            "type": "string",
+            "description": "The project the deploy was scoped to. Absent for a tenant-wide deploy."
+          },
+          "imageRef": {
+            "type": "string",
+            "description": "Digest-pinned, as registered: the pack service is created from exactly this."
+          },
+          "imageDigest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "artifactVersion": {
+            "type": "string"
+          },
+          "activatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "superseded",
+              "tenant-closing",
+              "tenant-suspended",
+              "project-suspended",
+              "pack-suspended"
+            ],
+            "description": "In the `retire` list only. `superseded`: no live or promoted version routes to it any more (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one."
+          }
+        }
+      },
+      "SystemDeploymentPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SystemDeploymentEntry"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "Opaque cursor for the next page. Absent when `hasMore: false`."
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SetPackEndpointBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "url",
+          "auth",
+          "token"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "`https://<host>`: no user info, path, query or fragment. Its host must be on the operator's allowlist (`KINDGI_PACK_ENDPOINT_HOSTS`) and begin with the deployment's own service name (`packServiceName`), then `-` or `.`."
+          },
+          "auth": {
+            "type": "string",
+            "enum": [
+              "google-id-token",
+              "token"
+            ],
+            "description": "How the server calls it: `google-id-token` adds an ID token for the URL (Cloud Run's invoker check) to the pack token; `token` sends the pack token only."
+          },
+          "token": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 512,
+            "description": "The pack service's token (`KINDGI_PACK_SERVICE_TOKEN`), printable ASCII without spaces. Stored wrapped; never returned, logged or recorded."
+          }
+        }
+      },
+      "RecordDeploymentProblemBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "endpoint-url-invalid",
+              "endpoint-host-not-allowed",
+              "endpoint-name-mismatch",
+              "endpoint-unreachable",
+              "endpoint-info-mismatch",
+              "image-not-allowed",
+              "tenant-not-provisioned",
+              "capacity-unavailable",
+              "service-start-failed"
+            ],
+            "description": "Why the pack service couldn't be created, or was refused: one of `DEPLOYMENT_ENDPOINT_PROBLEM_CODES`. The tenant sees the code, never more."
+          }
+        }
+      },
+      "SetPackSuspendedBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "suspended"
+        ],
+        "properties": {
+          "suspended": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Why, for the operator's record."
+          }
+        }
+      },
+      "PackSuspension": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "suspended",
+          "since"
+        ],
+        "properties": {
+          "suspended": {
+            "type": "boolean"
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it last changed."
           }
         }
       },
@@ -16853,6 +17036,53 @@
           }
         }
       },
+      "DeploymentEndpointProblem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "since"
+        ],
+        "description": "With `pending` only: the last reason the deployment has no pack service yet, gone once the status changes. A fixed code, never free text.",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start)."
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was recorded."
+          }
+        }
+      },
+      "DeploymentEndpoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "since"
+        ],
+        "description": "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`). Carries no URL and no token.",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "ready",
+              "cleared"
+            ]
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the status last changed."
+          },
+          "problem": {
+            "$ref": "#/components/schemas/DeploymentEndpointProblem"
+          }
+        }
+      },
       "DeploymentRecord": {
         "type": "object",
         "additionalProperties": false,
@@ -16920,6 +17150,9 @@
             "type": "string",
             "format": "date-time",
             "description": "Server-side ledger timestamp — when the register call succeeded."
+          },
+          "endpoint": {
+            "$ref": "#/components/schemas/DeploymentEndpoint"
           },
           "primitives": {
             "$ref": "#/components/schemas/DeploymentPrimitiveCounts"
@@ -24607,6 +24840,657 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/TenantLimits"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/deployments": {
+      "get": {
+        "operationId": "systemDeployments.list",
+        "summary": "List deployments that need a pack service, or should lose theirs",
+        "tags": [
+          "system-deployments"
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of deployments.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemDeploymentPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`endpoint` missing or neither `missing` nor `retire`; a `limit` out of range; a cursor refused.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:deployments` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (a live or promoted version resolves to it), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
+        "parameters": [
+          {
+            "name": "endpoint",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "missing",
+                "retire"
+              ]
+            },
+            "required": true,
+            "description": "`missing`: deployments that need a pack service. `retire`: deployments whose pack service should go."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint": {
+      "put": {
+        "operationId": "systemDeployments.setEndpoint",
+        "summary": "Record where a deployment's pack service runs",
+        "tags": [
+          "system-deployments"
+        ],
+        "responses": {
+          "200": {
+            "description": "Recorded: the deployment's endpoint as its tenant sees it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentEndpoint"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A malformed body (`bad-input`), or a URL that isn't `https://<host>` (`endpoint-url-invalid`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:deployments` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The tenant is closing or suspended (`tenant-closing`, `tenant-suspended`), or the project or pack is (`project-suspended`, `pack-suspended`); the image is outside the tenant's repository (`image-not-allowed`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The host isn't allowed (`endpoint-host-not-allowed`) or doesn't name the deployment's service (`endpoint-name-mismatch`, with `details.expected`); the pack service didn't answer (`endpoint-unreachable`) or answered as another pack or version (`endpoint-info-mismatch`, with `details.differs`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Records the endpoint, once every check passes: the URL is `https://<host>` (`endpoint-url-invalid`); its host is on the operator's allowlist (`endpoint-host-not-allowed`); its host names the deployment's own service, `packServiceName(tenantId, deploymentId)` then `-` or `.` (`endpoint-name-mismatch`); the image is in the tenant's repository (`image-not-allowed`); the pack service answers `/v1/info`, with the `kindgi-tenant-id` header, as this deployment (`endpoint-unreachable`, `endpoint-info-mismatch`, with the names of the fields that differed). A refusal is also recorded as the endpoint's `problem`, which the tenant sees as a code. The deployment's endpoint is then `ready`. Refused for a closing or suspended tenant, project or pack, so a sweep can't recreate a service another one retired. Takes `system:deployments`. The same body twice records it once.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id (a UUID)."
+          },
+          {
+            "name": "deploymentId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": true,
+            "description": "The deployment's id, as `GET /v1/system/deployments` lists it."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPackEndpointBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "systemDeployments.clearEndpoint",
+        "summary": "Clear a deployment's endpoint",
+        "tags": [
+          "system-deployments"
+        ],
+        "responses": {
+          "200": {
+            "description": "Cleared: the deployment's endpoint as its tenant sees it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentEndpoint"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:deployments` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Clears the endpoint before its pack service is deleted: the deployment's endpoint is `cleared`, and calls to its tools fail closed (`pack-endpoint-cleared`), never going to another deployment. Works for a closing or suspended tenant too: that's how its services are retired. Clearing twice keeps the first time. Takes `system:deployments`.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id (a UUID)."
+          },
+          {
+            "name": "deploymentId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": true,
+            "description": "The deployment's id, as `GET /v1/system/deployments` lists it."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem": {
+      "put": {
+        "operationId": "systemDeployments.recordProblem",
+        "summary": "Record why a deployment has no pack service yet",
+        "tags": [
+          "system-deployments"
+        ],
+        "responses": {
+          "200": {
+            "description": "Recorded: the deployment's endpoint as its tenant sees it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentEndpoint"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A malformed body, or a `code` not on the list (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:deployments` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The deployment's endpoint isn't `pending` (`endpoint-not-pending`, with `details.status`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "For whatever creates the pack services: records why a `pending` deployment has none yet, as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id (a UUID)."
+          },
+          {
+            "name": "deploymentId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": true,
+            "description": "The deployment's id, as `GET /v1/system/deployments` lists it."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordDeploymentProblemBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended": {
+      "put": {
+        "operationId": "systemDeployments.setSuspended",
+        "summary": "Suspend a deployment's pack, or restore it",
+        "tags": [
+          "system-deployments"
+        ],
+        "responses": {
+          "200": {
+            "description": "Set.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackSuspension"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A malformed body (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:suspend` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The tenant is closing (`tenant-closing`): closing is one-way, and its deployments already list to retire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it lists as needing a pack service again. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id (a UUID)."
+          },
+          {
+            "name": "deploymentId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": true,
+            "description": "The deployment's id, as `GET /v1/system/deployments` lists it."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPackSuspendedBody"
               }
             }
           }

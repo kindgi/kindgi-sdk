@@ -52,6 +52,10 @@ import {
 } from './resources/service-accounts.js';
 import { type SigningKeysClient, makeSigningKeysClient } from './resources/signing-keys.js';
 import { type SupervisorClient, makeSupervisorClient } from './resources/supervisor.js';
+import {
+  type SystemDeploymentsClient,
+  makeSystemDeploymentsClient,
+} from './resources/system-deployments.js';
 import { type SystemKeysClient, makeSystemKeysClient } from './resources/system-keys.js';
 import { type SystemTenantsClient, makeSystemTenantsClient } from './resources/system-tenants.js';
 import { type TeamsClient, makeTeamsClient } from './resources/teams.js';
@@ -129,6 +133,12 @@ export interface KindgiClient {
   readonly license: LicenseClient;
   /** The operator's system keys, on a runtime serving many tenants: the full system capability only. */
   readonly systemKeys: SystemKeysClient;
+  /**
+   * Per-deployment routing's system routes, on a runtime serving many
+   * tenants: what an orchestrator lists and records (`system:deployments`),
+   * and a pack's suspension (`system:suspend`).
+   */
+  readonly systemDeployments: SystemDeploymentsClient;
   /** What the control plane sets on a tenant: production allowed, and limits. System keys only. */
   readonly systemTenants: SystemTenantsClient;
   readonly tokens: TokensClient;
@@ -204,6 +214,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     exportSigningKeys: makeExportSigningKeysClient(transport),
     license: makeLicenseClient(transport),
     systemKeys: makeSystemKeysClient(transport),
+    systemDeployments: makeSystemDeploymentsClient(transport),
     systemTenants: makeSystemTenantsClient(transport),
     tokens: makeTokensClient(transport),
     serviceAccounts: makeServiceAccountsClient(transport),

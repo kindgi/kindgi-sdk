@@ -72,7 +72,12 @@ import {
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
 
+import { DEPLOYMENT_ENDPOINT_PROBLEM_CODES } from '../deployment-binding.js';
 import { ERROR_CODE_TO_STATUS } from '../errors.js';
+import {
+  PACK_ENDPOINT_AUTHS,
+  SYSTEM_DEPLOYMENT_RETIRE_REASONS,
+} from '../routes/system-deployments.js';
 import { FULL_SYSTEM_CAPABILITY, SYSTEM_SCOPES } from '../system.js';
 
 export type JsonSchema = Record<string, unknown>;
@@ -1492,6 +1497,134 @@ export const ApiTokenPageSchema: JsonSchema = {
       description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
     },
     hasMore: { type: 'boolean' },
+  },
+};
+
+// ---------------- system deployments (per-deployment routing) ----------------
+
+const SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES: Record<string, JsonSchema> = {
+  tenantId: { type: 'string', format: 'uuid' },
+  deploymentId: { type: 'string', minLength: 1 },
+  packId: {
+    type: 'string',
+    minLength: 1,
+    description:
+      "The pack it deploys (the image index's `packId`): keep the newest few superseded deployments per tenant and pack.",
+  },
+  projectId: {
+    type: 'string',
+    description: 'The project the deploy was scoped to. Absent for a tenant-wide deploy.',
+  },
+  imageRef: {
+    type: 'string',
+    description: 'Digest-pinned, as registered: the pack service is created from exactly this.',
+  },
+  imageDigest: { type: 'string', pattern: '^sha256:[0-9a-f]{64}$' },
+  artifactVersion: { type: 'string' },
+  activatedAt: { type: 'string', format: 'date-time' },
+};
+
+export const SystemDeploymentEntrySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A deployment as whatever runs its pack service needs it: ids and the image, nothing of the tenant beyond its id. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). In the `retire` list, `reason` says why the service should go.',
+  required: [
+    'tenantId',
+    'deploymentId',
+    'packId',
+    'imageRef',
+    'imageDigest',
+    'artifactVersion',
+    'activatedAt',
+  ],
+  properties: {
+    ...SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES,
+    reason: {
+      type: 'string',
+      enum: [...SYSTEM_DEPLOYMENT_RETIRE_REASONS],
+      description:
+        'In the `retire` list only. `superseded`: no live or promoted version routes to it any more (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.',
+    },
+  },
+};
+
+export const SystemDeploymentPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/SystemDeploymentEntry' } },
+    nextCursor: {
+      type: 'string',
+      description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
+    },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const SetPackEndpointBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['url', 'auth', 'token'],
+  properties: {
+    url: {
+      type: 'string',
+      description:
+        "`https://<host>`: no user info, path, query or fragment. Its host must be on the operator's allowlist (`KINDGI_PACK_ENDPOINT_HOSTS`) and begin with the deployment's own service name (`packServiceName`), then `-` or `.`.",
+    },
+    auth: {
+      type: 'string',
+      enum: [...PACK_ENDPOINT_AUTHS],
+      description:
+        "How the server calls it: `google-id-token` adds an ID token for the URL (Cloud Run's invoker check) to the pack token; `token` sends the pack token only.",
+    },
+    token: {
+      type: 'string',
+      minLength: 16,
+      maxLength: 512,
+      description:
+        "The pack service's token (`KINDGI_PACK_SERVICE_TOKEN`), printable ASCII without spaces. Stored wrapped; never returned, logged or recorded.",
+    },
+  },
+};
+
+export const RecordDeploymentProblemBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['code'],
+  properties: {
+    code: {
+      type: 'string',
+      enum: [...DEPLOYMENT_ENDPOINT_PROBLEM_CODES],
+      description:
+        "Why the pack service couldn't be created, or was refused: one of `DEPLOYMENT_ENDPOINT_PROBLEM_CODES`. The tenant sees the code, never more.",
+    },
+  },
+};
+
+export const SetPackSuspendedBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['suspended'],
+  properties: {
+    suspended: { type: 'boolean' },
+    reason: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 500,
+      description: "Why, for the operator's record.",
+    },
+  },
+};
+
+export const PackSuspensionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['suspended', 'since'],
+  properties: {
+    suspended: { type: 'boolean' },
+    since: { type: 'string', format: 'date-time', description: 'When it last changed.' },
   },
 };
 
@@ -9419,8 +9552,51 @@ export const DeploymentRecordSchema: JsonSchema = {
       format: 'date-time',
       description: 'Server-side ledger timestamp — when the register call succeeded.',
     },
+    endpoint: { $ref: '#/components/schemas/DeploymentEndpoint' },
     primitives: { $ref: '#/components/schemas/DeploymentPrimitiveCounts' },
     contents: { $ref: '#/components/schemas/DeploymentContents' },
+  },
+};
+
+/**
+ * A deployment's pack service, as a tenant sees it (never its URL or
+ * token). Present only when the server routes pack calls per deployment.
+ */
+export const DeploymentEndpointSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['status', 'since'],
+  description:
+    "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`). Carries no URL and no token.",
+  properties: {
+    status: { type: 'string', enum: ['pending', 'ready', 'cleared'] },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the status last changed.',
+    },
+    problem: { $ref: '#/components/schemas/DeploymentEndpointProblem' },
+  },
+};
+
+/** Why a `pending` deployment has no pack service yet: a fixed code, never free text. */
+export const DeploymentEndpointProblemSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['code', 'since'],
+  description:
+    'With `pending` only: the last reason the deployment has no pack service yet, gone once the status changes. A fixed code, never free text.',
+  properties: {
+    code: {
+      type: 'string',
+      description:
+        "One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start).",
+    },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When it was recorded.',
+    },
   },
 };
 
@@ -12134,6 +12310,12 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['MintSystemKeyResult', MintSystemKeyResultSchema],
   ['SystemKeyList', SystemKeyListSchema],
   ['RevokeSystemKeyResult', RevokeSystemKeyResultSchema],
+  ['SystemDeploymentEntry', SystemDeploymentEntrySchema],
+  ['SystemDeploymentPage', SystemDeploymentPageSchema],
+  ['SetPackEndpointBody', SetPackEndpointBodySchema],
+  ['RecordDeploymentProblemBody', RecordDeploymentProblemBodySchema],
+  ['SetPackSuspendedBody', SetPackSuspendedBodySchema],
+  ['PackSuspension', PackSuspensionSchema],
   ['SystemTenant', SystemTenantSchema],
   ['CreateSystemTenantBody', CreateSystemTenantBodySchema],
   ['CreateSystemTenantResult', CreateSystemTenantResultSchema],
@@ -12510,6 +12692,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RevokeSessionsResult', RevokeSessionsResultSchema],
   ['DeploymentPrimitiveCounts', DeploymentPrimitiveCountsSchema],
   ['DeploymentContents', DeploymentContentsSchema],
+  ['DeploymentEndpointProblem', DeploymentEndpointProblemSchema],
+  ['DeploymentEndpoint', DeploymentEndpointSchema],
   ['DeploymentRecord', DeploymentRecordSchema],
   ['DeploymentRegistrationBody', DeploymentRegistrationBodySchema],
   ['DeploymentCollectionPage', DeploymentCollectionPageSchema],

@@ -260,6 +260,21 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   /** A system route naming a tenant in a state it refuses. */
   'tenant-closing': 409,
   'tenant-suspended': 409,
+  /** A system route naming a deployment whose project, or pack, is suspended. */
+  'project-suspended': 409,
+  'pack-suspended': 409,
+  /** A deployment's endpoint refused: its URL isn't `https://<host>`, with no user info or path. */
+  'endpoint-url-invalid': 400,
+  /** A deployment's endpoint refused: its host isn't on the operator's allowlist. */
+  'endpoint-host-not-allowed': 422,
+  /** A deployment's endpoint refused: its host doesn't name the deployment's own pack service. */
+  'endpoint-name-mismatch': 422,
+  /** A deployment's endpoint refused: the pack service didn't answer `/v1/info`. */
+  'endpoint-unreachable': 422,
+  /** A deployment's endpoint refused: the pack service answered as another pack or version. */
+  'endpoint-info-mismatch': 422,
+  /** A problem recorded for a deployment whose endpoint isn't pending. */
+  'endpoint-not-pending': 409,
   /** Creating a tenant with a slug another tenant has. */
   'tenant-slug-taken': 409,
   /** A deployment's image outside its tenant's repository (`details.imagePrefix`, the tenant's own). */

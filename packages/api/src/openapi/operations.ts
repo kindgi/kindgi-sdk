@@ -136,6 +136,22 @@ const SigningKeyIdPathParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
+const SystemTenantIdPathParam: ParameterSpec = {
+  name: 'tenantId',
+  in: 'path',
+  required: true,
+  description: "The tenant's id (a UUID).",
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const SystemDeploymentIdPathParam: ParameterSpec = {
+  name: 'deploymentId',
+  in: 'path',
+  required: true,
+  description: "The deployment's id, as `GET /v1/system/deployments` lists it.",
+  schema: { type: 'string', minLength: 1, maxLength: 128 },
+};
+
 const CursorQueryParam: ParameterSpec = {
   name: 'cursor',
   in: 'query',
@@ -2280,6 +2296,169 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
       '409': ErrorResponse(
         'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
+      ),
+    },
+  },
+  // ---------- system deployments (per-deployment routing) ----------
+  {
+    method: 'get',
+    honoPath: '/v1/system/deployments',
+    openapiPath: '/v1/system/deployments',
+    operationId: 'systemDeployments.list',
+    summary: 'List deployments that need a pack service, or should lose theirs',
+    description:
+      "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (a live or promoted version resolves to it), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
+    tags: ['system-deployments'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'endpoint',
+        in: 'query',
+        required: true,
+        description:
+          '`missing`: deployments that need a pack service. `retire`: deployments whose pack service should go.',
+        schema: { type: 'string', enum: ['missing', 'retire'] },
+      },
+      CursorQueryParam,
+      LimitQueryParam,
+    ],
+    responses: {
+      '200': { description: 'One page of deployments.', schema: ref('SystemDeploymentPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        '`endpoint` missing or neither `missing` nor `retire`; a `limit` out of range; a cursor refused.',
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:deployments` (`system-scope-missing`).",
+      ),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/deployments/:deploymentId/endpoint',
+    openapiPath: '/v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
+    operationId: 'systemDeployments.setEndpoint',
+    summary: "Record where a deployment's pack service runs",
+    description:
+      "Records the endpoint, once every check passes: the URL is `https://<host>` (`endpoint-url-invalid`); its host is on the operator's allowlist (`endpoint-host-not-allowed`); its host names the deployment's own service, `packServiceName(tenantId, deploymentId)` then `-` or `.` (`endpoint-name-mismatch`); the image is in the tenant's repository (`image-not-allowed`); the pack service answers `/v1/info`, with the `kindgi-tenant-id` header, as this deployment (`endpoint-unreachable`, `endpoint-info-mismatch`, with the names of the fields that differed). A refusal is also recorded as the endpoint's `problem`, which the tenant sees as a code. The deployment's endpoint is then `ready`. Refused for a closing or suspended tenant, project or pack, so a sweep can't recreate a service another one retired. Takes `system:deployments`. The same body twice records it once.",
+    tags: ['system-deployments'],
+    security: 'bearer',
+    parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('SetPackEndpointBody') },
+    responses: {
+      '200': {
+        description: "Recorded: the deployment's endpoint as its tenant sees it.",
+        schema: ref('DeploymentEndpoint'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A malformed body (`bad-input`), or a URL that isn't `https://<host>` (`endpoint-url-invalid`).",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:deployments` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse(
+        'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
+      ),
+      '409': ErrorResponse(
+        "The tenant is closing or suspended (`tenant-closing`, `tenant-suspended`), or the project or pack is (`project-suspended`, `pack-suspended`); the image is outside the tenant's repository (`image-not-allowed`).",
+      ),
+      '422': ErrorResponse(
+        "The host isn't allowed (`endpoint-host-not-allowed`) or doesn't name the deployment's service (`endpoint-name-mismatch`, with `details.expected`); the pack service didn't answer (`endpoint-unreachable`) or answered as another pack or version (`endpoint-info-mismatch`, with `details.differs`).",
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+      ),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/system/tenants/:tenantId/deployments/:deploymentId/endpoint',
+    openapiPath: '/v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
+    operationId: 'systemDeployments.clearEndpoint',
+    summary: "Clear a deployment's endpoint",
+    description:
+      "Clears the endpoint before its pack service is deleted: the deployment's endpoint is `cleared`, and calls to its tools fail closed (`pack-endpoint-cleared`), never going to another deployment. Works for a closing or suspended tenant too: that's how its services are retired. Clearing twice keeps the first time. Takes `system:deployments`.",
+    tags: ['system-deployments'],
+    security: 'bearer',
+    parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': {
+        description: "Cleared: the deployment's endpoint as its tenant sees it.",
+        schema: ref('DeploymentEndpoint'),
+      },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:deployments` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse(
+        'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+      ),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/deployments/:deploymentId/endpoint/problem',
+    openapiPath: '/v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem',
+    operationId: 'systemDeployments.recordProblem',
+    summary: 'Record why a deployment has no pack service yet',
+    description:
+      "For whatever creates the pack services: records why a `pending` deployment has none yet, as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.",
+    tags: ['system-deployments'],
+    security: 'bearer',
+    parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('RecordDeploymentProblemBody') },
+    responses: {
+      '200': {
+        description: "Recorded: the deployment's endpoint as its tenant sees it.",
+        schema: ref('DeploymentEndpoint'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('A malformed body, or a `code` not on the list (`bad-input`).'),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:deployments` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse(
+        'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
+      ),
+      '409': ErrorResponse(
+        "The deployment's endpoint isn't `pending` (`endpoint-not-pending`, with `details.status`).",
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+      ),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/deployments/:deploymentId/suspended',
+    openapiPath: '/v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended',
+    operationId: 'systemDeployments.setSuspended',
+    summary: "Suspend a deployment's pack, or restore it",
+    description:
+      "Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it lists as needing a pack service again. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.",
+    tags: ['system-deployments'],
+    security: 'bearer',
+    parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('SetPackSuspendedBody') },
+    responses: {
+      '200': { description: 'Set.', schema: ref('PackSuspension') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('A malformed body (`bad-input`).'),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:suspend` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse(
+        'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
+      ),
+      '409': ErrorResponse(
+        'The tenant is closing (`tenant-closing`): closing is one-way, and its deployments already list to retire.',
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
       ),
     },
   },
