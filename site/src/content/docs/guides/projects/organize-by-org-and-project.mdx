@@ -218,6 +218,32 @@ kindgi.projects.production.set(str(project.id), production=False)
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/com/acme/app/CustomerOrg.java
+ProjectProduction done = kindgi.projects().production()
+    .set(project.id(), ProjectProductionBody.builder().production(true).build());
+System.out.println(done.productionSince());
+// …and out again: productionSince is null.
+kindgi.projects().production()
+    .set(project.id(), ProjectProductionBody.builder().production(false).build());
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/app/CustomerOrg.scala
+val done = kindgi.projects().production()
+  .set(project.id, ProjectProductionBody.builder().production(true).build())
+println(done.productionSince)
+// …and out again: productionSince is null.
+kindgi.projects().production()
+  .set(project.id, ProjectProductionBody.builder().production(false).build())
+```
+
+</TabItem>
 </Tabs>
 
 - **Tenant admins only,** both ways: anyone else gets
