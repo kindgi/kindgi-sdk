@@ -1051,6 +1051,67 @@ describe('POST /v1/deployments — happy path', () => {
     expect(published.map((p) => p.secretScopes)).toEqual([{ ACME_LOOKUP_KEY: { kind: 'tenant' } }]);
   });
 
+  test("deployed into a named project, a tool's secret is read there, else at the tenant", async () => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        packId: 'acme.aperture',
+        packVersion: '1.0.0',
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [
+          {
+            id: 'acme.lookup',
+            description: 'Looks things up with its own key.',
+            version: '1.0.0',
+            input: { type: 'object' },
+            output: { type: 'object' },
+            modulePath: './tools/lookup.js',
+            needsSpec: { secrets: { ACME_LOOKUP_KEY: { type: 'string' } } },
+          },
+        ],
+        guardrails: [],
+      },
+    });
+    type StoredScope = { kind: string; projectId?: ProjectId };
+    // The scopes recorded for a deploy into CLIENT_A, with the secret stored where `storedAt` says.
+    const scopesWhenStoredAt = async (storedAt: (scope: StoredScope) => boolean) => {
+      const tools = makeVersionedToolRegistry();
+      const published: Record<string, unknown>[] = [];
+      const toolRegistry = {
+        ...tools,
+        publish: async (input: Parameters<ToolRegistryBinding['publish']>[0]) => {
+          published.push(input as unknown as Record<string, unknown>);
+          return tools.publish(input);
+        },
+      } as ToolRegistryBinding;
+      const secretsBinding = {
+        get: async (input: { scope: StoredScope; envName: string; name: string }) =>
+          storedAt(input.scope) && input.envName === 'prod' && input.name === 'ACME_LOOKUP_KEY'
+            ? { name: input.name, currentVersion: 1 }
+            : null,
+      } as unknown as SecretBinding;
+      const { app } = makeApp({
+        fixture,
+        toolRegistry,
+        extra: { secretsBinding, envName: 'prod' as never },
+      });
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ ...fixture.wire, projectId: CLIENT_A }),
+      });
+      expect(res.status, await res.clone().text()).toBe(201);
+      return published.map((p) => p.secretScopes);
+    };
+    expect(
+      await scopesWhenStoredAt((scope) => scope.kind === 'project' && scope.projectId === CLIENT_A),
+    ).toEqual([{ ACME_LOOKUP_KEY: { kind: 'project', projectId: CLIENT_A } }]);
+    expect(await scopesWhenStoredAt((scope) => scope.kind === 'tenant')).toEqual([
+      { ACME_LOOKUP_KEY: { kind: 'tenant' } },
+    ]);
+  });
+
   test("a tool naming a model provider's key is refused, naming the tool, the key and the provider", async () => {
     const fixture = buildSignedDeploy({
       index: {
@@ -3586,10 +3647,11 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
     return { tools, agents, flows, deploy };
   }
 
-  test('an agent or flow naming a tool neither the deploy brings nor its project reaches is refused, before anything registers', async () => {
+  /** A pack whose agent and flow name `acme.other-tool`, which it doesn't bring. */
+  function packNamingAnOutsideTool(): SignedDeploy {
     const artifactVersion = '20261011.1';
     const publishedAt = '2026-10-11T00:00:00.000Z';
-    const pack = buildSignedDeploy({
+    return buildSignedDeploy({
       artifactVersion,
       publishedAt,
       index: {
@@ -3633,6 +3695,10 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
         ],
       },
     });
+  }
+
+  test('an agent or flow naming a tool neither the deploy brings nor its project reaches is refused, before anything registers', async () => {
+    const pack = packNamingAnOutsideTool();
     const asked: string[] = [];
     const tools = makeVersionedToolRegistry();
     const { app } = makeApp({
@@ -3665,6 +3731,40 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
     // What the deploy brings itself is never asked about.
     expect(asked).toEqual(['acme.other-tool']);
     expect(tools.versions('acme.score')).toEqual([]);
+  });
+
+  test('a deploy into a named project is checked against what that project reaches', async () => {
+    const pack = packNamingAnOutsideTool();
+    const tools = makeVersionedToolRegistry();
+    // Registered already, by another pack: the Default project's to reach, not the client's.
+    await tools.publish({ tool: { id: 'acme.other-tool', version: '1.0.0' } } as never);
+    const { app } = makeApp({
+      toolRegistry: tools,
+      agentRegistry: makeVersionedAgentRegistry(),
+      flowRegistry: makeVersionedFlowRegistry(),
+      extra: {
+        referenceScope: {
+          reachable: async ({ fromProjectId, ref }) =>
+            fromProjectId === DEFAULT_PROJECT_ID || !ref.id.startsWith('acme.other'),
+        },
+      },
+      extraTrust: [trustOf(pack)],
+      extraImages: [imageOf(pack)],
+    });
+    const deploy = (wire: unknown) =>
+      app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(wire),
+      });
+    const intoClient = await deploy({ ...pack.wire, projectId: CLIENT_A });
+    const body = (await intoClient.json()) as Record<string, any>;
+    expect(intoClient.status).toBe(400);
+    expect(body.error.code).toBe('reference-out-of-scope');
+    expect(tools.versions('acme.score')).toEqual([]);
+    // The same pack, into the Default project, reaches it.
+    const intoDefault = await deploy(pack.wire);
+    expect(intoDefault.status, await intoDefault.clone().text()).toBe(201);
   });
 
   test('a new tool version in range registers the next patch of the agent, naming the pin that changed', async () => {

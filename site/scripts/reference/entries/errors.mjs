@@ -25,6 +25,17 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'reference-out-of-scope': {
+    description:
+      "A definition, deployment, run, conversation, trigger or live scope names an item its project can't reach: a tool, agent, flow, guardrail, data block, check or eval suite that isn't registered in the project, its org or the tenant. Nothing is written. Register the item where the project reaches it, or use it from the project that has it.",
+    details: [
+      {
+        key: 'issues',
+        meaning:
+          'list of the references refused, each with the `path` it was named at, its `kind` and `id`, and a message',
+      },
+    ],
+  },
   'kind-not-applied': {
     description:
       "You publish a policy of a kind this runtime doesn't enforce, so publishing it would change nothing. Publish one of the kinds listed in `details.appliedKinds`.",
@@ -900,6 +911,16 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'approvals-pending-limit': {
+    description:
+      "A gate asked for an approval while the tenant's approvals waiting for a decision were at its limit (set by whoever runs the server). Nothing waits for an approval nobody can see: the step fails, naming the limit. `POST /v1/runs` answers `429` when the call waits for its run; with `options.wait: false` it answers `202`, and the run fails with this code. A promotion whose gate wants an approval is refused with it. Once some of the approvals waiting are decided, try again.",
+    details: [
+      {
+        key: 'approvalsPending',
+        meaning: "the tenant's limit on approvals waiting for a decision",
+      },
+    ],
+  },
   'internal-server-error': {
     description:
       'The server hit an unexpected error while handling the request. Retry; if it persists, contact support with the `requestId`.',
@@ -1670,6 +1691,165 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'capability-not-mintable': {
+    description:
+      "A tenant's key can't carry a system capability (`system:*`, or `kindgi:system` on a runtime serving many tenants): those are system keys' alone. Mint the key without them, or mint a system key with `POST /v1/system/keys`.",
+    details: [
+      {
+        key: 'capabilities',
+        meaning: "the capabilities asked for that a tenant's key can't carry",
+      },
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+    seeAlso: ['POST /v1/tokens', 'POST /v1/system/keys'],
+  },
+  'system-key-on-tenant-route': {
+    description:
+      "A system key was sent to a route it can't use. A system key acts in no tenant, so it reaches `/v1/system/*` and `GET /v1/license` only: use one of the tenant's keys.",
+    details: [
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+    seeAlso: ['GET /v1/system/whoami'],
+  },
+  'system-principal-required': {
+    description:
+      "The route is a system route (`/v1/system/*`), and it was called with a tenant's key or a session. Call it with a system key (`kgi_sy_…`).",
+    details: [
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+  },
+  'system-scope-missing': {
+    description:
+      "The system key doesn't hold the scope this request takes, which `scope` names: the route's own, or more for what the request asks (creating a tenant without `firstAdmin`, for one). Every `/v1/system/keys` route takes the full system capability, which a scoped key doesn't hold.",
+    details: [
+      {
+        key: 'scope',
+        meaning: 'the scope the request takes',
+      },
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+  },
+  'system-key-not-found': {
+    description: 'No system key has that id.',
+    details: [],
+  },
+  'system-key-expiry-required': {
+    description:
+      "A full system key minted by another system key must expire: set `expiresAt`. Only the deployment's own token mints one that never expires.",
+    details: [],
+  },
+  'access-record-unavailable': {
+    description:
+      "The record of the operator's requests couldn't be written, so a system key's request did nothing. Retry after the `Retry-After` header.",
+    details: [],
+  },
+  'tenant-closing': {
+    description:
+      "The tenant is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, revocations, erasures, signing in and out, and the signed exports still work. The system routes that change its settings, limits, image prefix, a suspension or a deployment's endpoint refuse a closing tenant; clearing its deployments' endpoints, which retires its pack services, still works. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+    details: [
+      {
+        key: 'state',
+        meaning: '`closing`',
+      },
+      {
+        key: 'tenantId',
+        meaning: 'the tenant; from a system route only',
+      },
+    ],
+  },
+  'tenant-suspended': {
+    description:
+      "The tenant is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, revocations, erasures, signing in and out, and the signed exports still work. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+    details: [
+      {
+        key: 'state',
+        meaning: '`suspended`',
+      },
+      {
+        key: 'tenantId',
+        meaning: 'the tenant; from a system route only',
+      },
+    ],
+  },
+  'tenant-slug-taken': {
+    description: 'Another tenant has that slug. Choose another.',
+    details: [
+      {
+        key: 'slug',
+        meaning: 'the slug that is taken',
+      },
+    ],
+  },
+  'image-not-allowed': {
+    description:
+      "The deployment's image is outside the tenant's image repository: a tenant deploys only images at or under its image prefix.",
+    details: [
+      {
+        key: 'imagePrefix',
+        meaning: "the tenant's image prefix; from `POST /v1/deployments` only",
+      },
+    ],
+  },
+  'image-prefix-unset': {
+    description:
+      "The tenant has no image repository set, so it can't register a deployment yet. Its operator sets one with `PUT /v1/system/tenants/{tenantId}/image-prefix`.",
+    details: [],
+  },
+  'image-prefix-taken': {
+    description:
+      "The image prefix equals, holds or sits inside another tenant's. Each tenant's repository is its own: choose a prefix that doesn't overlap another tenant's.",
+    details: [],
+  },
+  'tenant-state-unavailable': {
+    description:
+      "The tenant's state couldn't be read, so the request changed nothing. Retry after the `Retry-After` header. On the S3-compatible surface, the same answer is S3's `503 ServiceUnavailable`.",
+    details: [],
+    seeAlso: ['GET /v1/tenant'],
+  },
   'service-account-not-found': {
     description: 'No service account with that id exists in this tenant.',
     details: [],
@@ -2121,6 +2301,76 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['GET /v1/deployments/{deploymentId}', 'POST /v1/deployments/{deploymentId}/secrets'],
   },
+  'project-suspended': {
+    description:
+      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, or the operator setting the pack service of one of its deployments. What's already deployed stays. Ask the operator to restore the project.",
+    details: [],
+    seeAlso: [
+      'POST /v1/deployments',
+      'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
+    ],
+  },
+  'pack-suspended': {
+    description:
+      "The operator suspended this deployment's pack, so its pack service can't be set. Lift the suspension first.",
+    details: [],
+    seeAlso: [
+      'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended',
+      'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
+    ],
+  },
+  'endpoint-url-invalid': {
+    description:
+      "The pack service URL the operator set for a deployment isn't `https://<host>`: it isn't https, or it has user info, a path, a query or a fragment. The message says which. Send the service's origin only. The refusal is recorded as the deployment's `endpoint.problem`.",
+    details: [],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint'],
+  },
+  'endpoint-host-not-allowed': {
+    description:
+      "The pack service's host isn't on the operator's allowlist of pack hosts (`KINDGI_PACK_ENDPOINT_HOSTS`). Use a host the allowlist covers. The refusal is recorded as the deployment's `endpoint.problem`.",
+    details: [],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint'],
+  },
+  'endpoint-name-mismatch': {
+    description:
+      "The pack service's host doesn't name this deployment's own service. Each deployment's pack service runs under its own name, `packServiceName` in `@kindgi/api`. The refusal is recorded as the deployment's `endpoint.problem`.",
+    details: [
+      {
+        key: 'expected',
+        meaning: "the deployment's pack service name, which the host must carry",
+      },
+    ],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint'],
+  },
+  'endpoint-unreachable': {
+    description:
+      "The pack service didn't answer `GET /v1/info` as this deployment's service. Check that it runs and that the runtime can reach it, then set it again. The refusal is recorded as the deployment's `endpoint.problem`.",
+    details: [],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint'],
+  },
+  'endpoint-info-mismatch': {
+    description:
+      "The pack service answered `GET /v1/info` as another pack or version, so it doesn't serve this deployment's image. The refusal is recorded as the deployment's `endpoint.problem`.",
+    details: [
+      {
+        key: 'differs',
+        meaning:
+          "the names of the `/v1/info` fields that differed from the deployment's, never their values",
+      },
+    ],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint'],
+  },
+  'endpoint-not-pending': {
+    description:
+      "A problem was recorded for a deployment whose pack service isn't pending. A problem goes with `pending` only.",
+    details: [
+      {
+        key: 'status',
+        meaning: "the deployment's endpoint status now: `ready` or `cleared`",
+      },
+    ],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem'],
+  },
   'compliance-evidence-not-found': {
     description: 'No exportable compliance evidence record with that id exists under the tenant.',
     details: [
@@ -2166,6 +2416,26 @@ export const ERROR_ENTRIES = {
         meaning: "the project id that wasn't found; absent for the missing Default project",
       },
     ],
+  },
+  'production-not-allowed': {
+    description:
+      "You put a project in production while the tenant isn't allowed to: the server gates production (`KINDGI_PRODUCTION_GATE=on`), and the tenant's `productionAllowed` is `false`. Projects already in production stay so, and staging keeps working. Go where `details.next` says, when the server names a place, or ask whoever runs it; then put the project in production again.",
+    details: [
+      {
+        key: 'projectId',
+        meaning: "the project that wasn't put in production",
+      },
+      {
+        key: 'next',
+        meaning:
+          'where to go to be allowed, for example a billing page (`KINDGI_PRODUCTION_NEXT_URL`); absent when the server names none',
+      },
+    ],
+  },
+  'production-unsupported': {
+    description:
+      "This server's projects can't be put in production: its project store has no production setting. Every run there is a staging run.",
+    details: [],
   },
   'team-membership-not-found': {
     description: "The user isn't a member of the team.",
