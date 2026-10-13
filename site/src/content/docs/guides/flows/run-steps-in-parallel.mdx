@@ -332,7 +332,10 @@ public final class AssessOrder {
 }
 ```
 
-A branch gets the step before it's whole output (the order). A record refuses properties it doesn't name, so each branch's input says `@JsonIgnoreProperties(ignoreUnknown = true)`; a TypeScript zod object drops them by itself.
+A branch gets the whole output of the step before it (the order). A record
+refuses properties it doesn't name, so each branch's input says
+`@JsonIgnoreProperties(ignoreUnknown = true)`; a TypeScript zod object drops
+them by itself.
 
 </TabItem>
 <TabItem label="Scala">
@@ -421,7 +424,9 @@ object AssessOrder {
 }
 ```
 
-As in Java, each branch's input case class says `@JsonIgnoreProperties(ignoreUnknown = true)`.
+A branch gets the whole order, and a case class refuses properties it
+doesn't name, so each branch's input says
+`@JsonIgnoreProperties(ignoreUnknown = true)`.
 
 </TabItem>
 </Tabs>
