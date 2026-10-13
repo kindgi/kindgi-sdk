@@ -172,8 +172,8 @@ The runtime prints what it's running with when it starts. Read it with
 - **`License`:** who the key is for, its kind and its end date. A warning
   follows within 30 days of the end.
 - **`⚠ This preview build (…) stops starting on …`:** from 30 days before
-  this release stops starting (90 days after it was released; runtime 0.1.8
-  until Kindgi 1.0). Upgrade before then. In the JSON format it's also a
+  this release stops starting (90 days after it was released, until
+  Kindgi 1.0). Upgrade before then. In the JSON format it's also a
   record of its own, `"event": "kindgi.preview_expiry"`, logged at startup
   and once a day: match it in a log alert.
 - **`Pack service`:** the pack it reached, with its artifact version. When it

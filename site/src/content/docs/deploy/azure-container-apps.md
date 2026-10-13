@@ -509,12 +509,13 @@ to finish, with the output `{"greeting":"Hello, Azure!"}`.
 
 ## Operate it
 
-- **Upgrade at least every 90 days while Kindgi is in preview.** From runtime
-  0.1.8 until 1.0, a release stops starting 90 days after it was released. Container Apps
-  starts new replicas on its own, and after that day none comes up. The
-  runtime warns from 30 days before, at startup and once a day, in a log
-  record with `"event": "kindgi.preview_expiry"`: alert on it in Log
-  Analytics ([Licensing](../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
+- **Upgrade at least every 90 days while Kindgi is in preview.** Until
+  Kindgi 1.0, a release stops starting 90 days after it was released.
+  Container Apps starts new replicas on its own, and after that day none
+  comes up. The runtime warns from 30 days before, at startup and once a
+  day, in a log record with `"event": "kindgi.preview_expiry"`: alert on it
+  in Log Analytics
+  ([Licensing](../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
 - **Upgrade:** make sure a restorable backup exists. Automatic backups with
   point-in-time restore are on. Copy the new runtime image by digest, set
   `server_image`, and apply. Migrations only go forward: never run two runtime

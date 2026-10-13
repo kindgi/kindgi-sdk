@@ -104,10 +104,9 @@ deployment can also renew its key itself, by hand or on a schedule. See
 
 ## Preview releases stop starting after 90 days
 
-From runtime 0.1.8 until Kindgi 1.0, each runtime release stops starting
-90 days after it was released. That holds in every mode, development mode
-included. Releases before 0.1.8 don't expire. A setup that upgrades with
-each release never meets it.
+Until Kindgi 1.0, each runtime release stops starting 90 days after it was
+released. That holds in every mode, development mode included. A setup that
+upgrades with each release never meets it.
 
 - **From 30 days before,** the startup banner warns, and so do the console
   (for a tenant admin) and `kindgi dev`.
