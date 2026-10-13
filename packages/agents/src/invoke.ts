@@ -292,6 +292,7 @@ export type {
   OutputSchemaViolationError,
   RunSnapshotError,
   SemanticUnavailableError,
+  ApprovalsPendingLimitError,
   ToolInvocationError,
   UnresolvedToolError,
 } from './handlers/errors.js';

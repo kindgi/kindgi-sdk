@@ -231,6 +231,13 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
 }
 
 export interface HitlBindings {
+  /**
+   * Open the approval a gate asks for. A binding refuses one past the
+   * tenant's limit on approvals waiting by throwing an error with
+   * `code: 'approvals-pending-limit'` (and `approvalsPending`, the limit):
+   * the step then fails with that code, naming the limit. Any other throw
+   * is soft: the gate still waits.
+   */
   readonly enqueue: (input: HitlEnqueueInput) => Promise<HitlEnqueueResult>;
 }
 

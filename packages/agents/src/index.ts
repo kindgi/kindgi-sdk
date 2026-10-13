@@ -81,6 +81,7 @@ export type {
   ResumeAgentTurnInput,
   RunSnapshotError,
   SemanticUnavailableError,
+  ApprovalsPendingLimitError,
   ToolInvocationError,
   UnresolvedToolError,
 } from './invoke.js';

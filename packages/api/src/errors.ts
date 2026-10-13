@@ -133,6 +133,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // 429 — rate limit. No route in this package emits it; a rate limiter
   // in front of the routes can.
   'rate-limit-exceeded': 429,
+  // A gate asked for an approval past the tenant's limit on approvals waiting.
+  'approvals-pending-limit': 429,
   // 500 — server
   'internal-server-error': 500,
   'journal-error': 500,
