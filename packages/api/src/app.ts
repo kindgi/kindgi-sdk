@@ -162,7 +162,7 @@ import { providersRouter } from './routes/providers.js';
 import { publicRunTokensRouter } from './routes/public-run-tokens.js';
 import { retentionRouter } from './routes/retention.js';
 import { reviewersRouter } from './routes/reviewers.js';
-import { runsRouter } from './routes/runs.js';
+import { type RunsRouterOptions, runsRouter } from './routes/runs.js';
 import { s3Router } from './routes/s3.js';
 import { schedulesRouter } from './routes/schedules.js';
 import { secretsRouter } from './routes/secrets.js';
@@ -1407,6 +1407,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
                 : (await input.flowRegistry?.get({ tenantId, flowId: target.id as never })) !==
                   null,
           }),
+        // Who a turn runs as, for the participant rule (`participantRefusal`).
+        ...participantLookups(input),
         ...(publicRunTokenLimits !== undefined && {
           publicRunTokens: {
             mint: (tenantId, runIds) =>
@@ -2196,4 +2198,44 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   });
 
   return app;
+}
+
+/**
+ * Whose memory a turn would run with, for the runs router's participant rule:
+ * a conversation's stored participant and project, and a target's own project.
+ */
+function participantLookups(
+  input: Pick<CreateAppInput, 'conversationBinding' | 'agentRegistry' | 'flowRegistry'>,
+): Pick<RunsRouterOptions, 'conversationOf' | 'targetProject'> {
+  return {
+    conversationOf: async (tenantId, conversationId) => {
+      const got = await input.conversationBinding.getConversation(
+        tenantId,
+        conversationId as never,
+      );
+      if (got.kind !== 'ok') {
+        if (got.error.code === 'conversation-not-found') return null;
+        // Any other failure isn't "no conversation": the turn would then run
+        // as the stored participant unchecked. A 500, and no turn.
+        throw new Error(
+          "Couldn't read the conversation's participant, so the turn wasn't started",
+          {
+            cause: got.error,
+          },
+        );
+      }
+      const { participantId, projectId } = got.value;
+      return {
+        ...(participantId !== undefined && { participantId }),
+        ...(projectId !== undefined && { projectId: projectId as unknown as string }),
+      };
+    },
+    targetProject: async (tenantId, target) => {
+      const record =
+        target.kind === 'agent'
+          ? await input.agentRegistry?.get({ tenantId, agentId: target.id as never })
+          : await input.flowRegistry?.get({ tenantId, flowId: target.id as never });
+      return record?.projectId as unknown as string | undefined;
+    },
+  };
 }

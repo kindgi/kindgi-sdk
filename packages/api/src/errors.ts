@@ -245,6 +245,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'role-exceeds-principal': 403,
   /** A key limited to one project, on a request that names another. */
   'key-project-mismatch': 403,
+  /** A turn run as a participant whose memory the caller may not read (not themselves, and no `write` on the turn's project). */
+  'participant-not-allowed': 403,
   /** Mint: a key that would outlive the key minting it (a later or absent `expiresAt`). */
   'token-expiry-exceeds-minter': 403,
   /** Mint: a capability a tenant's key can't carry (`system:*`; `kindgi:system` on a runtime serving many tenants). */
