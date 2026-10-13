@@ -2265,6 +2265,76 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['GET /v1/deployments/{deploymentId}', 'POST /v1/deployments/{deploymentId}/secrets'],
   },
+  'project-suspended': {
+    description:
+      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, or the operator setting the pack service of one of its deployments. What's already deployed stays. Ask the operator to restore the project.",
+    details: [],
+    seeAlso: [
+      'POST /v1/deployments',
+      'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
+    ],
+  },
+  'pack-suspended': {
+    description:
+      "The operator suspended this deployment's pack, so its pack service can't be set. Lift the suspension first.",
+    details: [],
+    seeAlso: [
+      'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended',
+      'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
+    ],
+  },
+  'endpoint-url-invalid': {
+    description:
+      "The pack service URL the operator set for a deployment isn't `https://<host>`: it isn't https, or it has user info, a path, a query or a fragment. The message says which. Send the service's origin only. The refusal is recorded as the deployment's `endpoint.problem`.",
+    details: [],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint'],
+  },
+  'endpoint-host-not-allowed': {
+    description:
+      "The pack service's host isn't on the operator's allowlist of pack hosts (`KINDGI_PACK_ENDPOINT_HOSTS`). Use a host the allowlist covers. The refusal is recorded as the deployment's `endpoint.problem`.",
+    details: [],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint'],
+  },
+  'endpoint-name-mismatch': {
+    description:
+      "The pack service's host doesn't name this deployment's own service. Each deployment's pack service runs under its own name, `packServiceName` in `@kindgi/api`. The refusal is recorded as the deployment's `endpoint.problem`.",
+    details: [
+      {
+        key: 'expected',
+        meaning: "the deployment's pack service name, which the host must carry",
+      },
+    ],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint'],
+  },
+  'endpoint-unreachable': {
+    description:
+      "The pack service didn't answer `GET /v1/info` as this deployment's service. Check that it runs and that the runtime can reach it, then set it again. The refusal is recorded as the deployment's `endpoint.problem`.",
+    details: [],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint'],
+  },
+  'endpoint-info-mismatch': {
+    description:
+      "The pack service answered `GET /v1/info` as another pack or version, so it doesn't serve this deployment's image. The refusal is recorded as the deployment's `endpoint.problem`.",
+    details: [
+      {
+        key: 'differs',
+        meaning:
+          "the names of the `/v1/info` fields that differed from the deployment's, never their values",
+      },
+    ],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint'],
+  },
+  'endpoint-not-pending': {
+    description:
+      "A problem was recorded for a deployment whose pack service isn't pending. A problem goes with `pending` only.",
+    details: [
+      {
+        key: 'status',
+        meaning: "the deployment's endpoint status now: `ready` or `cleared`",
+      },
+    ],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem'],
+  },
   'compliance-evidence-not-found': {
     description: 'No exportable compliance evidence record with that id exists under the tenant.',
     details: [
