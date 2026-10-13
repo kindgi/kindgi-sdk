@@ -27,6 +27,10 @@ case "$1" in
     echo $$ > "$FAKE_DOCKER_DIR/manifest.pid"
     exec sleep 30 ;;
   pull)
+    if [ -n "$FAKE_PULL_DENIED" ]; then
+      echo "Error response from daemon: unauthorized: access to the requested resource is not authorized" >&2
+      exit 1
+    fi
     sleep 1
     printf '1.0: Pulling from acme/runtime\\ne3649207a629: Pull complete\\n5f2c8e7d1b0a: Pull complete\\n0b9d4a6c3e21: Already exists\\nDigest: sha256:aaaa\\n'
     exit 0 ;;
@@ -102,6 +106,19 @@ describe.skipIf(process.platform === 'win32')('the runtime image pull', () => {
     const { lines, calls } = await pull('quay.io/acme/runtime:1.0');
     expect(calls).toContain('manifest inspect --verbose quay.io/acme/runtime:1.0');
     expect(lines.at(-1)).toMatch(/^ {2}✓ pulled the runtime image: 269 MB in \d+\.\ds$/);
+  });
+
+  test('a refused pull: a pull credential from the access page, the login, then kindgi dev again', async () => {
+    vi.stubEnv('FAKE_PULL_DENIED', '1');
+    const phases = createStartPhases({ emit: () => undefined });
+    const result = await ensureRuntimeImage('quay.io/acme/runtime:1.0', phases);
+    phases.close();
+    expect(result.kind).toBe('error');
+    const message = result.kind === 'error' ? result.message : '';
+    expect(message).toContain('unauthorized');
+    expect(message).toContain(
+      '  The runtime image needs a pull credential: sign in with GitHub at https://access.kindgi.com for one, log in (kindgi auth registry --username <your robot name>), then run kindgi dev again.',
+    );
   });
 
   test("a Docker Hub image: no manifest read (it would count against Docker Hub's pull limit)", async () => {
