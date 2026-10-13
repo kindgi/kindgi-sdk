@@ -105,12 +105,16 @@ export interface InvokeAgentInput {
   readonly dryRun?: boolean;
   /**
    * Authorization — the Principal on whose authority this agent turn
-   * runs.
-   *
-   * Not enforced in 0.1.7: the runtime doesn't yet decide authorization
-   * checks inside a run (route-level permissions apply). Planned for 0.1.8.
+   * runs. From runtime 0.1.8, the Kindgi runtime checks each of the
+   * turn's tool calls against it (`InvokeAgentBindings.authorizeToolCall`)
+   * for every turn a person or a key starts.
    */
   readonly principal?: Principal;
+  /**
+   * Where authorization is decided: OpenFGA's URL, never a credential (it's
+   * stored with the turn's snapshot). From runtime 0.1.8, the Kindgi
+   * runtime sets it on every turn a person or a key starts.
+   */
   readonly authz?: {
     readonly fgaApiUrl: string;
   };
@@ -224,6 +228,34 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    */
   readonly resolveSecret?: (ref: ToolSecretRef) => Promise<string>;
   /**
+   * Whether the turn's principal may call a tool, asked before each call,
+   * before any approval. A denied call runs nothing and asks no reviewer:
+   * its result tells the model it wasn't allowed (`{ status: 'denied',
+   * reason }`), and the turn goes on. The model sees `reason`, so write it
+   * as a plain sentence for whoever reads the conversation.
+   *
+   * - **An approved call is asked again** right before it runs: access can
+   *   change while it waits. Denied then, it runs nothing, and the
+   *   reviewer's decision stays as it was.
+   * - **Each decision is recorded with the call,** so a resumed turn keeps
+   *   it. A throw records nothing and fails the step: a call never runs
+   *   without an answer.
+   * - **A built-in tool** (`kindgi_<verb>`) is asked only when what it
+   *   touches reaches beyond the turn's project: `kindgi_remember` for a
+   *   tenant-scope fact.
+   * - **`principal` is absent** for a turn that has none. The authorizer
+   *   decides what that gets.
+   *
+   * The Kindgi runtime checks `invoke` on the tool for the turn's
+   * principal. Absent: every call is allowed.
+   */
+  readonly authorizeToolCall?: (input: {
+    readonly tenantId: TenantId;
+    readonly projectId: ProjectId;
+    readonly principal?: Principal;
+    readonly toolId: string;
+  }) => Promise<ToolCallAuthorization>;
+  /**
    * How replay turns (`InvokeAgentInput.replay`) decide their tool calls,
    * retrievals and session approval. Consulted only for a replay turn.
    */
@@ -281,3 +313,8 @@ export interface HitlEnqueueInput {
 export interface HitlEnqueueResult {
   readonly approvalId: string;
 }
+
+/** `InvokeAgentBindings.authorizeToolCall`'s answer. */
+export type ToolCallAuthorization =
+  | { readonly allowed: true }
+  | { readonly allowed: false; readonly reason: string };

@@ -3586,6 +3586,87 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
     return { tools, agents, flows, deploy };
   }
 
+  test('an agent or flow naming a tool neither the deploy brings nor its project reaches is refused, before anything registers', async () => {
+    const artifactVersion = '20261011.1';
+    const publishedAt = '2026-10-11T00:00:00.000Z';
+    const pack = buildSignedDeploy({
+      artifactVersion,
+      publishedAt,
+      index: {
+        v: 1,
+        artifactVersion,
+        publishedAt,
+        tools: [
+          {
+            id: 'acme.score',
+            description: 'Scores a match.',
+            version: '1.0.0',
+            input: { type: 'object', properties: { q: { type: 'string' } } },
+            output: { type: 'object', properties: { score: { type: 'number' } } },
+            modulePath: './tools/score-1.0.0.js',
+          },
+        ],
+        guardrails: [],
+        agents: [
+          {
+            id: 'acme.matcher',
+            version: '1.4.0',
+            name: 'Matcher',
+            instructions: 'Match the request.',
+            capabilities: [{ feature: 'model.text.chat' }],
+            tools: [
+              { id: 'acme.score', version: '^1.0.0' },
+              { id: 'acme.other-tool', version: '^1.0.0' },
+            ],
+          },
+        ],
+        flows: [
+          {
+            id: 'acme.route',
+            version: '1.0.0',
+            nodes: [{ id: 'step', kind: 'tool', ref: 'acme.other-tool' }],
+            edges: [
+              { id: 'e0', from: '$start', to: 'step' },
+              { id: 'e1', from: 'step', to: '$end' },
+            ],
+          },
+        ],
+      },
+    });
+    const asked: string[] = [];
+    const tools = makeVersionedToolRegistry();
+    const { app } = makeApp({
+      toolRegistry: tools,
+      agentRegistry: makeVersionedAgentRegistry(),
+      flowRegistry: makeVersionedFlowRegistry(),
+      extra: {
+        referenceScope: {
+          reachable: async ({ ref }) => {
+            asked.push(ref.id);
+            return !ref.id.startsWith('acme.other');
+          },
+        },
+      },
+      extraTrust: [trustOf(pack)],
+      extraImages: [imageOf(pack)],
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(pack.wire),
+    });
+    const body = (await res.json()) as Record<string, any>;
+    expect(res.status).toBe(400);
+    expect(body.error.code).toBe('reference-out-of-scope');
+    expect(body.error.details.issues).toEqual([
+      expect.objectContaining({ path: '/agents/0/tools/1', kind: 'tool', id: 'acme.other-tool' }),
+      expect.objectContaining({ path: '/flows/0/nodes/step', kind: 'tool', id: 'acme.other-tool' }),
+    ]);
+    // What the deploy brings itself is never asked about.
+    expect(asked).toEqual(['acme.other-tool']);
+    expect(tools.versions('acme.score')).toEqual([]);
+  });
+
   test('a new tool version in range registers the next patch of the agent, naming the pin that changed', async () => {
     const first = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0' });
     const second = pinnedPack({ toolVersion: '1.1.0', agentVersion: '1.4.0' });

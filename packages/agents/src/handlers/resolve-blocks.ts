@@ -80,6 +80,7 @@ export async function resolveTurnBlocks(
       tenantId: ctx.input.tenantId,
       blockId: ref.id,
       version,
+      projectId: ctx.input.projectId,
     });
     if (block === null) {
       fail(ref, `${describe(ref)} runs version ${version}, which isn't published`);
@@ -131,6 +132,7 @@ async function resolveRange(ctx: TurnContext, ref: Ref): Promise<string> {
     (await ctx.bindings.blockReader?.activeVersions({
       tenantId: ctx.input.tenantId,
       blockId: ref.id,
+      projectId: ctx.input.projectId,
     })) ?? [];
   const pick = pickVersion(available, ref.range);
   if (pick.kind === 'ok') return pick.version;

@@ -75,6 +75,7 @@ export type {
   BudgetExceededError,
   CapabilityRoutingError,
   InvokeAgentBindings,
+  ToolCallAuthorization,
   InvokeAgentError,
   InvokeAgentInput,
   ModelInvocationError,

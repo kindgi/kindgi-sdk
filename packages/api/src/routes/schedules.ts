@@ -11,6 +11,12 @@ import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
+  type ReferenceScopeBinding,
+  outOfScopeResponse,
+  referencesOutOfScope,
+  triggerTargetReference,
+} from '../reference-scope.js';
+import {
   type CronTriggerRecord,
   type RegisterCronTriggerInput,
   SCHEDULE_DEFAULTS,
@@ -54,6 +60,8 @@ export function schedulesRouter(
   projects?: Pick<ProjectBinding, 'getDefault'>,
   /** Where an owner's name is read (`owner.displayName`); see `TriggerOwnerNames`. */
   names?: TriggerOwnerNames,
+  /** What a schedule's project may run (`reference-scope.ts`); absent → as named. */
+  referenceScope?: ReferenceScopeBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -140,6 +148,16 @@ export function schedulesRouter(
         : await denied(c, 'write', ref('project', project))) ??
       (await denied(c, ...targetAccess(target.value)));
     if (refused !== undefined) return refused;
+    // What it runs must be its project's to reach (`reference-scope.ts`).
+    if (project !== undefined) {
+      const outOfScope = await referencesOutOfScope(
+        referenceScope,
+        tenantId,
+        project as ProjectId,
+        [{ path: '/target', ...triggerTargetReference(target.value) }],
+      );
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    }
 
     const registerInput: RegisterCronTriggerInput = {
       kind: 'cron',
@@ -268,6 +286,16 @@ export function schedulesRouter(
       if (scopeProblem !== undefined) return bad(c, requestId, scopeProblem);
       const refused = await denied(c, ...targetAccess(target.value));
       if (refused !== undefined) return refused;
+      // A new target must be the schedule's project's to reach, as at registration.
+      if (found.value.projectId !== undefined) {
+        const outOfScope = await referencesOutOfScope(
+          referenceScope,
+          tenantId,
+          found.value.projectId as ProjectId,
+          [{ path: '/target', ...triggerTargetReference(target.value) }],
+        );
+        if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+      }
     }
 
     const patchConfig = body.config as Record<string, unknown> | undefined;
