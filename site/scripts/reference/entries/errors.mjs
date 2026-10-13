@@ -885,6 +885,16 @@ export const ERROR_ENTRIES = {
       'You sent too many requests: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, or too many sign-in lookups came from one source. Retry after the `Retry-After` header.',
     details: [],
   },
+  'approvals-pending-limit': {
+    description:
+      "A gate asked for an approval while the tenant's approvals waiting for a decision were at its limit (set by whoever runs the server). Nothing waits for an approval nobody can see: the step fails, naming the limit. `POST /v1/runs` answers `429` when the call waits for its run; with `options.wait: false` it answers `202`, and the run fails with this code. A promotion whose gate wants an approval is refused with it. Once some of the approvals waiting are decided, try again.",
+    details: [
+      {
+        key: 'approvalsPending',
+        meaning: "the tenant's limit on approvals waiting for a decision",
+      },
+    ],
+  },
   'internal-server-error': {
     description:
       'The server hit an unexpected error while handling the request. Retry; if it persists, contact support with the `requestId`.',
@@ -2380,6 +2390,26 @@ export const ERROR_ENTRIES = {
         meaning: "the project id that wasn't found; absent for the missing Default project",
       },
     ],
+  },
+  'production-not-allowed': {
+    description:
+      "You put a project in production while the tenant isn't allowed to: the server gates production (`KINDGI_PRODUCTION_GATE=on`), and the tenant's `productionAllowed` is `false`. Projects already in production stay so, and staging keeps working. Go where `details.next` says, when the server names a place, or ask whoever runs it; then put the project in production again.",
+    details: [
+      {
+        key: 'projectId',
+        meaning: "the project that wasn't put in production",
+      },
+      {
+        key: 'next',
+        meaning:
+          'where to go to be allowed, for example a billing page (`KINDGI_PRODUCTION_NEXT_URL`); absent when the server names none',
+      },
+    ],
+  },
+  'production-unsupported': {
+    description:
+      "This server's projects can't be put in production: its project store has no production setting. Every run there is a staging run.",
+    details: [],
   },
   'team-membership-not-found': {
     description: "The user isn't a member of the team.",
