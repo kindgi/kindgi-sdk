@@ -82,6 +82,9 @@ export type {
   RunSnapshotError,
   SemanticUnavailableError,
   ToolInvocationError,
+  TurnMemoryBinding,
+  TurnMemoryCharge,
+  TurnMemoryLimitReachedError,
   UnresolvedToolError,
 } from './invoke.js';
 export {

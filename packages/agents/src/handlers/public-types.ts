@@ -36,6 +36,7 @@ import type { OnTurnEvent } from '../streaming.js';
 import type { Agent, ConversationId } from '../types.js';
 
 import type { ReplayBinding } from './replay.js';
+import type { TurnMemoryBinding } from './turn-memory.js';
 
 /**
  * The user-facing input to `invokeAgent`. Split out from `invoke.ts` so
@@ -206,6 +207,13 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    * that made it goes on. Absent: calls aren't recorded.
    */
   readonly usage?: UsageSink;
+  /**
+   * What the turn holds in memory, charged by size before each model call
+   * (a hosted runtime's limit, per tenant and in all). Bound per turn; the
+   * runtime releases the charge when the turn settles. Refused, the turn
+   * fails with `turn-memory-limit-reached`. Absent: nothing is charged.
+   */
+  readonly turnMemory?: TurnMemoryBinding;
   /**
    * Where the turn records what each guardrail's check came to (passed,
    * violated, blocked or errored), before it acts on them: a blocked turn

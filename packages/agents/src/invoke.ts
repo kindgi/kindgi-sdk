@@ -293,8 +293,10 @@ export type {
   RunSnapshotError,
   SemanticUnavailableError,
   ToolInvocationError,
+  TurnMemoryLimitReachedError,
   UnresolvedToolError,
 } from './handlers/errors.js';
+export type { TurnMemoryBinding, TurnMemoryCharge } from './handlers/turn-memory.js';
 export type {
   HitlBindings,
   HitlEnqueueInput,

@@ -275,6 +275,7 @@
           "run-resume-not-supported": 422,
           "semantic-unavailable": 422,
           "rate-limit-exceeded": 429,
+          "turn-memory-limit-reached": 429,
           "internal-server-error": 500,
           "journal-error": 500,
           "stuck": 500,

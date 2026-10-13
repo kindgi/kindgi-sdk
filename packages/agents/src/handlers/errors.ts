@@ -28,7 +28,24 @@ export type InvokeAgentError =
   | OutputSchemaViolationError
   | TenantPolicyUnavailableError
   | RunSnapshotError
-  | SemanticUnavailableError;
+  | SemanticUnavailableError
+  | TurnMemoryLimitReachedError;
+
+/**
+ * The turn holds more memory than the runtime's limit leaves it (a hosted
+ * runtime's turn memory, charged by size before each model call). `limit`
+ * names which: the tenant's share, or the runtime's whole. Retried later,
+ * or with a smaller conversation, it can go through.
+ */
+export interface TurnMemoryLimitReachedError {
+  readonly code: 'turn-memory-limit-reached';
+  readonly message: string;
+  readonly limit: 'tenant' | 'server';
+  /** What that limit's turns hold now, in bytes. */
+  readonly heldBytes: number;
+  /** The limit, in bytes. */
+  readonly limitBytes: number;
+}
 
 /**
  * A retrieval intent searches by meaning (`mode: 'semantic'`) and the
