@@ -135,7 +135,12 @@ Or require it, as
 A runtime with `KINDGI_TENANT_HOST_ACCESS=isolated` doesn't lend its own Google
 credentials to what a tenant registers. There, put a service-account key (its
 JSON) in a secret and name it in the provider's `secret_ref`. Without one, the
-registration is refused, naming `secret_ref`.
+registration is refused, naming `secret_ref`:
+
+```text
+Error [invalid-request]: Provider "gemini" doesn't fit adapter @kindgi/adapter-model-gemini: uses Vertex AI without secret_ref, which signs in with the server's own Google credentials (Application Default Credentials); this deployment doesn't let tenant configuration use them (KINDGI_TENANT_HOST_ACCESS). Name a service-account key in secret_ref.
+  ✗ /secret_ref: uses Vertex AI without secret_ref, which signs in with the server's own Google credentials (Application Default Credentials); this deployment doesn't let tenant configuration use them (KINDGI_TENANT_HOST_ACCESS). Name a service-account key in secret_ref.
+```
 
 ## If you registered Gemini 2.5
 
