@@ -447,12 +447,17 @@ export type {
   ProviderUnregisterOutcome,
 } from './provider-binding.js';
 export {
+  isCredentialHeaderName,
+  MCP_AUTH_HEADERS_MAX,
   MCP_AUTH_SCHEMES,
   MCP_OAUTH_CLIENT_AUTH,
   MCP_TRANSPORTS,
+  mcpAuthSecretRefs,
   mcpEndpointSecretNames,
+  REDACTED_HEADER_VALUE,
 } from './mcp-endpoint-binding.js';
 export type {
+  MCPAuthHeader,
   MCPAuthScheme,
   MCPBasicAuth,
   MCPClientProbeBinding,
@@ -467,6 +472,7 @@ export type {
   MCPEndpointRegisterOutcome,
   MCPEndpointRegistryBinding,
   MCPEndpointUnregisterInput,
+  MCPHeaderAuth,
   MCPEndpointUnregisterOutcome,
   MCPGetPromptOutcome,
   MCPHttpSseConfig,
