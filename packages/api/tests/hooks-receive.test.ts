@@ -9,9 +9,10 @@
  * unsigned save-time ping gets its 200; a paused trigger takes the delivery
  * and starts nothing; the limits answer 413 and 429, an event nested past
  * the bounds' depth is refused, and a delivery that proves its sender is
- * never held back by anyone's refusals. A closing or suspended tenant, or a
- * suspended project, takes no delivery and records nothing. A trigger's
- * signing key is kept for a few seconds, as a key, never logged.
+ * never held back by anyone's refusals. A closing tenant takes no delivery;
+ * a suspended tenant or project takes it without keeping it; neither records
+ * anything. A trigger's signing key is kept for a few seconds, as a key,
+ * never logged.
  */
 
 import { createHmac, randomUUID } from 'node:crypto';
@@ -696,22 +697,47 @@ describe('a closing or suspended tenant, a suspended project', () => {
     };
   }
 
-  test.each(['closing', 'suspended'] as const)(
-    "a signed delivery to a %s tenant gets its state's 409, and nothing is recorded",
-    async (state) => {
-      const tenant = tenantStates();
-      const { register, deliver, fires } = setup({ tenantStates: tenant.binding });
-      const t = await register(WOO);
-      tenant.states.set(TENANT, state);
+  test('a signed delivery to a closing tenant gets 409 tenant-closing, and nothing is recorded', async () => {
+    const tenant = tenantStates();
+    const { register, deliver, fires, registry } = setup({ tenantStates: tenant.binding });
+    const t = await register(WOO);
+    tenant.states.set(TENANT, 'closing');
+    const res = await deliver(t.webhookId, ORDER, wooHeaders(ORDER));
+    expect(res).toMatchObject({
+      status: 409,
+      body: { error: { code: 'tenant-closing', details: { state: 'closing' } } },
+    });
+    expect(res.body?.fireId).toBeUndefined();
+    expect(await fires(t.triggerId)).toEqual([]);
+    expect(registry.webhookEvents.size).toBe(0);
+  });
+
+  test("a suspended tenant's delivery is answered 202 and skipped, and nothing is kept; restored, its resend runs once", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const tenant = tenantStates();
+    const { register, deliver, fires, registry } = setup({ tenantStates: tenant.binding });
+    // One delivery a minute: a skipped delivery that took from it would 429 the resend.
+    const t = await register({ ...WOO, rateLimitPerMinute: 1 });
+    tenant.states.set(TENANT, 'suspended');
+    for (let i = 0; i < 2; i++) {
       const res = await deliver(t.webhookId, ORDER, wooHeaders(ORDER));
-      expect(res).toMatchObject({
-        status: 409,
-        body: { error: { code: `tenant-${state}`, details: { state } } },
-      });
+      expect(res).toMatchObject({ status: 202, body: { skipped: 'tenant-suspended' } });
       expect(res.body?.fireId).toBeUndefined();
-      expect(await fires(t.triggerId)).toEqual([]);
-    },
-  );
+    }
+    // Not even a `skipped` row, as a paused trigger's delivery leaves.
+    expect(await fires(t.triggerId)).toEqual([]);
+    expect(registry.webhookEvents.size).toBe(0);
+
+    tenant.states.delete(TENANT);
+    // The state is kept a few seconds: the restore is seen within them.
+    vi.setSystemTime(Date.now() + TENANT_STATE_CACHE_MS + 1);
+    // The same delivery, resent: no dedupe key was held, so it runs.
+    const resent = await deliver(t.webhookId, ORDER, wooHeaders(ORDER));
+    expect(resent.status).toBe(202);
+    expect(await fires(t.triggerId)).toMatchObject([
+      { fireId: resent.body?.fireId, outcome: 'pending' },
+    ]);
+  });
 
   test("one that doesn't prove its sender gets the same 401, and the state isn't even read", async () => {
     const tenant = tenantStates();
@@ -738,38 +764,28 @@ describe('a closing or suspended tenant, a suspended project', () => {
     expect(await fires(t.triggerId)).toEqual([]);
   });
 
-  test("restored, the sender's retry is a new delivery that runs", async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
-    const tenant = tenantStates();
-    const { register, deliver, fires } = setup({ tenantStates: tenant.binding });
-    const t = await register(WOO);
-    tenant.states.set(TENANT, 'suspended');
-    expect((await deliver(t.webhookId, ORDER, wooHeaders(ORDER))).status).toBe(409);
-    tenant.states.delete(TENANT);
-    // The state is kept a few seconds: the restore is seen within them.
-    vi.setSystemTime(Date.now() + TENANT_STATE_CACHE_MS + 1);
-    const retried = await deliver(t.webhookId, ORDER, wooHeaders(ORDER));
-    expect(retried.status).toBe(202);
-    expect(await fires(t.triggerId)).toMatchObject([
-      { fireId: retried.body?.fireId, outcome: 'pending' },
-    ]);
-  });
-
-  test("a suspended project's trigger gets 409 project-suspended and records nothing; restored, the retry runs", async () => {
+  test("a suspended project's delivery is answered 202 and skipped, and nothing is kept; restored, its resend runs once", async () => {
     const suspended = new Set<string>();
-    const { register, deliver, fires } = setup({
+    const { register, deliver, fires, registry } = setup({
       projectSuspended: async (_tenantId, projectId) =>
         suspended.has(projectId as unknown as string),
     });
-    const t = await register(WOO);
+    const t = await register({ ...WOO, rateLimitPerMinute: 1 });
     suspended.add(PROJECT);
-    const refused = await deliver(t.webhookId, ORDER, wooHeaders(ORDER));
-    expect(refused).toMatchObject({ status: 409, body: { error: { code: 'project-suspended' } } });
+    for (let i = 0; i < 2; i++) {
+      const res = await deliver(t.webhookId, ORDER, wooHeaders(ORDER));
+      expect(res).toMatchObject({ status: 202, body: { skipped: 'project-suspended' } });
+      expect(res.body?.fireId).toBeUndefined();
+    }
     expect(await fires(t.triggerId)).toEqual([]);
+    expect(registry.webhookEvents.size).toBe(0);
+
     suspended.delete(PROJECT);
-    const retried = await deliver(t.webhookId, ORDER, wooHeaders(ORDER));
-    expect(retried.status).toBe(202);
-    expect(await fires(t.triggerId)).toHaveLength(1);
+    const resent = await deliver(t.webhookId, ORDER, wooHeaders(ORDER));
+    expect(resent.status).toBe(202);
+    expect(await fires(t.triggerId)).toMatchObject([
+      { fireId: resent.body?.fireId, outcome: 'pending' },
+    ]);
   });
 });
 

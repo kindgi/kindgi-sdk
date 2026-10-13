@@ -19,7 +19,11 @@ import type { EnvName, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 import { deepJsonRefusal, nestsDeeperThan } from '../middleware/request-body.js';
 import { type TenantLimiter, tenantLimitReached } from '../middleware/tenant-limits.js';
-import { type TenantStateBinding, frozenTenantRefusal } from '../middleware/tenant-state.js';
+import {
+  type TenantStateBinding,
+  frozenTenantRefusal,
+  tenantStateReader,
+} from '../middleware/tenant-state.js';
 import { type ProviderKeys, guardProviderKeys } from '../provider-keys.js';
 import {
   type RateLimitStore,
@@ -75,14 +79,14 @@ export interface HooksRouterOptions {
    */
   readonly rateLimitStore?: RateLimitStore;
   /**
-   * Each tenant's state: a closing or suspended tenant takes no delivery,
-   * as it takes no write (`tenantStateGate`). Absent (a runtime serving one
-   * tenant): none is frozen.
+   * Each tenant's state: a closing tenant takes no delivery, as it takes no
+   * write (`tenantStateGate`), and a suspended one's deliveries are skipped.
+   * Absent (a runtime serving one tenant): none is frozen.
    */
   readonly tenantStates?: TenantStateBinding;
   /**
-   * Whether a project is suspended: its triggers take no delivery, as
-   * nothing deploys or runs in it. Absent: no check.
+   * Whether a project is suspended: its triggers' deliveries are skipped,
+   * as nothing deploys or runs in it. Absent: no check.
    */
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
   /** Clock in milliseconds, for signed timestamps; default `Date.now`. */
@@ -135,13 +139,12 @@ const WOO_PING_RE = /^webhook_id=\d{1,20}$/;
  * the access audit, never into the answer. A client past its refusals is
  * answered `429` for the rest of them, unrecorded; a delivery that proves
  * its sender is never held back by anyone's refusals, its own address's
- * included. Then: a closing or suspended tenant, or a suspended project,
- * takes no delivery (`409` with its state's code, and nothing recorded, so
- * nothing counts toward pausing the trigger; the sender's retry once it's
- * restored is a new delivery), an unregistered trigger is `410`, a paused
- * one takes the delivery without starting a run (`202`, a `skipped` fire),
- * and a delivery whose dedupe key a fire already holds is `200 duplicate`,
- * with no second run.
+ * included. Then: a closing tenant takes no delivery (`409 tenant-closing`),
+ * a suspended tenant or project takes it without keeping it (`202`,
+ * `skipped`, and nothing recorded), an unregistered trigger is `410`, a
+ * paused one takes the delivery without starting a run (`202`, a `skipped`
+ * fire), and a delivery whose dedupe key a fire already holds is `200
+ * duplicate`, with no second run.
  */
 export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
   const { triggers } = options;
@@ -311,8 +314,8 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
     return answer(c, 'webhook-refused', "This request doesn't prove its sender");
   }
 
-  const frozenTenant =
-    options.tenantStates === undefined ? undefined : frozenTenantRefusal(options.tenantStates);
+  const tenantStateOf =
+    options.tenantStates === undefined ? undefined : tenantStateReader(options.tenantStates);
 
   const r = new Hono<AppEnv>();
   r.post('/:tenantId/:webhookId', async (c) => {
@@ -376,19 +379,19 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
     }
 
     // 5. Frozen, gone, or paused: known only to a sender that proved itself.
-    //    A closing or suspended tenant, or a suspended project, takes no
-    //    delivery, as it takes no write: nothing is recorded.
-    const frozen = await frozenTenant?.(c, found.tenantId);
-    if (frozen !== undefined) return frozen;
+    //    A closing tenant takes no delivery, as it takes no write. A
+    //    suspended tenant or project is answered as a paused trigger is (see
+    //    below), but nothing is recorded: a suspended tenant takes no write,
+    //    and a fire would hold the delivery's dedupe key, so a redelivery
+    //    after the restore would be a duplicate.
+    const state = (await tenantStateOf?.(c, found.tenantId)) ?? 'active';
+    if (state === 'suspended') return c.json({ skipped: 'tenant-suspended' }, 202);
+    if (state !== 'active') return frozenTenantRefusal(c, state);
     if (
       options.projectSuspended !== undefined &&
       (await options.projectSuspended(found.tenantId, found.projectId))
     ) {
-      return answer(
-        c,
-        'project-suspended',
-        "The trigger's project is suspended, so it takes no delivery until it's restored",
-      );
+      return c.json({ skipped: 'project-suspended' }, 202);
     }
     if (found.unregistered) {
       await record(found, 'refused', 'unregistered', client);
