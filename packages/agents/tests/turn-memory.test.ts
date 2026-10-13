@@ -117,7 +117,10 @@ describe('turn memory: charged by size before each model call', () => {
     const t = turn({});
     const call = buildModelCallHandler(t.ctx);
     const first = conversation('hi');
-    const second = [...first, { role: 'assistant', content: 'a much longer answer' } as ModelMessage];
+    const second = [
+      ...first,
+      { role: 'assistant', content: 'a much longer answer' } as ModelMessage,
+    ];
     await call({ nextMessages: first }, kctx());
     await call({ nextMessages: second }, kctx());
     expect(t.charges).toEqual([4 * sizeOf(first), 5 * sizeOf(second)]);
@@ -140,29 +143,32 @@ describe('turn memory: charged by size before each model call', () => {
   test.each([
     ['tenant', "the tenant's share of"],
     ['server', "the runtime's"],
-  ] as const)('refused at the %s limit: the turn fails naming it, and the model is never called', async (limit, whose) => {
-    const t = turn({
-      answer: () => ({ ok: false, limit, heldBytes: 190 * MIB, limitBytes: 192 * MIB }),
-    });
-    const thrown = await buildModelCallHandler(t.ctx)(
-      { nextMessages: conversation('hi') },
-      kctx(),
-    ).then(
-      () => undefined,
-      (e: unknown) => e,
-    );
-    expect(thrown).toBeInstanceOf(AgentTurnFailure);
-    expect((thrown as AgentTurnFailure).payload).toEqual({
-      code: 'turn-memory-limit-reached',
-      message: `The turn needs more memory than ${whose} turn memory has left (190.0 of 192.0 MiB held). Retry later, or use a smaller conversation.`,
-      limit,
-      heldBytes: 190 * MIB,
-      limitBytes: 192 * MIB,
-    });
-    expect(t.log).toEqual(['charge']);
-    expect(t.events).not.toContain('model.call.started');
-    expect(t.ctx.usage.steps).toBe(0);
-  });
+  ] as const)(
+    'refused at the %s limit: the turn fails naming it, and the model is never called',
+    async (limit, whose) => {
+      const t = turn({
+        answer: () => ({ ok: false, limit, heldBytes: 190 * MIB, limitBytes: 192 * MIB }),
+      });
+      const thrown = await buildModelCallHandler(t.ctx)(
+        { nextMessages: conversation('hi') },
+        kctx(),
+      ).then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(thrown).toBeInstanceOf(AgentTurnFailure);
+      expect((thrown as AgentTurnFailure).payload).toEqual({
+        code: 'turn-memory-limit-reached',
+        message: `The turn needs more memory than ${whose} turn memory has left (190.0 of 192.0 MiB held). Retry later, or use a smaller conversation.`,
+        limit,
+        heldBytes: 190 * MIB,
+        limitBytes: 192 * MIB,
+      });
+      expect(t.log).toEqual(['charge']);
+      expect(t.events).not.toContain('model.call.started');
+      expect(t.ctx.usage.steps).toBe(0);
+    },
+  );
 
   test('no binding: nothing is charged, and the model is called', async () => {
     const t = turn({ bound: false });
