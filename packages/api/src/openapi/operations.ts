@@ -5162,7 +5162,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Validation failed (see `details.reason`). Or `provider-key-refused`: `secretRef` names a model provider's key (`details.secret`, `details.providerId`).",
       ),
       '403': ErrorResponse(
-        '`host-access-denied`: a `stdio` endpoint on a deployment that refuses commands on its host (`KINDGI_TENANT_HOST_ACCESS=deployed`); or `authz-denied`.',
+        '`host-access-denied`: a `stdio` endpoint on a deployment that refuses commands on its host (`KINDGI_TENANT_HOST_ACCESS=deployed` or `isolated`); or `authz-denied`.',
       ),
       '409': ErrorResponse('MCP endpoint already registered at that id.'),
       '429': SCHEMA_COMPILE_BUDGET,
