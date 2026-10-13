@@ -209,7 +209,7 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
   readonly usage?: UsageSink;
   /**
    * What the turn holds in memory, charged by size before each model call
-   * (a hosted runtime's limit, per tenant and in all). Bound per turn; the
+   * (a runtime's limit, per tenant and in all, as Kindgi Cloud sets). Bound per turn; the
    * runtime releases the charge when the turn settles. Refused, the turn
    * fails with `turn-memory-limit-reached`. Absent: nothing is charged.
    */

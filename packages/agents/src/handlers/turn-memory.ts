@@ -28,7 +28,7 @@ export type TurnMemoryCharge =
 
 /**
  * A runtime's charge for what one running turn holds in memory, by size:
- * a hosted runtime limits it per tenant and in all. The runtime binds one
+ * a runtime may limit it per tenant and in all (Kindgi Cloud does). The runtime binds one
  * per turn (one `invokeAgent` call), so two turns of one run (parallel
  * nodes, subflows) are charged apart, and it releases the turn's charge
  * when the call settles: the turn ends, suspends or fails. Absent: nothing

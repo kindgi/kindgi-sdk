@@ -781,7 +781,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_TURN_MEMORY_MIB',
     description:
-      "Used from runtime 0.1.8; earlier runtimes ignore it. The most memory, in MiB, that every tenant's running agent turns may hold together. A turn is charged by size before each model call: (4 + the iterations it has done) × its conversation as sent, plus a resumed run's journal. Past the limit, the turn fails with `429 turn-memory-limit-reached` (`limit: server`). Unset: no limit. Hosted Kindgi sets 384.",
+      "Used from runtime 0.1.8; earlier runtimes ignore it. The most memory, in MiB, that every tenant's running agent turns may hold together. A turn is charged by size before each model call: (4 + the iterations it has done) × its conversation as sent, plus a resumed run's journal. Past the limit, the turn fails with `429 turn-memory-limit-reached` (`limit: server`). Unset: no limit. Kindgi Cloud sets 384.",
     example: '384',
     required: false,
     appliesTo: appliesToServer,
@@ -790,7 +790,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_TURN_MEMORY_PER_TENANT_MIB',
     description:
-      "Used from runtime 0.1.8; earlier runtimes ignore it. The most memory, in MiB, that one tenant's running agent turns may hold, charged as for `KINDGI_TURN_MEMORY_MIB`. Past it, the turn fails with `429 turn-memory-limit-reached` (`limit: tenant`), and a resume whose journal alone is bigger fails at once. Unset: no limit per tenant. Hosted Kindgi sets 192.",
+      "Used from runtime 0.1.8; earlier runtimes ignore it. The most memory, in MiB, that one tenant's running agent turns may hold, charged as for `KINDGI_TURN_MEMORY_MIB`. Past it, the turn fails with `429 turn-memory-limit-reached` (`limit: tenant`), and a resume whose journal alone is bigger fails at once. Unset: no limit per tenant. Kindgi Cloud sets 192.",
     example: '192',
     required: false,
     appliesTo: appliesToServer,
