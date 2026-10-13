@@ -210,6 +210,25 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_OPENFGA_PRESHARED_KEY',
+    description:
+      "Used from runtime 0.1.8; earlier runtimes ignore it. OpenFGA's preshared key, for an OpenFGA run with `--authn-method=preshared` (`OPENFGA_AUTHN_PRESHARED_KEYS`): the server sends it with every call, as `Authorization: Bearer <key>`, so nothing else on the network can read or write permissions. Needs `KINDGI_OPENFGA_API_URL`. Set it by reference to a secret, pinned to a version. Use a long random value (`openssl rand -hex 32`); the server drops surrounding whitespace and refuses spaces, commas or control characters inside (it travels in an HTTP header, and OpenFGA's list is comma-separated). To rotate it without a refusal: add the new key to OpenFGA's list, then point the server at it, then drop the old one, each step its own deploy.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_OPENFGA_AUTH',
+    description:
+      "Used from runtime 0.1.8; earlier runtimes ignore it. What the server sends OpenFGA besides the preshared key. `none` (default). `google-id-token`: also a Google ID token for `KINDGI_OPENFGA_API_URL`, from the server's own identity, for an OpenFGA on Cloud Run behind IAM; the URL must be https. It goes in `X-Serverless-Authorization`, which Cloud Run checks in place of `Authorization` (and passes on without its signature), because `Authorization` carries the key.",
+    example: 'none',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+    allowedValues: ['none', 'google-id-token'],
+  },
+  {
     name: 'KINDGI_TENANT_ID',
     description: 'Tenant UUID to seed / reuse. Default: fresh UUID printed at boot.',
     example: '00000000-0000-4000-8000-000000000001',
