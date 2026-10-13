@@ -17,6 +17,7 @@ contact@kindgi.com.
 | Runs pending | Runs waiting for a slot | 2,000 |
 | Tool calls in flight | Tool calls running at the same time | 50 |
 | Approvals pending | Approvals waiting for a decision | 500 |
+| Projects in production | Projects in production at the same time | 1 |
 | Agent turns' memory | What your workspace's running agent turns hold, by the size of their conversations | 192 MiB |
 | Agent turns' memory, shared | The same for all workspaces together, so other workspaces' turns count toward it too | 384 MiB |
 
@@ -141,6 +142,18 @@ answers 202, and the run fails with that code. A promotion past it is also
 ```text
 HTTP 429
 {"error":{"code":"approvals-pending-limit","message":"This tenant's limit on approvals waiting for a decision (500) is reached: decide some before asking for more.","details":{"approvalsPending":500,"runId":"…"},"requestId":"req-…"}}
+```
+
+### Projects in production
+
+One of your workspace's projects can be in production at a time. Putting
+another in is refused with `403 production-limit-reached`, until one is
+taken out. A project already in production stays in, and the others keep
+working as staging
+([Put a project in production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production)):
+
+```text
+CAPTURE: a second project put in production, as Kindgi Cloud refuses it
 ```
 
 ### Agent turns' memory
