@@ -35,7 +35,8 @@ it's in: its `projectId`, with the runtime 0.1.6 or later. A pack
 ## Before you start
 
 - **A runtime,** such as `kindgi dev`, with Kindgi 0.1's client and CLI.
-- **Node 22.12 or later, or Python 3.11 or later,** for the client.
+- **Node 22.12 or later, Python 3.11 or later, or Java 17 or later,** for the
+  client.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set, or a running
   `kindgi dev`, which the client finds.
 - **An agent,** to run in the customer's project. This guide uses
@@ -95,6 +96,92 @@ run = kindgi.runs.start(
 runs = kindgi.runs.list(scope_kind="org", scope_id=str(org.id))
 print(run.status, [str(r.id) for r in runs.data])
 ```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/CustomerOrg.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.CreateResourceResult;
+import com.kindgi.client.models.OrgSpec;
+import com.kindgi.client.models.ProjectSpec;
+import com.kindgi.client.models.Run;
+import com.kindgi.client.models.RunCollectionPage;
+import com.kindgi.client.models.ScopeKind;
+import com.kindgi.client.models.StartRunBody;
+import com.kindgi.client.resources.RunsListParams;
+import java.util.Map;
+import java.util.UUID;
+
+public final class CustomerOrg {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    // Once per customer: an org, and a project in it.
+    CreateResourceResult org = kindgi.orgs().create(
+        OrgSpec.builder().slug("acme-customer-one").name("Customer one").build());
+    CreateResourceResult project = kindgi.projects().create(
+        ProjectSpec.builder().orgId(org.id()).slug("support").name("Support").build());
+
+    // The customer's work runs in its project.
+    Run run = kindgi.runs().start(StartRunBody.WithAgent.builder()
+        .agent("acme-ops.echo-agent")
+        .input(Map.of("userMessage", "Echo hello."))
+        .projectId(UUID.fromString(project.id()))
+        .build());
+
+    // Everything in the customer's org, across its projects.
+    RunCollectionPage runs = kindgi.runs().list(
+        RunsListParams.builder().scopeKind(ScopeKind.ORG).scopeId(org.id()).build());
+    System.out.println(run.status() + " " + runs.data().stream().map(RunCollectionPage.DataItem::id).toList());
+  }
+}
+```
+
+`create` answers the new org's or project's id. A run's `projectId` is a
+`UUID`.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/CustomerOrg.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{OrgSpec, ProjectSpec, ScopeKind, StartRunBody}
+import com.kindgi.client.resources.RunsListParams
+import java.util.UUID
+import scala.jdk.CollectionConverters._
+
+object CustomerOrg {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    // Once per customer: an org, and a project in it.
+    val org = kindgi.orgs().create(OrgSpec.builder().slug("acme-customer-one").name("Customer one").build())
+    val project = kindgi.projects().create(
+      ProjectSpec.builder().orgId(org.id).slug("support").name("Support").build())
+
+    // The customer's work runs in its project.
+    val run = kindgi.runs().start(StartRunBody.WithAgent.builder()
+      .agent("acme-ops.echo-agent")
+      .input(Map("userMessage" -> "Echo hello.").asJava)
+      .projectId(UUID.fromString(project.id))
+      .build())
+
+    // Everything in the customer's org, across its projects.
+    val runs = kindgi.runs().list(RunsListParams.builder().scopeKind(ScopeKind.ORG).scopeId(org.id).build())
+    println(s"${run.status} ${runs.data.asScala.map(_.id).toList}")
+  }
+}
+```
+
+`create` answers the new org's or project's id. A run's `projectId` is a
+`UUID`.
 
 </TabItem>
 </Tabs>
@@ -319,6 +406,22 @@ await kindgi.orgs.delete(org.id);
 
 ```python excerpt
 kindgi.orgs.delete(str(org.id))
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/com/acme/app/CustomerOrg.java, when the customer leaves
+kindgi.orgs().delete(org.id());
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/app/CustomerOrg.scala, when the customer leaves
+kindgi.orgs().delete(org.id)
 ```
 
 </TabItem>

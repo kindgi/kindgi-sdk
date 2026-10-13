@@ -18,8 +18,9 @@ explains what it holds and why.
 
 - **A run's id,** on a runtime such as `kindgi dev`, with Kindgi 0.1's CLI.
   [List runs](../list-runs/) finds one.
-- **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
-  Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
+  Java 17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
 
 ## Read it from the CLI
 
@@ -148,6 +149,61 @@ def print_journal(run_id: str) -> None:
     for entry in kindgi.runs.journal(run_id).data:
         print(entry.sequence, entry.kind, entry.node_id or "")
 ```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/PrintJournal.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.RunJournalPage;
+import java.util.Objects;
+import java.util.UUID;
+
+public final class PrintJournal {
+  private static final Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+  /** Prints a run's journal, one entry a line. */
+  public static void printJournal(UUID runId) {
+    for (RunJournalPage.DataItem entry : kindgi.runs().journal(runId).data()) {
+      String nodeId = Objects.toString(entry.nodeId(), "");
+      System.out.println(entry.sequence() + " " + entry.kind() + " " + nodeId);
+    }
+  }
+
+  private PrintJournal() {}
+}
+```
+
+Each entry is a record: `sequence()`, `kind()`, `nodeId()`, `payload()`,
+`timestamp()`.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/PrintJournal.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import java.util.UUID
+import scala.jdk.CollectionConverters._
+
+object PrintJournal {
+  private val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
+
+  /** Prints a run's journal, one entry a line. */
+  def printJournal(runId: UUID): Unit =
+    for (entry <- kindgi.runs().journal(runId).data.asScala) {
+      println(s"${entry.sequence} ${entry.kind} ${Option(entry.nodeId).getOrElse("")}")
+    }
+}
+```
+
+Each entry is a Java record: `sequence`, `kind`, `nodeId`, `payload`,
+`timestamp`.
 
 </TabItem>
 </Tabs>
