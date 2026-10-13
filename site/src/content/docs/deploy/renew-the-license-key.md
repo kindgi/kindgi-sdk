@@ -230,10 +230,12 @@ token, or a system key holding `system:license`, can read):
   [put projects in production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production);
 - **the runtime's version,** and the period they cover.
 
-They're counts only: no content, names or ids. access.kindgi.com keeps them
+They're counts only: no content, names or ids. Until the date on
+access.kindgi.com's [privacy page](https://kindgi.com/privacy), the service
+keeps only whether a renewal carried counts. From that date, it keeps them
 with the renewal's record, kept 400 days, and the latest ones with the
-deployment's renewer, kept until the account is deleted. Kindgi reads them to see
-production-like use of non-production keys. Above levels Kindgi sets, a
+deployment's renewer, kept until the account is deleted. Kindgi reads them to
+see production-like use of non-production keys. Above levels Kindgi sets, a
 non-production key's renewal is held for review once a new key is due
 (`held-for-review`).
 
