@@ -49,6 +49,7 @@ function makeApp(setup: {
         return { id, state: 'active' };
       },
     },
+    tenantStates: { of: async () => 'active' },
     systemTenantSettings: {
       async setProductionAllowed(_id, allowed) {
         return { productionAllowed: allowed };
