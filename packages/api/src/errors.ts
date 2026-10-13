@@ -476,6 +476,11 @@ export function statusFor(code: string): number {
   return ERROR_CODE_TO_STATUS[code] ?? 500;
 }
 
+/** A wait as `Retry-After`'s whole seconds: rounded up, at least one. */
+export function retryAfterSeconds(waitMs: number): number {
+  return Math.max(Math.ceil(waitMs / 1000), 1);
+}
+
 /** Build a wire error body from a domain error + requestId. */
 export function toWireError(
   err: { readonly code: string; readonly message: string } & Readonly<Record<string, unknown>>,

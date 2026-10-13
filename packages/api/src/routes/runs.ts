@@ -19,7 +19,7 @@ import type {
 
 import { type Principal, denyPayload, ref } from '@kindgi/authz';
 
-import { type WireErrorBody, statusFor, toWireError } from '../errors.js';
+import { type WireErrorBody, retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type { EventBusBinding, EventPayload, Subscription } from '../event-bus-binding.js';
 import type {
   RunHandlerBinding,
@@ -29,7 +29,6 @@ import type {
 } from '../handler-binding.js';
 import type { HitlBinding } from '../hitl-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import { retryAfterSeconds } from '../middleware/error-mapper.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
 import {
   type ReferenceScopeBinding,
@@ -733,7 +732,7 @@ function runFailureToWire(failure: RunHandlerFailure, requestId: string): WireEr
  */
 function answerBudgetWait(c: Context<AppEnv>, failure: RunHandlerFailure): void {
   const wait = budgetWaitOf(failure);
-  if (wait !== undefined) c.header('Retry-After', retryAfterSeconds(wait));
+  if (wait !== undefined) c.header('Retry-After', String(retryAfterSeconds(wait)));
 }
 
 /**

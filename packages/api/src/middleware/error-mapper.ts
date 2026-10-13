@@ -5,12 +5,7 @@ import { TenantBudgetError } from '@kindgi/bounds';
 import type { Logger } from '@kindgi/log';
 import type { Context } from 'hono';
 
-import { statusFor, toWireError } from '../errors.js';
-
-/** A wait as `Retry-After`: whole seconds, rounded up, at least one. */
-export function retryAfterSeconds(waitMs: number): string {
-  return String(Math.max(Math.ceil(waitMs / 1000), 1));
-}
+import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 
 /**
  * The app's error handler (`app.onError`). Any exception a route or
@@ -48,7 +43,7 @@ export function mapThrownError(cause: Error, c: Context): Response {
   }
   const requestId = (c.get('requestId') as string | undefined) ?? 'req-unknown';
   if (cause instanceof TenantBudgetError) {
-    c.header('Retry-After', retryAfterSeconds(cause.retryAfterMs));
+    c.header('Retry-After', String(retryAfterSeconds(cause.retryAfterMs)));
     c.status(statusFor('rate-limit-exceeded') as never);
     return c.json(
       toWireError(
