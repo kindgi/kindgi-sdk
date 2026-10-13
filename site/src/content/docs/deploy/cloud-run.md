@@ -384,8 +384,8 @@ network, and the pack's calls to your services don't
 ### OpenFGA behind Cloud Run IAM
 
 When OpenFGA runs as a Cloud Run service of its own, with IAM on, the
-runtime proves who it is to Cloud Run as well as to OpenFGA (from runtime
-0.1.8). Give the runtime's service account `roles/run.invoker` on OpenFGA's
+runtime proves who it is to Cloud Run as well as to OpenFGA (runtime 0.1.8 or
+later). Give the runtime's service account `roles/run.invoker` on OpenFGA's
 service, run OpenFGA with a key and its playground off
 ([Require a key for OpenFGA](../authorization/#require-a-key-for-openfga)), and
 set:

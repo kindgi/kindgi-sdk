@@ -85,7 +85,8 @@ migration done
 
 Keep OpenFGA on the private network, with no published port: the runtime
 calls it without credentials unless OpenFGA requires a key
-([Require a key for OpenFGA](#require-a-key-for-openfga), from runtime 0.1.8).
+([Require a key for OpenFGA](#require-a-key-for-openfga), which needs runtime
+0.1.8 or later).
 The playground is off: it's for trying OpenFGA on your own machine. Back up its `openfga` database with the
 runtime's ([Back up Postgres](../back-up-and-restore/#back-up-postgres)).
 
@@ -168,9 +169,10 @@ already has.
 ### Require a key for OpenFGA
 
 OpenFGA answers whoever reaches it, so anything else on its network could read
-and write your permissions. From runtime 0.1.8, OpenFGA can require a key, and
-the runtime sends it with every call (`Authorization: Bearer <key>`). An
-earlier runtime ignores the setting, and OpenFGA then refuses its calls.
+and write your permissions. OpenFGA can require a key, and the runtime sends
+it with every call (`Authorization: Bearer <key>`). This needs runtime 0.1.8 or
+later: an earlier runtime ignores the setting, and OpenFGA then refuses its
+calls.
 
 Use OpenFGA 1.14.0 or later with a key, with its playground off: before 1.14.0,
 the playground page shows the key to anyone who opens it
