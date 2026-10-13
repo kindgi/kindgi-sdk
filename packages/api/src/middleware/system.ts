@@ -197,11 +197,15 @@ async function admitSystemRequest(
     (r) => r.method === method && r.path === path,
   );
   if (listed === undefined) {
+    const reaches = [
+      '/v1/system/*',
+      ...SYSTEM_PRINCIPAL_ALLOWED_ROUTES.map((r) => `${r.method} ${r.path}`),
+    ];
     return deny(
       c,
       authorizer,
       'system-key-on-tenant-route',
-      `A system key acts in no tenant: it reaches /v1/system/* only, not ${method} ${path}. Use a key of the tenant.`,
+      `A system key acts in no tenant: it reaches ${reaches.join(' and ')} only, not ${method} ${path}. Use a key of the tenant.`,
     );
   }
   const refusal = systemScopeRefusal(c, listed.scope, authorizer);
