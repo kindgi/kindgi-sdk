@@ -193,7 +193,9 @@ jobs:
         run: pnpm run check:publish
       # The site's build scripts' own tests (node:test, site/scripts): which
       # versions build and from where, the version fixes, the agents'
-      # Markdown, the pinned tutorials. Before the build: they take seconds.
+      # Markdown, the pinned tutorials, the samples check. Before the build.
+      # The samples check's end-to-end test makes fresh packs and adds
+      # libraries to them with uv and pnpm, so it needs the network.
       - name: Docs site scripts
         run: pnpm run docs:test-scripts
       # The documentation site (docs.kindgi.com) builds, with its link check

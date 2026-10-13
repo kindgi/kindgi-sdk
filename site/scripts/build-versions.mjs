@@ -23,7 +23,7 @@
  *                releases' and `/next/`'s copies redirect to it
  *                (`tutorials-overlay.mjs`)
  *   *.md         every page's Markdown, for coding agents, at the root and
- *                under every version: never indexed (`/_headers`)
+ *                under every version: never indexed, UTF-8 (`/_headers`)
  *
  * Only releases are public: readers install a release, so the site
  * describes what they have. What's merged but not released is checked in a
