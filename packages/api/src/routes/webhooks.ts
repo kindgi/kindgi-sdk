@@ -22,13 +22,13 @@ import type {
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
-import { recordedSecretScope, secretScopesFor } from '../secret-scope.js';
-import type { SecretBinding } from '../secrets-binding.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
   referencesOutOfScope,
 } from '../reference-scope.js';
+import { recordedSecretScope, secretScopesFor } from '../secret-scope.js';
+import type { SecretBinding } from '../secrets-binding.js';
 import {
   type RegisterWebhookTriggerInput,
   type TriggerFire,
