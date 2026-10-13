@@ -29,6 +29,12 @@ const RUN_IN_FULL = {
   ...RUN,
   status: 'failed',
   failureMessage: 'budget-exceeded',
+  failure: {
+    code: 'rate-limit-exceeded',
+    message: 'Template render budget reached for this tenant',
+    cause: { code: 'upstream', reasons: ['any JSON'] },
+    details: { limit: 'template-render-time', budgetMs: 5_000 },
+  },
   usage: {
     calls: 2,
     costUsd: 0.0021,
@@ -171,6 +177,19 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
     '`data.run.agent.liveScope.kind` is not one of "tenant", "org", "project", "segment".',
   ],
   [
+    "a failure's code",
+    withRun({ ...RUN_IN_FULL, failure: { message: 'refused' } }),
+    '`data.run.failure.code` is missing.',
+  ],
+  [
+    "a failure's details",
+    withRun({
+      ...RUN_IN_FULL,
+      failure: { ...RUN_IN_FULL.failure, details: 'template-render-time' },
+    }),
+    '`data.run.failure.details` is not an object.',
+  ],
+  [
     'an enum on a pass',
     withPass({ ...PASS, objective: 'accuracy' }),
     '`data.pass.objective` is not one of "weightedYesShare", "weightedPrecisionAtK".',
@@ -221,8 +240,15 @@ describe('parseEvent: real events', () => {
     expect(parseEvent(body(event))).toEqual({ kind: 'ok', event });
   });
 
-  test('a run with every optional part (usage, agent, its live scope) is read', () => {
+  test('a run with every optional part (failure, usage, agent, its live scope) is read', () => {
     expect(problem(parseEvent(withRun(RUN_IN_FULL)))).toBe('ok');
+  });
+
+  test("a failure's cause is any JSON value: the schema gives it no type", () => {
+    for (const cause of ['a string', 7, null, [1, 'two'], { nested: { deep: true } }]) {
+      const failure = { ...RUN_IN_FULL.failure, cause };
+      expect(problem(parseEvent(withRun({ ...RUN_IN_FULL, failure })))).toBe('ok');
+    }
   });
 
   test("a run's id is a RunId and an approval's an ApprovalId, for the client's getters", () => {

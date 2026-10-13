@@ -25,6 +25,7 @@ import type { KeyRunners } from './key/runners.js';
 import type { LicenseCommandDeps } from './license/renew.js';
 import type { OpenUrl } from './open-url.js';
 import { GLOBAL_OPTION_SPEC, parseCommand } from './parse.js';
+import type { RateLimitWaitSeam } from './rate-limit-wait.js';
 import type { TestRunners } from './test/runners.js';
 import { CLI_VERSION } from './version-info.js';
 
@@ -121,6 +122,8 @@ export interface RunCliInputs {
   readonly doctorSeam?: DoctorSeam;
   /** Opens a URL in the browser (`kindgi console`, `kindgi dev --open`). */
   readonly openUrl?: OpenUrl;
+  /** The sleep, clock and output a publishing command waits out the server's rate limits with. */
+  readonly rateLimitWaits?: RateLimitWaitSeam;
 }
 
 /**
@@ -271,6 +274,7 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ...(inputs.initSeam !== undefined ? { initSeam: inputs.initSeam } : {}),
     ...(inputs.doctorSeam !== undefined ? { doctorSeam: inputs.doctorSeam } : {}),
     ...(inputs.openUrl !== undefined ? { openUrl: inputs.openUrl } : {}),
+    ...(inputs.rateLimitWaits !== undefined ? { rateLimitWaits: inputs.rateLimitWaits } : {}),
   });
 
   const label = commandLabel(command, argv, consumed);

@@ -65,7 +65,7 @@ docker run -d --name kindgi-db-restored --network kindgi \
   -v kindgi-db-restored:/var/lib/postgresql/data \
   pgvector/pgvector:pg16
 
-docker exec kindgi-db-restored pg_isready -U kindgi -d kindgi
+until docker exec kindgi-db-restored pg_isready -h 127.0.0.1 -U kindgi -d kindgi; do sleep 1; done
 docker exec -i kindgi-db-restored pg_restore -U kindgi -d kindgi --no-privileges < kindgi-backup.dump
 ```
 
@@ -73,11 +73,34 @@ docker exec -i kindgi-db-restored pg_restore -U kindgi -d kindgi --no-privileges
   same name for its data.
 - `pgvector/pgvector:pg16` is Postgres 16 with the `vector` extension the
   runtime needs.
-- `pg_isready` says whether the new Postgres accepts connections yet. Run it
-  again until it does.
+- The `until` loop runs `pg_isready` each second until the new Postgres
+  accepts connections. `-h 127.0.0.1` asks over TCP: while the image sets up
+  the new database, Postgres answers only on its local socket, then
+  restarts.
 - `--no-privileges` leaves out the backup's grants. The runtime grants its
   database role what it needs every time it starts, and a fresh server
   doesn't have that role yet.
+
+`docker run -d` prints the new container's id. `pg_isready` prints
+`no response` until Postgres is up. `pg_restore` then reports one error, and
+exits `1`:
+
+```text
+09760d6e9bf5d2818925e52d5c0d30aae9b1b608458494784cbc738454df0e64
+127.0.0.1:5432 - no response
+…
+127.0.0.1:5432 - accepting connections
+pg_restore: error: could not execute query: ERROR:  role "…" does not exist
+Command was: CREATE POLICY tenant_rows ON public.auth_sso_providers TO … USING (…) WITH CHECK (…);
+
+
+pg_restore: warning: errors ignored on restore: 1
+```
+
+The error comes from the one policy in the backup that names the runtime's
+database role, which the fresh server doesn't have yet. Everything else is
+restored. The runtime makes the role, and that policy, when it starts on the
+new database.
 
 Point the runtime at the new database in `kindgi.env`, where `<DB_PASSWORD>`
 is the database password:
@@ -104,7 +127,9 @@ pnpm exec kindgi runs get <run id> --url http://localhost:4000 --token "$KINDGI_
 
 A backup taken before an [erasure](../../guides/agents/erase-a-persons-data/)
 brings back what it cleared. Replay the erasures next, as
-[Erasures and backups](#erasures-and-backups) shows.
+[Erasures and backups](#erasures-and-backups) shows. To look at the restored
+database first, without anything running on its own, start the runtime with
+[`KINDGI_PASSIVE=on`](#look-at-a-restored-copy-before-it-serves-kindgi_passive).
 
 ## Erasures and backups
 
@@ -168,7 +193,15 @@ Then:
    ```
 
    `--out` is the file it writes. `$(date +%F)` names it with the date of the
-   export.
+   export. It prints, as JSON, the file it `wrote` and how many `erasures` it
+   holds:
+
+   ```json
+   {
+     "wrote": "erasures-2026-10-12.json",
+     "erasures": 1
+   }
+   ```
 
 2. **After a restore, replay the latest export** before the runtime serves
    anyone. It erases again whoever the restored database holds:
@@ -177,9 +210,100 @@ Then:
    kindgi memory erasures replay erasures-<date>.json
    ```
 
-   `erasures-<date>.json` is the latest export. Its answer lists the
-   erasures it `replayed`, the ones it `restored` to the ledger, and any it
-   couldn't match, as `unmatched`.
+   `erasures-<date>.json` is the latest export. Its answer sorts the
+   export's erasures three ways:
+
+   - `replayed`: the database held someone they erased, and the replay
+     erased them again.
+   - `restored`: put back in the ledger only, with nothing to erase.
+   - `unmatched`: the ones it couldn't match.
+
+   Here, the backup held a fact about the end user `end-7` from before their
+   erasure, and the replay erased it again:
+
+   ```json
+   {
+     "replayed": [
+       "9e1e3253-d3a1-4c25-a0d4-020696e32125"
+     ],
+     "restored": [],
+     "unmatched": []
+   }
+   ```
+
+### Copies the runtime keeps on its own
+
+The runtime can also keep copies of the ledger itself, every tenant's at
+once. That suits a runtime that serves several tenants, where no one admin
+can export them all:
+
+- **`KINDGI_ERASURE_LEDGER_EXPORT`:** where. Either `local:<absolute dir>`, or
+  `gcs:<bucket>[/<prefix>]` through Application Default Credentials. Creating
+  objects is all it needs (`roles/storage.objectCreator` on the bucket).
+- **`KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS`:** how often. Default an hour.
+  Under a minute, or set without `KINDGI_ERASURE_LEDGER_EXPORT`, and the
+  runtime refuses to start. An erasure made after both the last copy and the
+  restore point is in neither, so this is the most a restore can miss.
+
+**What each copy is:**
+- one file, `erasure-ledger-<YYYYMMDD>-<digest>.json`, holding every tenant's
+  ledger: keyed hashes only, never whom an erasure names;
+- a new one is written when the ledger changes, and at least one a day;
+- none is ever overwritten or deleted, so keep them longer than your
+  backups (a bucket's lifecycle rule, say).
+
+The startup log has an `Erasure ledger:` line naming where and how often.
+
+**After a restore,** before the runtime serves anyone, replay the newest copy
+with the runtime image's own command and the runtime's settings. Self-hosted,
+with Docker:
+
+```sh
+docker run --rm --network kindgi --env-file kindgi.env \
+  -v /var/lib/kindgi/erasure-ledger:/erasure-ledger:ro \
+  quay.io/kindgi/runtime:<version> erasures replay --from local:/erasure-ledger
+```
+
+- **`--from`** takes a directory (`local:<dir>`, mounted into the container
+  as above), a bucket (`gcs:<bucket>[/<prefix>]`), or one file by its
+  absolute path.
+- **From a bucket, replay reads it:** it lists and downloads, so whatever
+  runs it needs read access (`roles/storage.objectViewer`), which the
+  runtime's own writing identity doesn't have. In a container elsewhere, that
+  means Google credentials inside it. On Google Cloud, run it as a Cloud Run
+  job with the runtime image and a service account that can read the bucket.
+- **Which copy:** the one whose pass started last, by what the file says,
+  never by when it was written or copied. Two replicas' passes can overlap.
+- **How it runs:** it starts its own passive server on 127.0.0.1 (below),
+  replays each tenant's erasures, and clears what they name before it stops.
+  A replayed erasure is done before anything serves. A tenant in the copy
+  that the database doesn't have is skipped, and named.
+- **What it prints:** per tenant, how many erasures it replayed and how many
+  it only restored to the ledger (nothing of theirs was there). Then how many
+  of the replayed ones it cleared. Ids and counts only, never whom an
+  erasure names.
+- **Exit `1`:** an erasure was hashed under a ledger key this runtime doesn't
+  hold (set the key it was made with, and replay again), or one isn't done by
+  `--timeout` (seconds, default 600). Exit `2` when it can't run.
+
+`erasures export --out <local:<dir> | gcs:<bucket>[/<prefix>]>` writes a copy
+now, before an upgrade say.
+
+### Look at a restored copy before it serves: `KINDGI_PASSIVE`
+
+`KINDGI_PASSIVE=on` starts a runtime that does nothing on its own:
+- none of its background work starts: schedules and event triggers, runs
+  resumed or swept, webhook deliveries, sending permission changes to
+  OpenFGA, the sweeps, erasures, the ledger's copies;
+- it connects no MCP endpoint at startup;
+- it sends no email.
+
+So a restored database can be inspected without a schedule firing, a
+webhook going out, or a run calling your tools.
+- **Requests are still served,** and a run started through the API still
+  runs, so keep a passive runtime where only you can reach it.
+- **It says so:** the startup log has a `⚠ Passive (KINDGI_PASSIVE=on)`
+  line, and `/ready` answers `"passive": true`.
 
 Two more things keep erasures complete:
 

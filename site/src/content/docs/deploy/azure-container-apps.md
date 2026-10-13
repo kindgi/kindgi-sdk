@@ -203,10 +203,21 @@ pnpm exec kindgi build --local --push --env dev
   block, here the module's.
 - `--env dev` names that environment block.
 
+It prints the build as JSON, then each step. The last steps:
+
 ```text
+…
     ✓ Pushed acmeep0y.azurecr.io/acme@sha256:4d18e695…
+
+  Verifying build output
     ✓ /app/index.json in the image matches the local index byte for byte
+
+  Signing locally
     ✓ Ed25519 signature over (imageDigest, artifactVersion, indexHash, tenantId, publishedAt)
+      key: acme-dev
+
+  Deploy envelope written to …/.kindgi/build/deploy-envelope.json
+  Run `kindgi deploy --env=dev` to POST it.
 ```
 
 Set `server_image` and `pack_image` in `dev.tfvars` to the two images by
@@ -412,8 +423,19 @@ KINDGI_API_TOKEN=$(az keyvault secret show --vault-name "$V" -n api-token --quer
 pnpm exec kindgi key trust acme-dev --label dev --url "$URL" --token "$KINDGI_API_TOKEN"
 ```
 
+It prints the key the runtime now trusts, then says so:
+
 ```text
-  ✓ Trusted acme-dev (sha256:d872dbbf…)
+{
+  "keyId": "acme-dev",
+  "tenantId": "722e23b8-bbb4-43dc-9a37-9640e369fa7d",
+  "algorithm": "ed25519",
+  "publicKey": "YoQxkUZcrXvo7NKCJmalfcMcGWMfNJzBhk+nhNctQBE=",
+  "label": "dev",
+  "createdAt": "2026-10-12T14:28:40.122Z"
+}
+
+  ✓ Trusted acme-dev (sha256:1b5dcdf07dacf4e91c1bab5b)
     The runtime now accepts deploys this key signs.
 ```
 
@@ -427,7 +449,11 @@ pnpm exec kindgi key trust acme-dev --label dev --url "$URL" --token "$KINDGI_AP
 pnpm exec kindgi deploy --env dev --endpoint "$URL" --token "$KINDGI_API_TOKEN"
 ```
 
+It prints the deployment as JSON, then each step. The last steps:
+
 ```text
+…
+  Registering deployment
     ✓ POST /v1/deployments  →  201 Created
       deploymentId:    8ae8c6d0-…
       artifactVersion: 20261008.211554
@@ -435,7 +461,11 @@ pnpm exec kindgi deploy --env dev --endpoint "$URL" --token "$KINDGI_API_TOKEN"
       activatedAt:     2026-10-08T21:22:04.191Z
 
   Deploy complete.
+  Runs started from now use image sha256:4d18e69581b56… (artifactVersion 20261008.211554).
+  Runs already in flight continue on their pinned image.
 ```
+
+To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
 
 The runtime read your pack's image from the registry with its own identity
 (`KINDGI_IMAGE_REGISTRY_AUTH=azure`) to check it before registering it.
@@ -479,6 +509,13 @@ to finish, with the output `{"greeting":"Hello, Azure!"}`.
 
 ## Operate it
 
+- **Upgrade at least every 90 days while Kindgi is in preview.** Until
+  Kindgi 1.0, a release stops starting 90 days after it was released.
+  Container Apps starts new replicas on its own, and after that day none
+  comes up. The runtime warns from 30 days before, at startup and once a
+  day, in a log record with `"event": "kindgi.preview_expiry"`: alert on it
+  in Log Analytics
+  ([Licensing](../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
 - **Upgrade:** make sure a restorable backup exists. Automatic backups with
   point-in-time restore are on. Copy the new runtime image by digest, set
   `server_image`, and apply. Migrations only go forward: never run two runtime

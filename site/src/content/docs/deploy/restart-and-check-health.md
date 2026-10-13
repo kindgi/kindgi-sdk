@@ -26,7 +26,7 @@ The runtime reads its settings when it starts, so most changes to
 Stop the container, remove it, and start it again with the same settings:
 
 ```sh
-docker stop --time 30 kindgi-server
+docker stop -t 30 kindgi-server
 docker rm kindgi-server
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
@@ -34,7 +34,7 @@ docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   quay.io/kindgi/runtime:0.1.7
 ```
 
-- `--time 30` gives the runtime 30 seconds to stop before Docker kills it.
+- `-t 30` gives the runtime 30 seconds to stop before Docker kills it.
 - `--network kindgi` puts it on the network the database and the pack's
   service are on.
 - `--restart unless-stopped` starts it again after a crash or a reboot.
@@ -44,7 +44,13 @@ docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
 - `--env-file kindgi.env` gives it its settings.
 
 Docker prints the container's name after `stop` and `rm`, and the new
-container's id after `run`.
+container's id after `run`:
+
+```text
+kindgi-server
+kindgi-server
+22451a46ab6068874f5e493d44d3cb2fefc38edfcac32553194206eac95ea229
+```
 
 On a stop, the runtime stops taking requests and gives the runs it's
 executing up to 7 seconds to finish. Then it exits with code 0.
@@ -59,7 +65,15 @@ pnpm exec kindgi runs cancel <run id> --url http://localhost:4000 --token "$KIND
 ```
 
 `<run id>` is the run's id. `--url` is the runtime's URL, and `--token` the
-API token.
+API token. It prints the run's id, as in
+[Cancel a run](../../guides/runs/cancel-a-run/):
+
+```json
+{
+  "ok": true,
+  "runId": "265627c7-1ac7-4d18-a926-6da9fcc18577"
+}
+```
 
 To avoid it, restart when no runs are executing.
 :::
@@ -157,6 +171,11 @@ The runtime prints what it's running with when it starts. Read it with
 - **`Token`:** the last four characters of the API token it accepts.
 - **`License`:** who the key is for, its kind and its end date. A warning
   follows within 30 days of the end.
+- **`⚠ This preview build (…) stops starting on …`:** from 30 days before
+  this release stops starting (90 days after it was released, until
+  Kindgi 1.0). Upgrade before then. In the JSON format it's also a
+  record of its own, `"event": "kindgi.preview_expiry"`, logged at startup
+  and once a day: match it in a log alert.
 - **`Pack service`:** the pack it reached, with its artifact version. When it
   can't reach it, a warning takes this line's place, with the reason.
 

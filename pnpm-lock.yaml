@@ -435,6 +435,9 @@ importers:
       '@kindgi/blob-binding':
         specifier: workspace:*
         version: link:../blob-binding
+      '@kindgi/bounds':
+        specifier: workspace:*
+        version: link:../bounds
       '@kindgi/capabilities':
         specifier: workspace:*
         version: link:../capabilities
@@ -481,7 +484,7 @@ importers:
         specifier: ^0.12.2
         version: 0.12.2(hono@4.13.8)
       hono:
-        specifier: ^4.6.14
+        specifier: ^4.13.8
         version: 4.13.8
     devDependencies:
       '@kindgi/audit-events-inmemory':
@@ -1104,6 +1107,9 @@ importers:
 
   packages/schema:
     dependencies:
+      '@kindgi/bounds':
+        specifier: workspace:*
+        version: link:../bounds
       '@kindgi/types':
         specifier: workspace:*
         version: link:../types
@@ -1265,6 +1271,9 @@ importers:
         specifier: ^7.6.3
         version: 7.8.5
     devDependencies:
+      '@kindgi/bounds':
+        specifier: workspace:*
+        version: link:../bounds
       '@kindgi/specs':
         specifier: workspace:*
         version: link:../specs

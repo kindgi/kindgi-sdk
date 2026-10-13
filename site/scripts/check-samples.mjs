@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 /**
- * Checks the code samples on the hand-written pages, and in the skills
+ * Checks the code samples on the site's pages (the generated reference
+ * pages included), and in the skills
  * `kindgi init` installs (`packages/sdk/skills/`) whose samples are whole
  * files (`"samples": "checked"` in `site/skills-sources.json`; a skill's
  * teaching fragments stay unchecked until it's revised to make them whole).
@@ -38,10 +39,12 @@
  *
  * Snippets run as pasted: on a page, every code block is either offered for
  * copying and checked, or an excerpt (`excerpts.mjs`: its fence says
- * `excerpt`, or it contains `…`), which the site shows without a copy
- * button. So on a page, the check also fails on:
+ * `excerpt`, or it contains `…`) or a signature (its fence says
+ * `signature`: a reference page's declaration), which the site shows
+ * without a copy button. So on a page, the check also fails on:
  *   - a TypeScript, Python, Java or Scala block that isn't a whole file and
- *     isn't an excerpt, and an excerpt that names a file;
+ *     isn't an excerpt or a signature, and an excerpt or signature that
+ *     names a file;
  *   - a shell block that's a transcript (a `$ ` prompt), that `bash -n`
  *     refuses (with `<placeholders>` filled in), or whose `kindgi` command
  *     names a command or a flag the CLI doesn't have (`kindgi`, `npx …
@@ -53,6 +56,10 @@
  *     it's an excerpt. Text blocks (output, a prompt to paste) aren't code
  *     and stay as they are.
  * Skills keep only the whole-file check: they aren't rendered with copy buttons.
+ * The generated reference pages are git-ignored: `docs:build` writes them
+ * (`generate-reference.mjs` the CLI's and the Python SDK's, the site's build
+ * the TypeScript SDK's) before CI's `docs:samples`, and a run over every
+ * page fails without them.
  *
  * A sample may import the reader's own app code (`@/lib/requests`,
  * `acme.orders`). The page gives the checker a stand-in for it in a comment
@@ -62,6 +69,17 @@
  * `json` block named `// tsconfig.json`) replaces the pack's, for samples from
  * an app with its own settings (Next.js: `moduleResolution: "bundler"`, the
  * `@/*` paths).
+ *
+ * A sample may also import a library the reader adds to their app
+ * (`from fastapi import FastAPI`). The same comment then holds the reader's
+ * install step, a shell block of `uv add <library> …` (Python) or
+ * `pnpm add <library> …` (TypeScript) lines. The check runs it as words,
+ * without a shell, in that page's own copy of the pack before compiling, so
+ * the sample is checked against the library itself and no other page's pack
+ * gets it. Any other line there (a flag, a URL, a path, `;`, a pipe, `$(…)`)
+ * is a problem and is never run. A library that no install command on the
+ * page shows the reader is a problem too. Java and Scala samples have no such
+ * step: they compile against their pack and the Java client only.
  *
  * Needs the workspace built (`pnpm run build`), uv for Python samples, for
  * Java samples a JDK 17 or later and the Java SDK built
@@ -73,7 +91,8 @@
  * tomllib), and the workspace built (`@kindgi/cli`, for its commands).
  *
  * Usage: node site/scripts/check-samples.mjs [--no-compile] [<page or skill file> …]
- *   (a page path is relative to site/src/content/docs; default: every page and skill)
+ *   (a page path is relative to site/src/content/docs; default: every page
+ *   and skill, after `pnpm run docs:build`, which generates the reference)
  *   --no-compile: the page rules only, without compiling the whole files
  *   (no pack, JDK or sbt needed): the quick list for a page's author.
  */
@@ -94,7 +113,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { isExcerpt } from './excerpts.mjs';
+import { EXCERPT, SIGNATURE, uncopied } from './excerpts.mjs';
 import { docsVersion, fillVersion } from './versioned-pages.mjs';
 
 const site = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -108,8 +127,13 @@ const pyright = join(site, 'node_modules', '.bin', 'pyright');
 /** The folders a Python pack's indexer discovers by default: other files are app code. */
 const PACK_PYTHON = /^(?:tools|agents|flows|guardrails)\//;
 
-/** Hand-written pages: everything but the generated sections. */
-const GENERATED = ['reference', 'contributing'];
+/**
+ * The folders of generated reference pages (git-ignored) that a run over
+ * every page needs: the CLI's and the Python SDK's, which
+ * `generate-reference.mjs` writes, and the TypeScript SDK's, which the
+ * site's build writes (starlight-typedoc). `docs:build` writes all three.
+ */
+const GENERATED = ['reference/cli', 'reference/python', 'reference/typescript'];
 const PAGE = /\.mdx?$/;
 
 const LANGUAGES = {
@@ -143,14 +167,18 @@ const FENCE_LANGUAGE = {
 };
 const javaSdk = join(repo, 'sdks', 'java');
 
-function pages(dir = docs) {
+/** Every page under `dir`, hand-written or generated. */
+export function pages(dir = docs) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      return dir === docs && GENERATED.includes(entry.name) ? [] : pages(path);
-    }
+    if (entry.isDirectory()) return pages(path);
     return PAGE.test(entry.name) ? [path] : [];
   });
+}
+
+/** The generated folders (`GENERATED`) missing under `dir`: none once the reference is generated. */
+export function missingGenerated(dir = docs) {
+  return GENERATED.filter((folder) => !existsSync(join(dir, folder)));
 }
 
 /** The `SKILL.md` of every skill whose samples are checked. */
@@ -215,9 +243,12 @@ function named(block) {
   return language !== undefined && LANGUAGES[language].file.test(block.lines[0] ?? '');
 }
 
-/** Whether a block is an excerpt (`excerpts.mjs`), so not offered for copying. */
-function excerpt(block) {
-  return isExcerpt({
+/**
+ * What a block is when it isn't offered for copying (`excerpts.mjs`):
+ * `'excerpt'`, `'signature'`, or undefined.
+ */
+function notOffered(block) {
+  return uncopied({
     language: block.language,
     meta: block.meta,
     code: block.lines.join('\n'),
@@ -227,10 +258,10 @@ function excerpt(block) {
 
 /**
  * A page's samples that are whole files, by language: `{ path, content }[]`.
- * `excerpts: false` leaves out excerpts (a page's: they aren't offered for
- * copying, and one that names a file is a problem of its own).
+ * `offeredOnly`: only the blocks offered for copying, without excerpts and
+ * signatures (a page's: one that names a file is a problem of its own).
  */
-export function fileSamples(markdown, { excerpts = true } = {}) {
+export function fileSamples(markdown, { offeredOnly = false } = {}) {
   const byLanguage = { ts: [], python: [], java: [], scala: [] };
   for (const block of blocks(markdown)) {
     if (block.stub && ['json', 'jsonc'].includes(block.language)) {
@@ -243,7 +274,7 @@ export function fileSamples(markdown, { excerpts = true } = {}) {
     }
     const language = FENCE_LANGUAGE[block.language];
     if (language === undefined) continue;
-    if (!excerpts && !block.stub && excerpt(block)) continue;
+    if (offeredOnly && !block.stub && notOffered(block)) continue;
     const name = block.lines[0]?.match(LANGUAGES[language].file);
     if (name) {
       const content = `${block.lines.join('\n')}\n`;
@@ -275,11 +306,12 @@ function blockRules(block, cli) {
   const code = block.lines.join('\n');
   const language = FENCE_LANGUAGE[block.language];
   const whole = named(block);
-  if (excerpt(block)) {
+  const kind = notOffered(block);
+  if (kind !== undefined) {
     return whole
       ? {
           problems: [
-            'marked `excerpt` but names a file: a whole file is offered for copying and compiled, so drop `excerpt`, or drop the file name',
+            `marked \`${kind}\` but names a file: a whole file is offered for copying and compiled, so drop \`${kind}\`, or drop the file name`,
           ],
         }
       : {};
@@ -326,7 +358,151 @@ export function pageRules(markdown, cli) {
     if (shell) result.shell.push(block);
     if (parsed) result.parsed.push(block);
   }
+  const { adds, problems } = libraries(markdown);
+  result.problems.push(...problems);
+  const files = fileSamples(markdown, { offeredOnly: true });
+  const shown = installed(markdown);
+  for (const { language, libraries: names, line } of adds) {
+    const { name, install } = INSTALL_HINT[language];
+    if (!files[language].some((file) => !file.stub)) {
+      result.problems.push({
+        line,
+        message: `adds ${name} libraries, but the page has no whole ${name} file to check with them`,
+      });
+    }
+    const hidden = names.filter((spec) => !shown[language].has(libraryName(language, spec)));
+    if (hidden.length > 0) {
+      result.problems.push({
+        line,
+        message: `adds ${hidden.map((spec) => `\`${spec}\``).join(', ')} for the check, but no install command on the page shows the reader that step: show it (${install})`,
+      });
+    }
+  }
   return result;
+}
+
+/** The command that adds a library in a `check-samples` comment, by the pack it adds to. */
+const ADD = { uv: 'python', pnpm: 'ts' };
+/**
+ * A library as an install command names it, by language: for Python, a
+ * name with extras and version specifiers (`fastapi`, `uvicorn[standard]`,
+ * `'fastapi>=0.115'`); for TypeScript, an npm name, scoped or not, with a
+ * version (`hono`, `@acme/client@^2`). No flags, URLs, paths or git specs.
+ */
+const LIBRARY = {
+  python:
+    /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?(?:\[[A-Za-z0-9._,-]+\])?(?:(?:==|~=|!=|>=|<=|>|<)[A-Za-z0-9.*+!-]+(?:,(?:==|~=|!=|>=|<=|>|<)[A-Za-z0-9.*+!-]+)*)?$/,
+  ts: /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*(?:@[A-Za-z0-9.^~*+-]+)?$/,
+};
+/** What an install line in a `check-samples` comment can't have: the shell's operators, substitutions, escapes. */
+const SHELL_SYNTAX = /[;&|()`$\\]/;
+const INSTALL_HINT = {
+  python: { name: 'Python', install: '`uv add …` or `pip install …`' },
+  ts: { name: 'TypeScript', install: '`pnpm add …` or `npm install …`' },
+};
+
+/**
+ * One line of a `check-samples` comment's shell block, as the libraries it
+ * adds (`{ language, libraries }`), or undefined when it's anything but
+ * `uv add <library> …` or `pnpm add <library> …`.
+ */
+function addLine(command) {
+  const unquoted = command.replace(/'[^']*'|"[^"]*"/g, '');
+  if (SHELL_SYNTAX.test(command) || /[<>'"]/.test(unquoted)) return undefined;
+  const commands = shellCommands(command);
+  if (commands.length !== 1) return undefined;
+  const [tool, verb, ...names] = commands[0];
+  const language = ADD[tool];
+  if (language === undefined || verb !== 'add' || names.length === 0) return undefined;
+  return names.every((name) => LIBRARY[language].test(name))
+    ? { language, libraries: names }
+    : undefined;
+}
+
+/**
+ * The libraries a page's samples import that the reader adds to their app
+ * (`from fastapi import FastAPI`): `{ adds, problems }`. The page's
+ * `check-samples` comment has the reader's install step, in a shell block
+ * of `uv add <library> …` (Python) or `pnpm add <library> …` (TypeScript)
+ * lines, which the check runs in that page's own copy of the pack.
+ * `adds`: `{ language, libraries, line }[]`; `problems`: `{ line, message }[]`,
+ * for any other line in such a block, which is never run.
+ */
+export function libraries(markdown) {
+  const result = { adds: [], problems: [] };
+  for (const block of blocks(markdown)) {
+    if (!block.stub || !SHELL.has(block.language)) continue;
+    block.lines.forEach((text, index) => {
+      const command = text.trim();
+      if (command === '' || command.startsWith('#')) return;
+      const line = block.line + 1 + index;
+      const add = addLine(command);
+      if (add !== undefined) {
+        result.adds.push({ ...add, line });
+        return;
+      }
+      result.problems.push({
+        line,
+        message:
+          'a `check-samples` shell block only adds the libraries the samples import, a command a line: `uv add <library> …` (Python) or `pnpm add <library> …` (TypeScript), with no flags, URLs, paths or shell syntax',
+      });
+    });
+  }
+  return result;
+}
+
+/** The words an install command installs, and the language it installs them for. */
+function installCommand(words) {
+  const [first, second, third, fourth] = words;
+  if (first === 'uv' && second === 'add') return { language: 'python', words: words.slice(2) };
+  if (first === 'uv' && second === 'pip' && third === 'install') {
+    return { language: 'python', words: words.slice(3) };
+  }
+  if (/^pip3?$/.test(first) && second === 'install') {
+    return { language: 'python', words: words.slice(2) };
+  }
+  if (/^python3?$/.test(first) && second === '-m' && third === 'pip' && fourth === 'install') {
+    return { language: 'python', words: words.slice(4) };
+  }
+  if (['pnpm', 'yarn'].includes(first) && second === 'add') {
+    return { language: 'ts', words: words.slice(2) };
+  }
+  if (first === 'npm' && ['install', 'i'].includes(second)) {
+    return { language: 'ts', words: words.slice(2) };
+  }
+  return undefined;
+}
+
+/** A library's name without its extras or version (Python's in PEP 503's normal form). */
+function libraryName(language, spec) {
+  if (language === 'python') {
+    return spec
+      .split(/[[=<>!~,\s]/)[0]
+      .replace(/[-_.]+/g, '-')
+      .toLowerCase();
+  }
+  const version = spec.indexOf('@', 1);
+  return (version === -1 ? spec : spec.slice(0, version)).toLowerCase();
+}
+
+/**
+ * The libraries the install commands the reader sees on a page add, by
+ * language (`uv add`, `uv pip install`, `pip install` and
+ * `python -m pip install` for Python; `pnpm add`, `yarn add`, `npm install`
+ * for TypeScript), by name.
+ */
+function installed(markdown) {
+  const found = { python: new Set(), ts: new Set() };
+  const commands = blocks(markdown)
+    .filter((block) => !block.stub && SHELL.has(block.language))
+    .flatMap((block) => shellCommands(block.lines.join('\n')));
+  for (const install of commands.map(installCommand)) {
+    if (install === undefined) continue;
+    for (const word of install.words.filter((word) => !word.startsWith('-'))) {
+      found[install.language].add(libraryName(install.language, word));
+    }
+  }
+  return found;
 }
 
 /** `<run-id>`, `<your pack's digest>`: a placeholder the reader fills in. */
@@ -692,8 +868,9 @@ export function jsonProblem(code, comments) {
     if (/^\s*"[^"]*"\s*:/.test(text)) {
       return 'part of a JSON document (it starts with a member, not `{`): mark it `excerpt`, or show the whole document';
     }
-    const hint = comments ? '' : ' (a block with comments is `jsonc`)';
-    return `doesn't parse as JSON: ${error.message}${hint}`;
+    const hint = !comments && /\/\/|\/\*/.test(text) ? ' (a block with comments is `jsonc`)' : '';
+    // On one line: the parser's message can quote the block, line breaks included.
+    return `doesn't parse as JSON: ${error.message.replace(/\s+/g, ' ')}${hint}`;
   }
 }
 
@@ -1010,7 +1187,20 @@ function checkScala(files) {
   return indexJvmPack(dir, classpath.trim());
 }
 
-function check(language, files, packDir) {
+/**
+ * A page's TypeScript or Python files written over its own copy of a fresh
+ * pack and checked; `added`: the libraries the page's `check-samples`
+ * comment adds (`libraries`), installed in that copy first, the reader's
+ * install step run as words (no shell).
+ */
+function check(language, files, packDir, added = []) {
+  if (added.length > 0) {
+    const add =
+      language === 'ts'
+        ? run('pnpm', ['add', '--prefer-offline', '--silent', ...added], packDir)
+        : run('uv', ['add', '--quiet', ...added], packDir);
+    if (!add.ok) return `adding ${added.join(' ')} to the pack failed:\n${add.output}`;
+  }
   for (const file of files) {
     const target = join(packDir, file.path);
     mkdirSync(dirname(target), { recursive: true });
@@ -1050,10 +1240,46 @@ function check(language, files, packDir) {
 /** The baseline file, next to this script. */
 const BASELINE = 'check-samples-baseline.json';
 
-/** The baseline: problems allowed per page (its path in the repository), when there is one. */
+/**
+ * The baseline: problems allowed per page, by its slug (its path under the
+ * docs, without the extension: generated pages aren't tracked files), when
+ * there is one.
+ */
 function readBaseline() {
   const file = join(site, 'scripts', BASELINE);
   return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
+}
+
+/**
+ * The slugs of the pages git ignores (the generated reference), or
+ * `undefined` outside a git checkout. A new page that isn't committed yet is
+ * neither tracked nor ignored, so it isn't taken for a generated one.
+ */
+function ignoredPages() {
+  const listed = run(
+    'git',
+    ['ls-files', '-z', '--others', '--ignored', '--exclude-standard'],
+    docs,
+  );
+  if (!listed.ok) return undefined;
+  return new Set(
+    listed.stdout
+      .split('\0')
+      .filter((path) => PAGE.test(path))
+      .map((path) => path.replace(PAGE, '')),
+  );
+}
+
+/**
+ * The baseline lines for the failing pages git ignores: the generated
+ * reference pages. A change to the code one documents (a new export, method
+ * or command) adds blocks to a page its author never wrote; until the page's
+ * generator marks them, these lines let them pass.
+ */
+export function generatedBaseline(failing, ignored) {
+  return failing
+    .filter(({ page }) => ignored.has(page))
+    .map(({ page, lines }) => `  ${JSON.stringify(page)}: ${lines.length},`);
 }
 
 /** The CLI's commands and global flags, from the workspace's built `@kindgi/cli`. */
@@ -1064,7 +1290,8 @@ async function cliDescription() {
 
 /**
  * A page's rules, with the subprocess checks: `{ problems, copyable,
- * excerpts }`. `problems`: `<file>:<line>: <message>` lines, in page order.
+ * excerpts, signatures }`. `problems`: `<file>:<line>: <message>` lines, in
+ * page order; the rest, counts of the page's code blocks.
  */
 function checkPage(page, markdown, cli) {
   const rules = pageRules(markdown, cli);
@@ -1075,13 +1302,16 @@ function checkPage(page, markdown, cli) {
     ...parsedProblems(rules.parsed, work).map(located),
   ];
   const code = blocks(markdown).filter((block) => !block.stub && !TEXT.has(block.language));
-  const excerpts = code.filter(excerpt).length;
+  const kinds = code.map(notOffered);
+  const excerpts = kinds.filter((kind) => kind === EXCERPT).length;
+  const signatures = kinds.filter((kind) => kind === SIGNATURE).length;
   return {
     problems: found
       .sort((a, b) => a.line - b.line)
       .map(({ line, message }) => `${relative(repo, page)}:${line}: ${message}`),
-    copyable: code.length - excerpts,
+    copyable: code.length - excerpts - signatures,
     excerpts,
+    signatures,
   };
 }
 
@@ -1089,7 +1319,8 @@ function checkPage(page, markdown, cli) {
 function compileSamples(page, markdown, isPage) {
   let checked = 0;
   const failures = [];
-  for (const [language, files] of Object.entries(fileSamples(markdown, { excerpts: !isPage }))) {
+  const { adds } = libraries(markdown);
+  for (const [language, files] of Object.entries(fileSamples(markdown, { offeredOnly: isPage }))) {
     if (files.length === 0) continue;
     let error;
     if (language === 'java') {
@@ -1099,7 +1330,8 @@ function compileSamples(page, markdown, isPage) {
     } else {
       const { template, id } = LANGUAGES[language];
       const packId = files.map((file) => file.content.match(id)?.[1]).find(Boolean) ?? 'my-pack';
-      error = check(language, files, freshPack(template, packId));
+      const added = adds.filter((add) => add.language === language).flatMap((add) => add.libraries);
+      error = check(language, files, freshPack(template, packId), added);
     }
     const samples = files.filter((file) => !file.stub);
     checked += samples.length;
@@ -1114,7 +1346,7 @@ function compileSamples(page, markdown, isPage) {
  * count in the baseline (the pages' problems when these rules came in) are
  * reported but don't fail; the pages' owners fix them, and the baseline is emptied.
  */
-function report({ ruleProblems, failures }) {
+function report({ ruleProblems, failures }, ignored) {
   const baseline = readBaseline();
   const failing = ruleProblems.filter(({ page, lines }) => lines.length > (baseline[page] ?? 0));
   const known = ruleProblems.filter((entry) => !failing.includes(entry));
@@ -1122,8 +1354,14 @@ function report({ ruleProblems, failures }) {
   const sections = [];
   if (failing.length > 0) {
     sections.push(
-      `check-samples: ${count(failing)} code block(s) that can't be pasted as they are. Make each whole and checked, or mark it \`excerpt\` (site/scripts/excerpts.mjs):\n\n${failing.flatMap(({ lines }) => lines).join('\n')}`,
+      `check-samples: ${count(failing)} code block(s) that can't be pasted as they are. Make each whole and checked, or mark it \`excerpt\` (a reference page's declaration: \`signature\`; site/scripts/excerpts.mjs):\n\n${failing.flatMap(({ lines }) => lines).join('\n')}`,
     );
+    const generated = ignored ? generatedBaseline(failing, ignored) : [];
+    if (generated.length > 0) {
+      sections.push(
+        `check-samples: ${generated.length} of these page(s) are generated (git-ignored; \`pnpm run docs:build\` writes them), so a change to the code they document can add blocks to them. Until their generator marks those blocks, set these counts in site/scripts/${BASELINE}:\n\n${generated.join('\n')}`,
+      );
+    }
   }
   if (known.length > 0) {
     sections.push(
@@ -1143,21 +1381,39 @@ async function main() {
   const argv = process.argv.slice(2);
   const compile = !argv.includes('--no-compile');
   const selected = argv.filter((arg) => arg !== '--no-compile').map((page) => resolve(docs, page));
-  const handWritten = new Set(pages());
+  const missing = missingGenerated();
+  if (selected.length === 0 && missing.length > 0) {
+    console.error(
+      `check-samples: the generated reference pages aren't there (${missing.join(', ')} in site/src/content/docs): run \`pnpm run docs:build\` first, which generates them.`,
+    );
+    process.exit(1);
+  }
+  const onSite = new Set(pages());
   const cli = await cliDescription();
-  const totals = { checked: 0, copyable: 0, excerpts: 0, ruleProblems: [], failures: [] };
+  const totals = {
+    checked: 0,
+    copyable: 0,
+    excerpts: 0,
+    signatures: 0,
+    ruleProblems: [],
+    failures: [],
+  };
   work = mkdtempSync(join(tmpdir(), 'kindgi-samples-'));
   try {
     for (const page of selected.length > 0 ? selected : [...pages(), ...skillFiles()]) {
       const markdown = fillVersion(readFileSync(page, 'utf8'), version);
-      const isPage = handWritten.has(page);
+      const isPage = onSite.has(page);
       if (isPage) {
-        const { problems, copyable, excerpts } = checkPage(page, markdown, cli);
+        const { problems, copyable, excerpts, signatures } = checkPage(page, markdown, cli);
         if (problems.length > 0) {
-          totals.ruleProblems.push({ page: relative(repo, page), lines: problems });
+          totals.ruleProblems.push({
+            page: relative(docs, page).replace(PAGE, ''),
+            lines: problems,
+          });
         }
         totals.copyable += copyable;
         totals.excerpts += excerpts;
+        totals.signatures += signatures;
       }
       if (!compile) continue;
       const { checked, failures } = compileSamples(page, markdown, isPage);
@@ -1167,10 +1423,10 @@ async function main() {
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
-  if (report(totals)) process.exit(1);
+  if (report(totals, ignoredPages())) process.exit(1);
   const compiled = compile ? `${totals.checked} file samples check; ` : '';
   console.log(
-    `check-samples: ${compiled}${totals.copyable} code blocks on the pages are offered for copying and checked, and ${totals.excerpts} are excerpts.`,
+    `check-samples: ${compiled}${totals.copyable} code blocks on the pages are offered for copying and checked; not offered: ${totals.excerpts} excerpt(s), ${totals.signatures} signature(s).`,
   );
 }
 

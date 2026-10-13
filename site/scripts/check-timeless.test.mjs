@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { compare, datedPhrases, proseOf } from './check-timeless.mjs';
 
-const phrases = (source) => datedPhrases(source).map(({ line, phrase }) => `${line}: ${phrase}`);
+const phrases = (source) =>
+  datedPhrases(source, '0.1.7').map(({ line, phrase }) => `${line}: ${phrase}`);
 
 test('a version as a point in time dates a page', () => {
   assert.deepEqual(
@@ -42,6 +43,54 @@ test('a phrase split across two lines by the hard wrap still dates a page', () =
       ].join('\n'),
     ),
     ['1: From 0.1.7'],
+  );
+});
+
+test('a version and everything before it dates a page, once', () => {
+  assert.deepEqual(
+    phrases(
+      [
+        ':::note[On Kindgi 0.1.6 and earlier]',
+        'It fixes one security bug in 0.1.5 and earlier, and one in 0.1.4 or older.',
+      ].join('\n'),
+    ),
+    ['1: 0.1.6 and earlier', '2: 0.1.5 and earlier', '2: 0.1.4 or older'],
+  );
+});
+
+test('"On" a version dates a page too', () => {
+  assert.deepEqual(
+    phrases(
+      'On 0.1.6 and 0.1.7, authorization also needs a restart.\nOn Kindgi 0.1.5, it differs.',
+    ),
+    ['1: On 0.1.6', '2: On Kindgi 0.1.5'],
+  );
+});
+
+test('a four-part version is read whole', () => {
+  assert.deepEqual(
+    phrases(
+      [
+        'as in 0.1.4.1 or later',
+        'It runs on 0.1.5.1 or later.',
+        'A bug in 0.1.4.1 and earlier.',
+      ].join('\n'),
+    ),
+    ['3: 0.1.4.1 and earlier'],
+  );
+});
+
+test("an agent's or a dependency's version, with a later major than Kindgi's, doesn't date a page", () => {
+  assert.deepEqual(
+    phrases(
+      [
+        'A conversation started on 1.2.0. Then 1.0.0 went live for the tenant.',
+        'Derived from 1.0.0, as of 2.1.0.1, with new data-block versions.',
+        'The extra pins cryptography (fixed in 48.0.1); it changed in 0.1.6.',
+        'Agent 1.0.0 and earlier stay readable. From 0.2.0 it differs.',
+      ].join('\n'),
+    ),
+    ['3: changed in 0.1.6', '4: From 0.2.0'],
   );
 });
 

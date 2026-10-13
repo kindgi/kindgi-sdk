@@ -27,6 +27,10 @@ import {
  * `/v1/artifacts/*` surface — cross-surface interop is a first-class
  * guardrail.
  *
+ * A request's body is the one the middleware read, under its limit:
+ * the routes read Hono's copy (`c.req.arrayBuffer()`, `c.req.text()`),
+ * never the raw request.
+ *
  * ## Routes in this router
  *
  *   HEAD   /:bucket                      — bucket existence probe
@@ -158,7 +162,7 @@ export function s3Router(binding: BlobStorageBinding): Hono<AppEnv> {
     }
 
     if (uploadId !== undefined) {
-      const body = await c.req.raw.text();
+      const body = await c.req.text();
       const parsed = parseCompleteMultipartUploadXml(body);
       if (parsed === null) {
         return xml(
@@ -224,7 +228,7 @@ export function s3Router(binding: BlobStorageBinding): Hono<AppEnv> {
           400,
         );
       }
-      const partBytes = new Uint8Array(await c.req.raw.arrayBuffer());
+      const partBytes = new Uint8Array(await c.req.arrayBuffer());
       const md5Header = c.req.header('content-md5');
       if (md5Header !== undefined && md5Header.length > 0) {
         const computed = createHash('md5').update(partBytes).digest('base64');
@@ -256,7 +260,7 @@ export function s3Router(binding: BlobStorageBinding): Hono<AppEnv> {
       });
     }
 
-    const bytes = new Uint8Array(await c.req.raw.arrayBuffer());
+    const bytes = new Uint8Array(await c.req.arrayBuffer());
 
     // Content-MD5 verification (optional per S3 spec).
     const md5Header = c.req.header('content-md5');

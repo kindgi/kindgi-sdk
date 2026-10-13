@@ -130,6 +130,13 @@ export interface Project {
    */
   readonly isDefault: boolean;
   readonly description?: string;
+  /**
+   * When the project was put in production; absent while it isn't. A run
+   * in a project in production is a production run (usage class
+   * `production`), and a run anywhere else is staging. Set and cleared by
+   * `ProjectBinding.setProduction`.
+   */
+  readonly productionSince?: Timestamp;
   readonly createdAt: Timestamp;
   readonly updatedAt: Timestamp;
 }

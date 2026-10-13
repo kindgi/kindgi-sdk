@@ -17,9 +17,9 @@ Cloud SQL. A tool call from the runtime to your pack took 42 ms at the
 median, and 100 ms at p95.
 
 :::note[Access to the runtime image]
-The runtime image is in private preview: request access at contact@kindgi.com.
-You get its pull credentials, a robot name and a token, and log in once with
-`kindgi auth registry` (see [Install](../../start/install/#access-to-the-runtime-image)).
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
+runtime image's pull credentials, and log in once with `kindgi auth registry`
+(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## What you'll have
@@ -163,10 +163,19 @@ environment block, and `--env prod` names that block:
 pnpm exec kindgi build --local --push --env prod
 ```
 
+It prints the build as JSON, then each step. The last steps:
+
 ```text
-✓ Pushed …/acme@sha256:bd7bfe4f…
-✓ /app/index.json in the image matches the local index byte for byte
-✓ Ed25519 signature over (imageDigest, artifactVersion, indexHash, tenantId, publishedAt)
+…
+    ✓ Pushed …/acme@sha256:bd7bfe4f…
+
+  Verifying build output
+    ✓ /app/index.json in the image matches the local index byte for byte
+
+  Signing locally
+    ✓ Ed25519 signature over (imageDigest, artifactVersion, indexHash, tenantId, publishedAt)
+      key: …
+…
 ```
 
 Set `server_image` and `pack_image` in `prod.tfvars` to the two digests
@@ -294,7 +303,7 @@ fail after that, check that the runtime's service account has
 When a tool calls one of your app's IAM-protected Cloud Run services, list it
 in `pack_run_invokers`, by its name, not its URL:
 
-```hcl
+```hcl excerpt
 pack_run_invokers = [
   { project = "acme-app", location = "europe-west1", service = "orders-api" },
 ]
@@ -383,8 +392,19 @@ KINDGI_API_TOKEN=$(gcloud secrets versions access latest --secret=$N-api-token)
 pnpm exec kindgi key trust acme-prod --url "$URL" --token "$KINDGI_API_TOKEN"
 ```
 
+It prints the key the runtime now trusts, then says so:
+
 ```text
-  ✓ Trusted acme-prod (sha256:…)
+{
+  "keyId": "acme-prod",
+  "tenantId": "722e23b8-bbb4-43dc-9a37-9640e369fa7d",
+  "algorithm": "ed25519",
+  "publicKey": "UCeKMLv5KIFRJo5exp/5BKzsPOKzdlmJYYuLKVYmEVo=",
+  "createdAt": "2026-10-12T14:28:47.190Z"
+}
+
+  ✓ Trusted acme-prod (sha256:60e5a3c06154b3ee3e425037)
+    The runtime now accepts deploys this key signs.
 ```
 
 - `gcloud secrets versions access` reads the API token from step 3.
@@ -397,12 +417,23 @@ pnpm exec kindgi key trust acme-prod --url "$URL" --token "$KINDGI_API_TOKEN"
 pnpm exec kindgi deploy --env prod --endpoint "$URL" --token "$KINDGI_API_TOKEN"
 ```
 
+It prints the deployment as JSON, then each step. The last steps:
+
 ```text
-✓ POST /v1/deployments  →  201 Created
-  artifactVersion: …
-  primitives:      3 tools, 1 guardrail, 1 agent, 2 flows
-Deploy complete.
+…
+  Registering deployment
+    ✓ POST /v1/deployments  →  201 Created
+      deploymentId:    b27ee9ec-…
+      artifactVersion: …
+      primitives:      3 tools, 1 guardrail, 1 agent, 2 flows
+      activatedAt:     2026-10-04T22:23:24.370Z
+
+  Deploy complete.
+  Runs started from now use image sha256:bd7bfe4f7d9c8… (artifactVersion …).
+  Runs already in flight continue on their pinned image.
 ```
+
+To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
 
 The runtime read your pack's image from Artifact Registry with its own token
 (`KINDGI_IMAGE_REGISTRY_AUTH=google`) to check it before registering it.
@@ -446,7 +477,7 @@ secret given as a plain value: a name with `SECRET` in it, or the SMTP URL.
 
 **With an API token,** which the console's sign-in page then takes:
 
-```hcl
+```hcl excerpt
 server_env = {
   KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
 }
@@ -462,7 +493,7 @@ openssl rand 32 | base64 | gcloud secrets create $N-auth-secret --data-file=-
 read -rs SMTP_URL && printf '%s' "$SMTP_URL" | gcloud secrets create $N-smtp-url --data-file=- && unset SMTP_URL
 ```
 
-```hcl
+```hcl excerpt
 public_url = "https://kindgi-dev-server-abc123-pd.a.run.app" # terraform output -raw server_url
 server_env = {
   KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
@@ -516,6 +547,9 @@ pnpm exec kindgi providers register --preset=gemini --project=<project> --models
 ```
 
 ```text
+{
+  "providerId": "gemini"
+}
 ✓ Registered gemini: gemini-3.8-flash (default)
 ```
 
@@ -534,6 +568,13 @@ A new grant can take a minute or two to apply.
 
 ## Operate it
 
+- **Upgrade at least every 90 days while Kindgi is in preview.** Until
+  Kindgi 1.0, a release stops starting 90 days after it was released. Cloud
+  Run starts new instances on its own, and after that day none comes up. The
+  runtime warns from 30 days before, at startup and once a day, in a log
+  record with `jsonPayload.event = "kindgi.preview_expiry"`: set a log-based
+  alert on it
+  ([Licensing](../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
 - **Upgrade:** back up Cloud SQL, copy the new runtime image by digest, set
   `server_image`, and apply. The new revision takes all the traffic.
   Migrations only go forward: never run two runtime versions on one
@@ -562,7 +603,7 @@ A new grant can take a minute or two to apply.
   openssl rand 32 | base64 | gcloud secrets create $N-erasure-ledger-key --data-file=-
   ```
 
-  ```hcl
+  ```hcl excerpt
   server_secret_env = {
     KINDGI_ERASURE_LEDGER_KEY = { secret = "kindgi-dev-erasure-ledger-key", version = "1" }
   }
