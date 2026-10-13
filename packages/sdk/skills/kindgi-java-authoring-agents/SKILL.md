@@ -15,7 +15,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.0"
+version: "0.1.1"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -33,7 +33,7 @@ sources:
 > `./mvnw`.
 >
 > Java support is in preview: tested and supported, but the API may still
-> change in 0.1.6 without the usual deprecation period.
+> change in a later release without the usual deprecation period.
 
 An **agent** is a versioned, model-driven orchestrator. It's made of:
 - instructions (a prompt template);

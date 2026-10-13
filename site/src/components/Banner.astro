@@ -64,15 +64,23 @@ const preview = import.meta.env.PUBLIC_KINDGI_DOCS_PREVIEW === '1';
 </script>
 
 <style>
+  /* A notice that needs attention: the card, a quiet warn-line border
+     (design/README.md, "Statuses"). */
   .kindgi-version-notice {
-    background-color: var(--sl-color-accent-low);
-    color: var(--sl-color-white);
+    background-color: var(--kg-card);
+    border-bottom: 1px solid color-mix(in srgb, var(--kg-status-warn-line) 45%, var(--kg-rule));
+    color: var(--kg-text);
     padding: 0.5rem var(--sl-content-pad-x, 1rem);
     text-align: center;
     font-size: var(--sl-text-sm);
   }
   .kindgi-version-notice a {
-    color: var(--sl-color-accent-high);
+    color: var(--kg-text);
     font-weight: 600;
+    text-decoration: none;
+  }
+  .kindgi-version-notice a::after {
+    content: '→' / '';
+    margin-inline-start: 0.25em;
   }
 </style>

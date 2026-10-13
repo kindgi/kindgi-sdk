@@ -534,6 +534,30 @@ describe('kindgi deploy — response handling', () => {
     expect(out.stderr).toContain('--tenant');
   });
 
+  test('413 request-too-large → exit 1, says what to make smaller', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures({
+      postResult: {
+        kind: 'wire-error',
+        status: 413,
+        error: {
+          code: 'request-too-large',
+          message: 'The request body is over the limit of 2097152 bytes',
+        },
+      },
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('The request body is over the limit of 2097152 bytes');
+    // The hint wraps to the banner's width.
+    expect(out.stderr.replace(/\s+/g, ' ')).toContain(
+      'make the largest schemas smaller, or split the pack into two',
+    );
+  });
+
   test("4xx signer-not-trusted → exit 1, hint: kindgi key trust <the envelope's key>", async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures({
