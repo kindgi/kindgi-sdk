@@ -92,17 +92,20 @@ The middleware:
    otherwise); presigned URLs until `X-Amz-Expires`.
 3. Calls `S3CredentialBinding.resolve(accessKeyId)` → resolves to
    `{ secretKey, tenantId, bucket, expiresAt? }` or `null`.
-4. For header auth, verifies `x-amz-content-sha256` matches the
-   received body — returns `400 XAmzContentSHA256Mismatch` on payload
-   tampering before signature comparison.
-5. Re-derives the signature under `secretKey` from exactly what the
-   client signed (its timestamp and its `SignedHeaders`) and compares
-   it in constant time.
-6. Compares the URL-declared bucket to the credential's `bucket`
+4. Re-derives the signature under `secretKey` from exactly what the
+   client signed (its timestamp and its `SignedHeaders`, which for
+   header auth include `x-amz-content-sha256`) and compares it in
+   constant time.
+5. Compares the URL-declared bucket to the credential's `bucket`
    field. Mismatch → `403 AccessDenied` (each credential is scoped to
    one bucket).
+6. Reads the body (not for `GET`, `HEAD` or `DELETE`), at most
+   `artifactMaxBytes` (default 100 MB): more is `400 EntityTooLarge`.
+   For header auth, verifies `x-amz-content-sha256` matches it, an
+   empty body too, unless it's `UNSIGNED-PAYLOAD`: a mismatch is
+   `400 XAmzContentSHA256Mismatch`.
 7. Sets `c.set('tenantId', ...)` + `c.set('bucket', ...)` for the
-   downstream S3 route handlers.
+   downstream S3 route handlers, which read the body step 6 read.
 
 All auth failures return S3-style XML errors
 (`<Error><Code>...</Code>...</Error>`) with `Content-Type: application/xml`.
@@ -137,6 +140,10 @@ Multipart upload (S3-standard `md5(concat(md5(part_i)))-N` ETag):
 
 Semantic notes:
 
+- **Size:** a request's body is at most `artifactMaxBytes` (default
+  100 MB), the limit `POST /v1/artifacts` has; more is
+  `400 EntityTooLarge`. A larger object goes up as a multipart upload,
+  each part under the limit.
 - **Content-MD5** on PUT (regular OR part upload) is verified;
   mismatch → `400 BadDigest`.
 - **Range** requests on GET support single-range only (`bytes=N-M`,
@@ -174,6 +181,7 @@ downloadable via `GET /v1/artifacts/:blobId`.
 | 416  | `InvalidRange`                   | Bad `Range` header                       |
 | 400  | `BadDigest`                      | `Content-MD5` mismatch                   |
 | 400  | `XAmzContentSHA256Mismatch`      | Payload hash header mismatch             |
+| 400  | `EntityTooLarge`                 | Body over `artifactMaxBytes` (default 100 MB) |
 | 400  | `InvalidPart`                    | Multipart part ETag mismatch             |
 | 403  | `AccessDenied`                   | Credential expired / wrong bucket        |
 | 403  | `InvalidAccessKeyId`             | Unknown access key                       |

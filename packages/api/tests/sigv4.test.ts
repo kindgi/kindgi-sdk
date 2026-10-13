@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { createHash } from 'node:crypto';
+
 import aws4 from 'aws4';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
+import type { BlobMeta, BlobPutInput, BlobStorageBinding } from '@kindgi/blob-binding';
 import type { TenantId } from '@kindgi/types';
 
+import { createApp } from '../src/app.js';
+import type { RunHandlerBinding } from '../src/index.js';
 import { canonicalRequest, parseSigV4 } from '../src/middleware/sigv4-verify.js';
 import { sigv4Middleware } from '../src/middleware/sigv4.js';
 import type { S3CredentialBinding } from '../src/s3-credential-binding.js';
+import { createStubAppBindings } from '../src/testing/app-bindings.js';
 import type { AppEnv } from '../src/types.js';
 
 // aws4 is an independent SigV4 implementation (the one most JS S3 clients
@@ -21,6 +27,7 @@ const SECRET_KEY = 'kindgi-test-secret-key-0000000000000000000';
 const BUCKET = 'artifacts';
 const TENANT = '00000000-0000-0000-0000-000000000001' as TenantId;
 const T0 = new Date('2026-09-30T12:00:00.900Z');
+const MiB = 1024 * 1024;
 
 const credentials: S3CredentialBinding = {
   async resolve(accessKeyId) {
@@ -30,9 +37,9 @@ const credentials: S3CredentialBinding = {
   },
 };
 
-function makeApp() {
+function makeApp(maxBytes = MiB) {
   const app = new Hono<AppEnv>();
-  app.use('/s3/*', sigv4Middleware(credentials));
+  app.use('/s3/*', sigv4Middleware(credentials, maxBytes));
   app.all('/s3/*', async (c) =>
     c.json({ bucket: c.get('bucket'), tenantId: c.get('tenantId'), body: await c.req.text() }),
   );
@@ -90,6 +97,27 @@ function presign(path: string, expiresSeconds: number): string {
   new RequestSigner(opts, { accessKeyId: ACCESS_KEY, secretAccessKey: SECRET_KEY }).sign();
   return `http://localhost${opts.path}`;
 }
+
+/** A body streamed in `chunk`-byte pieces up to `total`, counting what was pulled. */
+function counted(total: number, chunk = 64 * 1024) {
+  let pulled = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (pulled >= total) return controller.close();
+      pulled += chunk;
+      controller.enqueue(new Uint8Array(chunk).fill(0x78));
+    },
+  });
+  return { stream, pulled: () => pulled };
+}
+
+/** A signed request sent with `body`, which its signature doesn't cover. */
+function withBody(req: Signed, body: ReadableStream<Uint8Array>): RequestInit {
+  return { ...req.init, body, duplex: 'half' } as RequestInit;
+}
+
+/** Signed for a body the signature doesn't cover. */
+const UNSIGNED = { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' };
 
 async function codeOf(res: Response): Promise<string> {
   return /<Code>([^<]+)<\/Code>/.exec(await res.text())?.[1] ?? '';
@@ -229,6 +257,155 @@ describe('SigV4 header auth — only the headers the client signed count', () =>
     const res = await makeApp().request(req.url, req.init);
     expect(res.status).toBe(403);
     expect(await codeOf(res)).toBe('AccessDenied');
+  });
+});
+
+describe('the body: read once the request is signed for its bucket, under the limit', () => {
+  test('a request not signed for its bucket is refused before its body is read', async () => {
+    const path = `/s3/${BUCKET}/a.bin`;
+    const unknownKey = sign({ method: 'PUT', path, headers: UNSIGNED });
+    const headers = { ...(unknownKey.init.headers as Record<string, string>) };
+    headers.Authorization = (headers.Authorization as string).replace(
+      ACCESS_KEY,
+      'AKIAUNKNOWN000000000',
+    );
+    const refused: Record<string, Signed> = {
+      'no signature': { url: `http://localhost${path}`, init: { method: 'PUT', headers: {} } },
+      'an unknown key': { url: unknownKey.url, init: { ...unknownKey.init, headers } },
+      'a wrong secret': sign({ method: 'PUT', path, headers: UNSIGNED, secret: 'not-the-secret' }),
+      'another bucket': sign({ method: 'PUT', path: '/s3/other-bucket/a.bin', headers: UNSIGNED }),
+    };
+    for (const [name, req] of Object.entries(refused)) {
+      const body = counted(20 * MiB);
+      const res = await makeApp().request(req.url, withBody(req, body.stream));
+      expect(res.status, name).toBe(403);
+      expect(body.pulled(), name).toBeLessThanOrEqual(64 * 1024);
+    }
+  });
+
+  test('a body over the limit → 400 EntityTooLarge, unread by its declared length or as soon as a streamed one passes it', async () => {
+    const path = `/s3/${BUCKET}/a.bin`;
+    const declared = counted(20 * MiB);
+    const byLength = sign({
+      method: 'PUT',
+      path,
+      headers: { ...UNSIGNED, 'content-length': String(20 * MiB) },
+    });
+    const refusedByLength = await makeApp().request(
+      byLength.url,
+      withBody(byLength, declared.stream),
+    );
+    expect(refusedByLength.status).toBe(400);
+    expect(await codeOf(refusedByLength)).toBe('EntityTooLarge');
+    expect(declared.pulled()).toBeLessThanOrEqual(64 * 1024);
+
+    const streamed = counted(20 * MiB);
+    const asStreamed = sign({ method: 'PUT', path, headers: UNSIGNED });
+    const refusedAsStreamed = await makeApp().request(
+      asStreamed.url,
+      withBody(asStreamed, streamed.stream),
+    );
+    expect(refusedAsStreamed.status).toBe(400);
+    expect(await codeOf(refusedAsStreamed)).toBe('EntityTooLarge');
+    expect(streamed.pulled()).toBeLessThanOrEqual(MiB + 2 * 64 * 1024);
+  });
+
+  test('a body at the limit is read whole, and is what the route reads', async () => {
+    const body = 'x'.repeat(MiB);
+    const req = sign({ method: 'PUT', path: `/s3/${BUCKET}/a.bin`, body });
+    const res = await makeApp().request(req.url, req.init);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { body: string }).body).toBe(body);
+  });
+
+  test('a body dropped after signing → 400 XAmzContentSHA256Mismatch', async () => {
+    // Signed for a body, with no length to sign (a chunked upload's shape), and sent without it.
+    const req = sign({
+      method: 'PUT',
+      path: `/s3/${BUCKET}/a.txt`,
+      headers: { 'x-amz-content-sha256': createHash('sha256').update('good').digest('hex') },
+    });
+    const res = await makeApp().request(req.url, req.init);
+    expect(res.status).toBe(400);
+    expect(await codeOf(res)).toBe('XAmzContentSHA256Mismatch');
+  });
+});
+
+describe("the app's S3 routes: `artifactMaxBytes`, and the body the middleware read", () => {
+  function s3App(artifactMaxBytes = 16) {
+    const objects: { key: string; bytes: string }[] = [];
+    const parts: { partNumber: number; bytes: string }[] = [];
+    const completed: (readonly { partNumber: number; etag: string }[])[] = [];
+    const text = (bytes: BlobPutInput['bytes']) => new TextDecoder().decode(bytes as Uint8Array);
+    const blobStorage = {
+      async putByKey(_tenant: TenantId, _bucket: string, key: string, input: BlobPutInput) {
+        objects.push({ key, bytes: text(input.bytes) });
+        return { kind: 'ok', value: { hash: 'object-hash' } as BlobMeta };
+      },
+      async uploadPart(
+        _tenant: TenantId,
+        _bucket: string,
+        _key: string,
+        _uploadId: string,
+        partNumber: number,
+        bytes: Uint8Array,
+      ) {
+        parts.push({ partNumber, bytes: text(bytes) });
+        return { kind: 'ok', value: { etag: 'part-etag' } };
+      },
+      async completeMultipartUpload(
+        _tenant: TenantId,
+        _bucket: string,
+        _key: string,
+        _uploadId: string,
+        declared: readonly { partNumber: number; etag: string }[],
+      ) {
+        completed.push(declared);
+        return { kind: 'ok', value: { hash: 'multipart-hash' } as BlobMeta };
+      },
+    } as unknown as BlobStorageBinding;
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken: async () => null,
+      runHandler: {} as RunHandlerBinding,
+      blobStorage,
+      s3Credentials: credentials,
+      artifactMaxBytes,
+    });
+    return { app, objects, parts, completed };
+  }
+
+  test('an object or a part over `artifactMaxBytes` → 400 EntityTooLarge; at it, stored as sent', async () => {
+    const { app, objects, parts } = s3App();
+    const object = `/s3/${BUCKET}/notes.txt`;
+    const part = `${object}?partNumber=1&uploadId=upload-1`;
+    for (const path of [object, part]) {
+      const over = sign({ method: 'PUT', path, body: 'x'.repeat(17) });
+      const refused = await app.request(over.url, over.init);
+      expect(refused.status, path).toBe(400);
+      expect(await codeOf(refused), path).toBe('EntityTooLarge');
+    }
+    expect(objects).toEqual([]);
+    expect(parts).toEqual([]);
+
+    const putObject = sign({ method: 'PUT', path: object, body: 'sixteen bytes ok' });
+    expect((await app.request(putObject.url, putObject.init)).status).toBe(200);
+    const putPart = sign({ method: 'PUT', path: part, body: 'a part, sixteen.' });
+    expect((await app.request(putPart.url, putPart.init)).status).toBe(200);
+    expect(objects).toEqual([{ key: 'notes.txt', bytes: 'sixteen bytes ok' }]);
+    expect(parts).toEqual([{ partNumber: 1, bytes: 'a part, sixteen.' }]);
+  });
+
+  test('CompleteMultipartUpload reads its parts from the body the middleware read', async () => {
+    const { app, completed } = s3App(1024);
+    const req = sign({
+      method: 'POST',
+      path: `/s3/${BUCKET}/notes.txt?uploadId=upload-1`,
+      body: '<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>"part-etag"</ETag></Part></CompleteMultipartUpload>',
+    });
+    const res = await app.request(req.url, req.init);
+    expect(res.status).toBe(200);
+    expect(completed).toEqual([[{ partNumber: 1, etag: 'part-etag' }]]);
   });
 });
 
