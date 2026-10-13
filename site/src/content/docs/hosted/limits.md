@@ -11,7 +11,7 @@ contact@kindgi.com.
 
 | Limit | What it counts | Default |
 | --- | --- | --- |
-| API requests | Requests to the API (`/v1`) and to artifact storage (`/s3`), together | 600 a minute |
+| API requests | Requests to the API (`/v1`) | 600 a minute |
 | Webhook receives | Deliveries to your webhook triggers' receive URLs | 3,000 a minute |
 | Runs at once | Top-level runs running at the same time | 20 |
 | Runs pending | Runs waiting for a slot | 2,000 |
@@ -23,7 +23,7 @@ contact@kindgi.com.
 `GET /v1/tenant` answers your workspace's own values, as `limits`:
 
 ```json
-CAPTURE: GET /v1/tenant's `limits` on the rehearsal workspace
+CAPTURE: GET /v1/tenant's `limits`, from a runtime at the 0.1.8 pin with the limits at this page's values
 ```
 
 Calls Kindgi's control plane makes to manage your workspace never count.
@@ -38,13 +38,6 @@ how long to wait in `Retry-After`, and which limit in `details.limit`
 
 ```text
 CAPTURE: the API requests limit's 429 body and its Retry-After header
-```
-
-Artifact storage (`/s3`) answers as S3 does, `503 SlowDown`, with
-`Retry-After`:
-
-```xml
-CAPTURE: the /s3 SlowDown document
 ```
 
 ### Webhook receives
