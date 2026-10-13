@@ -27,18 +27,6 @@
     "Java": 3,
     "Scala": 3
   },
-  "guides/approvals/ask-after-n-turns": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/approvals/ask-before-a-tool-runs": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/approvals/decide-an-approval": {
-    "Java": 1,
-    "Scala": 1
-  },
   "guides/evals/build-a-test-set": {
     "Java": 1,
     "Scala": 1
@@ -146,17 +134,5 @@
   "guides/tools/read-only-tools": {
     "Java": 1,
     "Scala": 1
-  },
-  "guides/webhooks/receive-run-finished": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/webhooks/start-runs-from-webhooks": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/webhooks/test-and-replay": {
-    "Java": 2,
-    "Scala": 2
   }
 }

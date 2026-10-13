@@ -131,6 +131,79 @@ order_review = Flow(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acmeshop/flows/OrderReview.java
+package acmeshop.flows;
+
+import com.kindgi.pack.Flow;
+import java.util.Map;
+
+public final class OrderReview {
+  public static final Flow FLOW = Flow.define("acme-shop.order-review")
+      .version("0.1.0")
+      .set("name", "Review a new order")
+      .set("description", "Checks a WooCommerce order event, then hands its typed fields to the order reviewer.")
+      .node(Map.of(
+          "id", "check",
+          "kind", "tool",
+          "ref", "acme-shop.woo.check-order-event",
+          "inputMapping", Map.of("event", Map.of("path", "runInput"))))
+      .node(Map.of(
+          "id", "review",
+          "kind", "agent",
+          "ref", "acme-shop.order-reviewer",
+          "inputMapping", Map.of("order", Map.of("path", "nodeOutputs.check"))))
+      .edge("in", "$start", "check")
+      .edge("checked", "check", "review")
+      .edge("out", "review", "$end")
+      .build();
+
+  private OrderReview() {}
+}
+```
+
+The `woocommerce` template is TypeScript. In a Java pack, the flow is the
+same, and the check tool and the reviewer agent are yours: give them the ids
+the flow names, and keep the check strict, as above.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acmeshop/flows/OrderReview.scala
+package acmeshop.flows
+
+import com.kindgi.pack.scaladsl._
+
+object OrderReview {
+  val flow: Flow = Flow("acme-shop.order-review")
+    .version("0.1.0")
+    .set("name", "Review a new order")
+    .set("description", "Checks a WooCommerce order event, then hands its typed fields to the order reviewer.")
+    .node(Map(
+      "id" -> "check",
+      "kind" -> "tool",
+      "ref" -> "acme-shop.woo.check-order-event",
+      "inputMapping" -> Map("event" -> Map("path" -> "runInput"))))
+    .node(Map(
+      "id" -> "review",
+      "kind" -> "agent",
+      "ref" -> "acme-shop.order-reviewer",
+      "inputMapping" -> Map("order" -> Map("path" -> "nodeOutputs.check"))))
+    .edge("in", "$start", "check")
+    .edge("checked", "check", "review")
+    .edge("out", "review", "$end")
+    .build()
+}
+```
+
+The `woocommerce` template is TypeScript. In a Scala pack, the flow is the
+same, and the check tool and the reviewer agent are yours: give them the ids
+the flow names, and keep the check strict, as above.
+
+</TabItem>
 </Tabs>
 
 The run's input is the event, so the check step takes it whole, as

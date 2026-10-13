@@ -16,8 +16,8 @@ went, and sends a failed one again.
   [Get a webhook when a run finishes](../receive-run-finished/) shows.
 - **A receiver listening at its URL,** such as one from
   [Verify a webhook](../verify-a-webhook/).
-- **Node 22.12 or later, or Python 3.11 or later,** with Kindgi 0.1's
-  client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+- **Node 22.12 or later, Python 3.11 or later, or Java 17 or later,** with
+  Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
 
 ## Send a test event
 
@@ -76,6 +76,77 @@ def test_endpoint(endpoint_id: str) -> None:
 
 ```text
 3b75488b-7dd0-4bfe-8abe-83a76b9e1bf2 webhook.test pending
+delivered 1 204
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/TestEndpoint.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.WebhookDelivery;
+import com.kindgi.client.resources.WebhookEndpointsListDeliveriesParams;
+
+public final class TestEndpoint {
+  private static final Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+  /** Sends the endpoint a test event, and prints how it was delivered. */
+  public static void testEndpoint(String endpointId) throws InterruptedException {
+    WebhookDelivery queued = kindgi.webhookEndpoints().sendTest(endpointId);
+    System.out.println(queued.deliveryId() + " " + queued.event().type() + " " + queued.status());
+
+    Thread.sleep(5000); // a few seconds later
+    WebhookDelivery delivery = kindgi.webhookEndpoints()
+        .listDeliveries(endpointId, WebhookEndpointsListDeliveriesParams.builder().limit(1L).build())
+        .data().get(0);
+    System.out.println(delivery.status() + " " + delivery.attempts() + " " + delivery.lastResponseStatus());
+  }
+
+  public static void main(String[] args) throws InterruptedException {
+    testEndpoint(args[0]);
+  }
+}
+```
+
+```text
+3fab48a3-50d2-4de7-a3a1-46822c41fc54 webhook.test pending
+delivered 1 204
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/TestEndpoint.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.resources.WebhookEndpointsListDeliveriesParams
+
+object TestEndpoint {
+  private val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+  /** Sends the endpoint a test event, and prints how it was delivered. */
+  def testEndpoint(endpointId: String): Unit = {
+    val queued = kindgi.webhookEndpoints().sendTest(endpointId)
+    println(s"${queued.deliveryId} ${queued.event.`type`} ${queued.status}")
+
+    Thread.sleep(5000) // a few seconds later
+    val delivery = kindgi.webhookEndpoints()
+      .listDeliveries(endpointId, WebhookEndpointsListDeliveriesParams.builder().limit(1L).build())
+      .data.get(0)
+    println(s"${delivery.status} ${delivery.attempts} ${delivery.lastResponseStatus}")
+  }
+
+  def main(args: Array[String]): Unit = testEndpoint(args(0))
+}
+```
+
+```text
+09f002b1-3d30-43a5-9580-2683e6627868 webhook.test pending
 delivered 1 204
 ```
 
@@ -176,6 +247,67 @@ def fix_endpoint(endpoint_id: str, delivery_id: str) -> None:
     kindgi.webhook_endpoints.update(endpoint_id, url="http://localhost:8788/hooks/kindgi")
     again = kindgi.webhook_endpoints.redeliver(endpoint_id, delivery_id)
     print(again.status)
+```
+
+```text
+pending
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/FixEndpoint.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.PatchWebhookEndpointBody;
+import com.kindgi.client.models.WebhookDelivery;
+
+public final class FixEndpoint {
+  private static final Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+  /** Points the endpoint at the right URL, and sends the delivery again now. */
+  public static void fixEndpoint(String endpointId, String deliveryId) {
+    kindgi.webhookEndpoints().update(endpointId,
+        PatchWebhookEndpointBody.builder().url("http://localhost:8787/hooks/kindgi").build());
+    WebhookDelivery again = kindgi.webhookEndpoints().redeliver(endpointId, deliveryId);
+    System.out.println(again.status());
+  }
+
+  public static void main(String[] args) {
+    fixEndpoint(args[0], args[1]);
+  }
+}
+```
+
+```text
+pending
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/FixEndpoint.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.PatchWebhookEndpointBody
+
+object FixEndpoint {
+  private val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+  /** Points the endpoint at the right URL, and sends the delivery again now. */
+  def fixEndpoint(endpointId: String, deliveryId: String): Unit = {
+    kindgi.webhookEndpoints().update(endpointId,
+      PatchWebhookEndpointBody.builder().url("http://localhost:8787/hooks/kindgi").build())
+    val again = kindgi.webhookEndpoints().redeliver(endpointId, deliveryId)
+    println(again.status)
+  }
+
+  def main(args: Array[String]): Unit = fixEndpoint(args(0), args(1))
+}
 ```
 
 ```text
