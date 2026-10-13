@@ -45,6 +45,7 @@ import type {
   JudgedComparisonSummary,
   LivePin,
   Promotion,
+  ReferenceScopeBinding,
   RunHandlerBinding,
   StartImprovementPassInput,
   TokenResolver,
@@ -454,6 +455,7 @@ async function harness(
     inlineInstructions?: boolean;
     /** The agent takes its model settings from block `MODEL`. */
     modelSettings?: boolean;
+    referenceScope?: ReferenceScopeBinding;
   } = {},
 ) {
   const agents = agentBinding();
@@ -554,6 +556,7 @@ async function harness(
     agentReleases: releases.releases,
     supervisor: proposals,
     ...(opts.passes !== undefined && { improvementPasses: opts.passes }),
+    ...(opts.referenceScope !== undefined && { referenceScope: opts.referenceScope }),
     ...(grants !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -593,7 +596,9 @@ const DRAFT = {
 };
 
 /** A draft, with the tenant pinned to 1.0.0 so it can be evaluated. */
-async function drafted(opts: { grants?: readonly string[] } = {}) {
+async function drafted(
+  opts: { grants?: readonly string[]; referenceScope?: ReferenceScopeBinding } = {},
+) {
   const h = await harness(opts);
   h.releases.pin({ kind: 'tenant' }, '1.0.0');
   const res = await h.call('POST', '/v1/proposals', DRAFT);
@@ -602,8 +607,8 @@ async function drafted(opts: { grants?: readonly string[] } = {}) {
 }
 
 /** A proposal whose comparison finished with `delta`. */
-async function evaluated(delta: number) {
-  const h = await drafted();
+async function evaluated(delta: number, opts: { referenceScope?: ReferenceScopeBinding } = {}) {
+  const h = await drafted(opts);
   const res = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
     suiteId: 'acme.scoring-judged',
   });
@@ -1235,6 +1240,100 @@ describe('a proposal a drafter wrote (not a person)', () => {
       version: '1.0.1' as Semver,
     });
     expect(derived?.derivedFrom).toMatchObject({ by: 'service:improvement-pass' });
+  });
+});
+
+/**
+ * The agent's project reaches its own items, but for the ids in `out`;
+ * another project reaches none of them.
+ */
+function reach(out: Set<string>): ReferenceScopeBinding {
+  return {
+    async reachable({ fromProjectId, ref }) {
+      return fromProjectId === projectId && !out.has(ref.id);
+    },
+  };
+}
+
+const OTHER_SEGMENT = {
+  kind: 'segment',
+  projectId: randomUUID(),
+  path: [{ key: 'company', value: 'acme' }],
+};
+
+/** The `reference-out-of-scope` refusal's issues, as `path kind id`. */
+function refused(res: { status: number; body: Record<string, any> }): string[] {
+  expect(res.status, JSON.stringify(res.body)).toBe(400);
+  expect(res.body.error.code).toBe('reference-out-of-scope');
+  return (res.body.error.details.issues as { path: string; kind: string; id: string }[]).map(
+    (i) => `${i.path} ${i.kind} ${i.id}`,
+  );
+}
+
+describe("what a proposal names must be in its agent's project's reach", () => {
+  test('a draft for a scope in another project is refused', async () => {
+    const { call, proposals } = await harness({ referenceScope: reach(new Set()) });
+    const res = await call('POST', '/v1/proposals', { ...DRAFT, scope: OTHER_SEGMENT });
+    expect(refused(res)).toEqual([`/scope agent ${AGENT}`]);
+    expect(proposals.rows.size).toBe(0);
+  });
+
+  test('a draft editing a block out of reach is refused, before the block is read', async () => {
+    const { call, proposals } = await harness({ referenceScope: reach(new Set([WEIGHTS])) });
+    const res = await call('POST', '/v1/proposals', DRAFT);
+    expect(refused(res)).toEqual([`/change/blockId block ${WEIGHTS}`]);
+    expect(proposals.rows.size).toBe(0);
+  });
+
+  test('evaluating on a suite out of reach is refused, and starts no eval run', async () => {
+    const out = new Set<string>();
+    const { call, id, evalRuns } = await drafted({ referenceScope: reach(out) });
+    out.add('acme.scoring-judged');
+    const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
+      suiteId: 'acme.scoring-judged',
+    });
+    expect(refused(res)).toEqual(['/suiteId suite acme.scoring-judged']);
+    expect(evalRuns.started).toEqual([]);
+  });
+
+  test("requesting asks it too: a scope that no longer reaches the agent isn't promoted", async () => {
+    const out = new Set<string>();
+    const { call, id, releases } = await evaluated(0.1, { referenceScope: reach(out) });
+    out.add(AGENT);
+    const res = await call('POST', `/v1/proposals/${id}/request`, {});
+    expect(refused(res)).toEqual([`/scope agent ${AGENT}`]);
+    expect(releases.calls.filter((c) => c.method === 'request')).toEqual([]);
+  });
+
+  test('improve on a suite out of reach, or for a scope in another project, starts no pass', async () => {
+    for (const [out, body, issue] of [
+      [
+        new Set(['acme.scoring-judged']),
+        { agentId: AGENT, scope: SEGMENT_WIRE, suiteId: 'acme.scoring-judged' },
+        '/suiteId suite acme.scoring-judged',
+      ],
+      [
+        new Set<string>(),
+        {
+          agentId: AGENT,
+          scope: OTHER_SEGMENT,
+          fromVersion: '1.0.0',
+          suiteId: 'acme.scoring-judged',
+        },
+        `/scope agent ${AGENT}`,
+      ],
+    ] as const) {
+      const passes = inMemoryPasses();
+      const h = await harness({
+        tunable: true,
+        passes: passes.binding,
+        referenceScope: reach(out),
+      });
+      h.releases.pin({ kind: 'tenant' }, '1.0.0');
+      const res = await h.call('POST', '/v1/proposals/improve', body);
+      expect(refused(res)).toEqual([issue]);
+      expect(passes.started).toEqual([]);
+    }
   });
 });
 

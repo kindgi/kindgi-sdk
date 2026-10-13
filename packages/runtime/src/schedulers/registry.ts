@@ -9,6 +9,7 @@ import type {
   Cursor,
   LiveScope,
   ProjectId,
+  RecordedSecretScope,
   Result,
   TenantId,
   TriggerId,
@@ -205,7 +206,8 @@ export type WebhookRefusalReason =
   | 'paused'
   | 'rate-limited'
   | 'body-too-large'
-  | 'body-not-json';
+  | 'body-not-json'
+  | 'body-too-deep';
 
 export interface WebhookRefusalInput {
   readonly tenantId: TenantId;
@@ -253,6 +255,14 @@ export interface TriggerFire {
   readonly passId?: string;
   /** Why it was refused, skipped or failed. */
   readonly detail?: string;
+  /**
+   * Whether it counted toward the trigger's auto-pause (5 in a row by
+   * default). `false` for a refusal for a limit, such as the tenant's runs
+   * pending (`detail` starts `rate-limited:`): the limit passes, and the
+   * trigger isn't at fault. Absent from a runtime that doesn't say: then
+   * refused and failed fires counted, and the others didn't.
+   */
+  readonly countsTowardPause?: boolean;
   /** Occurrences this fire stood in for after a gap (`catchUp: 'latest'`). */
   readonly missedCount?: number;
   /** A `run-now` fire, outside the schedule. */
@@ -321,11 +331,19 @@ export interface RegisterWebhookTriggerInput {
   /** Caller-supplied (uuid). The routable id a webhook receiver looks the trigger up by. */
   readonly webhookId: string;
   /**
-   * Name of the signing secret in the secrets store, resolved at the
-   * trigger's project. The caller writes the secret first
-   * (`POST /v1/secrets`); this row never holds it.
+   * Name of the signing secret in the secrets store; this row never holds
+   * it. Read at `hmacSecretScope` only.
    */
   readonly hmacSecretName: string;
+  /**
+   * Where the signing secret is read: recorded by the API when the trigger
+   * is registered (the scope the registrant may read it at; see
+   * `@kindgi/api`'s `secret-scope.ts`). `null`: none usable, so no delivery
+   * verifies until an admin names its secret again (an update). Absent: not
+   * recorded (a caller from before it was), and the receiver reads it as it
+   * did.
+   */
+  readonly hmacSecretScope?: RecordedSecretScope | null;
   /** How its sender signs; absent → {@link DEFAULT_WEBHOOK_SIGNATURE}. */
   readonly signature?: WebhookSignatureScheme;
   /** The request header whose value, with the body, dedupes deliveries; absent → no dedupe. */
@@ -373,6 +391,8 @@ export interface UpdateWebhookTriggerInput extends UpdateBase {
   readonly config?: Partial<WebhookTriggerConfig>;
   /** Another secret, by name. Rotating a secret's value goes through `/v1/secrets`. */
   readonly hmacSecretName?: string;
+  /** Where `hmacSecretName` is read, recorded with it (as at registration). */
+  readonly hmacSecretScope?: RecordedSecretScope | null;
   readonly signature?: WebhookSignatureScheme;
   /** `null` stops deduping. */
   readonly deliveryIdHeader?: string | null;
@@ -428,6 +448,8 @@ export interface WebhookTriggerRecord extends FlowTriggerRecordBase {
   readonly config: WebhookTriggerConfig;
   readonly webhookId: string;
   readonly hmacSecretName: string;
+  /** Where the signing secret is read (`RegisterWebhookTriggerInput.hmacSecretScope`), when recorded. */
+  readonly hmacSecretScope?: RecordedSecretScope | null;
   /** How its sender signs ({@link DEFAULT_WEBHOOK_SIGNATURE} when it set none). */
   readonly signature: WebhookSignatureScheme;
   readonly deliveryIdHeader?: string;

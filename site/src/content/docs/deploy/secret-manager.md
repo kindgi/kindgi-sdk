@@ -5,35 +5,84 @@ sidebar:
   order: 3.8
 ---
 
-By default a deployment keeps the secrets set through Kindgi's API (`kindgi
-secrets set`, `POST /v1/secrets`) in its own Postgres, encrypted with a key
-your cloud's KMS wraps (`KINDGI_SECRETS_BACKEND=postgres`; see
-[Self-host with Docker](../self-host/)). If your organization keeps secrets in
-a secret manager already, Kindgi can keep them there instead:
+When you finish this page, the secrets set through Kindgi's API live in your
+own secret manager: AWS Secrets Manager, Azure Key Vault, Google Secret
+Manager, or HashiCorp Vault or OpenBao. Kindgi's database keeps only their
+names and version numbers.
 
-```sh
-KINDGI_SECRETS_BACKEND=secret-manager
-KINDGI_SECRETS_MANAGER=aws    # or azure, gcp, or vault
-```
+By default, a deployment keeps the secrets set through Kindgi's API in its
+own Postgres: those from `kindgi secrets set` or `POST /v1/secrets`. A key
+your cloud's KMS wraps encrypts them (`KINDGI_SECRETS_BACKEND=postgres`;
+[Self-host with Docker](../self-host/)). If your organization keeps secrets
+in a secret manager already, Kindgi can keep them there instead.
+
+## Before you start
+
+- **A runtime you deploy yourself,** whose settings you can change
+  ([Self-host with Docker](../self-host/)).
+- **For AWS Secrets Manager, runtime 0.1.7 or later.** A 0.1.6 runtime
+  refuses it at startup.
+- **A store for Kindgi's secrets alone:** a Key Vault, a Google Cloud
+  project, a Vault mount, or a `kindgi/` prefix in AWS Secrets Manager.
+- **The server's own identity on your cloud,** with access to that store.
+  Kindgi signs in as the server itself: its AWS identity, managed identity,
+  service account, Vault token or Kubernetes service account.
+
+## How it works
 
 - **What lives where:** your secret manager holds every secret's values.
   Kindgi's database keeps only each secret's name and its version numbers,
   with no column for a value.
 - **Versions are Kindgi's:** a secret's versions are numbered 1, 2, 3 as
   Kindgi numbers them, whatever ids the secret manager gives its own
-  versions, so `kindgi secrets` reads the same on every backend.
-- **Kindgi signs in as the server itself:** its AWS identity, managed
-  identity, service account, Vault token or Kubernetes service account.
-  Give that identity access to a store, a project or a mount used for
-  Kindgi's secrets alone.
-- **`kindgi env init --secrets-backend=secret-manager --secrets-manager=<name>`**
-  writes the settings for one.
+  versions. So `kindgi secrets` reads the same on every backend.
+- **Tools, providers and endpoints still name a secret the same way,** by
+  its name in an env ([Store a secret](../../guides/secrets/store-a-secret/)).
+  Only where its values live changes.
 
-Tools, providers and endpoints still name a secret the same way, by its name
-in an env ([Store a secret](../../guides/secrets/store-a-secret/)). Only where
-its values live changes.
+## Choose the backend
+
+Set these in the runtime's settings, such as `kindgi.env`, then follow your
+secret manager's section:
+
+```sh
+KINDGI_SECRETS_BACKEND=secret-manager
+KINDGI_SECRETS_MANAGER=aws    # or azure, gcp, or vault
+```
+
+`kindgi env init` writes a settings file to start from:
+
+```sh
+kindgi env init --secrets-backend=secret-manager --secrets-manager=aws
+```
+
+- `--secrets-backend=secret-manager` keeps the secrets in a secret manager.
+- `--secrets-manager` names which one: `aws`, `azure`, `gcp` or `vault`.
+- It writes `.env.example` in the current directory. `--out=<path>` writes
+  it elsewhere, and `--force` overwrites a file that's there.
+
+It prints where it wrote the file, and for which backend:
+
+```text
+{
+  "outPath": "…/.env.example",
+  "target": {
+    "secretsBackend": "secret-manager",
+    "secretsManager": "aws"
+  },
+  "varsWritten": 90
+}
+
+  Wrote 90 env-var entries → …/.env.example
+  Target: {"secretsBackend":"secret-manager","secretsManager":"aws"}
+```
+
+Each section shows the lines the runtime's startup log prints when it reaches
+your secret manager, and what it prints when it can't.
 
 ## AWS Secrets Manager
+
+Set the region and the server's AWS identity:
 
 ```sh
 KINDGI_SECRETS_MANAGER=aws
@@ -46,11 +95,14 @@ KINDGI_AWS_IDENTITY=container    # or instance, or web-identity
   region in any other partition at startup.
 - **The identity:** the server signs in as its own AWS identity
   ([`KINDGI_AWS_IDENTITY`](../../reference/env-vars/#kindgi_aws_identity)):
-  `container` for ECS, Fargate or EKS Pod Identity, `instance` for an EC2
-  instance profile, `web-identity` for EKS IRSA, and `profile` only in
-  development. `KINDGI_AWS_ROLE_ARN` has it assume a role on top. It never
-  uses `AWS_*` keys or the AWS SDK's default chain, and without
-  `KINDGI_AWS_IDENTITY` the runtime doesn't start.
+  - `container` for ECS, Fargate or EKS Pod Identity;
+  - `instance` for an EC2 instance profile;
+  - `web-identity` for EKS IRSA;
+  - `profile`, only in development.
+
+  `KINDGI_AWS_ROLE_ARN` has it assume a role on top. It never uses `AWS_*`
+  keys or the AWS SDK's default chain. Without `KINDGI_AWS_IDENTITY`, the
+  runtime doesn't start.
 - **The permissions:** the actions Kindgi calls, all on
   `arn:aws:secretsmanager:<region>:<account>:secret:kindgi/*` only
   (`arn:aws-us-gov:` in GovCloud, `arn:aws-cn:` in China):
@@ -60,16 +112,16 @@ KINDGI_AWS_IDENTITY=container    # or instance, or web-identity
   Kindgi doesn't need `ListSecrets`, which can't be limited to a prefix, or
   `RestoreSecret`.
 - **The key:** AWS encrypts the secrets with its own `aws/secretsmanager`
-  key, or with yours: `KINDGI_SECRETS_AWS_KMS_KEY_ID` names it (a key ARN,
-  key id or `alias/…`), and the identity then also needs
+  key, or with yours. `KINDGI_SECRETS_AWS_KMS_KEY_ID` names yours: a key
+  ARN, a key id or an `alias/…`. The identity then also needs
   `kms:GenerateDataKey` and `kms:Decrypt` on it.
 - **What Kindgi writes:** one AWS secret per Kindgi secret, named
   `kindgi/<hash>`, with its scope in tags (`kindgi_tenant_id`,
   `kindgi_env_name`, …) and its Kindgi path in the description. Each
   version is an AWS version whose id carries Kindgi's number, and a
   retried write adds none.
-- **Revoking** a secret deletes it in AWS with a 30-day recovery window
-  (AWS can't disable a single version, so the whole secret goes). Kindgi
+- **Revoking** a secret deletes it in AWS with a 30-day recovery window.
+  AWS can't disable a single version, so the whole secret goes. Kindgi
   refuses a revoked secret at once, from its own records. Read directly from
   AWS, it may still answer for a moment, since "All Secrets Manager
   operations are eventually consistent"
@@ -119,6 +171,8 @@ provider).`
 
 ## Azure Key Vault
 
+Set the vault:
+
 ```sh
 KINDGI_SECRETS_MANAGER=azure
 KINDGI_SECRETS_AZURE_VAULT_URL=https://<vault>.vault.azure.net
@@ -143,6 +197,8 @@ Secrets: your own secret manager, Azure Key Vault … (Kindgi keeps names and ve
 ```
 
 ## Google Secret Manager
+
+Set the project:
 
 ```sh
 KINDGI_SECRETS_MANAGER=gcp
@@ -178,6 +234,8 @@ Secrets manager probe failed at boot: unauthorized: Secret Manager isn't turned 
 
 ## HashiCorp Vault or OpenBao
 
+Set the address, the mount and the token:
+
 ```sh
 KINDGI_SECRETS_MANAGER=vault
 KINDGI_SECRETS_VAULT_ADDR=https://vault.example.com:8200
@@ -205,7 +263,7 @@ KINDGI_SECRETS_VAULT_TOKEN_FILE=/var/run/kindgi/vault-token
   token file without the role.
 - **The policy** the token needs, on the mount (here `kindgi`):
 
-  ```hcl
+  ```hcl excerpt
   path "kindgi/data/*" {
     capabilities = ["create", "read", "update"]
   }
@@ -237,8 +295,8 @@ Secrets manager probe OK (vault-kv-v2): 1.15.6 (69ms)
   Secrets: your own secret manager, Vault vault.….svc:8200, mount kindgi/, Kubernetes login, role kindgi-runtime (Kindgi keeps names and version numbers)
 ```
 
-It doesn't start (exit code 2) with a plain-`http` address outside the
-rules above, or a token without the policy:
+It doesn't start, with exit code 2, when the address is plain `http` that
+this section's address rules don't allow, or the token lacks the policy:
 
 ```text
 KINDGI_SECRETS_VAULT_ADDR must be https:// …
@@ -252,7 +310,11 @@ doesn't start either (exit code 2). The part after `403:` is Vault's own:
 Secrets manager probe failed at boot: unauthorized: Vault probe failed: Vault's Kubernetes login (auth/kubernetes, role kindgi-runtime) answered 403: service account name not authorized. Check that the role exists, binds this service account and namespace, and that the auth method can review tokens. Check …
 ```
 
-The settings are all in the
-[environment variable reference](../../reference/env-vars/#kindgi_secrets_manager).
-AWS Secrets Manager (`KINDGI_SECRETS_MANAGER=aws`) needs runtime 0.1.7 or
-later: a 0.1.6 runtime refuses it at startup.
+## Next
+
+- [The environment variable reference](../../reference/env-vars/#kindgi_secrets_manager):
+  every setting on this page.
+- [Store a secret](../../guides/secrets/store-a-secret/): set and read
+  secrets, whatever the backend.
+- [Operate a self-hosted runtime](../operate/): health, backups and
+  rotating keys.

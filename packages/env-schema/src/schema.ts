@@ -218,6 +218,16 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_TENANCY',
+    description:
+      "Used from runtime 0.1.8; earlier runtimes ignore it. How many tenants the runtime serves. `single` (default): one, `KINDGI_TENANT_ID`'s, as before. `multi`: many, each created through `POST /v1/system/tenants`. A request's tenant comes from its key or session, so `KINDGI_TENANT_ID` is refused, and `KINDGI_API_TOKEN` acts as the operator (`kindgi:system`) in no tenant. The first `multi` boot keeps the existing tenant, with its data, keys and people, as the first of many.",
+    example: 'single',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+    allowedValues: ['single', 'multi'],
+  },
+  {
     name: 'KINDGI_API_TOKEN',
     description: 'Bearer token to seed / reuse. Default: fresh `kgi_bt_...` token per boot.',
     example: 'kgi_bt_my_stable_local_token',
@@ -272,6 +282,35 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: appliesToServer,
     group: 'core',
     allowedValues: ['allow', 'deny'],
+  },
+  {
+    name: 'KINDGI_PRODUCTION_GATE',
+    description:
+      "Whether putting a project in production needs the tenant to be allowed it, for example once it has a payment card. `on`: `PUT /v1/projects/{projectId}/production` refuses with `403 production-not-allowed` while the tenant isn't allowed (its `productionAllowed` is `false`, set through the system API); a project already in production stays so. A tenant is allowed unless it's switched off, so turning the gate on keeps existing tenants' production. Unset or `off`: no gate, and any tenant admin can put a project in production.",
+    example: 'on',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+    allowedValues: ['on', 'off'],
+  },
+  {
+    name: 'KINDGI_PRODUCTION_NEXT_URL',
+    description:
+      "Where a tenant that isn't allowed to put projects in production goes to be allowed, for example a billing page: an https URL. It's the `production-not-allowed` refusal's `details.next`, and `GET /v1/tenant`'s `productionNext` while the tenant isn't allowed. Unset: the refusal says to ask whoever runs the server.",
+    example: 'https://platform.example.com/account/billing',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_USAGE_METERING',
+    description:
+      "Whether the server counts usage. `on`: it records each run when it's created (with its class: `production`, `staging`, `dry-run`, `replay`, `eval` or `child`) and when it ends, each approval asked for and decided, each model call, and each project put in production or taken out. Each is counted exactly once, in the same transaction as what it counts. `/v1/cost/*` reads a tenant's own counts. Unset or `off`: model calls are counted as before, and nothing else.",
+    example: 'on',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+    allowedValues: ['on', 'off'],
   },
   {
     name: 'KINDGI_LICENSE_KEY',

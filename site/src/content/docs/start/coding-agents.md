@@ -75,9 +75,12 @@ skills are behind, and `kindgi skills sync` refreshes them (see
   only in `devDependencies`: the message says which, and the agent fixes it
   and runs again.
 - **These docs, for agents.** Every page has a Markdown version: replace
-  the slash at the end of its URL with `.md`.
-  [`docs.kindgi.com/llms.txt`](https://docs.kindgi.com/llms.txt) lists
-  every page's Markdown version by section, and links one file per section.
+  the slash at the end of its URL with `.md`. Under each page's title,
+  **Copy as Markdown** copies it, to paste into a chat with your agent, and
+  **View as Markdown** opens it.
+  [`docs.kindgi.com/llms.txt`](https://docs.kindgi.com/llms.txt), linked at
+  the bottom of every page, lists every page's Markdown version by section,
+  and links one file per section.
   [`llms-full.txt`](https://docs.kindgi.com/llms-full.txt) is all of it.
   Point an agent there when it needs more than the skills.
 
@@ -246,10 +249,27 @@ The skills are copies, made when you ran `kindgi init`. After upgrading
 Kindgi, refresh them:
 
 ```sh
-kindgi skills sync              # keeps skills you edited; --force replaces them
+kindgi skills sync
 ```
 
-In a Python project, run it as `uv run kindgi skills sync`.
+It keeps skills you edited. `--force` replaces those too. In a Python
+project, run it as `uv run kindgi skills sync`.
+
+It prints each skill's outcome, as JSON:
+
+```text
+{
+  "targetDir": ".",
+  "packLanguage": "node",
+  "outcomes": [
+    {
+      "name": "kindgi-authoring-agents",
+      "status": "unchanged",
+…
+  "dryRun": false,
+  "force": false
+}
+```
 
 `kindgi dev` tells you when the installed skills are behind the CLI's.
 `.claude/skills/.kindgi-manifest.json` records what was installed.
@@ -261,15 +281,47 @@ MCP server, without writing its secret into the project:
 
 ```sh
 kindgi mcp presets
+kindgi secrets set MY_DB_URL --env=local --scope=tenant
 kindgi mcp add postgres --secret=MY_DB_URL
 ```
 
-`add` writes an entry to `.mcp.json` that starts the server with the secret
-from your env files. These servers are for your coding agent (Claude Code,
-Cursor, VS Code), not for Kindgi's runtime.
+- `mcp presets` lists the servers Kindgi has a preset for.
+- `secrets set` stores the server's connection, for `postgres` a
+  `postgresql://` URL, in Kindgi's own `.kindgi/secrets.env`. It asks for
+  the value without showing it, and needs `kindgi dev` running.
+- `add` writes an entry to `.mcp.json` that starts the server. `--secret`
+  names the secret that holds the server's connection: the server gets its
+  value when it starts, and `.mcp.json` never holds it.
+
+They print:
+
+```text
+{
+  "root": "…",
+  "presets": [
+    {
+      "kind": "postgres",
+      "runtime": "docker",
+      "package": "crystaldba/postgres-mcp",
+…
+  Set MY_DB_URL at tenant in local.
+…
+  Added "my_db" (preset postgres) to .mcp.json.
+  Restart your MCP client (Claude Code, Cursor, ...) to activate.
+```
+
+These servers are for your coding agent (Claude Code, Cursor, VS Code), not
+for Kindgi's runtime.
 
 ## When Kindgi is the problem
 
 If your agent diagnoses a bug in Kindgi rather than in your code, the
 `kindgi-framework-feedback` skill has it write a structured note to
 `FEEDBACK.md` with `kindgi feedback write`, ready to send to us.
+
+## Next
+
+- [Set up Kindgi with your coding agent](../agent/): the steps it follows,
+  from nothing to a first agent that answers.
+- [Quickstart: TypeScript](../quickstart-typescript/), or the
+  [Python](../quickstart-python/) one: the same steps, by hand.

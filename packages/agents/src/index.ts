@@ -75,6 +75,7 @@ export type {
   BudgetExceededError,
   CapabilityRoutingError,
   InvokeAgentBindings,
+  ToolCallAuthorization,
   InvokeAgentError,
   InvokeAgentInput,
   ModelInvocationError,
@@ -83,6 +84,7 @@ export type {
   ResumeAgentTurnInput,
   RunSnapshotError,
   SemanticUnavailableError,
+  ApprovalsPendingLimitError,
   ToolInvocationError,
   UnresolvedToolError,
 } from './invoke.js';

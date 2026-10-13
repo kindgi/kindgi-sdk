@@ -17,6 +17,11 @@ import { statusFor, toWireError } from '../errors.js';
 import type { GuardrailRecord, GuardrailRegistryBinding } from '../guardrail-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
+import {
+  type ReferenceScopeBinding,
+  outOfScopeResponse,
+  referencesOutOfScope,
+} from '../reference-scope.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { AppEnv } from '../types.js';
 import { guardrailOutcomesHandler } from './guardrail-outcomes.js';
@@ -73,6 +78,8 @@ export function guardrailsRouter(
   authorizer?: Authorizer,
   onWrite?: GuardrailWriteHook,
   checkConfig?: GuardrailConfigCheck,
+  /** What a guardrail's project may run (`reference-scope.ts`); absent → as named. */
+  referenceScope?: ReferenceScopeBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -247,6 +254,15 @@ export function guardrailsRouter(
           requestId,
         ),
       );
+    }
+
+    // A pack check it names must be its project's to reach
+    // (`reference-scope.ts`); a built-in check is every project's.
+    if (builtInChecks.get(validated.value.check) === undefined) {
+      const outOfScope = await referencesOutOfScope(referenceScope, tenantId, projectId, [
+        { path: '/check', kind: 'check', id: validated.value.check },
+      ]);
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
 
     // A built-in check's config is the route's to check (its schema ships with

@@ -17,11 +17,11 @@ still change in a later release without the usual deprecation period.
 :::
 
 **Before you start**, set up what the [Install page](../install/) describes:
-Docker, Node 22.12 or later, and access to the runtime image. The image is
-in private preview: request access at contact@kindgi.com, then log in once
-with `kindgi auth registry`. You also need a JDK 17 or later, with
-`JAVA_HOME` set to it, and [sbt](https://www.scala-sbt.org/download) 1.10 or
-later.
+Docker, Node 22.12 or later, and access to the runtime image: sign in at
+[access.kindgi.com](https://access.kindgi.com) with GitHub for its pull
+credentials, then log in once with `kindgi auth registry`. You also need a
+JDK 17 or later, with `JAVA_HOME` set to it, and
+[sbt](https://www.scala-sbt.org/download) 1.10 or later.
 
 ## 1. Create the pack
 
@@ -29,6 +29,25 @@ later.
 npx --yes @kindgi/cli@0.1 init my-pack --template=scala
 cd my-pack
 sbt -batch test    # the template's tests: the tools, called directly
+```
+
+- `npx --yes @kindgi/cli@0.1` runs the newest 0.1 release of the Kindgi CLI,
+  the line these docs describe, without installing it
+  ([Check this machine](../install/#check-this-machine) says how). `@0.1` is
+  optional: `npx --yes @kindgi/cli init my-pack --template=scala` runs the
+  newest release, which may be on a later line than these docs.
+- `init my-pack` makes the pack in a new folder, `my-pack`.
+- `--template=scala` makes it a Scala pack, with examples.
+- `sbt -batch test` runs the template's tests. `-batch` keeps sbt from waiting for input.
+
+`init` prints what it made, and sbt ends with the tests' summary:
+
+```text
+…
+✓ Scala pack scaffolded at …/my-pack/ (preview)
+…
+[info] Passed: Total 3, Failed 0, Errors 0, Passed 3
+[success] Total time: 15 s, completed …
 ```
 
 Without Node, run `init` from PyPI instead:
@@ -79,8 +98,18 @@ a pack service. The first build starts the server and loads the build;
 after that, a save compiles in about a second. `kindgi dev` starts that
 server when none is running and stops it when it stops; a server you
 already run (your IDE's) is used and left running. It writes the API's URL
-and a token to `.kindgirc.json`, so the commands below find the runtime by
+and a token to `.kindgirc.json`, so the next commands find the runtime by
 themselves. Leave it running.
+
+When the pack is loaded and the runtime is up, it says so:
+
+```text
+…
+  ✓ loaded: 2 tools, 1 guardrails, 1 agents, 1 flows
+…
+    ✓ Kindgi is up
+…
+```
 
 ## 3. Run the agent and the flow
 
@@ -91,6 +120,11 @@ In a second terminal, in `my-pack`:
 ./kindgiw runs start --flow=my-pack.echo-flow --input='{"message":"Ada"}'
 ```
 
+- `--agent=my-pack.echo-agent` and `--flow=my-pack.echo-flow` name what to
+  run, by its id.
+- `--input` is the run's input, as JSON. An agent takes the person's message
+  as `userMessage`.
+
 ```text tutorial=expect
   "status": "completed",
 …
@@ -99,10 +133,10 @@ In a second terminal, in `my-pack`:
     "echo": "Ada",
 ```
 
-Without a model, the agent's answer comes from `dev-echo`, a stand-in that
-calls the agent's first tool with `{"message": <your userMessage>}` and
-replies with what it returned, after a first line that says it isn't a real
-model. The flow runs the `echo` tool on its input and returns what the tool
+Without a model, the agent's answer comes from `dev-echo`, a stand-in. It
+calls the agent's first tool with `{"message": <your userMessage>}`, and
+replies with what the tool returned, after a first line that says it isn't a
+real model. The flow runs the `echo` tool on its input and returns what the tool
 returned. Either way, your Scala tool ran: the runtime called it over HTTP in
 the pack service.
 
@@ -146,7 +180,7 @@ futures uses `handlerAsync`, which takes a `Future`.
 
 An agent is data, and it refers to the tools and the guardrail themselves:
 
-```scala
+```scala excerpt
 // in src/main/scala/mypack/agents/EchoAgent.scala
 val agent: Agent = Agent("my-pack.echo-agent")
   .version("0.1.0")
@@ -193,29 +227,54 @@ Fix it, and the pack reloads:
 
 ## 5. Connect a real model
 
-Store an Anthropic key as a secret (you're prompted for it; it isn't
-echoed), then register the provider:
+Store your AI model provider's API key as a secret, then register the
+provider:
 
 ```sh
-./kindgiw secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
-./kindgiw providers register --preset=anthropic
+./kindgiw secrets set <KEY_NAME> --env=local --scope=tenant
+./kindgiw providers register --preset=<preset>
 ```
 
-It takes over from `dev-echo` at the next turn. OpenAI (`OPENAI_API_KEY`,
-`--preset=openai`), Gemini (`GEMINI_API_KEY`, `--preset=gemini-api`), Groq
-(`GROQ_API_KEY`, `--preset=groq`) and OpenRouter (`OPENROUTER_API_KEY`,
-`--preset=openrouter`) work the same way; `kindgi providers presets` lists
-them, Gemini on Vertex AI too. Any OpenAI-compatible endpoint registers from
-a short spec file.
+`<KEY_NAME>` and `<preset>` depend on the provider:
+
+| Provider | `<KEY_NAME>` | `<preset>` |
+| --- | --- | --- |
+| Anthropic | `ANTHROPIC_API_KEY` | `anthropic` |
+| OpenAI | `OPENAI_API_KEY` | `openai` |
+| Gemini (a Google AI Studio key) | `GEMINI_API_KEY` | `gemini-api` |
+| Groq | `GROQ_API_KEY` | `groq` |
+| OpenRouter (a hosted gateway) | `OPENROUTER_API_KEY` | `openrouter` |
+
+- `secrets set <KEY_NAME>` asks for the key without showing it, and
+  writes it to Kindgi's own `.kindgi/secrets.env`.
+- `--env=local` is the environment the secret belongs to. Under
+  `kindgi dev`, `local` is the pack's env files, that one among them.
+- `--scope=tenant` is where the secret lives: the tenant, rather than one
+  org (`org:<orgId>`) or project (`project:<projectId>`).
+- `--preset=<preset>` registers the provider's models from Kindgi's built-in
+  preset, which reads the `<KEY_NAME>` secret. `kindgi providers presets`
+  lists every preset, Gemini on Vertex AI too.
+
+With Anthropic's key, for example, the two commands print:
+
+```text
+…
+  Set ANTHROPIC_API_KEY at tenant in local.
+…
+✓ Registered anthropic: claude-opus-5-5, claude-sonnet-5-5 (default), claude-haiku-5-5, claude-haiku-4-5 — key ANTHROPIC_API_KEY (env local)
+```
+
+The provider takes over from `dev-echo` at the next turn. Any
+OpenAI-compatible endpoint registers from a short spec file.
 
 The registration is in this project's dev database. To have `kindgi dev`
 register the model on every boot, in each worktree and after `--reset`,
-declare it in `kindgi.config.json` (`"providers": [{"preset": "anthropic"}]`):
+declare it in `kindgi.config.json` (`"providers": [{"preset": "<preset>"}]`):
 [Declare them in your pack's config](../../guides/models/#declare-them-in-your-packs-config).
 
 ## Next
 
-- [Add Kindgi to an existing Scala app](../existing-app/#a-scala-app-sbt):
+- [Add Kindgi to an existing Scala app](../existing-app-scala/):
   your app's own classes as tools.
 - [Guides](../../guides/): one task at a time.
 - [Concepts](../../concepts/): packs, runs and the journal, security.

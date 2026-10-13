@@ -7,6 +7,7 @@ import { defineConfig } from 'astro/config';
 import starlightOpenAPI, { createOpenAPISidebarGroup } from 'starlight-openapi';
 import { createStarlightTypeDocPlugin } from 'starlight-typedoc';
 import { agentMarkdown } from './scripts/agent-markdown.mjs';
+import { typedocSignatures } from './scripts/reference/typedoc-signatures.mjs';
 import { docsVersion, versionedPages } from './scripts/versioned-pages.mjs';
 
 // Each released minor line is built from its git tag under its own base
@@ -77,11 +78,13 @@ export default defineConfig({
       description,
       details: [
         'Kindgi runs AI agents and flows beside your application. You define tools (your own',
-        'TypeScript or Python code), agents and flows in a pack; the Kindgi runtime runs them',
-        'durably, calls your code over HTTP, and records every step in a journal. The SDKs',
-        '(`@kindgi/sdk` on npm, `kindgi` on PyPI) and the CLI (`@kindgi/cli` on npm, `kindgi-cli`',
-        'on PyPI) are Apache-2.0. TypeScript projects run the CLI as `pnpm exec kindgi`; Python',
-        'projects as `uv run kindgi`.',
+        'TypeScript, Python, Java or Scala code), agents and flows in a pack; the Kindgi runtime',
+        'runs them durably, calls your code over HTTP, and records every step in a journal. The',
+        'SDKs (`@kindgi/sdk` on npm, `kindgi` on PyPI, and `com.kindgi:kindgi-pack`,',
+        '`kindgi-pack-scala` and `kindgi-client` on Maven Central) and the CLI (`@kindgi/cli` on',
+        'npm, `kindgi-cli` on PyPI) are Apache-2.0. TypeScript projects run the CLI as',
+        '`pnpm exec kindgi`; Python projects as `uv run kindgi`; Java and Scala projects as',
+        '`./kindgiw`.',
       ].join('\n'),
     }),
     starlight({
@@ -96,6 +99,8 @@ export default defineConfig({
       },
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/kindgi/kindgi-sdk' }],
       editLink: { baseUrl: 'https://github.com/kindgi/kindgi-sdk/edit/main/site/' },
+      // No "On this page" column beside the text.
+      tableOfContents: false,
       // The fonts are served from the site itself (Fontsource), so a page asks no
       // other host for them: Plex Sans with its width axis (headings narrow to
       // --kg-narrow), its files kept in src/fonts so a release's docs branch can
@@ -109,11 +114,15 @@ export default defineConfig({
         './src/styles/kindgi.css',
       ],
       components: {
+        // The title, with the page's Markdown version under it.
+        PageTitle: './src/components/PageTitle.astro',
         // The version menu and the "not the latest" notice.
         ThemeSelect: './src/components/ThemeSelect.astro',
         Banner: './src/components/Banner.astro',
-        // "Edit page" (hand-written pages) and "Report a problem" (every page).
+        // "Report a problem", "Your coding agent" and `llms.txt` (every page).
         EditLink: './src/components/EditLink.astro',
+        // "See also" on the HTTP API's operation pages.
+        MarkdownContent: './src/components/MarkdownContent.astro',
       },
       plugins: [
         starlightOpenAPI([
@@ -148,6 +157,8 @@ export default defineConfig({
             enumMembersFormat: 'table',
             typeDeclarationFormat: 'table',
             useCodeBlocks: true,
+            // Declarations are fenced `ts signature`: not code to paste.
+            plugin: [typedocSignatures],
           },
         }),
       ],
@@ -172,6 +183,7 @@ export default defineConfig({
           label: 'Reference',
           items: [
             { label: 'Overview', link: '/reference/' },
+            { label: 'Features by SDK', link: '/reference/sdks/' },
             httpApi,
             { label: 'TypeScript', collapsed: true, items: [sdkReference] },
             {
@@ -185,6 +197,7 @@ export default defineConfig({
               items: [{ autogenerate: { directory: 'reference/cli' } }],
             },
             { label: 'Environment variables', link: '/reference/env-vars/' },
+            { label: 'Error codes', link: '/reference/errors/' },
             {
               label: 'Packages',
               collapsed: true,

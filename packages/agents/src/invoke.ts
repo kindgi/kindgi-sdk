@@ -296,6 +296,7 @@ export type {
   RateLimitExceededError,
   RunSnapshotError,
   SemanticUnavailableError,
+  ApprovalsPendingLimitError,
   ToolInvocationError,
   UnresolvedToolError,
 } from './handlers/errors.js';
@@ -305,6 +306,7 @@ export type {
   HitlEnqueueResult,
   InvokeAgentBindings,
   InvokeAgentInput,
+  ToolCallAuthorization,
 } from './handlers/public-types.js';
 
 /**

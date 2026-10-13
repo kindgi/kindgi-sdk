@@ -31,6 +31,8 @@ export interface WireError {
 export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // 400 — bad request
   'validation-failed': 400,
+  // A flow, agent, trigger or run names an item its project doesn't reach (`reference-scope.ts`).
+  'reference-out-of-scope': 400,
   'kind-not-applied': 400,
   'unknown-field': 400,
   'bad-input': 400,
@@ -135,6 +137,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // turn's work), or a rate limiter in front of the routes. With
   // `Retry-After`.
   'rate-limit-exceeded': 429,
+  // A gate asked for an approval past the tenant's limit on approvals waiting.
+  'approvals-pending-limit': 429,
   // 500 — server
   'internal-server-error': 500,
   'journal-error': 500,
@@ -245,6 +249,48 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'key-project-mismatch': 403,
   /** Mint: a key that would outlive the key minting it (a later or absent `expiresAt`). */
   'token-expiry-exceeds-minter': 403,
+  /** Mint: a capability a tenant's key can't carry (`system:*`; `kindgi:system` on a runtime serving many tenants). */
+  'capability-not-mintable': 403,
+  /** A system key (it acts in no tenant) on a route outside `/v1/system/*`. */
+  'system-key-on-tenant-route': 403,
+  /** A system route called with a tenant's key or session. */
+  'system-principal-required': 403,
+  /** A system key without the scope the system route takes (`details.scope`). */
+  'system-scope-missing': 403,
+  /** No system key with that id. */
+  'system-key-not-found': 404,
+  /** A full system key minted by another system key, with no `expiresAt`: only the deployment's own token mints one that never expires. */
+  'system-key-expiry-required': 403,
+  /** The operator's access record can't be written, so a system request that would change something was not acted on. */
+  'access-record-unavailable': 503,
+  /** A system route naming a tenant in a state it refuses. */
+  'tenant-closing': 409,
+  'tenant-suspended': 409,
+  /** A system route naming a deployment whose project, or pack, is suspended. */
+  'project-suspended': 409,
+  'pack-suspended': 409,
+  /** A deployment's endpoint refused: its URL isn't `https://<host>`, with no user info or path. */
+  'endpoint-url-invalid': 400,
+  /** A deployment's endpoint refused: its host isn't on the operator's allowlist. */
+  'endpoint-host-not-allowed': 422,
+  /** A deployment's endpoint refused: its host doesn't name the deployment's own pack service. */
+  'endpoint-name-mismatch': 422,
+  /** A deployment's endpoint refused: the pack service didn't answer `/v1/info`. */
+  'endpoint-unreachable': 422,
+  /** A deployment's endpoint refused: the pack service answered as another pack or version. */
+  'endpoint-info-mismatch': 422,
+  /** A problem recorded for a deployment whose endpoint isn't pending. */
+  'endpoint-not-pending': 409,
+  /** Creating a tenant with a slug another tenant has. */
+  'tenant-slug-taken': 409,
+  /** A deployment's image outside its tenant's repository (`details.imagePrefix`, the tenant's own). */
+  'image-not-allowed': 409,
+  /** A deployment on a runtime serving many tenants, by a tenant with no image repository set. */
+  'image-prefix-unset': 409,
+  /** An image prefix that equals, holds or sits inside another tenant's. */
+  'image-prefix-taken': 409,
+  /** The tenant's state can't be read, so a write is refused (`Retry-After`). */
+  'tenant-state-unavailable': 503,
   'service-account-not-found': 404,
   /** An active service account of the tenant already has the name. */
   'service-account-name-taken': 409,
@@ -268,6 +314,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'agent-version-live': 409,
   /** An artifact upload over the runtime's cap (`KINDGI_ARTIFACT_MAX_BYTES`). */
   'artifact-too-large': 413,
+  /** A request body over the API's limit (`requestMaxBytes`); `details.maxBytes` says how much. */
+  'request-too-large': 413,
   'run-not-finished': 409,
   'item-not-found': 400,
   // The judgment binding can't list judged runs, so no test sets from judgments.
@@ -341,6 +389,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'org-not-found': 404,
   'team-not-found': 404,
   'project-not-found': 404,
+  /** Putting a project in production while the tenant isn't allowed to (the production gate; `details.next`). */
+  'production-not-allowed': 403,
+  /** The production route on a runtime whose project binding can't set it. */
+  'production-unsupported': 501,
   'team-membership-not-found': 404,
   'project-membership-not-found': 404,
   // Re-adding a member with another role: the role they hold is kept.

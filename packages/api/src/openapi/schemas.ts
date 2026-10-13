@@ -72,7 +72,13 @@ import {
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
 
+import { DEPLOYMENT_ENDPOINT_PROBLEM_CODES } from '../deployment-binding.js';
 import { ERROR_CODE_TO_STATUS } from '../errors.js';
+import {
+  PACK_ENDPOINT_AUTHS,
+  SYSTEM_DEPLOYMENT_RETIRE_REASONS,
+} from '../routes/system-deployments.js';
+import { FULL_SYSTEM_CAPABILITY, SYSTEM_SCOPES } from '../system.js';
 
 export type JsonSchema = Record<string, unknown>;
 
@@ -1216,6 +1222,262 @@ export const ApiTokenSchema: JsonSchema = {
   },
 };
 
+const SYSTEM_KEY_SCOPE: JsonSchema = {
+  type: 'string',
+  enum: [...SYSTEM_SCOPES, FULL_SYSTEM_CAPABILITY],
+  description:
+    'A system scope, or `kindgi:system` for every one of them. None reads customer content.',
+};
+
+export const SystemKeySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A system key (`kgi_sy_…`): the operator's, acting in no tenant. Never its secret.",
+  required: ['id', 'scopes', 'createdAt', 'mintedBy'],
+  properties: {
+    id: { type: 'string', description: "The key's id." },
+    label: { type: 'string', description: 'What the key is for, as given at mint.' },
+    scopes: { type: 'array', items: SYSTEM_KEY_SCOPE },
+    createdAt: { type: 'string', format: 'date-time' },
+    expiresAt: { type: 'string', format: 'date-time' },
+    revokedAt: { type: 'string', format: 'date-time' },
+    mintedBy: {
+      type: 'string',
+      description: "Who minted it: a system key's id, or `boot` for the deployment's own token.",
+    },
+  },
+};
+
+export const MintSystemKeyBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['scopes'],
+  properties: {
+    scopes: {
+      type: 'array',
+      minItems: 1,
+      uniqueItems: true,
+      items: SYSTEM_KEY_SCOPE,
+      description: "The least the key's service needs; `kindgi:system` alone for a full key.",
+    },
+    label: { type: 'string', minLength: 1, maxLength: 100 },
+    expiresAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When it stops working. A minter that expires mints only keys expiring no later than it.',
+    },
+  },
+};
+
+export const MintSystemKeyResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'The new system key, plus its secret.',
+  required: [...(SystemKeySchema.required as readonly string[]), 'token'],
+  properties: {
+    ...(SystemKeySchema.properties as Record<string, JsonSchema>),
+    token: {
+      type: 'string',
+      description: 'Plaintext bearer token (`kgi_sy_…`). Returned exactly once at mint time.',
+    },
+  },
+};
+
+export const RevokeSystemKeyResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'The revoked system key, and the keys revoked with it because they were minted from it.',
+  required: [...(SystemKeySchema.required as readonly string[]), 'alsoRevoked'],
+  properties: {
+    ...(SystemKeySchema.properties as Record<string, JsonSchema>),
+    alsoRevoked: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The ids of the keys minted from it, however deep, revoked with it.',
+    },
+  },
+};
+
+export const SystemKeyListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: { data: { type: 'array', items: SystemKeySchema } },
+};
+
+export const SystemTenantSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'A tenant, as the operator sees it: never its content.',
+  required: ['id', 'name', 'slug', 'state', 'createdAt', 'test', 'productionAllowed'],
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    name: { type: 'string' },
+    slug: { type: 'string' },
+    state: {
+      type: 'string',
+      enum: ['active', 'suspended', 'closing'],
+      description:
+        '`closing`: readable and exportable with its own keys for its window, nothing runs. `suspended`: the same, reversibly. `closing` wins over `suspended`.',
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    test: {
+      type: 'boolean',
+      description: 'A test tenant: left out of usage, invoices and counts.',
+    },
+    productionAllowed: { type: 'boolean' },
+    imagePrefix: {
+      type: 'string',
+      description: "The repository its deployments' images must sit at or under, `<host>/<path>`.",
+    },
+    closingAt: { type: 'string', format: 'date-time' },
+    suspendedAt: { type: 'string', format: 'date-time' },
+    suspendedReason: { type: 'string' },
+  },
+};
+
+export const CreateSystemTenantBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name'],
+  properties: {
+    name: { type: 'string', minLength: 1, maxLength: 100 },
+    slug: {
+      type: 'string',
+      maxLength: 63,
+      pattern: '^[a-z0-9](?:-?[a-z0-9])*$',
+      description: 'Lowercase letters, digits and single hyphens; generated when absent.',
+    },
+    productionAllowed: {
+      type: 'boolean',
+      description:
+        'Whether it may put projects in production. Absent: blocked, until the operator allows it; `true` takes `system:tenants:production`.',
+    },
+    test: {
+      type: 'boolean',
+      description: 'A test tenant. The full system capability only.',
+    },
+    imagePrefix: {
+      type: 'string',
+      description:
+        "The repository its deployments' images must sit in, `<host>/<path>` with no trailing slash; takes `system:tenants:image-prefix`. On a runtime serving many tenants, a tenant without one can't register a deployment.",
+    },
+    firstAdmin: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['email', 'name'],
+      description:
+        "The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.",
+      properties: {
+        email: { type: 'string', maxLength: 254, description: 'An email address.' },
+        name: { type: 'string', minLength: 1, maxLength: 100 },
+      },
+    },
+  },
+};
+
+export const CreateSystemTenantResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tenant'],
+  properties: {
+    tenant: ref('SystemTenant'),
+    firstAdmin: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['personId'],
+      properties: { personId: { type: 'string' } },
+    },
+    adminKey: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tokenId', 'token'],
+      description: "The tenant's first admin key, without `firstAdmin`: shown once.",
+      properties: { tokenId: { type: 'string' }, token: { type: 'string' } },
+    },
+  },
+};
+
+export const SystemTenantListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: ref('SystemTenant') },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string', description: 'Opaque; absent when `hasMore` is false.' },
+  },
+};
+
+export const SetTenantSuspendedBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['suspended'],
+  properties: {
+    suspended: { type: 'boolean' },
+    reason: { type: 'string', minLength: 1, maxLength: 500 },
+  },
+};
+
+export const SetTenantImagePrefixBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['prefix'],
+  properties: {
+    prefix: { type: 'string', description: '`<host>/<path>`, with no trailing slash.' },
+  },
+};
+
+export const ProjectSuspensionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'suspended'],
+  properties: {
+    projectId: { type: 'string', format: 'uuid' },
+    suspended: { type: 'boolean' },
+    suspendedAt: { type: 'string', format: 'date-time' },
+    suspendedReason: { type: 'string' },
+  },
+};
+
+export const TenantAdminContactsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      maxItems: 100,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['userId', 'email'],
+        properties: {
+          userId: { type: 'string' },
+          email: { type: 'string' },
+          displayName: { type: 'string' },
+        },
+      },
+    },
+  },
+};
+
+export const SystemWhoamiSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['keyId', 'scopes'],
+  properties: {
+    keyId: {
+      type: 'string',
+      description: "The system key's id, or `boot` for the deployment's own token.",
+    },
+    scopes: { type: 'array', items: { type: 'string' } },
+    expiresAt: { type: 'string', format: 'date-time' },
+  },
+};
+
 export const MintTokenResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -1241,6 +1503,134 @@ export const ApiTokenPageSchema: JsonSchema = {
       description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
     },
     hasMore: { type: 'boolean' },
+  },
+};
+
+// ---------------- system deployments (per-deployment routing) ----------------
+
+const SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES: Record<string, JsonSchema> = {
+  tenantId: { type: 'string', format: 'uuid' },
+  deploymentId: { type: 'string', minLength: 1 },
+  packId: {
+    type: 'string',
+    minLength: 1,
+    description:
+      "The pack it deploys (the image index's `packId`): keep the newest few superseded deployments per tenant and pack.",
+  },
+  projectId: {
+    type: 'string',
+    description: 'The project the deploy was scoped to. Absent for a tenant-wide deploy.',
+  },
+  imageRef: {
+    type: 'string',
+    description: 'Digest-pinned, as registered: the pack service is created from exactly this.',
+  },
+  imageDigest: { type: 'string', pattern: '^sha256:[0-9a-f]{64}$' },
+  artifactVersion: { type: 'string' },
+  activatedAt: { type: 'string', format: 'date-time' },
+};
+
+export const SystemDeploymentEntrySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A deployment as whatever runs its pack service needs it: ids and the image, nothing of the tenant beyond its id. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). In the `retire` list, `reason` says why the service should go.',
+  required: [
+    'tenantId',
+    'deploymentId',
+    'packId',
+    'imageRef',
+    'imageDigest',
+    'artifactVersion',
+    'activatedAt',
+  ],
+  properties: {
+    ...SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES,
+    reason: {
+      type: 'string',
+      enum: [...SYSTEM_DEPLOYMENT_RETIRE_REASONS],
+      description:
+        'In the `retire` list only. `superseded`: no live or promoted version routes to it any more (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.',
+    },
+  },
+};
+
+export const SystemDeploymentPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/SystemDeploymentEntry' } },
+    nextCursor: {
+      type: 'string',
+      description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
+    },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const SetPackEndpointBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['url', 'auth', 'token'],
+  properties: {
+    url: {
+      type: 'string',
+      description:
+        "`https://<host>`: no user info, path, query or fragment. Its host must be on the operator's allowlist (`KINDGI_PACK_ENDPOINT_HOSTS`) and begin with the deployment's own service name (`packServiceName`), then `-` or `.`.",
+    },
+    auth: {
+      type: 'string',
+      enum: [...PACK_ENDPOINT_AUTHS],
+      description:
+        "How the server calls it: `google-id-token` adds an ID token for the URL (Cloud Run's invoker check) to the pack token; `token` sends the pack token only.",
+    },
+    token: {
+      type: 'string',
+      minLength: 16,
+      maxLength: 512,
+      description:
+        "The pack service's token (`KINDGI_PACK_SERVICE_TOKEN`), printable ASCII without spaces. Stored wrapped; never returned, logged or recorded.",
+    },
+  },
+};
+
+export const RecordDeploymentProblemBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['code'],
+  properties: {
+    code: {
+      type: 'string',
+      enum: [...DEPLOYMENT_ENDPOINT_PROBLEM_CODES],
+      description:
+        "Why the pack service couldn't be created, or was refused: one of `DEPLOYMENT_ENDPOINT_PROBLEM_CODES`. The tenant sees the code, never more.",
+    },
+  },
+};
+
+export const SetPackSuspendedBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['suspended'],
+  properties: {
+    suspended: { type: 'boolean' },
+    reason: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 500,
+      description: "Why, for the operator's record.",
+    },
+  },
+};
+
+export const PackSuspensionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['suspended', 'since'],
+  properties: {
+    suspended: { type: 'boolean' },
+    since: { type: 'string', format: 'date-time', description: 'When it last changed.' },
   },
 };
 
@@ -2738,6 +3128,47 @@ export const ToolSpecSchema: JsonSchema = {
   oneOf: [{ $ref: '#/components/schemas/HttpToolSpec' }],
 };
 
+export const RecordedSecretScopeSchema: JsonSchema = {
+  description:
+    "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind'],
+      properties: { kind: { type: 'string', const: 'tenant' } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'orgId'],
+      properties: {
+        kind: { type: 'string', const: 'org' },
+        orgId: { type: 'string', format: 'uuid' },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'projectId'],
+      properties: {
+        kind: { type: 'string', const: 'project' },
+        projectId: { type: 'string', format: 'uuid' },
+      },
+    },
+  ],
+};
+
+/** Where each secret an item names is read (`RecordedSecretScope`), by name; the server's, never a caller's. */
+const SecretScopesProperty: JsonSchema = {
+  type: 'object',
+  additionalProperties: {
+    oneOf: [{ $ref: '#/components/schemas/RecordedSecretScope' }, { type: 'null' }],
+  },
+  description:
+    'Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.',
+};
+
 export const ToolSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -2785,14 +3216,16 @@ export const ToolSchema: JsonSchema = {
       description:
         'Present only on an unregistered version: a retired tool (every version unregistered) as `GET /v1/tools?includeRetired=true` lists it.',
     },
+    secretScopes: SecretScopesProperty,
   },
 };
 
 /** `Tool`'s properties but what the registry sets on a read (a register body never carries it). */
-const { unregisteredAt: _readOnly, ...toolManifestProperties } = ToolSchema.properties as Record<
-  string,
-  JsonSchema
->;
+const {
+  unregisteredAt: _readOnly,
+  secretScopes: _recordedScopes,
+  ...toolManifestProperties
+} = ToolSchema.properties as Record<string, JsonSchema>;
 
 export const RegisterToolBodySchema: JsonSchema = {
   description:
@@ -3125,7 +3558,7 @@ export const ConversationSchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The project the conversation is in: the project of the run that opened it, or `projectId` on open (the tenant's Default project when omitted). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.",
+        "The project the conversation is in: the project of the run that opened it, or `projectId` on open (when omitted, the agent's own project, or the tenant's Default project for an agent filed under none). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.",
     },
     scope: {
       type: 'object',
@@ -3191,7 +3624,7 @@ export const OpenConversationBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`. Omitted: the tenant's Default project, as for a run.",
+        "The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`, that reaches the agent, else `400 reference-out-of-scope`. Omitted: the agent's own project, as for a run (the tenant's Default project for an agent filed under none).",
     },
     scope: {
       type: 'object',
@@ -5795,7 +6228,7 @@ export const MCPEndpointSecretRefSchema: JsonSchema = {
   additionalProperties: false,
   required: ['envName', 'name'],
   description:
-    "The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password or client secret. The endpoint keeps only this reference.",
+    "The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password, client secret or header value. The endpoint keeps only this reference.",
   properties: {
     envName: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,62}$' },
     name: { type: 'string', minLength: 1, maxLength: 256 },
@@ -5860,14 +6293,65 @@ export const MCPOAuth2ClientCredentialsAuthSchema: JsonSchema = {
   },
 };
 
+export const MCPAuthHeaderSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'secretRef'],
+  description: 'One header a `header` auth sends: `<name>: <prefix><secret>`.',
+  properties: {
+    name: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 256,
+      pattern: "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$",
+      description:
+        'An HTTP header name, once per `auth` (case-insensitive). Not one the MCP transport or HTTP sets itself (`Host`, `Content-Type`, `Content-Length`, `Accept`, `Connection`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Last-Event-ID`, `traceparent`, `tracestate`, …): reason `invalid-auth`.',
+    },
+    secretRef: { $ref: '#/components/schemas/MCPEndpointSecretRef' },
+    prefix: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 64,
+      description:
+        'Text sent before the secret, such as `Token ` or `ApiKey `, without control characters. Absent: none. Not a secret: it reads back as registered.',
+    },
+  },
+};
+
+export const MCPHeaderAuthSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['scheme', 'headers'],
+  description:
+    "Headers of the server's own, each with a secret: an API key in `X-Api-Key`, a key and a secret in two headers, or `Authorization` with a prefix other than `Bearer ` (`Token …`). The runtime resolves each `secretRef` when it connects, and refuses to follow a redirect with them, as it does for every `auth`.",
+  properties: {
+    scheme: { const: 'header' },
+    headers: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 4,
+      items: { $ref: '#/components/schemas/MCPAuthHeader' },
+    },
+  },
+};
+
 export const MCPEndpointAuthSchema: JsonSchema = {
   description:
     "How an MCP endpoint signs in when it isn't a plain bearer. Each scheme names its secret by reference; the runtime resolves it, and no value is stored or answered.",
   oneOf: [
     { $ref: '#/components/schemas/MCPBasicAuth' },
     { $ref: '#/components/schemas/MCPOAuth2ClientCredentialsAuth' },
+    { $ref: '#/components/schemas/MCPHeaderAuth' },
   ],
   discriminator: { propertyName: 'scheme' },
+};
+
+/** An HTTP endpoint's `config.headers`: plain headers, never a credential. */
+const MCP_CONFIG_HEADERS: JsonSchema = {
+  type: 'object',
+  additionalProperties: { type: 'string' },
+  description:
+    'Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.',
 };
 
 /**
@@ -5916,10 +6400,7 @@ export const MCPEndpointSchema: JsonSchema = {
               format: 'uri',
               description: 'Optional distinct SSE endpoint if the server splits them.',
             },
-            headers: {
-              type: 'object',
-              additionalProperties: { type: 'string' },
-            },
+            headers: MCP_CONFIG_HEADERS,
           },
         },
         {
@@ -5929,10 +6410,7 @@ export const MCPEndpointSchema: JsonSchema = {
           properties: {
             transport: { const: 'streamable-http' },
             url: { type: 'string', format: 'uri' },
-            headers: {
-              type: 'object',
-              additionalProperties: { type: 'string' },
-            },
+            headers: MCP_CONFIG_HEADERS,
           },
         },
       ],
@@ -5941,7 +6419,7 @@ export const MCPEndpointSchema: JsonSchema = {
     auth: {
       $ref: '#/components/schemas/MCPEndpointAuth',
       description:
-        "How the endpoint signs in when it isn't a plain bearer: `basic` or `oauth2-client-credentials`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with an `Authorization` header in `config.headers` (reason `auth-with-authorization-header`). An older runtime refuses the field as unknown.",
+        "How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`.",
     },
     instructions: {
       type: 'string',
@@ -5957,8 +6435,13 @@ export const MCPEndpointSchema: JsonSchema = {
       description:
         "Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.",
     },
+    secretScopes: SecretScopesProperty,
   },
 };
+
+/** `MCPEndpoint`'s properties but what the server records (a register body never carries it). */
+const { secretScopes: _recorded, ...mcpEndpointBodyProperties } =
+  MCPEndpointSchema.properties as Record<string, JsonSchema>;
 
 export const MCPEndpointCollectionPageSchema: JsonSchema = {
   type: 'object',
@@ -5979,7 +6462,7 @@ export const RegisterMCPEndpointBodySchema: JsonSchema = {
   ...MCPEndpointSchema,
   required: ['endpointId', 'name', 'transport', 'config', 'scopeKind'],
   properties: {
-    ...(MCPEndpointSchema.properties as Record<string, JsonSchema>),
+    ...mcpEndpointBodyProperties,
     scopeKind: { $ref: '#/components/schemas/ScopeKind' },
     scopeId: {
       type: 'string',
@@ -9168,8 +9651,57 @@ export const DeploymentRecordSchema: JsonSchema = {
       format: 'date-time',
       description: 'Server-side ledger timestamp — when the register call succeeded.',
     },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's Default project).",
+    },
+    endpoint: { $ref: '#/components/schemas/DeploymentEndpoint' },
     primitives: { $ref: '#/components/schemas/DeploymentPrimitiveCounts' },
     contents: { $ref: '#/components/schemas/DeploymentContents' },
+  },
+};
+
+/**
+ * A deployment's pack service, as a tenant sees it (never its URL or
+ * token). Present only when the server routes pack calls per deployment.
+ */
+export const DeploymentEndpointSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['status', 'since'],
+  description:
+    "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`). Carries no URL and no token.",
+  properties: {
+    status: { type: 'string', enum: ['pending', 'ready', 'cleared'] },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the status last changed.',
+    },
+    problem: { $ref: '#/components/schemas/DeploymentEndpointProblem' },
+  },
+};
+
+/** Why a `pending` deployment has no pack service yet: a fixed code, never free text. */
+export const DeploymentEndpointProblemSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['code', 'since'],
+  description:
+    'With `pending` only: the last reason the deployment has no pack service yet, gone once the status changes. A fixed code, never free text.',
+  properties: {
+    code: {
+      type: 'string',
+      description:
+        "One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start).",
+    },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When it was recorded.',
+    },
   },
 };
 
@@ -9224,6 +9756,12 @@ export const DeploymentRegistrationBodySchema: JsonSchema = {
       type: 'string',
       format: 'date-time',
       description: 'Issuer-supplied ISO-8601 timestamp — covered by the signature.',
+    },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The project to deploy into, one per client: its agents, flows, tools and guardrails are registered there, and its secret sync writes there. It takes admin on that project (a key limited to another project is refused). Absent: a tenant-wide deploy, into the tenant's Default project. An id that already lives in another project is `409` (`tool-project-mismatch` and the like): each client gets its own pack, whose ids carry its own pack id. Not covered by the signature, which attests the image.",
     },
   },
 };
@@ -9696,8 +10234,40 @@ export const ProjectSchema: JsonSchema = {
     slug: { type: 'string' },
     isDefault: { type: 'boolean' },
     description: { type: 'string' },
+    productionSince: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging.",
+    },
     createdAt: { type: 'string' },
     updatedAt: { type: 'string' },
+  },
+};
+
+export const ProjectProductionBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['production'],
+  properties: {
+    production: {
+      type: 'boolean',
+      description: '`true` puts the project in production; `false` takes it out.',
+    },
+  },
+};
+
+export const ProjectProductionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'productionSince'],
+  properties: {
+    projectId: { type: 'string' },
+    productionSince: {
+      type: ['string', 'null'],
+      format: 'date-time',
+      description: "When the project went into production; `null` while it isn't in production.",
+    },
   },
 };
 
@@ -9974,6 +10544,97 @@ export const TenantSchema: JsonSchema = {
     slug: { type: 'string' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
+    productionAllowed: {
+      type: 'boolean',
+      description:
+        "Whether the tenant may put projects in production. Absent from a runtime that doesn't gate production.",
+    },
+    productionNext: {
+      type: 'string',
+      description:
+        'Where to go to be allowed to put projects in production, for example a billing page. Only while `productionAllowed` is `false`, and only when the runtime names one.',
+    },
+    state: {
+      type: 'string',
+      enum: ['active', 'suspended', 'closing'],
+      description:
+        'On a runtime serving many tenants: `closing` (readable and exportable for its window, nothing changes) or `suspended` (the same, until restored). `closing` wins. Absent: active.',
+    },
+    limits: ref('TenantLimits'),
+  },
+};
+
+export const TenantLimitsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "The tenant's limits that are set. A limit that isn't set is absent, and isn't enforced.",
+  properties: {
+    apiRequestsPerMinute: {
+      type: 'integer',
+      minimum: 1,
+      description: 'API requests a minute. Past it: 429 `rate-limit-exceeded`.',
+    },
+    webhookReceivesPerMinute: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "Webhook deliveries received a minute, across the tenant's triggers. Past it: 429.",
+    },
+    runsAtOnce: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Runs executing at once. Past it, a new run waits as `pending`.',
+    },
+    runsPending: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Runs waiting as `pending`. Past it, a new run is refused with 429.',
+    },
+    toolCallsInFlight: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "Tool calls in flight to the tenant's pack services. Past it, a call waits for a slot.",
+    },
+    approvalsPending: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        'Approvals waiting for a decision. Past it, the step that asks fails, naming the limit.',
+    },
+  },
+};
+
+export const ProductionAllowedBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['allowed'],
+  properties: {
+    allowed: {
+      type: 'boolean',
+      description: '`true` allows the tenant to put projects in production; `false` stops it.',
+    },
+  },
+};
+
+export const TenantProductionAllowedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tenantId', 'productionAllowed'],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    productionAllowed: { type: 'boolean' },
+  },
+};
+
+export const TenantLimitsResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tenantId', 'limits'],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    limits: ref('TenantLimits'),
   },
 };
 
@@ -10281,6 +10942,7 @@ export const SecretResolveOutcomeSchema: JsonSchema = {
     name: { type: 'string' },
     versionId: { type: 'integer', minimum: 1 },
     value: { type: 'string' },
+    scope: { $ref: '#/components/schemas/Scope' },
   },
 };
 
@@ -10708,6 +11370,13 @@ export const ImproveScheduleInputSchema: JsonSchema = {
   },
 };
 
+/** Whether a fire counted toward its trigger's auto-pause (a schedule's or a webhook trigger's). */
+const COUNTS_TOWARD_PAUSE: JsonSchema = {
+  type: 'boolean',
+  description:
+    "Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for a refusal for a limit, such as the tenant's runs pending (`detail` starts `rate-limited:`): the limit passes, and the trigger isn't at fault. Absent from a runtime that doesn't say: `refused` and `failed` fires counted, and the others didn't.",
+};
+
 export const ScheduleFireSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -10736,7 +11405,7 @@ export const ScheduleFireSchema: JsonSchema = {
         'failed',
       ],
       description:
-        "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`: what an improve schedule waits for wasn't there (its threshold, or its monthly cap), as `detail` says. None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do.",
+        "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`: what an improve schedule waits for wasn't there (its threshold, or its monthly cap), as `detail` says. None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
     passId: {
@@ -10745,6 +11414,7 @@ export const ScheduleFireSchema: JsonSchema = {
       description: 'The improvement pass it started (an improve schedule).',
     },
     detail: { type: 'string', description: 'Why it was refused, skipped or failed.' },
+    countsTowardPause: COUNTS_TOWARD_PAUSE,
     missedCount: {
       type: 'integer',
       minimum: 1,
@@ -11056,7 +11726,17 @@ export const WebhookTriggerRecordSchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        'The signing secret, by name (written with `POST /v1/secrets`). Read in the env the deployment serves.',
+        'The signing secret, by name (written with `POST /v1/secrets`, or made by `generateSecret`). Read in the env the deployment serves, at `hmacSecretScope`.',
+    },
+    hmacSecretScope: {
+      oneOf: [{ $ref: '#/components/schemas/RecordedSecretScope' }, { type: 'null' }],
+      description:
+        'Where the signing secret is read, recorded when the trigger was registered (or its secret named again). `null`: none usable, so no delivery verifies until an admin names it again. Absent on triggers registered before it was recorded: read at the tenant, as before.',
+    },
+    signingSecret: {
+      type: 'string',
+      description:
+        "Only in the answer to a register with `generateSecret`: the new signing secret, shown this once, to paste into the sender. It's stored as `hmacSecretName` in the trigger's own scope; no later read shows it.",
     },
     signature: { $ref: '#/components/schemas/WebhookSignature' },
     deliveryIdHeader: {
@@ -11120,8 +11800,9 @@ export const WebhookFireSchema: JsonSchema = {
     detail: {
       type: 'string',
       description:
-        "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, or the owner's lost access.",
+        "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access.",
     },
+    countsTowardPause: COUNTS_TOWARD_PAUSE,
     duplicates: {
       type: 'integer',
       minimum: 1,
@@ -11215,7 +11896,12 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        "The signing secret, by name: written first with `POST /v1/secrets`. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing).",
+        "The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing).",
+    },
+    generateSecret: {
+      type: 'boolean',
+      description:
+        "Make a new signing secret, store it as `hmacSecretName` in the trigger's own project (in the env the deployment serves), and return it once as `signingSecret`. Needs only `write` on the project. A name the project already has is refused (`secret-write-conflict`, 409), never overwritten. Letters and digits, or `whsec_…` for `standard-webhooks`.",
     },
     ...WebhookDeliveryProperties,
     label: { type: 'string' },
@@ -11760,6 +12446,26 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RunProgressEvent', RunProgressEventSchema],
   ['MintTokenBody', MintTokenBodySchema],
   ['MintTokenResult', MintTokenResultSchema],
+  ['SystemKey', SystemKeySchema],
+  ['MintSystemKeyBody', MintSystemKeyBodySchema],
+  ['MintSystemKeyResult', MintSystemKeyResultSchema],
+  ['SystemKeyList', SystemKeyListSchema],
+  ['RevokeSystemKeyResult', RevokeSystemKeyResultSchema],
+  ['SystemDeploymentEntry', SystemDeploymentEntrySchema],
+  ['SystemDeploymentPage', SystemDeploymentPageSchema],
+  ['SetPackEndpointBody', SetPackEndpointBodySchema],
+  ['RecordDeploymentProblemBody', RecordDeploymentProblemBodySchema],
+  ['SetPackSuspendedBody', SetPackSuspendedBodySchema],
+  ['PackSuspension', PackSuspensionSchema],
+  ['SystemTenant', SystemTenantSchema],
+  ['CreateSystemTenantBody', CreateSystemTenantBodySchema],
+  ['CreateSystemTenantResult', CreateSystemTenantResultSchema],
+  ['SystemTenantList', SystemTenantListSchema],
+  ['SetTenantSuspendedBody', SetTenantSuspendedBodySchema],
+  ['SetTenantImagePrefixBody', SetTenantImagePrefixBodySchema],
+  ['ProjectSuspension', ProjectSuspensionSchema],
+  ['TenantAdminContacts', TenantAdminContactsSchema],
+  ['SystemWhoami', SystemWhoamiSchema],
   ['ApiToken', ApiTokenSchema],
   ['ApiTokenPage', ApiTokenPageSchema],
   ['ApiKeyPrincipal', ApiKeyPrincipalSchema],
@@ -11977,10 +12683,13 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ProviderCheckResult', ProviderCheckResultSchema],
   ['MCPTransport', MCPTransportSchema],
   ['MCPEndpoint', MCPEndpointSchema],
+  ['RecordedSecretScope', RecordedSecretScopeSchema],
   ['MCPEndpointSecretRef', MCPEndpointSecretRefSchema],
   ['MCPEndpointAuth', MCPEndpointAuthSchema],
   ['MCPBasicAuth', MCPBasicAuthSchema],
   ['MCPOAuth2ClientCredentialsAuth', MCPOAuth2ClientCredentialsAuthSchema],
+  ['MCPHeaderAuth', MCPHeaderAuthSchema],
+  ['MCPAuthHeader', MCPAuthHeaderSchema],
   ['MCPEndpointCollectionPage', MCPEndpointCollectionPageSchema],
   ['RegisterMCPEndpointBody', RegisterMCPEndpointBodySchema],
   ['RegisterMCPEndpointResult', RegisterMCPEndpointResultSchema],
@@ -12127,6 +12836,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RevokeSessionsResult', RevokeSessionsResultSchema],
   ['DeploymentPrimitiveCounts', DeploymentPrimitiveCountsSchema],
   ['DeploymentContents', DeploymentContentsSchema],
+  ['DeploymentEndpointProblem', DeploymentEndpointProblemSchema],
+  ['DeploymentEndpoint', DeploymentEndpointSchema],
   ['DeploymentRecord', DeploymentRecordSchema],
   ['DeploymentRegistrationBody', DeploymentRegistrationBodySchema],
   ['DeploymentCollectionPage', DeploymentCollectionPageSchema],
@@ -12176,6 +12887,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ProjectAccess', ProjectAccessSchema],
   ['ProjectAccessPage', ProjectAccessPageSchema],
   ['Project', ProjectSchema],
+  ['ProjectProductionBody', ProjectProductionBodySchema],
+  ['ProjectProduction', ProjectProductionSchema],
   ['ProjectSpec', ProjectSpecSchema],
   ['ProjectPatch', ProjectPatchSchema],
   ['ProjectCollectionPage', ProjectCollectionPageSchema],
@@ -12185,6 +12898,10 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateProjectMembershipBody', UpdateProjectMembershipBodySchema],
   ['AddProjectMembershipResult', AddProjectMembershipResultSchema],
   ['Tenant', TenantSchema],
+  ['TenantLimits', TenantLimitsSchema],
+  ['ProductionAllowedBody', ProductionAllowedBodySchema],
+  ['TenantProductionAllowed', TenantProductionAllowedSchema],
+  ['TenantLimitsResult', TenantLimitsResultSchema],
   ['TenantConfigKind', TenantConfigKindSchema],
   ['TenantConfigEntry', TenantConfigEntrySchema],
   ['TenantConfigCollectionPage', TenantConfigCollectionPageSchema],

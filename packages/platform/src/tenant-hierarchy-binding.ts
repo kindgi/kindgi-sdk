@@ -182,6 +182,40 @@ export interface TenantSummary {
   readonly slug: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /**
+   * Whether the tenant may put projects in production. Absent means
+   * allowed: a runtime that doesn't gate production leaves it out. The
+   * production route checks it only when its gate is on.
+   */
+  readonly productionAllowed?: boolean;
+  /** The tenant's limits that are set. Absent when none is. */
+  readonly limits?: TenantLimits;
+  /**
+   * Where the tenant stands, on a runtime serving many tenants: `closing`
+   * (readable and exportable for its window, nothing runs) or `suspended`
+   * (the same, reversibly). `closing` wins. Absent: active.
+   */
+  readonly state?: 'active' | 'suspended' | 'closing';
+}
+
+/**
+ * A tenant's limits, each absent while it isn't set (and then not
+ * enforced). Set per tenant by the system API; a self-hosted runtime
+ * sets none unless its operator does.
+ */
+export interface TenantLimits {
+  /** API requests a minute, as a token bucket. Past it: 429 `rate-limit-exceeded`. */
+  readonly apiRequestsPerMinute?: number;
+  /** Webhook deliveries received a minute, across the tenant's triggers. Past it: 429. */
+  readonly webhookReceivesPerMinute?: number;
+  /** Runs executing at once. Past it, a new run waits as `pending`. */
+  readonly runsAtOnce?: number;
+  /** Runs waiting as `pending`. Past it, a new run is refused with 429. */
+  readonly runsPending?: number;
+  /** Tool calls in flight to the tenant's pack services. Past it, a call waits for a slot. */
+  readonly toolCallsInFlight?: number;
+  /** Approvals waiting for a decision. Past it, the step that asks fails, naming the limit. */
+  readonly approvalsPending?: number;
 }
 
 /**

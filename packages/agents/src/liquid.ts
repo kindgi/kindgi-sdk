@@ -231,7 +231,7 @@ export function liquidProblem(cause: unknown): string | undefined {
   const { parseLimit, renderLimitMs, memoryLimit } = tenantInputBounds().liquid;
   for (let error = cause; error instanceof Error; error = originalOf(error)) {
     if (error instanceof NoPartialsError) return NO_PARTIALS;
-    // A string past the longest V8 makes, on a server with no memory limit.
+    // A string past the longest V8 makes, under bounds with no memory limit.
     if (error instanceof RangeError && error.message === 'Invalid string length') {
       return Number.isFinite(memoryLimit)
         ? `the render went over its memory limit of ${memoryLimit}`

@@ -6,6 +6,7 @@ import type { MiddlewareHandler } from 'hono';
 import { runAsTenant } from '@kindgi/bounds';
 
 import type { AppEnv } from '../types.js';
+import { budgetTenantOf } from './tenant-scope.js';
 
 /**
  * Runs the rest of a request that publishes definitions as its tenant's
@@ -13,9 +14,13 @@ import type { AppEnv } from '../types.js';
  * budget, first compiles included (`runAsTenant`, `compiles: 'all'`).
  * A publish route compiles each schema before its first write, so a
  * compile the budget refuses (`SchemaCompileBudgetError`, which the
- * app's error handler answers) leaves nothing stored.
+ * app's error handler answers) leaves nothing stored. A request with no
+ * tenant (`budgetTenantOf`) runs outside any scope.
  */
 export function publishCompilesMiddleware(): MiddlewareHandler<AppEnv> {
-  return (c, next) =>
-    runAsTenant(c.get('tenantId') as unknown as string, () => next(), { compiles: 'all' });
+  return (c, next) => {
+    const tenantId = budgetTenantOf(c);
+    if (tenantId === undefined) return next();
+    return runAsTenant(tenantId, () => next(), { compiles: 'all' });
+  };
 }

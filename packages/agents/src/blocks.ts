@@ -3,7 +3,7 @@
 
 import { runOutsideTenant } from '@kindgi/bounds';
 import { type CompiledInlineSchema, compileInlineSchema, compileJsonSchema } from '@kindgi/schema';
-import type { Result, TenantId } from '@kindgi/types';
+import type { ProjectId, Result, TenantId } from '@kindgi/types';
 
 import { validatePromptParameters } from './define.js';
 import { templateProblem } from './liquid.js';
@@ -241,16 +241,23 @@ export interface ModelSettings {
  * one included, for the agent versions that pin it), and a block's
  * active versions (to resolve a range for an agent version with no
  * pins). The runtime supplies it over its block registry.
+ *
+ * `projectId` is the turn's project: a reader that knows projects answers
+ * only for blocks a run there may reach (`null`, no versions, otherwise),
+ * so a turn never reads another project's prompts or settings. Absent:
+ * every block of the tenant.
  */
 export interface BlockReader {
   getVersion(input: {
     readonly tenantId: TenantId;
     readonly blockId: string;
     readonly version: string;
+    readonly projectId?: ProjectId;
   }): Promise<BlockDefinition | null>;
   activeVersions(input: {
     readonly tenantId: TenantId;
     readonly blockId: string;
+    readonly projectId?: ProjectId;
   }): Promise<readonly string[]>;
 }
 

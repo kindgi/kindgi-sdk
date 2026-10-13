@@ -14,6 +14,7 @@ import { TenantBudgetError } from '@kindgi/bounds';
 import { route } from '@kindgi/capabilities';
 import type { TenantPolicy } from '@kindgi/capabilities';
 import type { HitlSpec, ToolErrorsSpec } from '@kindgi/policy-contract';
+import type { ToolRegistry } from '@kindgi/tools';
 
 import type { ConversationClosedError } from '../errors.js';
 import { resolveGuardrails } from '../guardrails-gate.js';
@@ -101,10 +102,8 @@ export async function resolveTurnEnvironment(
   }
   ctx.guardrails = invResolution.resolved;
 
-  // This turn's tools come from the tenant's own registry — never a
-  // registry shared across concurrent turns of other tenants.
-  const tenantTools = await ctx.bindings.toolRegistry.forTenant(ctx.input.tenantId);
-  ctx.tools = withRememberTool(ctx, resolveTurnTools(tenantTools, ctx.input.agent, pinnedTools));
+  const turnTools = await turnToolRegistry(ctx);
+  ctx.tools = withRememberTool(ctx, resolveTurnTools(turnTools, ctx.input.agent, pinnedTools));
   // The data blocks, at the versions pinned (the turn's own on resume).
   const blocks = await resolveTurnBlocks(ctx, pinnedBlocks);
   if (blocks !== undefined) ctx.blocks = blocks;
@@ -179,6 +178,22 @@ export async function resolveTurnEnvironment(
     ),
     ...(blocks !== undefined && { blockVersions: blocks.versions }),
   };
+}
+
+/**
+ * The registry a turn resolves its tools on: its project's reach when the
+ * registry knows projects (`forProject`), else the tenant's own registry;
+ * never one shared across concurrent turns of other tenants.
+ */
+export async function turnToolRegistry(ctx: TurnContext): Promise<ToolRegistry> {
+  const registry = ctx.bindings.toolRegistry;
+  return registry.forProject !== undefined
+    ? registry.forProject({
+        tenantId: ctx.input.tenantId,
+        projectId: ctx.input.projectId,
+        ...(ctx.input.orgId !== undefined && { orgId: ctx.input.orgId }),
+      })
+    : registry.forTenant(ctx.input.tenantId);
 }
 
 /**

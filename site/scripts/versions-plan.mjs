@@ -97,17 +97,31 @@ export function redirects({ lines }) {
  * under every version) is served with `X-Robots-Tag: noindex`, so search
  * engines list the pages, not their Markdown.
  *
+ * The Markdown and the `llms*.txt` files say they're UTF-8, whichever
+ * Wrangler uploads them: a deploy has served `llms.txt` as `text/plain` with
+ * no charset, and a browser or HTTP client that assumes another encoding
+ * shows `…` as `â€¦`. A `Content-Type` here replaces the one the file's
+ * extension gives it, not adds to it (checked under `wrangler dev` 4.149).
+ *
  * The rules, as Cloudflare documents them for Workers static assets
  * (https://developers.cloudflare.com/workers/static-assets/headers/, the
  * same as Pages' `_headers`): a URL pattern on one line, its `Name: value`
  * headers indented below it. "A splat pattern — signified by an asterisk
  * (`*`) — will greedily match all characters. You may only include a single
- * splat in the URL", and the page's own example matches `/*.jpg`. So the one
- * rule `/*.md` matches `/index.md` and `/v0.1.7/start/install.md` alike,
- * well within the file's limit of 100 rules.
+ * splat in the URL", and the page's own example matches `/*.jpg`. So
+ * `/*.md` matches `/index.md` and `/v0.1.7/start/install.md` alike, and
+ * `/*.txt` every `llms*.txt` file and `_llms-txt/`'s, at the root and under
+ * every version: two rules, well within the file's limit of 100.
  */
 export function headers() {
-  return '/*.md\n  X-Robots-Tag: noindex\n';
+  return [
+    '/*.md',
+    '  Content-Type: text/markdown; charset=utf-8',
+    '  X-Robots-Tag: noindex',
+    '/*.txt',
+    '  Content-Type: text/plain; charset=utf-8',
+    '',
+  ].join('\n');
 }
 
 /** The workspace's lockfile: a release's docs branch may change what only the site installs. */

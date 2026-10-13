@@ -15,6 +15,12 @@ import { resolveFlowPins } from '../flow-pins.js';
 import type { LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
+import {
+  type ReferenceScopeBinding,
+  flowReferences,
+  outOfScopeResponse,
+  referencesOutOfScope,
+} from '../reference-scope.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
@@ -53,6 +59,7 @@ export function flowsRouter(
   binding: FlowRegistryBinding,
   authorizer?: Authorizer,
   pinning?: FlowPinning,
+  referenceScope?: ReferenceScopeBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -325,6 +332,17 @@ export function flowsRouter(
       );
     }
 
+    // Every tool, agent and subflow it names must be one its project
+    // reaches (`reference-scope.ts`): asked before pinning, so an item that
+    // doesn't exist and one out of reach get the same answer.
+    const outOfScope = await referencesOutOfScope(
+      referenceScope,
+      tenantId,
+      projectId,
+      flowReferences(loaded.value),
+    );
+    if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+
     // Pin the version: every tool and unversioned agent resolves now,
     // once, to the version its runs use. One with no published version
     // refuses the publish rather than store a partly pinned version.
@@ -421,6 +439,21 @@ export function flowsRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const flowId = c.req.param('flowId') as FlowId;
     const version = c.req.param('version');
+
+    // Reinstating makes a version's references live again, so they're
+    // asked as at publish (`reference-scope.ts`): a version from before
+    // the check, naming what its project doesn't reach, stays retired.
+    const retired = await binding.getVersion({ tenantId, flowId, version });
+    if (retired?.unregisteredAt !== undefined && retired.projectId !== undefined) {
+      const outOfScope = await referencesOutOfScope(
+        referenceScope,
+        tenantId,
+        retired.projectId,
+        flowReferences(retired),
+      );
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    }
+
     const outcome = await binding.reinstateVersion({ tenantId, flowId, version });
     if (outcome.kind === 'not-found') {
       c.status(statusFor('flow-not-found') as never);
