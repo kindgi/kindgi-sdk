@@ -6,11 +6,14 @@ sidebar:
   label: Overview
 ---
 
-A guardrail is a rule an agent's turn must satisfy. It's a **check**, a
-function you write over the turn (its answer, its tool calls and their
-results), and an **action**: what happens when the check fails. Kindgi runs
-an agent's guardrails once per turn, on its final answer, before the answer
-is stored.
+These guides check what an agent's turn did before its answer is kept, and
+choose what happens when a check fails.
+
+A guardrail is a rule an agent's turn must satisfy. It's a **check** and an
+**action**. The check is a function over the turn: its answer, its tool calls
+and their results. The action is what happens when the check fails. Kindgi
+runs an agent's guardrails once per turn, on its final answer, before the
+answer is stored.
 
 - [Write a guardrail](write-a-guardrail/): the check, the declaration, and
   wiring it onto an agent.
