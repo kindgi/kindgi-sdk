@@ -134,8 +134,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // in front of the routes can.
   'rate-limit-exceeded': 429,
   // An agent turn's memory, charged by size, is past the tenant's share or
-  // the runtime's whole (a hosted runtime's limit). No `Retry-After`: there's
-  // no honest time to give.
+  // the runtime's whole (a runtime's limit, as Kindgi Cloud sets). No
+  // `Retry-After`: there's no honest time to give.
   'turn-memory-limit-reached': 429,
   // 500 — server
   'internal-server-error': 500,

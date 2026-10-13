@@ -32,10 +32,11 @@ export type InvokeAgentError =
   | TurnMemoryLimitReachedError;
 
 /**
- * The turn holds more memory than the runtime's limit leaves it (a hosted
- * runtime's turn memory, charged by size before each model call). `limit`
- * names which: the tenant's share, or the runtime's whole. Retried later,
- * or with a smaller conversation, it can go through.
+ * The turn holds more memory than the runtime's limit leaves it (a
+ * runtime's limit on turn memory, charged by size before each model call;
+ * Kindgi Cloud sets one). `limit` names which: the tenant's share, or the
+ * runtime's whole. Retried later, or with a smaller conversation, it can go
+ * through.
  */
 export interface TurnMemoryLimitReachedError {
   readonly code: 'turn-memory-limit-reached';
