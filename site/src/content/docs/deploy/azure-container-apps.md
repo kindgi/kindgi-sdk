@@ -180,7 +180,7 @@ image there by digest, with every platform it was built for:
 ACR=$(terraform output -raw image_registry)
 az acr login -n "${ACR%%.*}"
 docker buildx imagetools create --tag "$ACR/runtime:0.1.7" \
-  quay.io/kindgi/runtime:0.1.7@sha256:<the release's digest>
+  quay.io/kindgi/runtime:0.1.7@sha256:442e3232adf13830868b309390a2cbf74cb1f3538e7efbe3166fad925a10984c
 ```
 
 - `ACR` is the registry's address, from the foundation's output, and
