@@ -556,7 +556,6 @@ export const CLI_DEFAULTS = {
   'webhooks register': {
     'body-limit': '`262144` bytes (256 KiB)',
     'delivery-id-header': 'none, or the header the preset sets',
-    env: 'required with `--generate-secret`',
     flow: 'required',
     'flow-version': 'required',
     'generate-secret': 'none',
