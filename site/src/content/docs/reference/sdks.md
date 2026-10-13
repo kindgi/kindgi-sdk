@@ -5,6 +5,9 @@ sidebar:
   label: Features by SDK
 ---
 
+This page shows which features each SDK has, and what to do where your
+language's SDK lacks one.
+
 Kindgi has an SDK for TypeScript, Python, Java and Scala. Each one does two
 jobs:
 
@@ -76,8 +79,11 @@ in as data, as the API names them: `set("budget", …)`, `node(Map.of(…))`,
   Webhooks library verifies them with the same secret.
   `client.webhookEndpoints().generateSecret()` gives a new secret.
 - **Signed exports:** check one with the CLI, `./kindgiw exports verify <file>
-  --from-runtime`.
+  --from-runtime`. `<file>` is the export's path. `--from-runtime` trusts the
+  keys your runtime signs exports with.
 
 The guides show each language in its own tab. Where a guide has no tab for
-your language, the tables above say whether its SDK has the feature, and the
-list above says what to do instead.
+your language, the [In a pack](#in-a-pack) and [In your app](#in-your-app)
+tables say whether its SDK has the feature.
+[Where an SDK lacks a feature](#where-an-sdk-lacks-a-feature) says what to do
+instead.
