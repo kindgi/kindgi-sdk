@@ -97,9 +97,11 @@ flags go with it:
 - **`--deployments=<model=deployment,…>`**, for `azure-openai`, is the
   deployment that serves each model, such as `gpt-6.1-sol=gpt-6-1-sol`. To
   sign in as the runtime's Entra identity instead of with a key, register
-  with a spec.
+  with a spec. A runtime with `KINDGI_TENANT_HOST_ACCESS=isolated` refuses
+  that ([What a tenant can't make the server do](../../concepts/security/#what-a-tenant-cant-make-the-server-do)).
 - **`--region=<region>`**, for `bedrock`, is the US AWS Region Bedrock runs
-  in, such as `us-east-2`. The runtime needs `KINDGI_AWS_IDENTITY`.
+  in, such as `us-east-2`. The runtime needs `KINDGI_AWS_IDENTITY`, and a
+  runtime with `KINDGI_TENANT_HOST_ACCESS=isolated` refuses the preset.
 
 A preset carries its models' features, context windows, default output caps
 and prices. `pricesCheckedAt` is the date the prices were last compared with
