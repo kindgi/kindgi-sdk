@@ -947,6 +947,29 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'turn-memory-limit-reached': {
+    description:
+      "The runtime's agent turns hold more memory than its limit leaves this turn: the tenant's share (`KINDGI_TURN_MEMORY_PER_TENANT_MIB`) or the runtime's whole (`KINDGI_TURN_MEMORY_MIB`). The turn's run fails, and every tool call it finished is in the conversation, so a new turn there doesn't call it again. Retry later, or use a smaller conversation.",
+    details: [
+      {
+        key: 'limit',
+        meaning: '`tenant` or `server`: which limit refused the turn',
+      },
+      {
+        key: 'heldBytes',
+        meaning: "what that limit's turns held, in bytes",
+      },
+      {
+        key: 'limitBytes',
+        meaning: 'the limit, in bytes',
+      },
+      {
+        key: 'runId',
+        meaning: 'the run that failed',
+      },
+    ],
+    seeAlso: ['GET /v1/runs/{runId}', 'reference/env-vars'],
+  },
   'internal-server-error': {
     description:
       'The server hit an unexpected error while handling the request. Retry; if it persists, contact support with the `requestId`.',

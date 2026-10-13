@@ -110,6 +110,8 @@ export const ENV_DEFAULTS = {
   KINDGI_PAGINATION_PREVIOUS_KEY: 'none: no previous key',
   KINDGI_COMPLIANCE_CLASSIFIER: 'none: no compliance routes, and no audit event is purged',
   KINDGI_ARTIFACTS: 'none: artifacts are off (no `/v1/artifacts`)',
+  KINDGI_TURN_MEMORY_MIB: "none: no limit on every tenant's turns together",
+  KINDGI_TURN_MEMORY_PER_TENANT_MIB: 'none: no limit per tenant',
   KINDGI_ARTIFACT_MAX_BYTES: '`104857600` (100 MiB)',
   KINDGI_LOG_LEVEL: '`info`',
   KINDGI_LOG_LEVELS: 'none: no per-subsystem levels; `KINDGI_LOG_LEVEL` applies everywhere',
