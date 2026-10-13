@@ -60,7 +60,7 @@ const resolveToken: TokenResolver = async (token) =>
         ? { tenantId: TENANT, capabilities: ['secrets:write'] }
         : null;
 
-function setup(options: { publicUrl?: string } = {}) {
+function setup(options: { publicUrl?: string; webhookReceivesPerMinute?: number } = {}) {
   const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT as never });
   const stored = new Map<string, string>([
     [WOO_SECRET, WOO_SECRET],
@@ -123,8 +123,24 @@ function setup(options: { publicUrl?: string } = {}) {
       { metadata: { id: 'acme-llm' }, secretRef: { name: PROVIDER_KEY } },
     ],
   } as unknown as ProviderRegistryBinding;
+  const stubs = createStubAppBindings();
   const app = createApp({
-    ...createStubAppBindings(),
+    ...stubs,
+    // The tenant's own limit on deliveries, when the test sets one.
+    ...(options.webhookReceivesPerMinute !== undefined && {
+      tenantHierarchyBinding: {
+        ...stubs.tenantHierarchyBinding,
+        getTenant: async (tenantId: TenantId) => ({
+          id: tenantId,
+          name: 'Acme',
+          slug: 'acme',
+          createdAt: '2026-10-01T00:00:00.000Z',
+          updatedAt: '2026-10-01T00:00:00.000Z',
+          limits: { webhookReceivesPerMinute: options.webhookReceivesPerMinute as number },
+        }),
+      },
+      tenantLimits: {},
+    }),
     logger: createLogger({ level: 'debug', write: (line) => logLines.push(line) }),
     triggerRegistry: registry,
     secretsBinding: secrets,
@@ -616,6 +632,23 @@ describe('the trigger’s state and limits', () => {
     }
     expect(statuses).toEqual([202, 202, 429]);
     expect((await fires(t.triggerId))[0]?.detail).toBe('rate-limited');
+  });
+
+  test("past the tenant's own limit, across its triggers: 429 naming it, recorded", async () => {
+    const { register, deliver, fires } = setup({ webhookReceivesPerMinute: 2 });
+    const a = await register(WOO);
+    const b = await register(WOO);
+    const answers: Awaited<ReturnType<typeof deliver>>[] = [];
+    for (const [i, t] of [a, b, a].entries()) {
+      const body = JSON.stringify({ id: i });
+      answers.push(await deliver(t.webhookId, body, wooHeaders(body, `t${i}`)));
+    }
+    expect(answers.map((r) => r.status)).toEqual([202, 202, 429]);
+    expect(answers[2]?.body?.error).toMatchObject({
+      code: 'rate-limit-exceeded',
+      details: { limit: 'webhook-receives' },
+    });
+    expect((await fires(a.triggerId))[0]?.detail).toBe('rate-limited');
   });
 });
 

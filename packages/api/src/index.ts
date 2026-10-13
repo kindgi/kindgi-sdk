@@ -86,6 +86,11 @@ export type {
   SystemTenantsBinding,
 } from './routes/system-tenants.js';
 export { createInMemoryRateLimitStore } from './rate-limit-store.js';
+export type {
+  TenantLimiter,
+  TenantLimitsOptions,
+  TenantRateLimitName,
+} from './middleware/tenant-limits.js';
 export type { RateLimitStore, RateLimitTake, RateLimitTakeInput } from './rate-limit-store.js';
 export {
   imagePrefixesOverlap,

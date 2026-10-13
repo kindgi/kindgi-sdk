@@ -118,6 +118,15 @@ export interface SystemTenantsClient {
     options?: { readonly idempotencyKey?: string },
   ): Promise<TenantProductionAllowed>;
   /**
+   * The tenant's limits as stored, in the shape `setLimits` takes: to
+   * change one, read them, change it and set them all. A limit that isn't
+   * set is absent. Takes `system:tenants:limits`; a closing tenant's can
+   * be read.
+   *
+   * @wire `GET /v1/system/tenants/{tenantId}/limits`
+   */
+  limits(tenantId: string): Promise<TenantLimitsResult>;
+  /**
    * Replace the tenant's limits with exactly these: a limit left out isn't
    * set, and isn't enforced. Takes `system:tenants:limits`.
    *
@@ -203,6 +212,12 @@ export function makeSystemTenantsClient(transport: Transport): SystemTenantsClie
         path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/production-allowed`,
         body: { allowed },
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+    async limits(tenantId) {
+      return transport.request<TenantLimitsResult>({
+        method: 'GET',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/limits`,
       });
     },
     async setLimits(tenantId, limits, options) {

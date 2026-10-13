@@ -2267,6 +2267,34 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/system/tenants/:tenantId/limits',
+    openapiPath: '/v1/system/tenants/{tenantId}/limits',
+    operationId: 'systemTenants.limits',
+    summary: "Read a tenant's limits",
+    description:
+      "The tenant's limits as stored, in the shape `PUT` takes: to change one, read them, change it and put them all back. A limit that isn't set is absent, and isn't enforced. Takes `system:tenants:limits`. A closing tenant's limits can be read.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    responses: {
+      '200': { description: "The tenant's limits.", schema: ref('TenantLimitsResult') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:limits` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+    },
+  },
+  {
     method: 'put',
     honoPath: '/v1/system/tenants/:tenantId/limits',
     openapiPath: '/v1/system/tenants/{tenantId}/limits',

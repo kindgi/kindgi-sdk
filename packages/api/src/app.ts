@@ -85,6 +85,12 @@ import {
   type SystemTenantDirectory,
   systemPrincipalFence,
 } from './middleware/system.js';
+import {
+  type TenantLimitsOptions,
+  createTenantLimiter,
+  tenantApiRequestLimit,
+  tenantS3RequestLimit,
+} from './middleware/tenant-limits.js';
 import { type TenantStateBinding, tenantStateGate } from './middleware/tenant-state.js';
 import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
@@ -615,6 +621,15 @@ export interface CreateAppInput {
   readonly imagePrefixes?: {
     of(tenantId: import('@kindgi/types').TenantId): Promise<string | undefined>;
   };
+   * Optional. Enforce each tenant's own limits (`TenantSummary.limits`,
+   * set through `PUT /v1/system/tenants/:tenantId/limits`): API requests a
+   * minute on every authenticated request a tenant makes, `/v1` and `/s3`
+   * counted together, and webhook deliveries a minute across its triggers.
+   * Past either, `429 rate-limit-exceeded` with `Retry-After`; on `/s3`,
+   * S3's own `503 SlowDown` with `Retry-After`, which S3 clients retry. A
+   * tenant without a limit isn't limited. Without this option, nothing is.
+   */
+  readonly tenantLimits?: TenantLimitsOptions;
   /**
    * Optional. Issue and accept public run tokens (`kgi_pt_…`):
    * short-lived, read-only tokens a browser uses to follow specific runs
@@ -1341,6 +1356,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.cursorSealer !== undefined) v1.use('*', sealedCursors(input.cursorSealer));
 
   const tenantHierarchyBinding: TenantHierarchyBinding = input.tenantHierarchyBinding;
+  // Each tenant's own limits, when the runtime sets them.
+  const tenantLimiter =
+    input.tenantLimits !== undefined
+      ? createTenantLimiter(tenantHierarchyBinding, input.tenantLimits)
+      : undefined;
+  if (tenantLimiter !== undefined) v1.use('*', tenantApiRequestLimit(tenantLimiter));
   v1.use('*', idempotencyMiddleware(input.idempotencyStore ?? createInMemoryIdempotencyStore()));
   // A `projectId` in a write's body that the route can't use is refused
   // before any binding sees it: a 400 if it isn't a UUID, a 404 if it
@@ -2035,6 +2056,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     app.route(
       '/v1/hooks',
       hooksRouter({
+        ...(tenantLimiter !== undefined && { tenantLimiter }),
         triggers: input.triggerRegistry,
         secrets: secretsBinding,
         secretWrites: observedSecrets.writes,
@@ -2088,6 +2110,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     s3.use('*', sigv4Middleware(input.s3Credentials));
     // A frozen tenant's artifacts are read, not written, here too.
     s3.use('*', tenantStateGate(input.tenantStates, { surface: 's3' }));
+    // The tenant's API requests a minute count here too, once SigV4 names it.
+    if (tenantLimiter !== undefined) s3.use('*', tenantS3RequestLimit(tenantLimiter));
     s3.route('/', s3Router(input.blobStorage));
     app.route('/s3', s3);
   }

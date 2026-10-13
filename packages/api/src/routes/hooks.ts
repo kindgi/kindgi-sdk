@@ -16,6 +16,7 @@ import type { EnvName, TenantId, TriggerId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import { deepJsonRefusal, nestsDeeperThan } from '../middleware/request-body.js';
+import { type TenantLimiter, tenantLimitReached } from '../middleware/tenant-limits.js';
 import { type ProviderKeys, guardProviderKeys } from '../provider-keys.js';
 import {
   type RateLimitStore,
@@ -35,6 +36,11 @@ import { UUID_RE } from './uuid-param.js';
 export interface HooksRouterOptions {
   /** Needs `findWebhook`, `fireWebhook` and `recordWebhookRefusal`. */
   readonly triggers: TriggerRegistryBinding;
+  /**
+   * The tenant's own limit on deliveries a minute, across its triggers
+   * (`limits.webhookReceivesPerMinute`), after each trigger's. Absent: none.
+   */
+  readonly tenantLimiter?: TenantLimiter;
   /** Where a trigger's signing secret is read (at the tenant, as tools' secrets are). */
   readonly secrets: SecretBinding;
   /** The env this deployment serves: where the signing secret is read. */
@@ -361,6 +367,20 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
         'rate-limit-exceeded',
         'Too many deliveries to this trigger: try again shortly',
       );
+    }
+    // The tenant's limit across its triggers, once the trigger's own let it through.
+    if (options.tenantLimiter !== undefined) {
+      const limits = await options.tenantLimiter.limitsOf(c, found.tenantId);
+      const tenantTaken = await options.tenantLimiter.take(
+        c,
+        found.tenantId,
+        'webhook-receives',
+        limits?.webhookReceivesPerMinute,
+      );
+      if (!tenantTaken.allowed) {
+        await record(found, 'refused', 'rate-limited', client);
+        return tenantLimitReached(c, 'webhook-receives', tenantTaken.retryAfterMs);
+      }
     }
 
     // 7. The event: JSON for a JSON content type, else the text.

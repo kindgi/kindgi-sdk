@@ -15,8 +15,9 @@ import type { RunHandlerBinding, SystemAccessRecord, SystemTenantState } from '.
 
 /**
  * The control plane's system routes on a tenant:
- * `PUT /v1/system/tenants/:tenantId/production-allowed` and `…/limits`.
- * Each takes its own system scope; a tenant's key never reaches them.
+ * `PUT /v1/system/tenants/:tenantId/production-allowed`, and `GET` and
+ * `PUT …/limits`. Each takes its own system scope; a tenant's key never
+ * reaches them.
  */
 
 const active = randomUUID() as TenantId;
@@ -88,6 +89,9 @@ function makeApp() {
       async setProductionAllowed(tenantId, allowed) {
         productionAllowed.set(tenantId, allowed);
         return { productionAllowed: allowed };
+      },
+      async limits(tenantId) {
+        return limits.get(tenantId) ?? {};
       },
       async setLimits(tenantId, next) {
         limits.set(tenantId, next);
@@ -217,5 +221,63 @@ describe('PUT /v1/system/tenants/:tenantId/limits', () => {
     const r = await t.call('kgi_sy_limits', 'PUT', path(closing), { runsAtOnce: 5 });
     expect([r.status, t.code(r)]).toEqual([409, 'tenant-closing']);
     expect(t.limits.size).toBe(0);
+  });
+});
+
+describe('GET /v1/system/tenants/:tenantId/limits', () => {
+  const path = (t: string) => `/v1/system/tenants/${t}/limits`;
+  const SIX = {
+    apiRequestsPerMinute: 600,
+    webhookReceivesPerMinute: 3000,
+    runsAtOnce: 20,
+    runsPending: 2000,
+    toolCallsInFlight: 50,
+    approvalsPending: 500,
+  };
+
+  test('answers the shape PUT takes: read, change one, put back, and the other five are kept', async () => {
+    const t = makeApp();
+    expect(await t.call('kgi_sy_limits', 'GET', path(active))).toEqual({
+      status: 200,
+      body: { tenantId: active, limits: {} },
+    });
+    await t.call('kgi_sy_limits', 'PUT', path(active), SIX);
+    const read = await t.call('kgi_sy_limits', 'GET', path(active));
+    expect(read).toEqual({ status: 200, body: { tenantId: active, limits: SIX } });
+    const raised = { ...(read.body.limits as typeof SIX), runsAtOnce: 40 };
+    expect((await t.call('kgi_sy_limits', 'PUT', path(active), raised)).status).toBe(200);
+    expect((await t.call('kgi_sy_limits', 'GET', path(active))).body.limits).toEqual({
+      ...SIX,
+      runsAtOnce: 40,
+    });
+  });
+
+  test("a closing or suspended tenant's limits can be read; an unknown or purged tenant is 404", async () => {
+    const t = makeApp();
+    for (const tenant of [closing, suspended]) {
+      expect((await t.call('kgi_sy_limits', 'GET', path(tenant))).status).toBe(200);
+    }
+    for (const tenant of [randomUUID(), purged, 'not-a-uuid']) {
+      const r = await t.call('kgi_sy_limits', 'GET', path(tenant));
+      expect([r.status, t.code(r)], tenant).toEqual([404, 'tenant-not-found']);
+    }
+  });
+
+  test("another scope, or a tenant's key: refused", async () => {
+    const t = makeApp();
+    const prod = await t.call('kgi_sy_production', 'GET', path(active));
+    expect([prod.status, t.code(prod)]).toEqual([403, 'system-scope-missing']);
+    const tenantKey = await t.call(TENANT_ADMIN, 'GET', path(active));
+    expect([tenantKey.status, t.code(tenantKey)]).toEqual([403, 'system-principal-required']);
+  });
+
+  test('a read is on the access record too: the key, the scope and the tenant', async () => {
+    const t = makeApp();
+    await t.call('kgi_sy_limits', 'GET', path(active));
+    expect(t.audit.at(-1)).toMatchObject({
+      keyId: 'kgi_sy_limits',
+      scope: 'system:tenants:limits',
+      tenantId: active,
+    });
   });
 });

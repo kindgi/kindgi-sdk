@@ -695,6 +695,9 @@ export function fullAppInput(): CreateAppInput {
       setProductionAllowed: async () => {
         throw new Error('not used: no system principal in the sweeps');
       },
+      limits: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
       setLimits: async () => {
         throw new Error('not used: no system principal in the sweeps');
       },
