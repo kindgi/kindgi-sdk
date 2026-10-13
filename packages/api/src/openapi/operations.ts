@@ -9219,7 +9219,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       "The trigger's sender (WooCommerce, Drupal, GitHub…) posts here, signed with the trigger's secret; a Kindgi client never does.",
     summary: 'Receive a webhook delivery',
     description:
-      "The receive URL a webhook trigger's sender posts to: no sign-in, and a bearer token, if sent, is never read. The request's signature, made with the trigger's secret in its `signature` scheme over the raw body, is what lets it start the trigger's flow as the trigger's owner. Every request that doesn't prove its sender (an unknown tenant or id, a missing, wrong or stale signature, a secret that can't be read) is `401 webhook-refused`, with the reason only in the trigger's history and the access audit; the URL isn't a secret, the signature is. A WooCommerce save-time ping (unsigned `webhook_id=<n>`) is answered `200` and starts nothing. The event the flow gets is the body, parsed as JSON for a JSON content type, else its text: data from outside, never instructions. A run's start isn't waited for.",
+      "The receive URL a webhook trigger's sender posts to: no sign-in, and a bearer token, if sent, is never read. The request's signature, made with the trigger's secret in its `signature` scheme over the raw body, is what lets it start the trigger's flow as the trigger's owner. Every request that doesn't prove its sender (an unknown tenant or id, a missing, wrong or stale signature, a secret that can't be read) is `401 webhook-refused`, with the reason only in the trigger's history and the access audit; the URL isn't a secret, the signature is. A WooCommerce save-time ping (unsigned `webhook_id=<n>`) is answered `200` and starts nothing. A closing or suspended tenant, or a suspended project, takes no delivery: a signed one is `409` with the state's code and nothing is recorded, not even toward pausing the trigger, and the sender's retry once it's restored is a new delivery that runs. The event the flow gets is the body, parsed as JSON for a JSON content type, else its text: data from outside, never instructions. A run's start isn't waited for.",
     tags: ['webhooks'],
     security: 'public',
     parameters: [
@@ -9261,12 +9261,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '401': ErrorResponse(
         "`webhook-refused`: the request doesn't prove its sender (the same answer whatever the reason).",
       ),
+      '409': ErrorResponse(
+        "`tenant-closing` or `tenant-suspended` (`details.state`): the trigger's tenant is frozen; `project-suspended`: its project is suspended. Nothing was recorded.",
+      ),
       '410': ErrorResponse('`webhook-gone`: the trigger was unregistered.'),
       '413': ErrorResponse(
         "`webhook-body-too-large`: past the trigger's `bodyLimitBytes` (or 1 MiB, before any lookup).",
       ),
       '429': ErrorResponse(
         "`rate-limit-exceeded`: past the trigger's `rateLimitPerMinute`, or too many refused requests from this client; `Retry-After` says when.",
+      ),
+      '503': ErrorResponse(
+        "`tenant-state-unavailable`: the tenant's state can't be read just now, so nothing was recorded; `Retry-After` says when to try again.",
       ),
     },
   },

@@ -45,7 +45,8 @@ const ALLOWED_POSTS: readonly RegExp[] = [
   /\/revoke-sessions$/,
 ];
 
-const DEFAULT_CACHE_MS = 5_000;
+/** How long a tenant's state is kept between reads: a change of state takes effect within it. */
+export const TENANT_STATE_CACHE_MS = 5_000;
 const RETRY_AFTER_S = 5;
 
 /**
@@ -56,11 +57,10 @@ const RETRY_AFTER_S = 5;
  *
  * The state is asked of `states` for every principal of a tenant, whatever
  * way it authenticated (a key, a session, SigV4), so a new way in can't skip
- * it. It's cached per tenant for `cacheMs`, so a change of state takes effect
- * within that. A failed lookup refuses the write (`503
- * tenant-state-unavailable`): it fails closed. A system principal is fenced
- * elsewhere. Without `states` (a runtime serving one tenant) nothing is
- * frozen.
+ * it. A system principal is fenced elsewhere. Without `states` (a runtime
+ * serving one tenant) nothing is frozen. The answer is
+ * {@link frozenTenantRefusal}'s, which the webhook receiver gives a
+ * delivery too.
  *
  * On the S3-compatible surface (`surface: 's3'`) it answers in S3's terms,
  * which S3 clients parse: `403 AllAccessDisabled` for a frozen tenant, and
@@ -70,19 +70,9 @@ export function tenantStateGate(
   states: TenantStateBinding | undefined,
   options: { readonly cacheMs?: number; readonly surface?: 'api' | 's3' } = {},
 ): MiddlewareHandler<AppEnv> {
-  const cacheMs = options.cacheMs ?? DEFAULT_CACHE_MS;
-  const s3 = options.surface === 's3';
-  const cache = new Map<string, { readonly state: string | undefined; readonly at: number }>();
-  const stateOf = async (lookup: TenantStateBinding, tenantId: TenantId) => {
-    const key = tenantId as unknown as string;
-    const hit = cache.get(key);
-    if (hit !== undefined && Date.now() - hit.at < cacheMs) return hit.state;
-    const state = await lookup.of(tenantId);
-    cache.set(key, { state, at: Date.now() });
-    return state;
-  };
+  const refusal = states === undefined ? undefined : frozenTenantRefusal(states, options);
   return async (c, next) => {
-    if (states === undefined || c.get('systemPrincipal') !== undefined) return next();
+    if (refusal === undefined || c.get('systemPrincipal') !== undefined) return next();
     const tenantId = c.get('tenantId');
     if (tenantId === undefined) return next();
     const method = c.req.method;
@@ -92,9 +82,36 @@ export function tenantStateGate(
     ) {
       return next();
     }
+    return (await refusal(c, tenantId)) ?? next();
+  };
+}
+
+/**
+ * What a frozen tenant's write is answered: `409 tenant-closing` or `409
+ * tenant-suspended`, or `undefined` for an active tenant. The state is
+ * cached per tenant for `cacheMs` ({@link TENANT_STATE_CACHE_MS}), so a
+ * change of state takes effect within that. A failed lookup refuses (`503
+ * tenant-state-unavailable`, with `Retry-After`): it fails closed.
+ */
+export function frozenTenantRefusal(
+  states: TenantStateBinding,
+  options: { readonly cacheMs?: number; readonly surface?: 'api' | 's3' } = {},
+): (c: Context<AppEnv>, tenantId: TenantId) => Promise<Response | undefined> {
+  const cacheMs = options.cacheMs ?? TENANT_STATE_CACHE_MS;
+  const s3 = options.surface === 's3';
+  const cache = new Map<string, { readonly state: string | undefined; readonly at: number }>();
+  const stateOf = async (tenantId: TenantId) => {
+    const key = tenantId as unknown as string;
+    const hit = cache.get(key);
+    if (hit !== undefined && Date.now() - hit.at < cacheMs) return hit.state;
+    const state = await states.of(tenantId);
+    cache.set(key, { state, at: Date.now() });
+    return state;
+  };
+  return async (c, tenantId) => {
     let state: string | undefined;
     try {
-      state = await stateOf(states, tenantId);
+      state = await stateOf(tenantId);
     } catch (cause) {
       c.get('log').error("could not read the tenant's state; the write is refused", {
         err: cause,
@@ -107,7 +124,7 @@ export function tenantStateGate(
         ? s3Answer(c, 'ServiceUnavailable', message, 503)
         : answer(c, 'tenant-state-unavailable', message);
     }
-    if (state !== 'closing' && state !== 'suspended') return next();
+    if (state !== 'closing' && state !== 'suspended') return undefined;
     const message =
       state === 'closing'
         ? 'This workspace is closing: it can be read and exported until it is deleted, and nothing in it changes.'
