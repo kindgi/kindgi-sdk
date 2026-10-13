@@ -23,7 +23,7 @@ contact@kindgi.com.
 `GET /v1/tenant` answers your workspace's own values, as `limits`:
 
 ```json
-CAPTURE: GET /v1/tenant's `limits`, from a runtime at the 0.1.8 pin with the limits at this page's values
+{"id":"…","name":"Acme Store","slug":"acme-08432910","createdAt":"2026-10-13T11:18:47.133Z","updatedAt":"2026-10-13T11:18:47.141Z","productionAllowed":false,"limits":{"apiRequestsPerMinute":600,"webhookReceivesPerMinute":3000,"runsAtOnce":20,"runsPending":2000,"toolCallsInFlight":50,"approvalsPending":500}}
 ```
 
 Calls Kindgi's control plane makes to manage your workspace never count.
@@ -37,16 +37,33 @@ how long to wait in `Retry-After`, and which limit in `details.limit`
 (`api-requests`):
 
 ```text
-CAPTURE: the API requests limit's 429 body and its Retry-After header
+HTTP 429
+retry-after: 33
+{"error":{"code":"rate-limit-exceeded","message":"This tenant's limit on API requests a minute is reached: try again in 33 s.","details":{"limit":"api-requests"},"requestId":"req-…"}}
 ```
 
 ### Webhook receives
 
-A delivery past the limit is refused with `429 rate-limit-exceeded`,
+Each trigger also has a limit of its own, checked first: 600 deliveries a
+minute by default, at most 6,000, set with `--rate-limit`
+([Start runs from webhooks](../../guides/webhooks/start-runs-from-webhooks/#what-kindgi-does-with-each-request)).
+A trigger at the default never reaches your workspace's 3,000: its own limit
+refuses first, with `429 rate-limit-exceeded` and no `details.limit`:
+
+```text
+HTTP 429
+retry-after: 55
+{"error":{"code":"rate-limit-exceeded","message":"Too many deliveries to this trigger: try again shortly","requestId":"req-…"}}
+```
+
+Past your workspace's limit, a delivery is refused with
+`429 rate-limit-exceeded`, with `Retry-After` and
 `details.limit: 'webhook-receives'`:
 
 ```text
-CAPTURE: the webhook receives limit's 429
+HTTP 429
+retry-after: 38
+{"error":{"code":"rate-limit-exceeded","message":"This tenant's limit on webhook deliveries a minute is reached: try again in 38 s.","details":{"limit":"webhook-receives"},"requestId":"req-…"}}
 ```
 
 Whether the sender tries again is up to the sender. WooCommerce never
@@ -63,18 +80,33 @@ never waits.
 ### Runs pending
 
 Past the limit of waiting runs, a new run is refused with
-`429 rate-limit-exceeded`, `details.limit: 'runs-pending'`:
+`429 rate-limit-exceeded`, `details.limit: 'runs-pending'`. There's no
+`Retry-After`:
 
 ```text
-CAPTURE: the runs pending limit's 429
+HTTP 429
+{"error":{"code":"rate-limit-exceeded","message":"This tenant's limit on runs waiting to start (2000) is reached: try again once some have started.","details":{"limit":"runs-pending","runsPending":2000},"requestId":"req-…"}}
 ```
 
 A webhook delivery or a schedule past it starts no run. The fire is recorded
 as refused (`rate-limited`), and it doesn't count toward pausing the
-trigger.
+trigger. A delivery is still answered `202`, with the fire's id.
+`kindgi webhooks fires <trigger-id>` shows the fire:
 
-```text
-CAPTURE: a fire refused past runs pending, as the trigger's fires show it
+```json
+{
+  "data": [
+    {
+      "fireId": "…",
+      "triggerId": "…",
+      "firedAt": "2026-10-13T11:18:47.529Z",
+      "outcome": "refused",
+      "detail": "rate-limited: flow acme.order-review@1.0.0 didn't start: rate-limit-exceeded: This tenant's limit on runs waiting to start (2000) is reached: try again once some have started.",
+      "countsTowardPause": false
+    }
+  ],
+  "hasMore": false
+}
 ```
 
 ### Tool calls in flight
@@ -94,16 +126,18 @@ Past the limit, a step that would ask for an approval asks nothing. No
 approval is recorded, and the step fails with `approvals-pending-limit`:
 
 ```text
-CAPTURE: the approvals pending limit's step failure, as the run shows it
+{"id":"…","tenantId":"…","projectId":"…","flowId":"agent.turn","flowVersion":"1.1.0","status":"failed",…,"failure":{"code":"approvals-pending-limit","message":"This tenant's limit on approvals waiting for a decision (500) is reached: decide some before asking for more."},…}
 ```
 
 `POST /v1/runs` that waits for the run answers
-`429 approvals-pending-limit`; with `wait: false` it answers 202, and the run
-fails with that code. A promotion past it is also `429
-approvals-pending-limit`.
+`429 approvals-pending-limit`, with no `Retry-After`. `details` gives the
+limit (`approvalsPending`) and the run (`runId`). With `wait: false` it
+answers 202, and the run fails with that code. A promotion past it is also
+`429 approvals-pending-limit`.
 
 ```text
-CAPTURE: the approvals pending limit's 429
+HTTP 429
+{"error":{"code":"approvals-pending-limit","message":"This tenant's limit on approvals waiting for a decision (500) is reached: decide some before asking for more.","details":{"approvalsPending":500,"runId":"…"},"requestId":"req-…"}}
 ```
 
 ### Agent turns' memory
