@@ -286,7 +286,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PRODUCTION_GATE',
     description:
-      "Whether putting a project in production needs the tenant to be allowed it, for example once it has a payment card. `on`: `PUT /v1/projects/{projectId}/production` refuses with `403 production-not-allowed` while the tenant isn't allowed (its `productionAllowed` is `false`, set through the system API); a project already in production stays so. A tenant is allowed unless it's switched off, so turning the gate on keeps existing tenants' production. Unset or `off`: no gate, and any tenant admin can put a project in production.",
+      "Whether putting a project in production needs the tenant to be allowed it, for example once it has paid. `on`: `PUT /v1/projects/{projectId}/production` refuses with `403 production-not-allowed` while the tenant isn't allowed (its `productionAllowed` is `false`, set through the system API); a project already in production stays so. A tenant is allowed unless it's switched off, so turning the gate on keeps existing tenants' production. Unset or `off`: no gate, and any tenant admin can put a project in production.",
     example: 'on',
     required: false,
     appliesTo: appliesToServer,

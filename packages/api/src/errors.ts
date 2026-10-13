@@ -389,6 +389,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'project-not-found': 404,
   /** Putting a project in production while the tenant isn't allowed to (the production gate; `details.next`). */
   'production-not-allowed': 403,
+  /** Putting a project in production while the tenant's projects in production are at its limit (`details.limit`, `projectsInProduction`, `inProduction`). */
+  'production-limit-reached': 403,
   /** The production route on a runtime whose project binding can't set it. */
   'production-unsupported': 501,
   'team-membership-not-found': 404,

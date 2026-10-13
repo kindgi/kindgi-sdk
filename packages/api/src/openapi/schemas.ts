@@ -10597,6 +10597,27 @@ export const TenantLimitsSchema: JsonSchema = {
       description:
         'Approvals waiting for a decision. Past it, the step that asks fails, naming the limit.',
     },
+    projectsInProduction: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        'Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production.',
+    },
+  },
+};
+
+export const TenantLimitsInUseSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectsInProduction'],
+  description:
+    'How much of each limit that counts something the tenant uses now, whether the limit is set or not: on `GET …/limits` only, and only from a runtime that counts it. A limit can be lowered below it: nothing is taken back, and the next one waits until the count is under the limit.',
+  properties: {
+    projectsInProduction: {
+      type: 'integer',
+      minimum: 0,
+      description: "The tenant's projects in production.",
+    },
   },
 };
 
@@ -10629,6 +10650,7 @@ export const TenantLimitsResultSchema: JsonSchema = {
   properties: {
     tenantId: { type: 'string', format: 'uuid' },
     limits: ref('TenantLimits'),
+    inUse: ref('TenantLimitsInUse'),
   },
 };
 
@@ -12891,6 +12913,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ProductionAllowedBody', ProductionAllowedBodySchema],
   ['TenantProductionAllowed', TenantProductionAllowedSchema],
   ['TenantLimitsResult', TenantLimitsResultSchema],
+  ['TenantLimitsInUse', TenantLimitsInUseSchema],
   ['TenantConfigKind', TenantConfigKindSchema],
   ['TenantConfigEntry', TenantConfigEntrySchema],
   ['TenantConfigCollectionPage', TenantConfigCollectionPageSchema],

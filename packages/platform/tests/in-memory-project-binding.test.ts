@@ -14,6 +14,7 @@ import {
 
 runProjectBindingConformance(makeInMemoryProjectBinding, 'InMemoryProjectBinding', {
   production: true,
+  productionLimit: true,
 });
 // With an org check: every org but the missing one is the tenant's.
 runProjectBindingConformance(

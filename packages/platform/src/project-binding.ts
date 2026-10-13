@@ -108,11 +108,20 @@ export interface ProjectBinding {
    * it answers `changed: false` and keeps the first `productionSince`. A
    * runtime that meters usage records each change (`project.production`,
    * `on` or `off`) in the same transaction as the change.
+   *
+   * With `options.projectsInProduction` (the tenant's limit), putting a
+   * project in production counts the tenant's projects already in
+   * production, and answers `limit-reached` without a change when they're
+   * at the limit or past it. The count and the change are one step: two
+   * projects put in production at once can't both pass on the last place.
+   * Taking a project out, and a project already in production, are never
+   * counted.
    */
   setProduction?(
     tenantId: TenantId,
     projectId: ProjectId,
     production: boolean,
+    options?: ProjectProductionOptions,
   ): Promise<ProjectProductionOutcome>;
 }
 
@@ -181,6 +190,12 @@ export type ProjectCreateOutcome =
       readonly orgId: OrgId;
     };
 
+/** `ProjectBinding.setProduction`'s options. */
+export interface ProjectProductionOptions {
+  /** The tenant's limit on projects in production (`TenantLimits.projectsInProduction`); none when absent. */
+  readonly projectsInProduction?: number;
+}
+
 /** What `ProjectBinding.setProduction` did. */
 export type ProjectProductionOutcome =
   | {
@@ -193,6 +208,14 @@ export type ProjectProductionOutcome =
   | {
       /** No project with this id in the tenant. */
       readonly kind: 'project-not-found';
+    }
+  | {
+      /** Not put in production: the tenant's projects in production are at its limit, or past it. */
+      readonly kind: 'limit-reached';
+      /** The limit. */
+      readonly projectsInProduction: number;
+      /** The tenant's projects in production now. */
+      readonly inProduction: number;
     };
 
 /** What `ProjectBinding.update` did. */

@@ -58,6 +58,7 @@ export {
   TENANT_LIMIT_MAX,
   TENANT_LIMIT_NAMES,
   type SystemTenantSettingsBinding,
+  type TenantLimitsInUse,
 } from './routes/system-tenant-settings.js';
 export { systemKeysMintedFrom } from './routes/system-keys.js';
 export {

@@ -26,6 +26,21 @@ export interface SystemTenantSettingsBinding {
   limits(tenantId: TenantId): Promise<TenantLimits>;
   /** Replace the tenant's limits with exactly these: one left out isn't set. */
   setLimits(tenantId: TenantId, limits: TenantLimits): Promise<TenantLimits>;
+  /**
+   * Optional. How much of each counted limit the tenant uses now, read
+   * when its limits are: `GET …/limits` answers it as `inUse`.
+   */
+  inUse?(tenantId: TenantId): Promise<TenantLimitsInUse>;
+}
+
+/**
+ * How much of a limit that counts something the tenant uses now, whether
+ * the limit is set or not. A limit can be lowered below it: nothing is
+ * taken back, and the next one waits until the count is under the limit.
+ */
+export interface TenantLimitsInUse {
+  /** The tenant's projects in production. */
+  readonly projectsInProduction: number;
 }
 
 /** The limits `PUT …/limits` takes: each a whole number from 1 to this. */
@@ -39,6 +54,7 @@ export const TENANT_LIMIT_NAMES = [
   'runsPending',
   'toolCallsInFlight',
   'approvalsPending',
+  'projectsInProduction',
 ] as const satisfies readonly (keyof TenantLimits)[];
 
 /**
@@ -51,7 +67,8 @@ export const TENANT_LIMIT_NAMES = [
  * - **`GET /:tenantId/limits`** (`system:tenants:limits`): the tenant's
  *   limits as stored, `{ tenantId, limits }`, the shape `PUT` takes, so a
  *   change of one is read, changed and put back. A limit not set is
- *   absent.
+ *   absent. With a runtime that counts it, `inUse` says how much of each
+ *   counted limit the tenant uses now (`projectsInProduction`).
  * - **`PUT /:tenantId/limits`** `{ apiRequestsPerMinute?, … }`
  *   (`system:tenants:limits`): replaces the tenant's limits with exactly
  *   these. A limit left out isn't set, and isn't enforced. Answers
@@ -101,11 +118,17 @@ export function systemTenantSettingsRouter(options: {
       directory,
       c.req.param('tenantId'),
       { scope: 'system:tenants:limits', ...(authorizer !== undefined && { authorizer }) },
-      async (tenant) =>
-        c.json({
+      async (tenant) => {
+        const [limits, inUse] = await Promise.all([
+          settings.limits(tenant.id),
+          settings.inUse?.(tenant.id),
+        ]);
+        return c.json({
           tenantId: tenant.id as unknown as string,
-          limits: await settings.limits(tenant.id),
-        }),
+          limits,
+          ...(inUse !== undefined && { inUse }),
+        });
+      },
     ),
   );
 

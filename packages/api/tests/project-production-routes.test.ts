@@ -267,6 +267,128 @@ describe('the production gate', () => {
   });
 });
 
+describe('the limit on projects in production', () => {
+  /** A refusal's code, message and details. */
+  async function refusal(res: Response) {
+    expect(res.status).toBe(403);
+    return (
+      (await res.json()) as {
+        error: { code: string; message: string; details: Record<string, unknown> };
+      }
+    ).error;
+  }
+
+  async function inProduction(
+    trio: ReturnType<typeof makeInMemoryProjectBinding>,
+    id: string,
+  ): Promise<boolean> {
+    return (await trio.projects.get(tenantId, id as never))?.productionSince !== undefined;
+  }
+
+  test('at the limit: 403 production-limit-reached, with the limit, the count and next', async () => {
+    const { app, trio } = makeApp({
+      tenant: { limits: { projectsInProduction: 2 } },
+      production: { next: NEXT },
+    });
+    const [a, b, c] = [await newProject(trio), await newProject(trio), await newProject(trio)];
+    expect((await put(app, a, { production: true })).status).toBe(200);
+    expect((await put(app, b, { production: true })).status).toBe(200);
+    const error = await refusal(await put(app, c, { production: true }));
+    expect(error.code).toBe('production-limit-reached');
+    expect(error.details).toEqual({
+      projectId: c,
+      limit: 'projects-in-production',
+      projectsInProduction: 2,
+      inProduction: 2,
+      next: NEXT,
+    });
+    expect(error.message).toBe(
+      `This tenant's limit is 2 projects in production, and it has 2. To put another in production: ${NEXT}, or take one out of production first.`,
+    );
+    expect(await inProduction(trio, c)).toBe(false);
+  });
+
+  test('no next: the refusal carries none, and says to take one out or ask', async () => {
+    const { app, trio } = makeApp({ tenant: { limits: { projectsInProduction: 1 } } });
+    const [a, b] = [await newProject(trio), await newProject(trio)];
+    expect((await put(app, a, { production: true })).status).toBe(200);
+    const error = await refusal(await put(app, b, { production: true }));
+    expect(error.details).not.toHaveProperty('next');
+    expect(error.message).toBe(
+      "This tenant's limit is 1 project in production, and it has 1. To put another in production, take one out first, or ask whoever runs this Kindgi to raise the limit.",
+    );
+  });
+
+  test('a repeat isn’t counted, and taking one out frees its place', async () => {
+    const { app, trio } = makeApp({ tenant: { limits: { projectsInProduction: 1 } } });
+    const [a, b] = [await newProject(trio), await newProject(trio)];
+    expect((await put(app, a, { production: true })).status).toBe(200);
+    // At the limit, the one already in production answers its repeat unchanged.
+    expect((await put(app, a, { production: true })).status).toBe(200);
+    expect((await refusal(await put(app, b, { production: true }))).code).toBe(
+      'production-limit-reached',
+    );
+    expect((await put(app, a, { production: false })).status).toBe(200);
+    expect((await put(app, b, { production: true })).status).toBe(200);
+  });
+
+  test('a limit lowered below the count takes nothing out; the next waits until the count is under it', async () => {
+    const tenant: { limits: { projectsInProduction: number } } = {
+      limits: { projectsInProduction: 3 },
+    };
+    const { app, trio } = makeApp({ tenant });
+    const ids = [await newProject(trio), await newProject(trio), await newProject(trio)];
+    for (const id of ids) expect((await put(app, id, { production: true })).status).toBe(200);
+    const next = await newProject(trio);
+
+    tenant.limits = { projectsInProduction: 1 };
+    for (const id of ids) expect(await inProduction(trio, id)).toBe(true);
+    const over = await refusal(await put(app, next, { production: true }));
+    expect(over.details).toMatchObject({ projectsInProduction: 1, inProduction: 3 });
+    expect(over.message).toContain('take 3 out first');
+    // Taking one out is never refused, even over the limit.
+    expect((await put(app, ids[0] as string, { production: false })).status).toBe(200);
+    expect((await put(app, ids[1] as string, { production: false })).status).toBe(200);
+    // 1 in production, and the limit is 1: still no place.
+    expect((await refusal(await put(app, next, { production: true }))).details).toMatchObject({
+      inProduction: 1,
+    });
+    expect((await put(app, ids[2] as string, { production: false })).status).toBe(200);
+    expect((await put(app, next, { production: true })).status).toBe(200);
+  });
+
+  test('with the gate on and the tenant not allowed, the gate answers first', async () => {
+    const { app, trio } = makeApp({
+      tenant: { productionAllowed: false, limits: { projectsInProduction: 1 } },
+      production: { gate: true, next: NEXT },
+    });
+    const [a, b] = [await newProject(trio), await newProject(trio)];
+    await trio.projects.setProduction?.(tenantId, a as never, true);
+    expect((await refusal(await put(app, b, { production: true }))).code).toBe(
+      'production-not-allowed',
+    );
+  });
+
+  test('two projects put in production at once, with one place left: one goes in', async () => {
+    const { app, trio } = makeApp({ tenant: { limits: { projectsInProduction: 1 } } });
+    const [a, b] = [await newProject(trio), await newProject(trio)];
+    const statuses = (
+      await Promise.all([put(app, a, { production: true }), put(app, b, { production: true })])
+    ).map((res) => res.status);
+    expect(statuses.sort()).toEqual([200, 403]);
+    expect([await inProduction(trio, a), await inProduction(trio, b)].filter(Boolean)).toHaveLength(
+      1,
+    );
+  });
+
+  test('no limit set: nothing is counted', async () => {
+    const { app, trio } = makeApp({ tenant: { limits: { runsAtOnce: 1 } } });
+    for (let i = 0; i < 3; i += 1) {
+      expect((await put(app, await newProject(trio), { production: true })).status).toBe(200);
+    }
+  });
+});
+
 describe('who may', () => {
   function recording(allowed: boolean) {
     const asked: string[] = [];

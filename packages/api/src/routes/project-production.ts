@@ -4,7 +4,12 @@
 import { type Context, Hono } from 'hono';
 
 import { ref } from '@kindgi/authz';
-import type { ProjectBinding, TenantHierarchyBinding, TenantSummary } from '@kindgi/platform';
+import type {
+  ProjectBinding,
+  ProjectProductionOptions,
+  TenantHierarchyBinding,
+  TenantSummary,
+} from '@kindgi/platform';
 import type { ProjectId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
@@ -48,6 +53,10 @@ export interface ProjectProductionRouterOptions {
  *   `403 production-not-allowed` while the tenant's `productionAllowed` is
  *   `false`, with `details.next` when the runtime names where to go. A
  *   project already in production stays so, and a repeat answers 200.
+ * - **The limit:** with the tenant's `projectsInProduction` set, turning
+ *   it on is refused with `403 production-limit-reached` while that many
+ *   of its projects are in production, or more. The binding counts and
+ *   sets in one step. Taking a project out is never refused.
  * - **Repeats answer 200 unchanged:** setting what's already set writes
  *   nothing, and keeps the first `productionSince`.
  * - **The answer:** `{ projectId, productionSince }`, `null` when it's out
@@ -85,22 +94,44 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
     const project = await projects.get(tenantId, projectId);
     if (project === undefined) return refuse(c, requestId, projectNotFound(projectId));
 
-    // The gate guards going into production, not staying there: a project
-    // already in production answers its repeat unchanged.
-    if (production && gate && project.productionSince === undefined) {
-      const closed = gateRefusal(await tenantHierarchy.getTenant(tenantId), tenantId, projectId);
-      if (closed !== undefined) return refuse(c, requestId, closed);
-    }
+    // The gate and the limit guard going into production, not staying
+    // there: a project already in production answers its repeat unchanged.
+    const entry =
+      production && project.productionSince === undefined
+        ? await goingIn(tenantId, projectId)
+        : { options: undefined };
+    if ('refusal' in entry) return refuse(c, requestId, entry.refusal);
 
-    const outcome = await projects.setProduction(tenantId, projectId, production);
+    const outcome = await projects.setProduction(tenantId, projectId, production, entry.options);
     if (outcome.kind === 'project-not-found') {
       return refuse(c, requestId, projectNotFound(projectId));
+    }
+    if (outcome.kind === 'limit-reached') {
+      return refuse(c, requestId, limitRefusal(outcome, projectId));
     }
     return c.json({
       projectId: projectId as unknown as string,
       productionSince: outcome.productionSince as unknown as string | null,
     });
   });
+
+  /**
+   * A project going into production: the gate's refusal, or what
+   * `setProduction` counts against (the tenant's limit, when it has one).
+   * The tenant is read fresh, so a limit just set or lowered applies.
+   */
+  async function goingIn(
+    tenantId: TenantId,
+    projectId: ProjectId,
+  ): Promise<
+    { readonly refusal: Refusal } | { readonly options: ProjectProductionOptions | undefined }
+  > {
+    const tenant = await tenantHierarchy.getTenant(tenantId);
+    const closed = gate ? gateRefusal(tenant, tenantId, projectId) : undefined;
+    if (closed !== undefined) return { refusal: closed };
+    const projectsInProduction = tenant?.limits?.projectsInProduction;
+    return { options: projectsInProduction !== undefined ? { projectsInProduction } : undefined };
+  }
 
   /**
    * Why the gate keeps the tenant out of production, or `undefined` when it
@@ -128,6 +159,30 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
           ? `This tenant can't put projects in production yet. To be allowed: ${next}. Projects not in production keep working as staging.`
           : "This tenant can't put projects in production yet: ask whoever runs this Kindgi to allow it. Projects not in production keep working as staging.",
       projectId: projectId as unknown as string,
+      ...(next !== undefined && { next }),
+    };
+  }
+
+  /** The refusal of a project past the tenant's limit on projects in production. */
+  function limitRefusal(
+    outcome: { readonly projectsInProduction: number; readonly inProduction: number },
+    projectId: ProjectId,
+  ): Refusal {
+    const { projectsInProduction, inProduction } = outcome;
+    // Over a limit lowered below the count, more than one has to come out.
+    const over = inProduction - projectsInProduction + 1;
+    const takeOut = over === 1 ? 'one' : String(over);
+    const at = `This tenant's limit is ${projectsInProduction} ${projectsInProduction === 1 ? 'project' : 'projects'} in production, and it has ${inProduction}`;
+    return {
+      code: 'production-limit-reached',
+      message:
+        next !== undefined
+          ? `${at}. To put another in production: ${next}, or take ${takeOut} out of production first.`
+          : `${at}. To put another in production, take ${takeOut} out first, or ask whoever runs this Kindgi to raise the limit.`,
+      projectId: projectId as unknown as string,
+      limit: 'projects-in-production',
+      projectsInProduction,
+      inProduction,
       ...(next !== undefined && { next }),
     };
   }

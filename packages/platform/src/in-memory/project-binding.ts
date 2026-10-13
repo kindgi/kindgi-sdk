@@ -28,6 +28,7 @@ import type {
   ProjectMembershipAddOutcome,
   ProjectMembershipBinding,
   ProjectMembershipUpdateRoleOutcome,
+  ProjectProductionOptions,
   ProjectProductionOutcome,
   ProjectUpdateOutcome,
 } from '../project-binding.js';
@@ -88,6 +89,22 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
     const p = projectRows.get(projectId);
     if (p === undefined || p.tenantId !== tenantId) return undefined;
     return p;
+  }
+
+  /** `limit-reached` when the tenant's projects in production are at its limit or past it. */
+  function limitReached(
+    tenantId: TenantId,
+    options: ProjectProductionOptions | undefined,
+  ): ProjectProductionOutcome | undefined {
+    const limit = options?.projectsInProduction;
+    if (limit === undefined) return undefined;
+    let inProduction = 0;
+    for (const row of projectRows.values()) {
+      if (row.tenantId === tenantId && row.productionSince !== undefined) inProduction += 1;
+    }
+    return inProduction >= limit
+      ? { kind: 'limit-reached', projectsInProduction: limit, inProduction }
+      : undefined;
   }
 
   function tenantAlreadyHasDefault(tenantId: TenantId): boolean {
@@ -222,12 +239,20 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
       return { kind: 'ok' };
     },
 
-    async setProduction(tenantId, projectId, production): Promise<ProjectProductionOutcome> {
+    async setProduction(
+      tenantId,
+      projectId,
+      production,
+      options?: ProjectProductionOptions,
+    ): Promise<ProjectProductionOutcome> {
       const row = findProjectInTenant(tenantId, projectId);
       if (row === undefined) return { kind: 'project-not-found' };
       if ((row.productionSince !== undefined) === production) {
         return { kind: 'ok', productionSince: row.productionSince ?? null, changed: false };
       }
+      // Counted and changed with no await between: one step, as a database's lock makes it.
+      const refused = production ? limitReached(tenantId, options) : undefined;
+      if (refused !== undefined) return refused;
       const now = nowTimestamp();
       const { productionSince: _was, ...rest } = row;
       const next: Project = production
