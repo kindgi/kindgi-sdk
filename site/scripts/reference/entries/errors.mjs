@@ -2418,6 +2418,34 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'production-limit-reached': {
+    description:
+      "You put a project in production while the tenant already had as many projects in production as its limit allows, or more (`projectsInProduction`, set by whoever runs the server). Nothing changed. A project already in production isn't counted again, and taking one out is never refused. Take a project out of production, or go where `details.next` says when the server names a place, or ask whoever runs it to raise the limit; then put the project in production again.",
+    details: [
+      {
+        key: 'projectId',
+        meaning: "the project that wasn't put in production",
+      },
+      {
+        key: 'limit',
+        meaning: 'which limit: `projects-in-production`',
+      },
+      {
+        key: 'projectsInProduction',
+        meaning: "the tenant's limit on projects in production",
+      },
+      {
+        key: 'inProduction',
+        meaning:
+          "how many of the tenant's projects are in production; over the limit when the limit was lowered below it",
+      },
+      {
+        key: 'next',
+        meaning:
+          'where to go for a higher limit, for example a billing page (`KINDGI_PRODUCTION_NEXT_URL`); absent when the server names none',
+      },
+    ],
+  },
   'production-unsupported': {
     description:
       "This server's projects can't be put in production: its project store has no production setting. Every run there is a staging run.",
