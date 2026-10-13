@@ -11,6 +11,7 @@ import type { BlockPublishOutcome, BlockRecord, BlockRegistryBinding } from '../
 import { continuityIssues, withCarriedSchema } from '../block-publish.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
@@ -32,6 +33,8 @@ import { isRegistryVersionsCursor } from './versions-cursor.js';
  */
 export function blocksRouter(binding: BlockRegistryBinding, authorizer?: Authorizer): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // Every schema a publish compiles counts against its tenant's budget.
+  const publishCompiles = publishCompilesMiddleware();
 
   async function canProject(
     c: Context<AppEnv>,
@@ -154,7 +157,7 @@ export function blocksRouter(binding: BlockRegistryBinding, authorizer?: Authori
   });
 
   // ---------- POST / (publish a version) ----------
-  r.post('/', async (c) => {
+  r.post('/', publishCompiles, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     let body: unknown;

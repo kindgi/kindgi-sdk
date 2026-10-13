@@ -24,6 +24,7 @@ export {
   BLOCK_KINDS,
   MODEL_SETTINGS_SCHEMA,
   TUNABLE_MARKER,
+  modelSettingsIssues,
   settingsSchemaIssues,
   tunableKeys,
   validateBlock,

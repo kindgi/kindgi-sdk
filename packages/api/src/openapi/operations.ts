@@ -1360,6 +1360,14 @@ const ErrorResponse = (description: string): ResponseSpec => ({
   schema: ref('WireError'),
 });
 
+/**
+ * A request that publishes schemas, refused by its tenant's compile
+ * budget before it stored anything.
+ */
+const SCHEMA_COMPILE_BUDGET = ErrorResponse(
+  '`rate-limit-exceeded` with `details.limit: "schema-compile-time"`, on a server with a compile budget (Kindgi hosted): this tenant\'s schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.',
+);
+
 const CommonAuthErrors: Readonly<Record<string, ResponseSpec>> = {
   '401': ErrorResponse('Missing / malformed / expired / revoked bearer token.'),
 };
@@ -2915,6 +2923,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         '`agent-not-found`: no agent at `from`; or `projectId` names no project of this tenant (`project-not-found`).',
       ),
+      '429': SCHEMA_COMPILE_BUDGET,
     },
   },
   {
@@ -2956,6 +2965,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
+      '429': SCHEMA_COMPILE_BUDGET,
     },
   },
   {
@@ -3419,6 +3429,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
+      '429': SCHEMA_COMPILE_BUDGET,
     },
   },
   {
@@ -3561,6 +3572,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
+      '429': SCHEMA_COMPILE_BUDGET,
     },
   },
   {
@@ -3724,6 +3736,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '422': ErrorResponse(
         "`guardrail-config-invalid`: the guardrail's `config` breaks the `configSchema` of the check it names (a pack check's, or a built-in's), which would refuse it on every call. `details.issues` lists each problem, `{ path, message }` with `path` a JSON pointer into the guardrail (`/config/maxChars`); the message names the guardrail, the check and the setting. Checked when the check's deployment carries its schema.",
       ),
+      '429': SCHEMA_COMPILE_BUDGET,
     },
   },
   {
@@ -4287,6 +4300,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "`proposal-needs-pin`: the agent has no live version for the whole tenant. `proposal-invalid-state-transition`: the proposal's status doesn't allow it. `registry-read-only`: the agent registry takes no writes (under `kindgi dev`).",
       ),
+      '429': SCHEMA_COMPILE_BUDGET,
     },
   },
   {
@@ -5125,6 +5139,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         '`host-access-denied`: a `stdio` endpoint on a deployment that refuses commands on its host (`KINDGI_TENANT_HOST_ACCESS=deployed`); or `authz-denied`.',
       ),
       '409': ErrorResponse('MCP endpoint already registered at that id.'),
+      '429': SCHEMA_COMPILE_BUDGET,
     },
   },
   {
@@ -5874,6 +5889,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
+      '429': SCHEMA_COMPILE_BUDGET,
     },
   },
   {
@@ -6586,6 +6602,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
+      '429': SCHEMA_COMPILE_BUDGET,
     },
   },
   {

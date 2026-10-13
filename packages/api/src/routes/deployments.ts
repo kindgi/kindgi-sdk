@@ -7,6 +7,7 @@ import { type Context, Hono } from 'hono';
 
 import { type Agent, type AgentId, type AgentPins, templateProblem } from '@kindgi/agents';
 import { ref, tuplesForCreate } from '@kindgi/authz';
+import { runOutsideTenant } from '@kindgi/bounds';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
 import type { Flow, FlowPins } from '@kindgi/flow';
 import {
@@ -16,6 +17,7 @@ import {
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
+import { SchemaCompileBudgetError } from '@kindgi/schema';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
 import type {
   Cursor,
@@ -32,6 +34,7 @@ import type {
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import { type UnpinnableRef, publishDeployedAgent, resolveAgentPins } from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
+import { type BlockPins, resolveBlockPins } from '../block-pins.js';
 import type { DeployedVersionOutcome } from '../deploy-versions.js';
 import type {
   DeployedAgent,
@@ -51,6 +54,7 @@ import { imageRefWithin, parseImagePrefix, parseImageRef } from '../image-ref.js
 import type { ImageRegistryBinding } from '../image-registry-binding.js';
 import type { LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { PublishRefused } from '../publish-refused.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
@@ -221,6 +225,8 @@ export function deploymentsRouter(
   authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // Every schema a publish compiles counts against its tenant's budget.
+  const publishCompiles = publishCompilesMiddleware();
   // A deploy into a named project needs admin on that project, as creating
   // an agent there does; a tenant-wide deploy, and every other route here,
   // the tenant's. (A key limited to another project was already refused,
@@ -318,7 +324,7 @@ export function deploymentsRouter(
   });
 
   // ---------- POST / (register a signed deployment) ----------
-  r.post('/', async (c) => {
+  r.post('/', publishCompiles, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
 
@@ -690,133 +696,153 @@ export function deploymentsRouter(
       );
     }
 
+    // Every schema a deploy compiles is compiled before its first write,
+    // so a compile its tenant's budget refuses leaves nothing stored. The
+    // agents' data blocks pin here (checking model settings compiles
+    // one); a deploy writes no blocks, so they pin as they would later.
+    const blockPinsOf =
+      bindings.agentRegistry !== undefined &&
+      bindings.toolRegistry !== undefined &&
+      targetProjectId !== undefined
+        ? await pinBlocks(bindings.blockRegistry, tenantId, validated.agents)
+        : undefined;
+
     const rolled: RollbackAction[] = [];
     // The version each agent is registered under: its definition's, or
     // the one a deploy registered in its place (`publishDeployedAgent`).
     const deployedAgents: DeployedAgent[] = [];
     const deployedFlows: DeployedFlow[] = [];
     try {
-      if (bindings.toolRegistry !== undefined && targetProjectId !== undefined) {
-        for (const tool of validated.tools) {
-          const projectIdForTool = targetProjectId;
-          // Where each secret it names is read: decided now, as the deployer
-          // may read them, and kept with this version (`secret-scope.ts`).
-          const secretScopes = await secretScopesFor(
-            c,
-            {
-              secrets: bindings.secretsBinding,
-              projects: bindings.projectBinding,
-              authorizer,
-            },
-            { kind: 'project', tenantId, projectId: projectIdForTool },
-            toolSecretRefs(tool, bindings.envName),
-          );
-          const outcome = await bindings.toolRegistry.publish({
-            tenantId,
-            projectId: projectIdForTool,
-            tool,
-            ...(secretScopes !== undefined && { secretScopes }),
-            enqueueTuples: (toolId) =>
-              tuplesForCreate({
-                kind: 'tool',
-                id: toolId as ToolId,
-                tenantId,
-                projectId: projectIdForTool,
-              }),
-          });
-          if (outcome.kind === 'ok') {
-            const toolId = outcome.toolId;
-            const version = outcome.version;
-            rolled.push(async () => {
-              await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
+      // Past the first write, a compile is a registry's own compile of a
+      // schema compiled above, which the tenant's budget was charged for:
+      // it runs outside the counting, so the budget can't refuse a deploy
+      // half-written.
+      await runOutsideTenant(async () => {
+        if (bindings.toolRegistry !== undefined && targetProjectId !== undefined) {
+          for (const tool of validated.tools) {
+            const projectIdForTool = targetProjectId;
+            // Where each secret it names is read: decided now, as the deployer
+            // may read them, and kept with this version (`secret-scope.ts`).
+            const secretScopes = await secretScopesFor(
+              c,
+              {
+                secrets: bindings.secretsBinding,
+                projects: bindings.projectBinding,
+                authorizer,
+              },
+              { kind: 'project', tenantId, projectId: projectIdForTool },
+              toolSecretRefs(tool, bindings.envName),
+            );
+            const outcome = await bindings.toolRegistry.publish({
+              tenantId,
+              projectId: projectIdForTool,
+              tool,
+              ...(secretScopes !== undefined && { secretScopes }),
+              enqueueTuples: (toolId) =>
+                tuplesForCreate({
+                  kind: 'tool',
+                  id: toolId as ToolId,
+                  tenantId,
+                  projectId: projectIdForTool,
+                }),
             });
-          } else if (outcome.kind === 'already-registered') {
-            await refreshToolCode(bindings.toolRegistry, tenantId, tool, rolled);
-          } else {
-            throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome);
+            if (outcome.kind === 'ok') {
+              const toolId = outcome.toolId;
+              const version = outcome.version;
+              rolled.push(async () => {
+                await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
+              });
+            } else if (outcome.kind === 'already-registered') {
+              await refreshToolCode(bindings.toolRegistry, tenantId, tool, rolled);
+            } else {
+              throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome);
+            }
           }
         }
-      }
-      if (bindings.guardrailRegistry !== undefined && targetProjectId !== undefined) {
-        for (const guardrail of validated.guardrails) {
-          const projectIdForGuardrail = targetProjectId;
-          const outcome = await bindings.guardrailRegistry.register({
-            tenantId,
-            projectId: projectIdForGuardrail,
-            guardrail,
-            enqueueTuples: (guardrailId) =>
-              tuplesForCreate({
-                kind: 'guardrail',
-                id: guardrailId as GuardrailId,
-                tenantId,
-                projectId: projectIdForGuardrail,
-              }),
-          });
-          if (outcome.kind === 'ok') {
-            const guardrailId = outcome.guardrailId;
-            rolled.push(async () => {
-              await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
-            });
-          } else if (outcome.kind === 'already-registered') {
-            const kept = await keepRegisteredGuardrail(
-              bindings.guardrailRegistry,
+        if (bindings.guardrailRegistry !== undefined && targetProjectId !== undefined) {
+          for (const guardrail of validated.guardrails) {
+            const projectIdForGuardrail = targetProjectId;
+            const outcome = await bindings.guardrailRegistry.register({
               tenantId,
-              projectIdForGuardrail,
+              projectId: projectIdForGuardrail,
               guardrail,
-            );
-            // Unregistered since the registry answered: registered afresh.
-            if (kept.kind === 'registered') {
-              const guardrailId = guardrail.id;
+              enqueueTuples: (guardrailId) =>
+                tuplesForCreate({
+                  kind: 'guardrail',
+                  id: guardrailId as GuardrailId,
+                  tenantId,
+                  projectId: projectIdForGuardrail,
+                }),
+            });
+            if (outcome.kind === 'ok') {
+              const guardrailId = outcome.guardrailId;
               rolled.push(async () => {
                 await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
               });
-            } else {
-              await refreshGuardrailFields(
+            } else if (outcome.kind === 'already-registered') {
+              const kept = await keepRegisteredGuardrail(
                 bindings.guardrailRegistry,
                 tenantId,
+                projectIdForGuardrail,
                 guardrail,
-                kept.existing,
-                rolled,
               );
+              // Unregistered since the registry answered: registered afresh.
+              if (kept.kind === 'registered') {
+                const guardrailId = guardrail.id;
+                rolled.push(async () => {
+                  await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
+                });
+              } else {
+                await refreshGuardrailFields(
+                  bindings.guardrailRegistry,
+                  tenantId,
+                  guardrail,
+                  kept.existing,
+                  rolled,
+                );
+              }
+            } else {
+              throw new PublishRefused('guardrail', guardrail.id, outcome);
             }
-          } else {
-            throw new PublishRefused('guardrail', guardrail.id, outcome);
           }
         }
-      }
-      if (bindings.agentRegistry !== undefined && targetProjectId !== undefined) {
-        deployedAgents.push(
-          ...(await registerAgents({
-            agents: bindings.agentRegistry,
-            tools: bindings.toolRegistry,
-            blocks: bindings.blockRegistry,
-            tenantId,
-            projectId: targetProjectId,
-            defined: validated.agents,
-            rolled,
-          })),
-        );
-      } else {
-        deployedAgents.push(...validated.agents.map(deployedPrimitive));
-      }
-      if (bindings.flowRegistry !== undefined && targetProjectId !== undefined) {
-        deployedFlows.push(
-          ...(await registerFlows({
-            flows: bindings.flowRegistry,
-            tools: bindings.toolRegistry,
-            agents: bindings.agentRegistry,
-            ...(bindings.liveVersions !== undefined && { live: bindings.liveVersions }),
-            tenantId,
-            projectId: targetProjectId,
-            defined: validated.flows,
-            rolled,
-          })),
-        );
-      } else {
-        deployedFlows.push(...validated.flows.map(deployedPrimitive));
-      }
+        if (bindings.agentRegistry !== undefined && targetProjectId !== undefined) {
+          deployedAgents.push(
+            ...(await registerAgents({
+              agents: bindings.agentRegistry,
+              tools: bindings.toolRegistry,
+              blockPins: blockPinsOf,
+              tenantId,
+              projectId: targetProjectId,
+              defined: validated.agents,
+              rolled,
+            })),
+          );
+        } else {
+          deployedAgents.push(...validated.agents.map(deployedPrimitive));
+        }
+        if (bindings.flowRegistry !== undefined && targetProjectId !== undefined) {
+          deployedFlows.push(
+            ...(await registerFlows({
+              flows: bindings.flowRegistry,
+              tools: bindings.toolRegistry,
+              agents: bindings.agentRegistry,
+              ...(bindings.liveVersions !== undefined && { live: bindings.liveVersions }),
+              tenantId,
+              projectId: targetProjectId,
+              defined: validated.flows,
+              rolled,
+            })),
+          );
+        } else {
+          deployedFlows.push(...validated.flows.map(deployedPrimitive));
+        }
+      });
     } catch (cause) {
       await rollback(rolled);
+      // A compile the tenant's budget refused is a limit, which the app's
+      // error handler answers. None runs past the first write here.
+      if (cause instanceof SchemaCompileBudgetError) throw cause;
       // A primitive refused with a typed outcome is the caller's to fix:
       // that outcome's own status and code. Anything thrown is a 500.
       if (cause instanceof PublishRefused) {
@@ -1986,7 +2012,8 @@ function deployedVersion(
  * as (`DeployedAgent`), pushing a rollback for each version it writes.
  *
  * With a tool registry, every agent is pinned first (the pack's tools
- * are registered by now): one whose range matches no published version
+ * are registered by now, and its data blocks were pinned before the
+ * deploy wrote anything): one whose range matches no published version
  * throws `UnpinnableDeploy` before any agent is written, and the deploy
  * rolls back. Each is then registered by `publishDeployedAgent`, which
  * never keeps a version's old pins. Without one, agents register
@@ -1995,13 +2022,14 @@ function deployedVersion(
 async function registerAgents(input: {
   readonly agents: AgentRegistryBinding;
   readonly tools: ToolRegistryBinding | undefined;
-  readonly blocks: BlockRegistryBinding | undefined;
+  /** Each agent's data-block pins (`pinBlocks`); undefined without a tool registry. */
+  readonly blockPins: readonly BlockPins[] | undefined;
   readonly tenantId: TenantId;
   readonly projectId: ProjectId;
   readonly defined: readonly Agent[];
   readonly rolled: RollbackAction[];
 }): Promise<DeployedAgent[]> {
-  const { agents, tools, blocks, tenantId, projectId, rolled } = input;
+  const { agents, tools, blockPins, tenantId, projectId, rolled } = input;
   // Signed deploys have no per-request principal — pass parent-only
   // tuples (no owner grant). Tenant admins keep access via
   // `admin from parent` cascade.
@@ -2012,7 +2040,7 @@ async function registerAgents(input: {
       await agents.unregister({ tenantId, agentId, version });
     });
 
-  if (tools === undefined) {
+  if (tools === undefined || blockPins === undefined) {
     for (const agent of input.defined) {
       const outcome = await agents.publish({ tenantId, projectId, agent, enqueueTuples });
       if (outcome.kind === 'ok') written(outcome.agentId, outcome.version);
@@ -2023,7 +2051,7 @@ async function registerAgents(input: {
     return input.defined.map(deployedPrimitive);
   }
 
-  const pinsOf = await pinAgents(tools, blocks, tenantId, input.defined);
+  const pinsOf = await pinAgents(tools, blockPins, tenantId, input.defined);
   const deployed: DeployedAgent[] = [];
   for (const [i, agent] of input.defined.entries()) {
     const pins = pinsOf[i] as AgentPins;
@@ -2139,17 +2167,34 @@ async function pinFlows(
   return pins;
 }
 
+/** Each agent's data-block pins, in order (`resolveBlockPins`); `pinAgents` reports their issues. */
+async function pinBlocks(
+  blocks: BlockRegistryBinding | undefined,
+  tenantId: TenantId,
+  defined: readonly Agent[],
+): Promise<BlockPins[]> {
+  const pins: BlockPins[] = [];
+  for (const agent of defined) pins.push(await resolveBlockPins(blocks, tenantId, agent));
+  return pins;
+}
+
 /** Each agent's pins, in order; throws `UnpinnableDeploy` naming every range that matches nothing. */
 async function pinAgents(
   tools: ToolRegistryBinding,
-  blocks: BlockRegistryBinding | undefined,
+  blockPins: readonly BlockPins[],
   tenantId: TenantId,
   defined: readonly Agent[],
 ): Promise<AgentPins[]> {
   const pins: AgentPins[] = [];
   const unpinnable: UnpinnableRef[] = [];
   for (const [i, agent] of defined.entries()) {
-    const resolved = await resolveAgentPins(tools, tenantId, agent, blocks);
+    const resolved = await resolveAgentPins(
+      tools,
+      tenantId,
+      agent,
+      undefined,
+      blockPins[i] as BlockPins,
+    );
     if (resolved.kind === 'ok') {
       pins.push(resolved.pins);
       continue;

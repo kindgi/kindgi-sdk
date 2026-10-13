@@ -91,6 +91,7 @@ import {
   tenantApiRequestLimit,
   tenantS3RequestLimit,
 } from './middleware/tenant-limits.js';
+import { tenantScopeMiddleware } from './middleware/tenant-scope.js';
 import { type TenantStateBinding, tenantStateGate } from './middleware/tenant-state.js';
 import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
@@ -1336,6 +1337,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     if (tenantId !== undefined) c.set('log', c.get('log').child({ tenantId }));
     await next();
   });
+  // And its work is the tenant's: a schema it compiles again counts
+  // against the tenant's compile budget.
+  v1.use('*', tenantScopeMiddleware());
   const authorizer: Authorizer | undefined =
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
   // A system principal acts in no tenant: it reaches /v1/system/* (and the

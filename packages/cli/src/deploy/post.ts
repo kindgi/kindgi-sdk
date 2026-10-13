@@ -18,7 +18,9 @@
  *
  *   - `postDeploymentReal(opts)` — the production runner: does the
  *     actual HTTP POST via the caller-supplied `fetchImpl`, parses the
- *     server's response, discriminates 201 / 200 / 4xx / 5xx.
+ *     server's response, discriminates 201 / 200 / 4xx / 5xx. A refusal
+ *     carries its `Retry-After` and the limit a `429` names, for the
+ *     command to wait out (`rate-limit-wait.ts`).
  */
 
 import { createHash } from 'node:crypto';
@@ -150,15 +152,25 @@ export async function postDeploymentReal(
   // 4xx / 5xx — the api-server wraps errors in `{ error: { code,
   // message, ...details } }` via `toWireError` in
   // `packages/api/src/errors.ts`.
-  const wire = body as { error?: { code?: string; message?: string } } | null;
+  const wire = body as { error?: { code?: string; message?: string; details?: unknown } } | null;
   const code = wire?.error?.code ?? `http-${res.status}`;
   const message = wire?.error?.message ?? `HTTP ${res.status}`;
   const details = extractDetails(wire?.error);
+  const limit = (wire?.error?.details as { readonly limit?: unknown } | undefined)?.limit;
+  const retryAfter = res.headers.get('retry-after')?.trim();
   return {
     kind: 'wire-error',
     status: res.status,
     ...replay,
-    error: { code, message, ...(details !== undefined && { details }) },
+    // The server sends whole seconds.
+    ...(retryAfter !== undefined &&
+      /^\d+$/.test(retryAfter) && { retryAfterSeconds: Number(retryAfter) }),
+    error: {
+      code,
+      message,
+      ...(details !== undefined && { details }),
+      ...(typeof limit === 'string' && { limit }),
+    },
   };
 }
 

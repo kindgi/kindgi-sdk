@@ -30,6 +30,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { DEPLOY_ENVELOPE_SCHEMA } from '../src/build/envelope.js';
+import { postDeploymentReal } from '../src/deploy/post.js';
 import type {
   DeployRunners,
   DeploymentRecord,
@@ -42,6 +43,7 @@ import type {
   SyncSecretsResult,
 } from '../src/deploy/runners.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
+import { fakeRateLimitWaits } from './rate-limit-waits.js';
 
 let cwd: string;
 let home: string;
@@ -672,6 +674,147 @@ describe('kindgi deploy — response handling', () => {
     expect(out.stderr).toContain('transport failure');
     expect(out.stderr).toContain('ECONNREFUSED');
     expect(out.stderr).toContain("so a deploy that did land isn't registered twice");
+  });
+});
+
+// ---------- the server's rate limit ----------
+
+/** One answer of the fake server: status, JSON body, headers. */
+interface Answer {
+  readonly status: number;
+  readonly body: unknown;
+  readonly headers?: Record<string, string>;
+}
+
+const created: Answer = { status: 201, body: makeDeploymentRecord() };
+
+/** A `429 rate-limit-exceeded`, from the schema compile budget unless `details` says otherwise. */
+function refusal(
+  headers: Record<string, string> = {},
+  details: unknown = { limit: 'schema-compile-time', budgetMs: 2000 },
+): Answer {
+  return {
+    status: 429,
+    headers,
+    body: {
+      error: {
+        code: 'rate-limit-exceeded',
+        message: "This minute's schema compile time is used up.",
+        details,
+        requestId: 'req-1',
+      },
+    },
+  };
+}
+
+/**
+ * `kindgi deploy` over the real POST, against a server that answers
+ * `script` in turn (its last answer repeats). Each request's
+ * Idempotency-Key is kept.
+ */
+async function deployAgainst(script: readonly Answer[]) {
+  await writeAutoEnvelope();
+  const fixtures = makeFixtures();
+  const waits = fakeRateLimitWaits();
+  const keys: (string | null)[] = [];
+  const fetchImpl = (async (_url: unknown, init?: RequestInit) => {
+    keys.push(new Headers(init?.headers).get('idempotency-key'));
+    const answer = script[Math.min(keys.length, script.length) - 1] as Answer;
+    return new Response(JSON.stringify(answer.body), {
+      status: answer.status,
+      headers: { 'content-type': 'application/json', ...answer.headers },
+    });
+  }) as typeof fetch;
+  const out = await runCli({
+    ...baseInputs({
+      ...fixtures,
+      runners: { ...fixtures.runners, postDeployment: postDeploymentReal },
+    }),
+    argv: ['deploy', '--env=staging', `--path=${packDir}`],
+    fetchImpl,
+    rateLimitWaits: waits.seam,
+  });
+  return { out, keys, lines: waits.lines, sleeps: waits.sleeps };
+}
+
+describe("kindgi deploy — the server's rate limit", () => {
+  test('a 429 with Retry-After, then 201: one line, deployed, sent twice with the same Idempotency-Key', async () => {
+    const run = await deployAgainst([refusal({ 'Retry-After': '23' }), created]);
+    expect(run.out.exitCode, run.out.stderr).toBe(0);
+    expect(run.lines).toEqual([
+      "The server's schema-compile-time limit is reached: sending it again in 23s.\n",
+    ]);
+    expect(run.sleeps).toEqual([23_000]);
+    expect(run.keys).toHaveLength(2);
+    expect(run.keys[0]).toMatch(/^sha256:/);
+    expect(run.keys[1]).toBe(run.keys[0]);
+    expect(run.out.stdout).toContain('dep-01H8XM');
+  });
+
+  test("a limit the server doesn't name (the API's request rate) is waited out too", async () => {
+    const run = await deployAgainst([refusal({ 'Retry-After': '7' }, {}), created]);
+    expect(run.out.exitCode, run.out.stderr).toBe(0);
+    expect(run.lines).toEqual(["The server's rate limit is reached: sending it again in 7s.\n"]);
+    expect(run.keys).toHaveLength(2);
+  });
+
+  test('waits that would pass 10 minutes: it stops and fails as without waiting, after the lines of the waits it made', async () => {
+    const wait = refusal({ 'Retry-After': '300' });
+    // Finite, so a missing cap shows as a deploy rather than a loop.
+    const run = await deployAgainst([wait, wait, wait, wait, created]);
+    const once = await deployAgainst([refusal()]);
+    expect(run.out.exitCode).toBe(1);
+    expect(run.out.stderr).toBe(once.out.stderr);
+    expect(run.out.stdout).toBe(once.out.stdout);
+    expect(run.out.stderr).toContain('HTTP 429');
+    expect(run.out.stderr).toContain('rate-limit-exceeded');
+    // 300 s, then 300 s more (10 minutes exactly); a third wait would pass it.
+    expect(run.sleeps).toEqual([300_000, 300_000]);
+    expect(run.lines).toHaveLength(2);
+    expect(run.keys).toHaveLength(3);
+    expect(new Set(run.keys).size).toBe(1);
+  });
+
+  test('a 429 without Retry-After: no wait, it fails at once', async () => {
+    const run = await deployAgainst([refusal(), created]);
+    expect(run.out.exitCode).toBe(1);
+    expect(run.out.stderr).toContain('HTTP 429');
+    expect(run.keys).toHaveLength(1);
+    expect(run.lines).toEqual([]);
+    expect(run.sleeps).toEqual([]);
+  });
+
+  test.each([
+    {
+      name: '409 idempotency-key-in-flight with Retry-After',
+      status: 409,
+      code: 'idempotency-key-in-flight',
+    },
+    { name: '400 with Retry-After', status: 400, code: 'validation-failed' },
+    { name: '503 with Retry-After', status: 503, code: 'service-unavailable' },
+    { name: 'a 429 with another code and Retry-After', status: 429, code: 'runs-pending' },
+  ])('$name: no wait', async ({ status, code }) => {
+    const run = await deployAgainst([
+      {
+        status,
+        headers: { 'Retry-After': '5' },
+        body: { error: { code, message: 'Not this time.' } },
+      },
+      created,
+    ]);
+    expect(run.out.exitCode).toBe(1);
+    expect(run.keys).toHaveLength(1);
+    expect(run.lines).toEqual([]);
+  });
+
+  test('a 429 the server replays from an earlier request (a runtime before 0.1.3): no wait', async () => {
+    const run = await deployAgainst([
+      refusal({ 'Retry-After': '23', 'X-Idempotent-Replay': 'true' }),
+      created,
+    ]);
+    expect(run.out.exitCode).toBe(1);
+    expect(run.keys).toHaveLength(1);
+    expect(run.lines).toEqual([]);
   });
 });
 

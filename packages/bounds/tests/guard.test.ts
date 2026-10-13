@@ -17,13 +17,17 @@ const PACKAGES = join(import.meta.dirname, '..', '..');
 
 /** `RegExp(` sites by file (from `packages/`): how many, and why none compiles a tenant's pattern. */
 const ALLOWED: Readonly<Record<string, { readonly sites: number; readonly why: string }>> = {
-  'bounds/src/pattern.ts': { sites: 3, why: 'the helper itself: on V8, and parsing before RE2' },
+  'bounds/src/pattern.ts': { sites: 2, why: 'the helper itself: on V8, and parsing before RE2' },
   'agents/src/remember.ts': { sites: 1, why: 'a tool id, escaped, as a whole token' },
   'api/src/middleware/public-run-routes.ts': { sites: 1, why: "Kindgi's own route paths" },
   'capabilities/src/tool-names.ts': { sites: 1, why: 'tool ids, escaped, as whole tokens' },
   'handler-runtime/src/discovery.ts': {
     sites: 1,
     why: "a pack's discovery globs, in the pack's own process",
+  },
+  'schema/src/bounded.ts': {
+    sites: 1,
+    why: "ajv-formats' url format, written without backtracking",
   },
   'sdk/src/webhook-events.ts': { sites: 1, why: "Kindgi's generated event shapes, in a client" },
 };
@@ -93,6 +97,7 @@ describe('no tenant pattern skips compileTenantPattern', () => {
       'api/src/middleware/public-run-routes.ts: listed, but has none',
       'capabilities/src/tool-names.ts: listed, but has none',
       'handler-runtime/src/discovery.ts: listed, but has none',
+      'schema/src/bounded.ts: listed, but has none',
       'sdk/src/webhook-events.ts: listed, but has none',
     ]);
   });

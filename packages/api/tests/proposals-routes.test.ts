@@ -16,6 +16,8 @@ import { describe, expect, test } from 'vitest';
 
 import { type Agent, createAgentRegistry, pinsDigest } from '@kindgi/agents';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
+import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import type {
   LiveScope,
   ProjectId,
@@ -47,6 +49,7 @@ import type {
   StartImprovementPassInput,
   TokenResolver,
 } from '../src/index.js';
+import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
 import { inMemoryProposals } from './support/in-memory-proposals.js';
 
@@ -55,6 +58,7 @@ const projectId = randomUUID() as ProjectId;
 const TOKEN = 'proposals-token';
 const AGENT = 'acme.scorer';
 const WEIGHTS = 'acme.scoring-weights';
+const MODEL = 'acme.scorer-model';
 const NOW = '2026-10-07T00:00:00.000Z' as Timestamp;
 const SEGMENT: LiveScope = {
   kind: 'segment',
@@ -448,6 +452,8 @@ async function harness(
     passes?: ImprovementPassBinding;
     /** Instructions inline, not from a pinned prompt block. */
     inlineInstructions?: boolean;
+    /** The agent takes its model settings from block `MODEL`. */
+    modelSettings?: boolean;
   } = {},
 ) {
   const agents = agentBinding();
@@ -492,10 +498,22 @@ async function harness(
       content: { template: 'Score it.' },
     },
   });
+  if (opts.modelSettings === true) {
+    await blocks.publish({
+      tenantId,
+      projectId,
+      block: {
+        id: MODEL,
+        version: '1.0.0',
+        kind: 'settings',
+        content: { values: { temperature: 0.2 } },
+      },
+    });
+  }
   const pinned = {
     tools: {},
     prompts: opts.inlineInstructions === true ? {} : { 'acme.scorer-prompt': '1.0.0' },
-    settings: { [WEIGHTS]: '1.0.0' },
+    settings: { [WEIGHTS]: '1.0.0', ...(opts.modelSettings === true && { [MODEL]: '1.0.0' }) },
   };
   await agents.publish({
     tenantId,
@@ -509,6 +527,7 @@ async function harness(
           ? 'Score it.'
           : { prompt: 'acme.scorer-prompt', version: '^1.0.0' },
       settings: [{ id: WEIGHTS, version: '^1.0.0' }],
+      ...(opts.modelSettings === true && { modelSettings: { id: MODEL, version: '^1.0.0' } }),
       capabilities: [],
       tools: [],
       retrieval: [],
@@ -744,6 +763,49 @@ describe('POST /v1/proposals/:id/evaluate', () => {
         comparison: expect.objectContaining({ repetitions: 3, classWeights: 'restricted-only' }),
       }),
     ]);
+  });
+
+  test("model settings that aren't are refused (400) before the block version is written", async () => {
+    const { call, releases, blocks, agents, evalRuns } = await harness({ modelSettings: true });
+    releases.pin({ kind: 'tenant' }, '1.0.0');
+    const created = await call('POST', '/v1/proposals', {
+      ...DRAFT,
+      change: { blockId: MODEL, content: { values: { temperature: 5 } } },
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const res = await call('POST', `/v1/proposals/${created.body.id}/evaluate`, {
+      suiteId: 'acme.scoring-judged',
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(res.body.error).toMatchObject({
+      code: 'validation-failed',
+      message: `The proposal's content isn't model settings, which block "${MODEL}" is`,
+    });
+    expect([...blocks.rows.keys()].filter((k) => k.startsWith(MODEL))).toEqual([`${MODEL}@1.0.0`]);
+    expect(
+      await agents.getVersion({ tenantId, agentId: AGENT as never, version: '1.0.1' as Semver }),
+    ).toBeNull();
+    expect(evalRuns.started).toHaveLength(0);
+  });
+
+  test("its schemas' compiles count against the tenant's budget, first ones included: refused, nothing is stored", async () => {
+    const { call, id, blocks, agents, evalRuns } = await drafted();
+    const evaluate = () =>
+      call('POST', `/v1/proposals/${id}/evaluate`, { suiteId: 'acme.scoring-judged' });
+    const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
+    try {
+      await expectCompileBudgetRefused(await evaluate());
+      expect([...blocks.rows.keys()].filter((k) => k.startsWith(WEIGHTS))).toEqual([
+        `${WEIGHTS}@1.0.0`,
+      ]);
+      expect(
+        await agents.getVersion({ tenantId, agentId: AGENT as never, version: '1.0.1' as Semver }),
+      ).toBeNull();
+      expect(evalRuns.started).toHaveLength(0);
+    } finally {
+      restore();
+    }
+    expect((await evaluate()).status).toBe(202);
   });
 
   test.each([

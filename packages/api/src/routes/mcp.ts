@@ -26,6 +26,7 @@ import {
   mcpEndpointSecretRefs,
 } from '../mcp-endpoint-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { type SecretScopeDeps, secretScopesFor } from '../secret-scope.js';
 import { type TenantHostAccess, deniesHostReach, stdioRefusal } from '../tenant-host-access.js';
@@ -62,6 +63,8 @@ export function mcpRouter(
   },
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // Every schema a publish compiles counts against its tenant's budget.
+  const publishCompiles = publishCompilesMiddleware();
 
   // Authorization PEP — config-shaped resource. `mcp_endpoint` has
   // `admin from scope`, so cascade fires when scope tuple exists.
@@ -185,7 +188,7 @@ export function mcpRouter(
   });
 
   // ---------- POST /endpoints (register) ----------
-  r.post('/endpoints', async (c) => {
+  r.post('/endpoints', publishCompiles, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
 
