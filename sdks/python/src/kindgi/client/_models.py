@@ -1841,6 +1841,37 @@ class ExportSigningKeyList(BaseModel):
     """
 
 
+class LicenseUsage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    since: AwareDatetime
+    """
+    The period's start, as asked.
+    """
+    until: AwareDatetime
+    """
+    When they were counted.
+    """
+    runtime_version: Annotated[str, Field(alias="runtimeVersion")]
+    """
+    The runtime's version.
+    """
+    runs: Annotated[int, Field(ge=0)]
+    """
+    Runs started in the period: not dry runs, replays, evals or child runs.
+    """
+    people: Annotated[int, Field(ge=0)]
+    """
+    Distinct people who started runs or decided approvals in the period, counted in each tenant and summed.
+    """
+    projects_in_production: Annotated[int | None, Field(alias="projectsInProduction", ge=0)] = None
+    """
+    Projects in production at `until`; absent when the runtime has no such setting.
+    """
+
+
 class ExportAuditBundleBody(BaseModel):
     """
     Body for `POST /v1/approvals/{approvalId}/audit-bundle`, optional: no body signs with the active key. `includeMessages` adds the conversation messages of the approval's run.

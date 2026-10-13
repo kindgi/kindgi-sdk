@@ -194,7 +194,16 @@ function makeApp(tenancy: 'single' | 'multi' = 'multi') {
         audit[Number(id)] = { ...(audit[Number(id)] as SystemAccessRecord), ...outcome };
       },
     },
-    license: { status: () => ({ mode: 'licensed', name: 'Acme', use: 'production' }) },
+    license: {
+      status: () => ({ mode: 'licensed', name: 'Acme', use: 'production' }),
+      usage: async ({ since, until }) => ({
+        since: since.toISOString(),
+        until: until.toISOString(),
+        runtimeVersion: '0.0.0',
+        runs: 3,
+        people: 2,
+      }),
+    },
   });
   const call = async (
     token: string,
@@ -261,7 +270,7 @@ describe('the fence: a system principal reaches /v1/system/* and the license onl
     expect(code(r)).toBe('system-key-on-tenant-route');
     // The refusal names every route a system key reaches.
     expect((r.body.error as { message: string }).message).toContain(
-      'it reaches /v1/system/* and GET /v1/license only, not GET /v1/tenant',
+      'it reaches /v1/system/*, GET /v1/license and GET /v1/license/usage only, not GET /v1/tenant',
     );
   });
 
@@ -293,6 +302,30 @@ describe('the fence: a system principal reaches /v1/system/* and the license onl
       keyId: 'boot',
       path: '/v1/license',
       scope: 'kindgi:system',
+    });
+  });
+
+  test("a system key holding system:license reads the deployment's use too", async () => {
+    const { call, code, audit, mintSystemKey } = makeApp();
+    const usage = '/v1/license/usage?since=2026-10-05T12:00:00Z';
+    const renewer = await mintSystemKey(['system:license']);
+    const r = await call(renewer.token, 'GET', usage);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(r.body).toMatchObject({ runs: 3, people: 2 });
+    expect(audit.at(-1)).toMatchObject({
+      keyId: renewer.id,
+      method: 'GET',
+      path: '/v1/license/usage',
+      status: 200,
+      scope: 'system:license',
+    });
+    // Any other scope is refused at the fence, as for the license.
+    const other = await mintSystemKey(['system:tenants']);
+    const refused = await call(other.token, 'GET', usage);
+    expect(refused.status).toBe(403);
+    expect(code(refused)).toBe('system-scope-missing');
+    expect((refused.body.error as { details?: unknown }).details).toMatchObject({
+      scope: 'system:license',
     });
   });
 

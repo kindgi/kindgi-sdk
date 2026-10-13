@@ -4464,6 +4464,48 @@
           }
         }
       },
+      "LicenseUsage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "since",
+          "until",
+          "runtimeVersion",
+          "runs",
+          "people"
+        ],
+        "properties": {
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The period's start, as asked."
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When they were counted."
+          },
+          "runtimeVersion": {
+            "type": "string",
+            "description": "The runtime's version."
+          },
+          "runs": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Runs started in the period: not dry runs, replays, evals or child runs."
+          },
+          "people": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Distinct people who started runs or decided approvals in the period, counted in each tenant and summed."
+          },
+          "projectsInProduction": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Projects in production at `until`; absent when the runtime has no such setting."
+          }
+        }
+      },
       "ExportAuditBundleBody": {
         "description": "Body for `POST /v1/approvals/{approvalId}/audit-bundle`, optional: no body signs with the active key. `includeMessages` adds the conversation messages of the approval's run.",
         "type": "object",
@@ -35229,7 +35271,7 @@
             }
           },
           "403": {
-            "description": "Not the deployment's own token, nor an admin of the one tenant it serves (`license-operator-only`).",
+            "description": "Not the deployment's own token, a system key holding `system:license`, or an admin of the one tenant it serves (`license-operator-only`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -35240,6 +35282,75 @@
           }
         },
         "description": "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/license/usage": {
+      "get": {
+        "operationId": "license.usage",
+        "summary": "How much the deployment was used since a time",
+        "tags": [
+          "system"
+        ],
+        "responses": {
+          "200": {
+            "description": "The counts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LicenseUsage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`since` is missing, not a time with a zone, or more than five minutes ahead of the runtime's clock (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the deployment's own token or a system key holding `system:license` (`license-operator-only`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "What a free license key's renewal carries (`kindgi license renew --runtime`): the runs started since `since` (not dry runs, replays, evals or child runs), the distinct people who started runs or decided approvals (counted in each tenant and summed, so a person in two tenants counts twice), the projects in production when the runtime can put projects in production (`PUT /v1/projects/{projectId}/production`), and the runtime's version. Counts only: no content, names or ids. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, reads it; anyone else is refused (`license-operator-only`), and the refusal recorded, before `since` is read. A deployment that doesn't report it answers 404.",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": true,
+            "description": "The period's start (ISO 8601, with a zone): `kindgi license renew` sends when the current key was issued. Up to five minutes ahead of the runtime's clock is taken as now, since clocks differ; further ahead is refused."
+          }
+        ],
         "security": [
           {
             "bearerAuth": []

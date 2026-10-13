@@ -1765,7 +1765,7 @@ export const ERROR_ENTRIES = {
   },
   'system-key-on-tenant-route': {
     description:
-      "A system key was sent to a route it can't use. A system key acts in no tenant, so it reaches `/v1/system/*` and `GET /v1/license` only: use one of the tenant's keys.",
+      "A system key was sent to a route it can't use. A system key acts in no tenant, so it reaches `/v1/system/*`, `GET /v1/license` and `GET /v1/license/usage` only: use one of the tenant's keys.",
     details: [
       {
         key: 'action',
@@ -2241,7 +2241,7 @@ export const ERROR_ENTRIES = {
   },
   'license-operator-only': {
     description:
-      "`GET /v1/license` is for the deployment's own token, or for an admin of the tenant when the deployment serves a single tenant. Other callers are refused.",
+      "`GET /v1/license` and `GET /v1/license/usage` are for the deployment's own token, or a system key holding `system:license`. Where the deployment serves a single tenant, that tenant's admins also read the license's countdown, never its use. Other callers are refused, and the refusal recorded.",
     details: [],
   },
   'invalid-provider-config': {
@@ -3108,6 +3108,13 @@ export const ACCESS_ERRORS = {
       status: 403,
       description:
         "The license's contract term has ended, so it isn't renewed. The key you have runs until its own date. Write to contact@kindgi.com to extend the term.",
+      seeAlso: ['deploy/renew-the-license-key'],
+    },
+    {
+      error: 'held-for-review',
+      status: 403,
+      description:
+        "This renewal's counts (`kindgi license renew --runtime`) are above what a non-production key covers, so it got no new key: write to contact@kindgi.com about a production license. Kindgi can release the deployment after a review, and its renewals then aren't held until a date. The key you have runs until its own date. A renewal before the key is due gets the same key back.",
       seeAlso: ['deploy/renew-the-license-key'],
     },
     {
