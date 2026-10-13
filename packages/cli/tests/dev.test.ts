@@ -662,6 +662,24 @@ describe('kindgi dev — the project env files', () => {
     );
   });
 
+  test('the live "Kindgi is up" block says what models agents have, as the exit banner does', async () => {
+    const fixtures = makeFixtures();
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      await runCli({ ...baseInputs(fixtures), argv: ['dev', '--no-watch', `--path=${packDir}`] });
+    } finally {
+      spy.mockRestore();
+    }
+    const up = writes.join('').split('✓ Kindgi is up')[1] ?? '';
+    expect(up).toContain(
+      `  Models     none yet. Agents give placeholder replies until you connect a model: ${MODELS_GUIDE_URL}\n`,
+    );
+  });
+
   test('public run tokens: the key file when KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH is set', async () => {
     const keyPath = join(packDir, 'public-token.pem');
     const { privateKey } = generateKeyPairSync('ed25519');
