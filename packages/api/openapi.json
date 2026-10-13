@@ -20221,7 +20221,7 @@
               "latest",
               "skip"
             ],
-            "description": "After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence."
+            "description": "After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence. A tenant's suspension isn't caught up either way: once the tenant is restored, a schedule that's on fires next at its first occurrence after the restore."
           },
           "overlap": {
             "type": "string",
@@ -20347,7 +20347,7 @@
               "refused",
               "failed"
             ],
-            "description": "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`: what an improve schedule waits for wasn't there (its threshold, or its monthly cap), as `detail` says. None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`."
+            "description": "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or pass started; or its run or pass hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension (`project-suspended`, `tenant-suspended`) doesn't reset the auto-pause's count of fires in a row either."
           },
           "runId": {
             "type": "string",
@@ -20826,7 +20826,7 @@
               "refused",
               "failed"
             ],
-            "description": "`pending` while its run starts. `skipped`: the trigger was paused, so the event was dropped. `refused`: `detail` says why. `failed`: the run couldn't start."
+            "description": "`pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); or its run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`). `refused`: `detail` says why. `failed`: the run couldn't start."
           },
           "runId": {
             "type": "string",
@@ -20835,7 +20835,7 @@
           },
           "detail": {
             "type": "string",
-            "description": "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access."
+            "description": "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension names `project-suspended` or `tenant-suspended` in it."
           },
           "countsTowardPause": {
             "type": "boolean",
@@ -24512,7 +24512,7 @@
             }
           }
         },
-        "description": "Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).",
+        "description": "Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).",
         "parameters": [
           {
             "name": "tenantId",
@@ -24790,7 +24790,7 @@
             }
           }
         },
-        "description": "Reversible: nothing new runs or deploys in the project, its running runs are cancelled and its deployments retired; reads and the rest of the tenant are untouched. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).",
+        "description": "Reversible: nothing new runs or deploys in the project, its running runs are cancelled and its deployments retired; reads and the rest of the tenant are untouched. Its schedules' fires are recorded `skipped` (`project-suspended`) and don't count toward the auto-pause, so a schedule stays on and fires again once the project is restored. A delivery to one of its webhook triggers is answered `skipped: project-suspended`, and nothing is recorded. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).",
         "parameters": [
           {
             "name": "tenantId",
@@ -52413,7 +52413,7 @@
             }
           }
         },
-        "description": "Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals and skipped deliveries past 20 a minute only count (the trigger's `suppressedRefusals`).",
+        "description": "Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused, or its project or tenant suspended) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals and skipped deliveries past 20 a minute only count (the trigger's `suppressedRefusals`).",
         "parameters": [
           {
             "name": "triggerId",

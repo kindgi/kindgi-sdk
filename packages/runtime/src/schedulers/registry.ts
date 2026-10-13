@@ -238,8 +238,12 @@ export interface TriggerFire {
    * `skipped-erasure`: the person the fire acts for is being erased (the
    * run start answered `erasure-in-progress`). Skipped fires never count
    * toward the auto-pause; refused and failed ones do.
-   * `skipped`: what the target waits for wasn't there (an `improve`
-   * schedule's threshold, or its monthly cap), as `detail` says.
+   * `skipped`, as `detail` says: a webhook trigger was paused; what the
+   * target waits for wasn't there (an `improve` schedule's threshold, or its
+   * monthly cap); its project is suspended (`project-suspended`); or its run
+   * or pass hadn't started when its tenant was suspended, and the restore
+   * concluded it (`tenant-suspended`). A skip for a suspension doesn't reset
+   * the count of refusals and failures in a row either.
    */
   readonly outcome:
     | 'pending'
