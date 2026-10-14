@@ -452,8 +452,9 @@ will purge them.
 
 ## Audit events
 
-Retention policies don't touch the audit trail: each access decision and
-each approval decision. Kindgi keeps it for good, unless
+Retention policies don't touch the audit trail, where the runtime records
+each access decision, approval decision and sign-in, and changes like those
+in the table below. Kindgi keeps it for good, unless
 you start the runtime with `KINDGI_COMPLIANCE_CLASSIFIER` set to:
 
 - `shipped`, the classifier the runtime ships;
