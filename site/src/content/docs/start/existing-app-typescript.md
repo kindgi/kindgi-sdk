@@ -16,10 +16,11 @@ fix what's missing.
 
 :::tip[Your coding agent can do most of this]
 `kindgi init` gives your app Kindgi's skills, in `.claude/skills/` and
-`.agents/skills/`. After that, you can ask your coding agent instead of following each step: "make
-a Kindgi tool from our order lookup", "add an agent that uses it", "run
-it". It writes the code next to yours, runs it with `kindgi dev`, and asks
-you for your model's key. [How it knows Kindgi](../coding-agents/).
+`.agents/skills/`. After that, you can ask your coding agent instead of
+following each step: "make a Kindgi tool from our order lookup", "add an
+agent that uses it", "run it". It writes the code next to yours, runs it
+with `kindgi dev`, and asks you for your model's key. [How it knows
+Kindgi](../coding-agents/).
 :::
 
 In the app's root (where its `package.json` is), with no pack name:

@@ -346,4 +346,65 @@ describe('kindgi skills sync', () => {
       out.stderr.match(/^ {2}9 added, 0 updated, 0 unchanged, 0 skipped-modified, 0 local-only$/gm),
     ).toHaveLength(2);
   });
+
+  describe('.prettierignore', () => {
+    const sync = (...flags: string[]) =>
+      runCli({ argv: ['skills', 'sync', ...flags], env: {}, cwd: packDir, home: packDir });
+    const ignore = () => join(packDir, '.prettierignore');
+
+    beforeEach(async () => {
+      await writeFile(
+        join(packDir, 'kindgi.config.json'),
+        '{"language": "java", "pack": {"id": "ledger", "version": "0.1.0"}}',
+      );
+    });
+
+    test("gets the folder it lacks (an app that got Kindgi before .agents/skills), but --dry-run doesn't", async () => {
+      const before = 'dist/\n\n# Kindgi\n.claude/skills/kindgi-*/\n';
+      await writeFile(ignore(), before);
+      expect((await sync('--dry-run')).exitCode).toBe(0);
+      expect(await readFile(ignore(), 'utf8')).toBe(before);
+
+      const out = await sync();
+      expect(out.exitCode).toBe(0);
+      expect(await readFile(ignore(), 'utf8')).toBe(
+        `${before}\n# Kindgi\n.agents/skills/kindgi-*/\n`,
+      );
+      expect(JSON.parse(out.stdout).prettierignore).toEqual({
+        path: expect.stringMatching(/\.prettierignore$/),
+        status: 'patched',
+        appended: ['.agents/skills/kindgi-*/'],
+      });
+      expect(out.stderr).toMatch(
+        /^Added \.agents\/skills\/kindgi-\*\/ to \S*\.prettierignore, so the formatter leaves the skills as they are\.$/m,
+      );
+      // Once both lines are there, there's nothing to say.
+      const again = await sync();
+      expect(JSON.parse(again.stdout).prettierignore).toBeUndefined();
+      expect(again.stderr).not.toMatch(/prettierignore/);
+    });
+
+    test('is never created', async () => {
+      const out = await sync();
+      expect(out.exitCode).toBe(0);
+      expect(JSON.parse(out.stdout).prettierignore).toBeUndefined();
+      await expect(readFile(ignore(), 'utf8')).rejects.toThrow(/ENOENT/);
+    });
+
+    test("one it can't read: the skills are still synced, and the summary says what to add by hand", async () => {
+      await mkdir(ignore());
+      const out = await sync();
+      expect(out.exitCode).toBe(0);
+      expect(await installed('.agents/skills')).toHaveLength(9);
+      expect(JSON.parse(out.stdout).prettierignore).toEqual({
+        path: expect.stringMatching(/\.prettierignore$/),
+        status: 'error',
+        message: expect.stringMatching(/^Failed to read .*\.prettierignore: /),
+      });
+      expect(out.stderr).toMatch(/^Couldn't add the skills' folders to \S*\.prettierignore: /m);
+      expect(out.stderr).toContain(
+        '  Add .claude/skills/kindgi-*/ and .agents/skills/kindgi-*/ to it yourself: a skill the formatter rewrites, the next sync keeps as edited.',
+      );
+    });
+  });
 });

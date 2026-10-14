@@ -62,9 +62,10 @@ my-pack/
 
 :::tip[Or ask your coding agent]
 The pack already has Kindgi's skills in `.claude/skills/` and
-`.agents/skills/`. Follow the steps below yourself, or ask your coding agent ("run the pack and try the agent",
-"add a tool that looks up an order"): the skills tell it which commands to
-run. [How it knows Kindgi](../coding-agents/).
+`.agents/skills/`. Follow the steps below yourself, or ask your coding agent
+("run the pack and try the agent", "add a tool that looks up an order"): the
+skills tell it which commands to run. [How it knows
+Kindgi](../coding-agents/).
 :::
 
 ## 2. Run it

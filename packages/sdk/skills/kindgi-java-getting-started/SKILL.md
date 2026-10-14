@@ -266,15 +266,14 @@ they ask for a secret:
 - `./kindgiw auth registry`, which logs Docker in to the runtime image's registry.
 
 Others need what a coding agent's sandbox often blocks: `./kindgiw dev` and any
-dev server of the app (they keep running), and `./kindgiw build` or anything else
-that needs Docker. When your sandbox blocks a command (a process it can't
+dev server of the app (they keep running), and `./kindgiw build` or anything
+else that needs Docker. When your sandbox blocks a command (a process it can't
 start, `spawn EPERM`; Docker's socket denied; `localhost` refused; a folder it
 keeps read-only, as Codex's keeps `.agents/`, which `./kindgiw skills sync`
-writes), don't work around it: don't turn your sandbox off, and don't start
-the command in the background. Give the person the exact command, the folder
-to run it in and what they'll see, then wait for them. Once they say
-`./kindgiw dev` is running, `./kindgiw dev` again exits 3 and says where theirs runs:
-use that one.
+writes), don't work around it: don't turn your sandbox off, and don't start the
+command in the background. Give the person the exact command, the folder to run
+it in and what they'll see, then wait for them. Once they say `./kindgiw dev` is
+running, starting it yourself exits 3 and says where theirs runs: use that one.
 
 A tool's own `EPERM` while it runs under `./kindgiw dev` is something else:
 Kindgi's dev sandbox (see the tools skill). Never turn that one off either.

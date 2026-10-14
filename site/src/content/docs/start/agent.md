@@ -254,8 +254,9 @@ that uses it, as that page shows. Otherwise:
    `dependencies` should pass.
 
 `init` also gives you Kindgi's skills, in `.claude/skills/` and
-`.agents/skills/` (the same copy in each), for the project's language (a Java or Scala project gets its own). Read them: they
-are how you write tools and agents for this project.
+`.agents/skills/` (the same copy in each), for the project's language (a
+Java or Scala project gets its own). Read them: they are how you write tools
+and agents for this project.
 
 ## Step 3: start Kindgi
 

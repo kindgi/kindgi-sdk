@@ -37,6 +37,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 
 import { type KindgiConfig, type PackLanguage, packLanguage } from '@kindgi/handler-runtime';
 
+import { FORMATTER_IGNORE_PATTERNS, patchPrettierignore } from '../init/gitignore-patcher.js';
 import { type OutputFormat, renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import { commandResultFromThrown, stringFlag } from './helpers.js';
@@ -67,7 +68,10 @@ interface Manifest {
    * `.agents/skills/`'s copies. Optional, so a CLI from before that folder
    * still reads the manifest (and drops the field when it writes); a copy
    * with no entry here is judged by its `skills` entry, which the same sync
-   * wrote.
+   * wrote. Not always: after an older CLI's sync, which moves only
+   * `.claude/skills/` on, an `.agents/skills/` copy left behind reads as
+   * edited and is kept until `--force`. Nothing is overwritten; it's only
+   * reported as an edit.
    */
   readonly agentsSkills?: Readonly<Record<string, ManifestEntry>>;
 }
@@ -108,7 +112,19 @@ export interface SkillSyncReport {
   readonly outcomes: readonly SkillSyncOutcome[];
   readonly dryRun: boolean;
   readonly force: boolean;
+  /** What `kindgi skills sync` did to the pack's `.prettierignore`, when it changed it or couldn't. */
+  readonly prettierignore?: FormatterIgnoreOutcome;
 }
+
+/**
+ * The skills' folders added to a `.prettierignore` the pack already has, so
+ * the formatter never rewrites a copy (the next sync would keep it as
+ * edited). An app that got Kindgi before `.agents/skills/` existed has only
+ * the `.claude/skills/` line. No file is created, and `--dry-run` reads none.
+ */
+export type FormatterIgnoreOutcome =
+  | { readonly path: string; readonly status: 'patched'; readonly appended: readonly string[] }
+  | { readonly path: string; readonly status: 'error'; readonly message: string };
 
 const sync: LeafCommand = {
   kind: 'leaf',
@@ -152,7 +168,9 @@ const sync: LeafCommand = {
       const language = config.kind === 'ok' ? packLanguage(config.config as KindgiConfig) : 'node';
       const force = ctx.options.force === true;
       const dryRun = ctx.options['dry-run'] === true;
-      const report = await syncSkills({ skillsRoot, targetDir, language, force, dryRun });
+      const synced = await syncSkills({ skillsRoot, targetDir, language, force, dryRun });
+      const prettierignore = dryRun ? undefined : await patchFormatterIgnore(targetDir, synced);
+      const report = prettierignore === undefined ? synced : { ...synced, prettierignore };
       const json = renderJson(report, ctx.globals.format);
       return {
         kind: 'ok',
@@ -323,6 +341,24 @@ async function syncCopy(inputs: {
     },
     installed: skill.entry,
   };
+}
+
+/**
+ * Adds the skills' folders to the pack's `.prettierignore`, when it has one
+ * (`FormatterIgnoreOutcome`). `undefined` when there's none, or every line
+ * is there already.
+ */
+async function patchFormatterIgnore(
+  targetDir: string,
+  report: SkillSyncReport,
+): Promise<FormatterIgnoreOutcome | undefined> {
+  const path = join(report.targetDir, '.prettierignore');
+  const patched = await patchPrettierignore(join(targetDir, '.prettierignore'));
+  if (patched.kind === 'patched') return { path, status: 'patched', appended: patched.appended };
+  if (patched.kind === 'error') {
+    return { path, status: 'error', message: patched.message ?? `couldn't patch ${path}` };
+  }
+  return undefined;
 }
 
 // -----------------------------------------------------------------------
@@ -601,10 +637,27 @@ function renderFolder(outcomes: readonly SkillSyncOutcome[], folder: SkillFolder
   return lines;
 }
 
+/** What sync did to the pack's `.prettierignore`, as lines; none when it left the file alone. */
+function renderFormatterIgnore(outcome: FormatterIgnoreOutcome | undefined): string[] {
+  if (outcome === undefined) return [];
+  if (outcome.status === 'patched') {
+    return [
+      '',
+      `Added ${outcome.appended.join(' and ')} to ${outcome.path}, so the formatter leaves the skills as they are.`,
+    ];
+  }
+  return [
+    '',
+    `Couldn't add the skills' folders to ${outcome.path}: ${outcome.message}`,
+    `  Add ${FORMATTER_IGNORE_PATTERNS.join(' and ')} to it yourself: a skill the formatter rewrites, the next sync keeps as edited.`,
+  ];
+}
+
 function renderSummary(report: SkillSyncReport): string {
   const lines: string[] = [
     `Synced ${SKILL_FOLDERS.map((f) => `${report.targetDir}/${f}/`).join(' and ')}${report.dryRun ? ' (dry-run)' : ''}`,
     ...SKILL_FOLDERS.flatMap((folder) => renderFolder(report.outcomes, folder)),
+    ...renderFormatterIgnore(report.prettierignore),
     '',
   ];
   const sdkVersions = new Set<string>();

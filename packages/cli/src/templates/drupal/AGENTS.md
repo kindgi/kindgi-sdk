@@ -77,9 +77,9 @@ needs Docker. When your sandbox blocks a command (a process it can't start,
 `spawn EPERM`; Docker's socket denied; `localhost` refused; a folder it
 keeps read-only, as Codex's keeps `.agents/`, which `kindgi skills sync`
 writes), don't work around it: don't turn your sandbox off, and don't start
-the command in the background. Give the person the exact command, the
-folder to run it in and what they'll see, then wait for them. Once they say
-`kindgi dev` is running, `kindgi dev` again exits 3 and says where theirs
+the command in the background. Give the person the exact command, the folder
+to run it in and what they'll see, then wait for them. Once they say
+`kindgi dev` is running, starting it yourself exits 3 and says where theirs
 runs: use that one.
 
 A tool's own `EPERM` while it runs under `kindgi dev` is something else:
