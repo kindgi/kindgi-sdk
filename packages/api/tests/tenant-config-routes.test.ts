@@ -152,6 +152,8 @@ describe('PATCH /v1/tenant/config — a secret write the store refuses', () => {
     ['secret-name-invalid', 400],
     ['reserved-name-prefix', 400],
     ['secret-value-too-large', 400],
+    ['secret-provider-rate-limited', 429],
+    ['secret-provider-unauthorized', 502],
     ['secret-provider-unavailable', 503],
     ['secret-store-error', 500],
   ])('%s answers %i, as on POST /v1/secrets', async (code, status) => {

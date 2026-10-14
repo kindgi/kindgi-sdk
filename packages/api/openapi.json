@@ -21003,7 +21003,7 @@
           "hmacSecretName": {
             "type": "string",
             "minLength": 1,
-            "description": "The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing). Under `kindgi dev`, `generateSecret` writes it to an env file, so the name is capital letters, digits and underscores (`secret-name-invalid` otherwise)."
+            "description": "The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing). Under `kindgi dev`, `generateSecret` writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`secret-name-invalid` otherwise)."
           },
           "generateSecret": {
             "type": "boolean",
@@ -49271,7 +49271,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`), or a secret whose name or value the store can't write: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores) or `secret-value-too-large`.",
+            "description": "A body that fails validation (`bad-input`), or a secret whose name or value the store can't write: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`) or `secret-value-too-large`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49310,8 +49310,38 @@
               }
             }
           },
+          "429": {
+            "description": "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49958,7 +49988,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`), or a name or value the store can't write: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores; the message says the rule) or `secret-value-too-large`.",
+            "description": "A body that fails validation (`bad-input`), or a name or value the store can't write: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50007,8 +50037,38 @@
               }
             }
           },
+          "429": {
+            "description": "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
             "content": {
               "application/json": {
                 "schema": {
@@ -51860,7 +51920,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the tenant (`details.issues`). Or, with `generateSecret`, a name the secrets store can't write, refused before anything is stored: `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores) or `reserved-name-prefix`.",
+            "description": "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the tenant (`details.issues`). Or, with `generateSecret`, a name the secrets store can't write, refused before anything is stored: `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`) or `reserved-name-prefix`.",
             "content": {
               "application/json": {
                 "schema": {

@@ -240,7 +240,7 @@ const register: LeafCommand = {
     secret: {
       type: 'string',
       description:
-        "The signing secret's name: one written with `kindgi secrets set` in the env the runtime serves (it's read at the trigger's project, its org or the tenant, whichever you administer that has it), or the name --generate-secret stores it under. Never a model provider's key. Under `kindgi dev`, --generate-secret writes it to an env file, so the name is capital letters, digits and underscores (`ACME_WOO_ORDERS`).",
+        "The signing secret's name: one written with `kindgi secrets set` in the env the runtime serves (it's read at the trigger's project, its org or the tenant, whichever you administer that has it), or the name --generate-secret stores it under. Never a model provider's key. Under `kindgi dev`, --generate-secret writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`ACME_WOO_ORDERS`).",
     },
     'generate-secret': {
       type: 'boolean',
