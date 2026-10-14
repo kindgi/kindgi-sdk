@@ -5,8 +5,9 @@
  * A guardrail scoped to flows (`scope.flows`) applies to the turns of
  * those flows' steps, and to no other turn: the gate gives the trace the
  * flow whose step started the turn, read from the turn's parent run, or
- * from the turn's own run once it has resumed. A run that can't be read
- * fails the step, so the guardrail is never passed over unseen.
+ * from the turn's own run once it has resumed; a replay takes the flow of
+ * the turn it replays. A run that can't be read fails the step, so the
+ * guardrail is never passed over unseen.
  */
 
 import { describe, expect, test } from 'vitest';
@@ -58,6 +59,8 @@ interface Turn {
 function turn(options: {
   /** The flow run that started the turn, as a started step's input names it. */
   readonly parent?: string;
+  /** The past run the turn replays (`replay.of`). */
+  readonly replay?: string;
   readonly runs?: Readonly<Record<string, TestRun>>;
   readonly runBinding?: RunBinding;
 }): Turn {
@@ -97,6 +100,9 @@ function turn(options: {
       userMessage: '{ "order": "A-1042", "amount": 900 }',
       ...(options.parent !== undefined && {
         parent: { runId: options.parent as RunId, nodeId: 'decide' as NodeId, scope: '' },
+      }),
+      ...(options.replay !== undefined && {
+        replay: { of: options.replay as RunId, evalRunId: 'eval-1' },
       }),
     },
     bindings: { checks, runBinding } as unknown as InvokeAgentBindings,
@@ -180,6 +186,96 @@ describe('a guardrail scoped to flows', () => {
     expect((thrown as AgentTurnFailure).payload).toMatchObject({ code: 'guardrail-violation' });
     expect(seen['acme.over-limit']?.map((t) => t.flowId)).toEqual(['acme.refunds']);
     expect(reads).toEqual([TURN, FLOW_RUN]);
+  });
+});
+
+describe('a replay takes the flow of the turn it replays', () => {
+  const PAST = 'run-turn-0';
+
+  /**
+   * A chain of `hops` replays back from `replay-0` to a step's turn of
+   * the refunds flow: `replay-0` replays `replay-1`, and so on, and
+   * `replay-<hops>` is the step's turn.
+   */
+  const replayChain = (hops: number): Record<string, TestRun> => {
+    const runs: Record<string, TestRun> = {
+      [`replay-${hops}`]: stepOf(FLOW_RUN),
+      [FLOW_RUN]: { flowId: 'acme.refunds' },
+    };
+    for (let i = 0; i < hops; i++) {
+      runs[`replay-${i}`] = { flowId: AGENT_TURN_FLOW_ID, replayOf: `replay-${i + 1}` };
+    }
+    return runs;
+  };
+
+  test("a replay of a step's turn of its flow runs it, as the original turn did", async () => {
+    // A replay starts with no parent: the turn it replays names the flow run.
+    const { ctx, seen, reads } = turn({
+      replay: PAST,
+      runs: { [PAST]: stepOf(FLOW_RUN), [FLOW_RUN]: { flowId: 'acme.refunds' } },
+    });
+    const thrown = await evaluate(ctx);
+    expect((thrown as AgentTurnFailure).payload).toMatchObject({ code: 'guardrail-violation' });
+    expect(seen['acme.over-limit']?.map((t) => t.flowId)).toEqual(['acme.refunds']);
+    expect(reads).toEqual([PAST, FLOW_RUN]);
+  });
+
+  test('a replay of a turn outside any flow skips it', async () => {
+    const { ctx, seen, reads } = turn({ replay: PAST, runs: { [PAST]: outsideAnyFlow } });
+    const output = await evaluate(ctx);
+    expect(output).not.toBeInstanceOf(Error);
+    expect(seen['acme.over-limit']).toEqual([]);
+    expect(seen['acme.tone-check']?.map((t) => t.flowId)).toEqual([undefined]);
+    expect(reads).toEqual([PAST]);
+  });
+
+  test("a replay of a replay of a step's turn of its flow runs it", async () => {
+    const { ctx, seen, reads } = turn({
+      replay: 'replay-0',
+      runs: replayChain(1),
+    });
+    const thrown = await evaluate(ctx);
+    expect((thrown as AgentTurnFailure).payload).toMatchObject({ code: 'guardrail-violation' });
+    expect(seen['acme.over-limit']?.map((t) => t.flowId)).toEqual(['acme.refunds']);
+    expect(reads).toEqual(['replay-0', 'replay-1', FLOW_RUN]);
+  });
+
+  test('a chain of 10 replays back to the step is followed to the end', async () => {
+    const { ctx, seen } = turn({ replay: 'replay-0', runs: replayChain(10) });
+    const thrown = await evaluate(ctx);
+    expect((thrown as AgentTurnFailure).payload).toMatchObject({ code: 'guardrail-violation' });
+    expect(seen['acme.over-limit']?.map((t) => t.flowId)).toEqual(['acme.refunds']);
+  });
+
+  test('a chain past 10 replays fails the step, as an unreadable run does', async () => {
+    const { ctx, seen, reads } = turn({ replay: 'replay-0', runs: replayChain(11) });
+    const thrown = await evaluate(ctx);
+    expect(thrown).toBeInstanceOf(AgentTurnFailure);
+    expect((thrown as AgentTurnFailure).payload).toMatchObject({
+      code: 'persistence-error',
+      message: "Run replay-0's replay chain goes on past 10 replays, so the turn's flow is unknown",
+    });
+    expect(reads).toHaveLength(11);
+    expect(seen['acme.over-limit']).toEqual([]);
+    expect(seen['acme.tone-check']).toEqual([]);
+  });
+
+  test('a chain that comes back to a run fails the step', async () => {
+    const { ctx, seen, reads } = turn({
+      replay: 'replay-a',
+      runs: {
+        'replay-a': { flowId: AGENT_TURN_FLOW_ID, replayOf: 'replay-b' },
+        'replay-b': { flowId: AGENT_TURN_FLOW_ID, replayOf: 'replay-a' },
+      },
+    });
+    const thrown = await evaluate(ctx);
+    expect((thrown as AgentTurnFailure).payload).toMatchObject({
+      code: 'persistence-error',
+      message:
+        "Run replay-a comes back in run replay-a's replay chain, so the turn's flow is unknown",
+    });
+    expect(reads).toEqual(['replay-a', 'replay-b']);
+    expect(seen['acme.over-limit']).toEqual([]);
   });
 });
 

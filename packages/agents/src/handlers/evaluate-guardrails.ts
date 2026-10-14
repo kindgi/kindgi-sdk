@@ -207,14 +207,19 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
   };
 }
 
+/** The most replays `parentOfRun` follows back to the run they replay. */
+const MAX_REPLAY_HOPS = 10;
+
 /**
  * The flow whose step started this turn, which a guardrail scoped to
  * flows (`scope.flows`) applies by: the flow of the turn's parent run.
  * Undefined for a turn outside any flow, and unread for a turn with no
  * guardrails. A started turn's input names the parent (`parent`); a
- * resumed turn's doesn't, so its own run's record does. A run that
- * can't be read fails the step, so a guardrail scoped to flows never
- * passes over a turn whose flow went unread.
+ * resumed turn's doesn't, so its own run's record does. A replay's run
+ * has no parent, so a replay takes the flow of the run it replays
+ * (`replay.of`), as the original turn did. A run that can't be read
+ * fails the step, so a guardrail scoped to flows never passes over a
+ * turn whose flow went unread.
  */
 async function flowOfTurn(ctx: TurnContext, kctx: NodeContext): Promise<FlowId | undefined> {
   if (ctx.guardrails === undefined || ctx.guardrails.length === 0) return undefined;
@@ -224,9 +229,47 @@ async function flowOfTurn(ctx: TurnContext, kctx: NodeContext): Promise<FlowId |
   }
   const { tenantId } = ctx.input;
   const parentRunId =
-    ctx.input.parent?.runId ?? (await readRun(runs, tenantId, kctx.runId)).parentRunId;
-  if (parentRunId === undefined || parentRunId === null) return undefined;
+    ctx.input.parent?.runId ??
+    (await parentOfRun(runs, tenantId, ctx.input.replay?.of ?? kctx.runId));
+  if (parentRunId === undefined) return undefined;
   return (await readRun(runs, tenantId, parentRunId)).flowId as FlowId;
+}
+
+/**
+ * The run's parent, or, for a replay's run, the parent of the run it
+ * replays (`replayOf`), followed through a replay of a replay. Undefined
+ * when the chain ends at a run outside any flow. A chain that comes back
+ * to a run, or goes past `MAX_REPLAY_HOPS` replays, fails the step as an
+ * unreadable run does.
+ */
+async function parentOfRun(
+  runs: RunBinding,
+  tenantId: TenantId,
+  start: RunId,
+): Promise<RunId | undefined> {
+  const seen = new Set<RunId>();
+  let runId = start;
+  for (let hops = 0; ; hops++) {
+    seen.add(runId);
+    const run = await readRun(runs, tenantId, runId);
+    if (run.parentRunId !== undefined && run.parentRunId !== null) return run.parentRunId;
+    if (run.replayOf === undefined || run.replayOf === null) return undefined;
+    if (seen.has(run.replayOf)) {
+      throwAgentTurnFailure({
+        code: 'persistence-error',
+        message: `Run ${run.replayOf} comes back in run ${start}'s replay chain, so the turn's flow is unknown`,
+        cause: null,
+      });
+    }
+    if (hops === MAX_REPLAY_HOPS) {
+      throwAgentTurnFailure({
+        code: 'persistence-error',
+        message: `Run ${start}'s replay chain goes on past ${MAX_REPLAY_HOPS} replays, so the turn's flow is unknown`,
+        cause: null,
+      });
+    }
+    runId = run.replayOf;
+  }
 }
 
 async function readRun(

@@ -6,10 +6,14 @@ import type { RunId, TenantId } from '@kindgi/types';
 
 import { AGENT_TURN_FLOW_ID } from '../src/agent-turn-flow.js';
 
-/** A run as `runsOf` answers it: its flow, and the run that started it. */
+/**
+ * A run as `runsOf` answers it: its flow, the run that started it, and
+ * for a replay's run the run it replays.
+ */
 export interface TestRun {
   readonly flowId: string;
   readonly parentRunId?: string;
+  readonly replayOf?: string;
 }
 
 /**
@@ -33,6 +37,8 @@ export function runsOf(
         tenantId: tenant,
         flowId: run.flowId,
         parentRunId: (run.parentRunId ?? null) as RunId | null,
+        // A runtime's record carries `replayOf` only for a replay's run.
+        ...(run.replayOf !== undefined && { replayOf: run.replayOf as RunId }),
       } as unknown as KernelRunRecord;
     },
   } as unknown as RunBinding;
