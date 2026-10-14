@@ -355,7 +355,7 @@ A point-in-time recovery always makes a new instance ([Google: point-in-time rec
 
 **Anything else on the instance** comes back with it: another database there, an OpenFGA store's, say. That moves on your side, in the same window.
 
-**Going back:** set `database_instance` to null and apply. The server's revision changes first, and only then does the grant on the restored instance go (the grant is created before it's destroyed). Writes made since the switch stay on the restored instance.
+**Going back:** set `database_instance` to null and apply. The server's revision changes first, and only then does the grant on the restored instance go: the module removes it only after the server's new revision is in. Writes made since the switch stay on the restored instance.
 
 ## Taking it down
 
