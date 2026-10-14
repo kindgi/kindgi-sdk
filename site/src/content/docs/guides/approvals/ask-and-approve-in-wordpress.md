@@ -350,7 +350,7 @@ Kindgi answers 401 `site-sign-in-refused` with a reason in
 
 | `reason` | Message | What to do |
 | --- | --- | --- |
-| `not-verified` | The statement couldn't be verified: check the site's id, key and signature | Connect the site again with a new code. Kindgi says nothing more: an unknown site, an unknown or retired key, a bad signature, and a statement without `iat`, `exp`, `jti` or `sub` all read the same. |
+| `not-verified` | The statement couldn't be verified: check the site's id, key and signature | Connect the site again with a new code. Kindgi says nothing more: an unknown site, an unknown or retired key, a bad signature, a statement that doesn't parse or has the wrong header (not EdDSA, the wrong `typ`, no `kid`), and one without `iat`, `exp`, `jti` or `sub` all read the same. |
 | `site-paused` | This site is paused: a tenant admin resumes it | Resume the site. |
 | `site-not-vouching` | This site doesn't sign its people in | Set `vouching` to `true`, unless the site was unregistered. |
 | `wrong-audience` | The statement's audience isn't this deployment's: expected … | The runtime's `KINDGI_PUBLIC_URL` changed since the site connected. Connect it again with a new code. |
@@ -402,7 +402,7 @@ the store's actions (look up an order, refund it) as
   otherwise public, and only your own server does.
 - **Give read-only tools `never_ask`.** An MCP tool always counts as one
   that changes things, so, with `hitl.tools` set, a gate asks before it
-  unless a rule says otherwise:
+  unless an override says otherwise:
 
   ```ts excerpt
   conversationPolicy: {
