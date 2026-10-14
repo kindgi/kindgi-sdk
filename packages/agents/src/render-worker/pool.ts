@@ -11,12 +11,14 @@
  *
  * A render worker is a child process, not a worker thread: a thread shares
  * the server's heap, so a template that exhausts it takes the whole process
- * down; a child has its own. The fork is explicit — the child gets an empty
- * environment (never the server's, with its database URLs, KMS settings and
- * tokens), its `execArgv` is the heap cap alone (so a `--inspect` on the
- * server isn't inherited), and no inherited file descriptors beyond the IPC
- * channel. Its stderr is piped (not shared) so the pool can tell a render
- * that ran out of memory from one that stopped for another reason.
+ * down; a child has its own. The fork is explicit — the child inherits only
+ * the server's timezone and locale (so a template's dates render there as
+ * they would in-process), never the rest of the server's environment with
+ * its database URLs, KMS settings and tokens; its `execArgv` is the heap cap
+ * alone (so a `--inspect` on the server isn't inherited); and no inherited
+ * file descriptors beyond the IPC channel. Its stderr is piped (not shared)
+ * so the pool can tell a render that ran out of memory from one that stopped
+ * for another reason.
  */
 
 import { type ChildProcess, fork } from 'node:child_process';
@@ -44,6 +46,17 @@ const STDERR_TAIL = 4096;
 
 /** V8 prints one of these when a process runs past `--max-old-space-size`. */
 const OUT_OF_MEMORY = /JavaScript heap out of memory|Reached heap limit/;
+
+/**
+ * The only environment a render worker inherits from the server: the
+ * timezone and the locale. liquidjs's `date` filter formats in the local
+ * zone and Intl's default locale, both read from these at start-up, so a
+ * worker without them would render dates differently from an in-process
+ * render. Node resolves the locale from `LC_ALL`, then `LC_MESSAGES`, then
+ * `LANG`. Nothing else of the server's — its database URLs, KMS settings or
+ * tokens — reaches the process that runs untrusted templates.
+ */
+const LOCALE_ENV = ['TZ', 'LANG', 'LC_ALL', 'LC_MESSAGES'] as const;
 
 /** `createWorkerTemplateRenderer`'s options. */
 export interface WorkerTemplateRendererOptions {
@@ -106,6 +119,8 @@ export class WorkerPool implements WorkerTemplateRenderer {
   private readonly bounds: TenantInputBounds;
   /** The child's `execArgv`: the heap cap alone, so the server's flags aren't inherited. */
   private readonly execArgv: readonly string[];
+  /** The child's environment: the server's timezone and locale, nothing else. */
+  private readonly childEnv: Record<string, string>;
   private nextId = 0;
   private closing: Promise<void> | undefined;
   private drained: (() => void) | undefined;
@@ -119,10 +134,23 @@ export class WorkerPool implements WorkerTemplateRenderer {
         `A worker template renderer needs 1 or more workers, not ${options.workers}.`,
       );
     }
+    if (
+      options.maxOldSpaceMb !== undefined &&
+      (!Number.isInteger(options.maxOldSpaceMb) || options.maxOldSpaceMb < 1)
+    ) {
+      // 0 would start the worker uncapped (Node reads --max-old-space-size=0
+      // as unset), and a fraction, a negative or NaN makes every worker fail
+      // to start, seen only per render — so refuse it here, as with workers.
+      throw new RangeError(
+        `A worker template renderer's maxOldSpaceMb must be a positive whole number of MiB, not ${options.maxOldSpaceMb}.`,
+      );
+    }
     this.execArgv =
       options.maxOldSpaceMb !== undefined ? [`--max-old-space-size=${options.maxOldSpaceMb}`] : [];
     // The server's bounds, set at boot: its workers render under the same.
     this.bounds = tenantInputBounds();
+    // The server's timezone and locale, so a worker renders dates as in-process.
+    this.childEnv = localeEnv();
     this.slots = Array.from({ length: options.workers }, () => this.spawn());
   }
 
@@ -240,11 +268,13 @@ export class WorkerPool implements WorkerTemplateRenderer {
 
   private spawn(): Slot {
     const child = fork(this.script, [], {
-      // Explicit: no server environment (database URLs, KMS, tokens) beside
-      // untrusted templates, no inherited flags, no shared fds but the IPC
-      // channel, and the structured clone that carries the bounds' Infinity
-      // and the render scope as a worker thread's `postMessage` would.
-      env: {},
+      // Explicit: only the server's timezone and locale (so dates render as
+      // in-process), never the rest of its environment (database URLs, KMS,
+      // tokens) beside untrusted templates; no inherited flags; no shared fds
+      // but the IPC channel; and the structured clone that carries the
+      // bounds' Infinity and the render scope as a worker thread's
+      // `postMessage` would.
+      env: { ...this.childEnv },
       execArgv: [...this.execArgv],
       serialization: 'advanced',
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
@@ -383,9 +413,24 @@ export class WorkerPool implements WorkerTemplateRenderer {
 function stop(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
   return new Promise<void>((resolve) => {
+    // An idle worker was unref'd so it wouldn't hold the process up. Re-ref it
+    // now: without this, when nothing else keeps the loop running (a plain
+    // `await pool.close()` at the end of a shutdown), the process can exit
+    // before 'exit' fires and close() never settles.
+    refWorker(child);
     child.once('exit', () => resolve());
     child.kill();
   });
+}
+
+/** The server's timezone and locale, the only environment a worker inherits. */
+function localeEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const name of LOCALE_ENV) {
+    const value = process.env[name];
+    if (value !== undefined) env[name] = value;
+  }
+  return env;
 }
 
 /**

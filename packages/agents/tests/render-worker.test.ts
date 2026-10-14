@@ -253,4 +253,43 @@ describe('the built renderer', () => {
     expect(stdout.trim()).toBe('DONE');
     expect(Date.now() - started).toBeLessThan(20_000);
   }, 30_000);
+
+  test('close() settles after an idle render, so a top-level await on it doesn’t hang', async () => {
+    // The fixture renders, then `await`s close() and prints DONE. An idle
+    // worker is unref'd, so without stop() re-refing it before the kill the
+    // process would exit before close() settled — execFile would then see a
+    // non-zero exit (an unsettled top-level await) and no DONE.
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      [
+        fileURLToPath(new URL('./fixtures/closing-renderer.mjs', import.meta.url)),
+        workerEntry.href,
+      ],
+      { timeout: 20_000 },
+    );
+    expect(stdout.trim()).toBe('DONE');
+  }, 30_000);
+
+  test('a worker renders dates in the server’s timezone and locale, as in-process', async () => {
+    // Under a timezone and locale unlike the machine's: the in-process render
+    // reads them, and the worker must too (liquidjs's `date` filter formats
+    // in the local zone and the default locale). They match only because the
+    // fork forwards the timezone and locale variables.
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      [
+        fileURLToPath(new URL('./fixtures/locale-render-check.mjs', import.meta.url)),
+        workerEntry.href,
+      ],
+      {
+        timeout: 20_000,
+        env: { ...process.env, TZ: 'Asia/Tokyo', LANG: 'fr_FR.UTF-8', LC_ALL: 'fr_FR.UTF-8' },
+      },
+    );
+    const { here, there } = JSON.parse(stdout) as { here: string; there: string };
+    expect(there).toBe(here);
+    // The set zone took effect (08:30 UTC is 17:30 +0900), so this isn't two
+    // identically-wrong renders from a timezone the fork failed to forward.
+    expect(here).toContain('+0900');
+  }, 30_000);
 });

@@ -280,10 +280,23 @@ describe('the render pool', () => {
       );
     }
   });
+
+  test('a maxOldSpaceMb that isn’t a positive whole number is refused', () => {
+    restore = overrideTenantInputBounds(HOSTED_BOUNDS);
+    // 0 would run the worker uncapped (Node reads --max-old-space-size=0 as
+    // unset); a fraction, a negative or NaN would make every worker fail to
+    // start, seen only when a render is attempted. Refuse it at construction,
+    // as with workers.
+    for (const maxOldSpaceMb of [0, -5, 1.5, Number.NaN]) {
+      expect(() => new WorkerPool(FAKE, { workers: 1, maxOldSpaceMb })).toThrow(
+        `A worker template renderer's maxOldSpaceMb must be a positive whole number of MiB, not ${maxOldSpaceMb}.`,
+      );
+    }
+  });
 });
 
 describe('the fork is isolated from the server', () => {
-  test('the worker gets neither the server’s environment nor its Node flags', async () => {
+  test('the worker gets only the server’s timezone and locale, and no Node flags', async () => {
     // A secret-like value beside the server, as a database URL or a token is.
     const MARKER = 'KINDGI_RENDER_WORKER_MARKER';
     const savedMarker = process.env[MARKER];
@@ -295,11 +308,19 @@ describe('the fork is isolated from the server', () => {
         readonly marker: string | null;
         readonly execArgv: readonly string[];
       };
-      // The fork's `env: {}` keeps the server's environment out of the worker:
-      // the worker can't read the marker, nor the rest of it. Were `env`
-      // dropped from the fork call, the worker would inherit it and this fails.
+      // The fork forwards only the server's timezone and locale, so the
+      // server's secrets (a database URL, a token) stay out of the worker: it
+      // can't read the marker. Were `env` dropped from the fork call, the
+      // worker would inherit the whole environment and this would fail.
       expect(report.marker).toBeNull();
       expect(report.envKeys).not.toContain(MARKER);
+      // Every variable the worker does see is in the locale allowlist, or one
+      // the OS adds to any child itself (macOS: __CF_USER_TEXT_ENCODING).
+      const ALLOWED = new Set(['TZ', 'LANG', 'LC_ALL', 'LC_MESSAGES']);
+      const unexpected = report.envKeys.filter(
+        (key) => !ALLOWED.has(key) && !key.startsWith('__CF'),
+      );
+      expect(unexpected).toEqual([]);
       // The fork's `execArgv` is the heap cap alone: a `--inspect` on the
       // server, or a coverage flag, isn't inherited.
       expect(report.execArgv).toEqual(['--max-old-space-size=64']);

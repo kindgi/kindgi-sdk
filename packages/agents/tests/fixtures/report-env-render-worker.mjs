@@ -3,9 +3,9 @@
 
 // A stand-in render worker that reports how it was forked instead of
 // rendering: the environment it can see and its Node flags. The pool's fork
-// must give it neither the server's environment (its database URLs, KMS
-// settings and tokens) nor the server's flags; this is what the isolation
-// test reads back.
+// must give it only the server's timezone and locale — never the rest of the
+// server's environment (its database URLs, KMS settings and tokens) nor the
+// server's flags; this is what the isolation test reads back.
 
 const send = process.send.bind(process);
 
