@@ -419,7 +419,8 @@ one project's or org's.
   the caller who opened it, or, for one a turn opened, whoever the run acts
   for. It's set by the server, never from the body.
   - `list({ openedBy: 'me' })` (`?openedBy=me`,
-    `--opened-by=me` in the CLI) lists only your own.
+    `--opened-by=me` in the CLI) lists only your own. An older runtime
+    ignores it and lists everyone's.
   - Conversations an older runtime opened record no opener, and aren't
     listed by it.
   - It's a filter, not privacy: anyone who may read the project reads its
