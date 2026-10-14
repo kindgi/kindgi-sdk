@@ -4,7 +4,7 @@ description: Start runs, follow them and read their answers from a Java applicat
 sidebar:
   order: 5.5
   label: Call Kindgi from Java
-  badge: { text: 'Preview', variant: 'caution' }
+  badge: { text: 'Preview', variant: 'caution', class: 'kg-preview' }
 ---
 
 Your Java app starts runs, follows them and reads what they answered,
@@ -13,7 +13,7 @@ typed errors.
 
 :::caution[Preview]
 **Preview.** Java and Scala support is tested and supported, but its API may
-still change in 0.1.6 without the usual deprecation period.
+still change in a later release without the usual deprecation period.
 :::
 
 **Before you start:** a pack running under `kindgi dev`, such as the one
@@ -147,7 +147,7 @@ URL, the token, the timeout or your own `HttpClient`.
 the path's ids first, then the request body, then the query parameters as
 one record with a builder:
 
-```java
+```java excerpt
 // in src/main/java/com/acme/Lists.java
 RunCollectionPage page = client.runs().list(RunsListParams.builder().limit(20L).build());
 ```
@@ -160,7 +160,7 @@ fetches the next page as you read on.
 `AuthException`, `RateLimitedException` and so on, with the server's own
 code in `serverCode()`:
 
-```java
+```java excerpt
 // in src/main/java/com/acme/Lookup.java
 try {
   client.runs().get(runId);
@@ -190,3 +190,11 @@ is `UNRECOGNIZED`), where the Python client refuses the whole answer.
 More detail is in the client's
 [README](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java#readme):
 streams, updates that clear a property, your app's Jackson.
+
+## Next
+
+- [Add Kindgi to a Java app](../existing-app/#a-java-app-maven): your app's
+  own classes as tools.
+- [Quickstart: Java](../quickstart-java/): a pack of its own, with every
+  primitive.
+- [Follow a run](../../guides/runs/follow-a-run/): every way to watch one.

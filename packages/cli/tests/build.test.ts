@@ -30,6 +30,9 @@ import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
+import type { KindgiClient } from '@kindgi/client';
+
+import { BuildServiceRefusal, PACK_IMAGE_DOCS_URL } from '../src/build/hosted.js';
 import {
   DEFAULT_JAVA_BUILD_IMAGE_REF,
   DEFAULT_JAVA_RUNTIME_IMAGE_REF,
@@ -53,6 +56,7 @@ import {
 } from '../src/build/scala-image.js';
 import { buildTimeDefaults } from '../src/commands/build.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
+import { fakeRateLimitWaits } from './rate-limit-waits.js';
 
 let cwd: string;
 let home: string;
@@ -165,7 +169,12 @@ interface Fixtures {
       endpoint: string;
       buildTarget: string;
       tarballSha256: string;
+      authorization?: string | undefined;
+      packId?: string | undefined;
+      projectId?: string | undefined;
     };
+    /** The `authorization` each stream was opened with. */
+    streamAuthorizations: (string | undefined)[];
     capturedSignedMessage?: Uint8Array;
     onLogLines: string[];
   };
@@ -183,6 +192,12 @@ interface FixtureOptions {
   readonly omitPullRunner?: boolean;
   /** What the host's `pnpm --version` gives (default 10.28.0), or why it fails. */
   readonly hostPnpm?: string | Error;
+  /** Thrown by the first `postBuild` calls, in order; later calls answer as usual. */
+  readonly postThrows?: readonly unknown[];
+  /** Thrown by `streamBuildLogs`. */
+  readonly streamThrows?: unknown;
+  /** The packed pack's size, in bytes (default: a few bytes). */
+  readonly tarballSize?: number;
 }
 
 function makeFixtures(opts: FixtureOptions = {}): Fixtures {
@@ -202,6 +217,7 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
     pullCalls: 0,
     signCalls: 0,
     onLogLines: [],
+    streamAuthorizations: [],
   };
   const indexOutcome: LocalIndexResult =
     opts.indexOutcome ??
@@ -264,7 +280,10 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
     },
     tarPack: async (o) => {
       state.tarCalls += 1;
-      const bytes = new TextEncoder().encode('fake-tarball-bytes');
+      const bytes =
+        opts.tarballSize !== undefined
+          ? new Uint8Array(opts.tarballSize)
+          : new TextEncoder().encode('fake-tarball-bytes');
       await writeFile(o.outputPath, bytes);
       const res: TarPackResult = { path: o.outputPath, bytes, size: bytes.length };
       return res;
@@ -275,8 +294,13 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
         endpoint: o.endpoint,
         buildTarget: o.buildTarget,
         tarballSha256: o.tarballSha256,
+        authorization: o.authorization,
+        packId: o.packId,
+        projectId: o.projectId,
       };
       state.capturedFetchImpl = o.fetchImpl;
+      const thrown = opts.postThrows?.[state.postCalls - 1];
+      if (thrown !== undefined) throw thrown;
       if (opts.postOutcome !== undefined) return opts.postOutcome;
       const res: PostBuildResult = opts.postReplay
         ? {
@@ -294,6 +318,8 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
     },
     streamBuildLogs: async (o) => {
       state.streamCalls += 1;
+      state.streamAuthorizations.push(o.authorization);
+      if (opts.streamThrows !== undefined) throw opts.streamThrows;
       o.onLog('docker buildx running');
       o.onLog('pushing image');
       return defaultTerminal;
@@ -427,6 +453,202 @@ describe('kindgi build — argument resolution', () => {
       await readFile(join(packDir, '.kindgi/build/deploy-envelope.json'), 'utf8'),
     ) as { tenantId: string };
     expect(envelope.tenantId).toBe('via-env-var');
+  });
+});
+
+describe('kindgi build --hosted', () => {
+  const API = 'https://platform.example.com';
+  const KEY = 'kgi_tk_test-key';
+  /** The CLI's API URL and key, as `kindgi auth login` or the env gives them. */
+  const loggedIn = { KINDGI_API_URL: API, KINDGI_API_TOKEN: KEY };
+  /** A client whose `whoami` names the key's tenant. */
+  const whoamiClient =
+    (calls: { url: string; token: string }[]) => (url: string, token: string) => {
+      calls.push({ url, token });
+      return {
+        identity: { whoami: async () => ({ tenantId: 'tenant-of-the-key', userId: 'u-1' }) },
+      } as unknown as KindgiClient;
+    };
+
+  test("builds at the API's /cloud with the key, the pack's id and the project label, checked by hash", async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: { ...loggedIn, KINDGI_TENANT_ID: 'env-tenant' } }),
+      argv: ['build', '--hosted', '--project=p-1', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    // The env block's `endpoint` is the API; its `build` URL isn't used.
+    expect(fixtures.state.capturedPostBody).toMatchObject({
+      endpoint: 'https://api.staging.example.com/cloud',
+      authorization: `Bearer ${KEY}`,
+      packId: 'my-pack',
+      projectId: 'p-1',
+    });
+    expect(fixtures.state.streamAuthorizations).toEqual([`Bearer ${KEY}`]);
+    // The image stays in the workspace's repository: no pull.
+    expect(fixtures.state.pullCalls).toBe(0);
+    expect(out.stderr).toContain('Build:       hosted (https://api.staging.example.com/cloud)');
+  });
+
+  test("the env block's `build: 'hosted'` is the same; a self-hosted build server never gets the key", async () => {
+    const hosted = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(
+        hosted,
+        { env: loggedIn },
+        {
+          environments: {
+            staging: {
+              endpoint: API,
+              build: 'hosted',
+              signingKey: join(home, 'signing-key.pem'),
+              tenantId: 't-1',
+            },
+          },
+        },
+      ),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(hosted.state.capturedPostBody).toMatchObject({
+      endpoint: `${API}/cloud`,
+      authorization: `Bearer ${KEY}`,
+    });
+
+    const selfHosted = makeFixtures();
+    const plain = await runCli({
+      ...baseInputs(selfHosted, { env: loggedIn }),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(plain.exitCode, plain.stderr).toBe(0);
+    expect(selfHosted.state.capturedPostBody).toMatchObject({
+      endpoint: 'https://build.staging.example.com',
+      authorization: undefined,
+      packId: undefined,
+    });
+    expect(selfHosted.state.streamAuthorizations).toEqual([undefined]);
+  });
+
+  test("`--url` names the API over the env block's endpoint", async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: { KINDGI_API_TOKEN: KEY, KINDGI_TENANT_ID: 't-1' } }),
+      argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`, `--url=${API}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.capturedPostBody?.endpoint).toBe(`${API}/cloud`);
+  });
+
+  test("with no tenant set, the signature names the key's own tenant (whoami)", async () => {
+    const fixtures = makeFixtures();
+    const calls: { url: string; token: string }[] = [];
+    const out = await runCli({
+      ...baseInputs(
+        fixtures,
+        { env: loggedIn, clientFactory: whoamiClient(calls) },
+        {
+          environments: { staging: { endpoint: API, signingKey: join(home, 'signing-key.pem') } },
+        },
+      ),
+      argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([{ url: API, token: KEY }]);
+    expect(out.stderr).toContain('Tenant:      tenant-of-the-key');
+  });
+
+  test.each([
+    [['--local'], '--local builds with this machine'],
+    [['--endpoint=https://build.example.com'], '--endpoint names another build server'],
+    [['--registry-push-creds=ref'], '--registry-push-creds is for a build server'],
+  ])('--hosted with %s is refused, saying why', async (extra, why) => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: loggedIn }),
+      argv: ['build', '--hosted', ...extra, '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(why);
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('--project without --hosted is refused', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: loggedIn }),
+      argv: ['build', '--project=p-1', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('--project goes with --hosted');
+  });
+
+  test('without an API key it stops before building', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: { KINDGI_API_URL: API } }),
+      argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('sends your API key to the build service, and none is set');
+    expect(fixtures.state.tarCalls).toBe(0);
+  });
+
+  test('a pack over 30 MiB packed is never sent, and the message links what the image needs', async () => {
+    const fixtures = makeFixtures({ tarballSize: 30 * 1024 * 1024 + 1 });
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: loggedIn }),
+      argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "over the 30 MiB the hosted build service takes, so it wasn't sent",
+    );
+    expect(out.stderr).toContain(PACK_IMAGE_DOCS_URL);
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('a 429 with Retry-After is waited out and the build sent again', async () => {
+    const fixtures = makeFixtures({
+      postThrows: [new BuildServiceRefusal(429, 'rate-limit-exceeded', 'One build at a time.', 10)],
+    });
+    const waits = fakeRateLimitWaits();
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: loggedIn, rateLimitWaits: waits.seam }),
+      argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.postCalls).toBe(2);
+    expect(waits.sleeps).toEqual([10_000]);
+  });
+
+  test('any other refusal is printed plainly: its message, its code and the wait it asks', async () => {
+    const fixtures = makeFixtures({
+      postThrows: [
+        new BuildServiceRefusal(503, 'build-queue-busy', 'The build queue is full.', 30),
+      ],
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: loggedIn }),
+      argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      'The build service refused the build (HTTP 503, build-queue-busy): The build queue is full. Try again in 30 s.',
+    );
+  });
+
+  test("a refusal while following the build's log is printed the same way", async () => {
+    const fixtures = makeFixtures({
+      streamThrows: new BuildServiceRefusal(403, 'tenant-suspended', 'The workspace is suspended.'),
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: loggedIn }),
+      argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      'The build service refused the build (HTTP 403, tenant-suspended): The workspace is suspended.',
+    );
   });
 });
 
