@@ -308,6 +308,17 @@ describe('a replay takes the flow of the turn it replays', () => {
     });
     expect(reads).toEqual(['replay-0', 'replay-1']);
   });
+
+  test("a replay whose past turn's flow run is gone says that run wasn't found: it isn't the one replayed", async () => {
+    const { ctx, seen, reads } = turn({ replay: PAST, runs: { [PAST]: stepOf(FLOW_RUN) } });
+    const thrown = await evaluate(ctx);
+    expect((thrown as AgentTurnFailure).payload).toMatchObject({
+      code: 'persistence-error',
+      message: `Run ${FLOW_RUN} wasn't found, so the turn's flow is unknown`,
+    });
+    expect(reads).toEqual([PAST, FLOW_RUN]);
+    expect(seen['acme.over-limit']).toEqual([]);
+  });
 });
 
 describe("a run that can't be read fails the step; no guardrail is passed over", () => {
