@@ -59,10 +59,11 @@ export interface Classification {
 
 /**
  * A kind's classification as a classifier file writes it: `retention`
- * gives `days` (with `onDenyDays` if it likes), or `kept: true` and no
- * days. A loader refuses a retention that gives both, or neither, and
- * makes a `Classification` of it. Every `Classification` without `kept`
- * is one as it stands.
+ * gives `days` (and optionally `onDenyDays`), or `kept: true` with neither
+ * `days` nor `onDenyDays`. A loader refuses a retention that gives both,
+ * or neither, and makes a `Classification` of it. A `Classification`
+ * without `kept` is already a `ClassificationSource`, so existing files
+ * and sources still load unchanged.
  */
 export interface ClassificationSource {
   readonly retention:

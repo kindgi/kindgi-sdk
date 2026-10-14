@@ -51,7 +51,7 @@ describe('ClassificationSource', () => {
     expect(refused).toHaveLength(4);
   });
 
-  test('a Classification without kept is a source entry as it stands', () => {
+  test('a Classification without kept is already a ClassificationSource', () => {
     const resolved: Classification = {
       retention: { days: 730, legalHold: true },
       signed: true,
