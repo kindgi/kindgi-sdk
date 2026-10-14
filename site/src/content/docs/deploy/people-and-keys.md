@@ -394,14 +394,16 @@ directly: what a team's role gives on a project isn't listed there. A
 search box, sorting, **People who were removed** and **Columns** narrow and
 order the list, and the page's address keeps them.
 
-![The People page: "8 people in this tenant", a People who were removed checkbox, Columns and Add a person; each person with their email, their access in words (the seed user: tenant admin, owner on Support and Billing, admin of team Support crew, admin reviewer; Ada Lovelace: reads the tenant's settings, viewer on Support, member of team Support crew, standard reviewer; Sam Rivera: reads the tenant's settings), their active keys, when they were last active and when they were added.](../../../assets/people/people.png)
+![The People page: Add a person, a People who were removed checkbox and Columns; each person with their email, their access in words (the seed user: tenant admin, owner on Support and Billing, admin of team Support crew, admin reviewer; Ada Lovelace: reads the tenant's settings, viewer on Support, member of team Support crew, standard reviewer; Sam Rivera: reads the tenant's settings), their active keys, when they were last active and when they were added; and under the list, that access is what each was granted directly.](../../../assets/people/people.png)
 
 **Add a person** adds someone with their access in one step: "Give them
-their access now, in the same step." It takes a name, an optional email
-("One person per email in this tenant."), project roles, teams, a reviewer
-tier, and tenant admin.
+their access now, in the same step." It says how they'll sign in: through
+the deployment's identity provider or an emailed link, when either is on,
+or with an API key you make them on their page. It takes a name, an
+optional email ("One person per email in this tenant."), project roles,
+teams, a reviewer tier, and tenant admin.
 
-![The Add a person dialog: a name and an email, a viewer role on Billing, the team Support crew as a member, no reviewer role, and the Tenant admin checkbox, with an Add button.](../../../assets/people/add-person.png)
+![The Add a person dialog, saying how they'll sign in: the name Lee Chen and an email, a viewer role on Billing, the team Support crew as a member, no reviewer role, and the Tenant admin checkbox, with an Add button.](../../../assets/people/add-person.png)
 
 Each part is a step of its own. When they all work, the person's page
 opens. When one doesn't, the dialog says how each went:
@@ -433,7 +435,7 @@ what they did there, stay." The page also lists their keys, with **Make a
 key for** them, where they're signed in, their sign-ins, and **Remove from
 the tenant**.
 
-![Ada Lovelace's page as a tenant admin: "1 active key acts as Ada Lovelace" with Make a key for Ada Lovelace; What they may do: Support (viewer) and Support crew (member), each with Take away; Reviewer: Standard, with Take off the roster; Tenant admin: No, with Make tenant admin; Give access (a project, a role); then Signed in, Their keys (ada-laptop, expiring in 3 days, with Revoke), Sign-ins, and Remove from the tenant.](../../../assets/people/person.png)
+![Ada Lovelace's page as a tenant admin: "1 active key acts as Ada Lovelace", their email and when they were added, with Make a key for Ada Lovelace; What they may do: Support (viewer) and Support crew (member), each with Take away; Reviewer: Standard, with Take off the roster; Tenant admin: No, with Make tenant admin; Give access (a project, a role); then Signed in, Their keys (ada-laptop, expiring 17 Oct 2026, with Revoke as an icon), Sign-ins, and Remove from the tenant.](../../../assets/people/person.png)
 
 ### What needs you
 
@@ -450,7 +452,7 @@ A tenant admin's home in the tenant starts with what needs a look, such as
   recorded as denied, with **All refused requests**. "Someone refused may be
   missing access they need."
 
-![The tenant's home as a tenant admin. What needs you: "8 people in 3 projects and 1 team. 3 people have no project of their own; 1 key expires this week."; No project of their own: Ben Okafor, Sam Rivera and Eddie Park; Keys: "ada-laptop expires in 3 d"; Recently refused: a person refused admin on the tenant, just now. Below: the projects, and the tenant's sections.](../../../assets/people/tenant-home.png)
+![The tenant's home as a tenant admin. What needs you: "8 people in 3 projects and 1 team. 3 people have no project of their own; 1 key expires this week."; No project of their own: Ben Okafor, Sam Rivera and Eddie Park; Keys: "ada-laptop expires in 3d"; Recently refused: a user, shown by id, refused admin on the tenant, just now. Below: the projects, and the tenant's sections.](../../../assets/people/tenant-home.png)
 
 It counts everyone, and never says all is clear before it has read
 everything. While a read is still coming in, it says so, such as "Still

@@ -48,17 +48,19 @@ A tenant admin adds a reviewer with **Add a reviewer**:
    **Make Eddie Park a standard reviewer**.
 
 Someone on the roster already isn't added again: "Eddie Park is already on
-the roster." **Remove**, beside each reviewer, asks first, such as "Remove
-Ada Lovelace as a reviewer?":
+the roster." **Remove**, an icon beside each reviewer, named in its
+tooltip, asks first, such as "Remove Ada Lovelace as a reviewer?":
 
 ```text
 They stop deciding approvals. One that needs their role goes to another reviewer with it or a higher one; with none, it waits with no one to decide.
 They leave this list, and their decisions stay on record. To bring them back, add them again.
 ```
 
+![The Remove Ada Lovelace as a reviewer? dialog over Reviewers: they stop deciding approvals, and one that needs their role goes to another reviewer with it or a higher one, or waits with no one to decide; they leave the list and their decisions stay on record. With Don't and Remove.](../../../../assets/approvals/reviewer-remove.png)
+
 A refusal shows in the dialog, in the runtime's words.
 
-![Approvals → Reviewers with the form open: Who, searched for "Ed", lists Eddie Park and Eda Brooks with their emails; Role, with "They decide approvals of this role and below."; and the roster: you, the seed user (admin, shown by id), and Ada Lovelace (standard), each active with a Remove button. At the top: "Email notifications: off."](../../../../assets/approvals/reviewers.png)
+![Approvals → Reviewers with the form open: Who, searched for "Ed", lists Eddie Park and Eda Brooks with their emails; Role, Senior, with "They decide approvals of this role and below."; and the roster: you, the seed user (admin, shown by id), and Ada Lovelace (standard), each active, with Remove as an icon. At the top: "Email notifications: off."](../../../../assets/approvals/reviewers.png)
 
 The page also says whether reviewers are emailed, as
 [Reviewer email](../decide-an-approval/#reviewer-email) sets up: "Email
@@ -326,7 +328,7 @@ Tab to it. They never work while you're typing in a field. `?` lists them:
 | `?` | These keys |
 
 A key never decides by itself. `a`, `r` or `e` opens a step that asks, for
-example, "Reject the next turn of acme.billing?", with the rationale box
+example, "Reject the next turn of Support agent?", with the rationale box
 focused. Enter records it, Shift+Enter starts a new line, and Esc leaves it.
 If you can't make that decision, the step says why instead, such as "You
 asked for this, so someone else approves it." or "It's at the top tier:
@@ -348,7 +350,7 @@ goes to the audit log with your rationale." On a run's gate:
 On an approval that needs a `senior`, the third choice reads **Send to an
 admin reviewer**. An approval that needs an `admin` has none.
 
-![An approval's page, "Approve the next turn of acme.support", pending, needing a standard reviewer. Your decision offers Approve, Reject, Send to a senior reviewer and Withdraw this request; Send to a senior reviewer is chosen, with "A new approval opens for senior reviewers; the run waits for that one.", a rationale, and a Send to a senior reviewer button. Then: the subject, required role, when it was requested and when it expires, and the waiting run, agent and conversation.](../../../../assets/approvals/decide.png)
+![An approval's page, "Approve the next turn of Support agent", pending, needing a standard reviewer. Your decision offers Approve, Reject, Send to a senior reviewer and Withdraw this request; Send to a senior reviewer is chosen, with "A new approval opens for senior reviewers; the run waits for that one.", a rationale, and a Send to a senior reviewer button. Then: the subject, required role, when it was requested and when it expires, and the waiting run, agent and conversation.](../../../../assets/approvals/decide.png)
 
 An agent promotion's approval says what each does to the version instead:
 "The version goes live where it was asked for.", or "The promotion is
@@ -399,7 +401,7 @@ is withdrawn; nothing was decided, and the run waiting on it ends.", with
 decided." Its run fails with `hitl-withdrawn`: "The approval for the
 session-HITL gate was withdrawn".
 
-![Another approval after Withdraw this request, marked Withdrawn: "Withdrawn. The request is withdrawn; nothing was decided, and the run waiting on it ends." with Open the run, then "You withdrew it: nothing was decided."](../../../../assets/approvals/withdrawn.png)
+![Another approval after Withdraw this request, marked Withdrawn, with JSON and Audit bundle: "Withdrawn. The request is withdrawn; nothing was decided, and the run waiting on it ends." with Open the run, then "You withdrew it: nothing was decided."](../../../../assets/approvals/withdrawn.png)
 
 ## In the CLI and the API
 
