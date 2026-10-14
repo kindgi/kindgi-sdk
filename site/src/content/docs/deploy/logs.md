@@ -51,13 +51,14 @@ A subsystem no part of the runtime logs under only warns:
 
 ## The subsystems
 
-`boot`, `http`, `auth`, `authz`, `runs`, `kernel`, `leases`, `approvals`,
+`boot`, `http`, `authz`, `runs`, `kernel`, `leases`, `approvals`,
 `retention`, `audit`, `compliance`, `webhooks`, `mcp`, `providers`,
-`promotions`, `tools`, `guardrails`, `pack`, `db`, `ready`, `shutdown`,
-`schedules`, `references` and `secrets`, with these nested ones:
-`kernel.waitpoints`, `kernel.sweeper`, `webhooks.worker`, `authz.outbox`,
-`approvals.notifier`, `mcp.headers`, `providers.prune`, `providers.keys`,
-`secrets.scopes` and `audit.retention`.
+`promotions`, `tools`, `guardrails`, `pack`, `ready`, `shutdown`,
+`references`, `secrets`, `aws-identity`, `judging`, `migrations`, `openfga`,
+`sso` and `tenants`, with these nested ones: `kernel.waitpoints`,
+`kernel.sweeper`, `webhooks.worker`, `authz.outbox`, `approvals.notifier`,
+`mcp.headers`, `providers.prune`, `providers.keys`, `secrets.scopes` and
+`audit.retention`.
 
 ## The two formats
 
