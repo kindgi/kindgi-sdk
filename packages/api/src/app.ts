@@ -183,12 +183,14 @@ import {
   systemTenantsRouter,
   systemWhoamiRouter,
 } from './routes/system-tenants.js';
+import { systemUsageRouter } from './routes/system-usage.js';
 import { projectTeamGrantsRouter, teamProjectGrantsRouter } from './routes/team-grants.js';
 import { teamsRouter } from './routes/teams.js';
 import { tenantRouter } from './routes/tenant.js';
 import { tokenSignInRouter } from './routes/token-sign-in.js';
 import { tokensRouter } from './routes/tokens.js';
 import { toolsRouter } from './routes/tools.js';
+import { usageRouter } from './routes/usage.js';
 import { webhookEndpointsRouter } from './routes/webhook-endpoints.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import type { S3CredentialBinding } from './s3-credential-binding.js';
@@ -202,6 +204,7 @@ import type { TokenAdmin } from './token-admin.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
 import { TRIGGER_KINDS, type TriggerKind, type TriggerRegistryBinding } from './trigger-binding.js';
 import type { AppEnv } from './types.js';
+import type { UsageBinding } from './usage.js';
 import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
 
 /**
@@ -643,6 +646,13 @@ export interface CreateAppInput {
    * tenant without a limit isn't limited. Without this option, nothing is.
    */
   readonly tenantLimits?: TenantLimitsOptions;
+  /**
+   * Optional. Usage, aggregated: a tenant's own on `GET /v1/usage` (the
+   * projects the caller may read), and the operator's across tenants on
+   * `GET /v1/system/usage` (`system:usage:read`). Without it neither route
+   * is mounted (404).
+   */
+  readonly usage?: UsageBinding;
   /**
    * Optional. Issue and accept public run tokens (`kgi_pt_…`):
    * short-lived, read-only tokens a browser uses to follow specific runs
@@ -1664,6 +1674,23 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       systemTenantSettingsRouter({
         settings: input.systemTenantSettings,
         directory: input.systemTenantDirectory,
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
+  if (input.usage !== undefined) {
+    v1.route(
+      '/system/usage',
+      systemUsageRouter({
+        usage: input.usage,
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+    v1.route(
+      '/usage',
+      usageRouter({
+        usage: input.usage,
+        ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         ...(authorizer !== undefined && { authorizer }),
       }),
     );

@@ -12478,6 +12478,66 @@ export const MintPublicRunTokenResultSchema: JsonSchema = {
   },
 };
 
+export const UsageGroupSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['count', 'quantity', 'firstAt', 'lastAt'],
+  description:
+    "One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.",
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    projectId: { type: 'string' },
+    agentId: { type: 'string' },
+    kind: {
+      type: 'string',
+      description:
+        "What was counted: `run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`. A runtime may count more kinds later: show one you don't know as it is.",
+    },
+    class: {
+      type: 'string',
+      description:
+        "The class of the run a record counts or belongs to, fixed when the run was created: `production`, `staging`, `dry-run`, `replay`, `eval`, `child`. A record with no counted run has none. A runtime may add classes later: show one you don't know as it is.",
+    },
+    state: {
+      type: 'string',
+      description:
+        "The record's state, by kind: `on`, `off` (`project.production`); `completed`, `failed`, `cancelled` (`run.ended`); `escalation` (`approval.requested`, an escalation's next tier); `approved`, `rejected`, `withdrawn`, `escalated`, `expired` (`approval.decided`). Other kinds have none.",
+    },
+    day: {
+      type: 'string',
+      pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+      description: 'The UTC date, `YYYY-MM-DD`.',
+    },
+    count: { type: 'integer', minimum: 0, description: 'Records in the group.' },
+    quantity: {
+      type: 'number',
+      description:
+        'The sum of their quantities: milliseconds for `run.ended`, tokens for model calls.',
+    },
+    firstAt: { type: 'string', format: 'date-time' },
+    lastAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const UsagePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'watermark'],
+  properties: {
+    data: { type: 'array', items: ref('UsageGroup') },
+    watermark: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "Every record at or before this time is in the answer; a later one may not be yet. Re-read a window until its watermark is past the window's end. Every page of one read carries the same watermark.",
+    },
+    nextCursor: {
+      type: 'string',
+      description: 'More groups: pass it as `cursor`. Absent on the last page.',
+    },
+  },
+};
+
 export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WireError', WireErrorSchema],
   ['HealthResult', HealthResultSchema],
@@ -12584,6 +12644,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ExportSigningKey', ExportSigningKeySchema],
   ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['LicenseStatus', LicenseStatusSchema],
+  ['UsageGroup', UsageGroupSchema],
+  ['UsagePage', UsagePageSchema],
   ['LicenseUsage', LicenseUsageSchema],
   ['ExportAuditBundleBody', ExportAuditBundleBodySchema],
   ['ExportAuditBundleResult', ExportAuditBundleResultSchema],

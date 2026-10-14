@@ -278,6 +278,58 @@ each run with its class for usage counting, so test work is counted apart
 from real work. A run's own read doesn't show it.
 
 <Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+const { productionSince } = await kindgi.projects.setProduction(project.id, true);
+// …and out again: productionSince is null.
+await kindgi.projects.setProduction(project.id, false);
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+done = kindgi.projects.production.set(str(project.id), production=True)
+print(done.production_since)
+kindgi.projects.production.set(str(project.id), production=False)
+```
+
+</TabItem>
+</Tabs>
+
+- **Tenant admins only,** both ways: anyone else gets
+  `403 permission-denied`.
+- **Setting what's already set changes nothing,** and keeps the first
+  `productionSince`. Reading the project shows it while it's in production.
+- **The production gate:** a runtime may require the tenant to be allowed
+  to put projects in production, for example once it has a payment card
+  (`KINDGI_PRODUCTION_GATE=on`). Until then, putting one in production is
+  refused with `403 production-not-allowed`, and the error's `details.next`
+  says where to go when the runtime names it
+  (`KINDGI_PRODUCTION_NEXT_URL`). A project already in production stays so,
+  and staging keeps working. `GET /v1/tenant` says where the tenant stands:
+  `productionAllowed`, and `productionNext` while it isn't allowed.
+
+  ```json
+  {
+    "error": {
+      "code": "production-not-allowed",
+      "message": "This tenant can't put projects in production yet. To be allowed: https://platform.example.com/account/billing. Projects not in production keep working as staging.",
+      "details": {
+        "projectId": "b3bc8d28-8487-4d90-be57-4e522488f10c",
+        "next": "https://platform.example.com/account/billing"
+      },
+      "requestId": "req-04d7cdca-a8ca-4ff6-87ad-9939387223a0"
+    }
+  }
+  ```
+- **A runtime whose projects can't be put in production** answers
+  `501 production-unsupported`.
+
+## Delete an org
+
+<Tabs syncKey="lang">
 <TabItem label="CLI">
 
 ```sh

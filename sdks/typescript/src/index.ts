@@ -385,6 +385,15 @@ export type {
   TenantAdminContact,
   TenantLimitsShape,
 } from './resources/system-tenants.js';
+export type {
+  SystemUsageClient,
+  SystemUsageQuery,
+  TenantUsageClient,
+  UsageGroup,
+  UsageGroupKey,
+  UsagePage,
+  UsageQuery,
+} from './resources/usage.js';
 export { SIGNED_EXPORT_ALGORITHMS, verifySignedExport } from './verify-export.js';
 export { docsUrl } from './docs-links.js';
 export type {
