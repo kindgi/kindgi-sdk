@@ -51,6 +51,7 @@ export type {
 // ============ Classifier ============
 export type {
   Classification,
+  ClassificationSource,
   ComplianceClassifierFile,
   ComplianceClassifierSource,
   LoadedClassifier,
