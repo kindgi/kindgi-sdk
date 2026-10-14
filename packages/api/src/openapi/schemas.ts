@@ -72,12 +72,12 @@ import {
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
 
-import { DEPLOYMENT_ENDPOINT_PROBLEM_CODES } from '../deployment-binding.js';
-import { ERROR_CODE_TO_STATUS } from '../errors.js';
 import {
-  PACK_ENDPOINT_AUTHS,
+  DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
   SYSTEM_DEPLOYMENT_RETIRE_REASONS,
-} from '../routes/system-deployments.js';
+} from '../deployment-binding.js';
+import { ERROR_CODE_TO_STATUS } from '../errors.js';
+import { PACK_ENDPOINT_AUTHS } from '../routes/system-deployments.js';
 import { FULL_SYSTEM_CAPABILITY, SYSTEM_SCOPES } from '../system.js';
 
 export type JsonSchema = Record<string, unknown>;
@@ -9729,7 +9729,7 @@ export const DeploymentEndpointSchema: JsonSchema = {
   additionalProperties: false,
   required: ['status', 'since'],
   description:
-    "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); after a suspension is lifted, `problem` says why it isn't back yet. Carries no URL and no token.",
+    "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); it carries `waiting` or `retired` to say whether it comes back. Carries no URL and no token.",
   properties: {
     status: { type: 'string', enum: ['pending', 'ready', 'cleared'] },
     since: {
@@ -9738,6 +9738,17 @@ export const DeploymentEndpointSchema: JsonSchema = {
       description: 'When the status last changed.',
     },
     problem: { $ref: '#/components/schemas/DeploymentEndpointProblem' },
+    waiting: {
+      type: 'boolean',
+      const: true,
+      description:
+        "`cleared` only: a pack service is wanted for it again, as once a suspension that took its service down is lifted, so one is on its way; `problem` says why it isn't back yet. A `cleared` endpoint carries this or `retired`, never both. Absent from older servers, which send neither.",
+    },
+    retired: {
+      type: 'string',
+      description:
+        '`cleared` only: why no pack service is wanted for it now. `superseded` is for good: a later deploy shipped every tool version and check this one did, so no call reaches it again. `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.',
+    },
   },
 };
 
@@ -9747,7 +9758,7 @@ export const DeploymentEndpointProblemSchema: JsonSchema = {
   additionalProperties: false,
   required: ['code', 'since'],
   description:
-    'While the deployment waits for a pack service (`pending`, or `cleared` after a suspension is lifted): the last reason it has none yet, gone once the status changes. A fixed code, never free text.',
+    'While the deployment waits for a pack service (`pending`, or `cleared` and `waiting`): the last reason recorded while it waited. A `ready` endpoint has none, nor a `retired` one. A fixed code, never free text.',
   properties: {
     code: {
       type: 'string',

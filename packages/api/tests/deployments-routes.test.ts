@@ -2379,19 +2379,59 @@ describe('GET /v1/deployments — the endpoint, under per-deployment routing', (
     expect(page.data[0]?.endpoint).toEqual(expected);
   });
 
-  test('a cleared deployment carries its problem too: its pack service is wanted again after a suspension', async () => {
-    const { app, deploymentId } = await seeded({
-      status: 'cleared',
-      since: '2026-10-11T12:00:00.000Z',
-      problem: { code: 'service-start-failed', since: '2026-10-11T12:03:00.000Z' },
-    });
+  async function endpointOf(endpoint: Deployment['endpoint']) {
+    const { app, deploymentId } = await seeded(endpoint);
     const one = await app.request(`/v1/deployments/${deploymentId}`, {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
-    expect(((await one.json()) as Record<string, unknown>).endpoint).toEqual({
-      status: 'cleared',
-      since: '2026-10-11T12:00:00.000Z',
-      problem: { code: 'service-start-failed', since: '2026-10-11T12:03:00.000Z' },
+    return ((await one.json()) as Record<string, unknown>).endpoint;
+  }
+
+  const CLEARED = { status: 'cleared', since: '2026-10-11T12:00:00.000Z' } as const;
+  const PROBLEM = { code: 'service-start-failed', since: '2026-10-11T12:03:00.000Z' } as const;
+
+  test('a cleared deployment waiting for its pack service again (a suspension lifted) says so, with its problem', async () => {
+    expect(await endpointOf({ ...CLEARED, waiting: true, problem: PROBLEM })).toEqual({
+      ...CLEARED,
+      problem: PROBLEM,
+      waiting: true,
+    });
+  });
+
+  test('a retired cleared deployment says why, and shows no problem, whatever the binding holds', async () => {
+    expect(await endpointOf({ ...CLEARED, retired: 'superseded', problem: PROBLEM })).toEqual({
+      ...CLEARED,
+      retired: 'superseded',
+    });
+  });
+
+  test('a cleared deployment from a binding that says neither (an older server) shows neither, and no problem', async () => {
+    expect(await endpointOf({ ...CLEARED, problem: PROBLEM })).toEqual(CLEARED);
+  });
+
+  test('a cleared deployment carries one of the two: waiting, should a binding give both', async () => {
+    expect(await endpointOf({ ...CLEARED, waiting: true, retired: 'pack-suspended' })).toEqual({
+      ...CLEARED,
+      waiting: true,
+    });
+  });
+
+  test('only a cleared deployment carries waiting or retired', async () => {
+    const since = '2026-10-11T12:00:00.000Z';
+    expect(
+      await endpointOf({
+        status: 'pending',
+        since,
+        waiting: true,
+        retired: 'superseded',
+        problem: PROBLEM,
+      }),
+    ).toEqual({ status: 'pending', since, problem: PROBLEM });
+    expect(
+      await endpointOf({ status: 'ready', since, waiting: true, retired: 'superseded' }),
+    ).toEqual({
+      status: 'ready',
+      since,
     });
   });
 

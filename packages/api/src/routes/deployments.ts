@@ -36,15 +36,15 @@ import { type UnpinnableRef, publishDeployedAgent, resolveAgentPins } from '../a
 import type { BlockRegistryBinding } from '../block-binding.js';
 import { type BlockPins, resolveBlockPins } from '../block-pins.js';
 import type { DeployedVersionOutcome } from '../deploy-versions.js';
-import type {
-  DeployedAgent,
-  DeployedFlow,
-  DeployedVersion,
-  Deployment,
-  DeploymentBinding,
-  DeploymentEndpoint,
-  DeploymentPrimitiveCounts,
-  DeploymentRegisterOutcome,
+import {
+  type DeployedAgent,
+  type DeployedFlow,
+  type DeployedVersion,
+  type Deployment,
+  type DeploymentBinding,
+  type DeploymentPrimitiveCounts,
+  type DeploymentRegisterOutcome,
+  endpointToWire,
 } from '../deployment-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
@@ -2279,20 +2279,6 @@ async function rollback(actions: readonly RollbackAction[]): Promise<void> {
   }
 }
 
-/**
- * Named fields only: an endpoint's URL and token never reach a tenant. The
- * problem shows while there's no pack service (pending, or cleared); a ready
- * one has none.
- */
-function serializeEndpoint(e: DeploymentEndpoint): Record<string, unknown> {
-  return {
-    status: e.status,
-    since: e.since,
-    ...(e.status !== 'ready' &&
-      e.problem !== undefined && { problem: { code: e.problem.code, since: e.problem.since } }),
-  };
-}
-
 function serializeDeployment(d: Deployment): Record<string, unknown> {
   return {
     deploymentId: d.deploymentId,
@@ -2307,7 +2293,7 @@ function serializeDeployment(d: Deployment): Record<string, unknown> {
     publishedAt: d.publishedAt,
     activatedAt: d.activatedAt,
     ...(d.projectId !== undefined && { projectId: d.projectId as unknown as string }),
-    ...(d.endpoint !== undefined && { endpoint: serializeEndpoint(d.endpoint) }),
+    ...(d.endpoint !== undefined && { endpoint: endpointToWire(d.endpoint) }),
     primitives: {
       tools: d.primitives.tools,
       guardrails: d.primitives.guardrails,

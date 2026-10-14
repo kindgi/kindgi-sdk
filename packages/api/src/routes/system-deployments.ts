@@ -10,6 +10,8 @@ import {
   DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
   type DeploymentEndpoint,
   type DeploymentEndpointProblemCode,
+  type SystemDeploymentRetireReason,
+  endpointToWire,
 } from '../deployment-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -44,25 +46,6 @@ export interface SystemDeploymentEntry {
   /** ISO-8601. */
   readonly activatedAt: string;
 }
-
-/**
- * Why a deployment's pack service should go:
- * - `superseded`: no live or promoted version routes to it any more. The
- *   orchestrator may keep the newest few per pack, for rollbacks;
- * - `tenant-closing`, `tenant-suspended`: every deployment of the tenant,
- *   routed or not, since nothing of it runs;
- * - `project-suspended`, `pack-suspended`: every deployment of the project,
- *   or this deployment.
- */
-export const SYSTEM_DEPLOYMENT_RETIRE_REASONS = [
-  'superseded',
-  'tenant-closing',
-  'tenant-suspended',
-  'project-suspended',
-  'pack-suspended',
-] as const;
-
-export type SystemDeploymentRetireReason = (typeof SYSTEM_DEPLOYMENT_RETIRE_REASONS)[number];
 
 export interface SystemDeploymentToRetire extends SystemDeploymentEntry {
   readonly reason: SystemDeploymentRetireReason;
@@ -461,21 +444,6 @@ function entryToWire(entry: SystemDeploymentEntry) {
     imageDigest: entry.imageDigest,
     artifactVersion: entry.artifactVersion,
     activatedAt: entry.activatedAt,
-  };
-}
-
-/**
- * Named fields only: never the URL, the auth or the token. The problem shows
- * while there's no pack service (pending, or cleared); a ready one has none.
- */
-function endpointToWire(endpoint: DeploymentEndpoint) {
-  return {
-    status: endpoint.status,
-    since: endpoint.since,
-    ...(endpoint.status !== 'ready' &&
-      endpoint.problem !== undefined && {
-        problem: { code: endpoint.problem.code, since: endpoint.problem.since },
-      }),
   };
 }
 

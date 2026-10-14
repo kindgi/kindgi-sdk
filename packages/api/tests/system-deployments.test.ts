@@ -118,7 +118,11 @@ function makeBinding() {
         (current.status === 'cleared' &&
           needing.some((e) => e.tenantId === tenantId && e.deploymentId === deploymentId));
       if (!waiting) return { kind: 'not-pending', endpoint: current };
-      const endpoint: DeploymentEndpoint = { ...current, problem: { code, since: NOW } };
+      const endpoint: DeploymentEndpoint = {
+        ...current,
+        problem: { code, since: NOW },
+        ...(current.status === 'cleared' && { waiting: true }),
+      };
       endpoints.set(key(tenantId, deploymentId), endpoint);
       return { kind: 'ok', endpoint };
     },
@@ -616,6 +620,7 @@ describe('PUT …/endpoint/problem', () => {
       status: 'cleared',
       since: NOW,
       problem: { code: 'service-start-failed', since: NOW },
+      waiting: true,
     });
   });
 

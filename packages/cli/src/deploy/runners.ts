@@ -105,8 +105,12 @@ export interface DeploymentRecord {
 export interface DeploymentEndpointRecord {
   readonly status: 'pending' | 'ready' | 'cleared';
   readonly since: string;
-  /** With `pending`: why there's no pack service yet, a fixed code. */
+  /** While it waits (`pending`, or `cleared` and `waiting`): why there's no pack service yet, a fixed code. */
   readonly problem?: { readonly code: string; readonly since: string };
+  /** `cleared` only: a pack service is wanted for it again, so one is on its way. */
+  readonly waiting?: true;
+  /** `cleared` only: why no pack service is wanted for it now (`superseded`, `pack-suspended`, …). */
+  readonly retired?: string;
 }
 
 /** An agent or flow a deployment shipped (`DeployedVersion` in `@kindgi/api`). */

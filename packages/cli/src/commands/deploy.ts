@@ -800,11 +800,23 @@ const PACK_SERVICE_PROBLEMS: Readonly<Record<string, string>> = {
   'endpoint-info-mismatch': 'the pack service answered as another pack or version',
 };
 
+/** Why no pack service is wanted for a cleared deployment now, by its `retired` reason. */
+const PACK_SERVICE_RETIRED: Readonly<Record<string, string>> = {
+  superseded:
+    'a later deploy ships every tool version and check this one does, so no call reaches it again',
+  'tenant-closing': 'your workspace is closing',
+  'tenant-suspended': "your workspace is suspended, until it's restored",
+  'project-suspended': "its project is suspended, until it's restored",
+  'pack-suspended': "its pack is suspended, until it's restored",
+};
+
 /**
  * Waits for the deployment's own pack service to be `ready`, reading the
- * deployment again every 2 s and saying each new state once. Fails when
- * it's `cleared`, after 5 minutes, after a few failed reads in a row, or
- * on Ctrl+C. The deployment is in place whatever it finds.
+ * deployment again every 2 s and saying each new state once. A `cleared`
+ * one that's `waiting` (a suspension that took it down was lifted) is
+ * waited for like a pending one. Fails when it's `cleared` otherwise (saying
+ * why, when the server says), after 5 minutes, after a few failed reads in
+ * a row, or on Ctrl+C. The deployment is in place whatever it finds.
  */
 async function waitForPackService(
   ctx: CommandContext,
@@ -837,7 +849,7 @@ async function waitForPackService(
       if (settled.kind === 'ok') line('    ✓ ready\n');
       return settled;
     }
-    const state = pendingState(endpoint);
+    const state = waitingState(endpoint);
     if (state !== said) line(`    … ${state}`);
     said = state;
     if (now() - started >= PACK_SERVICE_WAIT_MS) {
@@ -891,7 +903,11 @@ function stoppedWaiting(why: string, deploymentId: string) {
   };
 }
 
-/** A pack service that's done with: `ready`, or `cleared` (a failure); else undefined. */
+/**
+ * A pack service that's done with: `ready`, or `cleared` and not `waiting`
+ * (a failure, with the server's reason when it gives one: an older server
+ * gives none); else undefined.
+ */
 function settledPackService(
   endpoint: DeploymentEndpointRecord,
   id: string,
@@ -900,20 +916,31 @@ function settledPackService(
   | { readonly kind: 'error'; readonly message: string }
   | undefined {
   if (endpoint.status === 'ready') return { kind: 'ok', endpoint };
-  if (endpoint.status === 'cleared') {
+  if (endpoint.status !== 'cleared' || endpoint.waiting === true) return undefined;
+  if (endpoint.retired === undefined) {
     return {
       kind: 'error',
-      message: `The deployment's pack service was taken down before it was ready (cleared). deploymentId ${id}.\n`,
+      message: `The deployment's pack service was taken down (cleared). deploymentId ${id}.\n`,
     };
   }
-  return undefined;
+  const why = PACK_SERVICE_RETIRED[endpoint.retired] ?? 'none is wanted for it now';
+  return {
+    kind: 'error',
+    message: `The deployment's pack service was taken down (cleared, ${endpoint.retired}): ${why}. deploymentId ${id}.\n`,
+  };
 }
 
-/** A pending pack service, as the wait says it: `pending`, and why when there's a problem. */
-function pendingState(endpoint: DeploymentEndpointRecord): string {
-  if (endpoint.problem === undefined) return 'pending';
+/**
+ * A pack service being waited for, as the wait says it: `pending`, or
+ * `cleared, waiting for its pack service again`, and why when there's a
+ * problem.
+ */
+function waitingState(endpoint: DeploymentEndpointRecord): string {
+  const state =
+    endpoint.status === 'cleared' ? 'cleared, waiting for its pack service again' : 'pending';
+  if (endpoint.problem === undefined) return state;
   const why = PACK_SERVICE_PROBLEMS[endpoint.problem.code] ?? 'not ready yet';
-  return `pending (${endpoint.problem.code}): ${why}`;
+  return `${state} (${endpoint.problem.code}): ${why}`;
 }
 
 function sleepUnlessStopped(ms: number, signal?: AbortSignal): Promise<void> {
