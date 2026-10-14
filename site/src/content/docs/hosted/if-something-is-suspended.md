@@ -64,9 +64,10 @@ instead.
 
 - **What was on runs again.** Schedules and webhook triggers were never
   turned off, so they take their next fire or delivery as before. Your
-  packs' services come back with nothing for you to do, after a short wait;
-  until a pack's has, a call to its tools fails with
-  `pack-endpoint-cleared`.
+  packs' services come back with nothing for you to do, usually within a
+  few minutes; until a pack's has, a call to its tools fails with
+  `pack-endpoint-cleared`. If one isn't back after that, write to
+  contact@kindgi.com.
 - **A fire or delivery the suspension caught is recorded `skipped`.** One
   whose run hadn't started when your workspace was suspended is recorded at
   the restore, with "tenant-suspended: its tenant was suspended before its
