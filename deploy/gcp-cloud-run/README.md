@@ -247,6 +247,7 @@ Pin each secret to a version, as above, rather than `latest`: a new version then
 ## Upgrading
 
 - **To runtime 0.1.5: add `KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"` to `server_env` first, or nobody can sign in to the console.** Up to 0.1.4 the console's sign-in page took the API token on its own. From 0.1.5 that's off by default outside `kindgi dev`. The API keeps taking tokens either way, and "7. Turn on sign-in" has the other ways in.
+- **The module turns Cloud Resource Manager on** (`cloudresourcemanager.googleapis.com`), though its own resources don't use it. Another root on the same project that reads the project with its calls billed there (the provider's `user_project_override`) needs it, and couldn't turn it on before that read. A deployment made with an earlier copy of the module gets it at its next apply: one `google_project_service` to add.
 - **Upgrades roll forward:** migrations only go forward, so an older runtime can break on a database a newer one migrated. Deploy a new runtime revision at 100% traffic, keep a database backup from before, and roll back by restoring it.
 
 ## Operating it
