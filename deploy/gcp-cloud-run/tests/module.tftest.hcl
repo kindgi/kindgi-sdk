@@ -11,6 +11,15 @@ mock_provider "google" {
       number = "123456789012"
     }
   }
+  # Private-IP mode's CAs: the one in use, and one added for a rotation.
+  mock_data "google_sql_ca_certs" {
+    defaults = {
+      certs = [
+        { cert = "-----BEGIN CERTIFICATE-----\nacme in use\n-----END CERTIFICATE-----\n" },
+        { cert = "-----BEGIN CERTIFICATE-----\nacme upcoming\n-----END CERTIFICATE-----\n" },
+      ]
+    }
+  }
   # database_instance's instance: one a restore made, with a public IP.
   mock_data "google_sql_database_instance" {
     defaults = {
@@ -859,6 +868,74 @@ run "unset_the_server_serves_from_its_own_instance" {
     condition     = length(google_cloud_run_v2_service.server.template[0].volumes[0].cloud_sql_instance[0].instances) == 1
     error_message = "The /cloudsql volume names one instance: the module's own."
   }
+}
+
+run "the_cloudsql_socket_has_no_server_ca" {
+  command = plan
+
+  assert {
+    condition     = length(data.google_sql_ca_certs.kindgi) == 0
+    error_message = "Through /cloudsql, the instance's CAs aren't read: the connector checks the instance."
+  }
+  assert {
+    condition = length([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e
+      if startswith(e.name, "KINDGI_DATABASE_SERVER_CA")
+    ]) == 0
+    error_message = "Through /cloudsql, the server gets no database CA, which the runtime refuses with a socket."
+  }
+}
+
+run "private_ip_mode_checks_the_database_against_every_instance_ca" {
+  # Apply (mocked): the CAs are read once the instance exists.
+  command = apply
+  variables {
+    database_private_network = "projects/acme-app-dev/global/networks/acme"
+  }
+
+  assert {
+    condition = [
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_DATABASE_SERVER_CA"
+      ] == [
+      "-----BEGIN CERTIFICATE-----\nacme in use\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nacme upcoming\n-----END CERTIFICATE-----"
+    ]
+    error_message = "Private-IP mode sets KINDGI_DATABASE_SERVER_CA to every CA the instance lists, the upcoming one too."
+  }
+  assert {
+    condition     = length(google_cloud_run_v2_service.server.template[0].volumes) == 0
+    error_message = "Private-IP mode has no /cloudsql volume."
+  }
+}
+
+run "private_ip_mode_refuses_an_instance_without_a_ca" {
+  command = plan
+  variables {
+    database_private_network = "projects/acme-app-dev/global/networks/acme"
+  }
+  override_data {
+    target = data.google_sql_ca_certs.kindgi
+    values = {
+      certs = []
+    }
+  }
+  expect_failures = [data.google_sql_ca_certs.kindgi]
+}
+
+run "the_database_ca_settings_are_the_modules" {
+  command = plan
+  variables {
+    server_env = { KINDGI_DATABASE_SERVER_CA_PATH = "/etc/kindgi/db-ca.pem" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "the_inline_database_ca_is_the_modules" {
+  command = plan
+  variables {
+    server_env = { KINDGI_DATABASE_SERVER_CA = "-----BEGIN CERTIFICATE-----" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
 }
 
 run "database_instance_moves_the_server_and_keeps_its_own_instance" {

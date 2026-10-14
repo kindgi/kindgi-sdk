@@ -201,6 +201,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_DATABASE_SERVER_CA_PATH',
+    description:
+      "Used from runtime 0.1.8.1; earlier runtimes ignore it. Absolute path to a PEM file of the CA certificates the database server's certificate must chain to: for a database reached over TCP by an address its certificate doesn't name, such as Cloud SQL by private IP, whose per-instance CA signs that one instance's certificate alone. Set, every connection to the database uses TLS, whatever `KINDGI_DATABASE_URL`'s `sslmode` says, and the server's certificate must chain to one of these CAs (not to the system's) and be in date. Its name is checked too only with `sslmode=verify-full`. Refused at boot with a URL that reaches a Unix socket, turns TLS off (`sslmode=disable`, `ssl=false`), or asks for the name to be checked on an IP address. This or `KINDGI_DATABASE_SERVER_CA`, not both.",
+    example: '/etc/kindgi/database-ca.pem',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_DATABASE_SERVER_CA',
+    description:
+      "Used from runtime 0.1.8.1; earlier runtimes ignore it. The database server's CA certificates themselves, PEM: for platforms that give settings as environment variables (Cloud Run). See `KINDGI_DATABASE_SERVER_CA_PATH`; this or that, not both.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_OPENFGA_API_URL',
     description:
       'OpenFGA HTTP API URL. Set → per-tenant FGA stores are bootstrapped and authorization is enforced; unset → routes mount without enforcement (dev only; production MUST set it).',
