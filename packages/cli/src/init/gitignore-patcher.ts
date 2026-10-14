@@ -40,7 +40,7 @@ const KINDGI_PATTERNS = ['.env.local', '.kindgi/', '.kindgirc.json'] as const;
  * like the rest of the app; `.kindgi/` is already out via `.gitignore`,
  * which Prettier 3 honours.
  */
-const FORMATTER_IGNORE_PATTERNS = ['.claude/skills/kindgi-*/'] as const;
+const FORMATTER_IGNORE_PATTERNS = ['.claude/skills/kindgi-*/', '.agents/skills/kindgi-*/'] as const;
 
 export interface PatchResult {
   /** `absent` — the file doesn't exist and was not created (formatter ignores). */

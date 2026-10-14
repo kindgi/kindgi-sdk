@@ -26,12 +26,41 @@ The config is `kindgi.config.json`.
   `"openrouter"`) to `kindgi.config.json`: `kindgi dev` then registers it on
   every boot, in every worktree.
 
+## Skills
+
+`.claude/skills/` and `.agents/skills/` hold the same Kindgi skills for Java
+packs: getting started, tools, guardrails, agents and flows in Java
+(`kindgi-java-*`), model providers, MCP servers, framework feedback, and
+guiding the person in using what you built (`kindgi-using`). Claude Code
+loads `.claude/skills/` on its own; Codex and Gemini CLI look in
+`.agents/skills/`; any other coding agent can read either.
+`kindgi skills sync` refreshes both.
+
 When you diagnose a framework bug (something in Kindgi itself, not in this
 pack's code), append an entry to `FEEDBACK.md` at the pack root with
 `kindgi feedback write`.
 
 When the person asks how to use what you built (where something is in
 Kindgi's console, what an agent did, what it cost, who has access), answer
-from `kindgi`'s read-only commands and give the console link beside it: see
-`.claude/skills/kindgi-using/SKILL.md`. Deciding approvals, erasing, adding
-people and rating answers stay with the person.
+from `kindgi`'s read-only commands and give the console link beside it:
+see the `kindgi-using` skill. Deciding approvals, erasing, adding people
+and rating answers stay with the person.
+
+## Commands for the person's own terminal
+
+Two commands are always the person's to run, in their own terminal, since
+they ask for a secret: `kindgi secrets set` and `kindgi auth registry`.
+Others need what a coding agent's sandbox often blocks: `kindgi dev` and any
+dev server (they keep running), and `kindgi build` or anything else that
+needs Docker. When your sandbox blocks a command (a process it can't start,
+`spawn EPERM`; Docker's socket denied; `localhost` refused; a folder it
+keeps read-only, as Codex's keeps `.agents/`, which `kindgi skills sync`
+writes), don't work around it: don't turn your sandbox off, and don't start
+the command in the background. Give the person the exact command, the
+folder to run it in and what they'll see, then wait for them. Once they say
+`kindgi dev` is running, `kindgi dev` again exits 3 and says where theirs
+runs: use that one.
+
+A tool's own `EPERM` while it runs under `kindgi dev` is something else:
+Kindgi's dev sandbox, which the tools skill covers. Never turn that one off
+either.

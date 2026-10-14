@@ -24,7 +24,9 @@ how it knows to.
 ### Skills, loaded for the task
 
 `kindgi init` copies Kindgi's **skills** into the project, under
-`.claude/skills/`, for a TypeScript, Python, Java or Scala project. A skill
+`.claude/skills/` and `.agents/skills/` (the same copy in each), for a
+TypeScript, Python, Java or Scala project. Each coding agent looks in one of
+the two ([Other coding agents](#other-coding-agents)). A skill
 is a page of instructions written for an agent:
 the steps, the commands to run, what to check, and the mistakes to avoid.
 
@@ -130,6 +132,8 @@ Logging in to the runtime image's registry is yours too:
 
 ## Keep it out of your keys
 
+### Claude Code
+
 `kindgi init` adds deny rules to your project's `.claude/settings.json`, so
 Claude Code's file tools never read the files that hold keys and tokens:
 
@@ -225,6 +229,55 @@ Tested with Claude Code 2.1.288:
   `kindgi doctor` works, and says which checks it skipped because it couldn't
   read a file.
 
+### Codex
+
+Codex has no ignore file, and nothing `kindgi init` writes binds it. Its
+sandbox can refuse to read a path, with a permission profile in the
+project's `.codex/config.toml`, which Codex loads only once you trust the
+project. This is Codex's documented setting
+([configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference));
+we haven't tested it:
+
+```toml
+default_permissions = "kindgi"
+
+[permissions.kindgi]
+extends = ":workspace"
+
+[permissions.kindgi.filesystem.":workspace_roots"]
+"**/.env*" = "deny"
+".kindgi/secrets.env" = "deny"
+".kindgi/dev/runtime.env" = "deny"
+"kindgi.env" = "deny"
+"pack.env" = "deny"
+```
+
+The reference says not to combine `default_permissions` with
+`sandbox_mode`, so for this project the profile takes the place of the
+sandbox mode you'd otherwise set.
+
+### Gemini CLI
+
+Gemini CLI's file search skips what `.gitignore` lists
+(`context.fileFiltering.respectGitIgnore`, on by default), and `kindgi init`
+adds `.kindgi/` and `.env.local` there. For the other files, add a
+`.geminiignore` at the project's root (gitignore syntax); `kindgi init` adds
+them to one the project already has:
+
+```text
+.env*
+.kindgi/secrets.env
+.kindgi/dev/runtime.env
+kindgi.env
+pack.env
+```
+
+Its docs name the tools that respect `.geminiignore` only by example (`@`
+file sharing), so don't count on it for a command its shell runs
+([.geminiignore](https://geminicli.com/docs/cli/gemini-ignore/)).
+
+### What these settings don't cover
+
 These settings keep the agent's own tools and commands out of your keys. The
 code it writes still runs in your app and in `kindgi dev`, with your access.
 Under `kindgi dev`, your pack's tools never get a secret stored with
@@ -233,37 +286,91 @@ app's routes do see what its own env files hold. Read what the agent writes.
 
 ## Other coding agents
 
-Claude Code loads the skills by itself. They're plain Markdown, so any
-coding agent can follow them once it knows where they are:
+The skills are plain Markdown, in the two folders coding agents look in.
+Where each agent looks, from its own documentation:
+
+| Agent | Finds Kindgi's skills in | Its docs |
+|---|---|---|
+| Claude Code | `.claude/skills/` | [Skills](https://code.claude.com/docs/en/skills) |
+| Codex | `.agents/skills/`, in the folder it starts in and each one above it up to the repository's root | [Skills](https://learn.chatgpt.com/docs/build-skills) |
+| Gemini CLI | `.agents/skills/`, ahead of its own `.gemini/skills/` | [Agent Skills](https://geminicli.com/docs/cli/skills/) |
+| Cursor | `.agents/skills/`, and `.claude/skills/` for compatibility | [Skills](https://cursor.com/docs/skills) |
+| VS Code (GitHub Copilot) | `.agents/skills/` and `.claude/skills/` | [Agent skills](https://code.visualstudio.com/docs/agent-customization/agent-skills) |
+
+VS Code lists a skill once for each folder it's in, so you'll see each
+Kindgi skill twice there; the two copies are the same.
 
 - A new pack has an `AGENTS.md` that points to them, for agents that read
-  `AGENTS.md`.
+  `AGENTS.md`. Gemini CLI reads `GEMINI.md` instead, until its
+  `context.fileName` setting names `AGENTS.md`
+  ([its settings](https://geminicli.com/docs/reference/configuration/)),
+  in `.gemini/settings.json`:
+
+  ```json
+  { "context": { "fileName": ["AGENTS.md", "GEMINI.md"] } }
+  ```
+
+  The skills hold the same instructions, so it finds them either way.
 - In an existing app, `kindgi init` leaves your `AGENTS.md` (or rules file)
   alone. Add a line to it, for example: "Kindgi's instructions are in
-  `.claude/skills/`. Before writing Kindgi code, read the skill for the
-  task."
+  `.agents/skills/` (the same as `.claude/skills/`). Before writing Kindgi
+  code, read the skill for the task."
+
+### When its sandbox blocks a command
+
+Two commands are always yours to run, in your own terminal, since they ask
+for a secret: `kindgi secrets set` and `kindgi auth registry`. A coding agent
+in a sandbox may be blocked from others: it can't start `kindgi dev`
+(`spawn EPERM`), reach Docker's socket, or connect to `localhost`. Codex's
+default sandbox, for one, turns the network off and keeps `.agents/`
+read-only ([its docs](https://learn.chatgpt.com/docs/agent-approvals-security)),
+so `kindgi skills sync` is yours to run there.
+
+The skills and a new pack's `AGENTS.md` tell the agent not to work around a
+block: no turning its sandbox off, no starting the command in the
+background. It gives you the exact command, the folder to run it in and what
+you'll see, and waits until you say it's running. Once your `kindgi dev`
+runs, the agent's `kindgi dev` exits with code 3 and says where yours is, and
+the agent uses yours.
 
 ## Keeping them current
 
-The skills are copies, made when you ran `kindgi init`. After upgrading
-Kindgi, refresh them:
+The skills are copies, made when you ran `kindgi init`: one in
+`.claude/skills/`, one in `.agents/skills/`. After upgrading Kindgi, refresh
+both:
 
 ```sh
 kindgi skills sync
 ```
 
-It keeps skills you edited. `--force` replaces those too. In a Python
-project, run it as `uv run kindgi skills sync`.
+It keeps skills you edited, in either folder. `--force` replaces those too.
+A folder you deleted comes back. In a Python project, run it as
+`uv run kindgi skills sync`.
 
-It prints each skill's outcome, as JSON:
+It says what it did in each folder, then prints the same as JSON (with
+`--json`, the JSON alone):
 
 ```text
+Synced ./.claude/skills/ and ./.agents/skills/
+
+.claude/skills/
+  = kindgi-authoring-agents @0.4.6
+…
+  0 added, 0 updated, 9 unchanged, 0 skipped-modified, 0 local-only
+
+.agents/skills/
+  = kindgi-authoring-agents @0.4.6
+…
+  0 added, 0 updated, 9 unchanged, 0 skipped-modified, 0 local-only
+
+SDK release: …
 {
   "targetDir": ".",
   "packLanguage": "node",
   "outcomes": [
     {
       "name": "kindgi-authoring-agents",
+      "folder": ".claude/skills",
       "status": "unchanged",
 …
   "dryRun": false,
@@ -271,8 +378,9 @@ It prints each skill's outcome, as JSON:
 }
 ```
 
-`kindgi dev` tells you when the installed skills are behind the CLI's.
-`.claude/skills/.kindgi-manifest.json` records what was installed.
+`kindgi dev` tells you when the installed skills are behind the CLI's, in
+either folder. `.claude/skills/.kindgi-manifest.json` records what was
+installed in both.
 
 ## MCP servers for your coding agent
 

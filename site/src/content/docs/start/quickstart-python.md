@@ -55,12 +55,13 @@ my-pack/
 ├── agents/echo_agent.py              # Agent(...)
 ├── flows/echo_flow.py                # Flow(...)
 ├── tests/test_tools.py
-└── .claude/skills/                   # skills for your coding agent
+├── .claude/skills/                   # skills for your coding agent
+└── .agents/skills/                   # the same, where Codex and Gemini CLI look
 ```
 
 :::tip[Or ask your coding agent]
-The pack already has Kindgi's skills in `.claude/skills/`. Follow the steps
-below yourself, or ask your coding agent ("run the pack and try the agent",
+The pack already has Kindgi's skills in `.claude/skills/` and
+`.agents/skills/`. Follow the steps below yourself, or ask your coding agent ("run the pack and try the agent",
 "add a tool that looks up an order"): the skills tell it which commands to
 run. [How it knows Kindgi](../coding-agents/).
 :::

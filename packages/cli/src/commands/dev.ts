@@ -152,7 +152,7 @@ import { loadProviderPresets } from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
 import { consoleUrlOf, couldNotOpen } from './console.js';
 import { defaultSdkSkillsRoot } from './init.js';
-import { detectSkillDrift } from './skills.js';
+import { describeSkillDrift, detectSkillDrift } from './skills.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 export const devCommand: LeafCommand = {
@@ -1852,13 +1852,11 @@ async function emitSkillDriftHint(
   const skillsRoot = defaultSdkSkillsRoot();
   if (skillsRoot === undefined) return;
   try {
-    const drift = await detectSkillDrift({ skillsRoot, targetDir: packDir, language });
-    const total = drift.missing.length + drift.outdated.length;
-    if (total === 0) return;
-    const parts: string[] = [];
-    if (drift.outdated.length > 0) parts.push(`${drift.outdated.length} out of date`);
-    if (drift.missing.length > 0) parts.push(`${drift.missing.length} not yet installed`);
-    emitProgress(`  ⚠ Framework skills: ${parts.join(', ')}.`);
+    const drift = describeSkillDrift(
+      await detectSkillDrift({ skillsRoot, targetDir: packDir, language }),
+    );
+    if (drift === undefined) return;
+    emitProgress(`  ⚠ Framework skills: ${drift}.`);
     emitProgress(`    Run \`${syncCommand}\` to pull the latest.`);
     emitProgress('');
   } catch {
