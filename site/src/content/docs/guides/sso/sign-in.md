@@ -40,7 +40,9 @@ workspace:** (the choice lasts five minutes).
 A link to the sign-in page can fill your email in:
 `https://kindgi.acme.com/console/login#email=pat@acme-live.example`. A
 browser never sends the part after `#` to the server, so the address stays
-out of its request logs, and the link signs no one in.
+out of its request logs, and the link signs no one in. Write a `+` in the
+address as `%2B` (`#email=pat%2Bops@acme-live.example`): a plain `+` fills
+nothing.
 
 ## A sign-in link by email
 
