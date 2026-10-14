@@ -433,7 +433,7 @@ variable "server_secret_env" {
 }
 
 variable "server_secret_files" {
-  description = "Files the server reads, each a Secret Manager secret's version mounted at an absolute path: `{ \"/kindgi/compliance/classifier.json\" = { secret = \"kindgi-dev-compliance-classifier\", version = \"1\" } }`, with the setting that names the path in server_env (`KINDGI_COMPLIANCE_CLASSIFIER`). The operator creates each secret and adds its version; the server's service account gets read access to exactly these (one in another project is granted there). Each file is readable by every user in the container, so never a key: keys go in server_secret_env."
+  description = "Files the server reads, each a Secret Manager secret's version mounted at an absolute path under /kindgi/: `{ \"/kindgi/compliance/classifier.json\" = { secret = \"kindgi-dev-compliance-classifier\", version = \"1\" } }`, with the setting that names the path in server_env (`KINDGI_COMPLIANCE_CLASSIFIER`). The operator creates each secret and adds its version; the server's service account gets read access to exactly these. `project` only for a secret in another project, which is granted there: leave it out for this project's. Each file is readable by every user in the container, so never a key: keys go in server_secret_env."
   type = map(object({
     secret  = string
     version = string
@@ -446,10 +446,11 @@ variable "server_secret_files" {
     error_message = "server_secret_files: a path is absolute, a directory and a file name, such as /kindgi/compliance/classifier.json; each part starts with a letter or digit."
   }
   # Each file's directory is a volume of its own, which hides whatever the
-  # image has there: so never one of the image's top-level directories.
+  # image has there: so every file goes under /kindgi/, which the runtime's
+  # image doesn't have, and no list of the image's directories goes stale.
   validation {
-    condition     = alltrue([for path in keys(var.server_secret_files) : !contains(["app", "bin", "boot", "cloudsql", "dev", "etc", "home", "lib", "lib64", "media", "mnt", "opt", "proc", "root", "run", "sbin", "srv", "sys", "tmp", "usr", "var"], try(split("/", path)[1], ""))])
-    error_message = "server_secret_files: a file goes under a top-level directory the image doesn't have, such as /kindgi/: a mount hides what's in its directory, and /cloudsql is the database's."
+    condition     = alltrue([for path in keys(var.server_secret_files) : startswith(path, "/kindgi/")])
+    error_message = "server_secret_files: a file goes under /kindgi/, such as /kindgi/compliance/classifier.json: a mount hides what's in its directory, so /app, /etc or /cloudsql would hide the runtime, the system's files or the database's socket."
   }
   # Each file's directory is the mount of its one secret: no other file
   # in it, or below it.

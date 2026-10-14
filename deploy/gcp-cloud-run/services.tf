@@ -605,9 +605,16 @@ resource "google_cloud_run_v2_service" "server" {
     precondition {
       condition = length(setintersection(
         toset([for ref in values(var.server_secret_files) : ref.secret if ref.project == null || ref.project == var.project_id]),
-        toset(concat(values(local.server_secrets), values(local.shared_secrets), ["${var.name_prefix}-export-signing-key"])),
+        toset(concat(values(local.server_secrets), values(local.shared_secrets), ["${var.name_prefix}-export-signing-key"], var.database_instance == null ? [] : [var.database_instance.url_secret])),
       )) == 0
-      error_message = "server_secret_files names one of the module's own secrets (the database URL, the API token, the keys): those stay settings, since a file is readable by every user in the container."
+      error_message = "server_secret_files names one of the module's own secrets (the database URL, a served instance's url_secret included, the API token, the keys): those stay settings, since a file is readable by every user in the container."
+    }
+    precondition {
+      condition = length(setintersection(
+        toset([for ref in values(var.pack_secret_env) : "${ref.project == null ? var.project_id : ref.project}/${ref.secret}"]),
+        toset([for ref in values(var.server_secret_files) : "${ref.project == null ? var.project_id : ref.project}/${ref.secret}"]),
+      )) == 0
+      error_message = "A secret in server_secret_files is the pack's (pack_secret_env): the server doesn't read the pack's secrets."
     }
     precondition {
       condition     = var.tenancy != "single" || (var.seed_tenant_id != null && var.seed_user_id != null)

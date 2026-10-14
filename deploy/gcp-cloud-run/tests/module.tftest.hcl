@@ -431,6 +431,14 @@ run "a_server_file_over_the_images_directories_is_refused" {
   expect_failures = [var.server_secret_files]
 }
 
+run "a_server_file_outside_kindgi_is_refused" {
+  command = plan
+  variables {
+    server_secret_files = { "/data/classifier.json" = { secret = "kindgi-dev-compliance-classifier", version = "1" } }
+  }
+  expect_failures = [var.server_secret_files]
+}
+
 run "a_server_file_in_the_apps_directory_is_refused" {
   command = plan
   variables {
@@ -512,6 +520,24 @@ run "a_file_of_the_modules_own_secret_is_refused" {
   command = plan
   variables {
     server_secret_files = { "/kindgi/database/url" = { secret = "kindgi-dev-database-url", version = "1" } }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "a_file_of_the_served_instances_url_secret_is_refused" {
+  command = plan
+  variables {
+    database_instance   = { name = "kindgi-dev-restored", url_secret = "kindgi-dev-restored-database-url" }
+    server_secret_files = { "/kindgi/database/url" = { secret = "kindgi-dev-restored-database-url", version = "1" } }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "a_packs_secret_as_a_server_file_is_refused" {
+  command = plan
+  variables {
+    pack_secret_env     = { ACME_API_KEY = { secret = "acme-api-key", version = "1" } }
+    server_secret_files = { "/kindgi/acme/key" = { secret = "acme-api-key", version = "1" } }
   }
   expect_failures = [google_cloud_run_v2_service.server]
 }

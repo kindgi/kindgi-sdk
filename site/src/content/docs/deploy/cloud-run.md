@@ -717,12 +717,13 @@ server_env = {
 }
 ```
 
-- **Each file is the mount of its own directory:** one file per directory,
-  none below another file's, under a top-level directory the image doesn't
-  have, such as `/kindgi/`. A mount hides what's in its directory ([Google:
-  secrets as volumes](https://docs.cloud.google.com/run/docs/configuring/services/secrets)),
-  so the plan refuses the image's own directories (`/app`, `/etc`, `/usr`,
-  …) and `/cloudsql`.
+- **Each file is the mount of its own directory, under `/kindgi/`:** one
+  file per directory, none below another file's. A mount hides what's in its
+  directory ([Google: secrets as volumes](https://docs.cloud.google.com/run/docs/configuring/services/secrets)),
+  so the plan refuses any path outside `/kindgi/`, which the runtime's image
+  doesn't have: `/app`, `/etc` or `/cloudsql` would hide the runtime, the
+  system's files or the database's socket. So on Cloud Run the classifier
+  isn't at the retention page's `/etc/kindgi/classifier.json`.
 - **Pin a version number.** The plan refuses `latest` and aliases: a volume
   at `latest` follows each new version, even under a running server
   ([Google: secrets as volumes](https://docs.cloud.google.com/run/docs/configuring/services/secrets)). Pinned,
@@ -730,10 +731,13 @@ server_env = {
   which rolls a new revision.
 - **Every user in the container can read the file** (Cloud Run mounts it
   0444: [Google: `defaultMode`](https://docs.cloud.google.com/run/docs/reference/rest/v2/Volume#SecretVolumeSource)),
-  so never a key: a key goes in `server_secret_env`. The plan refuses
-  a secret that's in both, or one of the module's own secrets.
+  so never a key: a key goes in `server_secret_env`. The plan refuses a
+  secret that's in both, one of the module's own secrets (`database_instance`'s
+  `url_secret` included), and one of the pack's (`pack_secret_env`).
 - **Read access:** the server's service account gets it on exactly these
-  secrets. One in another project (`project = "…"`) is granted there.
+  secrets. Set `project` only for a secret in another project, which is
+  granted there; for one in this project leave it out, or the server isn't
+  granted it.
 - **A file is at most 64 KiB,** Secret Manager's limit for a version
   ([Google: Secret Manager quotas](https://docs.cloud.google.com/secret-manager/quotas)).
 
