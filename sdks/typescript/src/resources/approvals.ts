@@ -217,8 +217,8 @@ export interface ApprovalFilter extends Omit<Filter<ApprovalStatus>, 'status'> {
   /** `'me'`: only the approvals assigned to the caller's own reviewer row. */
   readonly assignedTo?: 'me';
   /**
-   * `'me'`: only the approvals the caller's own reviewer row decided. A
-   * runtime before 0.1.8 ignores it: compare `decision.reviewerId` to tell.
+   * `'me'`: only the approvals the caller's own reviewer row decided. An
+   * older runtime ignores it: compare `decision.reviewerId` to tell.
    */
   readonly decidedBy?: 'me';
   /** `'asc'`: oldest first. Default `'desc'` (newest first). */

@@ -508,7 +508,7 @@ const ConversationOpenedByQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    "`me`: only the conversations the caller opened (none for a caller with no principal). Conversations opened before Kindgi 0.1.8 record no opener and aren't listed by it.",
+    "`me`: only the conversations the caller opened (none for a caller with no principal). Conversations an older runtime opened record no opener and aren't listed by it.",
   schema: { type: 'string', enum: ['me'] },
 };
 

@@ -715,10 +715,13 @@ export interface ApprovalDecisionRecord {
   /**
    * The provider of the session the reviewer decided with: `site:<id>` for
    * a site's sign-in, an identity provider's id for single sign-on. Absent
-   * for an API key, and before 0.1.8.
+   * for an API key, and on decisions an older runtime recorded.
    */
   readonly sessionProvider?: string;
-  /** The reviewer's display name when they decided. Absent before 0.1.8. */
+  /**
+   * The reviewer's display name when they decided. Absent on decisions an
+   * older runtime recorded.
+   */
   readonly deciderName?: string;
 }
 
@@ -1038,8 +1041,8 @@ export interface Conversation {
   /**
    * Who opened it: the caller's principal (`user:<id>`,
    * `service_account:<id>`), or, for one a turn opened, whoever the run
-   * acts for. Absent on conversations from before 0.1.8, and from a
-   * runtime that doesn't record it.
+   * acts for. Absent on conversations an older runtime opened, and in an
+   * older runtime's answers.
    */
   readonly openedBy?: string;
   /** Structural scope (project id, matter id, etc.). */

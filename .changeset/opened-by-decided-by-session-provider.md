@@ -14,4 +14,4 @@
 - **A decision's session:**
   - **`sessionProvider`:** an approval's `decision` gains it. It's the provider of the session the reviewer decided with: `site:<id>` for a site's sign-in, or an identity provider's id. An API key has none. `SubmitReviewBindingInput` gains it, and the complete route passes it.
   - **`deciderName`:** the decision also gains the reviewer's name when they decided.
-  - Both are optional, absent before 0.1.8.
+  - Both are optional: a decision an older runtime recorded has neither.

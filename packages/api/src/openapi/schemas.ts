@@ -1894,12 +1894,12 @@ export const ApprovalDecisionRecordSchema: JsonSchema = {
     sessionProvider: {
       type: 'string',
       description:
-        "The provider of the session the reviewer decided with: `site:<id>` for a site's sign-in, an identity provider's id for a single sign-on session. Absent for an API key, and on decisions from before Kindgi 0.1.8.",
+        "The provider of the session the reviewer decided with: `site:<id>` for a site's sign-in, an identity provider's id for a single sign-on session. Absent for an API key, and on decisions an older runtime recorded.",
     },
     deciderName: {
       type: 'string',
       description:
-        "The reviewer's display name when they decided: a person renamed since still shows as they were. Absent on decisions from before Kindgi 0.1.8.",
+        "The reviewer's display name when they decided: a person renamed since still shows as they were. Absent on decisions an older runtime recorded.",
     },
   },
 };
@@ -3630,7 +3630,7 @@ export const ConversationSchema: JsonSchema = {
     openedBy: {
       type: 'string',
       description:
-        "Who opened it: the caller's principal (`user:<id>`, `service_account:<id>`), or, for one a turn opened, whoever the run acts for. Set by the server, never from a request's body. Absent on conversations opened before Kindgi 0.1.8, and when the caller had no principal; those aren't listed by `?openedBy=me`.",
+        "Who opened it: the caller's principal (`user:<id>`, `service_account:<id>`), or, for one a turn opened, whoever the run acts for. Set by the server, never from a request's body. Absent on conversations an older runtime opened, and when the caller had no principal; those aren't listed by `?openedBy=me`.",
     },
     scope: {
       type: 'object',

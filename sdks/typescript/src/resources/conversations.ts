@@ -113,8 +113,8 @@ export interface ConversationFilter extends Omit<Filter<ConversationStatus>, 'st
   readonly agent?: import('@kindgi/types').AgentId;
   readonly participantId?: string;
   /**
-   * `me`: only the conversations the caller opened. Conversations from
-   * before 0.1.8 record no opener and aren't listed by it; a runtime that
+   * `me`: only the conversations the caller opened. Conversations an older
+   * runtime opened record no opener and aren't listed by it; a runtime that
    * predates it ignores the filter and lists them all (compare `openedBy`
    * with the caller's `actor` from `identity.whoami()` to tell).
    */
