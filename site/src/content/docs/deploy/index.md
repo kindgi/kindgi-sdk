@@ -21,6 +21,10 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
   service as containers, with your own Postgres.
 - **[Operate it](operate/):** health and logs, backups and restores,
   upgrades, and rotating its tokens and keys.
+- **[Serve many tenants](serve-many-tenants/):** one runtime for tenants
+  who don't trust one another: the settings it starts only with, the
+  operator's system keys, a pack service for each deployment, and closing
+  and purging a tenant.
 - **[Keep secrets in your own secret manager](secret-manager/):** Azure Key
   Vault, Google Secret Manager or HashiCorp Vault holds the secrets set
   through Kindgi's API, and Kindgi keeps their names and versions.
