@@ -60,7 +60,8 @@ You get an email whose subject names your organization ("Acme's Kindgi
 workspace is ready"), with a link to sign in to the console with the address
 you signed up with.
 
-- **You're the workspace's first admin.**
+- **You're the workspace's first admin.** In the console and the API, your
+  workspace is called a tenant, so you're its first tenant admin.
 - **The billing page,** for the workspace's admins, says your workspace is in
   the preview: "Your workspace is in the preview: hosting one live app is free
   until Kindgi 1.0, within the hosted limits. We give 60 days' notice before
