@@ -204,14 +204,16 @@ P=$(gcloud config get-value project)
 # named after name_prefix ($N); the database is database_name (kindgi).
 # Made through the Cloud SQL Admin API rather than `gcloud sql users create --password`:
 # the body goes in on stdin and the token in a header from a pipe.
+# Each step runs only if the one before it worked, so the secret never holds
+# a password the user wasn't given.
 DBPW=$(openssl rand -hex 24)
 OP=$(printf '{"name":"kindgi","password":"%s"}' "$DBPW" \
   | curl -sS -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud auth print-access-token)") \
       -H 'Content-Type: application/json' --data-binary @- \
       "https://sqladmin.googleapis.com/v1/projects/$P/instances/$N/users" \
-  | jq -r '.name // error(.error.message)')
-gcloud sql operations wait "$OP" --project=$P
-printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
+  | jq -r '.name // error(.error.message)') && [ -n "$OP" ] \
+  && gcloud sql operations wait "$OP" --project=$P \
+  && printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
   | gcloud secrets versions add $N-database-url --data-file=-
 unset DBPW
 
@@ -235,6 +237,8 @@ read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | gcloud secrets versions add
   API (`users.insert`) on its input, with your gcloud access token in a
   header read from a pipe. `jq` takes the operation's name, or prints the
   API's error, and `gcloud sql operations wait` waits until the user exists.
+  The `&&`s stop at the first step that fails, and `[ -n "$OP" ]` stops them
+  when `curl` got no answer: then no password goes into the secret.
 - `gcloud secrets versions add <name> --data-file=-` adds what it reads on
   its input as the secret's next version.
 - `openssl rand` makes random values, and `openssl genpkey -algorithm ed25519`
