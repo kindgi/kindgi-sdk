@@ -8,7 +8,7 @@
   - Such a value is refused with `400 secret-value-invalid`, the new code, before any file is read. It used to answer `500 secret-store-error`.
   - The message says why and never repeats the value.
   - This applies to `POST /v1/secrets`, `PATCH /v1/tenant/config` and `POST /v1/deployments/{deploymentId}/secrets`.
-- **`SecretError` gains the codes a store's `set` refuses with:** `reserved-name-prefix`, `secret-name-invalid`, `secret-value-too-large` and `secret-value-invalid`. A store that rotates by setting a new version can answer a rotation's new value as it answers the write, and `POST /v1/secrets/{name}/rotate` answers those codes at `400`.
+- **`SecretError` gains the codes a store's `set` refuses with:** `reserved-name-prefix`, `secret-name-invalid`, `secret-value-too-large` and `secret-value-invalid`. A store that rotates by setting a new version can answer a rotation's new value as it answers the write, and `POST /v1/secrets/{name}/rotate` answers any of them it gets at `400`.
 - **The API reference:**
   - lists `secret-value-invalid` beside the other refusals for those three operations;
   - gives `POST /v1/secrets/{name}/rotate` its `400` (`secret-value-too-large`, `reserved-name-prefix`);
