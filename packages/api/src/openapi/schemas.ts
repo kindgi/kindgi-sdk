@@ -1549,7 +1549,7 @@ export const SystemDeploymentEntrySchema: JsonSchema = {
       type: 'string',
       enum: [...SYSTEM_DEPLOYMENT_RETIRE_REASONS],
       description:
-        'In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does, so no call reaches it again. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.',
+        "In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does, so no new call reaches it. A step that first ran on it and runs again still goes back to it, and fails closed (`pack-endpoint-cleared`) once it's retired. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.",
     },
   },
 };

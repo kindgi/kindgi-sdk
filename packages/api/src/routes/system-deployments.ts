@@ -45,7 +45,9 @@ export interface SystemDeploymentEntry {
 /**
  * Why a deployment's pack service should go:
  * - `superseded`: newer deployments ship every tool version and check it
- *   does, so no call reaches it again;
+ *   does, so no new call reaches it. A step that first ran on it and runs
+ *   again still goes back to it, and fails closed (`pack-endpoint-cleared`)
+ *   once it's retired;
  * - `tenant-closing`, `tenant-suspended`: every deployment of the tenant,
  *   routed or not, since nothing of it runs;
  * - `project-suspended`, `pack-suspended`: every deployment of the project,
