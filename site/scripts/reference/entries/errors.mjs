@@ -2745,6 +2745,12 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/secrets/store-a-secret'],
   },
+  'secret-name-invalid': {
+    description:
+      "The secrets store can't write a secret under this name. Under `kindgi dev`, a secret is a key in your env files, so its name is capital letters, digits and underscores, not starting with a digit (`ACME_WOO_ORDERS`, not `acme-woo-orders`), and never `KINDGI_*`, the runtime's own configuration. The message says the rule and a name that works.",
+    details: [],
+    seeAlso: ['guides/secrets/store-a-secret'],
+  },
   'secret-value-too-large': {
     description: 'The secret value is larger than the size limit the secrets store accepts.',
     details: [],

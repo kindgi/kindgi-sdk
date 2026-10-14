@@ -962,6 +962,7 @@ export type {
   SecretListInput,
   SecretListPage,
   SecretListVersionsInput,
+  SecretNameRefusal,
   SecretRecord,
   SecretResolveInput,
   SecretResolveOutcome,

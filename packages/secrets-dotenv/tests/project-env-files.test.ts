@@ -146,13 +146,44 @@ describe("writes land in Kindgi's own file, which wins; nothing else changes", (
   });
 
   test.each([
-    ['KINDGI_DATABASE_URL', 'runtime config'],
-    ['kindgi.webhook', 'reserved'],
-    ['lower_case', 'Invalid secret name'],
-  ])('refuses %s', async (name, reason) => {
-    const r = await set(createDotenvSecretBinding({ packDir: dir }), name, 'v');
-    expect(r.kind).toBe('error');
-    expect(r.kind === 'error' && r.message).toContain(reason);
+    ['KINDGI_DATABASE_URL', 'secret-name-invalid', 'runtime config'],
+    ['kindgi.webhook', 'reserved-name-prefix', 'reserved'],
+    [
+      'lower_case',
+      'secret-name-invalid',
+      'not starting with a digit (^[A-Z_][A-Z0-9_]*$). "lower_case" isn\'t one: use "LOWER_CASE".',
+    ],
+    [
+      'acme-woo-orders',
+      'secret-name-invalid',
+      '"acme-woo-orders" isn\'t one: use "ACME_WOO_ORDERS".',
+    ],
+    ['9-lives', 'secret-name-invalid', 'use "_9_LIVES".'],
+    ['kindgi_db', 'secret-name-invalid', '"kindgi_db" isn\'t one.'],
+  ])(
+    "refuses %s as the caller's %s, writing nothing; nameRefusal says the same",
+    async (name, code, says) => {
+      await put('.env.local', 'KEEP=1\n');
+      const b = createDotenvSecretBinding({ packDir: dir });
+      const r = await set(b, name, 'v');
+      expect(r).toEqual({ kind: 'error', code, message: expect.stringContaining(says) });
+      expect(b.nameRefusal?.(name)).toEqual({ code, message: r.kind === 'error' && r.message });
+      expect(await read('.env.local')).toBe('KEEP=1\n');
+    },
+  );
+
+  test('nameRefusal takes every name set writes', () => {
+    const b = createDotenvSecretBinding({ packDir: dir });
+    for (const name of ['ACME_WOO_ORDERS', '_PRIVATE', 'K', 'A1']) {
+      expect(b.nameRefusal?.(name), name).toBeUndefined();
+    }
+  });
+
+  test("a key typed into .env by hand that Kindgi wouldn't write still resolves", async () => {
+    await put('.env', 'acme-woo-orders=from-hand\n');
+    const b = createDotenvSecretBinding({ packDir: dir });
+    expect(await resolved(b, 'acme-woo-orders')).toBe('from-hand');
+    expect(b.nameRefusal?.('acme-woo-orders')?.code).toBe('secret-name-invalid');
   });
 
   test('a value no dotenv quoting can hold is refused, file untouched', async () => {

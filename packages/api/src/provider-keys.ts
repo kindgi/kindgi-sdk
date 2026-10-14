@@ -196,6 +196,10 @@ export function guardProviderKeys(
     ...(binding.writesAppEnvFiles !== undefined && {
       writesAppEnvFiles: binding.writesAppEnvFiles,
     }),
+    // Says which names `set` refuses, and `set` passes through: so does it.
+    ...(binding.nameRefusal !== undefined && {
+      nameRefusal: (name: string) => binding.nameRefusal?.(name),
+    }),
     async resolve(input) {
       const refused = await refusal(input.scope.tenantId, input.name);
       if (refused === undefined) return binding.resolve(input);
@@ -233,6 +237,7 @@ const GUARDED_MEMBERS = [
   'resolve',
   'getVersion',
   'writesAppEnvFiles',
+  'nameRefusal',
 ] as const satisfies readonly (keyof SecretBinding)[];
 type Unguarded = Exclude<keyof SecretBinding, (typeof GUARDED_MEMBERS)[number]>;
 // `true` while every member is listed; an unlisted one makes it its name, and this fails.
