@@ -1,6 +1,6 @@
 ---
 title: Build and deploy
-description: Build your pack and deploy it to your Kindgi Cloud workspace with `kindgi deploy --hosted`, then wait until its pack service is ready.
+description: Build your pack and deploy it to your Kindgi Cloud workspace with `kindgi deploy --hosted`, wait until its pack service is ready, then put its project in production.
 sidebar:
   order: 10
 ---
@@ -75,3 +75,36 @@ A `429` with `Retry-After` is waited out, and the same build sent again.
 
 CAPTURE: the build service's refusal codes, each with what to do, from the
 release candidate.
+
+## Go live
+
+A project's runs are staging until you put the project in production. From
+then on they're production runs, your customers' real work. In the preview,
+one project in production is free until Kindgi 1.0
+([what the preview includes](../sign-up/#what-the-preview-includes)).
+
+An admin of your workspace (in the console and the API, a tenant admin)
+puts the project in production. In the console, use **Go live** on the
+**Production** card of the project's **Dashboard**. With the CLI:
+
+```sh
+kindgi projects production <project-id> on
+```
+
+[Put a project in production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production)
+has the rest: taking a project out, its status, and the SDKs.
+
+- **Right after your workspace is made,** going live can take a moment to
+  turn on. Until it does, the card says "Going live isn't on for this
+  account yet. Building and testing work as they are.", and `on` is refused
+  with `403 production-not-allowed`. If that's still so after a few minutes,
+  write to contact@kindgi.com.
+- **Your workspace's billing page** shows its plan, to its admins: "Your
+  workspace is in the preview: hosting one live app is free until Kindgi
+  1.0, within the hosted limits. We give 60 days' notice before any
+  charge. For more than one live app, contact us." The card's links go
+  there.
+- **A second project** is refused with `403 production-limit-reached` while
+  one is in production
+  ([Projects in production](../limits/#projects-in-production)). For more
+  than one live app, write to contact@kindgi.com.
