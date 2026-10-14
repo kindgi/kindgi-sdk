@@ -45,6 +45,28 @@ def lookup_order(ref: OrderRef, ctx: ToolContext) -> Order:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/mypack/tools/LookupOrder.java
+  public static final Tool<Input, Output> TOOL = Tool.define("my-pack.lookup-order")
+      // …
+      .mutating(false)
+      // …
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/mypack/tools/LookupOrder.scala
+  val tool: Tool[Input, Output] = Tool[Input, Output]("my-pack.lookup-order")
+    // …
+    .readOnly
+    // …
+```
+
+</TabItem>
 </Tabs>
 
 Leaving `mutating` out is the same as `mutating: true`. That's the safe

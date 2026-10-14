@@ -438,6 +438,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'env-name-mismatch': 400,
   'env-cross-scope': 400,
   'reserved-name-prefix': 400,
+  /** A name the secrets store can't write (the dev store's env-file keys); the message says its rule. */
+  'secret-name-invalid': 400,
   'secret-value-too-large': 400,
   'secret-write-conflict': 409,
   'env-write-conflict': 409,
