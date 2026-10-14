@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { UsageError } from '../errors.js';
-import { integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
+import { filterIgnored, integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 const STATUSES = ['open', 'closed'] as const;
@@ -54,13 +54,17 @@ const list: LeafCommand = {
       const openedBy = oneOf('opened-by', stringFlag(ctx, 'opened-by'), ['me'] as const);
       const limit = integerFlag(ctx, 'limit');
       const cursor = stringFlag(ctx, 'cursor');
-      return await ctx.client().conversations.list({
+      const page = await ctx.client().conversations.list({
         ...(status !== undefined && { status }),
         ...(replays !== undefined && { replays }),
         ...(openedBy !== undefined && { openedBy }),
         ...(limit !== undefined && { limit }),
         ...(cursor !== undefined && { cursor: cursor as never }),
       });
+      if (openedBy !== undefined && page.openedBy !== 'me') {
+        throw filterIgnored('opened-by', '0.1.8.1');
+      }
+      return page;
     }),
 };
 

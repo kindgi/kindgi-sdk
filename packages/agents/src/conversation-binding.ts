@@ -111,7 +111,11 @@ export interface ListConversationsPageInput {
   readonly agentId?: AgentId;
   /** When set, filter to open (no closedAt) or closed (closedAt set) rows only. */
   readonly status?: 'open' | 'closed';
-  /** Only the conversations this principal opened (`user:<id>`, `service_account:<id>`). */
+  /**
+   * Only the conversations this principal opened (`user:<id>`,
+   * `service_account:<id>`). A binding that ignores it lists more: the
+   * route keeps only these.
+   */
   readonly openedBy?: string;
   /**
    * Replay conversations (opened by a comparison's replay turn: their

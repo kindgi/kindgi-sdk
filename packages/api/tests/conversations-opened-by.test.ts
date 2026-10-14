@@ -4,7 +4,9 @@
 /**
  * Who opened a conversation (`openedBy`), and "my conversations":
  *   - opening one records the caller's principal, never a body's;
- *   - `GET /v1/conversations?openedBy=me` lists the caller's own;
+ *   - `GET /v1/conversations?openedBy=me` lists the caller's own, whether
+ *     or not the binding filters them itself, and every page of it says so
+ *     (`openedBy: 'me'`), an empty one too;
  *   - a caller with no principal opened nothing it could be listed by;
  *   - only `me`.
  */
@@ -44,8 +46,18 @@ const opened = {
   openedAt: '2026-10-12T10:00:00.000Z',
   turnCount: 0,
 };
+const byAda = {
+  ...opened,
+  id: randomUUID(),
+  openedBy: 'user:u-ada',
+  openedAt: '2026-10-12T09:00:00.000Z',
+};
+/** Opened by an older runtime: no opener. */
+const unknown = { ...opened, id: randomUUID(), openedAt: '2026-10-12T08:00:00.000Z' };
+Reflect.deleteProperty(unknown, 'openedBy');
 
-function harness() {
+/** A binding that filters by `openedBy` itself (`honours`) or ignores it; a first page has more. */
+function harness(honours = true) {
   const openedWith: Record<string, any>[] = [];
   const listedWith: Record<string, any>[] = [];
   const stubs = createStubAppBindings();
@@ -60,7 +72,11 @@ function harness() {
     },
     listConversationsPage: async (input: Record<string, any>) => {
       listedWith.push(input);
-      return { kind: 'ok', value: { data: [opened], hasMore: false } };
+      let rows: Record<string, any>[] = [opened, byAda, unknown];
+      if (honours && input.openedBy !== undefined) {
+        rows = rows.filter((row) => row.openedBy === input.openedBy);
+      }
+      return { kind: 'ok', value: { data: rows, hasMore: input.before === undefined } };
     },
   } as unknown as ConversationBinding;
   const app = createApp({
@@ -113,25 +129,51 @@ describe('opening a conversation records who opened it', () => {
 });
 
 describe('my conversations (?openedBy=me)', () => {
-  test("the binding gets the caller's principal", async () => {
-    const h = harness();
-    const res = await h.call('/v1/conversations?openedBy=me', JANE);
-    expect(res.status).toBe(200);
-    expect(h.listedWith[0]?.openedBy).toBe('user:u-jane');
-    expect(validateAgainst('ConversationCollectionPage', res.body)).toEqual([]);
+  test.each([true, false])(
+    "only the caller's own, whether the binding filters (%s) or the route does",
+    async (honours) => {
+      const h = harness(honours);
+      const res = await h.call('/v1/conversations?openedBy=me', JANE);
+      expect(res.status).toBe(200);
+      expect(h.listedWith[0]?.openedBy).toBe('user:u-jane');
+      expect(res.body.data.map((c: { id: string }) => c.id)).toEqual([opened.id]);
+      expect(res.body.openedBy).toBe('me');
+      expect(validateAgainst('ConversationCollectionPage', res.body)).toEqual([]);
+    },
+  );
+
+  test('every page says it filtered: a later page, and an empty one', async () => {
+    const h = harness(false);
+    const first = await h.call('/v1/conversations?openedBy=me', JANE);
+    expect(first.body.nextCursor).toEqual(expect.any(String));
+    const later = await h.call(
+      `/v1/conversations?openedBy=me&cursor=${encodeURIComponent(first.body.nextCursor)}`,
+      JANE,
+    );
+    // An app's key opened none of them: the route keeps none.
+    const none = await h.call('/v1/conversations?openedBy=me', APP_KEY);
+    expect(h.listedWith[1]?.before).toBeDefined();
+    expect(none.body.data).toEqual([]);
+    for (const { status, body } of [later, none]) {
+      expect(status, JSON.stringify(body)).toBe(200);
+      expect(body.openedBy).toBe('me');
+      expect(validateAgainst('ConversationCollectionPage', body)).toEqual([]);
+    }
   });
 
-  test('without it, nothing is narrowed', async () => {
-    const h = harness();
-    await h.call('/v1/conversations', JANE);
+  test("without it, nothing is narrowed, and the page doesn't say it was", async () => {
+    const h = harness(false);
+    const res = await h.call('/v1/conversations', JANE);
     expect(h.listedWith[0]).not.toHaveProperty('openedBy');
+    expect(res.body.data).toHaveLength(3);
+    expect(res.body).not.toHaveProperty('openedBy');
   });
 
   test('a caller with no principal opened nothing it could be listed by', async () => {
     const h = harness();
     const res = await h.call('/v1/conversations?openedBy=me', BARE);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ data: [], hasMore: false });
+    expect(res.body).toEqual({ data: [], hasMore: false, openedBy: 'me' });
     expect(h.listedWith).toEqual([]);
   });
 

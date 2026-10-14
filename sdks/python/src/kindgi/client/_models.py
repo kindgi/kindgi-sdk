@@ -3864,6 +3864,10 @@ class ConversationCollectionPage(BaseModel):
     Opaque cursor for the next page. Absent when `hasMore: false`.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
+    opened_by: Annotated[Literal["me"] | None, Field(alias="openedBy")] = None
+    """
+    `me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.
+    """
 
 
 class ConversationMessageCollectionPage(BaseModel):
@@ -11997,6 +12001,10 @@ class ApprovalCollectionPage(BaseModel):
     order: Literal["asc", "desc"] | None = None
     """
     The order the page is in: `asc` (oldest first) or `desc` (newest first). Absent from a runtime before Kindgi 0.1.6, which lists newest first and ignores `order`.
+    """
+    decided_by: Annotated[Literal["me"] | None, Field(alias="decidedBy")] = None
+    """
+    `me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.
     """
 
 

@@ -418,9 +418,11 @@ one project's or org's.
 - **Who opened it:** `openedBy` (`user:<id>` or `service_account:<id>`) is
   the caller who opened it, or, for one a turn opened, whoever the run acts
   for. It's set by the server, never from the body.
-  - `list({ openedBy: 'me' })` (`?openedBy=me`,
-    `--opened-by=me` in the CLI) lists only your own. An older runtime
-    ignores it and lists everyone's.
+  - `list({ openedBy: 'me' })` (`?openedBy=me`, `opened_by="me"` in
+    Python, `--opened-by=me` in the CLI) lists only your own, and every page
+    says so, as `openedBy: "me"`. An older runtime ignores it and lists
+    everyone's, with no `openedBy` on the page; the CLI stops instead, and
+    names the release the runtime needs.
   - Conversations an older runtime opened record no opener, and aren't
     listed by it.
   - It's a filter, not privacy: anyone who may read the project reads its

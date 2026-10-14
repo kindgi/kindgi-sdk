@@ -225,6 +225,9 @@ export function approvalsRouter(
         ),
       );
     }
+    // Every page of the list says it holds only the caller's decisions, an
+    // empty one too, so a client can tell a runtime that ignores the filter.
+    const filtered = decidedByRaw === 'me' ? { decidedBy: 'me' as const } : {};
 
     const orderRaw = c.req.query('order');
     if (orderRaw !== undefined && orderRaw !== 'asc' && orderRaw !== 'desc') {
@@ -373,7 +376,7 @@ export function approvalsRouter(
         userId === undefined
           ? null
           : await reviewerBinding.resolveReviewer({ tenantId, userId: userId as UserId });
-      if (found === null) return c.json({ data: [], hasMore: false, order });
+      if (found === null) return c.json({ data: [], hasMore: false, order, ...filtered });
       assignee = found as ReviewerId;
     }
     // Decided by the caller: the same reviewer row. A caller with none decided nothing.
@@ -384,7 +387,7 @@ export function approvalsRouter(
         userId === undefined
           ? null
           : await reviewerBinding.resolveReviewer({ tenantId, userId: userId as UserId });
-      if (found === null) return c.json({ data: [], hasMore: false, order });
+      if (found === null) return c.json({ data: [], hasMore: false, order, ...filtered });
       decider = found as ReviewerId;
     }
 
@@ -464,6 +467,7 @@ export function approvalsRouter(
       hasMore: hasMore && (nextCursor !== undefined || listedOrder === 'desc'),
       ...(nextCursor !== undefined && { nextCursor }),
       order: listedOrder,
+      ...filtered,
     });
   });
 

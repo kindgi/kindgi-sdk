@@ -4,7 +4,8 @@
 /**
  * Who decided, and through what:
  *   - `GET /v1/approvals?decidedBy=me` lists the approvals the caller's own
- *     reviewer row decided, whether or not the binding filters them itself;
+ *     reviewer row decided, whether or not the binding filters them itself,
+ *     and every page of it says so (`decidedBy: 'me'`), an empty one too;
  *   - a decision made in a session keeps the session's provider
  *     (`sessionProvider`: `site:<id>`, an identity provider), and one made
  *     with an API key keeps none; the decision on the wire carries it and
@@ -165,9 +166,33 @@ describe('approvals the caller decided (?decidedBy=me)', () => {
       expect(status).toBe(200);
       expect(h.listed[0]?.decidedBy).toBe(REV1);
       expect(ids(body)).toEqual([byJane.id]);
+      expect(body.decidedBy).toBe('me');
       expect(validateAgainst('ApprovalCollectionPage', body)).toEqual([]);
     },
   );
+
+  test("every page says it filtered, an empty one and a later one too; a list without it doesn't", async () => {
+    const h = harness(false);
+    const pages = [
+      // A later page: before a time, as a cursor from an older page is.
+      await h.call('/v1/approvals?decidedBy=me&cursor=2026-10-12T10:05:00.000Z'),
+      // Only pending ones: none decided, so none of them Jane's.
+      await h.call('/v1/approvals?decidedBy=me&status=pending'),
+      // No reviewer row: an empty page before the binding, for either filter.
+      await h.call('/v1/approvals?decidedBy=me', NO_ROW),
+      await h.call('/v1/approvals?assignedTo=me&decidedBy=me', NO_ROW),
+    ];
+    expect(h.listed[0]?.cursor).toBe('2026-10-12T10:05:00.000Z');
+    for (const { status, body } of pages) {
+      expect(status, JSON.stringify(body)).toBe(200);
+      expect(body.decidedBy).toBe('me');
+      expect(validateAgainst('ApprovalCollectionPage', body)).toEqual([]);
+    }
+    expect(pages.slice(1).map(({ body }) => body.data)).toEqual([[], [], []]);
+    const unfiltered = await h.call('/v1/approvals');
+    expect(unfiltered.status).toBe(200);
+    expect(unfiltered.body).not.toHaveProperty('decidedBy');
+  });
 
   test('the decision on the wire says through what, and under which name', async () => {
     const { body } = await harness(true).call('/v1/approvals?decidedBy=me&status=approved');

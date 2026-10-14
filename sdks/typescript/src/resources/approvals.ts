@@ -217,8 +217,9 @@ export interface ApprovalFilter extends Omit<Filter<ApprovalStatus>, 'status'> {
   /** `'me'`: only the approvals assigned to the caller's own reviewer row. */
   readonly assignedTo?: 'me';
   /**
-   * `'me'`: only the approvals the caller's own reviewer row decided. An
-   * older runtime ignores it: compare `decision.reviewerId` to tell.
+   * `'me'`: only the approvals the caller's own reviewer row decided. A
+   * runtime before Kindgi 0.1.8.1 ignores it and lists them all; its page
+   * has no `decidedBy`.
    */
   readonly decidedBy?: 'me';
   /** `'asc'`: oldest first. Default `'desc'` (newest first). */
@@ -247,6 +248,12 @@ export interface ApprovalFilter extends Omit<Filter<ApprovalStatus>, 'status'> {
  */
 export interface ApprovalPage extends ListPage<Approval> {
   readonly order?: 'asc' | 'desc';
+  /**
+   * `'me'` on every page of a list asked for with `decidedBy: 'me'`: it
+   * holds only the approvals the caller decided. Absent from a runtime
+   * before Kindgi 0.1.8.1, which ignores the filter and lists them all.
+   */
+  readonly decidedBy?: 'me';
 }
 
 export interface ReviewerFilter extends Filter {
@@ -297,7 +304,7 @@ export function makeApprovalsClient(transport: Transport): ApprovalsClient {
             ? [filter.status]
             : filter.status;
       const page = await transport.request<
-        WirePage<Approval> & { readonly order?: 'asc' | 'desc' }
+        WirePage<Approval> & { readonly order?: 'asc' | 'desc'; readonly decidedBy?: 'me' }
       >({
         method: 'GET',
         path: '/v1/approvals',
@@ -321,8 +328,10 @@ export function makeApprovalsClient(transport: Transport): ApprovalsClient {
           }),
         },
       });
-      const result = listPage(page);
-      return page.order === undefined ? result : Object.assign(result, { order: page.order });
+      return Object.assign(listPage(page), {
+        ...(page.order !== undefined && { order: page.order }),
+        ...(page.decidedBy !== undefined && { decidedBy: page.decidedBy }),
+      });
     },
 
     async get(id) {

@@ -5,7 +5,7 @@ import type { ApprovalDecision, ApprovalStatus } from '@kindgi/client';
 import type { ApprovalId } from '@kindgi/types';
 
 import { UsageError } from '../errors.js';
-import { integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
+import { filterIgnored, integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 const STATUSES: readonly ApprovalStatus[] = [
@@ -68,7 +68,7 @@ const list: LeafCommand = {
       const order = stringFlag(ctx, 'order');
       const limit = integerFlag(ctx, 'limit');
       const cursor = stringFlag(ctx, 'cursor');
-      return await ctx.client().approvals.list({
+      const page = await ctx.client().approvals.list({
         ...(status !== undefined && {
           status: status
             .split(',')
@@ -86,6 +86,10 @@ const list: LeafCommand = {
         ...(limit !== undefined && { limit }),
         ...(cursor !== undefined && { cursor: cursor as never }),
       });
+      if (decidedBy !== undefined && page.decidedBy !== 'me') {
+        throw filterIgnored('decided-by', '0.1.8.1');
+      }
+      return page;
     }),
 };
 

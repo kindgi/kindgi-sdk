@@ -1937,6 +1937,12 @@ export const ApprovalCollectionPageSchema: JsonSchema = {
       description:
         'The order the page is in: `asc` (oldest first) or `desc` (newest first). Absent from a runtime before Kindgi 0.1.6, which lists newest first and ignores `order`.',
     },
+    decidedBy: {
+      type: 'string',
+      enum: ['me'],
+      description:
+        '`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.',
+    },
   },
 };
 
@@ -3720,6 +3726,12 @@ export const ConversationCollectionPageSchema: JsonSchema = {
       description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
     },
     hasMore: { type: 'boolean' },
+    openedBy: {
+      type: 'string',
+      enum: ['me'],
+      description:
+        "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.",
+    },
   },
 };
 

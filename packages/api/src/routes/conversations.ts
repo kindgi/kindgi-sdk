@@ -104,9 +104,12 @@ export function conversationsRouter(
       );
     }
     const openedBy = openedByRaw === 'me' ? callerRef(c) : undefined;
+    // Every page of the list says it holds only the caller's own, an empty
+    // one too, so a client can tell a runtime that ignores the filter.
+    const filtered = openedByRaw === 'me' ? { openedBy: 'me' as const } : {};
     // A caller with no principal opened nothing it could be listed by.
     if (openedByRaw === 'me' && openedBy === undefined) {
-      return c.json({ data: [], hasMore: false });
+      return c.json({ data: [], hasMore: false, ...filtered });
     }
 
     // Replay conversations (a comparison's replays) are left out unless asked for.
@@ -174,14 +177,17 @@ export function conversationsRouter(
             id: position.id as unknown as string,
           })
         : undefined;
+    // The binding narrows; this keeps a page right from one that doesn't.
+    const theirs = openedBy === undefined ? data : data.filter((row) => row.openedBy === openedBy);
     const visible =
       authorizer === undefined
-        ? data
-        : await authorizer.filterByCan(c, 'read', data, conversationRef);
+        ? theirs
+        : await authorizer.filterByCan(c, 'read', theirs, conversationRef);
     return c.json({
       data: visible.map(serializeConversation),
       hasMore,
       ...(nextCursor !== undefined && { nextCursor }),
+      ...filtered,
     });
   });
 
