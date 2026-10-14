@@ -6,7 +6,7 @@
 
 **A secret name the store can't write is the caller's `400`, saying the store's rule, never a `500`.**
 - **Under `kindgi dev`,** a secret is a key in your env files, so a name Kindgi writes is capital letters, digits and underscores, not starting with a digit.
-  - Any other name (`acme-woo-orders`) is refused with `400 secret-name-invalid`, and the message offers a name that works (`ACME_WOO_ORDERS`). So is a `KINDGI_*` name.
+  - Any other name (`acme-woo-orders`) is refused with `400 secret-name-invalid`, and when one can be made from it, the message offers a name that works (`ACME_WOO_ORDERS`). So is a `KINDGI_*` name.
   - A `kindgi.` name is refused with `400 reserved-name-prefix`.
   - These used to answer `500 secret-store-error`.
   - This applies to `POST /v1/secrets`, `PATCH /v1/tenant/config` and `POST /v1/webhooks` with `generateSecret`.
