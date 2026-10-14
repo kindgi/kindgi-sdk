@@ -36,6 +36,7 @@ import type { OnTurnEvent } from '../streaming.js';
 import type { Agent, ConversationId } from '../types.js';
 
 import type { ReplayBinding } from './replay.js';
+import type { TurnMemoryBinding } from './turn-memory.js';
 
 /**
  * The user-facing input to `invokeAgent`. Split out from `invoke.ts` so
@@ -105,20 +106,16 @@ export interface InvokeAgentInput {
   readonly dryRun?: boolean;
   /**
    * Authorization — the Principal on whose authority this agent turn
-   * runs. When set together with `authz`, the underlying run checks
-   * every tool invocation (and subgraph dispatch, if any) against this
-   * principal at its enforcement point.
-   *
-   * Typical caller construction:
-   *   principal = delegate(
-   *     { kind: 'agent', id: input.agent.id, tenantId },
-   *     userPrincipalFromSession
-   *   )
-   * — establishes the confused-deputy-safe intersection semantic.
-   *
-   * Absent = tool invocations are not authorization-checked.
+   * runs. From runtime 0.1.8, the Kindgi runtime checks each of the
+   * turn's tool calls against it (`InvokeAgentBindings.authorizeToolCall`)
+   * for every turn a person or a key starts.
    */
   readonly principal?: Principal;
+  /**
+   * Where authorization is decided: OpenFGA's URL, never a credential (it's
+   * stored with the turn's snapshot). From runtime 0.1.8, the Kindgi
+   * runtime sets it on every turn a person or a key starts.
+   */
   readonly authz?: {
     readonly fgaApiUrl: string;
   };
@@ -215,6 +212,13 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    */
   readonly usage?: UsageSink;
   /**
+   * What the turn holds in memory, charged by size before each model call
+   * (a runtime's limit, per tenant and in all, as Kindgi Cloud sets). Bound per turn; the
+   * runtime releases the charge when the turn settles. Refused, the turn
+   * fails with `turn-memory-limit-reached`. Absent: nothing is charged.
+   */
+  readonly turnMemory?: TurnMemoryBinding;
+  /**
    * Where the turn records what each guardrail's check came to (passed,
    * violated, blocked or errored), before it acts on them: a blocked turn
    * is recorded before it fails. Replays and dry runs aren't recorded.
@@ -232,6 +236,34 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    */
   readonly resolveSecret?: (ref: ToolSecretRef) => Promise<string>;
   /**
+   * Whether the turn's principal may call a tool, asked before each call,
+   * before any approval. A denied call runs nothing and asks no reviewer:
+   * its result tells the model it wasn't allowed (`{ status: 'denied',
+   * reason }`), and the turn goes on. The model sees `reason`, so write it
+   * as a plain sentence for whoever reads the conversation.
+   *
+   * - **An approved call is asked again** right before it runs: access can
+   *   change while it waits. Denied then, it runs nothing, and the
+   *   reviewer's decision stays as it was.
+   * - **Each decision is recorded with the call,** so a resumed turn keeps
+   *   it. A throw records nothing and fails the step: a call never runs
+   *   without an answer.
+   * - **A built-in tool** (`kindgi_<verb>`) is asked only when what it
+   *   touches reaches beyond the turn's project: `kindgi_remember` for a
+   *   tenant-scope fact.
+   * - **`principal` is absent** for a turn that has none. The authorizer
+   *   decides what that gets.
+   *
+   * The Kindgi runtime checks `invoke` on the tool for the turn's
+   * principal. Absent: every call is allowed.
+   */
+  readonly authorizeToolCall?: (input: {
+    readonly tenantId: TenantId;
+    readonly projectId: ProjectId;
+    readonly principal?: Principal;
+    readonly toolId: string;
+  }) => Promise<ToolCallAuthorization>;
+  /**
    * How replay turns (`InvokeAgentInput.replay`) decide their tool calls,
    * retrievals and session approval. Consulted only for a replay turn.
    */
@@ -239,6 +271,13 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
 }
 
 export interface HitlBindings {
+  /**
+   * Open the approval a gate asks for. A binding refuses one past the
+   * tenant's limit on approvals waiting by throwing an error with
+   * `code: 'approvals-pending-limit'` (and `approvalsPending`, the limit):
+   * the step then fails with that code, naming the limit. Any other throw
+   * is soft: the gate still waits.
+   */
   readonly enqueue: (input: HitlEnqueueInput) => Promise<HitlEnqueueResult>;
 }
 
@@ -282,3 +321,8 @@ export interface HitlEnqueueInput {
 export interface HitlEnqueueResult {
   readonly approvalId: string;
 }
+
+/** `InvokeAgentBindings.authorizeToolCall`'s answer. */
+export type ToolCallAuthorization =
+  | { readonly allowed: true }
+  | { readonly allowed: false; readonly reason: string };

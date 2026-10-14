@@ -239,8 +239,24 @@ describe('SecretBinding.set — add-version', () => {
     });
     expect(resolved).toEqual({
       kind: 'ok',
-      value: { name: 'ANTHROPIC_API_KEY', versionId: 1, value: 'sk-new' },
+      value: { name: 'ANTHROPIC_API_KEY', versionId: 1, value: 'sk-new', scope: SCOPE },
     });
+  });
+
+  test('scope-blind: a read, exact or not, is at the scope it asks for', async () => {
+    await writeKindgiFile('ACME_TOKEN=t-1\n');
+    const binding = createDotenvSecretBinding({ packDir });
+    const project: Scope = { kind: 'project', tenantId: TENANT, projectId: 'p-1' as never };
+    for (const exact of [undefined, true] as const) {
+      const resolved = await binding.resolve({
+        scope: project,
+        envName: ENV,
+        name: 'ACME_TOKEN',
+        resolveContext: RESOLVE_CTX,
+        ...(exact !== undefined && { exact }),
+      });
+      expect(resolved.kind === 'ok' && resolved.value.scope).toEqual(project);
+    }
   });
 
   test('creates the key when absent even under add-version (upsert-like)', async () => {

@@ -35,7 +35,8 @@ function setup() {
   const app = createApp({
     ...createStubAppBindings(),
     triggerRegistry: registry,
-    secretsBinding: {} as SecretBinding,
+    // No secret is set: where a named one is read is the broadest scope the caller administers.
+    secretsBinding: { get: async () => null } as unknown as SecretBinding,
     providerRegistry: {
       resolveForRuntime: async () => [
         { metadata: { id: 'acme-llm' }, secretRef: { name: 'acme-provider-key' } },

@@ -360,6 +360,14 @@ run "a_secret_as_a_plain_value_is_refused" {
   expect_failures = [var.server_env]
 }
 
+run "a_preshared_key_as_a_plain_value_is_refused" {
+  command = plan
+  variables {
+    server_env = { KINDGI_OPENFGA_PRESHARED_KEY = "not-in-the-plan" }
+  }
+  expect_failures = [var.server_env]
+}
+
 run "identity_provider_sign_in_needs_public_url" {
   command = plan
   variables {

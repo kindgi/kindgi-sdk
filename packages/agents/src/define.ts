@@ -13,6 +13,7 @@ import { BUILT_IN_TOOL_PREFIX, pickVersion } from '@kindgi/tools';
 import type { Result, Semver } from '@kindgi/types';
 
 import type { InvalidAgentError } from './errors.js';
+import { templateProblem } from './liquid.js';
 import { AUTO_INJECTED_VARS } from './prompt.js';
 import { MAX_REMEMBER_DAYS, REMEMBER_TOOL_ID } from './remember.js';
 import type {
@@ -37,7 +38,7 @@ type Issue = { path: string; message: string };
  * Public API to construct an agent definition. Validates every field,
  * brands ids, and returns a `Result` — no throws.
  *
- * ```ts
+ * ```ts excerpt
  * const agent = defineAgent({
  *   id: 'acme.citation-verifier',
  *   version: '1.0.0',
@@ -99,7 +100,7 @@ export function defineAgent(spec: DefineAgentSpec): Result<Agent, InvalidAgentEr
  * run start via `semver.maxSatisfying`.
  *
  * @example
- * ```ts
+ * ```ts excerpt
  * const agent = defineAgent({
  *   id: 'my-pack.summarizer',
  *   version: '1.0.0',
@@ -287,6 +288,9 @@ function validateContent(spec: DefineAgentSpec): Issue[] {
       path: '/instructions',
       message: 'instructions must be a non-empty string, or a prompt block { prompt, version }',
     });
+  } else {
+    const problem = templateProblem(spec.instructions);
+    if (problem !== undefined) out.push({ path: '/instructions', message: problem });
   }
   if (!Array.isArray(spec.capabilities) || spec.capabilities.length === 0) {
     out.push({

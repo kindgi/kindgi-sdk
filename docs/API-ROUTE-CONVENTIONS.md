@@ -166,6 +166,8 @@ The SDK's `fromWire(json)` (`sdks/typescript/src/errors.ts`) matches on `code`.
 | `rate-limit-exceeded`                            | 429         |
 | Anything else server-caused                      | 500         |
 
+A `429 rate-limit-exceeded` carries `Retry-After`, in whole seconds, when the limit is over a time window, as `schema-compile-time`, `template-render-time` and the request rate limits are; a limit that counts what's waiting, not time, carries none. When a tenant's limit refused the request, `details.limit` names it. `schema-compile-time` is the time the tenant's schemas spent compiling in the last 60 seconds, against `details.budgetMs`. It counts every compile in a request that publishes schemas, and a schema compiled again in any other request. A publish it refuses stores nothing. `template-render-time` is the time the tenant's instructions templates spent rendering in the last 60 seconds, against `details.budgetMs`. An agent turn whose work either budget refuses fails with `rate-limit-exceeded` and the same `details`: `POST /v1/runs` answers it as this 429, with `Retry-After` and `details.runId`, and the run reads as failed with that code.
+
 ---
 
 ## 5. Pagination
@@ -177,9 +179,9 @@ Every list endpoint accepts:
 
 Response body:
 
-```json
+```json excerpt
 {
-  "data": [ ... ],
+  "data": [ … ],
   "nextCursor": "cursor-abc123",
   "hasMore": true
 }
@@ -265,7 +267,7 @@ Domain errors are the ONLY response body shape for 4xx/5xx. Framework crashes (t
 
 Signed export routes (`POST /v1/provenance/:runId/export`, `POST /v1/approvals/:approvalId/audit-bundle`, any future signed export) MUST return the same wire envelope so SDK clients can share a single verification helper:
 
-```json
+```jsonc excerpt
 {
   "<resourceId>": "...",           // e.g. "runId" or "approvalId"
   "bundle": "base64-of-canonical-json",

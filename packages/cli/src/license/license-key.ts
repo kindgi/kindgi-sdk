@@ -24,6 +24,8 @@ export const LICENSE_KEY_PREFIX = 'kgi_lk_';
  */
 export const KINDGI_LICENSE_PUBLIC_KEYS: Readonly<Record<string, string>> = Object.freeze({
   'lk-2026-1': 'cIC6PF4tmqQzkH/MG1GVguOCHIEPBe8zLJWh64pGgp8=',
+  // Production license keys, signed with a key of their own (not the self-serve one).
+  'lk-2026-p2': 'bmWF6hVW/Cu6cRnuGG614ajJtOjuSseSllBa+rBobq8=',
 });
 
 export type LicenseUse = 'production' | 'non-production';

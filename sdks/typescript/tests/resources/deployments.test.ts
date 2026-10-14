@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createClient } from '../../src/index.js';
+import type { RegisterDeploymentInput } from '../../src/resources/deployments.js';
 import { recordingFetch } from '../support/recording-fetch.js';
 
 const AUTH = { kind: 'apiToken' as const, token: 't' };
@@ -52,5 +53,26 @@ describe('deployments — wire round-trips', () => {
     ]);
     expect(stub.calls[0]?.headers['idempotency-key']).toBe('idem-1');
     expect(stub.calls[3]?.headers['idempotency-key']).toBe('idem-2');
+  });
+
+  it('register sends the project to deploy into, and the record names it', async () => {
+    const PROJECT = '3f2b8c1e-4a5d-4e6f-9a0b-1c2d3e4f5a6b';
+    const stub = recordingFetch([
+      { status: 201, body: JSON.stringify({ ...SAMPLE_DEPLOYMENT, projectId: PROJECT }) },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const input: RegisterDeploymentInput = {
+      imageRef: 'ghcr.io/acme/pack@sha256:abc',
+      artifactVersion: '20261012.1',
+      indexHash: 'sha256:idx',
+      signerKeyId: 'key-1',
+      signerPublicKey: 'pem',
+      signature: 'sig',
+      publishedAt: '2026-10-12T09:00:00Z',
+      projectId: PROJECT,
+    };
+    const deployment = await client.deployments.register(input);
+    expect(JSON.parse(String(stub.calls[0]?.body))).toMatchObject({ projectId: PROJECT });
+    expect(deployment.projectId).toBe(PROJECT);
   });
 });

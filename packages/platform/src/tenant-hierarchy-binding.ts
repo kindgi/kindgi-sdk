@@ -190,6 +190,12 @@ export interface TenantSummary {
   readonly productionAllowed?: boolean;
   /** The tenant's limits that are set. Absent when none is. */
   readonly limits?: TenantLimits;
+  /**
+   * Where the tenant stands, on a runtime serving many tenants: `closing`
+   * (readable and exportable for its window, nothing runs) or `suspended`
+   * (the same, reversibly). `closing` wins. Absent: active.
+   */
+  readonly state?: 'active' | 'suspended' | 'closing';
 }
 
 /**
@@ -210,6 +216,13 @@ export interface TenantLimits {
   readonly toolCallsInFlight?: number;
   /** Approvals waiting for a decision. Past it, the step that asks fails, naming the limit. */
   readonly approvalsPending?: number;
+  /**
+   * Projects in production at once. Past it, putting another project in
+   * production is refused with 403 `production-limit-reached`. Lowering it
+   * takes no project out of production: with more in production than the
+   * limit, the next one waits until enough come out.
+   */
+  readonly projectsInProduction?: number;
 }
 
 /**

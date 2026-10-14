@@ -36,8 +36,15 @@ export const FULL_SYSTEM_CAPABILITY = 'kindgi:system';
  * reads account contacts only.
  */
 export const SYSTEM_SCOPES = [
-  /** Create, read and close tenants. */
+  /** Create, list, read and close tenants. */
   'system:tenants',
+  /**
+   * Create tenants only, each with a first admin, production blocked, no
+   * image prefix and not a test tenant: sign-up's, on the public surface.
+   */
+  'system:tenants:create',
+  /** A tenant's image repository: who binds its slot. Changing one already set takes `kindgi:system`. */
+  'system:tenants:image-prefix',
   /** A tenant's "production allowed" switch. */
   'system:tenants:production',
   /** A tenant's limits. */
@@ -87,4 +94,7 @@ export const SYSTEM_PRINCIPAL_ALLOWED_ROUTES: readonly {
   readonly method: string;
   readonly path: string;
   readonly scope: SystemScope;
-}[] = [{ method: 'GET', path: '/v1/license', scope: 'system:license' }];
+}[] = [
+  { method: 'GET', path: '/v1/license', scope: 'system:license' },
+  { method: 'GET', path: '/v1/license/usage', scope: 'system:license' },
+];

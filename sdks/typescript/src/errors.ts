@@ -57,6 +57,12 @@ export interface RateLimitedError {
   readonly message: string;
   /** Suggested seconds to wait before retry (from server `Retry-After`). */
   readonly retryAfterSeconds?: number;
+  /**
+   * Which of the tenant's limits refused it (the wire's `details.limit`),
+   * such as `schema-compile-time` or `template-render-time`; absent for a
+   * limit the server doesn't name.
+   */
+  readonly limit?: string;
 }
 
 export interface NotFoundError {
@@ -452,12 +458,14 @@ function invalidRequest(
 }
 
 function rateLimited(message: string, obj: WireFields): KindgiError {
+  const limit = (obj.details as { readonly limit?: unknown } | undefined)?.limit;
   return {
     code: 'rate-limited',
     message,
     ...(typeof obj.retryAfterSeconds === 'number'
       ? { retryAfterSeconds: obj.retryAfterSeconds as number }
       : {}),
+    ...(typeof limit === 'string' && { limit }),
   };
 }
 

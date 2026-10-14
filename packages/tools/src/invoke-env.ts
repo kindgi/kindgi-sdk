@@ -18,7 +18,11 @@ import type { Result } from '@kindgi/types';
 import { ToolPreconditionError } from './precondition.js';
 import type { JsonSchema, Tool } from './types.js';
 
-/** Compiled env schemas, by schema object (a tool's are defined once and reused). */
+/**
+ * Compiled env schemas, by schema object (a tool's are defined once and
+ * reused). Each keeps its schema's cache key, not its validator
+ * (`compileInlineSchema`), so the cache's bounds hold.
+ */
 const compiled = new WeakMap<object, CompiledInlineSchema>();
 
 /**

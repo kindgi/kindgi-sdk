@@ -56,6 +56,8 @@ export interface AppEnv {
     tokenRole?: 'admin' | 'member';
     /** The project an API key is narrowed to. */
     tokenProjectId?: string;
+    /** A write's body as it came, read once by `readBodyOnce`. */
+    requestBody?: Uint8Array;
     /** When the API token the request came with expires, if it does. */
     tokenExpiresAt?: Date;
     /**

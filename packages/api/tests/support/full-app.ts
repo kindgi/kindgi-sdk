@@ -649,7 +649,16 @@ export function fullAppInput(): CreateAppInput {
     secretsBinding: noopSecretsBinding,
     webhookReceiver: { envName: 'test' as EnvName },
     publicUrl: 'https://kindgi.acme.example',
-    license: { status: () => ({ mode: 'development' }) },
+    license: {
+      status: () => ({ mode: 'development' }),
+      usage: async ({ since, until }) => ({
+        since: since.toISOString(),
+        until: until.toISOString(),
+        runtimeVersion: '0.0.0',
+        runs: 0,
+        people: 0,
+      }),
+    },
     systemKeys: {
       mint: async () => {
         throw new Error('not used: no system principal in the sweeps');
@@ -657,7 +666,40 @@ export function fullAppInput(): CreateAppInput {
       list: async () => [],
       revoke: async () => null,
     },
+    systemDeployments: {
+      binding: {
+        listNeedingEndpoint: async () => ({ kind: 'ok', data: [] }),
+        listToRetire: async () => ({ kind: 'ok', data: [] }),
+        setEndpoint: async () => {
+          throw new Error('not used: no system principal in the sweeps');
+        },
+        clearEndpoint: async () => ({ kind: 'not-found' }),
+        recordProblem: async () => ({ kind: 'not-found' }),
+        setSuspended: async () => ({ kind: 'not-found' }),
+      },
+      endpointHostAllowed: () => false,
+    },
     systemTenantDirectory: { get: async () => null },
+    systemTenants: {
+      create: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
+      list: async () => ({ kind: 'ok', data: [] }),
+      read: async () => null,
+      close: async () => {
+        throw new Error('not used');
+      },
+      setSuspended: async () => {
+        throw new Error('not used');
+      },
+      setImagePrefix: async () => {
+        throw new Error('not used');
+      },
+      setProjectSuspended: async () => ({ kind: 'project-not-found' }),
+      admins: async () => [],
+    },
+    imagePrefixes: { of: async () => undefined },
+    tenantStates: { of: async () => undefined },
     systemTenantSettings: {
       setProductionAllowed: async () => {
         throw new Error('not used: no system principal in the sweeps');

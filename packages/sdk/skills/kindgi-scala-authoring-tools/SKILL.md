@@ -15,7 +15,7 @@ description: >
   kindgi-scala-getting-started.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.0"
+version: "0.1.2"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -32,7 +32,7 @@ sources:
 > your `PATH`.
 >
 > Scala support is in preview: tested and supported, but the API may still
-> change in 0.1.6 without the usual deprecation period.
+> change in a later release without the usual deprecation period.
 
 A **tool** is a unit of work an agent (or a flow step) calls: typed input,
 typed output, your code in between. In a Scala pack it is a `val` of type
@@ -167,7 +167,12 @@ object Citator {
   `ctx.cancellation.onCancel(() => …)`.
 - `ctx.secrets`: the secrets the tool declares (below), as a Java map.
   Printing the context shows their names, never their values.
-- `ctx.env`, `ctx.config`: **reserved, empty today**.
+- `ctx.env`: the env values the tool declares (`set("needsSpec",
+  Map("env" -> …))`), resolved for the call, as a Java map: its project's
+  value, else its org's, else the tenant's (`kindgi env set NAME <value>
+  --scope=project:<id> --env=<env>`), with a declared `default` filled in.
+  Strings, and not secret.
+- `ctx.config`: **reserved, empty today**.
 
 ## Configuration and secrets
 

@@ -158,6 +158,7 @@ function makeApp(tenancy: 'single' | 'multi' = 'multi') {
   const app = createApp({
     ...createStubAppBindings(),
     tenancy,
+    tenantStates: { of: async () => undefined },
     resolveToken: async (token) => {
       if (token === SINGLE_BOOT) {
         return {
@@ -193,7 +194,16 @@ function makeApp(tenancy: 'single' | 'multi' = 'multi') {
         audit[Number(id)] = { ...(audit[Number(id)] as SystemAccessRecord), ...outcome };
       },
     },
-    license: { status: () => ({ mode: 'licensed', name: 'Acme', use: 'production' }) },
+    license: {
+      status: () => ({ mode: 'licensed', name: 'Acme', use: 'production' }),
+      usage: async ({ since, until }) => ({
+        since: since.toISOString(),
+        until: until.toISOString(),
+        runtimeVersion: '0.0.0',
+        runs: 3,
+        people: 2,
+      }),
+    },
   });
   const call = async (
     token: string,
@@ -258,6 +268,10 @@ describe('the fence: a system principal reaches /v1/system/* and the license onl
     const r = await call(MULTI_BOOT, 'GET', '/v1/tenant');
     expect(r.status).toBe(403);
     expect(code(r)).toBe('system-key-on-tenant-route');
+    // The refusal names every route a system key reaches.
+    expect((r.body.error as { message: string }).message).toContain(
+      'it reaches /v1/system/*, GET /v1/license and GET /v1/license/usage only, not GET /v1/tenant',
+    );
   });
 
   test('a system key holding system:license reads the license as the operator does', async () => {
@@ -288,6 +302,30 @@ describe('the fence: a system principal reaches /v1/system/* and the license onl
       keyId: 'boot',
       path: '/v1/license',
       scope: 'kindgi:system',
+    });
+  });
+
+  test("a system key holding system:license reads the deployment's use too", async () => {
+    const { call, code, audit, mintSystemKey } = makeApp();
+    const usage = '/v1/license/usage?since=2026-10-05T12:00:00Z';
+    const renewer = await mintSystemKey(['system:license']);
+    const r = await call(renewer.token, 'GET', usage);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(r.body).toMatchObject({ runs: 3, people: 2 });
+    expect(audit.at(-1)).toMatchObject({
+      keyId: renewer.id,
+      method: 'GET',
+      path: '/v1/license/usage',
+      status: 200,
+      scope: 'system:license',
+    });
+    // Any other scope is refused at the fence, as for the license.
+    const other = await mintSystemKey(['system:tenants']);
+    const refused = await call(other.token, 'GET', usage);
+    expect(refused.status).toBe(403);
+    expect(code(refused)).toBe('system-scope-missing');
+    expect((refused.body.error as { details?: unknown }).details).toMatchObject({
+      scope: 'system:license',
     });
   });
 
@@ -635,6 +673,7 @@ describe("the operator's powers stay fenced in both ways", () => {
       createApp({
         ...createStubAppBindings(),
         tenancy: 'multi',
+        tenantStates: { of: async () => undefined },
         resolveToken: async () => null,
         runHandler: {} as RunHandlerBinding,
       } as CreateAppInput),
@@ -644,6 +683,8 @@ describe("the operator's powers stay fenced in both ways", () => {
 
 describe('every /v1/system/* operation, from OPERATIONS: a principal first, then a scope', () => {
   const systemOps = OPERATIONS.filter((op) => op.openapiPath.startsWith('/v1/system/'));
+  /** System routes any system principal may call, with no scope: a key's own identity. */
+  const NO_SCOPE: ReadonlySet<string> = new Set(['systemKeys.whoami']);
   const TENANT_KEY = 'kgi_ak_sweep_tenant';
   const ZERO_SCOPE = 'kgi_sy_sweep_zero';
 
@@ -687,6 +728,11 @@ describe('every /v1/system/* operation, from OPERATIONS: a principal first, then
       });
       const code = ((await res.json().catch(() => ({}))) as { error?: { code?: string } }).error
         ?.code;
+      if (expected === 'system-scope-missing' && NO_SCOPE.has(op.operationId)) {
+        if (res.status !== 200)
+          wrong.push(`${method} ${op.openapiPath}: ${res.status} (no scope needed)`);
+        continue;
+      }
       if (res.status !== 403 || code !== expected) {
         wrong.push(`${method} ${op.openapiPath}: ${res.status} ${code}`);
       }
