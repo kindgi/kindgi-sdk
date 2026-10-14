@@ -255,10 +255,11 @@ describe('a person who is the tenant admin, with no roster entry, reads as an ad
 });
 
 describe('a reviewer below admin', () => {
-  test('who is the tenant admin: its own tier, with no tenant-admin check', async () => {
+  test('who is the tenant admin: its own tier, listed or one approval, with no tenant-admin check', async () => {
     const h = harness();
     const answer = await h.call('admin-standard', 'GET', '/v1/approvals');
     expect(h.ids(answer.json)).toEqual(['appr-standard']);
+    expect((await h.call('admin-standard', 'GET', '/v1/approvals/appr-standard')).status).toBe(200);
     expect(h.adminChecks()).toEqual([]);
   });
 
@@ -275,10 +276,11 @@ describe('a reviewer below admin', () => {
     ]);
   });
 
-  test("who isn't the tenant admin: its own tier, and nothing recorded for reading it", async () => {
+  test("who isn't the tenant admin: its own tier, listed or one approval, and nothing recorded for reading it", async () => {
     const h = harness();
     const answer = await h.call('standard', 'GET', '/v1/approvals');
     expect(h.ids(answer.json)).toEqual(['appr-standard']);
+    expect((await h.call('standard', 'GET', '/v1/approvals/appr-standard')).status).toBe(200);
     expect(h.adminChecks()).toEqual([]);
   });
 
@@ -304,6 +306,7 @@ describe('a reviewer below admin', () => {
     const h = harness();
     const answer = await h.call('admin-reviewer', 'GET', '/v1/approvals');
     expect(h.ids(answer.json)).toEqual(['appr-standard', 'appr-admin']);
+    expect((await h.call('admin-reviewer', 'GET', '/v1/approvals/appr-admin')).status).toBe(200);
     expect(h.adminChecks()).toEqual([]);
   });
 });
