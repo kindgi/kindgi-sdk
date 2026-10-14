@@ -209,7 +209,7 @@ async function runRegistry(ctx: CommandContext): Promise<CommandResult> {
   const pinned = imageOnRegistry(DEFAULT_RUNTIME_IMAGE, args.host);
   const image = seam.image ?? pinned;
 
-  const ready = await checkDocker(run);
+  const ready = await checkDocker(run, 'kindgi auth registry');
   if (ready.kind === 'error') return { kind: 'error', stderr: `${ready.message}\n`, exitCode: 1 };
 
   const lines: string[] = [];

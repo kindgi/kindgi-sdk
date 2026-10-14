@@ -714,7 +714,7 @@ async function devSandboxCheck(
 }
 
 async function checkDockerRunning(run: DockerRunner): Promise<DoctorCheck> {
-  const ready = await checkDocker(run);
+  const ready = await checkDocker(run, 'kindgi doctor');
   if (ready.kind === 'ok') return pass('docker', 'Docker is running.');
   const [message = ready.message, ...rest] = ready.message.split('\n');
   return fail('docker', message, rest.map((l) => l.trim()).join(' '));

@@ -70,6 +70,12 @@ import {
 import type { CommandContext } from '../context.js';
 import { ALREADY_RUNNING_EXIT_CODE, alreadyRunning } from '../dev/already-running.js';
 import {
+  type DockerReach,
+  LocalPortsRefused,
+  localPortsRefused,
+  refusedHere,
+} from '../dev/blocked.js';
+import {
   DEV_LOCK_FILE,
   type DevLockOutcome,
   type HeldDevLock,
@@ -347,7 +353,17 @@ async function withHeartbeat<T>(
   }
 }
 
-function renderMissingDbHint(reason: string): string {
+/** Docker that's there but out of reach: its own fix, since another Postgres wouldn't start the runtime either. */
+const OUT_OF_REACH: ReadonlySet<DockerReach> = new Set([
+  'not-started',
+  'socket-denied',
+  'not-running',
+]);
+
+function renderMissingDbHint(reason: string, reach?: DockerReach): string {
+  if (reach !== undefined && OUT_OF_REACH.has(reach)) {
+    return `kindgi dev needs Docker, for its Postgres and the Kindgi runtime. ${reason}\n`;
+  }
   return `kindgi dev needs Postgres, and couldn't start the bundled one: ${reason}\n\nOptions:\n  1. Install Docker (Docker Desktop, or Docker Engine on Linux) and make sure it runs: kindgi dev then starts the bundled Postgres itself, with \`docker compose\` when it's there and plain \`docker\` otherwise.\n  2. Use your own Postgres (16, with pgvector): pass --database-url=<url>, or set KINDGI_DATABASE_URL.\n`;
 }
 
@@ -417,6 +433,8 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   try {
     taken = await takeDevLock(args.packDir, dev.devLockProcesses);
   } catch (cause) {
+    const refused = refusedHere(cause);
+    if (refused !== undefined) return { kind: 'error', stderr: refused, exitCode: 1 };
     return { kind: 'error', stderr: `kindgi dev: ${(cause as Error).message}\n`, exitCode: 1 };
   }
   if (taken.kind === 'held') {
@@ -563,7 +581,7 @@ async function runDevForPack(
     if (outcome.kind === 'unavailable') {
       return {
         kind: 'error',
-        stderr: renderMissingDbHint(outcome.reason),
+        stderr: renderMissingDbHint(outcome.reason, outcome.reach),
         exitCode: 1,
       };
     }
@@ -742,6 +760,11 @@ async function runDevForPack(
   try {
     packFront = await pack.listen();
   } catch (err) {
+    const refused = refusedHere(err);
+    if (refused !== undefined) {
+      await pack.close().catch(() => undefined);
+      return { kind: 'error', stderr: refused, exitCode: 1 };
+    }
     if (previous.packServicePort === undefined) throw err;
     emitProgress(
       `  the pack service's port ${previous.packServicePort} is taken: using another one${args.runtimeUrl !== undefined ? ' (restart your runtime with the new runtime.env)' : ''}`,
@@ -836,6 +859,8 @@ async function runDevForPack(
       };
     }
     if (err instanceof RuntimeOwnedElsewhere) return ownedElsewhereRefusal(err);
+    const refused = refusedHere(err);
+    if (refused !== undefined) return { kind: 'error', stderr: refused, exitCode: 1 };
     return {
       kind: 'error',
       stderr: `kindgi dev couldn't start the Kindgi runtime: ${(err as Error).message}${previewRefusalHint((err as Error).message, devRuntimeSource(args))}\n`,
@@ -1363,6 +1388,9 @@ async function pickRuntimePort(
     if (!(await inUse(args.port))) return { kind: 'ok', port: args.port };
   } catch (err) {
     if (err instanceof RuntimeOwnedElsewhere) return ownedElsewhereRefusal(err);
+    if (err instanceof LocalPortsRefused) {
+      return { kind: 'error', stderr: localPortsRefused(err.port, err.code), exitCode: 1 };
+    }
     throw err;
   }
   if (args.portGiven) {

@@ -24,7 +24,7 @@
  */
 
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -32,6 +32,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { createLogger } from '@kindgi/log';
 
+import { LocalPortsRefused } from '../src/dev/blocked.js';
 import { type DevLockProcesses, devLockPath } from '../src/dev/dev-lock.js';
 import type { EnsureOutcome, ProjectDatabases } from '../src/dev/project-database.js';
 import type { DevProject, ProjectOutcome } from '../src/dev/project.js';
@@ -3014,5 +3015,112 @@ describe('kindgi dev — logs', () => {
     expect(badEnv.exitCode).toBe(1);
     expect(badEnv.stderr).toContain('kindgi dev: KINDGI_LOG_LEVEL must be one of');
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('kindgi dev — something around it refuses what it needs (a sandbox)', () => {
+  const OWN_TERMINAL =
+    'If a coding agent runs this, its sandbox is likely what stops it: run `kindgi dev` in your own terminal instead.';
+  const sysError = (code: string, syscall: string, more: Record<string, unknown> = {}) =>
+    Object.assign(new Error(`${syscall} ${code}`), { code, syscall, ...more });
+  const dev = (fixtures: Fixtures, env?: Record<string, string>) =>
+    runCli({
+      ...baseInputs(fixtures),
+      ...(env !== undefined && { env }),
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+
+  test('no port on 127.0.0.1 at all: said as such, not "all in use"', async () => {
+    const fixtures = makeFixtures();
+    const asked: number[] = [];
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      runtimePortInUse: async (input) => {
+        asked.push(input.port);
+        throw new LocalPortsRefused(input.port, 'EPERM');
+      },
+    };
+    const out = await dev({ ...fixtures, runners });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev can't listen on 127.0.0.1 here (port ${asked[0]}: EPERM): something around this process keeps it off local ports.\n  ${OWN_TERMINAL}\n`,
+    );
+    // The first refusal ends it: no walk through the other ports.
+    expect(asked).toHaveLength(1);
+  });
+
+  test.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    "a pack folder it can't write: the folder, the code, the fix",
+    async () => {
+      // Read-only, as a sandbox keeps a folder: the dev lock's folder can't be made.
+      await chmod(packDir, 0o555);
+      try {
+        const out = await dev(makeFixtures());
+        expect(out.exitCode).toBe(1);
+        expect(out.stderr).toMatch(
+          /^kindgi dev can't write \S*\/sample-pack\/\.kindgi\S* here \(EACCES\): something around this process keeps it read-only\.\n/,
+        );
+        expect(out.stderr).toContain(OWN_TERMINAL);
+      } finally {
+        await chmod(packDir, 0o755);
+      }
+    },
+  );
+
+  test("the pack service can't listen: said as such, the service closed", async () => {
+    const fixtures = makeFixtures();
+    let closed = 0;
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      createPackService: (options) => {
+        const service = fixtures.runners.createPackService(options);
+        return {
+          ...service,
+          listen: async () => {
+            throw sysError('EPERM', 'listen', { address: '127.0.0.1', port: 0 });
+          },
+          close: async () => {
+            closed += 1;
+            await service.close();
+          },
+        };
+      },
+    };
+    const out = await dev({ ...fixtures, runners });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev can't listen on 127.0.0.1 here (EPERM): something around this process keeps it off local ports.\n  ${OWN_TERMINAL}\n`,
+    );
+    expect(closed).toBe(1);
+  });
+
+  test("a runtime file it can't write: the file, the code, the fix", async () => {
+    const fixtures = makeFixtures();
+    const file = join(packDir, '.kindgi', 'dev', 'runtime.env');
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      startApiServer: async () => {
+        throw sysError('EROFS', 'open', { path: file });
+      },
+    };
+    const out = await dev({ ...fixtures, runners });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev can't write ${file} here (EROFS): something around this process keeps it read-only.\n  ${OWN_TERMINAL}\n`,
+    );
+  });
+
+  test('Docker out of reach at the Postgres step: its own fix, not "install Docker"', async () => {
+    const fixtures = makeFixtures();
+    const reason = `Docker's socket refused this process: dial unix /var/run/docker.sock: connect: operation not permitted\n  ${OWN_TERMINAL} Otherwise, your user needs access to Docker (on Linux, the \`docker\` group, or rootless Docker).`;
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      startServices: async () => ({ kind: 'unavailable', reason, reach: 'socket-denied' }),
+    };
+    const out = await dev({ ...fixtures, runners }, {});
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev needs Docker, for its Postgres and the Kindgi runtime. ${reason}\n`,
+    );
   });
 });

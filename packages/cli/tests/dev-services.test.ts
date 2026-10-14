@@ -356,12 +356,15 @@ describe('startServicesReal: docker compose, else plain docker', () => {
     expect(await startServicesReal({ recreate: false }, fakeDocker({ cli: false }).run)).toEqual({
       kind: 'unavailable',
       reason: "Docker isn't available: spawn docker ENOENT",
+      reach: 'not-installed',
     });
+    // An engine that doesn't answer: its own fix, a coding agent's sandbox among the causes.
     expect(await startServicesReal({ recreate: false }, fakeDocker({ engine: false }).run)).toEqual(
       {
         kind: 'unavailable',
         reason:
-          "Docker isn't available: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?",
+          "Docker isn't running, or this process can't reach it: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?\n  Start Docker Desktop (or the Docker engine), then run this again. If it's running, a coding agent's sandbox may be what keeps it out of reach: run `kindgi dev` in your own terminal instead.",
+        reach: 'not-running',
       },
     );
   });
