@@ -19,7 +19,8 @@ locals {
     "KINDGI_PACK_SERVICE_URL", "KINDGI_PUBLIC_TOKEN_SIGNING_KEY", "KINDGI_PUBLIC_URL",
     "KINDGI_SECRETS_AAD_KEY", "KINDGI_SECRETS_BACKEND", "KINDGI_SECRETS_BACKEND_KMS",
     "KINDGI_SECRETS_GCP_KEY_ID", "KINDGI_SECRETS_GCP_KEY_RING_ID", "KINDGI_SECRETS_GCP_LOCATION_ID",
-    "KINDGI_SECRETS_GCP_PROJECT_ID", "KINDGI_SEED_USER_ID", "KINDGI_TENANT_ID", "KINDGI_TRUSTED_PROXIES",
+    "KINDGI_SECRETS_GCP_PROJECT_ID", "KINDGI_SEED_USER_ID", "KINDGI_TENANCY", "KINDGI_TENANT_ID",
+    "KINDGI_TRUSTED_PROXIES",
   ])
   server_extra_env = setunion(keys(var.server_env), keys(var.server_secret_env))
 }
@@ -274,13 +275,19 @@ resource "google_cloud_run_v2_service" "server" {
           }
         }
       }
-      env {
-        name  = "KINDGI_TENANT_ID"
-        value = var.seed_tenant_id
-      }
-      env {
-        name  = "KINDGI_SEED_USER_ID"
-        value = var.seed_user_id
+      # The tenant: with "single", the one the server seeds and serves, and
+      # the user its API token acts as; with "multi", neither, since each
+      # request's tenant comes from its key or session. "single" sets no
+      # KINDGI_TENANCY, so its env is the same as before tenancy existed.
+      dynamic "env" {
+        for_each = var.tenancy == "single" ? [
+          ["KINDGI_TENANT_ID", var.seed_tenant_id],
+          ["KINDGI_SEED_USER_ID", var.seed_user_id],
+        ] : [["KINDGI_TENANCY", "multi"]]
+        content {
+          name  = env.value[0]
+          value = env.value[1]
+        }
       }
       env {
         name = "KINDGI_API_TOKEN"
@@ -493,6 +500,18 @@ resource "google_cloud_run_v2_service" "server" {
     precondition {
       condition     = length(setintersection(keys(var.server_env), keys(var.server_secret_env))) == 0
       error_message = "A name is in both server_env and server_secret_env: keep it in one."
+    }
+    precondition {
+      condition     = var.tenancy != "single" || (var.seed_tenant_id != null && var.seed_user_id != null)
+      error_message = "tenancy = \"single\" needs seed_tenant_id and seed_user_id: the tenant the server seeds and serves, and the user its API token acts as."
+    }
+    precondition {
+      condition     = var.tenancy != "multi" || (var.seed_tenant_id == null && var.seed_user_id == null)
+      error_message = "tenancy = \"multi\" takes no seed_tenant_id or seed_user_id: a server serving many tenants takes each request's tenant from its key or session, and refuses KINDGI_TENANT_ID and KINDGI_SEED_USER_ID. Leave both unset."
+    }
+    precondition {
+      condition     = var.tenancy != "multi" || var.openfga_api_url != ""
+      error_message = "tenancy = \"multi\" needs openfga_api_url: without an authorization store, no tenant would have an admin, and the server won't start."
     }
     precondition {
       condition     = length(setintersection(local.server_extra_env, toset(["KINDGI_AUTH_SECRET", "KINDGI_AUTH_SECRET_PATH"]))) == 0 || var.public_url != ""

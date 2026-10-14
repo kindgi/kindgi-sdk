@@ -240,9 +240,26 @@ Pin each secret to a version, as above, rather than `latest`: a new version then
   - in `server_secret_env`: each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET`.
   - The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
 
+## Many tenants (`tenancy`)
+
+By default (`tenancy = "single"`) the server serves one tenant, `seed_tenant_id`'s. With `"multi"`, on runtime 0.1.8 or later, it serves every tenant created through `POST /v1/system/tenants`, each request's from its key or session:
+
+```hcl
+tenancy         = "multi"
+openfga_api_url = "https://openfga-…a.run.app"
+# no seed_tenant_id, no seed_user_id
+```
+
+- **The server's env:** the module sets `KINDGI_TENANCY=multi`, and neither `KINDGI_TENANT_ID` nor `KINDGI_SEED_USER_ID`, which the runtime refuses with it. The plan refuses `seed_tenant_id` and `seed_user_id` with `"multi"`, so leave both unset.
+- **OpenFGA is required:** without an authorization store no tenant would have an admin, and the server won't start. The plan refuses `"multi"` without `openfga_api_url`.
+- **The API token** (`$N-api-token`) acts as the operator (`kindgi:system`), in no tenant.
+- **An existing deployment** keeps its tenant, with its data, keys and people, as the first of many at the first `"multi"` boot. Take `seed_tenant_id` and `seed_user_id` out in the same apply.
+- **An earlier runtime** ignores `KINDGI_TENANCY`. With no tenant id it would seed a new tenant at every revision, so upgrade the runtime first.
+- **`"single"`** sets no `KINDGI_TENANCY`: a deployment that keeps it gets the same env as before this variable.
+
 ## Testing the module
 
-`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, and the server's own settings (sign-in).
+`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, the server's own settings (sign-in), and the tenancy (`single` or `multi`).
 
 ## Upgrading
 

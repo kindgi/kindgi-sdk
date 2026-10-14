@@ -110,14 +110,26 @@ variable "openfga_api_url" {
   default     = ""
 }
 
-variable "seed_tenant_id" {
-  description = "KINDGI_TENANT_ID: the tenant the server seeds and reuses. Pin it, or every new revision seeds a new one."
+variable "tenancy" {
+  description = "KINDGI_TENANCY: how many tenants the server serves. \"single\" (the default): one, seed_tenant_id's. \"multi\" (runtime 0.1.8 or later): every tenant created through the system API, each request's from its key or session. It sets KINDGI_TENANCY = \"multi\" and no tenant or seed user, and needs openfga_api_url."
   type        = string
+  default     = "single"
+  validation {
+    condition     = contains(["single", "multi"], var.tenancy)
+    error_message = "tenancy must be \"single\" or \"multi\"."
+  }
+}
+
+variable "seed_tenant_id" {
+  description = "KINDGI_TENANT_ID: the tenant the server seeds and reuses. Pin it, or every new revision seeds a new one. Needed with tenancy = \"single\", refused with \"multi\"."
+  type        = string
+  default     = null
 }
 
 variable "seed_user_id" {
-  description = "KINDGI_SEED_USER_ID: pinned so the FGA admin@tenant tuple stays stable across revisions."
+  description = "KINDGI_SEED_USER_ID: pinned so the FGA admin@tenant tuple stays stable across revisions. Needed with tenancy = \"single\", refused with \"multi\"."
   type        = string
+  default     = null
 }
 
 # ---- the pack service ---------------------------------------------------------

@@ -413,6 +413,33 @@ Keep the key's secret pinned to a version, as here: then
 [change the key](../authorization/#require-a-key-for-openfga) one deploy at a
 time.
 
+### Serve many tenants
+
+By default the server serves one tenant, `seed_tenant_id`'s. To serve every
+tenant created through `POST /v1/system/tenants`, each request's from its key
+or session, set `tenancy` (runtime 0.1.8 or later):
+
+```hcl
+tenancy         = "multi"
+openfga_api_url = "https://openfga-…a.run.app"
+# no seed_tenant_id, no seed_user_id
+```
+
+- **The server's env:** the module sets `KINDGI_TENANCY=multi`
+  ([the variable](../../reference/env-vars/#kindgi_tenancy)), and neither
+  `KINDGI_TENANT_ID` nor `KINDGI_SEED_USER_ID`, which the runtime refuses with
+  it. The plan refuses `seed_tenant_id` and `seed_user_id` with
+  `"multi"`, so leave both unset.
+- **OpenFGA is required:** without an authorization store no tenant would
+  have an admin, and the server won't start. The plan refuses `"multi"`
+  without `openfga_api_url`.
+- **The API token** acts as the operator (`kindgi:system`), in no tenant.
+- **An existing deployment** keeps its tenant, with its data, keys and
+  people, as the first of many at the first `"multi"` boot. Take
+  `seed_tenant_id` and `seed_user_id` out in the same apply.
+- **An earlier runtime** ignores `KINDGI_TENANCY`. With no tenant id it would
+  seed a new tenant at every revision, so upgrade the runtime first.
+
 ## 5. Trust your key, and deploy
 
 The runtime accepts only deploys signed by a key it trusts. Read its address

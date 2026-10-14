@@ -416,3 +416,121 @@ run "the_refused_names_cover_every_option_kms_signing" {
     error_message = "A name the module sets on the server is missing from server_module_env."
   }
 }
+
+# ---- tenancy ------------------------------------------------------------------
+
+run "single_sets_the_tenant_and_seed_user_and_no_tenancy" {
+  command = plan
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_TENANT_ID"
+    ]) == "00000000-0000-0000-0000-000000000001"
+    error_message = "With tenancy = \"single\", the server gets KINDGI_TENANT_ID = seed_tenant_id."
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_SEED_USER_ID"
+    ]) == "00000000-0000-0000-0000-000000000002"
+    error_message = "With tenancy = \"single\", the server gets KINDGI_SEED_USER_ID = seed_user_id."
+  }
+  assert {
+    condition = length([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name
+      if e.name == "KINDGI_TENANCY"
+    ]) == 0
+    error_message = "With tenancy = \"single\", KINDGI_TENANCY isn't set: an earlier runtime gets the env it always had."
+  }
+}
+
+run "multi_sets_tenancy_and_neither_id" {
+  command = plan
+  variables {
+    tenancy         = "multi"
+    seed_tenant_id  = null
+    seed_user_id    = null
+    openfga_api_url = "http://openfga.acme.internal:8080"
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_TENANCY"
+    ]) == "multi"
+    error_message = "With tenancy = \"multi\", the server gets KINDGI_TENANCY = multi."
+  }
+  assert {
+    condition = length(setintersection(toset([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name
+    ]), toset(["KINDGI_TENANT_ID", "KINDGI_SEED_USER_ID"]))) == 0
+    error_message = "With tenancy = \"multi\", the server gets neither KINDGI_TENANT_ID nor KINDGI_SEED_USER_ID: the runtime refuses both."
+  }
+  assert {
+    condition = alltrue([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : contains(local.server_module_env, e.name)
+    ])
+    error_message = "A name the module sets on the server is missing from server_module_env."
+  }
+}
+
+run "multi_refuses_a_seed_tenant" {
+  command = plan
+  variables {
+    tenancy         = "multi"
+    seed_user_id    = null
+    openfga_api_url = "http://openfga.acme.internal:8080"
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "multi_refuses_a_seed_user" {
+  command = plan
+  variables {
+    tenancy         = "multi"
+    seed_tenant_id  = null
+    openfga_api_url = "http://openfga.acme.internal:8080"
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "multi_needs_openfga" {
+  command = plan
+  variables {
+    tenancy        = "multi"
+    seed_tenant_id = null
+    seed_user_id   = null
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "single_needs_the_seed_tenant" {
+  command = plan
+  variables {
+    seed_tenant_id = null
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "single_needs_the_seed_user" {
+  command = plan
+  variables {
+    seed_user_id = null
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "tenancy_refuses_a_word" {
+  command = plan
+  variables {
+    tenancy = "many"
+  }
+  expect_failures = [var.tenancy]
+}
+
+run "kindgi_tenancy_goes_in_its_variable" {
+  command = plan
+  variables {
+    server_env = { KINDGI_TENANCY = "multi" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
