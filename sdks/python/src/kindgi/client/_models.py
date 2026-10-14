@@ -1140,7 +1140,7 @@ class SystemDeploymentEntry(BaseModel):
     deployment_id: Annotated[str, Field(alias="deploymentId", min_length=1)]
     pack_id: Annotated[str, Field(alias="packId", min_length=1)]
     """
-    The pack it deploys (the image index's `packId`): keep the newest few superseded deployments per tenant and pack.
+    The pack it deploys (the image index's `packId`).
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
@@ -1164,7 +1164,7 @@ class SystemDeploymentEntry(BaseModel):
         | None
     ) = None
     """
-    In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.
+    In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does, so no call reaches it again. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.
     """
 
 
