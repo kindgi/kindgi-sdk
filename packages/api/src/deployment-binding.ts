@@ -103,8 +103,8 @@ export type DeploymentEndpointStatus = 'pending' | 'ready' | 'cleared';
 
 /**
  * Why a deployment's pack service should go:
- * - `superseded`: no live or promoted version routes to it any more. The
- *   orchestrator may keep the newest few per pack, for rollbacks;
+ * - `superseded`: for good: no call reaches it again, as when newer
+ *   deployments ship every tool version and check it does;
  * - `tenant-closing`, `tenant-suspended`: every deployment of the tenant,
  *   routed or not, since nothing of it runs;
  * - `project-suspended`, `pack-suspended`: every deployment of the project,
@@ -181,9 +181,10 @@ export interface DeploymentEndpoint {
   readonly waiting?: true;
   /**
    * `cleared` only: why no pack service is wanted for it now, as the
-   * orchestrator is told to retire one. `superseded` is for good: a later
-   * deploy shipped every tool version and check it did, so no call reaches
-   * it again. The others last until the tenant, project or pack is restored.
+   * orchestrator is told to retire one. `superseded` is for good: no call
+   * reaches it again, as when a later deploy shipped every tool version and
+   * check it did. The others last until the tenant, project or pack is
+   * restored.
    */
   readonly retired?: SystemDeploymentRetireReason;
 }
