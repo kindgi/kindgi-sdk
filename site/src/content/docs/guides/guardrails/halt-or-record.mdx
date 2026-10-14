@@ -193,9 +193,9 @@ scope={"when": "always", "agents": ["my-pack.echo-agent"]},
 - `agents` lists the agents the guardrail applies to. An agent that lists
   the guardrail but isn't in its scope isn't checked.
 - `flows` lists flows, by id. The guardrail then checks only the turns a
-  step of one of those flows starts: an agent's turn in another flow's step,
-  or outside any flow, isn't checked. With `agents` as well, a turn must
-  match both.
+  step of one of those flows starts, and replays of those turns: an agent's
+  turn in another flow's step, or outside any flow, isn't checked. With
+  `agents` as well, a turn must match both.
 - `when` is `always`, `runtime-only` or `ci-only`. A `ci-only` guardrail
   doesn't run in an agent's turn.
 
