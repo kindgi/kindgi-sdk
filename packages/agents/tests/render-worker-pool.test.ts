@@ -31,9 +31,10 @@ import {
 } from '../src/render-worker/pool.js';
 import { TemplateRenderError } from '../src/template-renderer.js';
 
-const FAKE = new URL('./fixtures/fake-render-thread.mjs', import.meta.url);
-const SLOW_START = new URL('./fixtures/slow-start-render-thread.mjs', import.meta.url);
-const FAILED_START = new URL('./fixtures/failed-start-render-thread.mjs', import.meta.url);
+const FAKE = new URL('./fixtures/fake-render-worker.mjs', import.meta.url);
+const SLOW_START = new URL('./fixtures/slow-start-render-worker.mjs', import.meta.url);
+const FAILED_START = new URL('./fixtures/failed-start-render-worker.mjs', import.meta.url);
+const REPORT_ENV = new URL('./fixtures/report-env-render-worker.mjs', import.meta.url);
 
 let restore: (() => void) | undefined;
 const pools: WorkerPool[] = [];
@@ -136,10 +137,7 @@ describe('the render pool', () => {
   });
 
   test('a render past the worker’s heap fails with the memory limit’s message; the pool goes on', async () => {
-    const pool = poolOf(
-      { workers: 1, resourceLimits: { maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8 } },
-      withRenderLimit(30_000),
-    );
+    const pool = poolOf({ workers: 1, maxOldSpaceMb: 32 }, withRenderLimit(30_000));
     const failure = await rejection(render(pool, 'grow'));
     expect(failure).toBeInstanceOf(TemplateRenderError);
     expect(failure).toMatchObject({
@@ -150,10 +148,13 @@ describe('the render pool', () => {
   });
 
   test('with no memoryLimit, a render past the worker’s heap says it ran out of the memory its worker may use', async () => {
-    const pool = poolOf(
-      { workers: 1, resourceLimits: { maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8 } },
-      SELF_HOSTED_BOUNDS,
-    );
+    // A tenant whose bounds name no memory limit of their own: the message
+    // can't quote a number, so it says the worker ran out of the memory it may use.
+    const noMemoryLimit: TenantInputBounds = {
+      ...SELF_HOSTED_BOUNDS,
+      liquid: { ...SELF_HOSTED_BOUNDS.liquid, memoryLimit: Number.POSITIVE_INFINITY },
+    };
+    const pool = poolOf({ workers: 1, maxOldSpaceMb: 32 }, noMemoryLimit);
     expect(await rejection(render(pool, 'grow'))).toMatchObject({
       message: 'Template render failed: the render ran out of the memory its worker may use',
     });
@@ -161,7 +162,12 @@ describe('the render pool', () => {
 
   test('a worker that crashes or stops fails its render with why, and is replaced', async () => {
     const pool = poolOf({ workers: 1 });
-    expect(await rejection(render(pool, 'crash'))).toMatchObject({ message: 'the worker crashed' });
+    const crashed = await rejection(render(pool, 'crash'));
+    expect(crashed).toMatchObject({
+      message: "The template's render worker stopped (exit code 1).",
+    });
+    // The worker's own stderr, as it crashed, says why it stopped.
+    expect((crashed as Error).cause).toMatch(/the worker crashed/);
     await expect(render(pool, 'next')).resolves.toBe('next');
     expect(await rejection(render(pool, 'exit'))).toMatchObject({
       message: "The template's render worker stopped (exit code 3).",
@@ -194,10 +200,12 @@ describe('the render pool', () => {
   test('a worker that can’t start fails the renders waiting for it, and the next render tries again', async () => {
     const pool = poolOf({ workers: 1 }, withRenderLimit(200), FAILED_START);
     for (const template of ['first', 'second']) {
-      expect(await rejection(render(pool, template))).toMatchObject({
+      const failure = await rejection(render(pool, template));
+      expect(failure).toMatchObject({
         message: "The template's render worker couldn't start.",
-        cause: { message: 'the worker could not load' },
       });
+      // Its stderr says why — the error it threw as it loaded.
+      expect((failure as Error).cause).toMatch(/the worker could not load/);
     }
   });
 
@@ -206,7 +214,9 @@ describe('the render pool', () => {
     const failure = await rejection(
       pool.render({ tenantId: tenantA, template: 'x', scope: { call: () => 1 } }),
     );
-    expect((failure as Error).name).toBe('DataCloneError');
+    // The structured clone that carries the scope to the child can't copy a
+    // function (what a worker thread's postMessage reported too).
+    expect((failure as Error).message).toMatch(/could not be cloned/);
     await expect(render(pool, 'next')).resolves.toBe('next');
   });
 
@@ -268,6 +278,34 @@ describe('the render pool', () => {
       expect(() => new WorkerPool(FAKE, { workers })).toThrow(
         `A worker template renderer needs 1 or more workers, not ${workers}.`,
       );
+    }
+  });
+});
+
+describe('the fork is isolated from the server', () => {
+  test('the worker gets neither the server’s environment nor its Node flags', async () => {
+    // A secret-like value beside the server, as a database URL or a token is.
+    const MARKER = 'KINDGI_RENDER_WORKER_MARKER';
+    const savedMarker = process.env[MARKER];
+    process.env[MARKER] = 'parent-only-secret';
+    try {
+      const pool = poolOf({ workers: 1, maxOldSpaceMb: 64 }, HOSTED_BOUNDS, REPORT_ENV);
+      const report = JSON.parse(await render(pool, 'report')) as {
+        readonly envKeys: readonly string[];
+        readonly marker: string | null;
+        readonly execArgv: readonly string[];
+      };
+      // The fork's `env: {}` keeps the server's environment out of the worker:
+      // the worker can't read the marker, nor the rest of it. Were `env`
+      // dropped from the fork call, the worker would inherit it and this fails.
+      expect(report.marker).toBeNull();
+      expect(report.envKeys).not.toContain(MARKER);
+      // The fork's `execArgv` is the heap cap alone: a `--inspect` on the
+      // server, or a coverage flag, isn't inherited.
+      expect(report.execArgv).toEqual(['--max-old-space-size=64']);
+    } finally {
+      if (savedMarker === undefined) delete process.env[MARKER];
+      else process.env[MARKER] = savedMarker;
     }
   });
 });

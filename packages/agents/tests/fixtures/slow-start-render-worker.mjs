@@ -5,4 +5,4 @@
 // before it loads, as a worker can on a busy machine.
 
 Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
-await import('./fake-render-thread.mjs');
+await import('./fake-render-worker.mjs');

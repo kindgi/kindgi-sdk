@@ -11,7 +11,7 @@ import { throwAgentTurnFailure } from './errors.js';
 /**
  * Render the agent's instructions template with caller-supplied
  * parameters + framework auto-vars: with the bindings' `templateRenderer`
- * when there is one (in a worker thread, say), else in-process. Fails the
+ * when there is one (in a child process, say), else in-process. Fails the
  * run with a `model-invocation-failed` (surfaced through
  * `AgentTurnFailure`) if required parameters are missing or the template
  * throws. A render the tenant's render budget refuses isn't the

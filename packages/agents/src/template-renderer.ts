@@ -6,7 +6,7 @@
  * them itself: a renderer the turn awaits (`InvokeAgentBindings`'
  * `templateRenderer`), so a template's render can run off the thread that
  * runs the turn. `@kindgi/agents/render-worker` makes one that renders in
- * worker threads. A turn without one renders in-process, as
+ * child processes. A turn without one renders in-process, as
  * `renderInstructions` does.
  */
 

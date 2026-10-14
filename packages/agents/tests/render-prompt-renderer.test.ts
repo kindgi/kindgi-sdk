@@ -9,7 +9,7 @@
  * renderer's failures fail the turn as an in-process render's would; and
  * a render the tenant's budget refuses ends the turn as
  * `rate-limit-exceeded`, as in `turn-budget-refusal.test.ts`. Rendering
- * in worker threads is `render-worker.test.ts`'s.
+ * in child processes is `render-worker.test.ts`'s.
  */
 
 import { HOSTED_BOUNDS, runAsTenant } from '@kindgi/bounds';

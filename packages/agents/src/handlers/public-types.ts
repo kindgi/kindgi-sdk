@@ -272,7 +272,7 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
   /**
    * Where the turn renders its instructions, off the thread that runs it:
    * `createWorkerTemplateRenderer` (`@kindgi/agents/render-worker`)
-   * renders in worker threads, so a template can't hold up the server's
+   * renders in child processes, so a template can't hold up the server's
    * other work. Absent: the turn renders them in-process.
    */
   readonly templateRenderer?: TemplateRenderer;

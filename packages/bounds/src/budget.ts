@@ -74,7 +74,7 @@ interface Ledger {
 
 /**
  * A piece of a tenant's work that runs somewhere else and ends later (a
- * render in a worker thread), charged for the time from its `start` to
+ * render in a child process), charged for the time from its `start` to
  * its `end`.
  */
 export interface TenantWork {

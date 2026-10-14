@@ -72,7 +72,7 @@ export function chargeRender<T>(render: () => T): T {
 const UNCOUNTED: TenantWork = Object.freeze({ start: () => undefined, end: () => undefined });
 
 /**
- * For a render done in a worker thread, as the current tenant's work:
+ * For a render done in a child process, as the current tenant's work:
  * refused now with `TemplateRenderBudgetError`, before it's queued, once
  * the tenant has spent its render budget. The render is charged for the
  * time from the work's `start()` (a worker took it) to its `end()`, the

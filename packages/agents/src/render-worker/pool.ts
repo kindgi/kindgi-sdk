@@ -2,15 +2,24 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * A pool of long-lived worker threads that render tenants' templates, so
- * no template can hold up the server's own thread: a render that runs
- * past `renderLimitMs` has its worker stopped, wherever liquidjs is in
- * it, and one past the worker's heap stops it too. The pool takes the
- * waiting tenants in turn, so one tenant's renders can't keep another's
- * waiting behind them.
+ * A pool of long-lived child processes that render tenants' templates, so
+ * no template can hold up the server's own thread: a render that runs past
+ * `renderLimitMs` has its worker stopped, wherever liquidjs is in it, and
+ * one past the worker's heap stops it too. The pool takes the waiting
+ * tenants in turn, so one tenant's renders can't keep another's waiting
+ * behind them.
+ *
+ * A render worker is a child process, not a worker thread: a thread shares
+ * the server's heap, so a template that exhausts it takes the whole process
+ * down; a child has its own. The fork is explicit — the child gets an empty
+ * environment (never the server's, with its database URLs, KMS settings and
+ * tokens), its `execArgv` is the heap cap alone (so a `--inspect` on the
+ * server isn't inherited), and no inherited file descriptors beyond the IPC
+ * channel. Its stderr is piped (not shared) so the pool can tell a render
+ * that ran out of memory from one that stopped for another reason.
  */
 
-import { type ResourceLimits, Worker } from 'node:worker_threads';
+import { type ChildProcess, fork } from 'node:child_process';
 
 import { type TenantInputBounds, type TenantWork, tenantInputBounds } from '@kindgi/bounds';
 
@@ -22,28 +31,34 @@ import {
   type TemplateRenderer,
 } from '../template-renderer.js';
 
-import type { RenderReply, RenderRequest, RenderWorkerData, WorkerMessage } from './messages.js';
+import type { RenderInit, RenderReply, RenderRequest, WorkerMessage } from './messages.js';
 
 /**
- * How long past `renderLimitMs` a render's worker is stopped: the time
- * for the render to reach the worker and its answer to come back.
+ * How long past `renderLimitMs` a render's worker is stopped: the time for
+ * the render to reach the worker and its answer to come back.
  */
 export const STOP_MARGIN_MS = 100;
 
+/** How much of a worker's stderr the pool keeps, to read why it stopped. */
+const STDERR_TAIL = 4096;
+
+/** V8 prints one of these when a process runs past `--max-old-space-size`. */
+const OUT_OF_MEMORY = /JavaScript heap out of memory|Reached heap limit/;
+
 /** `createWorkerTemplateRenderer`'s options. */
 export interface WorkerTemplateRendererOptions {
-  /** How many renders run at once, each in a worker thread of its own: 1 or more. */
+  /** How many renders run at once, each in a child process of its own: 1 or more. */
   readonly workers: number;
   /**
-   * Each worker's heap limits (Node's `resourceLimits`), the backstop to
-   * the bounds' `memoryLimit`: a render that takes its worker past them
-   * fails with the memory limit's message, and the worker is replaced.
-   * Node's defaults when unset.
+   * Each worker's heap cap in MiB (Node's `--max-old-space-size`), the
+   * backstop to the bounds' `memoryLimit`: a render that takes its worker
+   * past it fails with the memory limit's message, and the worker is
+   * replaced. Node's default when unset.
    */
-  readonly resourceLimits?: ResourceLimits;
+  readonly maxOldSpaceMb?: number;
 }
 
-/** A `TemplateRenderer` that renders in worker threads, until it's closed. */
+/** A `TemplateRenderer` that renders in child processes, until it's closed. */
 export interface WorkerTemplateRenderer extends TemplateRenderer {
   /**
    * Takes no more renders (a later one is refused), lets the ones it has
@@ -64,7 +79,11 @@ interface Job {
 }
 
 interface Slot {
-  readonly worker: Worker;
+  readonly child: ChildProcess;
+  /** The tail of the worker's stderr, kept to say why a worker that couldn't start didn't. */
+  stderr: string;
+  /** Set when V8's out-of-heap message appears on stderr, so an exit after it reads as the memory limit. */
+  outOfMemory: boolean;
   /** It has started and said so: only then is it sent renders, so its start-up is never timed or charged. */
   ready: boolean;
   /** The render it's doing: `id` is the one sent to the worker. */
@@ -85,19 +104,23 @@ export class WorkerPool implements WorkerTemplateRenderer {
   /** Each tenant's renders waiting for a worker; the tenants in the order they take turns. */
   private readonly queues = new Map<string, Job[]>();
   private readonly bounds: TenantInputBounds;
+  /** The child's `execArgv`: the heap cap alone, so the server's flags aren't inherited. */
+  private readonly execArgv: readonly string[];
   private nextId = 0;
   private closing: Promise<void> | undefined;
   private drained: (() => void) | undefined;
 
   constructor(
     private readonly script: URL,
-    private readonly options: WorkerTemplateRendererOptions,
+    options: WorkerTemplateRendererOptions,
   ) {
     if (!Number.isInteger(options.workers) || options.workers < 1) {
       throw new RangeError(
         `A worker template renderer needs 1 or more workers, not ${options.workers}.`,
       );
     }
+    this.execArgv =
+      options.maxOldSpaceMb !== undefined ? [`--max-old-space-size=${options.maxOldSpaceMb}`] : [];
     // The server's bounds, set at boot: its workers render under the same.
     this.bounds = tenantInputBounds();
     this.slots = Array.from({ length: options.workers }, () => this.spawn());
@@ -140,7 +163,7 @@ export class WorkerPool implements WorkerTemplateRenderer {
     await Promise.all(
       this.slots.map((slot, index) => {
         this.slots[index] = undefined;
-        return slot?.worker.terminate();
+        return slot === undefined ? undefined : stop(slot.child);
       }),
     );
   }
@@ -158,7 +181,7 @@ export class WorkerPool implements WorkerTemplateRenderer {
         this.slots[index] = slot;
       }
       if (!slot.ready) {
-        slot.worker.ref();
+        refWorker(slot.child);
         continue;
       }
       while (slot.running === undefined) {
@@ -186,9 +209,9 @@ export class WorkerPool implements WorkerTemplateRenderer {
     this.nextId += 1;
     const request: RenderRequest = { id, template: job.input.template, scope: job.input.scope };
     try {
-      slot.worker.postMessage(request);
+      slot.child.send(request);
     } catch (cause) {
-      // A scope that can't be copied to another thread (a function in it, say).
+      // A scope that can't be serialized to the child (a function in it, say).
       job.work.end();
       job.reject(cause);
       return;
@@ -212,38 +235,48 @@ export class WorkerPool implements WorkerTemplateRenderer {
       }),
     };
     // A render in flight keeps the process running; an idle pool doesn't.
-    slot.worker.ref();
+    refWorker(slot.child);
   }
 
   private spawn(): Slot {
-    const workerData: RenderWorkerData = { bounds: this.bounds };
-    const worker = new Worker(this.script, {
-      workerData,
-      ...(this.options.resourceLimits !== undefined && {
-        resourceLimits: this.options.resourceLimits,
-      }),
+    const child = fork(this.script, [], {
+      // Explicit: no server environment (database URLs, KMS, tokens) beside
+      // untrusted templates, no inherited flags, no shared fds but the IPC
+      // channel, and the structured clone that carries the bounds' Infinity
+      // and the render scope as a worker thread's `postMessage` would.
+      env: {},
+      execArgv: [...this.execArgv],
+      serialization: 'advanced',
+      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
     });
-    const slot: Slot = { worker, ready: false, running: undefined };
-    worker.on('message', (message: WorkerMessage) => {
+    const slot: Slot = { child, stderr: '', outOfMemory: false, ready: false, running: undefined };
+    child.stderr?.on('data', (chunk: Buffer) => {
+      slot.stderr = (slot.stderr + chunk.toString()).slice(-STDERR_TAIL);
+      // Catch V8's out-of-heap message as it arrives: the long native stack
+      // trace after it would push it out of the kept tail before the exit.
+      if (OUT_OF_MEMORY.test(slot.stderr)) slot.outOfMemory = true;
+    });
+    child.on('message', (message: WorkerMessage) => {
       if ('ready' in message) {
         slot.ready = true;
         this.dispatch();
-        if (slot.running === undefined) slot.worker.unref();
+        if (slot.running === undefined) unrefWorker(slot.child);
       } else {
         this.replied(slot, message);
       }
     });
-    worker.on('messageerror', (error) => this.retire(slot, this.slots.indexOf(slot), error));
-    worker.on('error', (error) => this.retire(slot, this.slots.indexOf(slot), this.crashed(error)));
-    worker.on('exit', (code) =>
-      this.retire(
-        slot,
-        this.slots.indexOf(slot),
-        new Error(`The template's render worker stopped (exit code ${code}).`),
-      ),
+    child.on('error', (error) => this.retire(slot, this.slots.indexOf(slot), error));
+    // 'close', not 'exit': the worker's stderr is fully read by then, so the
+    // pool can tell a render out of memory from a worker stopped otherwise,
+    // and can say why one couldn't start.
+    child.on('close', (code, signal) =>
+      this.retire(slot, this.slots.indexOf(slot), this.exitError(slot, code, signal)),
     );
-    // After the listeners: a 'message' listener refs the worker's port again.
-    worker.unref();
+    // The bounds first: the worker configures them, then says it's ready.
+    child.send({ bounds: this.bounds } satisfies RenderInit);
+    // Idle from the start: the 'message' listener just refed the channel, so
+    // unref the channel and stderr as well, or the pool holds the process up.
+    unrefWorker(child);
     return slot;
   }
 
@@ -275,13 +308,18 @@ export class WorkerPool implements WorkerTemplateRenderer {
       this.finish(slot);
       running.job.reject(error);
     }
-    void slot.worker.terminate();
+    slot.child.kill();
     if (slot.ready) {
       this.slots[index] = this.closing === undefined ? this.spawn() : undefined;
     } else {
       this.slots[index] = undefined;
+      // Why it couldn't start is on its stderr (a broken install names the
+      // module); the spawn error is the fallback when it wrote nothing.
+      const reason = slot.stderr.trim();
       this.rejectWaiting(
-        new Error("The template's render worker couldn't start.", { cause: error }),
+        new Error("The template's render worker couldn't start.", {
+          cause: reason.length > 0 ? reason : error,
+        }),
       );
     }
     this.dispatch();
@@ -297,17 +335,28 @@ export class WorkerPool implements WorkerTemplateRenderer {
     }
   }
 
-  /** What a worker's crash means for its render: the memory limit, when it ran out of heap. */
-  private crashed(error: unknown): unknown {
-    if ((error as { readonly code?: unknown }).code !== 'ERR_WORKER_OUT_OF_MEMORY') return error;
-    const { memoryLimit } = this.bounds.liquid;
-    return new TemplateRenderError({
-      code: 'render-failure',
-      message: `Template render failed: ${
-        Number.isFinite(memoryLimit)
-          ? memoryLimitProblem(memoryLimit)
-          : 'the render ran out of the memory its worker may use'
-      }`,
+  /**
+   * What a worker's exit means for its render: the memory limit when it ran
+   * out of heap (V8 says so on the stderr the pool kept), else that the
+   * worker stopped, with the exit code or signal.
+   */
+  private exitError(slot: Slot, code: number | null, signal: NodeJS.Signals | null): unknown {
+    if (slot.outOfMemory) {
+      const { memoryLimit } = this.bounds.liquid;
+      return new TemplateRenderError({
+        code: 'render-failure',
+        message: `Template render failed: ${
+          Number.isFinite(memoryLimit)
+            ? memoryLimitProblem(memoryLimit)
+            : 'the render ran out of the memory its worker may use'
+        }`,
+      });
+    }
+    const how = signal !== null ? `signal ${signal}` : `exit code ${code}`;
+    const reason = slot.stderr.trim();
+    return new Error(`The template's render worker stopped (${how}).`, {
+      // What it last wrote, when it wrote anything: the reason it stopped.
+      ...(reason.length > 0 && { cause: reason }),
     });
   }
 
@@ -318,7 +367,7 @@ export class WorkerPool implements WorkerTemplateRenderer {
     slot.running = undefined;
     clearTimeout(running.timer);
     running.job.work.end();
-    slot.worker.unref();
+    unrefWorker(slot.child);
   }
 
   private idle(): boolean {
@@ -328,4 +377,32 @@ export class WorkerPool implements WorkerTemplateRenderer {
   private checkDrained(): void {
     if (this.drained !== undefined && this.idle()) this.drained();
   }
+}
+
+/** Stops a worker and waits for it to go: a kill it has already answered resolves at once. */
+function stop(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    child.once('exit', () => resolve());
+    child.kill();
+  });
+}
+
+/**
+ * Lets an idle worker not keep the process running. `child.unref()` alone
+ * doesn't: the IPC channel (a `message` listener refs it) and the piped
+ * stderr each hold the event loop, so unref those too.
+ */
+function unrefWorker(child: ChildProcess): void {
+  child.unref();
+  child.channel?.unref();
+  // stderr is a Socket at runtime (it has ref/unref); the stdio type is Readable.
+  (child.stderr as { unref?(): void } | null)?.unref?.();
+}
+
+/** A render in flight keeps the process running: the handle, its IPC channel and its stderr. */
+function refWorker(child: ChildProcess): void {
+  child.ref();
+  child.channel?.ref();
+  (child.stderr as { ref?(): void } | null)?.ref?.();
 }
