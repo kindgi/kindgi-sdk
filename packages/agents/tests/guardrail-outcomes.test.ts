@@ -22,8 +22,6 @@ import { buildEvaluateGuardrailsHandler } from '../src/handlers/evaluate-guardra
 import type { InvokeAgentBindings } from '../src/handlers/public-types.js';
 import type { ConversationId } from '../src/types.js';
 
-import { OUTSIDE_ANY_FLOW } from './turn-runs.js';
-
 const tenantId = 'acme' as TenantId;
 
 const guardrail = (id: string, check: string, action: string, extra = {}): Guardrail =>
@@ -90,7 +88,6 @@ function turn(
     },
     bindings: {
       checks: checks(),
-      runBinding: OUTSIDE_ANY_FLOW,
       onEvent: (e: { kind: string }) => void order.push(e.kind),
       guardrailOutcomes: {
         record: async (record: GuardrailOutcomeRecord) => {

@@ -17,8 +17,6 @@ import { buildEvaluateGuardrailsHandler } from '../src/handlers/evaluate-guardra
 import type { InvokeAgentBindings } from '../src/handlers/public-types.js';
 import type { ConversationId } from '../src/types.js';
 
-import { OUTSIDE_ANY_FLOW } from './turn-runs.js';
-
 const tenantId = 'acme' as TenantId;
 
 /** A judge provider in `region` that records when it is called. */
@@ -89,11 +87,7 @@ function turnContext(calls: string[], tenantPolicy: TenantPolicy | undefined): T
       conversationId: 'c-1' as ConversationId,
       userMessage: 'hi',
     },
-    bindings: {
-      providerRegistry,
-      checks,
-      runBinding: OUTSIDE_ANY_FLOW,
-    } as unknown as InvokeAgentBindings,
+    bindings: { providerRegistry, checks } as unknown as InvokeAgentBindings,
     turnAbort: new AbortController(),
     startedAt: Date.now(),
     appended: [],
