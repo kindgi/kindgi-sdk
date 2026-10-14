@@ -30,6 +30,17 @@ locals {
   ])
   server_extra_env = setunion(keys(var.server_env), keys(var.server_secret_env))
 
+  # var.server_secret_files: one secret volume per file, mounted at the
+  # file's directory and named by its path, so the names never move.
+  server_files = {
+    for path, ref in var.server_secret_files : "file-${substr(sha256(path), 0, 12)}" => {
+      dir    = regex("^(.*)/([^/]+)$", path)[0]
+      file   = regex("^(.*)/([^/]+)$", path)[1]
+      secret = ref.project == null ? ref.secret : "projects/${ref.project}/secrets/${ref.secret}"
+      ref    = ref
+    }
+  }
+
   # What a server serving many tenants needs, each named when it's missing.
   multi_missing = compact([
     var.openfga_api_url == "" ? "openfga_api_url (without an authorization store, no tenant would have an admin)" : "",
@@ -236,6 +247,21 @@ resource "google_cloud_run_v2_service" "server" {
         }
       }
     }
+    # Each of var.server_secret_files: its secret at its version, as one
+    # file. Read-only, and readable by every user in the container.
+    dynamic "volumes" {
+      for_each = local.server_files
+      content {
+        name = volumes.key
+        secret {
+          secret = volumes.value.secret
+          items {
+            version = volumes.value.ref.version
+            path    = volumes.value.file
+          }
+        }
+      }
+    }
 
     containers {
       image = var.server_image
@@ -260,6 +286,13 @@ resource "google_cloud_run_v2_service" "server" {
         content {
           name       = "cloudsql"
           mount_path = "/cloudsql"
+        }
+      }
+      dynamic "volume_mounts" {
+        for_each = local.server_files
+        content {
+          name       = volume_mounts.key
+          mount_path = volume_mounts.value.dir
         }
       }
 
@@ -563,6 +596,20 @@ resource "google_cloud_run_v2_service" "server" {
       error_message = "A name is in both server_env and server_secret_env: keep it in one."
     }
     precondition {
+      condition = length(setintersection(
+        toset([for ref in values(var.server_secret_env) : "${ref.project == null ? var.project_id : ref.project}/${ref.secret}"]),
+        toset([for ref in values(var.server_secret_files) : "${ref.project == null ? var.project_id : ref.project}/${ref.secret}"]),
+      )) == 0
+      error_message = "A secret is in both server_secret_env and server_secret_files: a file is readable by every user in the container, so a secret setting stays in server_secret_env alone."
+    }
+    precondition {
+      condition = length(setintersection(
+        toset([for ref in values(var.server_secret_files) : ref.secret if ref.project == null || ref.project == var.project_id]),
+        toset(concat(values(local.server_secrets), values(local.shared_secrets), ["${var.name_prefix}-export-signing-key"])),
+      )) == 0
+      error_message = "server_secret_files names one of the module's own secrets (the database URL, the API token, the keys): those stay settings, since a file is readable by every user in the container."
+    }
+    precondition {
       condition     = var.tenancy != "single" || (var.seed_tenant_id != null && var.seed_user_id != null)
       error_message = "tenancy = \"single\" needs seed_tenant_id and seed_user_id: the tenant the server seeds and serves, and the user its API token acts as."
     }
@@ -583,6 +630,7 @@ resource "google_cloud_run_v2_service" "server" {
   depends_on = [
     google_secret_manager_secret_iam_member.server_reads,
     google_secret_manager_secret_iam_member.server_reads_its_secrets,
+    google_secret_manager_secret_iam_member.server_reads_its_files,
     google_kms_crypto_key_iam_member.server_wraps,
     google_kms_crypto_key_iam_member.server_reads_key,
     google_secret_manager_secret_iam_member.server_reads_export_key,

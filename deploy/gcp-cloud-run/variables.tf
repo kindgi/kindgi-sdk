@@ -431,3 +431,42 @@ variable "server_secret_env" {
     error_message = "server_secret_env: a name is upper-case letters, digits and underscores."
   }
 }
+
+variable "server_secret_files" {
+  description = "Files the server reads, each a Secret Manager secret's version mounted at an absolute path: `{ \"/kindgi/compliance/classifier.json\" = { secret = \"kindgi-dev-compliance-classifier\", version = \"1\" } }`, with the setting that names the path in server_env (`KINDGI_COMPLIANCE_CLASSIFIER`). The operator creates each secret and adds its version; the server's service account gets read access to exactly these (one in another project is granted there). Each file is readable by every user in the container, so never a key: keys go in server_secret_env."
+  type = map(object({
+    secret  = string
+    version = string
+    project = optional(string)
+  }))
+  default = {}
+
+  validation {
+    condition     = alltrue([for path in keys(var.server_secret_files) : can(regex("^(/[A-Za-z0-9][A-Za-z0-9._-]*){2,}$", path))])
+    error_message = "server_secret_files: a path is absolute, a directory and a file name, such as /kindgi/compliance/classifier.json; each part starts with a letter or digit."
+  }
+  # Each file's directory is a volume of its own, which hides whatever the
+  # image has there: so never one of the image's top-level directories.
+  validation {
+    condition     = alltrue([for path in keys(var.server_secret_files) : !contains(["app", "bin", "boot", "cloudsql", "dev", "etc", "home", "lib", "lib64", "media", "mnt", "opt", "proc", "root", "run", "sbin", "srv", "sys", "tmp", "usr", "var"], try(split("/", path)[1], ""))])
+    error_message = "server_secret_files: a file goes under a top-level directory the image doesn't have, such as /kindgi/: a mount hides what's in its directory, and /cloudsql is the database's."
+  }
+  # Each file's directory is the mount of its one secret: no other file
+  # in it, or below it.
+  validation {
+    condition = alltrue(flatten([
+      for a in keys(var.server_secret_files) : [
+        for b in keys(var.server_secret_files) : !startswith(b, "${try(regex("^(.*)/[^/]+$", a)[0], a)}/") || a == b
+      ]
+    ]))
+    error_message = "server_secret_files: one file per directory, and none below another file's directory, since each file's directory is the mount of its one secret."
+  }
+  validation {
+    condition     = alltrue([for ref in values(var.server_secret_files) : can(regex("^[1-9][0-9]*$", ref.version))])
+    error_message = "server_secret_files: version is a version number, never \"latest\" or an alias, so a new version reaches the server only with a new revision."
+  }
+  validation {
+    condition     = length(distinct([for ref in values(var.server_secret_files) : "${ref.project == null ? "" : ref.project}/${ref.secret}"])) == length(var.server_secret_files)
+    error_message = "server_secret_files: each secret once."
+  }
+}

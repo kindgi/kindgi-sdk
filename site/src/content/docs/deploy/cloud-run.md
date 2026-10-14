@@ -648,8 +648,9 @@ then reaches the runtime only when you change `version`.
   Turnstile** go the same way: each provider's client id,
   `KINDGI_AUTH_VERIFIED_DOMAINS` and the Turnstile site key in `server_env`;
   each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET` in
-  `server_secret_env`. The module mounts no files, so use the value forms of
-  the settings, not their `…_PATH` forms.
+  `server_secret_env`. Use the value forms of the settings, not their
+  `…_PATH` forms: a file the module mounts ([Give the server a
+  file](#give-the-server-a-file)) is readable by every user in the container.
 
 **Check it worked:** after the apply, the new revision's startup lines say
 where it's reached, and which ways in the console has, instead of the
@@ -695,6 +696,42 @@ Model call to gemini (gemini-2.5-flash) failed: {"error":{"code":403,"message":"
 ```
 
 A new grant can take a minute or two to apply.
+
+## Give the server a file
+
+A setting can name a file: `KINDGI_COMPLIANCE_CLASSIFIER`, for example, takes
+the path of [your own classifier](../retention/#your-own-classifier), which
+says how long the server keeps each kind of audit event. The module mounts
+each file from Secret Manager, with `server_secret_files`:
+
+```sh
+gcloud secrets create $N-compliance-classifier --data-file=compliance-classifier.json
+```
+
+```hcl
+server_secret_files = {
+  "/kindgi/compliance/classifier.json" = { secret = "kindgi-dev-compliance-classifier", version = "1" }
+}
+server_env = {
+  KINDGI_COMPLIANCE_CLASSIFIER = "/kindgi/compliance/classifier.json"
+}
+```
+
+- **Each file is the mount of its own directory:** one file per directory,
+  none below another file's, under a top-level directory the image doesn't
+  have, such as `/kindgi/`. A mount hides what's in its directory, so the
+  plan refuses the image's own directories (`/app`, `/etc`, `/usr`, …) and
+  `/cloudsql`.
+- **Pin a version number.** The plan refuses `latest` and aliases: a volume
+  at `latest` follows each new version, even under a running server. Pinned,
+  a changed file is a new version and a change to `server_secret_files`,
+  which rolls a new revision.
+- **Every user in the container can read the file** (Cloud Run mounts it
+  0444), so never a key: a key goes in `server_secret_env`. The plan refuses
+  a secret that's in both, or one of the module's own secrets.
+- **Read access:** the server's service account gets it on exactly these
+  secrets. One in another project (`project = "…"`) is granted there.
+- **A file is at most 64 KiB,** Secret Manager's limit for a version.
 
 ## Operate it
 

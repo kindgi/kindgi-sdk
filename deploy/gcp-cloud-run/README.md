@@ -240,7 +240,30 @@ Pin each secret to a version, as above, rather than `latest`: a new version then
 - **Continue with Google, Microsoft or GitHub, verified domains, and Turnstile** go the same way:
   - in `server_env`: each provider's client id, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
   - in `server_secret_env`: each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET`.
-  - The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
+  - The `…_PATH` forms read a file. Keep the value forms: a file from `server_secret_files` (below) is readable by every user in the container.
+
+## Files the server reads (`server_secret_files`)
+
+A setting can name a file: `KINDGI_COMPLIANCE_CLASSIFIER`, for example, takes the path of your own classifier JSON, which says how long the server keeps each kind of audit event. The module mounts each file from Secret Manager:
+
+```sh
+gcloud secrets create $N-compliance-classifier --data-file=compliance-classifier.json
+```
+
+```hcl
+server_secret_files = {
+  "/kindgi/compliance/classifier.json" = { secret = "kindgi-dev-compliance-classifier", version = "1" }
+}
+server_env = {
+  KINDGI_COMPLIANCE_CLASSIFIER = "/kindgi/compliance/classifier.json"
+}
+```
+
+- **Each file is the mount of its own directory.** So it's one file per directory, none below another file's, under a top-level directory the image doesn't have, such as `/kindgi/`. The plan refuses the image's own directories (`/app`, `/etc`, `/usr`, …) and `/cloudsql`, since a mount hides what's in its directory ([Google: secrets as volumes](https://docs.cloud.google.com/run/docs/configuring/services/secrets)).
+- **Pin a version number; `latest` and aliases are refused.** A volume at `latest` follows each new version, even under a running server. Pinned, a changed file is a new version and a change here, which rolls a new revision. The server reads the classifier once, at boot.
+- **Every user in the container can read the file** (Cloud Run mounts it 0444: [Google: `defaultMode`](https://docs.cloud.google.com/run/docs/reference/rest/v2/Volume#SecretVolumeSource)), so never a key. A key goes in `server_secret_env`, and the plan refuses a secret that's in both, or one of the module's own secrets.
+- **Read access:** the server's account gets it on exactly these secrets, as for `server_secret_env`. One in another project is granted there.
+- **A file is at most 64 KiB,** Secret Manager's limit for a version ([Google: Secret Manager quotas](https://docs.cloud.google.com/secret-manager/quotas)).
 
 ## Many tenants (`tenancy`)
 
@@ -282,7 +305,7 @@ server_secret_env = {
 
 ## Testing the module
 
-`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, the server's own settings (sign-in), the tenancy: `single` with its pack service, `multi` with each setting it needs, and what each refuses; and `database_instance`: the server's volume, URL secret and grants on another instance, the module's own instance and grant kept, and each refusal.
+`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, the server's own settings (sign-in), the server's files (one per directory, mounted beside `/cloudsql`, and each refusal), the tenancy: `single` with its pack service, `multi` with each setting it needs, and what each refuses; and `database_instance`: the server's volume, URL secret and grants on another instance, the module's own instance and grant kept, and each refusal.
 
 ## Upgrading
 
