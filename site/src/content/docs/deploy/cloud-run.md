@@ -61,7 +61,7 @@ Who calls whom:
 - **A Google Cloud project,** and a Cloud Storage bucket for Terraform's
   state. Whoever applies the module is an Owner, or an Editor with Security
   Admin and Secret Manager Admin.
-- **Terraform 1.6 or later, gcloud, Docker** with `buildx`, **jq**,
+- **Terraform 1.6 or later, gcloud, Docker** with `buildx`, **jq**, **curl**,
   **openssl**, and your pack's `kindgi` CLI, 0.1.2 or later, which has
   `kindgi key trust`.
 - **Runtime 0.1.1 or later.** Cloud SQL has no superuser; 0.1.0 can't start
@@ -188,20 +188,32 @@ its own.
 ## 3. The secrets
 
 The services read their secrets from Secret Manager. Make each value here
-and pipe it straight into Secret Manager: it's never on disk or in
-Terraform's state, and Kindgi generates none of them. To run with no KMS
-key, set `secrets_backend = "none"` first
+and pipe it straight into Secret Manager: it's never on disk, in
+Terraform's state or in a command's arguments, which other processes can
+read and gcloud writes to its log file. Kindgi generates none of them. The
+commands are for bash or zsh. To run with no KMS key, set
+`secrets_backend = "none"` first
 ([Without a KMS key](../cloud-run-reference/#without-a-kms-key)).
 
 ```sh
 N=kindgi   # name_prefix
 CONN=$(terraform output -raw sql_connection_name)
+P=$(gcloud config get-value project)
 
 # Kindgi's database user: a built-in user, not an IAM one. The instance is
 # named after name_prefix ($N); the database is database_name (kindgi).
+# Made through the Cloud SQL Admin API rather than `gcloud sql users create --password`:
+# the body goes in on stdin and the token in a header from a pipe.
+# Each step runs only if the one before it worked, so the secret never holds
+# a password the user wasn't given.
 DBPW=$(openssl rand -hex 24)
-gcloud sql users create kindgi --instance=$N --password="$DBPW"
-printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
+OP=$(printf '{"name":"kindgi","password":"%s"}' "$DBPW" \
+  | curl -sS -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud auth print-access-token)") \
+      -H 'Content-Type: application/json' --data-binary @- \
+      "https://sqladmin.googleapis.com/v1/projects/$P/instances/$N/users" \
+  | jq -r '.name // error(.error.message)') && [ -n "$OP" ] \
+  && gcloud sql operations wait "$OP" --project=$P \
+  && printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
   | gcloud secrets versions add $N-database-url --data-file=-
 unset DBPW
 
@@ -219,9 +231,14 @@ openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-exp
 read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | gcloud secrets versions add $N-license-key --data-file=- && unset LICENSE_KEY
 ```
 
-- `N` is your `name_prefix`, and `CONN` the Cloud SQL instance's connection
-  name.
-- `gcloud sql users create` makes the database user with that password.
+- `N` is your `name_prefix`, `CONN` the Cloud SQL instance's connection
+  name, and `P` your Google Cloud project's id.
+- `curl` sends the database user's name and password to the Cloud SQL Admin
+  API (`users.insert`) on its input, with your gcloud access token in a
+  header read from a pipe. `jq` takes the operation's name, or prints the
+  API's error, and `gcloud sql operations wait` waits until the user exists.
+  The `&&`s stop at the first step that fails, and `[ -n "$OP" ]` stops them
+  when `curl` got no answer: then no password goes into the secret.
 - `gcloud secrets versions add <name> --data-file=-` adds what it reads on
   its input as the secret's next version.
 - `openssl rand` makes random values, and `openssl genpkey -algorithm ed25519`
