@@ -452,8 +452,8 @@ will purge them.
 
 ## Audit events
 
-Retention policies don't touch the audit trail: each access decision, each
-approval decision and each run's outcome. Kindgi keeps it for good, unless
+Retention policies don't touch the audit trail: each access decision and
+each approval decision. Kindgi keeps it for good, unless
 you start the runtime with `KINDGI_COMPLIANCE_CLASSIFIER` set to:
 
 - `shipped`, the classifier the runtime ships;
@@ -468,6 +468,9 @@ then every hour, in the tenants it serves:
 | Run outcomes (`run-outcome`), guardrail violations (`guardrail-violation`), changes to [env values](../../guides/tools/give-a-tool-env-values/) (`env-set`, `env-deleted`) | 730 days |
 | Approval decisions (`hitl-decision`), and changes to secrets, API keys, service accounts and people's access ([On legal hold](#on-legal-hold)) | For good: they're on legal hold |
 | Any other kind | For good |
+
+Run outcomes and guardrail violations aren't recorded yet: the shipped
+classifier lists them, so they're kept as above once they are.
 
 ### On legal hold
 
@@ -510,8 +513,8 @@ good. A kind it doesn't list is kept.
 An entry can name another kind instead of giving a policy. It's then kept,
 and purged, as that kind is, so the two can't drift apart. The shipped
 classifier does this for each family above, such as
-`"secret-revoked": "secret-set"`. This one keeps run outcomes 50 days, and
-guardrail violations with them:
+`"secret-revoked": "secret-set"`. This one keeps changes to env values 50
+days, removals with them:
 
 ```json
 {
@@ -519,8 +522,8 @@ guardrail violations with them:
   "default": { "retention": { "days": 90 }, "signed": false, "exportable": false },
   "byKind": {
     "authz-decision": { "retention": { "days": 90, "onDenyDays": 365 }, "signed": false, "exportable": true },
-    "run-outcome": { "retention": { "days": 50 }, "signed": true, "exportable": true },
-    "guardrail-violation": "run-outcome",
+    "env-set": { "retention": { "days": 50 }, "signed": true, "exportable": true },
+    "env-deleted": "env-set",
     "hitl-decision": { "retention": { "days": 2555, "legalHold": true }, "signed": true, "exportable": true }
   }
 }
