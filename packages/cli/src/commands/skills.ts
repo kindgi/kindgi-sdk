@@ -2,10 +2,12 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * `kindgi skills sync` — refresh a scaffolded pack's `.claude/skills/`
- * from the SDK skills bundled into the CLI.
+ * `kindgi skills sync` — refresh a scaffolded pack's skills from the SDK
+ * skills bundled into the CLI, in each of `SKILL_FOLDERS`: `.claude/skills/`
+ * and `.agents/skills/` hold the same copies, one per coding agent's way
+ * of finding them.
  *
- * Update semantics with version + hash tracking:
+ * Update semantics with version + hash tracking, for each folder's copy:
  *
  *  - **Added** — bundled skill not present locally. Copy in.
  *  - **Updated** — bundled skill differs from what was last installed
@@ -16,13 +18,13 @@
  *  - **Skipped (modified)** — local copy has been edited since last
  *    install; the user's edits would be lost. Skipped by default;
  *    `--force` overwrites.
- *  - **Local-only** — a skill in `.claude/skills/` that the bundle
- *    doesn't ship. User-authored (or removed from a newer bundle).
- *    Left untouched.
+ *  - **Local-only** — a skill in the folder that the bundle doesn't
+ *    ship. User-authored (or removed from a newer bundle). Left
+ *    untouched.
  *
- * Sync state lives in `.claude/skills/.kindgi-manifest.json` — records
- * what version + hash of each skill was installed. Commit this file
- * to git so teammates see the same installed state.
+ * Sync state lives in `.claude/skills/.kindgi-manifest.json`, for both
+ * folders — records what version + hash of each skill was installed.
+ * Commit this file to git so teammates see the same installed state.
  *
  * A pack gets the skills written for its language: each skill lists
  * them in its frontmatter (`pack_languages: [node, python, java, scala]`); a
@@ -35,7 +37,8 @@ import { dirname, join, relative, resolve } from 'node:path';
 
 import { type KindgiConfig, type PackLanguage, packLanguage } from '@kindgi/handler-runtime';
 
-import { renderJson } from '../output.js';
+import { FORMATTER_IGNORE_PATTERNS, patchPrettierignore } from '../init/gitignore-patcher.js';
+import { type OutputFormat, renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import { commandResultFromThrown, stringFlag } from './helpers.js';
 import { defaultSdkSkillsRoot } from './init.js';
@@ -49,13 +52,42 @@ interface ManifestEntry {
   readonly installedHash: string;
 }
 
+/**
+ * The folders a pack's skills are copied into, from its root. Claude Code
+ * reads `.claude/skills/`; Codex and Gemini CLI read `.agents/skills/`
+ * (Cursor and VS Code's Copilot read either).
+ */
+export const SKILL_FOLDERS = ['.claude/skills', '.agents/skills'] as const;
+export type SkillFolder = (typeof SKILL_FOLDERS)[number];
+
 interface Manifest {
   readonly v: 2;
+  /** `.claude/skills/`'s copies. */
   readonly skills: Readonly<Record<string, ManifestEntry>>;
+  /**
+   * `.agents/skills/`'s copies. Optional, so a CLI from before that folder
+   * still reads the manifest (and drops the field when it writes); a copy
+   * with no entry here is judged by its `skills` entry, which the same sync
+   * wrote. Not always: after an older CLI's sync, which moves only
+   * `.claude/skills/` on, an `.agents/skills/` copy left behind reads as
+   * edited and is kept until `--force`. Nothing is overwritten; it's only
+   * reported as an edit.
+   */
+  readonly agentsSkills?: Readonly<Record<string, ManifestEntry>>;
 }
 
 const MANIFEST_VERSION = 2 as const;
-const MANIFEST_BASENAME = '.kindgi-manifest.json';
+const MANIFEST_PATH = join(SKILL_FOLDERS[0], '.kindgi-manifest.json');
+
+/** What `folder`'s copies were installed as. */
+function installedIn(
+  manifest: Manifest,
+  folder: SkillFolder,
+): Readonly<Record<string, ManifestEntry>> {
+  return folder === '.claude/skills'
+    ? manifest.skills
+    : { ...manifest.skills, ...manifest.agentsSkills };
+}
 
 /**
  * Per-skill sync outcome — reported back to the user + stored on the
@@ -63,6 +95,8 @@ const MANIFEST_BASENAME = '.kindgi-manifest.json';
  */
 export interface SkillSyncOutcome {
   readonly name: string;
+  /** The folder this copy is in: each folder's copy has its own outcome. */
+  readonly folder: SkillFolder;
   readonly status: 'added' | 'updated' | 'unchanged' | 'skipped-modified' | 'local-only';
   readonly fromVersion?: string;
   readonly toVersion?: string;
@@ -78,18 +112,30 @@ export interface SkillSyncReport {
   readonly outcomes: readonly SkillSyncOutcome[];
   readonly dryRun: boolean;
   readonly force: boolean;
+  /** What `kindgi skills sync` did to the pack's `.prettierignore`, when it changed it or couldn't. */
+  readonly prettierignore?: FormatterIgnoreOutcome;
 }
+
+/**
+ * The skills' folders added to a `.prettierignore` the pack already has, so
+ * the formatter never rewrites a copy (the next sync would keep it as
+ * edited). An app that got Kindgi before `.agents/skills/` existed has only
+ * the `.claude/skills/` line. No file is created, and `--dry-run` reads none.
+ */
+export type FormatterIgnoreOutcome =
+  | { readonly path: string; readonly status: 'patched'; readonly appended: readonly string[] }
+  | { readonly path: string; readonly status: 'error'; readonly message: string };
 
 const sync: LeafCommand = {
   kind: 'leaf',
   name: 'sync',
-  description: 'Refresh .claude/skills/ from the CLI-bundled SDK skills.',
+  description: 'Refresh .claude/skills/ and .agents/skills/ from the CLI-bundled SDK skills.',
   usage: 'kindgi skills sync [--path=<dir>] [--force] [--dry-run]',
   optionSpec: {
     path: {
       type: 'string',
       description:
-        'The pack root, whose `.claude/skills/` is refreshed. Default: the current directory.',
+        'The pack root, whose `.claude/skills/` and `.agents/skills/` are refreshed. Default: the current directory.',
     },
     force: {
       type: 'boolean',
@@ -122,11 +168,16 @@ const sync: LeafCommand = {
       const language = config.kind === 'ok' ? packLanguage(config.config as KindgiConfig) : 'node';
       const force = ctx.options.force === true;
       const dryRun = ctx.options['dry-run'] === true;
-      const report = await syncSkills({ skillsRoot, targetDir, language, force, dryRun });
+      const synced = await syncSkills({ skillsRoot, targetDir, language, force, dryRun });
+      const prettierignore = dryRun ? undefined : await patchFormatterIgnore(targetDir, synced);
+      const report = prettierignore === undefined ? synced : { ...synced, prettierignore };
+      const json = renderJson(report, ctx.globals.format);
       return {
         kind: 'ok',
-        rendered: renderJson(report, ctx.globals.format),
-        ...(shouldRenderSummaryOnStderr(ctx) && { stderr: renderSummary(report) }),
+        rendered: {
+          stdout: json.stdout,
+          stderr: shouldRenderSummaryOnStderr(ctx) ? renderSummary(report) : json.stderr,
+        },
       };
     } catch (err) {
       return commandResultFromThrown(err, ctx, 'skills sync');
@@ -137,7 +188,7 @@ const sync: LeafCommand = {
 export const skillsCommand: Command = {
   kind: 'group',
   name: 'skills',
-  description: "Manage the pack's `.claude/skills/` directory.",
+  description: "Manage the pack's skills, in `.claude/skills/` and `.agents/skills/`.",
   subcommands: [sync],
 };
 
@@ -154,108 +205,43 @@ export async function syncSkills(inputs: {
 }): Promise<SkillSyncReport> {
   const { skillsRoot, targetDir, language, force, dryRun } = inputs;
 
-  const skillsDir = join(targetDir, '.claude', 'skills');
-  const manifestPath = join(skillsDir, MANIFEST_BASENAME);
+  const manifestPath = join(targetDir, MANIFEST_PATH);
   const manifest = await readManifest(manifestPath);
-
-  const bundledNames = await listBundledSkills(skillsRoot, language);
-  const localNames = await listSkillDirs(skillsDir);
+  const bundled = await readBundledSkills(skillsRoot, language);
+  const bundledSet = new Set(bundled.map((skill) => skill.name));
 
   const outcomes: SkillSyncOutcome[] = [];
-  const nextEntries: Record<string, ManifestEntry> = { ...manifest.skills };
+  const next: Record<SkillFolder, Record<string, ManifestEntry>> = {
+    '.claude/skills': { ...manifest.skills },
+    '.agents/skills': { ...manifest.agentsSkills },
+  };
 
-  for (const name of bundledNames) {
-    const bundledPath = join(skillsRoot, name, 'SKILL.md');
-    const bundledBytes = await readFile(bundledPath);
-    const bundledHash = hashBytes(bundledBytes);
-    const bundledText = bundledBytes.toString('utf8');
-    const bundledVersion = parseFrontmatterField(bundledText, 'version');
-    const bundledSdkVersion = parseFrontmatterField(bundledText, 'sdk_version');
-
-    const localPath = join(skillsDir, name, 'SKILL.md');
-    const localExists = await pathExists(localPath);
-
-    if (!localExists) {
-      if (!dryRun) await writeSkill(localPath, bundledBytes);
-      nextEntries[name] = {
-        installedVersion: bundledVersion,
-        installedSdkVersion: bundledSdkVersion,
-        installedHash: bundledHash,
-      };
-      outcomes.push({
-        name,
-        status: 'added',
-        toVersion: bundledVersion,
-        sdkVersion: bundledSdkVersion,
+  for (const folder of SKILL_FOLDERS) {
+    const skillsDir = join(targetDir, folder);
+    const installed = installedIn(manifest, folder);
+    for (const skill of bundled) {
+      const synced = await syncCopy({
+        skill,
+        folder,
+        path: join(skillsDir, skill.name, 'SKILL.md'),
+        prior: installed[skill.name],
+        force,
+        dryRun,
       });
-      continue;
+      outcomes.push(synced.outcome);
+      if (synced.installed !== undefined) next[folder][skill.name] = synced.installed;
     }
-
-    const localBytes = await readFile(localPath);
-    const localHash = hashBytes(localBytes);
-    const priorEntry = manifest.skills[name];
-
-    // Content already matches bundle — nothing to do.
-    if (localHash === bundledHash) {
-      nextEntries[name] = {
-        installedVersion: bundledVersion,
-        installedSdkVersion: bundledSdkVersion,
-        installedHash: bundledHash,
-      };
-      outcomes.push({
-        name,
-        status: 'unchanged',
-        toVersion: bundledVersion,
-        sdkVersion: bundledSdkVersion,
-      });
-      continue;
+    for (const name of await listSkillDirs(skillsDir)) {
+      if (!bundledSet.has(name)) outcomes.push({ name, folder, status: 'local-only' });
     }
-
-    // Local differs from bundle. Determine if the user modified the
-    // local copy or if the bundle simply advanced.
-    const userModified = priorEntry === undefined || priorEntry.installedHash !== localHash;
-
-    if (userModified && !force) {
-      outcomes.push({
-        name,
-        status: 'skipped-modified',
-        ...(priorEntry?.installedVersion !== undefined && {
-          fromVersion: priorEntry.installedVersion,
-        }),
-        toVersion: bundledVersion,
-        sdkVersion: bundledSdkVersion,
-        reason: 'Local edits detected; --force to overwrite.',
-      });
-      continue;
-    }
-
-    if (!dryRun) await writeSkill(localPath, bundledBytes);
-    const outcome: SkillSyncOutcome = {
-      name,
-      status: 'updated',
-      toVersion: bundledVersion,
-      sdkVersion: bundledSdkVersion,
-      ...(priorEntry?.installedVersion !== undefined && {
-        fromVersion: priorEntry.installedVersion,
-      }),
-      ...(force && userModified && { reason: 'Overwrote local edits (--force)' }),
-    };
-    nextEntries[name] = {
-      installedVersion: bundledVersion,
-      installedSdkVersion: bundledSdkVersion,
-      installedHash: bundledHash,
-    };
-    outcomes.push(outcome);
-  }
-
-  const bundledSet = new Set(bundledNames);
-  for (const name of localNames) {
-    if (bundledSet.has(name)) continue;
-    outcomes.push({ name, status: 'local-only' });
   }
 
   if (!dryRun) {
-    await writeManifest(manifestPath, { v: MANIFEST_VERSION, skills: nextEntries });
+    await writeManifest(manifestPath, {
+      v: MANIFEST_VERSION,
+      skills: next['.claude/skills'],
+      agentsSkills: next['.agents/skills'],
+    });
   }
 
   return {
@@ -265,6 +251,114 @@ export async function syncSkills(inputs: {
     dryRun,
     force,
   };
+}
+
+/** A bundled skill's SKILL.md, with what the manifest records of it. */
+interface BundledSkill {
+  readonly name: string;
+  readonly bytes: Uint8Array;
+  readonly entry: ManifestEntry;
+}
+
+async function readBundledSkills(
+  root: string,
+  language: PackLanguage,
+): Promise<readonly BundledSkill[]> {
+  const skills: BundledSkill[] = [];
+  for (const name of await listBundledSkills(root, language)) {
+    const bytes = await readFile(join(root, name, 'SKILL.md'));
+    const text = bytes.toString('utf8');
+    skills.push({
+      name,
+      bytes,
+      entry: {
+        installedVersion: parseFrontmatterField(text, 'version'),
+        installedSdkVersion: parseFrontmatterField(text, 'sdk_version'),
+        installedHash: hashBytes(bytes),
+      },
+    });
+  }
+  return skills;
+}
+
+/**
+ * Brings one folder's copy of `skill` up to the bundle, unless it was
+ * edited since `prior` (what was last installed there) and `force` is
+ * off. `installed` is what the copy is now, for the manifest; `undefined`
+ * keeps the entry it had.
+ */
+async function syncCopy(inputs: {
+  readonly skill: BundledSkill;
+  readonly folder: SkillFolder;
+  readonly path: string;
+  readonly prior: ManifestEntry | undefined;
+  readonly force: boolean;
+  readonly dryRun: boolean;
+}): Promise<{ readonly outcome: SkillSyncOutcome; readonly installed?: ManifestEntry }> {
+  const { skill, folder, path, prior, force, dryRun } = inputs;
+  const which = { name: skill.name, folder };
+  const to = {
+    toVersion: skill.entry.installedVersion,
+    sdkVersion: skill.entry.installedSdkVersion,
+  };
+
+  if (!(await pathExists(path))) {
+    if (!dryRun) await writeSkill(path, skill.bytes);
+    return { outcome: { ...which, status: 'added', ...to }, installed: skill.entry };
+  }
+
+  const localHash = hashBytes(await readFile(path));
+  // Content already matches bundle — nothing to do.
+  if (localHash === skill.entry.installedHash) {
+    return { outcome: { ...which, status: 'unchanged', ...to }, installed: skill.entry };
+  }
+
+  // Local differs from bundle. Determine if the user modified the
+  // local copy or if the bundle simply advanced.
+  const userModified = prior === undefined || prior.installedHash !== localHash;
+  const from = prior !== undefined && { fromVersion: prior.installedVersion };
+
+  if (userModified && !force) {
+    return {
+      outcome: {
+        ...which,
+        status: 'skipped-modified',
+        ...from,
+        ...to,
+        reason: 'Local edits detected; --force to overwrite.',
+      },
+    };
+  }
+
+  if (!dryRun) await writeSkill(path, skill.bytes);
+  return {
+    outcome: {
+      ...which,
+      status: 'updated',
+      ...to,
+      ...from,
+      ...(force && userModified && { reason: 'Overwrote local edits (--force)' }),
+    },
+    installed: skill.entry,
+  };
+}
+
+/**
+ * Adds the skills' folders to the pack's `.prettierignore`, when it has one
+ * (`FormatterIgnoreOutcome`). `undefined` when there's none, or every line
+ * is there already.
+ */
+async function patchFormatterIgnore(
+  targetDir: string,
+  report: SkillSyncReport,
+): Promise<FormatterIgnoreOutcome | undefined> {
+  const path = join(report.targetDir, '.prettierignore');
+  const patched = await patchPrettierignore(join(targetDir, '.prettierignore'));
+  if (patched.kind === 'patched') return { path, status: 'patched', appended: patched.appended };
+  if (patched.kind === 'error') {
+    return { path, status: 'error', message: patched.message ?? `couldn't patch ${path}` };
+  }
+  return undefined;
 }
 
 // -----------------------------------------------------------------------
@@ -283,7 +377,7 @@ async function readManifest(path: string): Promise<Manifest> {
     if (typeof parsed !== 'object' || parsed === null) {
       return { v: MANIFEST_VERSION, skills: {} };
     }
-    const parsedRec = parsed as { v?: unknown; skills?: unknown };
+    const parsedRec = parsed as { v?: unknown; skills?: unknown; agentsSkills?: unknown };
     // Accept both v:1 (legacy, no installedSdkVersion) and v:2. On
     // next write the manifest gets rewritten as v:2 with sdk_version
     // populated from bundle. Any other version → treat as empty.
@@ -294,26 +388,36 @@ async function readManifest(path: string): Promise<Manifest> {
     if (typeof skillsField !== 'object' || skillsField === null) {
       return { v: MANIFEST_VERSION, skills: {} };
     }
-    const out: Record<string, ManifestEntry> = {};
-    for (const [k, v] of Object.entries(skillsField as Record<string, unknown>)) {
-      if (
-        typeof v === 'object' &&
-        v !== null &&
-        typeof (v as { installedVersion?: unknown }).installedVersion === 'string' &&
-        typeof (v as { installedHash?: unknown }).installedHash === 'string'
-      ) {
-        const sdkVer = (v as { installedSdkVersion?: unknown }).installedSdkVersion;
-        out[k] = {
-          installedVersion: (v as { installedVersion: string }).installedVersion,
-          installedSdkVersion: typeof sdkVer === 'string' ? sdkVer : 'unknown',
-          installedHash: (v as { installedHash: string }).installedHash,
-        };
-      }
-    }
-    return { v: MANIFEST_VERSION, skills: out };
+    return {
+      v: MANIFEST_VERSION,
+      skills: readEntries(skillsField),
+      agentsSkills: readEntries(parsedRec.agentsSkills),
+    };
   } catch {
     return { v: MANIFEST_VERSION, skills: {} };
   }
+}
+
+/** A manifest field's well-formed entries; anything else counts as none. */
+function readEntries(field: unknown): Record<string, ManifestEntry> {
+  const out: Record<string, ManifestEntry> = {};
+  if (typeof field !== 'object' || field === null) return out;
+  for (const [k, v] of Object.entries(field as Record<string, unknown>)) {
+    if (
+      typeof v === 'object' &&
+      v !== null &&
+      typeof (v as { installedVersion?: unknown }).installedVersion === 'string' &&
+      typeof (v as { installedHash?: unknown }).installedHash === 'string'
+    ) {
+      const sdkVer = (v as { installedSdkVersion?: unknown }).installedSdkVersion;
+      out[k] = {
+        installedVersion: (v as { installedVersion: string }).installedVersion,
+        installedSdkVersion: typeof sdkVer === 'string' ? sdkVer : 'unknown',
+        installedHash: (v as { installedHash: string }).installedHash,
+      };
+    }
+  }
+  return out;
 }
 
 async function writeManifest(path: string, manifest: Manifest): Promise<void> {
@@ -408,18 +512,21 @@ async function writeSkill(path: string, bytes: Uint8Array): Promise<void> {
   await writeFile(path, bytes);
 }
 
+/** The summary is for people: shown unless the caller asked for JSON, or for quiet. */
 function shouldRenderSummaryOnStderr(ctx: {
-  readonly globals: { readonly format: unknown };
+  readonly globals: { readonly format: OutputFormat; readonly formatRequested: boolean };
 }): boolean {
-  return ctx.globals.format !== 'json';
+  const { format, formatRequested } = ctx.globals;
+  return !(formatRequested && (format === 'json' || format === 'quiet'));
 }
 
 export interface SkillDriftReport {
-  /** Skills present in the SDK bundle but not yet copied into `.claude/skills/`. */
-  readonly missing: readonly string[];
-  /** Skills where installed version differs from the bundled version. */
+  /** Skills present in the SDK bundle with no copy yet in a folder. */
+  readonly missing: readonly { readonly name: string; readonly folder: SkillFolder }[];
+  /** Copies whose installed version differs from the bundled version. */
   readonly outdated: readonly {
     readonly name: string;
+    readonly folder: SkillFolder;
     readonly from: string;
     readonly to: string;
   }[];
@@ -427,9 +534,9 @@ export interface SkillDriftReport {
 
 /**
  * Cheap drift check for `kindgi dev` boot. Compares the pack's
- * installed skills (via `.claude/skills/.kindgi-manifest.json`)
- * against the SDK-bundled skill versions from the CLI's shipped
- * skills root.
+ * installed skills, in each of `SKILL_FOLDERS` (via
+ * `.claude/skills/.kindgi-manifest.json`), against the SDK-bundled
+ * skill versions from the CLI's shipped skills root.
  *
  * Read-only: never writes to disk, never mutates the manifest. If
  * anything fails (missing manifest, unreadable bundle) it returns
@@ -441,13 +548,11 @@ export async function detectSkillDrift(inputs: {
   readonly targetDir: string;
   readonly language: PackLanguage;
 }): Promise<SkillDriftReport> {
-  const skillsDir = join(inputs.targetDir, '.claude', 'skills');
-  const manifestPath = join(skillsDir, MANIFEST_BASENAME);
-  const manifest = await readManifest(manifestPath);
+  const manifest = await readManifest(join(inputs.targetDir, MANIFEST_PATH));
   const bundledNames = await listBundledSkills(inputs.skillsRoot, inputs.language);
 
-  const missing: string[] = [];
-  const outdated: { name: string; from: string; to: string }[] = [];
+  const missing: { name: string; folder: SkillFolder }[] = [];
+  const outdated: { name: string; folder: SkillFolder; from: string; to: string }[] = [];
 
   for (const name of bundledNames) {
     let bundledText: string;
@@ -457,24 +562,61 @@ export async function detectSkillDrift(inputs: {
       continue;
     }
     const bundledVersion = parseFrontmatterField(bundledText, 'version');
-    const installed = manifest.skills[name];
-    if (installed === undefined) {
-      // Skill exists in the bundle but was never synced. Might not
-      // yet exist on disk either — either way, the pack is behind.
-      const localExists = await pathExists(join(skillsDir, name, 'SKILL.md'));
-      if (!localExists) missing.push(name);
-      else outdated.push({ name, from: 'untracked', to: bundledVersion });
-      continue;
-    }
-    if (installed.installedVersion !== bundledVersion) {
-      outdated.push({ name, from: installed.installedVersion, to: bundledVersion });
+    for (const folder of SKILL_FOLDERS) {
+      const local = join(inputs.targetDir, folder, name, 'SKILL.md');
+      // A copy that's gone is behind, whatever the manifest says.
+      if (!(await pathExists(local))) {
+        missing.push({ name, folder });
+        continue;
+      }
+      const installed = installedIn(manifest, folder)[name];
+      if (installed === undefined) {
+        outdated.push({ name, folder, from: 'untracked', to: bundledVersion });
+      } else if (installed.installedVersion !== bundledVersion) {
+        outdated.push({ name, folder, from: installed.installedVersion, to: bundledVersion });
+      }
     }
   }
 
   return { missing, outdated };
 }
 
-function renderSummary(report: SkillSyncReport): string {
+/**
+ * The drift in words for `kindgi dev` ("2 out of date, 1 not yet
+ * installed"), by skill: one behind in both folders counts once.
+ * `undefined` when nothing is behind.
+ */
+export function describeSkillDrift(drift: SkillDriftReport): string | undefined {
+  const outdated = new Set(drift.outdated.map((d) => d.name)).size;
+  const missing = new Set(drift.missing.map((d) => d.name)).size;
+  const parts: string[] = [];
+  if (outdated > 0) parts.push(`${outdated} out of date`);
+  if (missing > 0) parts.push(`${missing} not yet installed`);
+  return parts.length > 0 ? parts.join(', ') : undefined;
+}
+
+const STATUS_SYMBOLS: Readonly<Record<SkillSyncOutcome['status'], string>> = {
+  added: '+',
+  updated: '↑',
+  unchanged: '=',
+  'skipped-modified': '!',
+  'local-only': '·',
+};
+
+/** One outcome's line: its symbol, name, version (or the move between two) and reason. */
+function renderOutcome(o: SkillSyncOutcome): string {
+  const version =
+    o.fromVersion !== undefined && o.toVersion !== undefined && o.fromVersion !== o.toVersion
+      ? ` @${o.fromVersion}→${o.toVersion}`
+      : o.toVersion !== undefined
+        ? ` @${o.toVersion}`
+        : '';
+  const reason = o.reason !== undefined ? ` — ${o.reason}` : '';
+  return `  ${STATUS_SYMBOLS[o.status]} ${o.name}${version}${reason}`;
+}
+
+/** One folder's block: a line per outcome, then the folder's counts. */
+function renderFolder(outcomes: readonly SkillSyncOutcome[], folder: SkillFolder): string[] {
   const counts: Record<SkillSyncOutcome['status'], number> = {
     added: 0,
     updated: 0,
@@ -482,37 +624,46 @@ function renderSummary(report: SkillSyncReport): string {
     'skipped-modified': 0,
     'local-only': 0,
   };
-  for (const o of report.outcomes) counts[o.status] += 1;
+  const lines = ['', `${folder}/`];
+  for (const o of outcomes) {
+    if (o.folder !== folder) continue;
+    counts[o.status] += 1;
+    lines.push(renderOutcome(o));
+  }
+  lines.push(
+    `  ${counts.added} added, ${counts.updated} updated, ${counts.unchanged} unchanged, ` +
+      `${counts['skipped-modified']} skipped-modified, ${counts['local-only']} local-only`,
+  );
+  return lines;
+}
+
+/** What sync did to the pack's `.prettierignore`, as lines; none when it left the file alone. */
+function renderFormatterIgnore(outcome: FormatterIgnoreOutcome | undefined): string[] {
+  if (outcome === undefined) return [];
+  if (outcome.status === 'patched') {
+    return [
+      '',
+      `Added ${outcome.appended.join(' and ')} to ${outcome.path}, so the formatter leaves the skills as they are.`,
+    ];
+  }
+  return [
+    '',
+    `Couldn't add the skills' folders to ${outcome.path}: ${outcome.message}`,
+    `  Add ${FORMATTER_IGNORE_PATTERNS.join(' and ')} to it yourself: a skill the formatter rewrites, the next sync keeps as edited.`,
+  ];
+}
+
+function renderSummary(report: SkillSyncReport): string {
   const lines: string[] = [
-    `Synced ${report.targetDir}/.claude/skills/${report.dryRun ? ' (dry-run)' : ''}`,
+    `Synced ${SKILL_FOLDERS.map((f) => `${report.targetDir}/${f}/`).join(' and ')}${report.dryRun ? ' (dry-run)' : ''}`,
+    ...SKILL_FOLDERS.flatMap((folder) => renderFolder(report.outcomes, folder)),
+    ...renderFormatterIgnore(report.prettierignore),
     '',
   ];
   const sdkVersions = new Set<string>();
   for (const o of report.outcomes) {
     if (o.sdkVersion !== undefined && o.sdkVersion !== 'unknown') sdkVersions.add(o.sdkVersion);
-    const symbol =
-      o.status === 'added'
-        ? '+'
-        : o.status === 'updated'
-          ? '↑'
-          : o.status === 'unchanged'
-            ? '='
-            : o.status === 'skipped-modified'
-              ? '!'
-              : '·';
-    const version =
-      o.fromVersion !== undefined && o.toVersion !== undefined && o.fromVersion !== o.toVersion
-        ? ` @${o.fromVersion}→${o.toVersion}`
-        : o.toVersion !== undefined
-          ? ` @${o.toVersion}`
-          : '';
-    lines.push(`  ${symbol} ${o.name}${version}${o.reason !== undefined ? ` — ${o.reason}` : ''}`);
   }
-  lines.push('');
-  lines.push(
-    `${counts.added} added, ${counts.updated} updated, ${counts.unchanged} unchanged, ` +
-      `${counts['skipped-modified']} skipped-modified, ${counts['local-only']} local-only`,
-  );
   if (sdkVersions.size === 1) {
     lines.push(`SDK release: ${[...sdkVersions][0]}`);
   } else if (sdkVersions.size > 1) {

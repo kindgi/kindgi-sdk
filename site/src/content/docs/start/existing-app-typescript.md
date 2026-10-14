@@ -15,11 +15,12 @@ folder, `npx --yes @kindgi/cli@0.1 doctor` checks all three, and says how to
 fix what's missing.
 
 :::tip[Your coding agent can do most of this]
-`kindgi init` gives your app Kindgi's skills, in `.claude/skills/`. After
-that, you can ask your coding agent instead of following each step: "make
-a Kindgi tool from our order lookup", "add an agent that uses it", "run
-it". It writes the code next to yours, runs it with `kindgi dev`, and asks
-you for your model's key. [How it knows Kindgi](../coding-agents/).
+`kindgi init` gives your app Kindgi's skills, in `.claude/skills/` and
+`.agents/skills/`. After that, you can ask your coding agent instead of
+following each step: "make a Kindgi tool from our order lookup", "add an
+agent that uses it", "run it". It writes the code next to yours, runs it
+with `kindgi dev`, and asks you for your model's key. [How it knows
+Kindgi](../coding-agents/).
 :::
 
 In the app's root (where its `package.json` is), with no pack name:
@@ -83,7 +84,8 @@ Done in 4.9s using pnpm v10.28.0
   esbuild's script is "not yet covered by allowScripts". npm 10 ignores the
   field. A decision the app already has, for `esbuild` or a pinned
   `esbuild@<version>`, is kept;
-- the skills for your coding agent under `.claude/skills/`, and
+- the skills for your coding agent under `.claude/skills/` and
+  `.agents/skills/`, and
   `.gitignore` entries (`.kindgi/`, `.kindgirc.json`, `.env.local`).
 
 If your app is on zod 3, `init` keeps it, and a Kindgi schema written with
