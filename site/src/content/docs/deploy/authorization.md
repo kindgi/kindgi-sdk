@@ -28,7 +28,9 @@ Authorization is for several people and teams sharing one deployment:
   what the caller may read.
 - **Every decision is recorded,** allowed or denied, with who asked, what for
   and why ([The access audit](#the-access-audit)).
-- **Registering an approval reviewer takes a tenant admin.**
+- **Registering an approval reviewer takes a tenant admin.** A tenant admin
+  who's a person reads approvals without registering, as an `admin` reviewer
+  would, in the projects they may read. Deciding takes the roster.
 - **A team can have a role on a project** through the API
   ([Team grants](#team-grants)). The console doesn't offer it.
 
@@ -521,7 +523,8 @@ refused:
 - a request that names a project other than its key's, and a key limited to
   a project minting one that isn't (`key-project-mismatch`);
 - minting a key with capabilities you don't hold;
-- a caller who isn't a reviewer, on the approvals routes, or who may not
+- a caller who isn't a reviewer, on the approvals routes (a person who's a
+  tenant admin may read them), or who may not
   judge as a restricted judge class (`judge-class-not-allowed`);
 - the operator's identity-provider lock (`identity-providers-operator-managed`);
 - reading the deployment's license (`GET /v1/license`) or its use
