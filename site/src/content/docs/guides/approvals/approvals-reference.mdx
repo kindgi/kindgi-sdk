@@ -23,13 +23,19 @@ nobody decides, and what the console shows. To decide one, follow
 - **The list names people.** With authorization on, only a tenant admin or a
   reviewer reads it. Anyone else, such as a project's viewer, gets
   `permission-denied`.
-- **A tenant admin reads approvals without registering,** with
-  authorization on: a person who's a tenant admin lists and fetches them as
-  an `admin` reviewer would, in the projects they may read. Deciding still
-  takes the roster, and an API key with no user reads none. The roster
-  doesn't show such a reader; the [access
-  audit](../../../deploy/authorization/#the-access-audit) records each read's
-  tenant-admin check.
+- **A tenant admin reads approvals at every tier,** with authorization on,
+  through a session or an unlimited `admin` key, in the projects they may
+  read:
+  - not on the roster, they list and fetch approvals as an `admin` reviewer
+    would;
+  - on it with a lower role, they list their own tier, and any tier they ask
+    for (`requiredRole`), and fetch an approval of any tier.
+
+  Deciding still takes the roster. A key with no user, a `member` key and a
+  key limited to a project read nothing this way. The roster doesn't show
+  such a reader; the [access
+  audit](../../../deploy/authorization/#the-access-audit) records the
+  tenant-admin check each such read makes.
 - **Anyone else who isn't a reviewer is refused:**
 
   ```text

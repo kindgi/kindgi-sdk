@@ -114,6 +114,8 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'PUT /v1/system/tenants/{tenantId}/production-allowed system-principal-required',
     'PUT /v1/system/tenants/{tenantId}/limits system-principal-required',
   ],
+  // A key limited to a project is never the tenant's admin: it reads no approvals.
+  [PROJECT_KEY]: ['GET /v1/approvals'],
 };
 
 /**
