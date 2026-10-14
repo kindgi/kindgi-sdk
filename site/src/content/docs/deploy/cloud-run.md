@@ -710,7 +710,7 @@ gcloud secrets create $N-compliance-classifier --data-file=compliance-classifier
 
 ```hcl
 server_secret_files = {
-  "/kindgi/compliance/classifier.json" = { secret = "kindgi-dev-compliance-classifier", version = "1" }
+  "/kindgi/compliance/classifier.json" = { secret = "kindgi-compliance-classifier", version = "1" }
 }
 server_env = {
   KINDGI_COMPLIANCE_CLASSIFIER = "/kindgi/compliance/classifier.json"
@@ -719,19 +719,23 @@ server_env = {
 
 - **Each file is the mount of its own directory:** one file per directory,
   none below another file's, under a top-level directory the image doesn't
-  have, such as `/kindgi/`. A mount hides what's in its directory, so the
-  plan refuses the image's own directories (`/app`, `/etc`, `/usr`, …) and
-  `/cloudsql`.
+  have, such as `/kindgi/`. A mount hides what's in its directory ([Google:
+  secrets as volumes](https://docs.cloud.google.com/run/docs/configuring/services/secrets)),
+  so the plan refuses the image's own directories (`/app`, `/etc`, `/usr`,
+  …) and `/cloudsql`.
 - **Pin a version number.** The plan refuses `latest` and aliases: a volume
-  at `latest` follows each new version, even under a running server. Pinned,
+  at `latest` follows each new version, even under a running server
+  ([Google: secrets as volumes](https://docs.cloud.google.com/run/docs/configuring/services/secrets)). Pinned,
   a changed file is a new version and a change to `server_secret_files`,
   which rolls a new revision.
 - **Every user in the container can read the file** (Cloud Run mounts it
-  0444), so never a key: a key goes in `server_secret_env`. The plan refuses
+  0444: [Google: `defaultMode`](https://docs.cloud.google.com/run/docs/reference/rest/v2/Volume#SecretVolumeSource)),
+  so never a key: a key goes in `server_secret_env`. The plan refuses
   a secret that's in both, or one of the module's own secrets.
 - **Read access:** the server's service account gets it on exactly these
   secrets. One in another project (`project = "…"`) is granted there.
-- **A file is at most 64 KiB,** Secret Manager's limit for a version.
+- **A file is at most 64 KiB,** Secret Manager's limit for a version
+  ([Google: Secret Manager quotas](https://docs.cloud.google.com/secret-manager/quotas)).
 
 ## Operate it
 

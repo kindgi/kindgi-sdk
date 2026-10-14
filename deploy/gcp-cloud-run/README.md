@@ -260,7 +260,7 @@ server_env = {
 ```
 
 - **Each file is the mount of its own directory.** So it's one file per directory, none below another file's, under a top-level directory the image doesn't have, such as `/kindgi/`. The plan refuses the image's own directories (`/app`, `/etc`, `/usr`, …) and `/cloudsql`, since a mount hides what's in its directory ([Google: secrets as volumes](https://docs.cloud.google.com/run/docs/configuring/services/secrets)).
-- **Pin a version number; `latest` and aliases are refused.** A volume at `latest` follows each new version, even under a running server. Pinned, a changed file is a new version and a change here, which rolls a new revision. The server reads the classifier once, at boot.
+- **Pin a version number; `latest` and aliases are refused.** A volume at `latest` follows each new version, even under a running server ([Google: secrets as volumes](https://docs.cloud.google.com/run/docs/configuring/services/secrets)). Pinned, a changed file is a new version and a change here, which rolls a new revision. The server reads the classifier once, at boot.
 - **Every user in the container can read the file** (Cloud Run mounts it 0444: [Google: `defaultMode`](https://docs.cloud.google.com/run/docs/reference/rest/v2/Volume#SecretVolumeSource)), so never a key. A key goes in `server_secret_env`, and the plan refuses a secret that's in both, or one of the module's own secrets.
 - **Read access:** the server's account gets it on exactly these secrets, as for `server_secret_env`. One in another project is granted there.
 - **A file is at most 64 KiB,** Secret Manager's limit for a version ([Google: Secret Manager quotas](https://docs.cloud.google.com/secret-manager/quotas)).
