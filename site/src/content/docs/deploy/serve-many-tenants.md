@@ -18,6 +18,11 @@ the runtime's address from `$KINDGI_URL`.
 ## What changes
 
 - **No tenant is set on the server.** `KINDGI_TENANT_ID` is refused: "KINDGI_TENANT_ID (or --tenant, or the config file's `tenant`) is refused with KINDGI_TENANCY=multi: a runtime serving many tenants takes each request's tenant from its key or session. Unset it."
+- **Nothing else that names one tenant is taken either:**
+  `KINDGI_SEED_USER_ID`, `KINDGI_PACK_DIR`, `KINDGI_DEV_CONSOLE_LOGIN`, the
+  dev echo provider and the config file's `mcp.endpoints` are each refused,
+  by name: "KINDGI_TENANCY=multi serves many tenants, so it refuses what names
+  one: seedUserId (KINDGI_SEED_USER_ID)."
 - **The deployment's own token is the operator's.** `KINDGI_API_TOKEN` has
   the full system capability, `kindgi:system`. It acts in no tenant and
   reaches `/v1/system/*` only.
@@ -206,8 +211,7 @@ service is, and checks it. It never creates or deletes one.
    lists deployments with an endpoint whose service should go, each with its
    `reason`. Clear the endpoint first, with `DELETE …/endpoint`, then delete
    the service. A `superseded` deployment is one whose every tool version and
-   check newer deployments ship. You may keep the newest few for each pack,
-   for rollbacks.
+   check newer deployments ship.
 
 A call to a deployment's tool never goes anywhere else. With no endpoint yet
 it fails with `pack-endpoint-pending`, and after a clear with
@@ -325,12 +329,17 @@ keys and people, as the first of many.
 1. **Run OpenFGA with a preshared key,** and point the runtime at it
    ([Require a key for OpenFGA](../authorization/#require-a-key-for-openfga)).
 2. **[Upgrade](../operate/#upgrade-the-runtime) and start it still as one
-   tenant,** `KINDGI_TENANT_ID` kept. That start sets the tenant's
-   authorization store up. Going straight to many tenants leaves the tenant
-   without one, and `tenants repair` can't make one.
+   tenant,** `KINDGI_TENANT_ID` kept. If the tenant has no authorization
+   store yet, because it ran without OpenFGA, that start sets one up. Going
+   straight to many tenants would leave it without one, and `tenants repair`
+   can't make one.
 3. **Start it with many tenants:** `KINDGI_TENANCY=multi` and the
    [settings above](#the-settings-it-starts-only-with), with
-   `KINDGI_TENANT_ID` removed. `KINDGI_API_TOKEN` is now the operator's.
+   `KINDGI_TENANT_ID`, `KINDGI_SEED_USER_ID` and the rest that name one
+   tenant removed ([What changes](#what-changes)). `KINDGI_API_TOKEN` is now
+   the operator's and acts in no tenant, so whoever used it as the tenant's
+   admin needs another way in first. A tenant key minted before the switch,
+   and the tenant's sign-in, both keep working.
 4. **Run `kindgi-runtime tenants repair --all`** once.
 5. **Set the tenant's image repository:**
    `PUT /v1/system/tenants/{tenantId}/image-prefix` with `{"prefix": "<host>/<path>"}`.
@@ -341,8 +350,7 @@ keys and people, as the first of many.
      ⚠ Per-deployment routing: 1 deployment registered before it has no routes; deploy it again. The same image is enough.
    ```
 
-   The new deployment's `endpoint` is `pending` until you record its pack
-   service.
+   Its `endpoint` is then `pending` until you record its pack service.
 
 ## Next
 
