@@ -210,7 +210,7 @@ the same view.
 
 ### Queue
 
-![The Quality section's Waiting tab: the headline, the filters, "2 more wait for other judges.", the Columns menu, and three runs of demo.echo-agent 1.0.0 queued by the Everything and Support sample rules, each needing an expert judgment, with Dismiss.](../../../../assets/quality/quality-waiting.png)
+![The Quality section's Queue tab, showing Waiting and For me: "2 more wait for other judges.", the Columns menu, and three runs of Dev-Echo Agent 1.0.0 queued by the Everything and Support sample rules, each needing an expert judgment, with the Dismiss icon.](../../../../assets/quality/quality-queue.png)
 
 Each row is a run in the queue:
 
@@ -227,15 +227,15 @@ Each row is a run in the queue:
 **Show** filters it by state: **Waiting**, **Judged**, **Dismissed** or
 **Erased**. **For me** or **Everyone's** says whose ("2 more wait for other
 judges."). A rule or an agent it's filtered to shows as a chip beside
-them. **Dismiss** asks first, "Dismiss this run from the queue?", and takes
-a run out of the queue with an optional reason. **Reopen** puts a dismissed
-one back.
+them. **Dismiss**, an icon on each row named in its tooltip, asks first,
+"Dismiss this run from the queue?", and takes a run out of the queue with an
+optional reason. **Reopen**, in the same place, puts a dismissed one back.
 
-![The Waiting tab filtered to Dismissed and Everyone's: a run of demo.echo-agent 1.0.0 queued by the Everything and Support sample rules, "Dismissed by a person (11111111…) 2026-10-11 12:23 UTC: A test order", with Reopen.](../../../../assets/quality/quality-dismissed.png)
+![The Queue tab filtered to Dismissed and Everyone's: a run of Dev-Echo Agent 1.0.0 queued by the Everything and Support sample rules, "Dismissed by a person (11111111…) 14 Oct 2026, 8:55 AM EDT: A test order", with the Reopen icon.](../../../../assets/quality/quality-dismissed.png)
 
 ### Rules
 
-![The Rules tab: "3 judging rules." with New rule, a search box and the Columns menu, and the Support sample, Everything and Bot review rules, each with which runs it takes, what it wants, its cap, its open items, and History, Change and Unregister.](../../../../assets/quality/quality-rules.png)
+![The Rules tab: New rule, a search box and the Columns menu, and the Support sample, Everything and Bot review rules, each with its id and version, which runs it takes, what it wants, its cap, its open items, and the icons for History, Change and Remove.](../../../../assets/quality/quality-rules.png)
 
 Each rule is in words:
 
@@ -249,20 +249,21 @@ Each rule is in words:
 A rule matches an agent's or a flow's own runs, not an agent's turns as a
 flow's step. Replays never match.
 
-Project editors see **New rule**, and **Change** on each rule. The editor
+Project editors see **New rule**, and **Change** on each rule: an icon named
+in its tooltip, like **History** and **Remove** beside it. The editor
 shows what the rule would have queued from the recent runs, and saving makes
 a new version of the rule. **History** lists what each version changed, who
 changed it and when. **Remove** asks first, naming the rule: it stops
 adding runs as they end, and its open items stay in the queue, to judge or
 dismiss.
 
-![The New judging rule dialog, over the Rules tab.](../../../../assets/quality/quality-rule-editor.png)
+![The New judging rule dialog, over the Rules tab: Echo half, for Dev-Echo Agent's runs of any version, taking 50% of them, wanting any judgment, with a cap of 5 open items, on, and "Would have added about 1 of the last 7 runs. The cap isn't applied here."](../../../../assets/quality/quality-rule-editor.png)
 
-![Echo half: its versions, over the Rules tab: "Version 2 · a person (11111111…) · 2026-10-11 12:23 UTC" changed "Cap: No new items while 5 are open → No cap" and "Wants: any judgment → an expert judgment"; Version 1, by the same person at the same time, "Created".](../../../../assets/quality/quality-rule-history.png)
+![Echo half: its versions, over the Rules tab: "Version 2 · a person (11111111…) · 14 Oct 2026, 8:56 AM EDT" changed "Cap: No new items while 5 are open → No cap" and "Wants: any judgment → an expert judgment"; Version 1, by the same person at the same time, "Created".](../../../../assets/quality/quality-rule-history.png)
 
 ### Trends
 
-![The Trends tab: each rule by its latest version, with the share of yes for each agent version. The Trend check rule's chart shows 1.1.0 at about 95% yes and 1.0.0 at about 25%, "1.1.0 is judged better than 1.0.0."](../../../../assets/quality/quality-trends.png)
+![The Trends tab, over all time: each rule by its latest version, with the share of yes for each agent version and the judge classes' weights in words. The Trend check rule's chart shows 1.1.0 at about 95% yes and 1.0.0 at about 25%, "1.1.0 is judged better than 1.0.0."](../../../../assets/quality/quality-trends.png)
 
 **Trends** shows, per rule and by its latest version, the share of yes
 among people's judgments of each agent version, over all time or the last 90
@@ -288,7 +289,7 @@ or 30 days. These are [a rule's results](#a-rules-results):
 
 ### Judge classes
 
-![The Judge classes tab: "2 judge classes apply to this project's runs. An unclassified judgment counts 1." The expert class counts 3×, applies to this project, may be given only by people and is wanted by the Echo half and Support sample rules; the bot class counts the same, only services.](../../../../assets/quality/quality-classes.png)
+![The Judge classes tab: New class and the Columns menu. The expert class, restricted, counts 3× an unclassified one, applies to this project, may be given only by people and is wanted by the Echo half and Support sample rules; the bot class, restricted, counts the same, only services, and no rule wants it. Each has the icons for Change and Remove.](../../../../assets/quality/quality-classes.png)
 
 Each [judge class](#judge-classes) that applies to the project's runs, in
 words:
@@ -306,11 +307,12 @@ a tenant's. Removing a class names the rules that want it.
 
 ### Proposals
 
-![The Proposals tab: "0 to review · 0 waiting for a reviewer · 1 being evaluated · 1 needs a look." Tuned agent's proposals: one drafted and not evaluated yet, one "Not better on the test set", and a withdrawn one under Closed.](../../../../assets/quality/quality-proposals.png)
+![The Proposals tab: Tuned agent's proposals, under Being evaluated (1) one drafted and not evaluated yet, under Need a look (1) one "Not better on the test set" with its judged yes share, and under Closed (1) a withdrawn one.](../../../../assets/quality/quality-proposals.png)
 
 The project's agents' [proposals](../improve-an-agent/), grouped by what
 they wait for: **To review**, **Waiting for a reviewer**, **Being
-evaluated**, **Need a look** and **Closed**. Each says where it stands, such
-as "Not better on the test set", with the judged yes share it was evaluated
-on. Each links its page: "Each proposal's page holds its actions: evaluate,
-request, roll back, withdraw."
+evaluated**, **Need a look** and **Closed**, each with its count and shown
+only when it has one. Each says where it stands, such as "Not better on the
+test set", with the judged yes share it was evaluated on. Each links its
+page: "Each proposal's page holds its actions: evaluate, request, roll back,
+withdraw."

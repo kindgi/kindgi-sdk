@@ -375,11 +375,12 @@ It's refused for yourself and for the seed user, with
   tenant admin can make one for a person or a service account too. The
   secret shows once, with a Copy button.
 
-  ![The API keys page: one key, labelled laptop, acting as Sam Rivera with the member role, never used, expiring a month after it was made, with a Revoke button.](../../../assets/people/api-keys.png)
-- **Service accounts,** for tenant admins: create one with its grants,
-  change them, make it a key, or unregister it.
+  ![The API keys page: one key, labelled laptop, acting as Sam Rivera on every project it can reach, with the member role, never used, expiring a month after it was made, and Revoke, an icon on its row.](../../../assets/people/api-keys.png)
+- **Service accounts,** for tenant admins: create one with its grants. On
+  its own page, change them, **Make a key for it**, or **Remove** it, which
+  revokes its keys.
 
-  ![The Service accounts page: acme-ci, "Deploys from CI", editor on the Default project, with no active keys yet.](../../../assets/people/service-accounts.png)
+  ![The Service accounts page: acme-ci, "Deploys from CI", which may act as an editor on the Default project, with no active keys yet.](../../../assets/people/service-accounts.png)
 
 A project you have no role on shows **No access**, with the projects you can
 open.

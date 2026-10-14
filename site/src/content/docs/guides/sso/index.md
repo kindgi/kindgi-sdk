@@ -228,18 +228,19 @@ A workspace admin does the same steps on the console's **Sign-in** page:
   the service provider's URLs instead of the redirect URI. **Finish later**
   closes it. Adding the same id again gives the same URLs.
 
-  ![Add an identity provider: the redirect URI and the message for IT, with Keycloak's steps, then Finish later and IT sent it back](../../../../assets/sso/console-add-provider.png)
+  ![Add an identity provider: the redirect URI and the message for IT, with Keycloak's steps and a Step by step link, then Finish later and IT sent it back](../../../../assets/sso/console-add-provider.png)
 
 - **IT sent it back** takes what IT returns: the issuer, the client ID and
   the client secret's name in your secrets, or the SAML metadata XML.
   **Check** looks the secret's name up, never its value. You then enter the
   domains and the button's name. **Register** adds the provider to sign-in.
 - **The list** shows each provider with its domains, its host and who gets
-  in. **Try** gives a sign-in link for someone at its domains. **Change**
-  edits it in place, and warns you before a change that signs its people
-  out. **Remove** takes it out of sign-in.
+  in. Its actions are icons, each named in its tooltip. **Try** gives a
+  sign-in link for someone at its domains. **Change** edits it in place,
+  and warns you before a change that signs its people out. **Remove** takes
+  it out of sign-in.
 
-  ![The Sign-in page: Acme Keycloak, OpenID Connect, at acme.test, with Try, Change and Remove](../../../../assets/sso/console-providers.png)
+  ![The Sign-in page: Acme Keycloak, OpenID Connect, for acme.test, letting in people added to this tenant, with the icons for Try, Change and Remove](../../../../assets/sso/console-providers.png)
 
 Whoever runs Kindgi can manage sign-in for every workspace themselves, with
 `KINDGI_AUTH_TENANT_PROVIDERS=off`
