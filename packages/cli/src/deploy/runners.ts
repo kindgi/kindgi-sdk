@@ -63,6 +63,8 @@ export interface PostDeploymentBody {
   readonly signerPublicKey: string;
   readonly signature: string;
   readonly publishedAt: string;
+  /** The project to deploy into (`--project`); absent: tenant-wide, the Default project. */
+  readonly projectId?: string;
 }
 
 /**
@@ -92,6 +94,19 @@ export interface DeploymentRecord {
     readonly agents?: readonly DeployedVersionRecord[];
     readonly flows?: readonly DeployedVersionRecord[];
   };
+  /**
+   * Its own pack service, on a runtime that runs one per deployment
+   * (Kindgi hosted): `DeploymentEndpoint` in `@kindgi/api`.
+   */
+  readonly endpoint?: DeploymentEndpointRecord;
+}
+
+/** A deployment's pack service, as the tenant sees it: its status, never its URL. */
+export interface DeploymentEndpointRecord {
+  readonly status: 'pending' | 'ready' | 'cleared';
+  readonly since: string;
+  /** With `pending`: why there's no pack service yet, a fixed code. */
+  readonly problem?: { readonly code: string; readonly since: string };
 }
 
 /** An agent or flow a deployment shipped (`DeployedVersion` in `@kindgi/api`). */
@@ -260,6 +275,43 @@ export type SyncSecretsResult =
  * branch without ever booting `kindgi build`, hitting a real
  * api-server, or reading a real envelope file.
  */
+/** `kindgi deploy --project <slug>`: the tenant's projects with that slug. */
+export interface FindProjectsOptions {
+  readonly endpoint: string;
+  readonly token: string;
+  readonly slug: string;
+  readonly fetchImpl: typeof fetch;
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * Every project of the tenant with the slug: none, one, or (a slug is
+ * unique within an org, so two orgs may share one) several.
+ */
+export type FindProjectsResult =
+  | {
+      readonly kind: 'ok';
+      readonly projects: readonly {
+        readonly id: string;
+        readonly name: string;
+        readonly orgId?: string;
+      }[];
+    }
+  | { readonly kind: 'error'; readonly message: string };
+
+/** `kindgi deploy --hosted`: the deployment as the runtime has it now. */
+export interface GetDeploymentOptions {
+  readonly endpoint: string;
+  readonly token: string;
+  readonly deploymentId: string;
+  readonly fetchImpl: typeof fetch;
+  readonly signal?: AbortSignal;
+}
+
+export type GetDeploymentResult =
+  | { readonly kind: 'ok'; readonly record: DeploymentRecord }
+  | { readonly kind: 'error'; readonly message: string };
+
 export interface DeployRunners {
   /** Read `deploy-envelope.json` from disk + structurally validate. */
   readonly loadEnvelope: (opts: LoadEnvelopeOptions) => Promise<LoadEnvelopeResult>;
@@ -285,4 +337,12 @@ export interface DeployRunners {
    * "runner not wired" error even when the flag is passed.
    */
   readonly syncSecrets?: (opts: SyncSecretsOptions) => Promise<SyncSecretsResult>;
+  /** `--project <slug>`: the projects with that slug (`GET /v1/projects`, every page). */
+  readonly findProjects?: (opts: FindProjectsOptions) => Promise<FindProjectsResult>;
+  /** `--hosted`: the deployment, read again while its pack service starts (`GET /v1/deployments/:id`). */
+  readonly getDeployment?: (opts: GetDeploymentOptions) => Promise<GetDeploymentResult>;
+  /** `--hosted`: the pause between those reads. Default: a timer, cut short by Ctrl+C. */
+  readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  /** `--hosted`: the clock the wait is measured on, in milliseconds. Default: `Date.now()`. */
+  readonly now?: () => number;
 }

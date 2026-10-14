@@ -41,9 +41,16 @@ errors are temporary:
 - a rate limit: `429`;
 - an overloaded or failing server: `500`, `502`, `503` or `504`.
 
-Every adapter retries. The Gemini adapter sets its retries itself. The
-Anthropic and OpenAI-compatible adapters keep their SDKs' defaults. The waits
-count against the turn's time budget, `maxWallMs`.
+Every adapter retries. The Anthropic adapter keeps its SDK's defaults; the
+others set their retries themselves. The OpenAI-compatible, Azure OpenAI and
+Bedrock adapters also retry a conflict (`409`), any other `5xx`, and a
+connection dropped before an answer; a vendor that asks to wait more than a
+minute ends the call at once, naming the wait. They don't retry a connection
+the runtime itself refuses (an egress or body-size guard stops it, or it
+would follow a redirect): the turn fails at once, with the refusal's own
+words rather than a generic connection error. The Gemini adapter retries no
+failed connection, dropped or refused. The waits count against the turn's
+time budget, `maxWallMs`.
 
 ## Before you register one
 
@@ -97,9 +104,12 @@ flags go with it:
 - **`--deployments=<model=deployment,…>`**, for `azure-openai`, is the
   deployment that serves each model, such as `gpt-6.1-sol=gpt-6-1-sol`. To
   sign in as the runtime's Entra identity instead of with a key, register
-  with a spec.
+  with a spec. A runtime with `KINDGI_TENANT_HOST_ACCESS=isolated` refuses
+  that ([What a tenant can't make the server do](../../concepts/security/#what-a-tenant-cant-make-the-server-do)).
 - **`--region=<region>`**, for `bedrock`, is the US AWS Region Bedrock runs
-  in, such as `us-east-2`. The runtime needs `KINDGI_AWS_IDENTITY`.
+  in, such as `us-east-2`. The runtime needs `KINDGI_AWS_IDENTITY`, and a
+  runtime with `KINDGI_TENANT_HOST_ACCESS=isolated` refuses the preset
+  ([With a Bedrock API key](#with-a-bedrock-api-key)).
 
 A preset carries its models' features, context windows, default output caps
 and prices. `pricesCheckedAt` is the date the prices were last compared with
@@ -123,6 +133,9 @@ kindgi providers register --preset=bedrock --region=us-east-2 \
 
 - `--region=us-east-2` is the Region your account uses Bedrock in.
 - `--models` names the Bedrock model id to register.
+
+It prints the provider's id as JSON, then `✓ Registered bedrock:` with the
+model it registered.
 
 The Bedrock model ids are:
 
@@ -158,6 +171,53 @@ vendor's:
   may cost more.
 - Past its end-of-life date, a request to it fails. An agent that prefers or
   requires it then needs a new version that names another model.
+
+#### With a Bedrock API key
+
+The `bedrock` preset signs in as the runtime's AWS identity. A runtime with
+`KINDGI_TENANT_HOST_ACCESS=isolated` refuses that
+([What a tenant can't make the server do](../../concepts/security/#what-a-tenant-cant-make-the-server-do)).
+There, register Bedrock from a [spec](#a-provider-spec) with a Bedrock API
+key:
+
+1. Make a long-term API key in the Region the provider uses. A short-term key
+   lasts 12 hours at most, so a registration can't keep one. AWS recommends
+   long-term keys for exploration only, and one works only in the Region it
+   was made in
+   ([Amazon Bedrock API keys](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html)).
+2. Store it as a tenant secret, such as
+   `kindgi secrets set BEDROCK_API_KEY --env=production --scope=tenant`
+   ([Keys](#keys)).
+3. Register a spec whose `adapter_config.auth` is `api-key` and whose
+   `secret_ref` names that secret:
+
+```json
+{
+  "adapter_id": "@kindgi/adapter-model-bedrock",
+  "adapter_config": { "auth": "api-key" },
+  "secret_ref": { "envName": "production", "name": "BEDROCK_API_KEY" },
+  "metadata": {
+    "id": "bedrock",
+    "region": "us-east-2",
+    "models": [
+      { "name": "us.anthropic.claude-haiku-4-5-20251001-v1:0", "contextWindow": 200000,
+        "maxOutputTokens": 16000, "features": ["tool-use", "parallel-tool-use"],
+        "cost": { "promptUsdPer1kTokens": 0.0011, "completionUsdPer1kTokens": 0.0055 } }
+    ]
+  }
+}
+```
+
+With the spec saved as `bedrock.json`,
+`kindgi providers register --spec=@bedrock.json` prints the provider's id:
+
+```json
+{
+  "providerId": "bedrock"
+}
+```
+
+The key is read when a turn calls the model, not when you register.
 
 ## A provider spec
 
@@ -322,7 +382,7 @@ worktree, after `--reset`, and on a teammate's machine.
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 // in kindgi.config.ts
 providers: [
   { preset: 'anthropic', models: ['claude-sonnet-5-5'] }, // its key, ANTHROPIC_API_KEY, from the env files
@@ -340,7 +400,7 @@ providers: [
 </TabItem>
 <TabItem label="Python">
 
-```toml
+```toml excerpt
 # in pyproject.toml
 [[tool.kindgi.providers]]
 preset = "anthropic"
@@ -361,10 +421,50 @@ models = ["gpt-6.1-sol"]
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```jsonc excerpt
+// in kindgi.config.json
+"providers": [
+  { "preset": "anthropic", "models": ["claude-sonnet-5-5"] },
+  { "preset": "gemini", "project": "acme-gcp", "models": ["gemini-3.8-flash"] },
+  {
+    "preset": "azure-openai",
+    "resourceName": "acme-openai",
+    "deployments": { "gpt-6.1-sol": "gpt-6-1-sol" },
+    "models": ["gpt-6.1-sol"]
+  }
+]
+```
+
+The `anthropic` entry reads its key, `ANTHROPIC_API_KEY`, from the env
+files, and `deployments` maps each model to the deployment serving it.
+
+</TabItem>
+<TabItem label="Scala">
+
+```jsonc excerpt
+// in kindgi.config.json
+"providers": [
+  { "preset": "anthropic", "models": ["claude-sonnet-5-5"] },
+  { "preset": "gemini", "project": "acme-gcp", "models": ["gemini-3.8-flash"] },
+  {
+    "preset": "azure-openai",
+    "resourceName": "acme-openai",
+    "deployments": { "gpt-6.1-sol": "gpt-6-1-sol" },
+    "models": ["gpt-6.1-sol"]
+  }
+]
+```
+
+The `anthropic` entry reads its key, `ANTHROPIC_API_KEY`, from the env
+files, and `deployments` maps each model to the deployment serving it.
+
+</TabItem>
 </Tabs>
 
-A preset entry takes these keys, spelled the same in `kindgi.config.ts` and
-`pyproject.toml`:
+A preset entry takes these keys, spelled the same in `kindgi.config.ts`,
+`pyproject.toml` and `kindgi.config.json`:
 
 - **`preset`** is the preset's name.
 - **`models`** names the models to register.
@@ -430,14 +530,16 @@ Kindgi's own `.kindgi/secrets.env`, which wins on a clash.
 To store a key without echoing it, with `kindgi dev` running:
 
 ```sh
-kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
+kindgi secrets set <KEY_NAME> --env=local --scope=tenant
 ```
 
-- `ANTHROPIC_API_KEY` is the secret's name: the key name the provider reads.
+- `<KEY_NAME>` is the secret's name: the key name the provider reads, such as
+  `OPENAI_API_KEY`. The [presets](#presets) table names each preset's key.
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files.
-- `--scope=tenant` stores the secret for the whole tenant, where provider
-  keys live.
+- `--scope=tenant` is where the secret lives: the tenant, rather than one org
+  (`org:<orgId>`) or project (`project:<projectId>`). A provider reads its key
+  from the tenant.
 
 It prompts for the value and writes it to `.kindgi/secrets.env`, which your
 app doesn't load. In a script, pipe the value in and add `--from-stdin`. To

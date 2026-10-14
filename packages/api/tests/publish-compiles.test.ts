@@ -5,7 +5,8 @@
  * A request is its tenant's work: the scope `tenantScopeMiddleware` opens
  * (a recompile counted) and, inside it, the one `publishCompilesMiddleware`
  * opens (every compile counted) reach the handler, through its awaits, and
- * end with the request.
+ * end with the request. A system principal's request acts in no tenant,
+ * so it opens neither.
  */
 
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -18,6 +19,7 @@ import type { TenantId } from '@kindgi/types';
 
 import { publishCompilesMiddleware } from '../src/middleware/publish-compiles.js';
 import { tenantScopeMiddleware } from '../src/middleware/tenant-scope.js';
+import { SYSTEM_TENANT_ID } from '../src/system.js';
 import type { AppEnv } from '../src/types.js';
 
 function app() {
@@ -25,6 +27,10 @@ function app() {
   r.use('*', async (c, next) => {
     const tenant = c.req.header('x-tenant');
     if (tenant !== undefined) c.set('tenantId', tenant as TenantId);
+    if (c.req.header('x-system') !== undefined) {
+      c.set('tenantId', SYSTEM_TENANT_ID);
+      c.set('systemPrincipal', { keyId: 'boot' });
+    }
     await next();
   });
   r.use('*', tenantScopeMiddleware());
@@ -49,6 +55,11 @@ describe('publishCompilesMiddleware', () => {
     expect(b).toEqual({ tenantId: 'tenant-b', compiles: 'all' });
     expect(currentTenant()).toBeUndefined();
   });
+
+  test("a system principal's publish runs outside any scope", async () => {
+    const res = await app().request('/publish', { method: 'POST', headers: { 'x-system': '1' } });
+    expect(await res.json()).toBeNull();
+  });
 });
 
 describe('tenantScopeMiddleware', () => {
@@ -63,6 +74,11 @@ describe('tenantScopeMiddleware', () => {
 
   test('a request with no tenant opens no scope', async () => {
     const res = await app().request('/other', { method: 'POST' });
+    expect(await res.json()).toBeNull();
+  });
+
+  test("a system principal's request opens no scope", async () => {
+    const res = await app().request('/other', { method: 'POST', headers: { 'x-system': '1' } });
     expect(await res.json()).toBeNull();
   });
 });

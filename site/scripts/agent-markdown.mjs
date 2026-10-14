@@ -9,7 +9,8 @@
  *   page points at that page's Markdown. Notes keep their box (a quote that
  *   starts with the note's title), tabs keep their labels, and code blocks
  *   keep their language and file name. A block that isn't a whole file says
- *   so after its language (```` ```ts excerpt ````).
+ *   so after its language (```` ```ts excerpt ````), and so does an API
+ *   signature (```` ```python signature ````).
  * - **`llms.txt`:** every page's Markdown, by sidebar section and in sidebar
  *   order, the generated references under "Optional".
  * - **`llms-full.txt`** (every page), **`llms-small.txt`** (every page but
@@ -17,6 +18,8 @@
  *   `_llms-txt/`, each made of the pages' Markdown, so headings and notes
  *   survive.
  * - **A `<link rel="alternate" type="text/markdown">`** in each page's head.
+ *   For people, `src/components/PageTitle.astro` links the Markdown under
+ *   each page's title, and this checks it's the page's own.
  *
  * Each `llms*.txt` file names the version it describes (`llms.txt` below its
  * description, the others in their `<SYSTEM>` heading): an agent that fetched
@@ -109,17 +112,18 @@ function hasClass(node, name) {
 
 /**
  * Expressive Code's frame, as a code block with its language and file name.
- * Only the code and the title are read, so an excerpt's label (`div.excerpt`,
- * beside the code) stays out; `markExcerpts` marks its fence instead.
+ * Only the code and the title are read, so a marked frame's label
+ * (`div.excerpt`, `div.signature`, beside the code) stays out; `markFrames`
+ * marks its fence instead.
  */
 function codeFrame(frame) {
   const pre = select('pre', frame);
   const code = select('code', frame);
   if (!pre || !code) return [frame];
-  // Expressive Code always names one (`plaintext` by default); an excerpt
-  // needs one, since a fence's meta follows its language.
-  const language =
-    pre.properties.dataLanguage ?? (hasClass(frame, 'is-excerpt') ? 'plaintext' : undefined);
+  // Expressive Code always names one (`plaintext` by default); a marked
+  // frame needs one, since a fence's meta follows its language.
+  const marked = FRAME_KINDS.some((kind) => hasClass(frame, `is-${kind}`));
+  const language = pre.properties.dataLanguage ?? (marked ? 'plaintext' : undefined);
   const lines = selectAll('.ec-line', code);
   const changed =
     language !== 'diff' && lines.some((line) => hasClass(line, 'ins') || hasClass(line, 'del'));
@@ -146,28 +150,37 @@ function codeFrame(frame) {
 }
 
 /**
- * Where each excerpt's code sits in the page (`figure.is-excerpt`, a code
- * block that isn't a whole runnable file): the offset of its `pre`.
+ * The kinds of code frame the site marks (`figure.is-<kind>`), each written
+ * after the fence's language: an excerpt, a block that isn't a whole
+ * runnable file, and a signature, an API's declaration in a reference.
  */
-function excerptOffsets(content) {
-  return new Set(
-    selectAll('figure.is-excerpt pre', content)
-      .map((pre) => pre.position?.start.offset)
-      .filter((offset) => offset !== undefined),
-  );
+const FRAME_KINDS = ['excerpt', 'signature'];
+
+/** Where each marked frame's code sits in the page: its `pre`'s offset, and its kind. */
+function markedFrames(content) {
+  const marked = new Map();
+  for (const kind of FRAME_KINDS) {
+    for (const pre of selectAll(`figure.is-${kind} pre`, content)) {
+      const offset = pre.position?.start.offset;
+      if (offset !== undefined) marked.set(offset, kind);
+    }
+  }
+  return marked;
 }
 
 /**
- * Writes `excerpt` after the language of each code block from an excerpt's
- * frame (```` ```ts excerpt ````), so an agent knows it isn't a whole file.
- * hast-util-to-mdast's code handler always sets `meta` to null and has no
- * option for it, so this sets it on the mdast tree after the conversion,
- * finding each block by the position its code node keeps from the frame's
- * `pre` (`codeFrame`).
+ * Writes each marked frame's kind after its code block's language
+ * (```` ```ts excerpt ````, ```` ```python signature ````), so an agent
+ * knows it isn't a whole file. hast-util-to-mdast's code handler always sets
+ * `meta` to null and has no option for it, so this sets it on the mdast tree
+ * after the conversion, finding each block by the position its code node
+ * keeps from the frame's `pre` (`codeFrame`).
  */
-function markExcerpts(node, offsets) {
-  if (node.type === 'code' && offsets.has(node.position?.start.offset)) node.meta = 'excerpt';
-  for (const child of node.children ?? []) markExcerpts(child, offsets);
+function markFrames(node, marked) {
+  if (node.type === 'code' && marked.has(node.position?.start.offset)) {
+    node.meta = marked.get(node.position.start.offset);
+  }
+  for (const child of node.children ?? []) markFrames(child, marked);
 }
 
 /** Starlight's tabs, as a list: each item the tab's label, then its panel. */
@@ -254,7 +267,7 @@ export function pageToMarkdown(html, { pageUrl, pages, base, siteDescription }) 
       hasClass(node, 'sr-only') ||
       hasClass(node, 'copy'),
   );
-  const excerpts = excerptOffsets(content);
+  const marked = markedFrames(content);
   replace(
     content,
     (node) => hasClass(node, 'expressive-code'),
@@ -287,7 +300,7 @@ export function pageToMarkdown(html, { pageUrl, pages, base, siteDescription }) 
   }
 
   const mdast = toMdast.runSync({ type: 'root', children: content.children });
-  markExcerpts(mdast, excerpts);
+  markFrames(mdast, marked);
   const body = String(toMarkdown.stringify(mdast)).trim();
   const own = description && description !== siteDescription ? description : undefined;
   const head = own ? `# ${title}\n\n> ${own}` : `# ${title}`;
@@ -338,9 +351,13 @@ function combined(page) {
   return [first, '', `Source: ${page.url}`, ...rest].join('\n');
 }
 
+/** The Markdown a built page links under its title (`data-markdown`). */
+const LINKED_MARKDOWN = /\sdata-markdown="([^"]*)"/;
+
 /**
  * Writes each built page's Markdown beside it and links it from the page's
- * head. Returns the pages that got one, by URL path, and the sidebar's links.
+ * head. A page whose title links any Markdown but its own fails the build.
+ * Returns the pages that got one, by URL path, and the sidebar's links.
  */
 function writePages(root, { origin, base, description }) {
   const files = [...builtPages(root)];
@@ -360,8 +377,15 @@ function writePages(root, { origin, base, description }) {
       siteDescription: description,
     };
     const page = pageToMarkdown(html, at);
+    const twin = page ? twinPath(path, base) : undefined;
+    // The link under the page's title (PageTitle.astro) is its own Markdown.
+    const linked = LINKED_MARKDOWN.exec(html)?.[1];
+    if (linked !== undefined && linked !== twin) {
+      throw new Error(
+        `${path} links ${linked} as its Markdown version, but ${twin ? `its own is ${twin}` : 'it has none'}.`,
+      );
+    }
     if (!page) continue;
-    const twin = twinPath(path, base);
     const twinFile = join(root, twin.slice(base.length));
     mkdirSync(dirname(twinFile), { recursive: true });
     writeFileSync(twinFile, page.markdown);

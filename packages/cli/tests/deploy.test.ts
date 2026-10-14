@@ -33,7 +33,9 @@ import { DEPLOY_ENVELOPE_SCHEMA } from '../src/build/envelope.js';
 import { postDeploymentReal } from '../src/deploy/post.js';
 import type {
   DeployRunners,
+  DeploymentEndpointRecord,
   DeploymentRecord,
+  GetDeploymentResult,
   LoadEnvelopeResult,
   PostDeploymentOptions,
   PostDeploymentResult,
@@ -135,7 +137,9 @@ interface Fixtures {
     postCalls: number;
     buildCalls: number;
     syncCalls: number;
+    findCalls: number;
     capturedPost?: PostDeploymentOptions;
+    capturedFindSlug?: string;
     capturedBuild?: RunBuildOptions;
     capturedSync?: SyncSecretsOptions;
   };
@@ -153,6 +157,8 @@ interface FixtureOptions {
   /** Skip attaching a syncSecrets runner. Off by default; --sync-secrets
    * tests that expect the runner to be present rely on the default. */
   readonly omitSyncRunner?: boolean;
+  /** The tenant's projects, for `--project <slug>`; absent: no lookup runner. */
+  readonly projects?: readonly { id: string; name: string; slug: string; orgId?: string }[];
 }
 
 function makeFixtures(opts: FixtureOptions = {}): Fixtures {
@@ -161,6 +167,7 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
     postCalls: 0,
     buildCalls: 0,
     syncCalls: 0,
+    findCalls: 0,
   };
   const envelope = opts.envelope ?? makeEnvelope();
   const runners: DeployRunners = {
@@ -183,6 +190,19 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
       };
     },
   };
+  if (opts.projects !== undefined) {
+    const projects = opts.projects;
+    (runners as { findProjects?: DeployRunners['findProjects'] }).findProjects = async (o) => {
+      state.findCalls += 1;
+      state.capturedFindSlug = o.slug;
+      return {
+        kind: 'ok',
+        projects: projects
+          .filter((p) => p.slug === o.slug)
+          .map(({ id, name, orgId }) => ({ id, name, ...(orgId !== undefined && { orgId }) })),
+      };
+    };
+  }
   if (!opts.omitSyncRunner) {
     (runners as { syncSecrets?: DeployRunners['syncSecrets'] }).syncSecrets = async (o) => {
       state.syncCalls += 1;
@@ -534,6 +554,30 @@ describe('kindgi deploy — response handling', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('signature-invalid');
     expect(out.stderr).toContain('--tenant');
+  });
+
+  test('413 request-too-large → exit 1, says what to make smaller', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures({
+      postResult: {
+        kind: 'wire-error',
+        status: 413,
+        error: {
+          code: 'request-too-large',
+          message: 'The request body is over the limit of 2097152 bytes',
+        },
+      },
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('The request body is over the limit of 2097152 bytes');
+    // The hint wraps to the banner's width.
+    expect(out.stderr.replace(/\s+/g, ' ')).toContain(
+      'make the largest schemas smaller, or split the pack into two',
+    );
   });
 
   test("4xx signer-not-trusted → exit 1, hint: kindgi key trust <the envelope's key>", async () => {
@@ -1085,5 +1129,269 @@ describe("kindgi deploy — the pack service's env (preflight)", () => {
     });
     expect(out.exitCode).toBe(0);
     expect(out.stderr).not.toContain("The pack service's env");
+  });
+});
+
+describe('kindgi deploy --project: one project per client', () => {
+  const ACME = '3f2b8c1e-4a5d-4e6f-9a0b-1c2d3e4f5a6b';
+  const GLOBEX = '9a0b1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d';
+  const projects = [
+    { id: ACME, name: 'Acme shop', slug: 'acme-shop' },
+    { id: GLOBEX, name: 'Globex shop', slug: 'globex-shop' },
+    { id: '11111111-2222-4333-8444-555555555555', name: 'Shared', slug: 'shop', orgId: 'org-a' },
+    { id: '66666666-7777-4888-8999-aaaaaaaaaaaa', name: 'Shared', slug: 'shop', orgId: 'org-b' },
+  ];
+  const deploy = async (fixtures: Fixtures, ...flags: string[]) =>
+    runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, ...flags],
+    });
+  const body = (fixtures: Fixtures) =>
+    fixtures.state.capturedPost?.body as Record<string, unknown> | undefined;
+
+  test('an id goes as it is, without a lookup', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures({ projects });
+    const out = await deploy(fixtures, `--project=${GLOBEX}`);
+    expect(out.exitCode).toBe(0);
+    expect(body(fixtures)?.projectId).toBe(GLOBEX);
+    expect(fixtures.state.findCalls).toBe(0);
+  });
+
+  test('a slug is looked up, and its id is sent', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures({ projects });
+    const out = await deploy(fixtures, '--project=acme-shop');
+    expect(out.exitCode).toBe(0);
+    expect(fixtures.state.capturedFindSlug).toBe('acme-shop');
+    expect(body(fixtures)?.projectId).toBe(ACME);
+  });
+
+  test('without --project: tenant-wide, no projectId sent', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures({ projects });
+    await deploy(fixtures);
+    expect(body(fixtures)).toBeDefined();
+    expect(body(fixtures)?.projectId).toBeUndefined();
+  });
+
+  test('a slug of no project is refused, naming how to make one; nothing is sent', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures({ projects });
+    const out = await deploy(fixtures, '--project=initech-shop');
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('--project initech-shop: no project of this tenant has that slug');
+    expect(out.stderr).toContain('kindgi projects create');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('a slug two orgs share is refused, naming both ids; nothing is sent', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures({ projects });
+    const out = await deploy(fixtures, '--project=shop');
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('2 projects of this tenant have that slug');
+    expect(out.stderr).toContain('11111111-2222-4333-8444-555555555555');
+    expect(out.stderr).toContain('66666666-7777-4888-8999-aaaaaaaaaaaa');
+    expect(out.stderr).toContain('Pass the id.');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('two projects, two requests: the Idempotency-Key follows the project', async () => {
+    await writeAutoEnvelope();
+    const a = makeFixtures({ projects });
+    await deploy(a, `--project=${ACME}`);
+    const b = makeFixtures({ projects });
+    await deploy(b, `--project=${GLOBEX}`);
+    expect(a.state.capturedPost?.idempotencyKey).toBeDefined();
+    expect(a.state.capturedPost?.idempotencyKey).not.toBe(b.state.capturedPost?.idempotencyKey);
+  });
+
+  test('--dry-run shows the project in the body it would send', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures({ projects });
+    const out = await deploy(fixtures, '--project=acme-shop', '--dry-run');
+    expect(out.exitCode).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+    const summary = JSON.parse(out.stdout) as { wouldPost?: Record<string, unknown> };
+    expect(summary.wouldPost?.projectId).toBe(ACME);
+  });
+});
+
+describe('kindgi deploy --hosted: build there, then wait for the pack service', () => {
+  const PROJECT = '3f2b8c1e-4a5d-4e6f-9a0b-1c2d3e4f5a6b';
+  const pending = (problem?: string): DeploymentEndpointRecord => ({
+    status: 'pending',
+    since: '2026-10-13T08:00:00.000Z',
+    ...(problem !== undefined && { problem: { code: problem, since: '2026-10-13T08:00:01.000Z' } }),
+  });
+  const ready: DeploymentEndpointRecord = { status: 'ready', since: '2026-10-13T08:00:30.000Z' };
+  const cleared: DeploymentEndpointRecord = {
+    status: 'cleared',
+    since: '2026-10-13T08:00:30.000Z',
+  };
+
+  /**
+   * Fixtures whose deploy answers with `first`, and whose reads of the
+   * deployment answer `reads` in turn (then the last again); the clock
+   * moves on by each sleep.
+   */
+  function hostedFixtures(
+    first: DeploymentEndpointRecord | undefined,
+    reads: readonly (DeploymentEndpointRecord | 'error')[],
+    opts: FixtureOptions = {},
+  ) {
+    const fixtures = makeFixtures({
+      ...opts,
+      postResult: {
+        kind: 'created',
+        status: 201,
+        record: makeDeploymentRecord(first !== undefined ? { endpoint: first } : {}),
+      },
+    });
+    let clock = 0;
+    const sleeps: number[] = [];
+    const readIds: string[] = [];
+    const runners: DeployRunners = {
+      ...fixtures.runners,
+      getDeployment: async (o): Promise<GetDeploymentResult> => {
+        readIds.push(o.deploymentId);
+        const next = reads[Math.min(readIds.length - 1, reads.length - 1)];
+        if (next === undefined || next === 'error') {
+          return { kind: 'error', message: 'GET … answered HTTP 503' };
+        }
+        return { kind: 'ok', record: makeDeploymentRecord({ endpoint: next }) };
+      },
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        clock += ms;
+      },
+      now: () => clock,
+    };
+    return { fixtures: { ...fixtures, runners }, sleeps, readIds };
+  }
+
+  const deploy = (fixtures: Fixtures, ...flags: string[]) =>
+    runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, ...flags],
+    });
+
+  test('the inline build runs hosted, with the project; then it waits, saying each new state once', async () => {
+    const auto = join(packDir, '.kindgi/build/deploy-envelope.json');
+    const run = hostedFixtures(
+      pending(),
+      [pending(), pending('capacity-unavailable'), pending('capacity-unavailable'), ready],
+      { writeEnvelopeAt: auto },
+    );
+    const out = await deploy(run.fixtures, '--hosted', `--project=${PROJECT}`);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(run.fixtures.state.capturedBuild?.buildArgv).toEqual(
+      expect.arrayContaining(['--hosted', `--project=${PROJECT}`]),
+    );
+    expect(run.readIds).toEqual(['dep-01H8XM', 'dep-01H8XM', 'dep-01H8XM', 'dep-01H8XM']);
+    expect(run.sleeps).toEqual([2_000, 2_000, 2_000, 2_000]);
+    const waited = out.stderr.slice(out.stderr.indexOf('Waiting for the pack service'));
+    expect(waited.split('\n').slice(0, 4)).toEqual([
+      'Waiting for the pack service',
+      '    … pending',
+      '    … pending (capacity-unavailable): there is no room for another pack service just now',
+      '    ✓ ready',
+    ]);
+    const summary = JSON.parse(out.stdout) as { packService?: DeploymentEndpointRecord };
+    expect(summary.packService).toEqual(ready);
+  });
+
+  test("the env block's `build: 'hosted'` waits too; without either, nothing waits", async () => {
+    await writeAutoEnvelope();
+    const hosted = hostedFixtures(pending(), [ready]);
+    const viaConfig = await runCli({
+      ...baseInputs(
+        hosted.fixtures,
+        {},
+        {
+          environments: {
+            staging: {
+              endpoint: 'https://platform.example.com',
+              build: 'hosted',
+              signingKey: join(home, 'signing-key.pem'),
+            },
+          },
+        },
+      ),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+    });
+    expect(viaConfig.exitCode, viaConfig.stderr).toBe(0);
+    expect(hosted.readIds).toHaveLength(1);
+
+    const plain = hostedFixtures(pending(), [ready]);
+    const out = await deploy(plain.fixtures);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(plain.readIds).toHaveLength(0);
+    expect(out.stderr).not.toContain('Waiting for the pack service');
+  });
+
+  test('a deployment with no pack service of its own has nothing to wait for', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(undefined, [ready]);
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(run.readIds).toHaveLength(0);
+  });
+
+  test('a pack service taken down before it was ready fails, naming the deployment', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [cleared]);
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "The deployment's pack service was taken down before it was ready (cleared). deploymentId dep-01H8XM.",
+    );
+  });
+
+  test('not ready after 5 minutes: it stops, with the last state and how to wait again', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [pending('tenant-not-provisioned')]);
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "The pack service isn't ready after 5 minutes: pending (tenant-not-provisioned): your workspace has nowhere to run pack services yet. deploymentId dep-01H8XM.",
+    );
+    expect(out.stderr).toContain('Run the same `kindgi deploy --hosted` again to keep waiting');
+    expect(run.sleeps.reduce((a, b) => a + b, 0)).toBe(5 * 60 * 1000);
+  });
+
+  test('three reads in a row that fail: it stops, saying why', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), ['error', 'error', 'error']);
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "Couldn't read the deployment while waiting for its pack service: GET … answered HTTP 503. deploymentId dep-01H8XM.",
+    );
+    expect(run.readIds).toHaveLength(3);
+  });
+
+  test('--hosted with --build-endpoint is refused before anything runs', async () => {
+    const run = hostedFixtures(pending(), [ready]);
+    const out = await deploy(
+      run.fixtures,
+      '--hosted',
+      '--build-endpoint=https://build.example.com',
+    );
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('--build-endpoint names another build server');
+    expect(run.fixtures.state.buildCalls).toBe(0);
+    expect(run.fixtures.state.postCalls).toBe(0);
+  });
+
+  test("a project that isn't there fails before any build", async () => {
+    const run = hostedFixtures(pending(), [ready], {
+      projects: [{ id: PROJECT, name: 'Acme shop', slug: 'acme-shop' }],
+    });
+    const out = await deploy(run.fixtures, '--hosted', '--project=initech-shop');
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('no project of this tenant has that slug');
+    expect(run.fixtures.state.buildCalls).toBe(0);
   });
 });

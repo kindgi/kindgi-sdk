@@ -39,6 +39,11 @@ import {
   proposalActionAllowed,
   proposalStatus,
 } from './proposal-status.js';
+import {
+  type ReferenceScopeBinding,
+  liveScopeOutOfScope,
+  referencesOutOfScope,
+} from './reference-scope.js';
 import { type PromotionRequestOutcome, requestPromotion } from './routes/agent-releases.js';
 import { liveScopeToWire } from './routes/live-scope-wire.js';
 import type {
@@ -69,6 +74,8 @@ export interface ProposalServiceDeps {
   readonly evalRuns: EvalRunBinding;
   readonly releases: AgentReleaseBindings;
   readonly projects?: ProjectBinding;
+  /** What the agent's project may reach (`reference-scope.ts`); absent → as named. */
+  readonly referenceScope?: ReferenceScopeBinding;
 }
 
 /** An error with the code the API answers it with (`statusFor`), and its details. */
@@ -220,6 +227,22 @@ export function createProposalService(deps: ProposalServiceDeps) {
   ): Promise<ProposalOutcome<NonNullable<StoredProposal['candidate']>>> {
     const { tenantId } = proposal;
     const { blockId, fromVersion } = proposal.change;
+    // A new version of the block is written only for a block in the
+    // agent's project's reach (a proposal drafted before that was checked).
+    const agentVersion = await deps.agents.getVersion({
+      tenantId,
+      agentId: proposal.agentId,
+      version: proposal.fromVersion as Semver,
+    });
+    if (agentVersion?.projectId !== undefined) {
+      const outOfScope = await referencesOutOfScope(
+        deps.referenceScope,
+        tenantId,
+        agentVersion.projectId,
+        [{ path: '/change/blockId', kind: 'block', id: blockId }],
+      );
+      if (outOfScope !== undefined) return err({ ...outOfScope });
+    }
     const from = await deps.blocks.getVersion({ tenantId, blockId, version: fromVersion });
     if (from === null) {
       return err(validationFailed(`Block "${blockId}" version ${fromVersion} is gone`, []));
@@ -316,6 +339,16 @@ export function createProposalService(deps: ProposalServiceDeps) {
           message: `${input.agentId} has no active version ${input.fromVersion}`,
         });
       }
+      // Its scope must reach the agent, and the block it edits must be in
+      // the agent's project's reach (`reference-scope.ts`).
+      const outOfScope =
+        (await liveScopeOutOfScope(deps.referenceScope, tenantId, input.agentId, input.scope)) ??
+        (from.projectId === undefined
+          ? undefined
+          : await referencesOutOfScope(deps.referenceScope, tenantId, from.projectId, [
+              { path: '/change/blockId', kind: 'block', id: input.blockId },
+            ]));
+      if (outOfScope !== undefined) return err({ ...outOfScope });
       const pinned = await pinnedBlock(deps.blocks, tenantId, from, input.tier, input.blockId);
       if (pinned.kind === 'invalid') return err(validationFailed(pinned.message, pinned.issues));
       const edit = editOf(input.tier, input.content);
@@ -412,6 +445,14 @@ export function createProposalService(deps: ProposalServiceDeps) {
           message: `The candidate ${agentId} ${candidate.agentVersion} is unregistered: withdraw this proposal and draft it again`,
         });
       }
+      // The suite must be the candidate's project's to reach (`reference-scope.ts`).
+      const suiteOutOfScope = await referencesOutOfScope(
+        deps.referenceScope,
+        tenantId,
+        version.projectId,
+        [{ path: '/suiteId', kind: 'suite', id: input.suiteId }],
+      );
+      if (suiteOutOfScope !== undefined) return err({ ...suiteOutOfScope });
       const started = await deps.evalRuns.start({
         tenantId,
         projectId: version.projectId,
@@ -505,6 +546,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
         {
           evalRuns: deps.evalRuns,
           ...(deps.projects !== undefined && { projects: deps.projects }),
+          ...(deps.referenceScope !== undefined && { referenceScope: deps.referenceScope }),
         },
         {
           tenantId,

@@ -291,21 +291,26 @@ describe("the bounds' limits", () => {
       'an output past the longest string',
       doubling(21, '{% for i in (1..300) %}{{ s }}{% endfor %}'),
     ],
-  ])('on a hosted server, what grew past memoryLimit fails at it: %s', (_, template) => {
-    restore = overrideTenantInputBounds(HOSTED_BOUNDS);
-    expect(templateProblem(template)).toBeUndefined();
-    expect(rendered(template)).toBe(
-      'Template render failed: the render went over its memory limit of 8388608',
-    );
-  });
+  ])(
+    'on a hosted or a self-hosted server, what grew past memoryLimit fails at it: %s',
+    (_, template) => {
+      for (const [bounds, limit] of [
+        [HOSTED_BOUNDS, 8_388_608],
+        [SELF_HOSTED_BOUNDS, 16_777_216],
+      ] as const) {
+        restore?.();
+        restore = overrideTenantInputBounds(bounds);
+        expect(templateProblem(template)).toBeUndefined();
+        expect(rendered(template)).toBe(
+          `Template render failed: the render went over its memory limit of ${limit}`,
+        );
+      }
+    },
+  );
 
   test.each([
     ['the hosted bounds', HOSTED_BOUNDS, 8_388_608],
-    [
-      'a 64 Mi limit',
-      { ...SELF_HOSTED_BOUNDS, liquid: { ...SELF_HOSTED_BOUNDS.liquid, memoryLimit: 67_108_864 } },
-      67_108_864,
-    ],
+    ['the self-hosted bounds', SELF_HOSTED_BOUNDS, 16_777_216],
   ])(
     'an array holding the same arrays many times is refused fast, under %s',
     (_, bounds, limit) => {
@@ -327,7 +332,7 @@ describe("the bounds' limits", () => {
     },
   );
 
-  test('ordinary templates over a full-size input render without a limit, and are refused at the hosted one', () => {
+  test('ordinary templates over a full-size input render at the self-hosted limit, and are refused at the hosted one', () => {
     const doc = '<p>Orders for <b>Acme &amp; Co</b>, "tenant-a" and tenant-b.</p>\n'.repeat(29_500);
     const items = Array.from({ length: 9_000 }, (_, i) =>
       `Order ${i} from <Acme & Co>: ${'two widgets, one gadget; '.repeat(8)}`.padEnd(213, '.'),
@@ -346,11 +351,13 @@ describe("the bounds' limits", () => {
         /^Order 0 from &lt;Acme &amp; Co&gt;/,
       ],
     ];
+    restore = overrideTenantInputBounds(SELF_HOSTED_BOUNDS);
     for (const [template, scope, start] of chains) {
       expect(renderTenantTemplate(template, scope)).toMatch(start);
     }
     // Each filter is charged for what it's given and what it gives back,
-    // and the output once more: about five times the input.
+    // and the output once more: through three filters, about six times the input.
+    restore?.();
     restore = overrideTenantInputBounds(HOSTED_BOUNDS);
     for (const [template, scope] of chains) {
       expect(() => renderTenantTemplate(template, scope)).toThrow('memory alloc limit exceeded');
@@ -378,7 +385,8 @@ describe("the bounds' limits", () => {
     }
   });
 
-  test('on a self-hosted server, an output past the longest string says so', () => {
+  test('with no memory limit, an output past the longest string says so', () => {
+    withLiquid({ memoryLimit: Number.POSITIVE_INFINITY });
     expect(rendered(doubling(21, '{% for i in (1..300) %}{{ s }}{% endfor %}'))).toBe(
       'Template render failed: the render made a string longer than JavaScript allows',
     );

@@ -21,6 +21,23 @@ import type { RememberPolicy, RememberScope } from './types.js';
  */
 export const REMEMBER_TOOL_ID = 'kindgi_remember';
 export const REMEMBER_TOOL_VERSION = '1.0.0';
+
+/**
+ * Whether everything the `remember` tool writes stays in the run's project.
+ *
+ * The rule for every built-in tool: a built-in skips the turn's
+ * `authorizeToolCall` only when everything it touches stays in the run's
+ * project (the agent's own declaration grants it, not a tool
+ * registration). Otherwise its call is asked like a registered tool's,
+ * under its built-in id. A new built-in states its answer here and in
+ * `asksAuthorization` (`handlers/dispatch-tools.ts`).
+ *
+ * A tenant-scope fact reaches every project, so that call is asked; the
+ * review the fact goes to is the second gate, not the only one.
+ */
+export function rememberStaysInProject(policy: RememberPolicy): boolean {
+  return policy.scope !== 'tenant';
+}
 /** Days an unverified remembered fact is kept when the agent doesn't say. */
 export const DEFAULT_REMEMBER_DAYS = 30;
 export const MAX_REMEMBER_DAYS = 3650;

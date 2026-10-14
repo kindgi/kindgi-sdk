@@ -23,8 +23,8 @@ language and living in its repository:
 - **Guardrails:** checks on what an agent says or does before it counts.
 
 You write packs in **TypeScript** (`@kindgi/sdk`) or **Python** (the
-`kindgi` package). Tools call your app's own modules; nothing is rewritten
-for Kindgi.
+`kindgi` package), and, in preview, in **Java** and **Scala**. Tools call
+your app's own modules; nothing is rewritten for Kindgi.
 
 ## The runtime
 
@@ -64,8 +64,8 @@ try what it wrote, and the run's journal when something fails.
 ## Where it runs
 
 - **On your machine:** `kindgi dev` runs the runtime as a container next to
-  your pack's code and picks up every save. (The image is in private
-  preview: request access at contact@kindgi.com.)
+  your pack's code and picks up every save. (Its image's pull credentials
+  come from [access.kindgi.com](https://access.kindgi.com), with GitHub.)
 - **In your own cloud:** you deploy the same runtime image into your
   project; your data and prompts stay there.
 - **Kindgi Cloud:** we operate the runtime for you. It's in private
@@ -79,3 +79,11 @@ you're reading.
 
 The SDKs are Apache-2.0. The runtime is source-available under the Business
 Source License 1.1.
+
+## Next
+
+- [Install](../install/): what you need on your machine.
+- [Quickstart: TypeScript](../quickstart-typescript/), or the
+  [Python](../quickstart-python/), [Java](../quickstart-java/) or
+  [Scala](../quickstart-scala/) one: a first pack, running in ten minutes.
+- [Add Kindgi to an existing app](../existing-app/).

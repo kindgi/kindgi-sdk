@@ -19,6 +19,7 @@ import {
   dockerLogin,
   registryLoginCommand,
 } from '../dev/runtime-registry.js';
+import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
 import { renderJson } from '../output.js';
 import {
   PromptCancelled,
@@ -145,7 +146,7 @@ const registry: LeafCommand = {
   optionSpec: {
     username: {
       type: 'string',
-      description: 'The robot name you were given with your pull token. Needed to log in.',
+      description: `Your pull credential's robot name, shown at ${KINDGI_ACCESS_ORIGIN} once you sign in with GitHub. Needed to log in.`,
     },
     'password-stdin': {
       type: 'boolean',
@@ -188,7 +189,7 @@ function registryArgs(ctx: CommandContext): RegistryArgs | (CommandResult & { ki
   }
   if (!check && (typeof username !== 'string' || username === '')) {
     return usageError(
-      'Missing --username=<name>: the robot name you were given with your pull token (request access at contact@kindgi.com).\nTo check access without logging in: kindgi auth registry --check.',
+      `Missing --username=<name>: your pull credential's robot name. Sign in with GitHub at ${KINDGI_ACCESS_ORIGIN}: the page shows this command with your robot name, and the token to paste.\nTo check access without logging in: kindgi auth registry --check.`,
     );
   }
   return {
@@ -208,7 +209,7 @@ async function runRegistry(ctx: CommandContext): Promise<CommandResult> {
   const pinned = imageOnRegistry(DEFAULT_RUNTIME_IMAGE, args.host);
   const image = seam.image ?? pinned;
 
-  const ready = await checkDocker(run);
+  const ready = await checkDocker(run, 'kindgi auth registry');
   if (ready.kind === 'error') return { kind: 'error', stderr: `${ready.message}\n`, exitCode: 1 };
 
   const lines: string[] = [];
@@ -279,8 +280,8 @@ function accessFailure(
     return [
       `  ✗ No access to ${image}: ${access.detail}`,
       args.username === undefined
-        ? `    The runtime image is in private preview: request access at contact@kindgi.com, then log in with the pull credentials you receive: ${registryLoginCommand(image)}.`
-        : `    ${args.username} is logged in to ${args.host} but can't pull it: request access at contact@kindgi.com.`,
+        ? `    The runtime image needs a pull credential: sign in with GitHub at ${KINDGI_ACCESS_ORIGIN} for one, then log in: ${registryLoginCommand(image)}.`
+        : `    ${args.username} is logged in to ${args.host} but can't pull it: sign in at ${KINDGI_ACCESS_ORIGIN} for your current pull credential (questions: contact@kindgi.com).`,
     ];
   }
   if (access.kind === 'credential-helper') {

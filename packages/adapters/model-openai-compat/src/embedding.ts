@@ -7,6 +7,7 @@ import type { EmbeddingProvider } from '@kindgi/embedding';
 import { bearerValueProblem } from '@kindgi/types';
 
 import { OPENAI_COMPAT_ADAPTER_ID } from './provider.js';
+import { retryAttempts, sendWithRetries } from './retry.js';
 import { SERVER_ENV_NEVER } from './wire.js';
 
 /**
@@ -55,6 +56,10 @@ export function createOpenAICompatEmbeddingProvider(
 ): OpenAICompatEmbeddingProvider {
   let dims = options.dimensions;
   let cached: { readonly key: string; readonly client: OpenAI } | undefined;
+  // The adapter owns the retries (the client is built with `maxRetries: 0`); the
+  // caller's `maxRetries` keeps its meaning — the retries after the first
+  // attempt — so the attempt budget is `maxRetries + 1` (`retryAttempts`).
+  const maxAttempts = retryAttempts(options.clientOptions?.maxRetries);
 
   async function client(): Promise<OpenAI> {
     const resolved = typeof options.apiKey === 'function' ? await options.apiKey() : options.apiKey;
@@ -73,17 +78,25 @@ export function createOpenAICompatEmbeddingProvider(
       baseURL: options.baseURL,
       ...SERVER_ENV_NEVER,
       ...(options.clientOptions ?? {}),
+      // The adapter retries (`sendWithRetries`); the SDK must not, so a refused
+      // connection isn't tried again before the adapter classifies it.
+      maxRetries: 0,
     });
     cached = { key, client: fresh };
     return fresh;
   }
 
   async function embed(text: string): Promise<Float32Array> {
-    const response = await (await client()).embeddings.create({
-      model: options.model,
-      input: text,
-      encoding_format: 'float',
-    });
+    const openai = await client();
+    const response = await sendWithRetries(
+      () =>
+        openai.embeddings.create({
+          model: options.model,
+          input: text,
+          encoding_format: 'float',
+        }),
+      { attempts: maxAttempts },
+    );
     const values = response.data[0]?.embedding;
     if (!Array.isArray(values) || values.length === 0) {
       throw new Error(

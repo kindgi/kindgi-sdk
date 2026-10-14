@@ -14,7 +14,12 @@
  */
 
 import { loadEnvelopeReal } from './envelope-loader.js';
-import { postDeploymentReal, syncSecretsReal } from './post.js';
+import {
+  findProjectsReal,
+  getDeploymentReal,
+  postDeploymentReal,
+  syncSecretsReal,
+} from './post.js';
 import type { DeployRunners } from './runners.js';
 
 /**
@@ -34,6 +39,10 @@ export const REAL_DEPLOY_RUNNERS: DeployRunners = {
   // Production sync runner. Only invoked when
   // `--sync-secrets` is passed AND `.env.<envName>` carries entries.
   syncSecrets: syncSecretsReal,
+  // `--project <slug>` only: an id goes as it is.
+  findProjects: findProjectsReal,
+  // `--hosted` only: the wait for the deployment's pack service.
+  getDeployment: getDeploymentReal,
   // runBuild deliberately omitted — the command composes it from
   // `ctx.buildRunners` + the exported `runBuild` from
   // `commands/build.ts`.

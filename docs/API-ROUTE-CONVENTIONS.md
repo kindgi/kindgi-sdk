@@ -179,9 +179,9 @@ Every list endpoint accepts:
 
 Response body:
 
-```json
+```json excerpt
 {
-  "data": [ ... ],
+  "data": [ … ],
   "nextCursor": "cursor-abc123",
   "hasMore": true
 }
@@ -267,7 +267,7 @@ Domain errors are the ONLY response body shape for 4xx/5xx. Framework crashes (t
 
 Signed export routes (`POST /v1/provenance/:runId/export`, `POST /v1/approvals/:approvalId/audit-bundle`, any future signed export) MUST return the same wire envelope so SDK clients can share a single verification helper:
 
-```json
+```jsonc excerpt
 {
   "<resourceId>": "...",           // e.g. "runId" or "approvalId"
   "bundle": "base64-of-canonical-json",

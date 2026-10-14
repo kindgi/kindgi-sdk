@@ -30,7 +30,58 @@ export type InvokeAgentError =
   | OutputSchemaViolationError
   | TenantPolicyUnavailableError
   | RunSnapshotError
-  | SemanticUnavailableError;
+  | SemanticUnavailableError
+  | ApprovalsPendingLimitError
+  | TurnMemoryLimitReachedError;
+
+/**
+ * A gate asked for an approval past the tenant's limit on approvals waiting
+ * for a decision: the HITL binding's `enqueue` refused it (an error with
+ * `code: 'approvals-pending-limit'`). The step fails, naming the limit,
+ * rather than wait for an approval nobody can see.
+ */
+export interface ApprovalsPendingLimitError {
+  readonly code: 'approvals-pending-limit';
+  readonly message: string;
+  /** The tenant's limit, when the binding names it. */
+  readonly approvalsPending?: number;
+}
+
+/** What an `enqueue` threw, as the turn's failure, if it was the tenant's limit on approvals waiting. */
+export function approvalsPendingLimitOf(cause: unknown): ApprovalsPendingLimitError | undefined {
+  if (cause === null || typeof cause !== 'object') return undefined;
+  const { code, message, approvalsPending } = cause as {
+    readonly code?: unknown;
+    readonly message?: unknown;
+    readonly approvalsPending?: unknown;
+  };
+  if (code !== 'approvals-pending-limit') return undefined;
+  return {
+    code,
+    message:
+      typeof message === 'string' && message !== ''
+        ? message
+        : "This tenant's limit on approvals waiting for a decision is reached.",
+    ...(typeof approvalsPending === 'number' && { approvalsPending }),
+  };
+}
+
+/**
+ * The turn holds more memory than the runtime's limit leaves it (a
+ * runtime's limit on turn memory, charged by size before each model call;
+ * Kindgi Cloud sets one). `limit` names which: the tenant's share, or the
+ * runtime's whole. Retried later, or with a smaller conversation, it can go
+ * through.
+ */
+export interface TurnMemoryLimitReachedError {
+  readonly code: 'turn-memory-limit-reached';
+  readonly message: string;
+  readonly limit: 'tenant' | 'server';
+  /** What that limit's turns hold now, in bytes. */
+  readonly heldBytes: number;
+  /** The limit, in bytes. */
+  readonly limitBytes: number;
+}
 
 /**
  * A retrieval intent searches by meaning (`mode: 'semantic'`) and the

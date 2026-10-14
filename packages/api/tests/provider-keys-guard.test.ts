@@ -99,9 +99,18 @@ describe('guardProviderKeys', () => {
 
   test('what the store says about itself passes through', () => {
     const { binding } = store();
-    const dev = { ...binding, writesAppEnvFiles: true } as SecretBinding;
-    expect(guardProviderKeys(dev, keys, 'a tool').writesAppEnvFiles).toBe(true);
+    const refusal = { code: 'secret-name-invalid', message: 'not an env-file key' } as const;
+    const dev = {
+      ...binding,
+      writesAppEnvFiles: true,
+      nameRefusal: (name: string) => (name === 'acme-key' ? refusal : undefined),
+    } as SecretBinding;
+    const guarded = guardProviderKeys(dev, keys, 'a tool');
+    expect(guarded.writesAppEnvFiles).toBe(true);
+    expect(guarded.nameRefusal?.('acme-key')).toEqual(refusal);
+    expect(guarded.nameRefusal?.('ACME_KEY')).toBeUndefined();
     expect(guardProviderKeys(binding, keys, 'a tool')).not.toHaveProperty('writesAppEnvFiles');
+    expect(guardProviderKeys(binding, keys, 'a tool')).not.toHaveProperty('nameRefusal');
   });
 
   test('the words name what asked', async () => {
@@ -147,6 +156,17 @@ describe('usersOfSecret: MCP endpoints', () => {
       },
       {
         ...http,
+        endpointId: 'acme.header',
+        auth: {
+          scheme: 'header',
+          headers: [
+            { name: 'X-Api-Key', secretRef: { envName, name: 'INVENTORY_KEY' } },
+            { name: 'X-Api-Secret', secretRef },
+          ],
+        },
+      },
+      {
+        ...http,
         endpointId: 'acme.other',
         auth: { scheme: 'basic', username: 'agent', secretRef: { envName, name: 'SHOP_PASSWORD' } },
       },
@@ -160,6 +180,7 @@ describe('usersOfSecret: MCP endpoints', () => {
       { kind: 'mcp-endpoint', id: 'acme.bearer' },
       { kind: 'mcp-endpoint', id: 'acme.basic' },
       { kind: 'mcp-endpoint', id: 'acme.oauth' },
+      { kind: 'mcp-endpoint', id: 'acme.header' },
     ]);
   });
 });

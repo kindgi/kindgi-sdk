@@ -31,11 +31,14 @@ function appFailingWith(failure: RunHandlerFailure) {
   return createApp({ ...createStubAppBindings(), resolveToken, runHandler });
 }
 
-async function startRun(app: ReturnType<typeof appFailingWith>) {
+async function startRun(
+  app: ReturnType<typeof appFailingWith>,
+  body: Record<string, unknown> = { agent: 'support-bot', input: { userMessage: 'hi' } },
+) {
   const res = await app.request('/v1/runs', {
     method: 'POST',
     headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ agent: 'support-bot', input: { userMessage: 'hi' } }),
+    body: JSON.stringify(body),
   });
   return {
     status: res.status,
@@ -125,5 +128,22 @@ describe('POST /v1/runs — binding failures on the wire', () => {
     );
     expect(status).toBe(404);
     expect(body.error).not.toHaveProperty('details');
+  });
+
+  // Where the runtime suspends projects, no run starts in a suspended one,
+  // an agent's turn or a flow's run.
+  test.each([
+    ['an agent', { agent: 'support-bot', input: { userMessage: 'hi' } }],
+    ['a flow', { flow: 'pack.flow', input: {} }],
+  ])('a suspended project: %s run is 409 project-suspended', async (_, start) => {
+    const { status, body } = await startRun(
+      appFailingWith({
+        code: 'project-suspended',
+        message: 'The project is suspended: no run starts in it until it is restored',
+      }),
+      start,
+    );
+    expect(status).toBe(409);
+    expect(body.error).toMatchObject({ code: 'project-suspended' });
   });
 });
