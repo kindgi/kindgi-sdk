@@ -8400,6 +8400,26 @@ export const OPERATIONS: readonly OperationSpec[] = [
   // ---------- env ----------
   {
     method: 'get',
+    honoPath: '/v1/environments',
+    openapiPath: '/v1/environments',
+    operationId: 'environments.list',
+    summary: "List the tenant's env names",
+    description:
+      "The env names the tenant holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A name whose secrets were all revoked is still listed. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.",
+    tags: ['env'],
+    security: 'bearer',
+    parameters: [LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of env names.', schema: ref('EnvironmentPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse("`cursor` isn't one this list gave (`bad-input`)."),
+      '501': ErrorResponse(
+        "The runtime's env or secret store can't list its env names (`environments-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/env',
     openapiPath: '/v1/env',
     operationId: 'env.list',

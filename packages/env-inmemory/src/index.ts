@@ -20,6 +20,7 @@ import type {
   EnvGetInput,
   EnvListInput,
   EnvListPage,
+  EnvNamesInput,
   EnvRecord,
   EnvResolveInput,
   EnvResolveOutcome,
@@ -131,6 +132,26 @@ export function createInMemoryEnvBinding(options: InMemoryEnvBindingOptions = {}
       }
       all.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
       return { data: all.slice(0, input.limit) };
+    },
+
+    async listEnvNames(input: EnvNamesInput): Promise<readonly EnvName[]> {
+      // Scope keys don't carry the tenant: an entry's own scope does. A
+      // name whose entries were all deleted (or only read) holds none.
+      const names = new Set<EnvName>();
+      for (const byEnv of store.values()) {
+        for (const [envName, byName] of byEnv) {
+          for (const rec of byName.values()) {
+            if (rec.scope.tenantId === input.tenantId) {
+              names.add(envName);
+              break;
+            }
+          }
+        }
+      }
+      return [...names]
+        .filter((n) => input.after === undefined || n > input.after)
+        .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+        .slice(0, input.limit);
     },
 
     async get(input: EnvGetInput): Promise<EnvRecord | null> {

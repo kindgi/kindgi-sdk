@@ -888,6 +888,7 @@ OPERATIONS: dict[str, Operation] = {
     "tenant.config.upsert": Operation(
         "tenant.config.upsert", "PATCH", "/v1/tenant/config", "json", True
     ),
+    "environments.list": Operation("environments.list", "GET", "/v1/environments", "json", False),
     "env.list": Operation("env.list", "GET", "/v1/env", "json", False),
     "env.get": Operation("env.get", "GET", "/v1/env/{name}", "json", False),
     "env.put": Operation("env.put", "PUT", "/v1/env/{name}", "json", True),
@@ -7809,6 +7810,34 @@ class TenantResource:
             query={},
             headers={},
             response=_models.Tenant,
+            timeout=timeout,
+        )
+
+
+class EnvironmentsResource:
+    """`client.environments` — the `environments` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvironmentPage:
+        """List the tenant's env names. `GET /v1/environments`
+
+        The env names the tenant holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A name whose secrets were all revoked is still listed. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.
+        """
+        return self._client._request(
+            _OPERATIONS["environments.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.EnvironmentPage,
             timeout=timeout,
         )
 
@@ -15592,6 +15621,34 @@ class AsyncTenantResource:
         )
 
 
+class AsyncEnvironmentsResource:
+    """`client.environments` — the `environments` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvironmentPage:
+        """List the tenant's env names. `GET /v1/environments`
+
+        The env names the tenant holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A name whose secrets were all revoked is still listed. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.
+        """
+        return await self._client._request(
+            _OPERATIONS["environments.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.EnvironmentPage,
+            timeout=timeout,
+        )
+
+
 class AsyncEnvResource:
     """`client.env` — the `env` operations."""
 
@@ -16603,6 +16660,7 @@ class Resources:
     teams: TeamsResource
     projects: ProjectsResource
     tenant: TenantResource
+    environments: EnvironmentsResource
     env: EnvResource
     secrets: SecretsResource
     schedules: SchedulesResource
@@ -16655,6 +16713,7 @@ class Resources:
         self.teams = TeamsResource(client)
         self.projects = ProjectsResource(client)
         self.tenant = TenantResource(client)
+        self.environments = EnvironmentsResource(client)
         self.env = EnvResource(client)
         self.secrets = SecretsResource(client)
         self.schedules = SchedulesResource(client)
@@ -16709,6 +16768,7 @@ class AsyncResources:
     teams: AsyncTeamsResource
     projects: AsyncProjectsResource
     tenant: AsyncTenantResource
+    environments: AsyncEnvironmentsResource
     env: AsyncEnvResource
     secrets: AsyncSecretsResource
     schedules: AsyncSchedulesResource
@@ -16761,6 +16821,7 @@ class AsyncResources:
         self.teams = AsyncTeamsResource(client)
         self.projects = AsyncProjectsResource(client)
         self.tenant = AsyncTenantResource(client)
+        self.environments = AsyncEnvironmentsResource(client)
         self.env = AsyncEnvResource(client)
         self.secrets = AsyncSecretsResource(client)
         self.schedules = AsyncSchedulesResource(client)

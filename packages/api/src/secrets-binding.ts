@@ -3,7 +3,7 @@
 
 import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
-import type { Cursor, EnvName, Result } from '@kindgi/types';
+import type { Cursor, EnvName, Result, TenantId } from '@kindgi/types';
 
 /**
  * Secret names starting with this prefix are reserved for framework-internal
@@ -106,6 +106,24 @@ export interface SecretBinding {
    * Unset: `set` alone says.
    */
   nameRefusal?(name: string): SecretNameRefusal | undefined;
+
+  /**
+   * The env names this store holds a secret under, at any scope of the
+   * tenant: the `envName` of each secret `list` returns with
+   * `includeRevoked`. Each name once, in byte order, after `input.after`,
+   * at most `input.limit`. `GET /v1/environments` reads it; with a store
+   * that leaves it unset, that route answers `501 environments-unsupported`.
+   */
+  listEnvNames?(input: EnvNamesInput): Promise<readonly EnvName[]>;
+}
+
+/** Which of a tenant's env names a store gives ({@link SecretBinding.listEnvNames}, {@link EnvBinding.listEnvNames}). */
+export interface EnvNamesInput {
+  readonly tenantId: TenantId;
+  /** At most this many. */
+  readonly limit: number;
+  /** Only the names after this one, in byte order. */
+  readonly after?: EnvName;
 }
 
 /** A name a store can't write, and why ({@link SecretBinding.nameRefusal}). */
@@ -153,6 +171,7 @@ export const SECRET_BINDING_MEMBERS: Readonly<
   revoke: 'write',
   writesAppEnvFiles: 'flag',
   nameRefusal: 'read',
+  listEnvNames: 'read',
 };
 
 /**
@@ -195,6 +214,9 @@ export function observeSecretWrites(binding: SecretBinding): {
       }),
       ...(binding.nameRefusal !== undefined && {
         nameRefusal: (name: string) => binding.nameRefusal?.(name),
+      }),
+      ...(binding.listEnvNames !== undefined && {
+        listEnvNames: binding.listEnvNames.bind(binding),
       }),
     },
     writes: {
