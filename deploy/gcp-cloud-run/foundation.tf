@@ -38,6 +38,8 @@ resource "google_project_service" "apis" {
 
 locals {
   direct = var.network_mode == "direct"
+  # The one pack service, its account and its grants: only with a pack image.
+  pack = var.pack_image != ""
 }
 
 resource "google_compute_network" "kindgi" {
@@ -94,6 +96,7 @@ resource "google_service_account" "server" {
 }
 
 resource "google_service_account" "pack" {
+  count        = local.pack ? 1 : 0
   account_id   = "${var.name_prefix}-pack"
   display_name = "Kindgi pack service"
   depends_on   = [google_project_service.apis]
@@ -126,17 +129,17 @@ resource "google_project_iam_member" "server_vertex_ai" {
 }
 
 resource "google_project_iam_member" "pack_sql_client" {
-  count   = length(var.pack_cloud_sql_instances) > 0 ? 1 : 0
+  count   = local.pack && length(var.pack_cloud_sql_instances) > 0 ? 1 : 0
   project = var.project_id
   role    = "roles/cloudsql.client"
-  member  = "serviceAccount:${google_service_account.pack.email}"
+  member  = "serviceAccount:${google_service_account.pack[0].email}"
 }
 
 resource "google_storage_bucket_iam_member" "pack_reads" {
-  for_each = toset(var.pack_bucket_readers)
+  for_each = local.pack ? toset(var.pack_bucket_readers) : toset([])
   bucket   = each.value
   role     = "roles/storage.objectViewer"
-  member   = "serviceAccount:${google_service_account.pack.email}"
+  member   = "serviceAccount:${google_service_account.pack[0].email}"
 
   # Narrowed to object prefixes when the bucket has them (it holds more
   # than the pack's own data).
@@ -156,12 +159,12 @@ resource "google_storage_bucket_iam_member" "pack_reads" {
 # The Cloud Run services the pack's code calls (C-PK-6): additive, one
 # member per service; nothing else of the service changes.
 resource "google_cloud_run_v2_service_iam_member" "pack_invokes" {
-  for_each = { for s in var.pack_run_invokers : "${s.project}/${s.location}/${s.service}" => s }
+  for_each = { for s in var.pack_run_invokers : "${s.project}/${s.location}/${s.service}" => s if local.pack }
   project  = each.value.project
   location = each.value.location
   name     = each.value.service
   role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.pack.email}"
+  member   = "serviceAccount:${google_service_account.pack[0].email}"
 }
 
 # ---- images -------------------------------------------------------------------

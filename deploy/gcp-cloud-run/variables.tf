@@ -38,11 +38,12 @@ variable "server_image" {
 }
 
 variable "pack_image" {
-  description = "The pack image `kindgi build` produced, by digest, in Artifact Registry."
+  description = "The pack image `kindgi build` produced, by digest, in Artifact Registry: the one pack service the server calls (KINDGI_PACK_SERVICE_URL). Needed with tenancy = \"single\". Unset with \"multi\", where each deployment is a service of its own: then there's no pack service, no pack account and none of its grants, and pack_env, pack_secret_env, pack_cloud_sql_instances, pack_bucket_readers and pack_run_invokers stay unset (the pack service's other settings do nothing)."
   type        = string
+  default     = ""
 
   validation {
-    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.pack_image))
+    condition     = var.pack_image == "" || can(regex("@sha256:[0-9a-f]{64}$", var.pack_image))
     error_message = "Pin the pack image by digest (…@sha256:<64 hex>)."
   }
 }
@@ -110,14 +111,26 @@ variable "openfga_api_url" {
   default     = ""
 }
 
-variable "seed_tenant_id" {
-  description = "KINDGI_TENANT_ID: the tenant the server seeds and reuses. Pin it, or every new revision seeds a new one."
+variable "tenancy" {
+  description = "KINDGI_TENANCY: how many tenants the server serves. \"single\" (the default): one, seed_tenant_id's, with the one pack service (pack_image). \"multi\" (runtime 0.1.8 or later): every tenant created through the system API, taking each request's tenant from its key or session, with each deployment a service of its own. It sets KINDGI_TENANCY = \"multi\" and no tenant or seed user, takes no pack_image, and needs openfga_api_url, secrets_backend = \"postgres\" and settings in server_env and server_secret_env, which the plan names: README."
   type        = string
+  default     = "single"
+  validation {
+    condition     = contains(["single", "multi"], var.tenancy)
+    error_message = "tenancy must be \"single\" or \"multi\"."
+  }
+}
+
+variable "seed_tenant_id" {
+  description = "KINDGI_TENANT_ID: the tenant the server seeds and reuses. Pin it, or every start seeds a new one. Needed with tenancy = \"single\", refused with \"multi\"."
+  type        = string
+  default     = null
 }
 
 variable "seed_user_id" {
-  description = "KINDGI_SEED_USER_ID: pinned so the FGA admin@tenant tuple stays stable across revisions."
+  description = "KINDGI_SEED_USER_ID: pinned so the FGA admin@tenant tuple stays stable across revisions. Needed with tenancy = \"single\", refused with \"multi\"."
   type        = string
+  default     = null
 }
 
 # ---- the pack service ---------------------------------------------------------
