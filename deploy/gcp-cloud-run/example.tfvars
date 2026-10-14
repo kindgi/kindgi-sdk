@@ -30,6 +30,9 @@ server_env = {
   KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
 }
 
+# Renew the license key on a schedule (README, step 8). Unset: by hand only.
+# license_renewal_schedule = "17 6 * * *"
+
 pack_env = {
   LOG_LEVEL = "info"
 }

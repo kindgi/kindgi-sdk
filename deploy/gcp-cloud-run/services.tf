@@ -14,7 +14,8 @@ locals {
   server_module_env = toset([
     "KINDGI_API_TOKEN", "KINDGI_CORS_ORIGINS", "KINDGI_DATABASE_URL", "KINDGI_DEV", "KINDGI_ENV",
     "KINDGI_EXPORT_SIGNING_KEY", "KINDGI_EXPORT_SIGNING_KMS_KEY", "KINDGI_IMAGE_REGISTRY_AUTH",
-    "KINDGI_IMAGE_REGISTRY_HOST", "KINDGI_LICENSE_KEY", "KINDGI_OPENFGA_API_URL",
+    "KINDGI_IMAGE_REGISTRY_HOST", "KINDGI_LICENSE_KEY", "KINDGI_LICENSE_KEY_REF", "KINDGI_LICENSE_RENEWER_REF",
+    "KINDGI_OPENFGA_API_URL",
     "KINDGI_PACK_CALL_TIMEOUT_MS", "KINDGI_PACK_SERVICE_AUTH", "KINDGI_PACK_SERVICE_TOKEN",
     "KINDGI_PACK_SERVICE_URL", "KINDGI_PUBLIC_TOKEN_SIGNING_KEY", "KINDGI_PUBLIC_URL",
     "KINDGI_SECRETS_AAD_KEY", "KINDGI_SECRETS_BACKEND", "KINDGI_SECRETS_BACKEND_KMS",
@@ -372,6 +373,16 @@ resource "google_cloud_run_v2_service" "server" {
             version = "latest"
           }
         }
+      }
+      # Where the key and the renewer's key are kept, so the expiry warning
+      # names the exact `kindgi license renew` (renewal.tf).
+      env {
+        name  = "KINDGI_LICENSE_KEY_REF"
+        value = local.license_key_ref
+      }
+      env {
+        name  = "KINDGI_LICENSE_RENEWER_REF"
+        value = local.license_renewer_ref
       }
       env {
         name = "KINDGI_PUBLIC_TOKEN_SIGNING_KEY"

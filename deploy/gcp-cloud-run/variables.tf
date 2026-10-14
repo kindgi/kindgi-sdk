@@ -396,3 +396,42 @@ variable "server_secret_env" {
     error_message = "server_secret_env: a name is upper-case letters, digits and underscores."
   }
 }
+
+variable "license_renewal_schedule" {
+  description = "When the license key is renewed: a 5-field cron, UTC, such as \"17 6 * * *\" (daily at 06:17). Empty (the default) adds no job, no scheduler and no alerts, and nothing calls Kindgi: renew by hand (README, step 8)."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.license_renewal_schedule == "" || can(regex("^\\S+( \\S+){4}$", var.license_renewal_schedule))
+    error_message = "license_renewal_schedule: a 5-field cron (minute hour day-of-month month day-of-week), such as \"17 6 * * *\"."
+  }
+}
+
+variable "license_renewer_secret" {
+  description = "The Secret Manager secret that keeps this deployment's renewer key, which `kindgi license enroll` adds once (output license_enroll_command). Empty: <name_prefix>-license-renewer. The module creates it empty; the server never reads it."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.license_renewer_secret == "" || can(regex("^[A-Za-z0-9_-]{1,255}$", var.license_renewer_secret))
+    error_message = "license_renewer_secret: a secret id (letters, digits, - and _)."
+  }
+}
+
+variable "license_renewal_scheduler_region" {
+  description = "Where Cloud Scheduler starts the renewal job, if `region` has no Cloud Scheduler (its locations: https://docs.cloud.google.com/scheduler/docs/locations). Empty: `region`. The job itself runs in `region`."
+  type        = string
+  default     = ""
+}
+
+variable "alert_notification_channels" {
+  description = "Cloud Monitoring notification channels (projects/<project>/notificationChannels/<id>) for the module's alerts: with a renewal schedule, a failed renewal and a key under 7 days from expiry. Empty: the alerts open incidents in the console and notify no one."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for c in var.alert_notification_channels : can(regex("^projects/[^/]+/notificationChannels/[^/]+$", c))])
+    error_message = "alert_notification_channels: each is projects/<project>/notificationChannels/<id>."
+  }
+}
