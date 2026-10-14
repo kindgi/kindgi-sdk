@@ -51,9 +51,9 @@ While a project is suspended:
 
 ## One pack
 
-Suspending a pack stops that deployment: a call to one of its tools or
-checks fails with `pack-suspended`, and doesn't fall back to an older
-deployment. No run is cancelled, and the rest of the project, and other
+Suspending a pack stops the deployment that shipped it: a call to one of
+that deployment's tools or checks fails with `pack-suspended`, and doesn't
+fall back to an older deployment. No run is cancelled, and the rest of the project, and other
 packs, run as before.
 
 If you deploy the pack again with a changed image, the new deployment
