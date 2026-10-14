@@ -453,7 +453,7 @@ A tenant admin's home in the tenant starts with what needs a look, such as
   recorded as denied, with **All refused requests**. "Someone refused may be
   missing access they need."
 
-![The tenant's home as a tenant admin. What needs you: "8 people in 3 projects and 1 team. 3 people have no project of their own; 1 key expires this week."; No project of their own: Ben Okafor, Sam Rivera and Eddie Park; Keys: "ada-laptop expires in 3d"; Recently refused: a user, shown by id, refused admin on the tenant, just now. Below: the projects, and the tenant's sections.](../../../assets/people/tenant-home.png)
+![The tenant's home as a tenant admin. What needs you: "8 people in 3 projects and 1 team. 3 people have no project of their own; 1 key expires this week."; No project of their own: Ben Okafor, Sam Rivera and Eddie Park; Keys: "ada-laptop expires in 3d"; Recently refused: "Ada Lovelace: admin on the tenant", just now. Below: the projects, and the tenant's sections.](../../../assets/people/tenant-home.png)
 
 It counts everyone, and never says all is clear before it has read
 everything. While a read is still coming in, it says so, such as "Still
