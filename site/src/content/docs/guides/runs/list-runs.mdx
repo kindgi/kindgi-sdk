@@ -613,11 +613,14 @@ Its filters:
   waiting run waits on something, such as an approval.
 - **Started:** in the last hour, 24 hours, 7 days or 30 days.
 - **An agent or a flow, and its version,** from a link that names them. A
-  flow's page links **Its runs →**, and **Runs of 1.1.0 →** for the version
-  it shows. A schedule's page links **Its runs →**. **Its failed runs** on
+  flow's page has **Runs**, and **Runs →** beside each of its versions. A
+  schedule's or an incoming webhook's page links **Runs it started →**.
+  **Its failed runs** on
   [What failed](#what-failed) names the agent or flow and its version. With
   an agent chosen, a **Version** choice appears: **Every version**, or one.
-- **Include steps inside flows** and **Include eval replays.**
+- **Include:** **Flow steps**, a flow's agent turns as rows of their own
+  besides under their flow, and **Eval replays**, the runs an eval
+  comparison replayed, left out by default.
 
 Each filter shows as a chip ("Status: Failed", "Started in the last hour",
 "Flow: Refunds"). Removing an agent's or a flow's chip removes its version

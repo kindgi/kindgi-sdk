@@ -501,13 +501,15 @@ Test run mypack.guardrails.AnswerLengthSuite finished: 0 failed, 0 ignored, 2 to
 
 ## In the console
 
-A project's **Guardrails** page lists its guardrails, with a headline such
-as "5 guardrails; 1 isn't named by any agent here." Each row says:
-- **how it checks:** "A rule: no model call", with the check;
-- **what happens when it fires:** "The turn fails", or "It is recorded;
-  nothing stops";
-- **when it applies:** "In runs and in CI", or "In runs only, not in CI";
-- **how many agents name it:** "1 agent", or "No agent".
+A project's **Guardrails** page lists its guardrails: "Checks on each agent
+answer: how each checks, what happens when it fires, which agents it
+covers." Each row says:
+- **how it checks:** "A rule in code, no model call", with its check in
+  words, such as "Check: forbidden substring (built in)". The check's id
+  shows on hover;
+- **when it fires:** "The turn fails", or "It is recorded; nothing stops";
+- **where it applies:** "In runs and in CI", or "In runs only, not in CI";
+- **what names it:** "1 agent", or "No agent".
 
 The list has a search box, sorts by a column's header, and **Columns**
 chooses which columns it shows.
@@ -530,22 +532,25 @@ checked too: "Drafts agent 1.0.0 (pinned by flow acme.drafting 1.0.0)".
 
 ![No shouting's page, whose agent version is one a flow pins: Drafts agent 1.0.0 (pinned by flow acme.drafting 1.0.0).](../../../../assets/guardrails/guardrail-flow-pinned.png)
 
-Guardrail admins also see **Unregister**. Its dialog names the agent
-versions whose turns then fail, and how they come back:
+Guardrail admins also see **Remove**. Its dialog names the agent versions
+whose turns then fail, and how they come back:
 
 ```text
-Unregister No secrets in answers?
+Remove No secrets in answers?
 Guarded agent 1.0.0 (latest) names it: its turns fail, saying it isn't registered, until it's registered again or a version that doesn't name it goes live.
-There's no reinstate: registering it again brings it back.
+There's no undo: registering it again brings it back.
 ```
 
 - **When a flow pins one of those versions,** it adds: "The flow version
   that pins it fails at that step too: …".
-- **Once it's done,** the dialog shows the guardrail's definition, to
-  register it again.
+- **Once it's done,** the dialog says "Removed. Its definition, to register
+  it again:", and shows it.
 - **Past 100 agents or flows,** the page and the dialog say which weren't
   checked: "Only the first 100 agents were checked." They say the same of
   the first 100 flows' steps.
+- **Under `kindgi dev`,** **Remove** is there but off: "Remove is off under
+  kindgi dev: the pack's files are its guardrails. Take it out of the pack,
+  and kindgi dev reloads it."
 
 ![The Unregister No secrets in answers? dialog: Guarded agent 1.0.0 (latest) names it, its turns fail until it's registered again or a version that doesn't name it goes live, and there's no reinstate.](../../../../assets/guardrails/guardrail-unregister.png)
 

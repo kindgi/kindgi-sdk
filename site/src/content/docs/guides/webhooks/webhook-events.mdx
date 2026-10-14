@@ -177,13 +177,12 @@ signature and deduplicate.
 
 ## In the console
 
-Tenant admins have a **Webhooks** page: every endpoint the tenant sends to,
-and how its deliveries went. Times are UTC.
+Tenant admins have an **Outgoing webhooks** page: "Where Kindgi tells your
+other systems that something happened, and how each delivery went." It
+lists every endpoint the tenant sends to.
 
 ![The Webhooks page: "2 endpoints; 1 is failing (its last delivery isn't getting through).", a search box and the Columns menu, Order system (a run finished, signed with dev/hooks-signing, "Of its 1 delivery, 1 was delivered.") and Old CRM ("Of its 1 delivery, 0 were delivered and 1 is still being sent.").](../../../../assets/webhooks/webhooks-list.png)
 
-- **The headline** counts the endpoints and the failing ones: "2 endpoints; 1
-  is failing (its last delivery isn't getting through)."
 - **Each endpoint** says what it sends, such as "a run finished", and the
   secret it signs with, by name only. It also says how its recent deliveries
   went: "Of its 1 delivery, 1 was delivered."
@@ -211,13 +210,13 @@ by a column's header.
 - **Send a test** queues a test event: "Queued: follow it below." It shows in
   the list as "a test".
 - **Send again** queues that delivery once more: "Queued."
-- **Unregister** says "Nothing more is sent to it. Deliveries still waiting
-  are marked failed." An unregistered endpoint can't be brought back from
-  the console: add it again. Its old address then says "No endpoint by that
-  id here: it was unregistered, or never existed."
+- **Remove** asks first, "Remove this endpoint?": "Nothing more is sent to
+  it. Deliveries still waiting are marked failed." and "It can't be brought
+  back: add it again to start over." Its old address then says "No endpoint
+  by that id here: it was removed, or never existed."
 
 A runtime without a secrets store sends no webhooks, and the page says so:
-"Outbound webhooks aren't turned on here". Endpoints sign with a secret kept
+"Outgoing webhooks aren't turned on here". Endpoints sign with a secret kept
 in the store, so set `KINDGI_SECRETS_BACKEND` and restart the runtime.
 
 ![The Webhooks page on a runtime without a secrets store: "Outbound webhooks aren't turned on here", and that they need a secrets store, set with KINDGI_SECRETS_BACKEND.](../../../../assets/webhooks/webhooks-off.png)

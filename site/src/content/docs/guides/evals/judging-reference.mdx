@@ -200,19 +200,15 @@ fourth was never judged. So `judgments` is 4, `runsWithJudgments` 3, and
 ## In the console
 
 A project's **Quality** section is the judging queue and its rules in the
-console. Its headline says where judging stands:
-
-> 5 runs wait for a judgment (3 for you) · 1 judged this week · 1 dismissed
-> this week · 7 added this week · 0 proposals to review.
-
-When a proposal waits for a reviewer, "· 1 waiting for a reviewer" follows.
-The section has five tabs: **Waiting**, **Rules**, **Trends**, **Judge
-classes** and **Proposals**. Their tables sort by a column's header, and
+console: "Runs waiting for a person to judge them, where each judged one
+stands, and the rules that pick them." It has five tabs: **Queue**,
+**Rules**, **Trends**, **Judge classes** and **Proposals**. Their tables
+sort by a column's header, and
 **Columns** chooses which columns each shows. The tab, the filters and each
 table's view go in the page's address, such as `?tab=rules`, so a link opens
 the same view.
 
-### Waiting
+### Queue
 
 ![The Quality section's Waiting tab: the headline, the filters, "2 more wait for other judges.", the Columns menu, and three runs of demo.echo-agent 1.0.0 queued by the Everything and Support sample rules, each needing an expert judgment, with Dismiss.](../../../../assets/quality/quality-waiting.png)
 
@@ -221,14 +217,19 @@ Each row is a run in the queue:
 - **What ran:** the agent or flow and its version, and when it finished. It
   links the run's **Judgments** tab, where you judge it, as
   [Judge an item](../judge-a-runs-output/#judge-an-item) shows.
-- **Why it's here:** the rules that queued it.
+  **only this agent** filters the queue to its agent.
+- **Why it's here:** the rules that queued it. Each rule's name filters the
+  queue to that rule.
 - **Where it stands:** what it still needs, such as "Needs an expert
   judgment (1 so far, unclassified)", or how a closed one ended.
+- **Added:** when it joined the queue.
 
-Filter it by state, **Waiting**, **Judged**, **Dismissed** or **Erased**. Or
-by **For me** or **Everyone's** ("2 more wait for other judges."), by rule
-and by agent. **Dismiss** takes a run out of the queue with a reason, and
-**Reopen** puts a dismissed one back.
+**Show** filters it by state: **Waiting**, **Judged**, **Dismissed** or
+**Erased**. **For me** or **Everyone's** says whose ("2 more wait for other
+judges."). A rule or an agent it's filtered to shows as a chip beside
+them. **Dismiss** asks first, "Dismiss this run from the queue?", and takes
+a run out of the queue with an optional reason. **Reopen** puts a dismissed
+one back.
 
 ![The Waiting tab filtered to Dismissed and Everyone's: a run of demo.echo-agent 1.0.0 queued by the Everything and Support sample rules, "Dismissed by a person (11111111…) 2026-10-11 12:23 UTC: A test order", with Reopen.](../../../../assets/quality/quality-dismissed.png)
 
@@ -240,10 +241,10 @@ Each rule is in words:
 
 - **Which runs:** "Completed runs of Dev-Echo Agent", and how many it takes:
   "Takes every matching run", or "Takes 1 in 10".
-- **What it wants:** "An expert judgment", "Any judgment" or "A bot
-  judgment".
-- **Its cap:** "No cap", or no new items while that many are open.
-- **What it has open now:** for example "3 open", linking **Waiting**.
+- **Wants:** "An expert judgment", "Any judgment" or "A bot judgment".
+- **Cap:** "No cap", or no new items while that many are open.
+- **Open now:** for example "3 open", linking the queue filtered to the
+  rule.
 
 A rule matches an agent's or a flow's own runs, not an agent's turns as a
 flow's step. Replays never match.
@@ -251,8 +252,9 @@ flow's step. Replays never match.
 Project editors see **New rule**, and **Change** on each rule. The editor
 shows what the rule would have queued from the recent runs, and saving makes
 a new version of the rule. **History** lists what each version changed, who
-changed it and when. **Unregister** stops a rule, and the runs it queued
-stay in the queue.
+changed it and when. **Remove** asks first, naming the rule: it stops
+adding runs as they end, and its open items stay in the queue, to judge or
+dismiss.
 
 ![The New judging rule dialog, over the Rules tab.](../../../../assets/quality/quality-rule-editor.png)
 

@@ -249,15 +249,15 @@ checks every call.
   set the tenant's own line, `console.readOnlyNotice`, it shows instead,
   such as "Ask Ana Ruiz for edit access."
 - **An editor** may also "run agents and flows, work on agent versions,
-  publish data blocks, judge runs, compare versions on test sets", in the
-  console's words. An agent's page offers them **Register new version** and
+  publish prompts and settings, judge runs, compare versions on test sets",
+  in the console's words. An agent's page offers them **Register new version** and
   **Start run**, which a viewer's doesn't.
 - **A project admin** may also "promote versions, register agents and
   tools, build test sets, rescore comparisons, set judge classes", and
   changes who works in the project ([Members](#in-the-console-members)).
 - **The tenant's sections** show to those they're for:
-  - People, Service accounts, Policies, Webhooks, Sign-in, Access audit and
-    the like, to tenant admins;
+  - People, Service accounts, Policies, Outgoing webhooks, Sign-in, Access
+    audit and the like, to tenant admins;
   - the Inbox and Approvals, to reviewers;
   - Teams, to tenant admins and anyone in a team.
 
@@ -456,10 +456,8 @@ like other lists. In the TypeScript and Python clients, it's
 ### In the console: Members
 
 A project's **Members** page shows everyone with access, and how, to the
-project's editors and admins. It starts with a count, each one counted once
-by the way their role comes from, such as "6 people and 1 service account have access
-to Support: 4 through a role of their own, 2 through a team, 1 as a tenant
-admin." Then each one, with their role and every way in: "Their own role
+project's editors and admins: "Who has access to this project, and how."
+It lists each one, with their role and every way in: "Their own role
 (editor)", "Team Support crew (editor)", "Admin of Acme", "Tenant admin". A
 way the console can't name reads "Another way in". Emails show to the
 project's admins.
@@ -545,7 +543,8 @@ user or a service token. A `401`, for an unknown caller, never is.
 time, newest first. Tenant admins are the only people its API answers.
 **Next page** leads to the older ones. A denied one has a ✗ and a red row. Narrow
 the list by who, on what, action, result (allowed or denied), and time with
-From and To, which are in UTC like the times in the list. The filters are in
+From and To, which are on the same clock as the times in the list: your
+own, or UTC if you choose it under **Times** in the console's person menu. The filters are in
 the page's address, so you can copy it to share what you see. Clicking a row
 shows the decision: allowed or denied, the part that failed, such as
 `actor`, how long the check took, the reason, the request's correlation id,
