@@ -1390,6 +1390,27 @@ const CommonMutationErrors: Readonly<Record<string, ResponseSpec>> = {
   '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
 };
 
+/** A secrets store's external provider (the router's), answering a read or a write: each at its own status. */
+const SecretProviderErrors: Readonly<Record<string, ResponseSpec>> = {
+  '429': ErrorResponse(
+    "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+  ),
+  '502': ErrorResponse(
+    "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+  ),
+  '503': ErrorResponse(
+    "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
+  ),
+};
+
+/** A secret's value written: a body that fails validation, a name or value the store refuses (the caller's), or its provider's answer. */
+const SecretWriteErrors: Readonly<Record<string, ResponseSpec>> = {
+  '400': ErrorResponse(
+    "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
+  ),
+  ...SecretProviderErrors,
+};
+
 /** A change to the tenant's identity providers: not a tenant admin, or the operator manages sign-in. */
 const ProviderChangeRefused: ResponseSpec = ErrorResponse(
   "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
@@ -6755,6 +6776,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('DeploymentSecretsSyncResponse'),
       },
       ...CommonMutationErrors,
+      ...SecretWriteErrors,
       '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
       '404': ErrorResponse('No deployment with that id, or referenced secret does not exist.'),
     },
@@ -8381,19 +8403,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('UpsertTenantConfigResult'),
       },
       ...CommonMutationErrors,
-      '400': ErrorResponse(
-        "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
-      ),
+      ...SecretWriteErrors,
       '409': ErrorResponse('`ifRevision` was set and did not match the stored revision.'),
-      '429': ErrorResponse(
-        "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
-      ),
-      '502': ErrorResponse(
-        "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
-      ),
-      '503': ErrorResponse(
-        "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
-      ),
     },
   },
 
@@ -8625,19 +8636,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretSetResponse'),
       },
       ...CommonMutationErrors,
-      '400': ErrorResponse(
-        "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
-      ),
+      ...SecretWriteErrors,
       '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
-      '429': ErrorResponse(
-        "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
-      ),
-      '502': ErrorResponse(
-        "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
-      ),
-      '503': ErrorResponse(
-        "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
-      ),
     },
   },
   {
@@ -8668,6 +8668,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretRotateResponseAsync'),
       },
       ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'A body that fails validation (`bad-input`), or a rotation the store refuses as it would the write: `secret-value-too-large` for a new value over its size limit, or `reserved-name-prefix` for a `kindgi.` name.',
+      ),
+      ...SecretProviderErrors,
       '403': ErrorResponse('Bearer token missing `secrets:rotate` capability.'),
       '404': ErrorResponse('Unknown secret.'),
       '501': ErrorResponse(

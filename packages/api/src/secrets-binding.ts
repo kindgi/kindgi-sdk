@@ -477,6 +477,20 @@ export type SecretError =
       readonly currentVersion: number;
     }
   /**
+   * A write the store refuses for its name or its value, with the code `set`
+   * gives it: the caller's `400`, the message saying the store's rule. A
+   * store that rotates by setting a new version answers a rotation's new
+   * value the same way.
+   */
+  | {
+      readonly code:
+        | 'reserved-name-prefix'
+        | 'secret-name-invalid'
+        | 'secret-value-too-large'
+        | 'secret-value-invalid';
+      readonly message: string;
+    }
+  /**
    * The store doesn't do this by design (the dev store keeps no versions to
    * rotate and no revocation): the message says what to do instead.
    */
