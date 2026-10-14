@@ -35,7 +35,7 @@ import type {
  */
 export interface ArtifactsClient {
   /**
-   * Upload bytes as an artifact. Over the runtime's cap (default 100 MB)
+   * Upload bytes as an artifact. Over the runtime's cap (default 100 MiB)
    * is `413 artifact-too-large`; no `write` on its project is `403`.
    *
    * @wire `POST /v1/artifacts` (multipart) — see

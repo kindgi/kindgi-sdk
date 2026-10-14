@@ -713,6 +713,17 @@ A new grant can take a minute or two to apply.
   version your server reads, normally `1`
   (`gcloud secrets versions list $N-secrets-aad-key` lists them). Without
   it, `terraform plan` stops and asks for it.
+- **Restore Cloud SQL:** a point-in-time recovery always makes a new
+  instance, and a backup can go into one too (restored into the serving
+  instance, it overwrites everything on it). `database_instance` moves the
+  server onto the new instance: the instance's name, and a secret of yours
+  holding the server's URL to it. The module's own instance stays as it is.
+  The module's README has the steps, under
+  [Serving from a restored instance](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#serving-from-a-restored-instance):
+  - the new instance's URL, and the server's read access to it;
+  - the erasure replay before it serves
+    ([Erasures and backups](../back-up-and-restore/#erasures-and-backups));
+  - the switch, and the way back.
 - **Rotate a secret:** add a version, then roll a new revision of each service
   that reads it (`gcloud run services update … --update-labels=rotated=$(date +%s)`).
 - **The AAD key is never rotated.** Every stored secret is bound to the

@@ -77,7 +77,8 @@ If the pack's service refuses the token, the runtime's startup log says so:
 | | `roles/cloudkms.viewer` | the KMS key; needed only by older runtimes, whose startup check read the key's metadata |
 | | `roles/artifactregistry.reader` | the repository, or yours (`image_repository`) |
 | | `roles/cloudsql.client` | the project, conditioned on Kindgi's instance |
-| | `roles/secretmanager.secretAccessor` | each of its secrets, and each one in `server_secret_env` |
+| | `roles/cloudsql.client`, only with `database_instance` | the project, conditioned on that instance, with a condition of its own: [serving from a restored instance](../cloud-run/#operate-it) |
+| | `roles/secretmanager.secretAccessor` | each of its secrets, and each one in `server_secret_env`; not `database_instance`'s `url_secret`, which you grant |
 | | `roles/aiplatform.user`, only with `vertex_ai = true` | the project: [Gemini](../cloud-run/#use-gemini) |
 | | `roles/cloudkms.signerVerifier` and `roles/cloudkms.publicKeyViewer`, only with `export_signing = "kms"` | the export signing key: [signed exports](../../guides/observability/export-signed-evidence/) |
 | The pack's service account | `roles/secretmanager.secretAccessor` | the pack token and your pack's secrets |
