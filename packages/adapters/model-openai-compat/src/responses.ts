@@ -29,6 +29,7 @@ import type {
 } from '@kindgi/capabilities';
 import type { AttemptCounter } from '@kindgi/capabilities/attempts';
 
+import { sendWithRetries } from './retry.js';
 import { computeCost, decodeToolName, encodeToolName, parseArguments } from './wire.js';
 
 type InputItem = OpenAI.Responses.ResponseInputItem;
@@ -51,6 +52,8 @@ export const EXTRA_BODY_RESERVED_RESPONSES = [
 export interface ResponsesCall {
   readonly client: OpenAI;
   readonly attempts: AttemptCounter;
+  /** HTTP attempts in all for a retryable failure, from the caller's `maxRetries` (`retryAttempts`). */
+  readonly maxAttempts: number;
   readonly input: ModelCallInput;
   readonly modelInfo: ModelInfo;
   readonly providerId: string;
@@ -92,34 +95,43 @@ export async function invokeResponses(call: ResponsesCall): Promise<ModelCallRes
   const { input } = call;
   const tools = input.tools?.map(toTool);
   const counted = await call.attempts.count(() =>
-    call.client.responses.create(
+    sendWithRetries(
+      () =>
+        call.client.responses.create(
+          {
+            ...call.extraBody,
+            model: input.model,
+            input: toInput(input.messages, input.model),
+            ...(tools !== undefined && tools.length > 0 && { tools }),
+            ...(input.structuredOutput !== undefined && {
+              text: {
+                format: {
+                  type: 'json_schema' as const,
+                  name: input.structuredOutput.name,
+                  schema: input.structuredOutput.schema,
+                  strict: true,
+                },
+              },
+            }),
+            ...(call.temperature !== undefined && { temperature: call.temperature }),
+            ...(call.reasoningEffort !== undefined && {
+              reasoning: {
+                ...(isRecord(call.extraBody.reasoning) ? call.extraBody.reasoning : {}),
+                effort: call.reasoningEffort as OpenAI.ReasoningEffort,
+              },
+            }),
+            ...(input.maxOutputTokens !== undefined && {
+              max_output_tokens: input.maxOutputTokens,
+            }),
+            store: false,
+            stream: false,
+          },
+          requestOptions(input),
+        ),
       {
-        ...call.extraBody,
-        model: input.model,
-        input: toInput(input.messages, input.model),
-        ...(tools !== undefined && tools.length > 0 && { tools }),
-        ...(input.structuredOutput !== undefined && {
-          text: {
-            format: {
-              type: 'json_schema' as const,
-              name: input.structuredOutput.name,
-              schema: input.structuredOutput.schema,
-              strict: true,
-            },
-          },
-        }),
-        ...(call.temperature !== undefined && { temperature: call.temperature }),
-        ...(call.reasoningEffort !== undefined && {
-          reasoning: {
-            ...(isRecord(call.extraBody.reasoning) ? call.extraBody.reasoning : {}),
-            effort: call.reasoningEffort as OpenAI.ReasoningEffort,
-          },
-        }),
-        ...(input.maxOutputTokens !== undefined && { max_output_tokens: input.maxOutputTokens }),
-        store: false,
-        stream: false,
+        attempts: call.maxAttempts,
+        ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
       },
-      requestOptions(input),
     ),
   );
   const response = counted.value;

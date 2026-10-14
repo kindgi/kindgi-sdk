@@ -47,8 +47,11 @@ export function isSecretKey(key: string, extra: readonly string[] = []): boolean
   return [...SECRET_KEY_ENDINGS, ...extra.map(normalize)].some((end) => k.endsWith(end));
 }
 
-/** A Kindgi token: `kgi_` and a two-letter kind, then its body. */
-const KINDGI_TOKEN = /\bkgi_([a-z]{2})_([A-Za-z0-9._~+/=-]+)/g;
+/**
+ * A Kindgi token: `kgi_`, a kind of two or three letters (`bt`, `ak`, `sk`,
+ * `pt`, `lk`, the license renewer's `lrk` and `lrp`), then its body.
+ */
+const KINDGI_TOKEN = /\bkgi_([a-z]{2,3})_([A-Za-z0-9._~+/=-]+)/g;
 const BEARER = /\b(Bearer)\s+[^\s"',;]+/gi;
 const URL_PASSWORD = /\b([a-z][a-z0-9+.-]*:\/\/[^\s:/@]+):[^\s@/]+@/gi;
 

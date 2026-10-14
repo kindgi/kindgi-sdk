@@ -21,6 +21,8 @@ code.
 | `LoopNodeOutput` | type | Return shape of a loop node |
 | `WaitpointCancelledError` | class | Thrown by `ctx.waitForToken(...)` when the wait is cancelled externally |
 
+From runtime 0.1.8, `NodeContext`'s `authorize`, `can` and `check` are decided for every run a person or a key starts, against the run's principal.
+
 ## What does NOT live here
 
 - Wire-vocabulary types (`RunStatus`, `RunResult`, `JournalEntry`,
