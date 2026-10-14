@@ -231,6 +231,19 @@ variable "database_deletion_protection" {
   default     = true
 }
 
+variable "database_backup_location" {
+  description = <<-EOT
+    Where Cloud SQL keeps the instance's backups: a region (northamerica-northeast2) or a multi-region (us, eu, asia).
+    Unset: Cloud SQL's default, the multi-region geographically closest to the instance, which can be outside the instance's region and country. Set it when backups must stay in a region.
+  EOT
+  type        = string
+  default     = null
+  validation {
+    condition     = var.database_backup_location == null || can(regex("^[a-z]+(-[a-z]+[0-9]+)?$", var.database_backup_location))
+    error_message = "database_backup_location is a region (northamerica-northeast2) or a multi-region (us, eu, asia), not a zone."
+  }
+}
+
 # ---- network ------------------------------------------------------------------
 
 variable "network_mode" {

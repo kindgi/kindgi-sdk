@@ -50,6 +50,42 @@ run "defaults_keep_kms_and_the_own_repository" {
   }
 }
 
+run "backups_go_where_cloud_sql_puts_them_by_default" {
+  command = plan
+
+  assert {
+    condition     = google_sql_database_instance.kindgi.settings[0].backup_configuration[0].enabled && google_sql_database_instance.kindgi.settings[0].backup_configuration[0].point_in_time_recovery_enabled
+    error_message = "Backups and point-in-time recovery are on."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi.settings[0].backup_configuration[0].location == null
+    error_message = "Without database_backup_location, the module sets no backup location: Cloud SQL's default."
+  }
+}
+
+run "a_backup_location_keeps_backups_there" {
+  command = plan
+
+  variables {
+    database_backup_location = "northamerica-northeast2"
+  }
+
+  assert {
+    condition     = google_sql_database_instance.kindgi.settings[0].backup_configuration[0].location == "northamerica-northeast2"
+    error_message = "database_backup_location is the backups' location."
+  }
+}
+
+run "a_zone_is_refused_as_the_backup_location" {
+  command = plan
+
+  variables {
+    database_backup_location = "northamerica-northeast2-a"
+  }
+
+  expect_failures = [var.database_backup_location]
+}
+
 run "secrets_backend_none_has_no_kms" {
   command = plan
 

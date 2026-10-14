@@ -120,6 +120,14 @@ otherwise defaults to `ENTERPRISE_PLUS`, which takes only the
 `db-perf-optimized-N-*` tiers, and the apply fails with
 `Invalid Tier (db-f1-micro) for (ENTERPRISE_PLUS) Edition`.
 
+Cloud SQL backs the database up daily, with point-in-time recovery. Unless you
+set `database_backup_location` (a region such as `northamerica-northeast2`, or
+a multi-region), Cloud SQL keeps the backups in the multi-region geographically
+closest to the instance
+([Google's backup options](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/backup-options)),
+which can be outside its region and country. Point-in-time recovery's
+transaction logs stay in the instance's own location either way.
+
 ## 2. The images into Artifact Registry
 
 Cloud Run pulls from Artifact Registry, not from the runtime's private
