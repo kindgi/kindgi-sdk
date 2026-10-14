@@ -309,16 +309,19 @@ describe('a failure the status alone decides', () => {
   });
 });
 
-describe('an abort during the wait between attempts ends the call at once', () => {
-  test('a 429, then an abort while it waits: one request, the turn reason', async () => {
+describe('an abort observed after a failed attempt ends the call at once', () => {
+  test('a 429, then an already-aborted signal: one request, the turn reason', async () => {
     const controller = new AbortController();
     const reason = new Error('turn cancelled');
     const seen: number[] = [];
     const fetch = (async (): Promise<Response> => {
       seen.push(seen.length);
       if (seen.length === 1) {
-        // Abort while `withRetries` waits before the second attempt: the wait
-        // is abortable only because the signal reaches `sendWithRetries`.
+        // Queue the abort on a microtask so it lands while this 429 is read,
+        // before the inter-attempt wait. `withRetries` sees it in its
+        // `stopped()` check right after the failed attempt and ends the call;
+        // that it ends at all proves the signal reached `sendWithRetries` (a
+        // dropped signal would retry). model-shared pins the abortable wait.
         queueMicrotask(() => controller.abort(reason));
         return new Response(JSON.stringify({ error: { message: 'slow down' } }), {
           status: 429,
