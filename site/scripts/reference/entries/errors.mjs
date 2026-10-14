@@ -2292,7 +2292,7 @@ export const ERROR_ENTRIES = {
   },
   'site-invalid': {
     description:
-      "A site's settings were refused. Registering one needs a `displayName`, an `origin` and an `approvalsUrl`, and a setting the API doesn't know is refused. An `origin` is `https://` with no path, query, fragment or credentials (`http://` only on a loopback host); an `approvalsUrl` is on that origin, with `{approvalId}` in it; `allowedRoles` holds 1 to 20 role names (a-z, 0-9, `_` and `-`); a `roleMap` names only roles in `allowedRoles`, and its reviewer roles are `standard` or `senior`, never above `reviewerCeiling`; a `displayName` is 1 to 100 characters, with no control, format or invisible characters; `peopleCap` is a whole number from 1 to 10,000, and `newPeoplePerDay` from 1 to 1,000. The message says the rule that was broken.",
+      "A site's settings were refused. Registering one needs a `displayName`, an `origin` and an `approvalsUrl`, and a setting the API doesn't know is refused. An `origin` is `https://` with no path, query, fragment or credentials (`http://` only on a loopback host); an `approvalsUrl` is on that origin, with `{approvalId}` in it; `allowedRoles` holds 1 to 20 role names of up to 64 characters (a-z, 0-9, `_` and `-`); a `roleMap` names only roles in `allowedRoles`, and its reviewer roles are `standard` or `senior`, never above `reviewerCeiling`; a `displayName` is 1 to 100 characters, with no control, format or invisible characters; `peopleCap` is a whole number from 1 to 10,000, and `newPeoplePerDay` from 1 to 1,000. The message says the rule that was broken.",
     details: [
       {
         key: 'field',

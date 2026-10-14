@@ -124,9 +124,9 @@ function makeApp(
       sites.has(siteId)
         ? { kind: 'ok', enrollment: { code: 'enroll-again', expiresAt: NOW } }
         : { kind: 'not-found' },
-    revokeKey: async ({ siteId }) => {
+    revokeKey: async ({ siteId, kid }) => {
       const site = sites.get(siteId);
-      return site === undefined ? { kind: 'not-found' } : { kind: 'ok', site };
+      return site === undefined || kid !== 'k1' ? { kind: 'not-found' } : { kind: 'ok', site };
     },
     async enroll(input) {
       calls.push({ method: 'enroll', input });
@@ -313,10 +313,17 @@ describe('the sites of a project (tenant admins)', () => {
     expect(code.status).toBe(201);
     expect(code.body).toEqual({ code: 'enroll-again', expiresAt: NOW });
     expect((await h.call(ADMIN, 'POST', `${base}/keys/k1/revoke`)).status).toBe(200);
+    // A key the site doesn't have: the same code, a message that names the key too.
+    const noKey = await h.call(ADMIN, 'POST', `${base}/keys/k-unknown/revoke`);
+    expect(noKey.status).toBe(404);
+    expect(noKey.body.error).toMatchObject({
+      code: 'site-not-found',
+      message: 'No site with that id in this project, or no key with that id on the site',
+    });
     expect((await h.call(ADMIN, 'POST', `${base}/unregister`)).body.unregisteredAt).toBe(NOW);
     expect(
-      (await h.call(ADMIN, 'GET', `/v1/projects/${P1}/sites/${randomUUID()}`)).body.error.code,
-    ).toBe('site-not-found');
+      (await h.call(ADMIN, 'GET', `/v1/projects/${P1}/sites/${randomUUID()}`)).body.error,
+    ).toMatchObject({ code: 'site-not-found', message: 'No site with that id in this project' });
   });
 });
 
