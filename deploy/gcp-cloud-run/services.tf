@@ -23,6 +23,16 @@ locals {
     "KINDGI_TRUSTED_PROXIES",
   ])
   server_extra_env = setunion(keys(var.server_env), keys(var.server_secret_env))
+
+  # What a server serving many tenants needs, each named when it's missing.
+  multi_missing = compact([
+    var.openfga_api_url == "" ? "openfga_api_url (without an authorization store, no tenant would have an admin)" : "",
+    contains(keys(var.server_secret_env), "KINDGI_OPENFGA_PRESHARED_KEY") ? "" : "server_secret_env's KINDGI_OPENFGA_PRESHARED_KEY (a key the authorization store accepts)",
+    lookup(var.server_env, "KINDGI_TENANT_HOST_ACCESS", "") == "isolated" ? "" : "server_env's KINDGI_TENANT_HOST_ACCESS = \"isolated\"",
+    lookup(var.server_env, "KINDGI_PACK_ROUTING", "") == "per-deployment" ? "" : "server_env's KINDGI_PACK_ROUTING = \"per-deployment\"",
+    lookup(var.server_env, "KINDGI_PACK_ENDPOINT_HOSTS", "") != "" ? "" : "server_env's KINDGI_PACK_ENDPOINT_HOSTS (the hosts a deployment's endpoint may be on)",
+    var.secrets_backend == "postgres" ? "" : "secrets_backend = \"postgres\" (each endpoint's token is sealed under its key)",
+  ])
 }
 
 # ---- the pack service ---------------------------------------------------------
@@ -503,12 +513,12 @@ resource "google_cloud_run_v2_service" "server" {
       error_message = "The pack_* settings configure the one pack service, which exists only with pack_image: set pack_image, or unset them."
     }
     precondition {
-      condition = local.pack || (
-        lookup(var.server_env, "KINDGI_PACK_ROUTING", "") == "per-deployment"
-        && lookup(var.server_env, "KINDGI_PACK_ENDPOINT_HOSTS", "") != ""
-        && lookup(var.server_env, "KINDGI_TENANCY", "") == "multi"
-      )
-      error_message = "Without pack_image there's no pack service, so the server must route each deployment to its own: set server_env's KINDGI_PACK_ROUTING = \"per-deployment\", KINDGI_PACK_ENDPOINT_HOSTS, and KINDGI_TENANCY = \"multi\" (per-deployment routing serves many tenants)."
+      condition     = var.tenancy != "single" || local.pack
+      error_message = "tenancy = \"single\" needs pack_image: the one pack service the server calls."
+    }
+    precondition {
+      condition     = var.tenancy != "multi" || !local.pack
+      error_message = "tenancy = \"multi\" takes no pack_image: each deployment is a service of its own, whose endpoint carries its own URL, token and auth, and the server refuses the one pack service's. Leave it unset."
     }
     precondition {
       condition     = !local.kms || var.secrets_aad_key_version != null
@@ -539,8 +549,8 @@ resource "google_cloud_run_v2_service" "server" {
       error_message = "tenancy = \"multi\" takes no seed_tenant_id or seed_user_id: a server serving many tenants takes each request's tenant from its key or session, and refuses KINDGI_TENANT_ID and KINDGI_SEED_USER_ID. Leave both unset."
     }
     precondition {
-      condition     = var.tenancy != "multi" || var.openfga_api_url != ""
-      error_message = "tenancy = \"multi\" needs openfga_api_url: without an authorization store, no tenant would have an admin, and the server won't start."
+      condition     = var.tenancy != "multi" || length(local.multi_missing) == 0
+      error_message = "tenancy = \"multi\" needs: ${join("; ", local.multi_missing)}. The server won't start without them."
     }
     precondition {
       condition     = length(setintersection(local.server_extra_env, toset(["KINDGI_AUTH_SECRET", "KINDGI_AUTH_SECRET_PATH"]))) == 0 || var.public_url != ""

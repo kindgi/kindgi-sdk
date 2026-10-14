@@ -419,6 +419,8 @@ run "the_refused_names_cover_every_option_kms_signing" {
 
 # ---- tenancy ------------------------------------------------------------------
 
+# "single", the default: the tenant, the seed user and the one pack service,
+# as before tenancy existed.
 run "single_sets_the_tenant_and_seed_user_and_no_tenancy" {
   command = plan
   assert {
@@ -444,97 +446,6 @@ run "single_sets_the_tenant_and_seed_user_and_no_tenancy" {
   }
 }
 
-run "multi_sets_tenancy_and_neither_id" {
-  command = plan
-  variables {
-    tenancy         = "multi"
-    seed_tenant_id  = null
-    seed_user_id    = null
-    openfga_api_url = "http://openfga.acme.internal:8080"
-  }
-  assert {
-    condition = one([
-      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
-      if e.name == "KINDGI_TENANCY"
-    ]) == "multi"
-    error_message = "With tenancy = \"multi\", the server gets KINDGI_TENANCY = multi."
-  }
-  assert {
-    condition = length(setintersection(toset([
-      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name
-    ]), toset(["KINDGI_TENANT_ID", "KINDGI_SEED_USER_ID"]))) == 0
-    error_message = "With tenancy = \"multi\", the server gets neither KINDGI_TENANT_ID nor KINDGI_SEED_USER_ID: the runtime refuses both."
-  }
-  assert {
-    condition = alltrue([
-      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : contains(local.server_module_env, e.name)
-    ])
-    error_message = "A name the module sets on the server is missing from server_module_env."
-  }
-}
-
-run "multi_refuses_a_seed_tenant" {
-  command = plan
-  variables {
-    tenancy         = "multi"
-    seed_user_id    = null
-    openfga_api_url = "http://openfga.acme.internal:8080"
-  }
-  expect_failures = [google_cloud_run_v2_service.server]
-}
-
-run "multi_refuses_a_seed_user" {
-  command = plan
-  variables {
-    tenancy         = "multi"
-    seed_tenant_id  = null
-    openfga_api_url = "http://openfga.acme.internal:8080"
-  }
-  expect_failures = [google_cloud_run_v2_service.server]
-}
-
-run "multi_needs_openfga" {
-  command = plan
-  variables {
-    tenancy        = "multi"
-    seed_tenant_id = null
-    seed_user_id   = null
-  }
-  expect_failures = [google_cloud_run_v2_service.server]
-}
-
-run "single_needs_the_seed_tenant" {
-  command = plan
-  variables {
-    seed_tenant_id = null
-  }
-  expect_failures = [google_cloud_run_v2_service.server]
-}
-
-run "single_needs_the_seed_user" {
-  command = plan
-  variables {
-    seed_user_id = null
-  }
-  expect_failures = [google_cloud_run_v2_service.server]
-}
-
-run "tenancy_refuses_a_word" {
-  command = plan
-  variables {
-    tenancy = "many"
-  }
-  expect_failures = [var.tenancy]
-}
-
-run "kindgi_tenancy_goes_in_its_variable" {
-  command = plan
-  variables {
-    server_env = { KINDGI_TENANCY = "multi" }
-  }
-  expect_failures = [google_cloud_run_v2_service.server]
-}
-
 run "with_a_pack_image_the_server_calls_the_one_pack_service" {
   command = plan
 
@@ -556,33 +467,114 @@ run "with_a_pack_image_the_server_calls_the_one_pack_service" {
   }
 }
 
-run "without_a_pack_image_there_is_no_pack_service" {
+run "single_needs_the_seed_tenant" {
   command = plan
+  variables {
+    seed_tenant_id = null
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
 
+run "single_needs_the_seed_user" {
+  command = plan
+  variables {
+    seed_user_id = null
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "single_needs_a_pack_image" {
+  command = plan
   variables {
     pack_image = ""
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "tenancy_refuses_a_word" {
+  command = plan
+  variables {
+    tenancy = "many"
+  }
+  expect_failures = [var.tenancy]
+}
+
+run "kindgi_tenancy_goes_in_its_variable" {
+  command = plan
+  variables {
+    server_env = { KINDGI_TENANCY = "multi" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+# "multi": every setting it needs, and then each one taken away.
+run "multi_sets_tenancy_and_neither_id" {
+  command = plan
+  variables {
+    tenancy         = "multi"
+    seed_tenant_id  = null
+    seed_user_id    = null
+    pack_image      = ""
+    openfga_api_url = "https://openfga-acme.a.run.app"
     server_env = {
+      KINDGI_TENANT_HOST_ACCESS  = "isolated"
       KINDGI_PACK_ROUTING        = "per-deployment"
-      KINDGI_PACK_ENDPOINT_HOSTS = "*.a.run.app"
-      KINDGI_TENANCY             = "multi"
+      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
+    }
+    server_secret_env = {
+      KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
     }
   }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_TENANCY"
+    ]) == "multi"
+    error_message = "With tenancy = \"multi\", the server gets KINDGI_TENANCY = multi."
+  }
+  assert {
+    condition = length(setintersection(toset([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name
+    ]), toset(["KINDGI_TENANT_ID", "KINDGI_SEED_USER_ID"]))) == 0
+    error_message = "With tenancy = \"multi\", the server gets neither KINDGI_TENANT_ID nor KINDGI_SEED_USER_ID: the runtime refuses both."
+  }
+  assert {
+    condition = alltrue([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : contains(local.server_module_env, e.name)
+      if !contains(keys(var.server_env), e.name) && !contains(keys(var.server_secret_env), e.name)
+    ])
+    error_message = "A name the module sets on the server is missing from server_module_env."
+  }
+}
 
+run "multi_has_no_pack_service" {
+  command = plan
+  variables {
+    tenancy         = "multi"
+    seed_tenant_id  = null
+    seed_user_id    = null
+    pack_image      = ""
+    openfga_api_url = "https://openfga-acme.a.run.app"
+    server_env = {
+      KINDGI_TENANT_HOST_ACCESS  = "isolated"
+      KINDGI_PACK_ROUTING        = "per-deployment"
+      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
+    }
+    server_secret_env = {
+      KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
+    }
+  }
   assert {
     condition     = length(google_cloud_run_v2_service.pack) == 0 && length(google_service_account.pack) == 0 && length(google_cloud_run_v2_service_iam_member.server_invokes_pack) == 0
-    error_message = "Without pack_image: no pack service, no pack account, no invoker grant."
+    error_message = "With tenancy = \"multi\": no pack service, no pack account, no invoker grant."
   }
   assert {
     condition     = length(google_secret_manager_secret_iam_member.pack_reads_token) == 0 && length(google_secret_manager_secret_iam_member.pack_reads_its_secrets) == 0
     error_message = "No pack account, so none of its secret grants."
   }
   assert {
-    condition     = !contains([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name], "KINDGI_PACK_SERVICE_URL")
-    error_message = "No pack service, so no KINDGI_PACK_SERVICE_URL: each deployment is a service of its own."
-  }
-  assert {
-    condition     = length(setintersection(toset([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name]), toset(["KINDGI_PACK_SERVICE_TOKEN", "KINDGI_PACK_SERVICE_AUTH"]))) == 0 && length(google_secret_manager_secret.shared) == 0
-    error_message = "No shared pack token or its auth: each deployment's endpoint carries its own, and the server refuses these under per-deployment routing."
+    condition     = length(setintersection(toset([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name]), toset(["KINDGI_PACK_SERVICE_URL", "KINDGI_PACK_SERVICE_TOKEN", "KINDGI_PACK_SERVICE_AUTH"]))) == 0 && length(google_secret_manager_secret.shared) == 0
+    error_message = "No pack service, so none of its URL, shared token or auth: each deployment's endpoint carries its own, and the server refuses these."
   }
   assert {
     condition     = output.pack_service_url == null && output.service_accounts.pack == null
@@ -590,43 +582,224 @@ run "without_a_pack_image_there_is_no_pack_service" {
   }
 }
 
-run "pack_settings_without_a_pack_image_are_refused" {
+run "multi_in_connector_mode_needs_no_public_pack_ingress" {
   command = plan
-
   variables {
-    pack_image = ""
-    pack_env   = { ACME_MODE = "live" }
-  }
-
-  expect_failures = [google_cloud_run_v2_service.server]
-}
-
-run "connector_mode_without_a_pack_service_needs_no_public_pack_ingress" {
-  command = plan
-
-  variables {
-    pack_image    = ""
+    tenancy         = "multi"
+    seed_tenant_id  = null
+    seed_user_id    = null
+    pack_image      = ""
+    openfga_api_url = "https://openfga-acme.a.run.app"
+    server_env = {
+      KINDGI_TENANT_HOST_ACCESS  = "isolated"
+      KINDGI_PACK_ROUTING        = "per-deployment"
+      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
+    }
+    server_secret_env = {
+      KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
+    }
     network_mode  = "connector"
     vpc_connector = "projects/acme-app-dev/locations/northamerica-northeast2/connectors/acme"
-    server_env = {
-      KINDGI_PACK_ROUTING        = "per-deployment"
-      KINDGI_PACK_ENDPOINT_HOSTS = "*.a.run.app"
-      KINDGI_TENANCY             = "multi"
-    }
   }
-
   assert {
     condition     = length(google_cloud_run_v2_service.pack) == 0
     error_message = "Connector mode plans without a pack service, whatever pack_ingress says."
   }
 }
 
-run "without_a_pack_image_the_routing_settings_are_required" {
+run "multi_refuses_a_pack_image" {
   command = plan
-
   variables {
-    pack_image = ""
+    tenancy         = "multi"
+    seed_tenant_id  = null
+    seed_user_id    = null
+    openfga_api_url = "https://openfga-acme.a.run.app"
+    server_env = {
+      KINDGI_TENANT_HOST_ACCESS  = "isolated"
+      KINDGI_PACK_ROUTING        = "per-deployment"
+      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
+    }
+    server_secret_env = {
+      KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
+    }
+    pack_image = "northamerica-northeast2-docker.pkg.dev/acme-app-dev/kindgi-dev/acme-app@sha256:0000000000000000000000000000000000000000000000000000000000000000"
   }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
 
+run "multi_refuses_pack_settings" {
+  command = plan
+  variables {
+    tenancy         = "multi"
+    seed_tenant_id  = null
+    seed_user_id    = null
+    pack_image      = ""
+    openfga_api_url = "https://openfga-acme.a.run.app"
+    server_env = {
+      KINDGI_TENANT_HOST_ACCESS  = "isolated"
+      KINDGI_PACK_ROUTING        = "per-deployment"
+      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
+    }
+    server_secret_env = {
+      KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
+    }
+    pack_env = { ACME_MODE = "live" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "multi_refuses_a_seed_tenant" {
+  command = plan
+  variables {
+    tenancy         = "multi"
+    seed_user_id    = null
+    pack_image      = ""
+    openfga_api_url = "https://openfga-acme.a.run.app"
+    server_env = {
+      KINDGI_TENANT_HOST_ACCESS  = "isolated"
+      KINDGI_PACK_ROUTING        = "per-deployment"
+      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
+    }
+    server_secret_env = {
+      KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
+    }
+    seed_tenant_id = "00000000-0000-0000-0000-000000000001"
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "multi_refuses_a_seed_user" {
+  command = plan
+  variables {
+    tenancy         = "multi"
+    seed_tenant_id  = null
+    pack_image      = ""
+    openfga_api_url = "https://openfga-acme.a.run.app"
+    server_env = {
+      KINDGI_TENANT_HOST_ACCESS  = "isolated"
+      KINDGI_PACK_ROUTING        = "per-deployment"
+      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
+    }
+    server_secret_env = {
+      KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
+    }
+    seed_user_id = "00000000-0000-0000-0000-000000000002"
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "multi_needs_openfga" {
+  command = plan
+  variables {
+    tenancy        = "multi"
+    seed_tenant_id = null
+    seed_user_id   = null
+    pack_image     = ""
+    server_env = {
+      KINDGI_TENANT_HOST_ACCESS  = "isolated"
+      KINDGI_PACK_ROUTING        = "per-deployment"
+      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
+    }
+    server_secret_env = {
+      KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
+    }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "multi_needs_the_openfga_key" {
+  command = plan
+  variables {
+    tenancy         = "multi"
+    seed_tenant_id  = null
+    seed_user_id    = null
+    pack_image      = ""
+    openfga_api_url = "https://openfga-acme.a.run.app"
+    server_env = {
+      KINDGI_TENANT_HOST_ACCESS  = "isolated"
+      KINDGI_PACK_ROUTING        = "per-deployment"
+      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
+    }
+    server_secret_env = {}
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "multi_needs_isolated_host_access" {
+  command = plan
+  variables {
+    tenancy         = "multi"
+    seed_tenant_id  = null
+    seed_user_id    = null
+    pack_image      = ""
+    openfga_api_url = "https://openfga-acme.a.run.app"
+    server_env = {
+      KINDGI_PACK_ROUTING        = "per-deployment"
+      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
+    }
+    server_secret_env = {
+      KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
+    }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "multi_needs_per_deployment_routing" {
+  command = plan
+  variables {
+    tenancy         = "multi"
+    seed_tenant_id  = null
+    seed_user_id    = null
+    pack_image      = ""
+    openfga_api_url = "https://openfga-acme.a.run.app"
+    server_env = {
+      KINDGI_TENANT_HOST_ACCESS  = "isolated"
+      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
+    }
+    server_secret_env = {
+      KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
+    }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "multi_needs_the_endpoint_hosts" {
+  command = plan
+  variables {
+    tenancy         = "multi"
+    seed_tenant_id  = null
+    seed_user_id    = null
+    pack_image      = ""
+    openfga_api_url = "https://openfga-acme.a.run.app"
+    server_env = {
+      KINDGI_TENANT_HOST_ACCESS = "isolated"
+      KINDGI_PACK_ROUTING       = "per-deployment"
+    }
+    server_secret_env = {
+      KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
+    }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "multi_needs_the_postgres_secrets_backend" {
+  command = plan
+  variables {
+    tenancy         = "multi"
+    seed_tenant_id  = null
+    seed_user_id    = null
+    pack_image      = ""
+    openfga_api_url = "https://openfga-acme.a.run.app"
+    server_env = {
+      KINDGI_TENANT_HOST_ACCESS  = "isolated"
+      KINDGI_PACK_ROUTING        = "per-deployment"
+      KINDGI_PACK_ENDPOINT_HOSTS = "*.packs.acme.example"
+    }
+    server_secret_env = {
+      KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-dev-openfga-key", version = "1" }
+    }
+    secrets_backend         = "none"
+    secrets_aad_key_version = null
+  }
   expect_failures = [google_cloud_run_v2_service.server]
 }

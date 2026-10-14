@@ -181,25 +181,9 @@ It prints the build as JSON, then each step. The last steps:
 Set `server_image` and `pack_image` in `prod.tfvars` to the two digests
 (`…@sha256:…`).
 
-**Without a pack service** (runtime 0.1.8 or later): where each deployment is
-a Cloud Run service of its own (`KINDGI_PACK_ROUTING=per-deployment`, on a
-runtime serving many tenants: `KINDGI_TENANCY=multi`), leave `pack_image`
-unset. A runtime serving one tenant keeps `pack_image`.
-- **Who runs those services:** your orchestrator creates each deployment's
-  service and records its endpoint through the runtime's
-  `/v1/system/…/endpoint` routes. This module doesn't.
-- **What the module then leaves out:** the pack service, its service account
-  and its grants, the shared pack token's secret, and the server's
-  `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and
-  `KINDGI_PACK_SERVICE_AUTH`. Each deployment's endpoint carries its own token
-  and auth, and the server refuses these three under per-deployment routing.
-  `pack_call_timeout_ms` still caps each call.
-- **The routing settings** go in `server_env`: `KINDGI_PACK_ROUTING =
-  "per-deployment"`, `KINDGI_PACK_ENDPOINT_HOSTS` and `KINDGI_TENANCY =
-  "multi"`. A plan without them is refused.
-- **The `pack_*` settings** configure the one pack service, so set with no
-  `pack_image` they're refused rather than ignored.
-- **An existing deployment** that keeps `pack_image` plans no change.
+With `tenancy = "multi"` ([Serve many tenants](#serve-many-tenants)) there's
+no `pack_image` and no pack service: each deployment is a Cloud Run service of
+its own.
 
 ## 3. The secrets
 
@@ -435,35 +419,79 @@ time.
 
 ### Serve many tenants
 
-By default the server serves one tenant, `seed_tenant_id`'s. To serve every
-tenant created through `POST /v1/system/tenants`, each request's from its key
-or session, set `tenancy` (runtime 0.1.8 or later):
+By default (`tenancy = "single"`) the server serves one tenant,
+`seed_tenant_id`'s, and calls one pack service (`pack_image`). With `"multi"`,
+on runtime 0.1.8 or later, it serves every tenant created through
+`POST /v1/system/tenants`, each request's from its key or session. Each
+deployment is then a Cloud Run service of its own: your orchestrator creates
+it and records its endpoint through the runtime's `/v1/system/…` deployment
+routes. This module doesn't.
 
 ```hcl
 tenancy         = "multi"
 openfga_api_url = "https://openfga-…a.run.app"
-# no seed_tenant_id, no seed_user_id
+# no seed_tenant_id, seed_user_id or pack_image; secrets_backend stays "postgres"
+server_env = {
+  KINDGI_TENANT_HOST_ACCESS  = "isolated"
+  KINDGI_PACK_ROUTING        = "per-deployment"
+  KINDGI_PACK_ENDPOINT_HOSTS = "<the hosts the deployments' services are on>"
+}
+server_secret_env = {
+  KINDGI_OPENFGA_PRESHARED_KEY = { secret = "<a key OpenFGA accepts>", version = "1" }
+}
 ```
 
-- **The server's env:** the module sets `KINDGI_TENANCY=multi`
-  ([the variable](../../reference/env-vars/#kindgi_tenancy)), and neither
-  `KINDGI_TENANT_ID` nor `KINDGI_SEED_USER_ID`, which the runtime refuses with
-  it. The plan refuses `seed_tenant_id` and `seed_user_id` with
-  `"multi"`, so leave both unset.
-- **OpenFGA is required:** without an authorization store no tenant would
-  have an admin, and the server won't start. The plan refuses `"multi"`
-  without `openfga_api_url`.
-- **The API token** acts as the operator (`kindgi:system`), in no tenant.
+- **What the plan needs, and names when it's missing:** `openfga_api_url`
+  (without an authorization store no tenant would have an admin),
+  `KINDGI_OPENFGA_PRESHARED_KEY` in `server_secret_env`
+  ([Require a key for OpenFGA](../authorization/#require-a-key-for-openfga)),
+  `KINDGI_TENANT_HOST_ACCESS = "isolated"`,
+  `KINDGI_PACK_ROUTING = "per-deployment"` and `KINDGI_PACK_ENDPOINT_HOSTS` in
+  `server_env`, and `secrets_backend = "postgres"` (each endpoint's token is
+  sealed under its key). The server won't start without them.
+- **What the plan refuses:** `seed_tenant_id`, `seed_user_id`, `pack_image`
+  and the `pack_*` settings.
+- **What the module sets:** `KINDGI_TENANCY=multi`
+  ([the variable](../../reference/env-vars/#kindgi_tenancy)), and none of
+  `KINDGI_TENANT_ID`, `KINDGI_SEED_USER_ID`, `KINDGI_PACK_SERVICE_URL`,
+  `KINDGI_PACK_SERVICE_TOKEN` or `KINDGI_PACK_SERVICE_AUTH`. It creates no
+  pack service, pack account or pack grants, and no shared pack token.
+  `pack_call_timeout_ms` still caps each call.
+- **The API token** is the operator's: it reaches only `/v1/system/*`, in no
+  tenant. So step 5 and everything after it use a tenant's key instead:
+  - **A tenant:** `POST /v1/system/tenants` with the API token. Without
+    `firstAdmin`, the answer carries the first admin's key, sent once.
+  - **Its image repository:**
+    `PUT /v1/system/tenants/{tenantId}/image-prefix`, before its first
+    deploy. Without it, a deploy is refused with `409 image-prefix-unset`.
 - **An existing deployment** keeps its tenant, with its data, keys and
-  people, as the first of many at the first `"multi"` boot. Take
-  `seed_tenant_id` and `seed_user_id` out in the same apply.
+  people, as the first of many at the first `"multi"` boot. Before the
+  switch:
+  - **OpenFGA first:** if it has no `openfga_api_url` yet, add it (and the
+    key) in a single-tenant apply. That boot makes the tenant's authorization
+    store, with the seed user as its admin. Switching in the same apply
+    leaves the tenant without one, and none can be made afterwards without
+    naming its first admin.
+  - **A key of the tenant** for anything that deploys or calls with the API
+    token: after the switch, that token no longer reaches the tenant.
+  - **Its deployments' services:** the switch removes the one pack service,
+    so each deployment needs a service and a recorded endpoint of its own,
+    as any tenant's does.
+  - Then, in one apply: `tenancy = "multi"`, without `seed_tenant_id`,
+    `seed_user_id` and `pack_image`, with the settings above.
+- **After an upgrade that adds a step per tenant,**
+  `kindgi-runtime tenants repair --all` has to run once: a server serving
+  many tenants sets nothing up per tenant at boot. This module runs no such
+  job.
 - **An earlier runtime** ignores `KINDGI_TENANCY`. With no tenant id it would
-  seed a new tenant at every revision, so upgrade the runtime first.
+  seed a new tenant at every start, so upgrade the runtime first.
 
 ## 5. Trust your key, and deploy
 
 The runtime accepts only deploys signed by a key it trusts. Read its address
-and the first API token, trust your pack's key, then deploy:
+and the first API token, trust your pack's key, then deploy. With
+`tenancy = "multi"`, use a key of the tenant here and after, not the API token
+([Serve many tenants](#serve-many-tenants)).
 
 ```sh
 URL=$(terraform output -raw server_url)
