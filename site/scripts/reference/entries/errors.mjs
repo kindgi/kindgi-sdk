@@ -2285,6 +2285,47 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'site-not-found': {
+    description:
+      "No site with that id in the project the path names. `GET /v1/projects/{projectId}/sites` lists the project's sites.",
+    details: [],
+  },
+  'site-invalid': {
+    description:
+      "A site's settings were refused. An `origin` is `https://` with no path (`http://` only on a loopback host); an `approvalsUrl` is on that origin, with `{approvalId}` in it; a `roleMap` names only roles in `allowedRoles`, and its reviewer roles are `standard` or `senior`, never above `reviewerCeiling`; a `displayName` is 1 to 100 characters, with no control, format or invisible characters; the limits are whole numbers in range. The message says the rule that was broken.",
+    details: [
+      {
+        key: 'field',
+        meaning: 'the setting that was refused',
+      },
+    ],
+  },
+  'site-enrollment-refused': {
+    description:
+      '`POST /v1/auth/sites/enroll` was refused: the enrollment code is wrong, used or expired, or its site is paused or unregistered. Each of these gets the same answer. Ask a tenant admin for a new enrollment code.',
+    details: [],
+  },
+  'site-key-invalid': {
+    description:
+      "The key a site posts to `POST /v1/auth/sites/enroll` isn't an Ed25519 public JWK: `kty` `OKP`, `crv` `Ed25519`, `x` the 32-byte public key in base64url, and a `kid` of 1 to 64 letters, digits, `.`, `_` and `-`. A JWK with a private part (`d`) is refused too: post the public half only. The message says which part is wrong.",
+    details: [],
+  },
+  'site-sign-in-refused': {
+    description:
+      "`POST /v1/auth/site-sign-in` refused the site's statement about a person. Until the statement's signature checks out, every refusal has the reason `not-verified`, so a caller learns nothing about the site. After it, the reason is the check that refused it: `site-paused`, `site-not-vouching`, `wrong-audience`, `expired`, `issued-in-the-future`, `too-long-lived`, `replayed`, `role-not-allowed`, `person-removed` or `people-cap`.",
+    details: [
+      {
+        key: 'reason',
+        meaning:
+          "why: `not-verified` until the statement's signature checks out, then the check that refused it",
+      },
+    ],
+  },
+  'site-request-too-large': {
+    description:
+      'A body sent to `POST /v1/auth/sites/enroll` or `POST /v1/auth/site-sign-in` is over 4096 bytes. Those routes take a few small fields: send only those.',
+    details: [],
+  },
   'token-sign-in-needs-an-api-token': {
     description:
       "`POST /v1/auth/token-sign-in` was called while signed in by a session. It takes an API token in the Authorization header, so there's nothing to exchange.",
