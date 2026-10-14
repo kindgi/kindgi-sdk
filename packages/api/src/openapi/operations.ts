@@ -8381,7 +8381,19 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('UpsertTenantConfigResult'),
       },
       ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
+      ),
       '409': ErrorResponse('`ifRevision` was set and did not match the stored revision.'),
+      '429': ErrorResponse(
+        "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+      ),
+      '502': ErrorResponse(
+        "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+      ),
+      '503': ErrorResponse(
+        "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
+      ),
     },
   },
 
@@ -8613,7 +8625,19 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretSetResponse'),
       },
       ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
+      ),
       '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
+      '429': ErrorResponse(
+        "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+      ),
+      '502': ErrorResponse(
+        "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+      ),
+      '503': ErrorResponse(
+        "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
+      ),
     },
   },
   {
@@ -9082,7 +9106,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Webhook registered.', schema: ref('WebhookTriggerRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the tenant (`details.issues`).",
+        "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the tenant (`details.issues`). Or, with `generateSecret`, a name the secrets store can't write, refused before anything is stored: `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `reserved-name-prefix`.",
       ),
       '409': ErrorResponse(
         "`secret-write-conflict`: with `generateSecret`, the trigger's project already has a secret of that name (it's never overwritten, and no trigger is left). Or the route-minted webhookId collided (astronomically rare).",

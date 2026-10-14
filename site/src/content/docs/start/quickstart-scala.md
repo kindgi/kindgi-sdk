@@ -79,10 +79,11 @@ when Node is installed, else `uvx` (no Node needed). `kindgi upgrade` moves
 the pin, and kindgi-pack-scala's version in `build.sbt` with it.
 
 :::tip[Skills for your coding agent]
-The pack comes with Kindgi's skills in `.claude/skills/`: how to write
-tools, guardrails, agents and flows in Scala, connect a model, and report a
-problem in Kindgi. Claude Code loads the one your request needs
-([Coding agents](../coding-agents/)). `./kindgiw skills sync` refreshes them.
+The pack comes with Kindgi's skills in `.claude/skills/` and
+`.agents/skills/`: how to write tools, guardrails, agents and flows in Scala,
+connect a model, and report a problem in Kindgi. Claude Code loads the one
+your request needs; [Coding agents](../coding-agents/) says where other
+agents look. `./kindgiw skills sync` refreshes them.
 :::
 
 ## 2. Run it

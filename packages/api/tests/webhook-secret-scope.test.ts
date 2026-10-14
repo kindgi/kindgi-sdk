@@ -93,6 +93,8 @@ function setup(
     readonly omitsScope?: boolean;
     /** Triggers registered as before scopes were recorded: none kept. */
     readonly legacy?: boolean;
+    /** A store that writes only names like these (the dev store's env-file keys): `nameRefusal`, and `set` refusing the rest. */
+    readonly writes?: RegExp;
   } = {},
 ) {
   // The store, each scope apart.
@@ -107,13 +109,30 @@ function setup(
   } as unknown as AuditEventBinding;
   const put = (scope: Scope, value: string, env: string = ENV) =>
     stored.set(keyOf(scope, env, NAME), value);
+  // The names `nameRefusal` was asked about.
+  const asked: string[] = [];
+  const refusal = (name: string) =>
+    options.writes === undefined || options.writes.test(name)
+      ? undefined
+      : {
+          code: 'secret-name-invalid' as const,
+          message: `"${name}" isn't a name this store writes.`,
+        };
   const secrets = {
+    ...(options.writes !== undefined && {
+      nameRefusal(name: string) {
+        asked.push(name);
+        return refusal(name);
+      },
+    }),
     async get(input: { scope: Scope; envName: string; name: string }) {
       return stored.has(keyOf(input.scope, input.envName, input.name))
         ? { name: input.name, currentVersion: 1, scope: input.scope }
         : null;
     },
     async set(input: { scope: Scope; envName: string; name: string; value: string }) {
+      const refused = refusal(input.name);
+      if (refused !== undefined) return { kind: 'error', ...refused };
       const key = keyOf(input.scope, input.envName, input.name);
       if (stored.has(key)) return { kind: 'already-exists', record: { name: input.name } };
       stored.set(key, input.value);
@@ -159,11 +178,19 @@ function setup(
           },
         }
       : kept;
+  let registers = 0;
+  const counted: typeof kept = {
+    ...registry,
+    register: (input: Parameters<typeof kept.register>[0]) => {
+      registers += 1;
+      return registry.register(input);
+    },
+  };
   const check = checkBinding();
   const appFor = () =>
     createApp({
       ...createStubAppBindings(),
-      triggerRegistry: registry,
+      triggerRegistry: counted,
       secretsBinding: secrets,
       projectBinding: {
         getDefault: async () => ({ id: P }),
@@ -210,6 +237,9 @@ function setup(
     stored,
     reads,
     audited,
+    asked,
+    /** How many times the registry was asked to register a trigger. */
+    registers: () => registers,
     put,
     call,
     register,
@@ -380,6 +410,37 @@ describe('generateSecret', () => {
     expect(h.stored.get(`project:${P}|${ENV}|${NAME}`)).toBe('p-value');
     const listed = await h.call('p-admin', 'GET', '');
     expect(listed.body.data).toEqual([]);
+  });
+
+  test("a name the store can't write is its 400, before anything is stored: no trigger, no write, none audited", async () => {
+    const h = setup({ writes: /^[A-Z_][A-Z0-9_]*$/ });
+    const refused = await h.register('p-writer', { generateSecret: true });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error.code).toBe('secret-name-invalid');
+    expect(refused.body.error.message).toBe(`"${NAME}" isn't a name this store writes.`);
+    expect(h.registers()).toBe(0);
+    expect(h.stored.size).toBe(0);
+    expect(h.audited.filter((e) => e.kind === 'secret-set')).toEqual([]);
+    const made = await h.register('p-writer', {
+      generateSecret: true,
+      hmacSecretName: 'ACME_WOO_SECRET',
+    });
+    expect(made.status, JSON.stringify(made.body)).toBe(201);
+    expect(h.stored.has(`project:${P}|${ENV}|ACME_WOO_SECRET`)).toBe(true);
+  });
+
+  test("naming a secret that's stored never asks: a store reads names it can't write", async () => {
+    const h = setup({ writes: /^[A-Z_][A-Z0-9_]*$/ });
+    h.put(project, 'p-value');
+    const made = await h.register('p-admin');
+    expect(made.status, JSON.stringify(made.body)).toBe(201);
+    expect(await h.deliver(made.body.webhookId, 'p-value')).toBe(202);
+    const renamed = await h.call('p-admin', 'PATCH', `/${made.body.triggerId}`, {
+      hmacSecretName: 'acme-woo-orders',
+    });
+    expect(renamed.status, JSON.stringify(renamed.body)).toBe(200);
+    expect(renamed.body.hmacSecretName).toBe('acme-woo-orders');
+    expect(h.asked).toEqual([]);
   });
 });
 
