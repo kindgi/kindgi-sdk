@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
+import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import type { Flow } from '@kindgi/flow';
 import type { Cursor, FlowId, ProjectId, TenantId } from '@kindgi/types';
 
@@ -12,6 +14,7 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { FlowRegistryBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';
+import { expectCompileBudgetRefused } from './support/compile-budget.js';
 
 /**
  * Flows route tests. Mirrors the agents-routes suite
@@ -488,6 +491,31 @@ describe('API — flows publish', () => {
     const body = (await second.json()) as { flowId: string; version: string };
     expect(body.flowId).toBe('ingest.contract-pdf');
     expect(body.version).toBe('1.0.0');
+  });
+
+  test("its schemas' compiles count against the tenant's budget, first ones included: refused, nothing is stored", async () => {
+    const { app } = makeApp();
+    const publish = () =>
+      app.request('/v1/flows', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ...(loopyFlowSpec() as unknown as Record<string, unknown>),
+          projectId: randomUUID(),
+        }),
+      });
+    const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
+    try {
+      const refused = await publish();
+      await expectCompileBudgetRefused(refused);
+      const listed = await app.request('/v1/flows', {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(((await listed.json()) as { data: unknown[] }).data).toEqual([]);
+    } finally {
+      restore();
+    }
+    expect((await publish()).status).toBe(201);
   });
 });
 

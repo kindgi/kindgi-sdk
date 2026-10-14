@@ -77,6 +77,57 @@ def post_update(input: Update) -> Posted:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acmeops/tools/PostUpdate.java
+package acmeops.tools;
+
+import com.kindgi.pack.Tool;
+import jakarta.validation.constraints.Size;
+import java.time.Instant;
+
+public final class PostUpdate {
+  public record Input(@Size(min = 1, max = 500) String message) {}
+
+  public record Output(boolean posted, String postedAt) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme-ops.post-update")
+      .description("Posts a message to the public status page.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .effect("external-side-effect", "external:status-page")
+      .handler((input, ctx) -> new Output(true, Instant.now().toString()));
+
+  private PostUpdate() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acmeops/tools/PostUpdate.scala
+package acmeops.tools
+
+import com.kindgi.pack.scaladsl._
+import jakarta.validation.constraints.Size
+import java.time.Instant
+
+object PostUpdate {
+  final case class Input(@Size(min = 1, max = 500) message: String)
+  final case class Output(posted: Boolean, postedAt: String)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme-ops.post-update")
+    .description("Posts a message to the public status page.")
+    .version("0.1.0")
+    .effect("external-side-effect", "external:status-page")
+    .handler((_, _) => Output(posted = true, postedAt = Instant.now().toString))
+}
+```
+
+</TabItem>
 </Tabs>
 
 This agent posts status updates with it, and every post waits for a person:
@@ -142,6 +193,61 @@ status_agent = Agent(
         },
     },
 )
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acmeops/agents/StatusAgent.java
+package acmeops.agents;
+
+import acmeops.tools.Greet;
+import acmeops.tools.PostUpdate;
+import com.kindgi.pack.Agent;
+import java.util.List;
+import java.util.Map;
+
+public final class StatusAgent {
+  public static final Agent AGENT = Agent.define("acme-ops.status-agent")
+      .version("0.1.0")
+      .name("Status Agent")
+      .description("Posts status updates.")
+      .instructions("Post the update the user gives you with acme-ops.post-update.")
+      .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
+      .tool(PostUpdate.TOOL)
+      .tool(Greet.TOOL)
+      .set("conversationPolicy", Map.of("hitl", Map.of("tools", Map.of(
+          "overrides", Map.of("acme-ops.post-update", "always_ask")))))
+      .build();
+
+  private StatusAgent() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acmeops/agents/StatusAgent.scala
+package acmeops.agents
+
+import acmeops.tools.{Greet, PostUpdate}
+import com.kindgi.pack.scaladsl._
+
+object StatusAgent {
+  val agent: Agent = Agent("acme-ops.status-agent")
+    .version("0.1.0")
+    .name("Status Agent")
+    .description("Posts status updates.")
+    .instructions("Post the update the user gives you with acme-ops.post-update.")
+    .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
+    .tool(PostUpdate.tool)
+    .tool(Greet.tool)
+    .set("conversationPolicy", Map("hitl" -> Map("tools" -> Map(
+      "overrides" -> Map("acme-ops.post-update" -> "always_ask")))))
+    .build()
+}
 ```
 
 </TabItem>

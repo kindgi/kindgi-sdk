@@ -72,6 +72,9 @@ export function callerRef(c: Context<AppEnv>): string | undefined {
  * audit records name it as the actor.
  */
 export function callerIdentity(c: Context<AppEnv>): string {
+  // A system key is its own actor: never a person's or another key's namespace.
+  const system = c.get('systemPrincipal');
+  if (system !== undefined) return `system-key:${system.keyId}`;
   const ref = callerRef(c);
   if (ref !== undefined) return ref;
   const sessionId = c.get('sessionId');

@@ -65,6 +65,28 @@ export const WEBHOOK_EVENT_SHAPES = {
               },
             },
             optional: {
+              failure: {
+                kind: 'object',
+                required: {
+                  code: {
+                    kind: 'string',
+                  },
+                  message: {
+                    kind: 'string',
+                  },
+                },
+                optional: {
+                  cause: {
+                    kind: 'any',
+                  },
+                  reason: {
+                    kind: 'string',
+                  },
+                  details: {
+                    kind: 'object',
+                  },
+                },
+              },
               usage: {
                 kind: 'object',
                 required: {

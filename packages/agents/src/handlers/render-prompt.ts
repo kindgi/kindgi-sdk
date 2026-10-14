@@ -12,7 +12,10 @@ import { throwAgentTurnFailure } from './errors.js';
  * Render the agent's instructions template with caller-supplied
  * parameters + framework auto-vars. Fails the run with a
  * `model-invocation-failed` (surfaced through `AgentTurnFailure`) if
- * required parameters are missing or the template throws.
+ * required parameters are missing or the template throws. A render the
+ * tenant's render budget refuses isn't the template's failure:
+ * `renderInstructions` throws the refusal, and the turn answers for it
+ * (`rate-limit-exceeded`, in `buildHandlers`).
  *
  * Setup must have run first — `ctx.conversation` is required.
  */

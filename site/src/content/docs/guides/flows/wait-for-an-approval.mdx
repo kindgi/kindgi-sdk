@@ -130,6 +130,68 @@ order_holder = Agent(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/agents/OrderHolder.java
+package acme.agents;
+
+import com.kindgi.pack.Agent;
+import java.util.List;
+import java.util.Map;
+
+public final class OrderHolder {
+  public static final Agent AGENT = Agent.define("acme.order-holder")
+      .version("0.1.0")
+      .name("Order holder")
+      .description("Puts an order on hold, after a person approves.")
+      .instructions("Put order {{ input.orderId }} on hold with the acme.hold-order tool, reason \"{{ input.reason }}\". "
+          + "Set held to true if the tool ran, false if the call was rejected, and say why in summary.")
+      .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
+      .tool("acme.hold-order", "0.1.0")
+      .set("conversationPolicy",
+          Map.of("hitl", Map.of("tools", Map.of("overrides", Map.of("acme.hold-order", "always_ask")))))
+      .set("output", Map.of("schema", Map.of(
+          "type", "object",
+          "properties", Map.of("held", Map.of("type", "boolean"), "summary", Map.of("type", "string")),
+          "required", List.of("held", "summary"))))
+      .set("budget", Map.of("maxSteps", 4, "maxCostUsd", 0.05, "maxWallMs", 60_000))
+      .build();
+
+  private OrderHolder() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/agents/OrderHolder.scala
+package acme.agents
+
+import com.kindgi.pack.scaladsl._
+
+object OrderHolder {
+  val agent: Agent = Agent("acme.order-holder")
+    .version("0.1.0")
+    .name("Order holder")
+    .description("Puts an order on hold, after a person approves.")
+    .instructions("Put order {{ input.orderId }} on hold with the acme.hold-order tool, reason \"{{ input.reason }}\". " +
+      "Set held to true if the tool ran, false if the call was rejected, and say why in summary.")
+    .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
+    .tool("acme.hold-order", "0.1.0")
+    .set("conversationPolicy",
+      Map("hitl" -> Map("tools" -> Map("overrides" -> Map("acme.hold-order" -> "always_ask")))))
+    .set("output", Map("schema" -> Map(
+      "type" -> "object",
+      "properties" -> Map("held" -> Map("type" -> "boolean"), "summary" -> Map("type" -> "string")),
+      "required" -> List("held", "summary"))))
+    .set("budget", Map("maxSteps" -> 4, "maxCostUsd" -> 0.05, "maxWallMs" -> 60000))
+    .build()
+}
+```
+
+</TabItem>
 </Tabs>
 
 [Ask before a tool runs](../../approvals/ask-before-a-tool-runs/) covers the
@@ -264,6 +326,93 @@ escalate_order = Flow(
         }
     },
 )
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/flows/EscalateOrder.java
+package acme.flows;
+
+import com.kindgi.pack.Flow;
+import java.util.Map;
+
+public final class EscalateOrder {
+  private static final Map<String, Object> IS_HELD = Map.of(
+      "op", "eq",
+      "left", Map.of("path", "nodeOutputs.hold.output.held"),
+      "right", Map.of("literal", true));
+
+  public static final Flow FLOW = Flow.define("acme.escalate-order")
+      .version("0.1.0")
+      .set("name", "Escalate an order")
+      .set("description", "Has an agent put an order on hold, once a person approves, then tells the customer.")
+      .node(Map.of("id", "order", "kind", "tool", "ref", "acme.get-order",
+          "inputMapping", Map.of("orderId", Map.of("path", "runInput.orderId"))))
+      .node(Map.of("id", "hold", "kind", "agent", "ref", "acme.order-holder",
+          "inputMapping", Map.of(
+              "orderId", Map.of("path", "runInput.orderId"),
+              "reason", Map.of("path", "runInput.reason"))))
+      .node(Map.of("id", "email", "kind", "tool", "ref", "acme.email-customer",
+          "inputMapping", Map.of(
+              "customer", Map.of("path", "nodeOutputs.order.customer"),
+              "status", Map.of("literal", "held"))))
+      .edge("e1", "$start", "order")
+      .edge("e2", "order", "hold")
+      .edge(Map.of("id", "e3", "from", "hold", "to", "email", "when", IS_HELD))
+      .edge(Map.of("id", "e4", "from", "hold", "to", "$end", "when", Map.of("op", "not", "child", IS_HELD)))
+      .edge("e5", "email", "$end")
+      .set("output", Map.of("mapping", Map.of(
+          "held", Map.of("path", "nodeOutputs.hold.output.held"),
+          "summary", Map.of("path", "nodeOutputs.hold.output.summary"),
+          "notified", Map.of("path", "nodeOutputs.email.to"))))
+      .build();
+
+  private EscalateOrder() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/flows/EscalateOrder.scala
+package acme.flows
+
+import com.kindgi.pack.scaladsl._
+
+object EscalateOrder {
+  private val isHeld = Map(
+    "op" -> "eq",
+    "left" -> Map("path" -> "nodeOutputs.hold.output.held"),
+    "right" -> Map("literal" -> true))
+
+  val flow: Flow = Flow("acme.escalate-order")
+    .version("0.1.0")
+    .set("name", "Escalate an order")
+    .set("description", "Has an agent put an order on hold, once a person approves, then tells the customer.")
+    .node(Map("id" -> "order", "kind" -> "tool", "ref" -> "acme.get-order",
+      "inputMapping" -> Map("orderId" -> Map("path" -> "runInput.orderId"))))
+    .node(Map("id" -> "hold", "kind" -> "agent", "ref" -> "acme.order-holder",
+      "inputMapping" -> Map(
+        "orderId" -> Map("path" -> "runInput.orderId"),
+        "reason" -> Map("path" -> "runInput.reason"))))
+    .node(Map("id" -> "email", "kind" -> "tool", "ref" -> "acme.email-customer",
+      "inputMapping" -> Map(
+        "customer" -> Map("path" -> "nodeOutputs.order.customer"),
+        "status" -> Map("literal" -> "held"))))
+    .edge("e1", "$start", "order")
+    .edge("e2", "order", "hold")
+    .edge(Map("id" -> "e3", "from" -> "hold", "to" -> "email", "when" -> isHeld))
+    .edge(Map("id" -> "e4", "from" -> "hold", "to" -> "$end", "when" -> Map("op" -> "not", "child" -> isHeld)))
+    .edge("e5", "email", "$end")
+    .set("output", Map("mapping" -> Map(
+      "held" -> Map("path" -> "nodeOutputs.hold.output.held"),
+      "summary" -> Map("path" -> "nodeOutputs.hold.output.summary"),
+      "notified" -> Map("path" -> "nodeOutputs.email.to"))))
+    .build()
+}
 ```
 
 </TabItem>

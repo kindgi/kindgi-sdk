@@ -6,6 +6,8 @@ import type { Scope } from '@kindgi/platform';
 import type { CodeArtifactRef, ToolManifest } from '@kindgi/tools';
 import type { Cursor, ProjectId, Semver, TenantId, ToolId } from '@kindgi/types';
 
+import type { RecordedSecretScope } from './secret-scope.js';
+
 import type { RegistryReadOnly } from './registry-read-only.js';
 
 /**
@@ -223,6 +225,14 @@ export interface ToolPublishInput {
   readonly projectId: ProjectId;
   readonly tool: ToolManifest;
   /**
+   * Where each secret the tool names is read, by name (`secret-scope.ts`):
+   * decided by the route as the tool is published, kept with this version,
+   * and the only scope a call reads it at. `null`: none usable. Absent: not
+   * recorded (no secrets store, or a caller from before it was), and the
+   * runtime reads as it did.
+   */
+  readonly secretScopes?: Readonly<Record<string, RecordedSecretScope | null>>;
+  /**
    * REQUIRED. Called inside the binding's write tx after row insert,
    * receiving the business `toolId`. Returns tuples for the same tx.
    * See `AgentPublishInput.enqueueTuples` for the design rationale.
@@ -260,6 +270,8 @@ export type ToolRecord = ToolManifest & {
    * between projects, so every version reads the same one.
    */
   readonly projectId?: ProjectId;
+  /** Where each secret this version names is read (`ToolPublishInput.secretScopes`), when recorded. */
+  readonly secretScopes?: Readonly<Record<string, RecordedSecretScope | null>>;
 };
 
 /**

@@ -187,7 +187,14 @@ export function createDotenvSecretBinding(
     }
     return {
       kind: 'ok',
-      value: { name: input.name, versionId: 1, value: secrets[input.name] ?? '' },
+      // Scope-blind: the value is the same at every scope, so it's read at
+      // the one asked for (an `exact` read included: there's no walk).
+      value: {
+        name: input.name,
+        versionId: 1,
+        value: secrets[input.name] ?? '',
+        scope: input.scope,
+      },
     };
   }
 

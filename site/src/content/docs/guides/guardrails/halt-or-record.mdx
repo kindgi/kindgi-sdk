@@ -50,6 +50,22 @@ action: { 'on-violation': 'log-only' },
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/mypack/guardrails/AnswerLength.java
+      .onViolation("log-only")
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/mypack/guardrails/AnswerLength.scala
+    .onViolation("log-only")
+```
+
+</TabItem>
 </Tabs>
 
 ## A halted turn
@@ -185,6 +201,22 @@ scope: { when: 'always', agents: ['my-pack.echo-agent'] },
 ```python excerpt
 # in guardrails/answer_length.py
 scope={"when": "always", "agents": ["my-pack.echo-agent"]},
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/mypack/guardrails/AnswerLength.java
+      .set("scope", Map.of("when", "always", "agents", List.of("my-pack.echo-agent")))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/mypack/guardrails/AnswerLength.scala
+    .set("scope", Map("when" -> "always", "agents" -> Seq("my-pack.echo-agent")))
 ```
 
 </TabItem>

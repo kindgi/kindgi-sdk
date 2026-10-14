@@ -21,8 +21,8 @@ the agent's model sees what was said before.
   tool, from [Write an agent](../write-an-agent/).
 - **A registered model** for answers worth reading. Without one, `dev-echo`
   answers.
-- **Node 22.18 or later, which runs a TypeScript file directly, or Python
-  3.11 or later,** with Kindgi 0.1's client.
+- **Node 22.18 or later, which runs a TypeScript file directly, Python
+  3.11 or later, or Java 17 or later,** with Kindgi 0.1's client.
   The scripts read the API's URL and token from `KINDGI_API_URL` and
   `KINDGI_API_TOKEN`. With `kindgi dev`, they're the URL and token it prints,
   also in the pack's `.kindgirc.json`.
@@ -156,6 +156,22 @@ many earlier messages a turn loads. Add it to the agent's definition:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .set("conversationPolicy", Map.of("historyLimit", 20))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .set("conversationPolicy", Map("historyLimit" -> 20))
+```
+
+</TabItem>
 </Tabs>
 
 The turn loads the last 20 messages before the new one. Older ones stay in
@@ -265,13 +281,140 @@ conversation-closed Conversation "b3135493-47bd-4f78-90ac-fe0ff3e21e8d" is close
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/Close.java
+package com.acme.app;
+
+import com.kindgi.client.ConflictException;
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.Conversation;
+import com.kindgi.client.models.ConversationStatus;
+import com.kindgi.client.models.OpenConversationBody;
+import com.kindgi.client.models.StartRunBody;
+import com.kindgi.client.resources.ConversationsListParams;
+import java.util.Map;
+
+public final class Close {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    Conversation conversation = kindgi.conversations().open(OpenConversationBody.builder()
+        .agentId("acme.order-desk")
+        .agentVersion("0.1.0")
+        .title("Order A-1002")
+        .participantId("customer-4411")
+        .build());
+    System.out.println(conversation.id() + " " + conversation.status() + " " + conversation.turnCount());
+
+    kindgi.runs().start(StartRunBody.WithAgent.builder()
+        .agent("acme.order-desk")
+        .input(Map.of("userMessage", "Where is order A-1002?", "conversationId", conversation.id().toString()))
+        .build());
+
+    Conversation closed = kindgi.conversations().close(conversation.id());
+    System.out.println(closed.status() + " " + closed.turnCount());
+
+    try {
+      kindgi.runs().start(StartRunBody.WithAgent.builder()
+          .agent("acme.order-desk")
+          .input(Map.of("userMessage", "One more thing…", "conversationId", conversation.id().toString()))
+          .build());
+    } catch (ConflictException e) {
+      System.out.println(e.serverCode() + " " + e.getMessage());
+    }
+
+    var list = kindgi.conversations().list(ConversationsListParams.builder()
+        .agentId("acme.order-desk")
+        .status(ConversationStatus.CLOSED)
+        .build());
+    System.out.println(list.data().stream().map(c -> c.id().toString()).toList());
+  }
+}
+```
+
+```text
+581d051c-4619-4f9b-a3c8-56980ce4ac85 open 0
+closed 1
+conversation-closed Conversation "581d051c-4619-4f9b-a3c8-56980ce4ac85" is closed
+[581d051c-4619-4f9b-a3c8-56980ce4ac85]
+```
+
+A turn on a closed conversation throws `ConflictException`; its
+`serverCode()` is `conversation-closed`. `list` takes `agentId` and `status`
+(`ConversationStatus.OPEN` or `CLOSED`), and `scopeKind` with `scopeId` for
+one project's or org's.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/Close.scala
+package acme.app
+
+import com.kindgi.client.{ConflictException, Kindgi}
+import com.kindgi.client.models.{ConversationStatus, OpenConversationBody, StartRunBody}
+import com.kindgi.client.resources.ConversationsListParams
+import scala.jdk.CollectionConverters._
+
+object Close {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    val conversation = kindgi.conversations().open(OpenConversationBody.builder()
+      .agentId("acme.order-desk")
+      .agentVersion("0.1.0")
+      .title("Order A-1002")
+      .participantId("customer-4411")
+      .build())
+    println(s"${conversation.id} ${conversation.status} ${conversation.turnCount}")
+
+    def turn(message: String) = kindgi.runs().start(StartRunBody.WithAgent.builder()
+      .agent("acme.order-desk")
+      .input(Map[String, AnyRef]("userMessage" -> message, "conversationId" -> conversation.id.toString).asJava)
+      .build())
+
+    turn("Where is order A-1002?")
+
+    val closed = kindgi.conversations().close(conversation.id)
+    println(s"${closed.status} ${closed.turnCount}")
+
+    try turn("One more thing…")
+    catch { case e: ConflictException => println(s"${e.serverCode} ${e.getMessage}") }
+
+    val list = kindgi.conversations().list(ConversationsListParams.builder()
+      .agentId("acme.order-desk")
+      .status(ConversationStatus.CLOSED)
+      .build())
+    println(list.data.asScala.map(_.id.toString).mkString("[", ", ", "]"))
+  }
+}
+```
+
+```text
+0c9b03fb-be50-4076-be4f-7c019c3bc634 open 0
+closed 1
+conversation-closed Conversation "0c9b03fb-be50-4076-be4f-7c019c3bc634" is closed
+[0c9b03fb-be50-4076-be4f-7c019c3bc634, …]
+```
+
+A turn on a closed conversation throws `ConflictException`; its `serverCode`
+is `conversation-closed`. `list` takes `agentId` and `status`
+(`ConversationStatus.OPEN` or `CLOSED`), and `scopeKind` with `scopeId` for
+one project's or org's.
+
+</TabItem>
 </Tabs>
 
 - `open` pins the agent and its version (below); `title` defaults to
   `Untitled conversation`. A conversation that a turn opens takes the agent's
   name as its title.
 - `participantId` is kept on the conversation. A first turn can set it too,
-  with `participantId` in its input.
+  with `participantId` in its input. Every turn in it runs as that
+  participant, which only they (by their user id) or someone with `write` on
+  the project may do, as reading their memory takes. Anyone else gets
+  `403 participant-not-allowed`.
 - `close` is safe to repeat: closing a closed conversation returns it as it is.
 - `list` filters by agent and by `status` (`open` or `closed`), newest first;
   `get` fetches one conversation. From the CLI:

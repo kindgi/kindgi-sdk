@@ -179,8 +179,8 @@ image there by digest, with every platform it was built for:
 ```sh
 ACR=$(terraform output -raw image_registry)
 az acr login -n "${ACR%%.*}"
-docker buildx imagetools create --tag "$ACR/runtime:0.1.6" \
-  quay.io/kindgi/runtime:0.1.6@sha256:66c351d9cd0396f9cdffc40480fb1e236d212459dfc4900ab5de082ce0507f11
+docker buildx imagetools create --tag "$ACR/runtime:0.1.7" \
+  quay.io/kindgi/runtime:0.1.7@sha256:442e3232adf13830868b309390a2cbf74cb1f3538e7efbe3166fad925a10984c
 ```
 
 - `ACR` is the registry's address, from the foundation's output, and
@@ -465,6 +465,8 @@ It prints the deployment as JSON, then each step. The last steps:
   Runs already in flight continue on their pinned image.
 ```
 
+To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
+
 The runtime read your pack's image from the registry with its own identity
 (`KINDGI_IMAGE_REGISTRY_AUTH=azure`) to check it before registering it.
 The module sets `KINDGI_IMAGE_REGISTRY_HOST` to the registry's login server.
@@ -507,6 +509,13 @@ to finish, with the output `{"greeting":"Hello, Azure!"}`.
 
 ## Operate it
 
+- **Upgrade at least every 90 days while Kindgi is in preview.** Until
+  Kindgi 1.0, a release stops starting 90 days after it was released.
+  Container Apps starts new replicas on its own, and after that day none
+  comes up. The runtime warns from 30 days before, at startup and once a
+  day, in a log record with `"event": "kindgi.preview_expiry"`: alert on it
+  in Log Analytics
+  ([Licensing](../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
 - **Upgrade:** make sure a restorable backup exists. Automatic backups with
   point-in-time restore are on. Copy the new runtime image by digest, set
   `server_image`, and apply. Migrations only go forward: never run two runtime
