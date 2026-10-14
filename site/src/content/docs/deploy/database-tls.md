@@ -22,7 +22,7 @@ whether the connection is encrypted and what the runtime checks:
 it doesn't stop a server that only claims to be yours. The runtime's
 client has no `verify-ca` that checks the CA alone: without the setting
 below, `verify-ca` checks the name as `verify-full` does. Leave
-`sslrootcert` out of the URL: the client doesn't read it, and Postgres
+`sslrootcert` out of the URL: the client passes it on to Postgres, which
 refuses it as a connection parameter.
 
 Which check fits depends on how the runtime reaches the server:
@@ -112,10 +112,11 @@ with `sslmode=verify-full` instead.
    KINDGI_DATABASE_SERVER_CA_PATH=/etc/kindgi/database-ca.pem
    ```
 
-3. **Check the boot.** The startup banner says what's checked:
+3. **Check the boot.** The startup banner says what's checked, with your
+   file's path:
 
    ```text
-     Database TLS: the server's certificate must chain to the CA in /etc/kindgi/database-ca.pem (KINDGI_DATABASE_SERVER_CA_PATH) and be in date; its name isn't checked
+     Database TLS: the server's certificate must chain to the CA in …/database-ca.pem (KINDGI_DATABASE_SERVER_CA_PATH) and be in date; its name isn't checked
    ```
 
 With a CA given, every connection the runtime makes to its database uses
@@ -124,12 +125,13 @@ offers no TLS. A certificate the CA didn't sign, or one out of date, stops
 the boot (exit code 1):
 
 ```text
-… Check KINDGI_DATABASE_URL and KINDGI_DATABASE_SERVER_CA_PATH (the CA that signed the server's certificate), and that Postgres is up and reachable from here.
+Can't connect to the database at …: unable to verify the first certificate. Check KINDGI_DATABASE_URL and KINDGI_DATABASE_SERVER_CA_PATH (the CA that signed the server's certificate), and that Postgres is up and reachable from here.
 ```
 
-The runtime refuses at boot (exit code 2), naming both settings, a CA with
-a URL that reaches a Unix socket, turns TLS off (`sslmode=disable`,
-`ssl=false`), or asks for the name to be checked on an IP address. So do
+The runtime refuses to start (exit code 2) when both settings are set, or
+when a CA is given with a URL that reaches a Unix socket, turns TLS off
+(`sslmode=disable`, `ssl=false`), or asks for the name to be checked on an
+IP address. So do
 `kindgi-runtime check`, `kindgi-runtime tenants` and
 `kindgi-runtime erasures`, which open the same database.
 
