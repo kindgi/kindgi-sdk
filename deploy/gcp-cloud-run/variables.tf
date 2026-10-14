@@ -244,6 +244,28 @@ variable "database_deletion_protection" {
   default     = true
 }
 
+variable "database_instance" {
+  description = <<-EOT
+    Null: the server uses the module's own Cloud SQL instance and its <prefix>-database-url secret.
+    Set, the server serves from another instance in this project instead, such as one a restore made (README, "Serving from a restored instance"): `name` is the instance, with a public IP, and `url_secret` the id of a Secret Manager secret in this project holding the server's URL to it, postgres://<user>:<password>@/<db>?host=/cloudsql/<connection name>. The server's /cloudsql volume then names that instance alone, and the module lets the server's account connect to it as well as to its own, so the old revision serves until the new one is ready.
+    Reading url_secret is granted by whoever made it, before the apply: two Terraform roots holding the same grant each remove it for the other when they let go of it. The module's own instance stays as it is. Public-IP mode only (database_private_network empty).
+  EOT
+  type = object({
+    name       = string
+    url_secret = string
+  })
+  default = null
+
+  validation {
+    condition     = var.database_instance == null || can(regex("^[a-z][a-z0-9-]*$", var.database_instance.name))
+    error_message = "database_instance.name is an instance name in this project: lower-case letters, digits and hyphens, starting with a letter."
+  }
+  validation {
+    condition     = var.database_instance == null || can(regex("^[A-Za-z0-9_-]+$", var.database_instance.url_secret))
+    error_message = "database_instance.url_secret is a secret id in this project (letters, digits, _ and -), not a path or a value."
+  }
+}
+
 # ---- network ------------------------------------------------------------------
 
 variable "network_mode" {

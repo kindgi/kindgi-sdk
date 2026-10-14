@@ -114,6 +114,33 @@ resource "google_project_iam_member" "server_sql_client" {
   }
 }
 
+# The instance it serves from instead (database_instance), as well: the old
+# revision keeps its own until the new one takes the traffic. Its own
+# condition, so a grant another root makes on the same instance is a
+# binding of its own, never this one.
+resource "google_project_iam_member" "server_sql_client_served" {
+  count   = var.database_instance != null && var.database_private_network == "" ? 1 : 0
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.server.email}"
+
+  condition {
+    title       = "kindgi-served-instance-only"
+    description = "The Cloud SQL instance Kindgi's server serves from (database_instance) only."
+    expression  = "resource.name == \"projects/${var.project_id}/instances/${var.database_instance.name}\""
+  }
+
+  # The server depends on this grant, and a plain dependency removes it before
+  # the server changes: on the way back (null) the revision still serving from
+  # this instance would lose it, and so would a move to another restored
+  # instance, since a new condition replaces the member. Created before
+  # destroyed, the old grant goes only after the server's new revision is in.
+  # A mock plan can't show the order, so no test checks it.
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
 # Gemini on Vertex with the server's own credentials (ADC).
 resource "google_project_iam_member" "server_vertex_ai" {
   count   = var.vertex_ai ? 1 : 0
