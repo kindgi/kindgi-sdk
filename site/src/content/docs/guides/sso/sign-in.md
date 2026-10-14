@@ -53,7 +53,7 @@ too, and this keeps them from using yours.
 
 The link works once, for ten minutes. After that:
 
-![This sign-in link has been used or has expired. A link works once, for ten minutes. Enter your email to get a new one.](../../../../assets/sso/sign-in-link-used.png)
+![This sign-in link has been used or has expired. A link works once, for ten minutes. Enter your email to get a new one. Detail: link-invalid](../../../../assets/sso/sign-in-link-used.png)
 
 ## When sign-in doesn't let you in
 

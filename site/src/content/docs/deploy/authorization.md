@@ -249,19 +249,19 @@ checks every call.
   set the tenant's own line, `console.readOnlyNotice`, it shows instead,
   such as "Ask Ana Ruiz for edit access."
 - **An editor** may also "run agents and flows, work on agent versions,
-  publish data blocks, judge runs, compare versions on test sets", in the
-  console's words. An agent's page offers them **Register new version** and
+  publish prompts and settings, judge runs, compare versions on test sets",
+  in the console's words. An agent's page offers them **Register new version** and
   **Start run**, which a viewer's doesn't.
 - **A project admin** may also "promote versions, register agents and
   tools, build test sets, rescore comparisons, set judge classes", and
   changes who works in the project ([Members](#in-the-console-members)).
 - **The tenant's sections** show to those they're for:
-  - People, Service accounts, Policies, Webhooks, Sign-in, Access audit and
-    the like, to tenant admins;
+  - People, Service accounts, Policies, Outgoing webhooks, Sign-in, Access
+    audit and the like, to tenant admins;
   - the Inbox and Approvals, to reviewers;
   - Teams, to tenant admins and anyone in a team.
 
-![A project's Agents page as Gus Moreno, a viewer of Support: under the header, "You can view this project; changes need an editor."; the agents list (Support agent, acme.support, version 1.0.0) with no buttons.](../../../assets/access/viewer-project.png)
+![A project's Agents page as Gus Moreno, a viewer of Support: under the header, "You can view this project; changes need an editor."; the agents list (Support agent, version 1.0.0, no tools, $0.00 in the last 30 days) with no buttons.](../../../assets/access/viewer-project.png)
 
 **My access**, in the tenant's sections, is what you may do and how you
 have it. It starts with a sentence, such as "You're an editor in 1
@@ -272,7 +272,7 @@ lets you do and doesn't. You can have a role directly, through a team, as an
 admin of the org, or as a tenant admin. **The detail** holds your ids and
 what each role allows on each kind of object.
 
-![My access as Eda Brooks: "You're an editor in 1 project." and "Tenant: member. Its people, keys and settings are its admins'."; a table with Support, Editor, directly, and what it lets her do: "run agents and flows, work on agent versions, publish data blocks, judge runs, compare versions on test sets; not promote versions, register agents and tools, build test sets, rescore comparisons, set judge classes"; and The detail, closed.](../../../assets/access/my-access.png)
+![My access as Eda Brooks: "You're an editor in 1 project." and "Tenant: member. Its people, keys and settings are its admins'."; an Any role filter and a table with Support, Editor, directly, and what it lets them do: "run agents and flows, work on agent versions, publish prompts and settings, judge runs, compare versions on test sets; not promote versions, register agents and tools, build test sets, rescore comparisons, set judge classes"; and The detail, closed.](../../../assets/access/my-access.png)
 
 ## Project memberships
 
@@ -335,16 +335,16 @@ team**: "A group of people, run by its admins: they decide who is in it.
 You add the first people on its page." It takes a name, a slug ("Lowercase
 letters, digits and hyphens; unique in the tenant.") and what the team is.
 
-![The Teams page as a tenant admin: "1 team.", Support crew (support-crew, "First-line support"), a New team button, and under the list "The console doesn't give a team a role on a project yet: the API does (team grants)."](../../../assets/teams/teams.png)
+![The Teams page as a tenant admin: a New team button, Columns, Support crew (support-crew, "First-line support"), and under the list "The console doesn't give a team a role on a project yet: the API does (team grants)."](../../../assets/teams/teams.png)
 
-A team's page, for its admins and tenant admins, says how many are in it
-and how many run it, such as "4 people, 2 run it.", and lists them with
+A team's page, for its admins and tenant admins, lists who is in it, with
 their role and since when. There they rename it, and the slug stays. They
-change someone's role, take someone out, which asks first, and add someone
-from the tenant's people. Finding a person reads the tenant's people, so
-adding someone takes a tenant admin.
+change someone's role, take someone out (the icon on their row, named in
+its tooltip; it asks first), and add someone from the tenant's people.
+Finding a person reads the tenant's people, so adding someone takes a
+tenant admin.
 
-![Support crew's page as a tenant admin: "4 people, 2 run it." and "The console doesn't give a team a role on a project yet: the API does (team grants)."; Add someone to Support crew (a person, a role, Add); and the list: the seed user and Ana Ruiz (admins), Ben Okafor and Ada Lovelace (members), each with a role to change and Take out; a Rename button.](../../../assets/teams/team.png)
+![Support crew's page as a tenant admin: "First-line support", a Rename button and "The console doesn't give a team a role on a project yet: the API does (team grants)."; Add someone to Support crew (a person, a role, Add); and the list: the seed user and Ana Ruiz (admins), Ben Okafor and Ada Lovelace (members), each with a role to change and Take out as an icon.](../../../assets/teams/team.png)
 
 Anyone else in the team sees it, but not who else is in it: "You're in it.
 Who is in Support crew is shown to its admins."
@@ -456,15 +456,13 @@ like other lists. In the TypeScript and Python clients, it's
 ### In the console: Members
 
 A project's **Members** page shows everyone with access, and how, to the
-project's editors and admins. It starts with a count, each one counted once
-by the way their role comes from, such as "6 people and 1 service account have access
-to Support: 4 through a role of their own, 2 through a team, 1 as a tenant
-admin." Then each one, with their role and every way in: "Their own role
+project's editors and admins: "Who has access to this project, and how."
+It lists each one, with their role and every way in: "Their own role
 (editor)", "Team Support crew (editor)", "Admin of Acme", "Tenant admin". A
 way the console can't name reads "Another way in". Emails show to the
 project's admins.
 
-![Support's Members page as a tenant admin: "6 people and 1 service account have access to Support: 4 through a role of their own, 2 through a team, 1 as a tenant admin."; an Add someone to Support form (an email, a role, Add); and the list: the seed user (owner; their own role, tenant admin, Team Support crew), Ana Ruiz (her own role editor, "admin through another way in"; tenant admin, Team Support crew), acme-ci (service account, editor), Ada Lovelace (her own role viewer, "editor through another way in"; Team Support crew (editor)), Ben Okafor (editor through Team Support crew), Eda Brooks (editor) and Gus Moreno (viewer), with Take away beside each role of someone's own.](../../../assets/access/members.png)
+![Support's Members page as a tenant admin: an Add someone to Support form (their email in this tenant, a role, Viewer, with "Sees the project: its agents, runs and records.", and Add), a search box and Columns; and the list: the seed user (owner; their own role, tenant admin, Team Support crew (editor)), Ana Ruiz (their own role editor, "admin through another way in"; tenant admin, Team Support crew), acme-ci (service account, editor), Ada Lovelace (their own role viewer, "editor through another way in"; Team Support crew (editor)), Ben Okafor (editor through Team Support crew), Eda Brooks (editor) and Gus Moreno (viewer), with Take away as an icon beside each role of someone's own.](../../../assets/access/members.png)
 
 A project admin changes who works there:
 
@@ -475,10 +473,10 @@ A project admin changes who works there:
   more, it says so under it, such as "editor through another way in". A
   role through a team, an org or tenant admin is changed where it comes
   from, and a service account's on its own page.
-- **Take away** a person's role of their own. It asks first, and says what
-  stays:
+- **Take away** a person's role of their own, with the icon on their row,
+  named in its tooltip. It asks first, and says what stays:
 
-![The Take away step: "Take Ada Lovelace off Support? From their next request on, they can't work in Support through this role. Ada Lovelace keeps editor access through Team Support crew. What was done here stays.", with Cancel and Take it away.](../../../assets/access/members-take-away.png)
+![The Take away step over the Members page: "Take Ada Lovelace off Support? From their next request on, they can't work in Support through this role. Ada Lovelace keeps editor access through Team Support crew. What was done here stays.", with Cancel and Take it away.](../../../assets/access/members-take-away.png)
 
 An editor reads the same list, with "Only an admin of Support changes who
 works here." A viewer doesn't see the section. At its address, they read
@@ -545,7 +543,8 @@ user or a service token. A `401`, for an unknown caller, never is.
 time, newest first. Tenant admins are the only people its API answers.
 **Next page** leads to the older ones. A denied one has a ✗ and a red row. Narrow
 the list by who, on what, action, result (allowed or denied), and time with
-From and To, which are in UTC like the times in the list. The filters are in
+From and To, which are on the same clock as the times in the list: your
+own, or UTC if you choose it under **Times** in the console's person menu. The filters are in
 the page's address, so you can copy it to share what you see. Clicking a row
 shows the decision: allowed or denied, the part that failed, such as
 `actor`, how long the check took, the reason, the request's correlation id,

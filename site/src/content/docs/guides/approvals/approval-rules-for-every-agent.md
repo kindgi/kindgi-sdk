@@ -13,6 +13,13 @@ tenant's `hitl` **policy** sets rules every agent is held to: a tool that must
 always ask, and a lowest reviewer role. A policy can only make an agent
 stricter, never looser.
 
+The console shows an agent's own rules on its page, under **Tools it can
+call**, and on each tool's page, under **Agents that can call it**. Both say
+where the rest is: "These are the agent's own rules. The tenant's Approvals
+policy can ask for more: a review on a tool, a higher reviewer role, a
+shorter wait." The link opens the tenant's **Policies**, at its approval
+policies.
+
 ## Before you start
 
 - **A runtime,** such as `kindgi dev`, with Kindgi 0.1's CLI.

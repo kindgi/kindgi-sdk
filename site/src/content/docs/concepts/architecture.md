@@ -51,7 +51,9 @@ your code when they need it, and records every step.
   what it did and cost, its journal, and where an agent's answer came from.
   It shows the agents, tools and conversations, project by project.
   Reviewers approve or reject there. It follows your system's light or dark
-  setting, or the one you choose in its settings or with ⌘K.
+  setting, or the one you choose in its person menu or with ⌘K. Times show
+  on your own clock, with its zone, or on UTC if you choose it there under
+  **Times**.
 
 ## Where it runs
 

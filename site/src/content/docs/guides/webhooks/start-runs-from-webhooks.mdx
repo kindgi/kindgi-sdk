@@ -219,7 +219,8 @@ sender:
 
 ```sh
 kindgi webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
-  --preset=woocommerce --secret=acme-woo-orders --generate-secret
+  --preset=woocommerce --secret=ACME_WOO_ORDERS --generate-secret \
+  --label="New orders"
 ```
 
 It prints the trigger as JSON, then where to point the sender: the trigger's
@@ -228,9 +229,9 @@ the signing secret, shown this once, with where it's stored, and, with a
 preset, where to paste them. With the WooCommerce preset, the secret left out:
 
 ```text
-  Registered webhook trigger 71fb612e-efc4-4659-8bb3-dfb69c96aa15: each signed delivery starts acme-shop.order-review@0.1.0.
-  Receive URL (the sender posts here): …/v1/hooks/695e8098-30be-469a-89d8-1a88487f8967/2003c201-f368-4d76-be29-109cc906bc48
-  Signing secret (stored as acme-woo-orders in project 685834cd-17a6-4cfa-9c46-0fbc5dde84fa; shown this once): …
+  Registered webhook trigger 5bf569a1-bca4-4eec-a913-bcc64b2dac91: each signed delivery starts acme-shop.order-review@0.1.0.
+  Receive URL (the sender posts here): https://kindgi.acme.example/v1/hooks/0b9f4c1e-2222-4a2b-8c3d-000000000850/0c2dffec-5134-49f0-be36-929eb9a1d3fa
+  Signing secret (stored as ACME_WOO_ORDERS in project 8ec6c490-5740-4c66-b2b5-6bf6c17211bc; shown this once): …
   In WooCommerce: Settings → Advanced → Webhooks → Add webhook. One webhook per topic (`order.created`, …); Delivery URL: the receive URL; Secret: the secret. WooCommerce never resends a delivery Kindgi refuses, and switches the webhook off after 7 in a row.
 ```
 
@@ -255,6 +256,8 @@ preset, where to paste them. With the WooCommerce preset, the secret left out:
 - **`--project=<id>`** puts the trigger and its runs in a project (by default,
   the tenant's Default project). Registering needs `write` on the project and
   `execute` on the flow.
+- **`--label`** names the trigger in the console, such as "New orders".
+  Without one, the console shows the trigger's id.
 
 ### The presets
 
@@ -361,7 +364,8 @@ what else a delivery leaves: the sender's address on a refusal.
   It's yours to fix, so it's on the fires only.
 - **Refusals are counted past a limit.** Past 20 refusals and skipped
   deliveries a minute, a trigger's are counted instead of recorded, in
-  `suppressedRefusals` on the trigger. Past 60 refusals a minute from one
+  `suppressedRefusals` on the trigger, and its page in the console says how
+  many. Past 60 refusals a minute from one
   address, that address's further refusals are answered `429` and not
   recorded.
 - **The limit slows only requests that fail verification.** A validly signed
@@ -416,6 +420,60 @@ From your app, the clients have the same calls on `webhooks`: `register`,
 `list`, `get`, `update`, `pause`, `resume`, `fires`, `takeOwnership` and
 `unregister`. The receive URL itself is the sender's: no Kindgi client calls
 it.
+
+## In the console
+
+A project's **Incoming webhooks** page lists its triggers: "Signed requests
+from other systems, such as a shop or GitHub, each starting a flow's run."
+Each has its name and its sender, such as "From WooCommerce", whether it's
+active or paused, the flow it starts, its last delivery and **Runs it
+started →**.
+
+![A project's Incoming webhooks page: a search box and Columns, and one trigger, New orders, From WooCommerce, Active, starting the flow Review a new order 0.1.0, with its last delivery, Runs it started → and its actions as icons.](../../../../assets/webhooks/incoming-webhooks.png)
+
+A trigger's page says what each delivery starts, such as "Each delivery
+from WooCommerce starts the flow Review a new order 0.1.0." Then:
+
+- **Set up in WooCommerce:** the receive **URL**, the **Secret** by name
+  only, the **Signature** ("WooCommerce's, in X-WC-Webhook-Signature"), what
+  a delivery sent again does under **Resends** ("Ignored: same
+  X-WC-Webhook-Delivery-ID and body") and its **Limits**. A runtime with no
+  public address has no URL to show: "None yet: this runtime has no public
+  address".
+- **Each run:** the **Input**, the delivery's body, with the fields the
+  flow reads. **Last delivery** names the fields the last delivery that
+  started a run sent, and links that run, with any field the flow reads that
+  it didn't send. It shows field names only: a delivery's values stay on its
+  run. **Runs as** names who the runs act as, with their role here.
+- **Deliveries,** newest first: when each was received and what happened,
+  such as "Started a run", "Refused: signature didn't match", "Dropped: the
+  webhook was paused", and "Resent once: ignored" under one the sender sent
+  again. Past the 20 a minute it lists, deliveries are only counted: "And 37
+  more refused or dropped since …: past the 20 a minute listed here,
+  they're only counted." **Runs it started →** opens the runs list filtered
+  to the trigger.
+
+![The New orders trigger's page: Active, with Pause and Remove, "Each delivery from WooCommerce starts the flow Review a new order 0.1.0.", Set up in WooCommerce with its URL, the secret ACME_WOO_ORDERS by name, the signature and resend headers and its limits, Each run with the input, the last delivery's field names and who the runs act as, and Deliveries: one that started a run, resent once and ignored, and one refused because its signature didn't match.](../../../../assets/webhooks/incoming-webhook.png)
+
+Project editors and up have, on the list and on the page:
+- **Pause,** which asks first: "What arrives while it's paused is dropped,
+  not kept for later: the sender is told it was received.";
+- **Resume;**
+- **Remove,** which asks first, "Remove this webhook?": "Its receive URL
+  stops working: the sender gets an error for each delivery. The runs it
+  started stay, with their record of what started them." and "It can't be
+  brought back. A new one gets a new receive URL, so the sender has to be
+  set up again."
+
+On the list, each is an icon, named in its tooltip.
+
+On a trigger that runs as someone else, project admins also get **Take
+over**: "The runs it starts from now on act as you, with your access. Runs
+already started keep theirs. If it's paused, it stays paused."
+
+A flow's page lists what starts it under **What triggers it**, as
+[Write a flow](../../flows/write-a-flow/#in-the-console) shows. A run a
+webhook started names it under **Started by**, linking its page.
 
 ## Next
 

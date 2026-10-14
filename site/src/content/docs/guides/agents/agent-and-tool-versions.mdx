@@ -233,6 +233,13 @@ unregister is refused:
 Under kindgi dev, the pack is the source of agents: change the agent in the pack's files and kindgi dev reloads it.
 ```
 
+The console under `kindgi dev` keeps such actions on their pages, turned
+off, with a line saying why: registering agents and tools, promoting,
+rolling back and unpinning a version, Improve and evaluating a proposal,
+retiring a flow version and removing a guardrail. For example, on the
+Agents page: "Registering is off under kindgi dev: the pack's files are its
+agents. Add one to the pack, and kindgi dev reloads it."
+
 - **No new run gets it:** not by a range, not as the latest, not by its
   exact number. A run that names it is refused with `404 agent-not-found`:
 

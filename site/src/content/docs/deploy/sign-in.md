@@ -179,7 +179,7 @@ KINDGI_AUTH_TENANT_PROVIDERS=off
 - **The console's Sign-in page** says who manages it, and lists the
   providers with **Try** only:
 
-  ![The Sign-in page with KINDGI_AUTH_TENANT_PROVIDERS=off: Whoever runs Kindgi manages sign-in here, and acme-ops listed with Try only](../../../assets/sso/console-providers-operator.png)
+  ![The Sign-in page with KINDGI_AUTH_TENANT_PROVIDERS=off: Whoever runs Kindgi manages sign-in here, and acme-ops listed with the Try icon only](../../../assets/sso/console-providers-operator.png)
 
 `on` is the default. Like the other settings here, it needs sign-in on.
 

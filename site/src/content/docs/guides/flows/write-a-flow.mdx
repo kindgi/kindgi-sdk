@@ -650,46 +650,63 @@ no restart. A run already in flight keeps the version it started on. Change
 
 ## In the console
 
-A project's **Flows** page lists its flows, each at its latest live version:
-"2 flows.", and for each its name, its latest version, its steps in words
-("3 steps: 2 agents, 1 loop") and what it pins ("Pins 1 agent").
+A project's **Flows** page lists its flows: "A flow runs agents and tools as
+its steps: in order, side by side or repeated, all in one run. Each flow is
+shown at its latest version; retired ones last." Each has its name, its
+latest version, its steps in words ("3 steps: 2 agents, 1 repeating step")
+and its agent and tool versions: "Locked when published", or "The latest,
+at each run" for a version published before versions were locked. A flow
+whose every version is retired is marked **retired**.
 
-![The Flows page: "2 flows.", Refunds (acme.refunds, "Triage, check each item, then answer.") at 2.0.0 with 3 steps: 2 agents, 1 loop, and acme.single at 1.0.0 with 2 steps: 2 agents, each pinning 1 agent.](../../../../assets/flows/flows-list.png)
+![The Flows page: Refunds ("Triage, check each item, then answer.") at 2.0.0, with 3 steps: 2 agents, 1 repeating step, and acme.single at 1.0.0, with 2 steps: 2 agents, both "Locked when published".](../../../../assets/flows/flows-list.png)
 
-A flow's page draws the version as a graph, from Start to End: each step
-with what it runs and at which version ("demo.echo-agent, pinned at
-1.0.0"), and a loop in words ("For each item of runInput.items, at most 50
-times: demo.echo-agent, pinned at 1.0.0"). Below it:
-- **What 2.0.0 runs:** the agents and tools at the versions "Fixed when this
-  version was published: every run of it uses these versions."
-- **Versions:** the live ones, the latest marked, with what each runs: "3
-  live; runs that name no version use the latest, 2.0.0. Unregistered
-  versions aren't listed: open one by its number."
-- **Its runs →** and **Runs of 2.0.0 →**, the runs list filtered.
+A flow's page names the version it shows, with its steps ("2.0.0 (its
+latest): 3 steps: 2 agents, 1 repeating step."), and has **Runs** and
+**Start run**. It draws the version as a graph, from Start to End: each step
+with what it runs, by name, and its version when one is locked ("locked at
+1.0.0"), and a repeating step in words ("For each item of …, at most 50
+times: …"). Below it:
+- **What 2.0.0 uses:** each agent and tool, what it does and its version:
+  "Locked when this version was published: every run of it uses these
+  versions."
+- **Versions:** "Runs use the latest unless they name a version." Each
+  version says what it runs and links **Runs →**, the runs list filtered to
+  it. The latest is marked, and so is a retired one.
+- **What triggers it:** the schedules and incoming webhooks that start it,
+  each with how and the version it starts, such as "Schedule: Every day at
+  2:00 AM UTC · version 2.0.0". With none: "No schedule or incoming
+  webhook: people and apps start it."
 
-![Refunds' page at 2.0.0: the graph Start, triage, a loop over runInput.items, answer, End; What 2.0.0 runs (demo.echo-agent 1.0.0); and Versions: 2.0.0 (latest), 1.1.0 and 1.0.0, each with Unregister.](../../../../assets/flows/flow-page.png)
+![Refunds' page at 2.0.0: the graph from Start through triage, a repeating step ("For each item of the run's items, at most 50 times: Dev-Echo Agent") and answer to End; What 2.0.0 uses (Dev-Echo Agent, locked at 1.0.0); Versions, with 2.0.0 (latest) and 1.1.0 each with Retire, and 1.0.0 retired, with Bring back; and What triggers it: the schedule nightly refunds (Every day at 2:00 AM UTC · version 2.0.0) and the incoming webhook Refund requests (each delivery from WooCommerce · version 2.0.0).](../../../../assets/flows/flow-page.png)
 
-For flow admins, each version has **Unregister**. Its dialog says what
-changes:
+For flow admins, each version's row has **Retire**, an icon named in its
+tooltip. Its dialog says what changes:
 
 ```text
-Unregister 1.0.0?
+Retire 1.0.0?
 Runs that name no version keep using 2.0.0.
-Runs that name 1.0.0 are refused, a schedule's included; runs already going finish. It's no longer listed here; it can be reinstated from its own page.
+Runs that name 1.0.0 are refused, a schedule's included; runs already going finish. It stays listed here as retired, with Bring back.
 ```
 
-While the dialog is still open, **Reinstate it** undoes it. Later, the
-version opened by its number says "1.0.0 is unregistered", since when, and
-"Runs that name it are refused, runs that name no version don't use it, and
-it isn't listed.", with **Reinstate**.
+![The Retire 1.0.0? dialog over Refunds' page: "Runs that name no version keep using 2.0.0.", that runs naming 1.0.0 are refused, a schedule's included, and that it stays listed as retired, with Keep it and Retire.](../../../../assets/flows/flow-retire-dialog.png)
 
-![Version 1.0.0 opened by its number: "1.0.0 is unregistered", since when, that runs naming it are refused, and Reinstate, above its graph.](../../../../assets/flows/flow-unregistered-version.png)
+While the dialog is still open, **Bring it back** undoes it. Later, the
+version's row has **Bring back**, and the version opened by its number
+says "1.0.0 is retired", since when, and "Runs that name it are refused,
+and runs that name no version don't use it.", with **Bring back**.
 
-Unregistering a flow's only live version takes it off the list, and its
-page says "No version of this flow is live": "Every version is
-unregistered, so it isn't listed and runs that name no version are
-refused. Open a version by its number to reinstate it, or publish a new
-one."
+![Version 1.0.0 opened by its number: "1.0.0 is retired", since 14 Oct 2026, 8:38 AM EDT, "Runs that name it are refused, and runs that name no version don't use it.", and Bring back, above its graph. In Versions, its row is marked retired and shown, with Bring back.](../../../../assets/flows/flow-retired-version.png)
+
+Retiring a flow's only version in use, the dialog says "It is the only
+version in use: the Flows list shows the flow as retired, and runs that
+name no version are refused until a version is brought back or published."
+The flow's page then says "Every version of this flow is retired": "The
+Flows list shows it as retired, and runs that name no version are refused.
+Bring a version back under Versions, or publish a new one."
+
+Under `kindgi dev`, **Retire** and **Bring back** are there but off: "Retire
+and Bring back are off under kindgi dev: the pack's files are this flow's
+versions. Change the flow there, and kindgi dev reloads it."
 
 ## Next
 

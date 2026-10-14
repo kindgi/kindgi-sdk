@@ -604,27 +604,30 @@ with the step it belongs to. Their cost is in the flow run's. The list has a
 search box and sorts by a column's header. **Columns** chooses which columns
 it shows.
 
-![The Runs page with the flow run acme.refunds opened to its agent turns: step answer and step triage, each a Dev-Echo Agent run of demo.echo-agent @1.0.0, under the flow run's $0.08; then a Dev-Echo Agent run of its own, $0.08. A search box and the Columns menu are above the list.](../../../../assets/runs/runs-agent-turns.png)
+![The Runs page with the flow run Refunds 1.0.0 opened to its agent turns: step answer and step triage, each a Dev-Echo Agent 1.0.0 agent run with no cost of its own, under the flow run's $0.08; then a Dev-Echo Agent 1.0.0 run of its own, $0.08. Above the list: the status and start-time filters, Include with Flow steps and Eval replays, a search box and the Columns menu.](../../../../assets/runs/runs-agent-turns.png)
 
-![The Runs page filtered to Status: Failed and Started in the last hour: three failed runs of Support agent (two of acme.support @1.1.0, one of @1.0.0), each with when it started, how long it took and its cost.](../../../../assets/runs/runs-filters.png)
+![The Runs page filtered to Status: Failed and Started in the last hour, each shown as a chip: three failed runs of Support agent (two of 1.1.0, one of 1.0.0), each with when it started, how long it took, its cost and its run's id.](../../../../assets/runs/runs-filters.png)
 
 Its filters:
 - **Status:** Pending, Running, Waiting, Completed, Failed or Cancelled. A
   waiting run waits on something, such as an approval.
 - **Started:** in the last hour, 24 hours, 7 days or 30 days.
 - **An agent or a flow, and its version,** from a link that names them. A
-  flow's page links **Its runs →**, and **Runs of 1.1.0 →** for the version
-  it shows. A schedule's page links **Its runs →**. **Its failed runs** on
+  flow's page has **Runs**, and **Runs →** beside each of its versions. A
+  schedule's or an incoming webhook's page links **Runs it started →**.
+  **Its failed runs** on
   [What failed](#what-failed) names the agent or flow and its version. With
   an agent chosen, a **Version** choice appears: **Every version**, or one.
-- **Include steps inside flows** and **Include eval replays.**
+- **Include:** **Flow steps**, a flow's agent turns as rows of their own
+  besides under their flow, and **Eval replays**, the runs an eval
+  comparison replayed, left out by default.
 
 Each filter shows as a chip ("Status: Failed", "Started in the last hour",
 "Flow: Refunds"). Removing an agent's or a flow's chip removes its version
 too. The page's address keeps the filters, the sort and the search, so a
 link opens the same list.
 
-![The Runs page reached from a flow's "Runs of 1.1.0 →": the chips Flow: Refunds and Flow version: 1.1.0.](../../../../assets/runs/runs-flow-version.png)
+![The Runs page reached from the Runs → beside a flow's version 1.1.0: the chips Flow: Refunds and Flow version: 1.1.0, and that version's one run, completed.](../../../../assets/runs/runs-flow-version.png)
 
 ### What failed
 
@@ -632,7 +635,7 @@ link opens the same list.
 cause and by version, so a bad deploy shows. Approvals people decided are
 counted apart: they aren't errors.
 
-![What failed over the last 7 days: "In the last 7 days, 7 runs failed: 7 errors (in 3 groups)." The errors as bars by version, and a table: an unregistered guardrail (unresolved-guardrail) in Support agent 1.1.0, 4 runs; a guardrail that blocked the answer (guardrail-violation) in Support agent 1.0.0, 2 runs; and a failed run (run-failed) in the flow Refunds 1.0.0, 1 run.](../../../../assets/runs/runs-what-failed.png)
+![What failed over the last 7 days: "In the last 7 days, 7 runs failed: 7 errors (in 3 groups)." The errors as bars by version, and a table: an unregistered guardrail (unresolved-guardrail) in Support agent 1.1.0, 4 runs; a guardrail that blocked the answer (guardrail-violation) in Support agent 1.0.0, 2 runs; and a failed run (run-failed) in the flow Refunds 1.0.0, 1 run; each with when it was first and last seen, The latest and Its failed runs.](../../../../assets/runs/runs-what-failed.png)
 
 - **The window:** the last 24 hours, 7, 30 or 90 days.
 - **The headline:** "In the last 7 days, 7 runs failed: 7 errors (in 3

@@ -647,19 +647,23 @@ results. So the new refund limit shows in the answers. Those cases count as
 
 ## In the console
 
-A project's **Data blocks** section lists its blocks. A block's page shows its
-template or values, its versions with **Retire**, and the agents using it.
+A project's **Prompts & settings** section lists its blocks: "Prompts and
+settings an expert can change without a code change. Each change is a new
+version; an agent version runs the versions it pins. In code, these are
+blocks." A block's page shows its template or values, its versions with
+**Retire**, and the agents using it.
 
 1. **Edit as a new version** starts from the version you're viewing and
    proposes the next number, with an optional note for this version.
    Published versions never change: this publishes a new one.
 2. After it's published, **Derive a version** next to an agent using the
    block makes the agent version that runs it: "Derive a new version of Reply
-   drafter with acme.reply-prompt 1.0.1?"
+   drafter with acme.reply-prompt 1.0.1?" A retired version can't be
+   derived from: "Retired: bring it back first".
 
 An agent's page says where its instructions and settings come from, and where
-a derived version came from: "Derived from 1.0.0 with new data-block versions
-("Refund limit 100")".
+a derived version came from: "Derived from 1.0.0 with new prompt or settings
+versions ("Refund limit 100")".
 
 Under `kindgi dev`, a block's page says each pack agent "Runs the newest
 version in ^1.0.0 on each run (kindgi dev)", and offers no derive.

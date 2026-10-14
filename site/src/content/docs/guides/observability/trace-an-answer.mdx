@@ -101,7 +101,9 @@ wait. The wait sits between the tool call and its result: the `tool-call`
 `waited-on` a `wait` node, which was `resumed-from` a `resume` node, and the
 `tool-result` was `caused-by` the `resume`. The `resume` node's `actor` is who
 decided, and its `attributes` have the decision, the rationale and the
-approval's id. A call a reviewer rejected:
+approval's id. The decision is `approve`, `reject`, or `unreadable` when the
+answer the turn resumed with wasn't a decision: the gate then blocks the
+call. A call a reviewer rejected:
 
 ```json
 {"id": "tool-hitl-gate-resume:toolu_01MAfC8Fb7e24iY12Cenoh11", "kind": "resume", "timestamp": "2026-10-05T16:26:25.504Z", "actor": "user:26fc414a-b49f-4e1f-a022-162865770178", "attributes": {"gate": "tool-call", "decision": "reject", "rationale": "Not confirmed yet", "approvalId": "12c38101-4cac-4241-8fc7-57323e4f63b9"}}
@@ -112,6 +114,19 @@ read.
 
 `kindgi runs get <run-id>` shows the same graph, under `output.provenance`,
 without `callUsage`.
+
+### In the console
+
+A run's **Provenance** tab shows the record: "Where this answer came from".
+**Steps** lists the turn's steps in order, each with its kind, such as
+Message, Model call, Tool call, Tool result or Answer, what it did, and what
+it was based on. A step shows its text when the run's journal still has it:
+the message, the answer, a tool call's arguments and what it returned, and
+a reviewer's decision, such as "Rejected: "Not confirmed yet"". A decision
+the gate couldn't read says "Blocked: the decision couldn't be read".
+**Graph** draws the same steps as boxes, left to right in time.
+**Download** saves the record as JSON, and **Signed copy** saves it signed,
+as [Export signed evidence](../export-signed-evidence/) describes.
 
 ## From your app
 
