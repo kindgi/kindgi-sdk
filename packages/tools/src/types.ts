@@ -524,7 +524,8 @@ export interface HttpToolSpec {
    */
   readonly requestBody?: HttpRequestBodySpec;
   /**
-   * Wall-clock timeout in milliseconds. Enforced via AbortController.
+   * Wall-clock timeout in milliseconds, for the whole call: the request
+   * and reading the response body. Enforced via AbortController.
    * Defaults to 30_000 (30s) when absent — matches typical vendor
    * SLOs.
    */

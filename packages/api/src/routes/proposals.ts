@@ -10,6 +10,7 @@ import type { Cursor, FixProposalId, TenantId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 import type { EvalComparison } from '../eval-run-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import {
   type ProposalFacts,
   type ProposalService,
@@ -75,6 +76,8 @@ export function proposalsRouter(
   mount?: (r: Hono<AppEnv>, service: ProposalService) => void,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // Every schema a publish compiles counts against its tenant's budget.
+  const publishCompiles = publishCompilesMiddleware();
   const service = createProposalService({ ...deps, store });
   // Routes mounted before `/:proposalId` (an improvement pass's `improve`).
   mount?.(r, service);
@@ -200,7 +203,7 @@ export function proposalsRouter(
   });
 
   // ---------- POST /:proposalId/evaluate ----------
-  r.post('/:proposalId/evaluate', async (c) => {
+  r.post('/:proposalId/evaluate', publishCompiles, async (c) => {
     const body = await readBody(c);
     if (body === undefined) return badInput(c, 'Request body must be a JSON object');
     const parsed = parseEvaluateBody(body);

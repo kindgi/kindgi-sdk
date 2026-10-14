@@ -331,6 +331,12 @@ export interface RunTrace {
    */
   readonly orgId?: OrgId;
   readonly agentId?: AgentId;
+  /**
+   * The flow whose step started the run, which a guardrail scoped to
+   * flows (`scope.flows`) applies by. An agent turn's trace names it only
+   * when one of the turn's guardrails is scoped to flows, and never for a
+   * turn outside any flow.
+   */
   readonly flowId?: FlowId;
   /** Final assistant output text. Present when the run produced text. */
   readonly output?: string;

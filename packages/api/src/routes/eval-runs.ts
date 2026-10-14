@@ -23,6 +23,11 @@ import {
 } from '../eval-run-binding.js';
 import { VERSIONS_NEED_A_FLOW } from '../judged-dispatcher.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import {
+  type ReferenceScopeBinding,
+  outOfScopeResponse,
+  referencesOutOfScope,
+} from '../reference-scope.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import { parseComparison } from './eval-comparison.js';
@@ -74,9 +79,11 @@ export function evalRunsRouters(
   versionsCheck?: FlowVersionsCheck,
   overridesCheck?: SettingsOverridesCheck,
   authorizer?: Authorizer,
+  /** What an eval run's project may run (`reference-scope.ts`); absent → as named. */
+  referenceScope?: ReferenceScopeBinding,
 ): EvalRunsRouters {
   return {
-    start: startRouter(binding, versionsCheck, overridesCheck, authorizer),
+    start: startRouter(binding, versionsCheck, overridesCheck, authorizer, referenceScope),
     readback: readbackRouter(binding, authorizer),
   };
 }
@@ -143,6 +150,7 @@ function startRouter(
   versionsCheck?: FlowVersionsCheck,
   overridesCheck?: SettingsOverridesCheck,
   authorizer?: Authorizer,
+  referenceScope?: ReferenceScopeBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -183,6 +191,14 @@ function startRouter(
       (await deniedBy(authorizer, c, 'write', ref('project', projectId as unknown as string))) ??
       (await deniedBy(authorizer, c, 'execute', target));
     if (refused !== undefined) return refused;
+    // The suite and what it runs must be the run's project's to reach (`reference-scope.ts`).
+    const outOfScope = await referencesOutOfScope(referenceScope, tenantId, projectId, [
+      { path: '/suiteId', kind: 'suite', id: suiteId },
+      agentRef !== undefined
+        ? { path: '/agentRef/agentId', kind: 'agent', id: agentRef.agentId as unknown as string }
+        : { path: '/flowRef/flowId', kind: 'flow', id: flowRef?.flowId as unknown as string },
+    ]);
+    if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     const refusal =
       (await versionsRefusal(versionsCheck, tenantId, parsed.value)) ??
       (await overridesRefusal(overridesCheck, tenantId, parsed.value));

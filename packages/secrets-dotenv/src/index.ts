@@ -58,6 +58,7 @@ import type {
   SecretListInput,
   SecretListPage,
   SecretListVersionsInput,
+  SecretNameRefusal,
   SecretRecord,
   SecretResolveInput,
   SecretResolveOutcome,
@@ -187,7 +188,14 @@ export function createDotenvSecretBinding(
     }
     return {
       kind: 'ok',
-      value: { name: input.name, versionId: 1, value: secrets[input.name] ?? '' },
+      // Scope-blind: the value is the same at every scope, so it's read at
+      // the one asked for (an `exact` read included: there's no walk).
+      value: {
+        name: input.name,
+        versionId: 1,
+        value: secrets[input.name] ?? '',
+        scope: input.scope,
+      },
     };
   }
 
@@ -204,7 +212,7 @@ export function createDotenvSecretBinding(
 
   async function set(input: SecretSetInput): Promise<SecretSetOutcome> {
     const refused = refusedName(input.name);
-    if (refused !== undefined) return storeError(refused);
+    if (refused !== undefined) return { kind: 'error', ...refused };
     // dotenv only ever exposes version 1, so any other ifVersion is stale.
     if (input.ifVersion !== undefined && input.ifVersion !== 1) {
       return { kind: 'version-conflict', currentVersion: 1 };
@@ -297,6 +305,7 @@ export function createDotenvSecretBinding(
     rotate,
     revoke,
     writesAppEnvFiles: true,
+    nameRefusal: refusedName,
   };
 }
 
@@ -304,17 +313,47 @@ export function createDotenvSecretBinding(
 // Helpers
 // ---------------------------------------------------------------------
 
-function refusedName(name: string): string | undefined {
+/**
+ * A name `set` can't write, and why: a caller's mistake (a `400`), never the
+ * store failing. Reads still find a key typed into `.env` by hand that
+ * Kindgi wouldn't write (`acme-key`).
+ */
+function refusedName(name: string): SecretNameRefusal | undefined {
   if (isRuntimeKey(name)) {
-    return `"${name}" is Kindgi runtime config (KINDGI_*), not a pack secret. Set it in your shell or env file directly.`;
+    return {
+      code: 'secret-name-invalid',
+      message: `"${name}" is Kindgi runtime config (KINDGI_*), not a pack secret. Set it in your shell or env file directly.`,
+    };
   }
   if (name.startsWith(RESERVED_SECRET_NAME_PREFIX)) {
-    return `Name "${name}" uses the reserved "${RESERVED_SECRET_NAME_PREFIX}" prefix; framework-internal only.`;
+    return {
+      code: 'reserved-name-prefix',
+      message: `Name "${name}" uses the reserved "${RESERVED_SECRET_NAME_PREFIX}" prefix; framework-internal only.`,
+    };
   }
   if (!ENV_KEY_REGEX.test(name)) {
-    return `Invalid secret name "${name}" for an env file — must match ${ENV_KEY_REGEX.source}.`;
+    const like = envKeyLike(name);
+    return {
+      code: 'secret-name-invalid',
+      message: `Under \`kindgi dev\`, a secret is a key in your env files, so its name is capital letters, digits and underscores, not starting with a digit (${ENV_KEY_REGEX.source}). "${name}" isn't one${like === undefined ? '' : `: use "${like}"`}.`,
+    };
   }
   return undefined;
+}
+
+/**
+ * `name` as an env-file key Kindgi writes (`acme-key` → `ACME_KEY`), when
+ * that makes one with a letter or digit of the name's in it (`--` makes
+ * none).
+ */
+function envKeyLike(name: string): string | undefined {
+  const like = name
+    .toUpperCase()
+    .replace(/[^A-Z0-9_]/g, '_')
+    .replace(/^(?=[0-9])/, '_');
+  return ENV_KEY_REGEX.test(like) && /[A-Z0-9]/.test(like) && !isRuntimeKey(like)
+    ? like
+    : undefined;
 }
 
 function storeError(message: string): SecretSetOutcome {

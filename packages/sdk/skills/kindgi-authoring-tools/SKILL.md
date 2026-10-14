@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.8"
+version: "0.4.9"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -204,6 +204,8 @@ const defined = defineTool({
 if (defined.kind === 'err') throw new Error(defined.error.message);
 export default defined.value;
 ```
+
+`timeoutMs` (default 30 seconds) covers the whole call, reading the response included, and so does a run's cancel. A response body over 10 MiB, counted after it's decompressed, fails the call. So point a tool at an endpoint that pages or filters, not one that returns everything.
 
 ## Read-only tools: `mutating`
 

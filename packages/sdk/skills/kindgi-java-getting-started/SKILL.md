@@ -16,7 +16,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.0"
+version: "0.1.2"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -34,7 +34,7 @@ sources:
 > `./kindgiw <command>`, and `./kindgiw upgrade` moves the pin.
 >
 > **Preview:** Java and Scala support is tested and supported, but its API
-> may still change in 0.1.6 without the usual deprecation period.
+> may still change in a later release without the usual deprecation period.
 
 ## What a pack is
 
@@ -127,7 +127,8 @@ my-pack/
 │   ├── agents/EchoAgent.java                # Agent.define(...)
 │   └── flows/EchoFlow.java                  # Flow.define(...)
 ├── src/test/java/mypack/ToolsTest.java      # the tools, called directly
-└── .claude/skills/                          # these skills (`./kindgiw skills sync` refreshes them)
+├── .claude/skills/                          # these skills (`./kindgiw skills sync` refreshes them)
+└── .agents/skills/                          # the same skills, where Codex and Gemini CLI look
 ```
 
 The package comes from the pack's id (`my-pack` becomes `mypack`).
@@ -256,6 +257,27 @@ names it; one the pack doesn't declare is dropped before the code loads
   primitive (`<pack-id>.<name>`): pick it once.
 - **Model credentials.** Ask for the key; never invent or hard-code one.
 
+## Commands for the person's own terminal
+
+Two commands are always the person's to run, in their own terminal, since
+they ask for a secret:
+
+- `./kindgiw secrets set`, which asks for the value without echoing it;
+- `./kindgiw auth registry`, which logs Docker in to the runtime image's registry.
+
+Others need what a coding agent's sandbox often blocks: `./kindgiw dev` and any
+dev server of the app (they keep running), and `./kindgiw build` or anything
+else that needs Docker. When your sandbox blocks a command (a process it can't
+start, `spawn EPERM`; Docker's socket denied; `localhost` refused; a folder it
+keeps read-only, as Codex's keeps `.agents/`, which `./kindgiw skills sync`
+writes), don't work around it: don't turn your sandbox off, and don't start the
+command in the background. Give the person the exact command, the folder to run
+it in and what they'll see, then wait for them. Once they say `./kindgiw dev` is
+running, starting it yourself exits 3 and says where theirs runs: use that one.
+
+A tool's own `EPERM` while it runs under `./kindgiw dev` is something else:
+Kindgi's dev sandbox (see the tools skill). Never turn that one off either.
+
 ## Keys and tokens: hands off
 
 Never open, read, grep, `cat`, copy or print the files that hold keys and
@@ -274,8 +296,11 @@ model provider. To see which secrets exist, run
 `./kindgiw secrets list --env=local --scope=tenant` (names only). To store one,
 ask the person to run `./kindgiw secrets set NAME --env=local --scope=tenant`
 themselves: it prompts without echoing. Never put a value on a command line.
-`kindgi init` adds these files to the deny rules in `.claude/settings.json`;
-in a monorepo, also to the repository root's, under the pack's path.
+`kindgi init` adds these files to the deny rules in `.claude/settings.json`
+(Claude Code); in a monorepo, also to the repository root's, under the pack's
+path. It adds them to `.cursorignore`, `.geminiignore` or `.aiderignore` too
+when the project has one. Nothing `kindgi init` writes binds Codex. Whichever
+agent you are, keep to the rule above yourself.
 
 ## Next
 
@@ -289,8 +314,8 @@ in a monorepo, also to the repository root's, under the pack's path.
 
 ## Keeping skills up to date
 
-`./kindgiw skills sync` refreshes `.claude/skills/` from the CLI's copy
-(local edits are kept unless `--force`). `kindgi dev` says when they are out
+`./kindgiw skills sync` refreshes `.claude/skills/` and `.agents/skills/`
+from the CLI's copy (local edits are kept unless `--force`). `kindgi dev` says when they are out
 of date.
 
 ## When the framework itself is the problem

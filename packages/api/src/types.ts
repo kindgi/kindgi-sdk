@@ -5,6 +5,8 @@ import type { Principal, ReviewerRole } from '@kindgi/authz';
 import type { Logger, TraceContext } from '@kindgi/log';
 import type { ApiTokenId, RunId, SessionId, TenantId, UserId } from '@kindgi/types';
 
+import type { SystemPrincipal } from './system.js';
+
 /**
  * Hono environment shape — variables the middleware chain populates
  * and route handlers consume via `c.get(...)`.
@@ -54,6 +56,8 @@ export interface AppEnv {
     tokenRole?: 'admin' | 'member';
     /** The project an API key is narrowed to. */
     tokenProjectId?: string;
+    /** A write's body as it came, read once by `readBodyOnce`. */
+    requestBody?: Uint8Array;
     /** When the API token the request came with expires, if it does. */
     tokenExpiresAt?: Date;
     /**
@@ -82,6 +86,17 @@ export interface AppEnv {
      * Absent = no capabilities granted.
      */
     capabilities?: readonly string[];
+    /**
+     * Set by `bearerAuthMiddleware` when the token is the deployment's
+     * operator's, acting in no tenant (a system key, `kgi_sy_…`). Such a
+     * request's `tenantId` is `SYSTEM_TENANT_ID`, and `systemPrincipalFence`
+     * keeps it to `/v1/system/*`.
+     */
+    systemPrincipal?: SystemPrincipal;
+    /** The system scope the route checked, for the access record. */
+    systemScopeUsed?: string;
+    /** The tenant a system request acts in (`*` across tenants), for the access record. */
+    systemTargetTenant?: string;
     /**
      * Composite authz Principal built by `principalMiddleware` from
      * the token resolution. Present on every route mounted BELOW that

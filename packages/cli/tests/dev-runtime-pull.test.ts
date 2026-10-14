@@ -20,13 +20,26 @@ import { createStartPhases } from '../src/dev/start-phases.js';
 const FAKE_DOCKER = `#!/bin/sh
 echo "$*" >> "$FAKE_DOCKER_DIR/calls.log"
 case "$1" in
-  image) echo "Error response from daemon: No such image: $5" >&2; exit 1 ;;
+  image)
+    if [ -n "$FAKE_DOCKER_DOWN" ]; then
+      echo "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?" >&2
+      exit 1
+    fi
+    if [ -n "$FAKE_DOCKER_DENIED" ]; then
+      echo 'permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock: Get "http://%2Fvar%2Frun%2Fdocker.sock/v1.47/images/json": dial unix /var/run/docker.sock: connect: permission denied' >&2
+      exit 1
+    fi
+    echo "Error response from daemon: No such image: $5" >&2; exit 1 ;;
   version) echo "linux/arm64"; exit 0 ;;
   manifest)
     if [ -n "$FAKE_MANIFEST" ]; then cat "$FAKE_MANIFEST"; exit 0; fi
     echo $$ > "$FAKE_DOCKER_DIR/manifest.pid"
     exec sleep 30 ;;
   pull)
+    if [ -n "$FAKE_PULL_DENIED" ]; then
+      echo "Error response from daemon: unauthorized: access to the requested resource is not authorized" >&2
+      exit 1
+    fi
     sleep 1
     printf '1.0: Pulling from acme/runtime\\ne3649207a629: Pull complete\\n5f2c8e7d1b0a: Pull complete\\n0b9d4a6c3e21: Already exists\\nDigest: sha256:aaaa\\n'
     exit 0 ;;
@@ -104,9 +117,69 @@ describe.skipIf(process.platform === 'win32')('the runtime image pull', () => {
     expect(lines.at(-1)).toMatch(/^ {2}✓ pulled the runtime image: 269 MB in \d+\.\ds$/);
   });
 
+  test('a refused pull: a pull credential from the access page, the login, then kindgi dev again', async () => {
+    vi.stubEnv('FAKE_PULL_DENIED', '1');
+    const phases = createStartPhases({ emit: () => undefined });
+    const result = await ensureRuntimeImage('quay.io/acme/runtime:1.0', phases);
+    phases.close();
+    expect(result.kind).toBe('error');
+    const message = result.kind === 'error' ? result.message : '';
+    expect(message).toContain('unauthorized');
+    expect(message).toContain(
+      '  The runtime image needs a pull credential: sign in with GitHub at https://access.kindgi.com for one, log in (kindgi auth registry --username <your robot name>), then run kindgi dev again.',
+    );
+  });
+
   test("a Docker Hub image: no manifest read (it would count against Docker Hub's pull limit)", async () => {
     const { lines, calls } = await pull('acme/runtime:1.0');
     expect(calls.some((c) => c.startsWith('manifest'))).toBe(false);
     expect(lines.at(-1)).toMatch(/^ {2}✓ pulled the runtime image in /);
   });
 });
+
+describe.skipIf(process.platform === 'win32')(
+  'Docker out of reach: said as such, never a pull',
+  () => {
+    const ensure = async () => {
+      const result = await ensureRuntimeImage('quay.io/acme/runtime:1.0');
+      const log = await readFile(join(dir, 'calls.log'), 'utf8').catch(() => '');
+      return { result, pulled: log.split('\n').some((call) => call.startsWith('pull')) };
+    };
+
+    test("an engine that doesn't answer", async () => {
+      vi.stubEnv('FAKE_DOCKER_DOWN', '1');
+      const { result, pulled } = await ensure();
+      expect(pulled).toBe(false);
+      expect(result).toEqual({
+        kind: 'error',
+        message:
+          "Docker isn't running, or `kindgi dev` can't reach it: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?\n  Start Docker Desktop (or the Docker engine), then run this again. If it's running, a coding agent's sandbox may be what keeps it out of reach: run `kindgi dev` in your own terminal instead.",
+      });
+    });
+
+    test('a socket that refuses this process', async () => {
+      vi.stubEnv('FAKE_DOCKER_DENIED', '1');
+      const { result, pulled } = await ensure();
+      expect(pulled).toBe(false);
+      expect(result).toEqual({
+        kind: 'error',
+        message: expect.stringMatching(
+          /^Docker's socket refused `kindgi dev`: permission denied while trying to connect to the Docker daemon socket .*\n {2}If a coding agent runs this, its sandbox is likely what stops it: run `kindgi dev` in your own terminal instead\. Otherwise, your user needs access to Docker \(on Linux, the `docker` group, or rootless Docker\)\.$/,
+        ),
+      });
+    });
+
+    test("a docker this process can't start", async () => {
+      // Found, but not runnable: the spawn's own refusal (EACCES), as a sandbox's would be.
+      await chmod(join(dir, 'docker'), 0o644);
+      vi.stubEnv('PATH', dir);
+      const { result, pulled } = await ensure();
+      expect(pulled).toBe(false);
+      expect(result).toEqual({
+        kind: 'error',
+        message:
+          "`kindgi dev` couldn't start `docker` (spawn docker EACCES).\n  If a coding agent runs this, its sandbox is likely what stops it: run `kindgi dev` in your own terminal instead. Otherwise, check that the `docker` on your PATH can run.",
+      });
+    });
+  },
+);

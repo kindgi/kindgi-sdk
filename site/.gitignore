@@ -1,0 +1,3 @@
+# The generated error codes page (scripts/generate-reference.mjs). The
+# other generated reference pages are in the repository's .gitignore.
+src/content/docs/reference/errors.md

@@ -25,6 +25,13 @@ import {
 import { statusFor, toWireError } from '../errors.js';
 import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
+import {
+  type ReferenceScopeBinding,
+  agentReferences,
+  outOfScopeResponse,
+  referencesOutOfScope,
+} from '../reference-scope.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
@@ -68,8 +75,12 @@ export function agentsRouter(
   gateDeps?: AgentReleaseGateDeps,
   /** What the deployment can do for an agent's turns, for publish warnings. */
   capabilities: AgentPublishCapabilities = {},
+  /** What an agent's project may reference (`reference-scope.ts`); absent → as named. */
+  referenceScope?: ReferenceScopeBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // Every schema a publish compiles counts against its tenant's budget.
+  const publishCompiles = publishCompilesMiddleware();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
   // every write before anything else runs.
   r.use(
@@ -307,7 +318,7 @@ export function agentsRouter(
   });
 
   // ---------- POST / (publish) ----------
-  r.post('/', async (c) => {
+  r.post('/', publishCompiles, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
 
@@ -363,6 +374,16 @@ export function agentsRouter(
         ),
       );
     }
+
+    // Every tool, guardrail and data block it names must be one its
+    // project reaches (`reference-scope.ts`), asked before pinning.
+    const outOfScope = await referencesOutOfScope(
+      referenceScope,
+      tenantId,
+      projectId,
+      agentReferences(defined.value),
+    );
+    if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
 
     // Pin the version: every tool range resolves now, once, to the
     // version its runs use. A range nothing satisfies refuses the
@@ -437,7 +458,7 @@ export function agentsRouter(
   });
 
   // ---------- POST /:agentId/versions (derive a version) ----------
-  r.post('/:agentId/versions', async (c) => {
+  r.post('/:agentId/versions', publishCompiles, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const agentId = c.req.param('agentId') as AgentId;
@@ -535,6 +556,20 @@ export function agentsRouter(
     const agentId = c.req.param('agentId') as AgentId;
     const version = c.req.param('version') as Semver;
 
+    // Reinstating makes a version's references live again, so they're
+    // asked as at publish (`reference-scope.ts`): a version from before
+    // the check, naming what its project doesn't reach, stays retired.
+    const retired = await binding.getVersion({ tenantId, agentId, version });
+    if (retired?.unregisteredAt !== undefined && retired.projectId !== undefined) {
+      const outOfScope = await referencesOutOfScope(
+        referenceScope,
+        tenantId,
+        retired.projectId,
+        agentReferences(retired),
+      );
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    }
+
     const outcome = await binding.reinstateVersion({ tenantId, agentId, version });
     if (outcome.kind === 'not-found') {
       c.status(statusFor('agent-not-found') as never);
@@ -557,7 +592,9 @@ export function agentsRouter(
     });
   });
 
-  if (releases !== undefined) mountAgentReleaseRoutes(r, binding, releases, gateDeps);
+  if (releases !== undefined) {
+    mountAgentReleaseRoutes(r, binding, releases, gateDeps, referenceScope);
+  }
 
   return r;
 }
