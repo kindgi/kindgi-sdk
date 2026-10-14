@@ -131,9 +131,9 @@ export interface DeploymentRef {
 export interface SystemDeploymentsBinding {
   /**
    * Across tenants, oldest `activatedAt` first: deployments that need a
-   * pack service. Each is routed (the newest deployment to ship some tool
-   * version or pack check), has no endpoint or a cleared one, and nothing
-   * about it is closing or suspended.
+   * pack service. Each is routed (the newest deployment with routes for some
+   * tool version or pack check), has no endpoint or a cleared one, and
+   * nothing about it is closing or suspended.
    */
   listNeedingEndpoint(input: {
     readonly cursor?: string;
