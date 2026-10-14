@@ -89,14 +89,22 @@ With `tenancy = "multi"` (see "Many tenants") there's no `pack_image` and no pac
 
 ## 3. Secret values
 
-Each value is piped straight into Secret Manager. None goes on disk or into Terraform's state. `N` is your `name_prefix`.
+Each value is piped straight into Secret Manager. None goes on disk, into Terraform's state or into a command's arguments, which other processes can read and gcloud writes to its log file. `N` is your `name_prefix`. The commands are for bash or zsh.
 
 ```sh
 CONN=$(terraform output -raw sql_connection_name)
+P=$(gcloud config get-value project)
 
 # Kindgi's database user: a built-in user (it gets CREATEROLE; not an IAM user).
+# Made through the Cloud SQL Admin API rather than `gcloud sql users create --password`:
+# the body goes in on stdin and the token in a header from a pipe.
 DBPW=$(openssl rand -hex 24)
-gcloud sql users create kindgi --instance=$N --password="$DBPW"
+OP=$(printf '{"name":"kindgi","password":"%s"}' "$DBPW" \
+  | curl -sS -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud auth print-access-token)") \
+      -H 'Content-Type: application/json' --data-binary @- \
+      "https://sqladmin.googleapis.com/v1/projects/$P/instances/$N/users" \
+  | jq -r '.name // error(.error.message)')
+gcloud sql operations wait "$OP" --project=$P
 printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
   | gcloud secrets versions add $N-database-url --data-file=-
 unset DBPW
