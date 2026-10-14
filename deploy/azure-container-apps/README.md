@@ -201,6 +201,7 @@ server_env = {
 **With an emailed link.** It needs the server's sign-in secret, an SMTP server and `public_url`:
 
 ```sh
+# In the shell from step 3: it defines `put` and keeps az's log file off. No `--debug`.
 # The sign-in secret: 32 bytes, base64.
 openssl rand 32 | base64 | tr -d '\n' | put auth-secret
 # The SMTP URL, password included: paste it; it never goes in a file.
