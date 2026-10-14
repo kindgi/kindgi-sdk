@@ -70,7 +70,7 @@ plugin's **Kindgi → Settings** page shows the two addresses to register:
 - the site's origin;
 - its approvals URL.
 
-```ts
+```ts excerpt
 import { createClient } from '@kindgi/sdk/client';
 
 const kindgi = createClient(); // KINDGI_API_URL and KINDGI_API_TOKEN: a tenant admin's
@@ -220,7 +220,7 @@ another reviewer decides." instead of **Approve**.
 - **Where two people must really decide,** require a reviewer role above
   the site's ceiling. A reviewer signed in to Kindgi directly then decides:
 
-  ```ts
+  ```ts excerpt
   conversationPolicy: {
     hitl: {
       tools: {
@@ -394,7 +394,7 @@ the store's actions (look up an order, refund it) as
 - **Give read-only tools `never_ask`.** An MCP tool always counts as one
   that changes things, so a gate asks before each one by default:
 
-  ```ts
+  ```ts excerpt
   conversationPolicy: {
     hitl: {
       tools: {
