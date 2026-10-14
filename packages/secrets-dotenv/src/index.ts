@@ -341,13 +341,19 @@ function refusedName(name: string): SecretNameRefusal | undefined {
   return undefined;
 }
 
-/** `name` as an env-file key Kindgi writes (`acme-key` → `ACME_KEY`), when that makes one. */
+/**
+ * `name` as an env-file key Kindgi writes (`acme-key` → `ACME_KEY`), when
+ * that makes one with a letter or digit of the name's in it (`--` makes
+ * none).
+ */
 function envKeyLike(name: string): string | undefined {
   const like = name
     .toUpperCase()
     .replace(/[^A-Z0-9_]/g, '_')
     .replace(/^(?=[0-9])/, '_');
-  return ENV_KEY_REGEX.test(like) && !isRuntimeKey(like) ? like : undefined;
+  return ENV_KEY_REGEX.test(like) && /[A-Z0-9]/.test(like) && !isRuntimeKey(like)
+    ? like
+    : undefined;
 }
 
 function storeError(message: string): SecretSetOutcome {

@@ -49271,7 +49271,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`), or a secret whose name or value the store can't write: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`) or `secret-value-too-large`.",
+            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`) or `secret-value-too-large`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49988,7 +49988,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`), or a name or value the store can't write: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
+            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
             "content": {
               "application/json": {
                 "schema": {

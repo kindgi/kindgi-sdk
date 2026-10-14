@@ -160,6 +160,9 @@ describe("writes land in Kindgi's own file, which wins; nothing else changes", (
     ],
     ['9-lives', 'secret-name-invalid', 'use "_9_LIVES".'],
     ['kindgi_db', 'secret-name-invalid', '"kindgi_db" isn\'t one.'],
+    // Nothing of the name's would be left to offer.
+    ['--', 'secret-name-invalid', '"--" isn\'t one.'],
+    ['ключ', 'secret-name-invalid', '"ключ" isn\'t one.'],
   ])(
     "refuses %s as the caller's %s, writing nothing; nameRefusal says the same",
     async (name, code, says) => {
