@@ -105,7 +105,8 @@ export interface SystemTenantsBinding {
   close(tenantId: TenantId): Promise<SystemTenant>;
   /**
    * Sets or clears `suspended`: setting cancels its running runs (a second
-   * suspend keeps the first time and reason); clearing resumes what was on.
+   * suspend keeps the first time and reason); clearing clears both and
+   * resumes what was on.
    */
   setSuspended(tenantId: TenantId, suspended: boolean, reason?: string): Promise<SystemTenant>;
   /**
@@ -122,7 +123,7 @@ export interface SystemTenantsBinding {
    * Suspends one of its projects (`true`) or restores it (`false`): nothing
    * new runs or deploys in it, its running runs are cancelled, and its
    * deployments are retired; the rest of the tenant is untouched. A second
-   * suspend keeps the first time and reason.
+   * suspend keeps the first time and reason; restoring clears both.
    */
   setProjectSuspended(
     tenantId: TenantId,
