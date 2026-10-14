@@ -2328,7 +2328,7 @@ export const ERROR_ENTRIES = {
   },
   'site-person-grants-managed': {
     description:
-      "The request would change what a person a site signs in may do: give them a grant, a project or team membership, a reviewer role, or a key. Such a person holds only what their site's sign-in writes: their next sign-in would undo a change, and a key would outlive a paused or unregistered site. Change their role on the site, remove the person, or pause the site instead.",
+      "The request would change what a person a site signs in may do: give them or take away a grant, a tenant role, a project or team membership or its role, or a reviewer role, or mint them a key. Such a person holds only what their site's sign-in writes: their next sign-in would undo a change, and a key would outlive a paused or unregistered site. Change their role on the site, remove the person, or pause the site instead.",
     details: [],
   },
   'token-sign-in-needs-an-api-token': {
