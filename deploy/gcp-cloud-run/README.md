@@ -85,6 +85,13 @@ kindgi build --local --push --env dev      # the pack image, signed; writes .kin
 
 The mirrored runtime keeps the release's digest. Set `server_image` and `pack_image` to the two digests (`…@sha256:…`).
 
+**Without a pack service** (runtime 0.1.8 or later): where each deployment is a Cloud Run service of its own (`KINDGI_PACK_ROUTING=per-deployment`, on a runtime serving many tenants: `KINDGI_TENANCY=multi`), leave `pack_image` unset. A runtime serving one tenant keeps `pack_image`.
+- **Who runs those services:** your orchestrator creates each deployment's service and records its endpoint through the runtime's `/v1/system/…/endpoint` routes. This module doesn't.
+- **What the module then leaves out:** the pack service, its service account and its grants, the shared pack token's secret, and the server's `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH`. Each deployment's endpoint carries its own token and auth, and the server refuses these three under per-deployment routing. `pack_call_timeout_ms` still caps each call.
+- **The routing settings** go in `server_env`: `KINDGI_PACK_ROUTING = "per-deployment"`, `KINDGI_PACK_ENDPOINT_HOSTS` and `KINDGI_TENANCY = "multi"`. A plan without them is refused.
+- **The `pack_*` settings** configure the one pack service, so set with no `pack_image` they're refused rather than ignored.
+- **An existing deployment** that keeps `pack_image` plans no change: the resources keep their state under their new addresses (`moved.tf`).
+
 ## 3. Secret values
 
 Each value is piped straight into Secret Manager. None goes on disk or into Terraform's state. `N` is your `name_prefix`.

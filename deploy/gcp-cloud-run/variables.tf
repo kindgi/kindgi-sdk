@@ -38,11 +38,12 @@ variable "server_image" {
 }
 
 variable "pack_image" {
-  description = "The pack image `kindgi build` produced, by digest, in Artifact Registry."
+  description = "The pack image `kindgi build` produced, by digest, in Artifact Registry: the one pack service the server calls (KINDGI_PACK_SERVICE_URL). Leave it unset where each deployment is a service of its own (KINDGI_PACK_ROUTING=per-deployment): then there's no pack service, no pack account and none of its grants, and the pack_* settings stay unset."
   type        = string
+  default     = ""
 
   validation {
-    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.pack_image))
+    condition     = var.pack_image == "" || can(regex("@sha256:[0-9a-f]{64}$", var.pack_image))
     error_message = "Pin the pack image by digest (…@sha256:<64 hex>)."
   }
 }
