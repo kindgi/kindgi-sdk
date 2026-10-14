@@ -505,7 +505,8 @@ Any other value stops the runtime at start:
 
 Your own classifier lists the kinds to purge under `byKind`, each with its
 `days`, and `onDenyDays` for denied ones; `legalHold: true` keeps a kind for
-good. A kind it doesn't list is kept.
+good. A kind it doesn't list is kept, whatever the `default`'s retention says:
+the default gives such a kind its `signed` and `exportable`, never a purge.
 
 To keep a kind for as long as its tenant exists, give it `"kept": true` in
 place of `days`:
