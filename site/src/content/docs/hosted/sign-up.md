@@ -1,6 +1,6 @@
 ---
 title: Sign up
-description: Join the Kindgi Cloud preview with the sign-up link we sent you. Once we admit your organization, you sign in to its workspace.
+description: Join the Kindgi Cloud preview from its sign-up page. Once we admit your organization, you sign in to its workspace.
 sidebar:
   order: 5
 ---
@@ -9,9 +9,9 @@ Kindgi Cloud runs the Kindgi runtime for your organization at
 platform.kindgi.com. You get a workspace, with its console and its API, and
 run no server yourself.
 
-During the preview, we admit organizations one by one. You sign up with the
-link we sent you, and once we admit yours, we email you as soon as its
-workspace is ready.
+During the preview, we admit organizations one by one. You sign up at
+[platform.kindgi.com/cloud/signup](https://platform.kindgi.com/cloud/signup?plan=apps-preview-v1), and once we
+admit yours, we email you as soon as its workspace is ready.
 
 ## What the preview includes
 
@@ -24,9 +24,10 @@ workspace is ready.
 
 ## Sign up
 
-1. **Open the sign-up link we sent you.** The page, "Create your Kindgi
-   workspace", says: "We admit accounts to the preview one by one. If we
-   admit yours, we'll email you as soon as your workspace is ready."
+1. **Open [the preview's sign-up page](https://platform.kindgi.com/cloud/signup?plan=apps-preview-v1).**
+   The page, "Create your Kindgi workspace", says: "We admit accounts to the
+   preview one by one. If we admit yours, we'll email you as soon as your
+   workspace is ready."
 2. **Give your name, your work email and your organization,** then select
    **Email me a link**.
 3. **Open the link in the email,** "Your Kindgi sign-up link", within 30
