@@ -511,7 +511,7 @@ To keep a kind for as long as its tenant exists, give it `"kept": true` in
 place of `days`:
 
 ```json
-"run-outcome": { "retention": { "kept": true }, "signed": true, "exportable": true }
+"hitl-decision": { "retention": { "kept": true }, "signed": true, "exportable": true }
 ```
 
 No pass purges a kept kind, however old its events. A kept kind gives no
@@ -563,13 +563,13 @@ For a kind the file doesn't list, it says
 A retention that gives `kept` with `days` or `onDenyDays` stops it too:
 
 ```text
-kindgi-runtime: fatal: Error: compliance-classifier.byKind.run-outcome.retention: gives both kept and days: a kept kind is kept for as long as its tenant exists, so it gives no days
+kindgi-runtime: fatal: Error: compliance-classifier.byKind.hitl-decision.retention: gives both kept and days: a kept kind is kept for as long as its tenant exists, so it gives no days
 ```
 
 A retention that gives neither says
-`` compliance-classifier.byKind.run-outcome.retention: gives neither days nor kept: give the days to keep the kind, or "kept": true to keep it for as long as its tenant exists ``,
+`` compliance-classifier.byKind.hitl-decision.retention: gives neither days nor kept: give the days to keep the kind, or "kept": true to keep it for as long as its tenant exists ``,
 and `"kept": false` says
-`` compliance-classifier.byKind.run-outcome.retention.kept: must be true, or left out ``.
+`` compliance-classifier.byKind.hitl-decision.retention.kept: must be true, or left out ``.
 The `default` is checked the same way.
 
 The setting also turns on `GET /v1/compliance/evidence`, which lists the audit
