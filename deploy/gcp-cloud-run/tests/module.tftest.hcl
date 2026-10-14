@@ -57,6 +57,10 @@ run "defaults_keep_kms_and_the_own_repository" {
     condition     = length(google_cloud_run_v2_service_iam_member.pack_invokes) == 0
     error_message = "Without pack_run_invokers, the pack may invoke no other service."
   }
+  assert {
+    condition     = contains(keys(google_project_service.apis), "cloudresourcemanager.googleapis.com")
+    error_message = "The module turns Cloud Resource Manager on, for a root beside it that reads the project billed to the project."
+  }
 }
 
 run "secrets_backend_none_has_no_kms" {
