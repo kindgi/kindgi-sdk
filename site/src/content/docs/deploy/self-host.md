@@ -48,7 +48,7 @@ The runtime runs from Kindgi's image. Log in to its registry and pull it:
 
 ```sh
 docker login quay.io
-docker pull quay.io/kindgi/runtime:0.1.6
+docker pull quay.io/kindgi/runtime:0.1.7
 ```
 
 `docker login` prints `Login Succeeded`. It asks for the robot name and
@@ -272,7 +272,7 @@ Start the runtime:
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.6
+  quay.io/kindgi/runtime:0.1.7
 ```
 
 - **`--restart unless-stopped`** brings the runtime back by itself after a
@@ -424,6 +424,8 @@ pnpm exec kindgi deploy --env selfhost --token "$KINDGI_API_TOKEN"
   …
     "primitives": { "tools": 3, "guardrails": 1, "agents": 1, "flows": 1 },
 ```
+
+To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
 
 The runtime checked the signature, read the pack's index from the image, and registered its tools, agents and flows.
 

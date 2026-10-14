@@ -207,10 +207,10 @@ One command runs the whole loop on your machine:
   Default Credentials file (`GOOGLE_APPLICATION_CREDENTIALS`, else the one
   `gcloud auth application-default login` writes) is mounted read-only.
   Kindgi keeps no key files of its own.
-- **The image:** the runtime image is pulled on first use. It is in
-  private preview: request access at contact@kindgi.com, then log Docker in
-  with the pull credentials you receive:
-  `kindgi auth registry --username <robot name>` (see
+- **The image:** the runtime image is pulled on first use. It needs a pull
+  credential: sign in with GitHub at https://access.kindgi.com for one, then
+  log Docker in with it:
+  `kindgi auth registry --username <your robot name>` (see
   [The runtime image's registry](#the-runtime-images-registry)). `kindgi dev`
   says so when a pull is refused.
 - **Starting:** `kindgi dev` says what the start is doing as it happens,
@@ -824,14 +824,14 @@ with `kindgi auth whoami`.
 
 ### The runtime image's registry
 
-The Kindgi runtime image `kindgi dev` runs is in private preview: request
-access at contact@kindgi.com. With the pull credentials you receive (a robot
-name and a token), log Docker in once:
+The Kindgi runtime image `kindgi dev` runs needs a pull credential (a robot
+name and a token). Sign in with GitHub at https://access.kindgi.com for one,
+then log Docker in once:
 
 ```sh
-kindgi auth registry --username <robot name>     # prompts for the token, without echoing it
-printf '%s' "$TOKEN" | kindgi auth registry --username <robot name> --password-stdin
-kindgi auth registry --check                      # only check access, no login
+kindgi auth registry --username <your robot name>  # prompts for the token, without echoing it
+printf '%s' "$TOKEN" | kindgi auth registry --username <your robot name> --password-stdin
+kindgi auth registry --check                       # only check access, no login
 ```
 
 It runs `docker login` with the token on its stdin, never in its arguments,
@@ -839,8 +839,8 @@ so the credential lives in Docker's own credential store: Kindgi stores
 nothing. Then it checks that Docker can pull the exact image this CLI runs
 (pinned by digest; with `docker buildx imagetools inspect`, or
 `docker manifest inspect` by digest where buildx isn't installed), and a
-failure says whether it's access (request it at
-contact@kindgi.com) or the image or the network. `--registry <host>` logs in
+failure says whether it's access (a pull credential from
+https://access.kindgi.com) or the image or the network. `--registry <host>` logs in
 to a mirror instead and checks for the same image there.
 
 ## Output and global flags

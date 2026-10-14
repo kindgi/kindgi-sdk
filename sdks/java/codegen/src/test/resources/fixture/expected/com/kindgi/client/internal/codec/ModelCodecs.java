@@ -24,6 +24,7 @@ public final class ModelCodecs {
         WidgetStateJson.register(module);
         ShapeJson.register(module);
         CircleJson.register(module);
+        PlacementJson.register(module);
         SquareJson.register(module);
         ContentJson.register(module);
         PromptRefJson.register(module);

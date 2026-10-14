@@ -14,6 +14,7 @@ import type {
   WebhookEventId,
 } from '@kindgi/types';
 import type { CostTokenTotals } from './cost-binding.js';
+import type { RunFailure } from './run-failure.js';
 
 /**
  * Outbound webhook endpoints: URLs the platform sends signed events to,
@@ -182,6 +183,13 @@ export interface FinishedRun {
   readonly dryRun: boolean;
   /** Why the run failed or was cancelled; `null` when it completed. */
   readonly failureMessage: string | null;
+  /**
+   * A failed run's error, as `GET /v1/runs/:runId` reads it back
+   * (`runFailure`): its code, and the error's own `details` when it has
+   * them. Absent unless the run failed, and from a runtime that doesn't
+   * send it yet: read `failureMessage` then.
+   */
+  readonly failure?: RunFailure;
   readonly createdAt: Timestamp;
   readonly completedAt: Timestamp;
   /**

@@ -31,7 +31,7 @@ docker rm kindgi-server
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.6
+  quay.io/kindgi/runtime:0.1.7
 ```
 
 - `-t 30` gives the runtime 30 seconds to stop before Docker kills it.
@@ -171,6 +171,11 @@ The runtime prints what it's running with when it starts. Read it with
 - **`Token`:** the last four characters of the API token it accepts.
 - **`License`:** who the key is for, its kind and its end date. A warning
   follows within 30 days of the end.
+- **`⚠ This preview build (…) stops starting on …`:** from 30 days before
+  this release stops starting (90 days after it was released, until
+  Kindgi 1.0). Upgrade before then. In the JSON format it's also a
+  record of its own, `"event": "kindgi.preview_expiry"`, logged at startup
+  and once a day: match it in a log alert.
 - **`Pack service`:** the pack it reached, with its artifact version. When it
   can't reach it, a warning takes this line's place, with the reason.
 

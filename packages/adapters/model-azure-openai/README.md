@@ -16,7 +16,7 @@ It's built on [`@kindgi/adapter-model-shared`](../model-shared/): the retries, t
 | `baseURL` | Instead of `resourceName`: a custom endpoint, https, with no credentials, query or fragment. On an Azure OpenAI host (another cloud's, say) it ends in `/openai/v1`; a gateway's is any path, with `auth: api-key`. |
 | `deployments` | Required. The deployment serving each registered model: `"model=deployment,…"`, e.g. `"gpt-6.1-sol=gpt-6-1-sol,gpt-6-luna=luna-prod"`. Azure deployment names are yours to choose (often the model's own name, as `gpt-6.1-sol`), so every model in `metadata.models` needs one. |
 | `api` | `responses` (default) or `chat-completions`. Tools with GPT-6 need `responses`: Azure refuses them on Chat Completions while the model reasons. |
-| `auth` | `api-key` (default): the resource's key, through `secret_ref`. `entra`: the runtime's Azure identity; no `secret_ref`; an Azure OpenAI host only (below). |
+| `auth` | `api-key` (default): the resource's key, through `secret_ref`. `entra`: the runtime's Azure identity; no `secret_ref`; an Azure OpenAI host only (below); refused where the deployment doesn't let tenant configuration sign in as the server (`serverCredentials: false`, `KINDGI_TENANT_HOST_ACCESS=isolated`). |
 
 ```json
 {
