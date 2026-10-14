@@ -57,8 +57,11 @@ fall back to an older deployment. No run is cancelled, and the rest of
 the project, and other packs, run as before.
 
 If you deploy the pack again with a changed image, the new deployment
-runs. When a pack has to stay stopped, Kindgi suspends its project
-instead.
+serves the tool versions and checks it ships. Two kinds of call still fail
+with `pack-suspended`: one to a tool version or check the new deployment
+doesn't ship, and one that first ran on the suspended deployment and runs
+again after a wait or a retry. When a pack has to stay stopped, Kindgi
+suspends its project instead.
 
 ## When it's restored
 
