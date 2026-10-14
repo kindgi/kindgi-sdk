@@ -758,6 +758,32 @@ describe('errors and retries', () => {
     }
   });
 
+  test('a request refused by the runtime’s body-size rules (a system-style code): network, once', async () => {
+    // The body guard throws `EKINDGIBODY`; refusedConnection's generic rule catches it, as it does
+    // the egress guard's code, so an over-size body isn't retried and its words reach the caller.
+    const refused = Object.assign(
+      new Error('the request body of 12 MiB is over the 8 MiB this deployment allows'),
+      { code: 'EKINDGIBODY' },
+    );
+    for (const thrown of [
+      refused,
+      new APICallError({
+        message: `Cannot connect to API: ${refused.message}`,
+        url: 'https://llm.example.invalid/v1/generate',
+        requestBodyValues: {},
+        cause: refused,
+        isRetryable: true,
+      }),
+    ]) {
+      const err = await provider([{ throws: thrown }, ANSWER])
+        .invoke(ask)
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ModelProviderError);
+      expect(err).toMatchObject({ kind: 'network', message: refused.message });
+      expect(attemptsOf(err)).toBe(1);
+    }
+  });
+
   test('a call stopped before it starts: its reason, no sign-in, no request', async () => {
     const controller = new AbortController();
     const reason = new Error('turn stopped');

@@ -317,6 +317,12 @@ What to check before you upgrade, and what's different after:
   **ends at an empty 500 page** instead of the sign-in page with an error. No
   session is created. Token and JWKS failures go back to the sign-in page as
   expected.
+- **A guardrail whose `scope` lists `flows` never checks a turn,** in those
+  flows' steps or anywhere else. A turn doesn't say which flow it runs in,
+  so the guardrail skips it without a word: it never blocks, and its outcome
+  counts stay at zero. Leave `flows` out of the scope, and run a flow's steps
+  with an agent of their own that lists the guardrail. 0.1.8 fixes it
+  ([Which agents it covers](../../guides/guardrails/halt-or-record/#which-agents-it-covers)).
 - **Run one runtime instance.** 0.1.6 and 0.1.7 fix the known reasons
   several instances couldn't share a database: boot migrations wait their
   turn, the sign-in limit is shared, guardrail, tool and provider changes
