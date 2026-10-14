@@ -245,3 +245,90 @@ describe('the vendor can ask for a wait too long to sit through', () => {
     expect((error as Error).message).toContain('120 s');
   });
 });
+
+describe("a vendor's x-should-retry overrides the status", () => {
+  test('x-should-retry: false on a 429 is not retried', async () => {
+    const endpoint = scripted([
+      {
+        status: 429,
+        body: { error: { message: 'slow down' } },
+        headers: { 'x-should-retry': 'false' },
+      },
+    ]);
+    const error = await rejection(chat(endpoint.fetch).invoke(call));
+    expect(endpoint.seen).toHaveLength(1);
+    expect((error as ModelProviderError).kind).toBe('rate-limited');
+    expect((error as ModelProviderError).status).toBe(429);
+  });
+
+  test('x-should-retry: true on a 400 is retried to the budget', async () => {
+    const endpoint = scripted([
+      {
+        status: 400,
+        body: { error: { message: 'odd' } },
+        headers: { 'x-should-retry': 'true', 'retry-after-ms': '0' },
+      },
+    ]);
+    const error = await rejection(chat(endpoint.fetch).invoke(call));
+    expect(endpoint.seen).toHaveLength(3);
+    expect((error as ModelProviderError).kind).toBe('invalid-request');
+    expect((error as ModelProviderError).status).toBe(400);
+  });
+});
+
+describe('a failure the status alone decides', () => {
+  test('a 400 is tried once, invalid-request, its words after the status', async () => {
+    const endpoint = scripted([{ status: 400, body: { error: { message: 'bad field "foo"' } } }]);
+    const error = await rejection(chat(endpoint.fetch).invoke(call));
+    expect(endpoint.seen).toHaveLength(1);
+    expect((error as ModelProviderError).kind).toBe('invalid-request');
+    expect((error as ModelProviderError).status).toBe(400);
+    expect((error as Error).message).toBe('400 bad field "foo"');
+  });
+
+  test('a 401 is tried once, auth', async () => {
+    const endpoint = scripted([{ status: 401, body: { error: { message: 'bad key' } } }]);
+    const error = await rejection(chat(endpoint.fetch).invoke(call));
+    expect(endpoint.seen).toHaveLength(1);
+    expect((error as ModelProviderError).kind).toBe('auth');
+    expect((error as ModelProviderError).status).toBe(401);
+  });
+
+  test('a 409 is retried, then the call succeeds', async () => {
+    const endpoint = scripted([
+      {
+        status: 409,
+        body: { error: { message: 'lock timeout' } },
+        headers: { 'retry-after-ms': '0' },
+      },
+      { status: 200, body: COMPLETION },
+    ]);
+    const result = await chat(endpoint.fetch).invoke(call);
+    expect(endpoint.seen).toHaveLength(2);
+    expect(result.message.content).toBe('ok');
+  });
+});
+
+describe('an abort during the wait between attempts ends the call at once', () => {
+  test('a 429, then an abort while it waits: one request, the turn reason', async () => {
+    const controller = new AbortController();
+    const reason = new Error('turn cancelled');
+    const seen: number[] = [];
+    const fetch = (async (): Promise<Response> => {
+      seen.push(seen.length);
+      if (seen.length === 1) {
+        // Abort while `withRetries` waits before the second attempt: the wait
+        // is abortable only because the signal reaches `sendWithRetries`.
+        queueMicrotask(() => controller.abort(reason));
+        return new Response(JSON.stringify({ error: { message: 'slow down' } }), {
+          status: 429,
+          headers: { 'content-type': 'application/json', 'retry-after-ms': '30000' },
+        });
+      }
+      throw new Error('a second request should not be sent after the abort');
+    }) as typeof globalThis.fetch;
+    const error = await rejection(chat(fetch).invoke({ ...call, abortSignal: controller.signal }));
+    expect(seen).toHaveLength(1);
+    expect(error).toBe(reason);
+  });
+});

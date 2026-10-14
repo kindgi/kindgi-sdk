@@ -57,7 +57,8 @@ export function createOpenAICompatEmbeddingProvider(
   let dims = options.dimensions;
   let cached: { readonly key: string; readonly client: OpenAI } | undefined;
   // The adapter owns the retries (the client is built with `maxRetries: 0`); the
-  // caller's `maxRetries` becomes the attempts in all (`retryAttempts`).
+  // caller's `maxRetries` keeps its meaning — the retries after the first
+  // attempt — so the attempt budget is `maxRetries + 1` (`retryAttempts`).
   const maxAttempts = retryAttempts(options.clientOptions?.maxRetries);
 
   async function client(): Promise<OpenAI> {

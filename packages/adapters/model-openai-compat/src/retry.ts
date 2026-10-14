@@ -33,6 +33,19 @@ function retryableStatus(status: number): boolean {
 }
 
 /**
+ * Whether to retry an `APIError`, as the OpenAI SDK decided before we took the
+ * policy over: a vendor's explicit `x-should-retry` wins over the status
+ * (`'true'` → retry any status, `'false'` → retry none), read first; otherwise
+ * the status (openai 7.17.0 `client.js`, `shouldRetry`).
+ */
+function shouldRetry(headers: Headers | undefined, status: number): boolean {
+  const header = headers?.get('x-should-retry');
+  if (header === 'true') return true;
+  if (header === 'false') return false;
+  return retryableStatus(status);
+}
+
+/**
  * An OpenAI `APIError`'s own words, without the status `makeMessage` puts in
  * front of them (`modelProviderError` adds the status back): the body's
  * `message` when it has one, else the body, else the message without the prefix.
@@ -69,7 +82,7 @@ export function describeOpenAIFailure(error: unknown): OpenAIFailure {
     return {
       status: error.status,
       words: apiErrorWords(error),
-      retryable: retryableStatus(error.status),
+      retryable: shouldRetry(error.headers, error.status),
       ...(headers !== undefined && { headers }),
     };
   }

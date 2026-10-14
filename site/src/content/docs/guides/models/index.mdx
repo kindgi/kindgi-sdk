@@ -41,15 +41,16 @@ errors are temporary:
 - a rate limit: `429`;
 - an overloaded or failing server: `500`, `502`, `503` or `504`.
 
-Every adapter retries. The Gemini and OpenAI-compatible adapters set their
-retries themselves; the Anthropic adapter keeps its SDK's defaults. The
-OpenAI-compatible adapter also retries a conflict (`409`), any other `5xx`,
-and a connection dropped before an answer. A connection the runtime itself
-refuses — an egress or body-size guard stops it, or it would follow a
-redirect — the OpenAI-compatible adapter doesn't retry at all: the turn fails
-at once, with the refusal's own words rather than a generic connection error.
-The Gemini adapter doesn't retry a failed connection either. The waits count
-against the turn's time budget, `maxWallMs`.
+Every adapter retries. The Anthropic adapter keeps its SDK's defaults; the
+others set their retries themselves. The OpenAI-compatible, Azure OpenAI and
+Bedrock adapters also retry a conflict (`409`), any other `5xx`, and a
+connection dropped before an answer; a vendor that asks to wait more than a
+minute ends the call at once, naming the wait. They don't retry a connection
+the runtime itself refuses, because an egress or body-size guard stops it or
+it would follow a redirect: the turn fails at once, with the refusal's own
+words rather than a generic connection error. The Gemini adapter retries no
+failed connection, dropped or refused. The waits count against the turn's
+time budget, `maxWallMs`.
 
 ## Before you register one
 
