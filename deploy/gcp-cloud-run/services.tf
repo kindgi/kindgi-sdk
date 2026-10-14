@@ -517,8 +517,8 @@ resource "google_cloud_run_v2_service" "server" {
       error_message = "tenancy = \"single\" needs pack_image: the one pack service the server calls."
     }
     precondition {
-      condition     = var.tenancy != "single" || lookup(var.server_env, "KINDGI_PACK_ROUTING", "single") == "single"
-      error_message = "tenancy = \"single\" calls the one pack service: server_env's KINDGI_PACK_ROUTING, if set, is \"single\". \"per-deployment\" needs tenancy = \"multi\"."
+      condition     = var.tenancy != "single" || contains(["", "single"], trimspace(lookup(var.server_env, "KINDGI_PACK_ROUTING", "")))
+      error_message = "tenancy = \"single\" calls the one pack service: server_env's KINDGI_PACK_ROUTING, if set, is empty or \"single\". \"per-deployment\" needs tenancy = \"multi\"."
     }
     precondition {
       condition     = var.tenancy != "multi" || !local.pack

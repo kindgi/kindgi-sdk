@@ -499,6 +499,20 @@ run "single_refuses_per_deployment_routing" {
   expect_failures = [google_cloud_run_v2_service.server]
 }
 
+run "single_takes_a_padded_single_routing" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PACK_ROUTING = " single " }
+  }
+}
+
+run "single_takes_an_empty_routing" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PACK_ROUTING = "" }
+  }
+}
+
 run "tenancy_refuses_a_word" {
   command = plan
   variables {

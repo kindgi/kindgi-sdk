@@ -456,12 +456,15 @@ server_secret_env = {
 - **Each deployment's service** (your orchestrator's):
   - **Its host** matches `KINDGI_PACK_ENDPOINT_HOSTS`. On Cloud Run,
     `*-<project number>.<region>.run.app` admits only one project's services;
-    `*.run.app` and `*.<region>.run.app` are refused at start.
+    `*.run.app` and `*.<region>.run.app` are refused at start. Record its
+    endpoint by that URL: Cloud Run's other URL for the service
+    (`…-uc.a.run.app`) doesn't match.
   - **The server calls it with its own identity** when the endpoint's auth is
     a Google ID token, so the service grants `roles/run.invoker` to the
     server's account (`terraform output service_accounts`).
   - **In `connector` mode its ingress is all traffic,** with IAM as the
-    guard: the server's connector carries private ranges only.
+    guard: the server's connector carries private ranges only. In `direct`
+    mode it can be internal, as the module's own pack service is.
 - **What the module sets:** `KINDGI_TENANCY=multi`
   ([the variable](../../reference/env-vars/#kindgi_tenancy)), and none of
   `KINDGI_TENANT_ID`, `KINDGI_SEED_USER_ID`, `KINDGI_PACK_SERVICE_URL`,
@@ -477,7 +480,8 @@ server_secret_env = {
     deploy. Without it, a deploy is refused with `409 image-prefix-unset`.
   - **Its tools answer once your orchestrator has run the deployment's
     service and recorded its endpoint.** Until then, a run that calls one
-    fails: "The pack service of the deployment shipping … isn't ready yet."
+    fails with `pack-endpoint-pending`: "The pack service of the deployment
+    shipping … isn't ready yet."
 - **An existing deployment** keeps its tenant, with its data, keys and
   people, as the first of many at the first `"multi"` boot. Before the
   switch:
