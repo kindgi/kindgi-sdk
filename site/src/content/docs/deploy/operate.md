@@ -35,6 +35,10 @@ runtime warns from 30 days before
 ([Licensing](../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
 A restart after that day doesn't come back up.
 
+**Before you start, read the upgrade steps of each release you're
+upgrading across:** [0.1.8's](../../releases/0.1.8/#upgrade-steps) are in
+its release notes, and earlier releases' are below.
+
 1. [Back up Postgres.](../back-up-and-restore/#back-up-postgres)
 2. Pull the new version, and [restart](../restart-and-check-health/#restart-the-runtime) with it, with the same `kindgi.env`:
 
