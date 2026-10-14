@@ -83,7 +83,7 @@ The mirrored runtime keeps the release's digest. Set `server_image` and `pack_im
 
 ## 3. Secret values
 
-A Key Vault secret can't exist without a value, so you create each one. Every value is piped straight into Key Vault: none goes on disk, into Terraform, or onto a command line, except the database password, which `az postgres flexible-server update` takes as an argument.
+A Key Vault secret can't exist without a value, so you create each one. Every value is piped straight into Key Vault: none goes on disk, into Terraform, or onto a command line, except the database password, which `az postgres flexible-server update` takes as an argument (as `gcloud sql users create` does on GCP).
 
 ```sh
 V=$(terraform output -raw key_vault_name)
