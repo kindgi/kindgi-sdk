@@ -47,8 +47,8 @@ export interface SystemDeploymentEntry {
 
 /**
  * Why a deployment's pack service should go:
- * - `superseded`: no live or promoted version routes to it any more. The
- *   orchestrator may keep the newest few per pack, for rollbacks;
+ * - `superseded`: newer deployments ship every tool version and check it
+ *   does. The orchestrator may keep the newest few per pack, for rollbacks;
  * - `tenant-closing`, `tenant-suspended`: every deployment of the tenant,
  *   routed or not, since nothing of it runs;
  * - `project-suspended`, `pack-suspended`: every deployment of the project,
@@ -131,9 +131,9 @@ export interface DeploymentRef {
 export interface SystemDeploymentsBinding {
   /**
    * Across tenants, oldest `activatedAt` first: deployments that need a
-   * pack service. Each is routed (a live or promoted version resolves to
-   * it), has no endpoint or a cleared one, and nothing about it is closing
-   * or suspended.
+   * pack service. Each is routed (the newest deployment to ship some tool
+   * version or pack check), has no endpoint or a cleared one, and nothing
+   * about it is closing or suspended.
    */
   listNeedingEndpoint(input: {
     readonly cursor?: string;
