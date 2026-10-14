@@ -19,6 +19,7 @@ import { emitTurnEvent } from '../streaming.js';
 import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
 import { replayTag } from './replay.js';
+import { chargeTurnMemory } from './turn-memory.js';
 import { addModelCallNode } from './turn-provenance.js';
 
 /**
@@ -51,6 +52,10 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
     }
     const shaped = input as { readonly nextMessages?: readonly ModelMessage[] } | undefined;
     const nextMessages: readonly ModelMessage[] = shaped?.nextMessages ?? [];
+
+    // What the turn holds, charged before the model is called: the iterations
+    // done so far are its steps (restored on a resume). A dry run holds nothing.
+    if (!kctx.dryRun) await chargeTurnMemory(ctx, kctx, nextMessages, ctx.usage.steps);
 
     ctx.usage.steps += 1;
     const step = ctx.usage.steps;

@@ -54,10 +54,10 @@ export interface WebhooksRouterOptions {
   readonly projects?: Pick<ProjectBinding, 'getDefault' | 'get'>;
   /**
    * Where a trigger's signing secret is read is recorded at registration
-   * (`secret-scope.ts`), and `generateSecret` stores a new one here. Absent:
-   * neither.
+   * (`secret-scope.ts`), and `generateSecret` stores a new one here, under a
+   * name it can write (`nameRefusal`). Absent: neither.
    */
-  readonly secrets?: Pick<SecretBinding, 'get' | 'set'>;
+  readonly secrets?: Pick<SecretBinding, 'get' | 'set' | 'nameRefusal'>;
   /** The env the receiver reads signing secrets in (`webhookReceiver.envName`). */
   readonly envName?: EnvName;
   /** A generated secret's write is recorded as any secret write is. */
@@ -187,6 +187,21 @@ export function webhooksRouter(
     return scopes?.[name];
   }
 
+  /**
+   * A name `generateSecret` can't store the signing secret under
+   * (`nameRefusal`): the store's rule, as a typed `400`. Naming a secret
+   * that's already stored never asks: the dev store reads names it can't
+   * write (a key typed into `.env` by hand).
+   */
+  function nameRefused(c: Context<AppEnv>, name: string): Response | undefined {
+    const refusal = secrets?.nameRefusal?.(name);
+    if (refusal === undefined) return undefined;
+    c.status(statusFor(refusal.code) as never);
+    return c.json(
+      toWireError({ code: refusal.code, message: refusal.message }, c.get('requestId')),
+    );
+  }
+
   /** A model provider's key named as the signing secret: the refusal. */
   async function providerKeyRefused(
     c: Context<AppEnv>,
@@ -228,6 +243,10 @@ export function webhooksRouter(
     }
     const delivery = parseDelivery(body, false);
     if (delivery.kind === 'err') return bad(c, requestId, delivery.message);
+    // A name the store can't write, refused before anything is stored: the
+    // trigger goes in before the secret it generates.
+    const unwritable = generate ? nameRefused(c, hmacSecretName.value) : undefined;
+    if (unwritable !== undefined) return unwritable;
 
     // A trigger that names no project goes in the tenant's Default
     // project: checked and stored as that project. With no Default to

@@ -598,6 +598,15 @@ const ObservationConversationIdQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
+const LicenseUsageSinceQueryParam: ParameterSpec = {
+  name: 'since',
+  in: 'query',
+  required: true,
+  description:
+    "The period's start (ISO 8601, with a zone): `kindgi license renew` sends when the current key was issued. Up to five minutes ahead of the runtime's clock is taken as now, since clocks differ; further ahead is refused.",
+  schema: { type: 'string', format: 'date-time' },
+};
+
 const ObservationSinceQueryParam: ParameterSpec = {
   name: 'since',
   in: 'query',
@@ -2090,7 +2099,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.setSuspended',
     summary: 'Suspend a tenant, or restore it',
     description:
-      "Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).",
+      "Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [
@@ -2163,7 +2172,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.setProjectSuspended',
     summary: "Suspend one of a tenant's projects, or restore it",
     description:
-      'Reversible: nothing new runs or deploys in the project, its running runs are cancelled and its deployments retired; reads and the rest of the tenant are untouched. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).',
+      "Reversible: nothing new runs or deploys in the project, its running runs are cancelled and its deployments retired; reads and the rest of the tenant are untouched. Its schedules' fires are recorded `skipped` (`project-suspended`) and don't count toward the auto-pause, so a schedule stays on and fires again once the project is restored. A delivery to one of its webhook triggers is answered `skipped: project-suspended`, and nothing is recorded. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [
@@ -4535,7 +4544,29 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The license status.', schema: ref('LicenseStatus') },
       ...CommonAuthErrors,
       '403': ErrorResponse(
-        "Not the deployment's own token, nor an admin of the one tenant it serves (`license-operator-only`).",
+        "Not the deployment's own token, a system key holding `system:license`, or an admin of the one tenant it serves (`license-operator-only`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/license/usage',
+    openapiPath: '/v1/license/usage',
+    operationId: 'license.usage',
+    summary: 'How much the deployment was used since a time',
+    description:
+      "What a free license key's renewal carries (`kindgi license renew --runtime`): the runs started since `since` (not dry runs, replays, evals or child runs), the distinct people who started runs or decided approvals (counted in each tenant and summed, so a person in two tenants counts twice), the projects in production when the runtime can put projects in production (`PUT /v1/projects/{projectId}/production`), and the runtime's version. Counts only: no content, names or ids. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, reads it; anyone else is refused (`license-operator-only`), and the refusal recorded, before `since` is read. A deployment that doesn't report it answers 404.",
+    tags: ['system'],
+    security: 'bearer',
+    parameters: [LicenseUsageSinceQueryParam],
+    responses: {
+      '200': { description: 'The counts.', schema: ref('LicenseUsage') },
+      '400': ErrorResponse(
+        "`since` is missing, not a time with a zone, or more than five minutes ahead of the runtime's clock (`bad-input`).",
+      ),
+      ...CommonAuthErrors,
+      '403': ErrorResponse(
+        "Not the deployment's own token or a system key holding `system:license` (`license-operator-only`).",
       ),
     },
   },
@@ -8350,7 +8381,19 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('UpsertTenantConfigResult'),
       },
       ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
+      ),
       '409': ErrorResponse('`ifRevision` was set and did not match the stored revision.'),
+      '429': ErrorResponse(
+        "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+      ),
+      '502': ErrorResponse(
+        "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+      ),
+      '503': ErrorResponse(
+        "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
+      ),
     },
   },
 
@@ -8582,7 +8625,19 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretSetResponse'),
       },
       ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
+      ),
       '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
+      '429': ErrorResponse(
+        "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+      ),
+      '502': ErrorResponse(
+        "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+      ),
+      '503': ErrorResponse(
+        "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
+      ),
     },
   },
   {
@@ -9051,7 +9106,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Webhook registered.', schema: ref('WebhookTriggerRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the tenant (`details.issues`).",
+        "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the tenant (`details.issues`). Or, with `generateSecret`, a name the secrets store can't write, refused before anything is stored: `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `reserved-name-prefix`.",
       ),
       '409': ErrorResponse(
         "`secret-write-conflict`: with `generateSecret`, the trigger's project already has a secret of that name (it's never overwritten, and no trigger is left). Or the route-minted webhookId collided (astronomically rare).",
@@ -9174,7 +9229,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.fires',
     summary: "A webhook trigger's deliveries",
     description:
-      "Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals and skipped deliveries past 20 a minute only count (the trigger's `suppressedRefusals`).",
+      "Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused, its project or tenant suspended, or its tenant closing) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals and skipped deliveries past 20 a minute only count (the trigger's `suppressedRefusals`).",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
@@ -9219,7 +9274,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       "The trigger's sender (WooCommerce, Drupal, GitHub…) posts here, signed with the trigger's secret; a Kindgi client never does.",
     summary: 'Receive a webhook delivery',
     description:
-      "The receive URL a webhook trigger's sender posts to: no sign-in, and a bearer token, if sent, is never read. The request's signature, made with the trigger's secret in its `signature` scheme over the raw body, is what lets it start the trigger's flow as the trigger's owner. Every request that doesn't prove its sender (an unknown tenant or id, a missing, wrong or stale signature, a secret that can't be read) is `401 webhook-refused`, with the reason only in the trigger's history and the access audit; the URL isn't a secret, the signature is. A WooCommerce save-time ping (unsigned `webhook_id=<n>`) is answered `200` and starts nothing. The event the flow gets is the body, parsed as JSON for a JSON content type, else its text: data from outside, never instructions. A run's start isn't waited for.",
+      "The receive URL a webhook trigger's sender posts to: no sign-in, and a bearer token, if sent, is never read. The request's signature, made with the trigger's secret in its `signature` scheme over the raw body, is what lets it start the trigger's flow as the trigger's owner. Every request that doesn't prove its sender (an unknown tenant or id, a missing, wrong or stale signature, a secret that can't be read) is `401 webhook-refused`, with the reason only in the trigger's history and the access audit; the URL isn't a secret, the signature is. A WooCommerce save-time ping (unsigned `webhook_id=<n>`) is answered `200` and starts nothing. A closing tenant takes no delivery: a signed one is `409 tenant-closing`, and nothing is recorded. A suspended tenant or project takes a signed one without keeping it: `202` with `skipped`, nothing recorded or started, and the event isn't kept, so a sender that can redeliver by hand (GitHub) can resend it once it's restored. The event the flow gets is the body, parsed as JSON for a JSON content type, else its text: data from outside, never instructions. A run's start isn't waited for.",
     tags: ['webhooks'],
     security: 'public',
     parameters: [
@@ -9252,7 +9307,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       '202': {
         description:
-          'Taken: a fire recorded, its run starting as the owner (`fireId`). Or, on a paused trigger, a `skipped` fire and no run (`skipped: paused`).',
+          "Taken: a fire recorded, its run starting as the owner (`fireId`). Or, on a paused trigger, a `skipped` fire and no run (`skipped: paused`). Or, when the trigger's tenant or project is suspended, nothing recorded and no run (`skipped: tenant-suspended`, `skipped: project-suspended`).",
         schema: ref('WebhookReceipt'),
       },
       '400': ErrorResponse(
@@ -9261,12 +9316,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '401': ErrorResponse(
         "`webhook-refused`: the request doesn't prove its sender (the same answer whatever the reason).",
       ),
+      '409': ErrorResponse(
+        "`tenant-closing` (`details.state`): the trigger's tenant is closing. Nothing was recorded.",
+      ),
       '410': ErrorResponse('`webhook-gone`: the trigger was unregistered.'),
       '413': ErrorResponse(
         "`webhook-body-too-large`: past the trigger's `bodyLimitBytes` (or 1 MiB, before any lookup).",
       ),
       '429': ErrorResponse(
         "`rate-limit-exceeded`: past the trigger's `rateLimitPerMinute`, or too many refused requests from this client; `Retry-After` says when.",
+      ),
+      '503': ErrorResponse(
+        "`tenant-state-unavailable`: the tenant's state can't be read just now, so nothing was recorded; `Retry-After` says when to try again.",
       ),
     },
   },

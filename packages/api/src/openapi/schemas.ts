@@ -2182,6 +2182,34 @@ export const LicensePreviewSchema: JsonSchema = {
   },
 };
 
+export const LicenseUsageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['since', 'until', 'runtimeVersion', 'runs', 'people'],
+  properties: {
+    since: { type: 'string', format: 'date-time', description: "The period's start, as asked." },
+    until: { type: 'string', format: 'date-time', description: 'When they were counted.' },
+    runtimeVersion: { type: 'string', description: "The runtime's version." },
+    runs: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Runs started in the period: not dry runs, replays, evals or child runs.',
+    },
+    people: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Distinct people who started runs or decided approvals in the period, counted in each tenant and summed.',
+    },
+    projectsInProduction: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Projects in production at `until`; absent when the runtime has no such setting.',
+    },
+  },
+};
+
 export const ExportSigningKeyListSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -11311,7 +11339,7 @@ export const ScheduleRecordSchema: JsonSchema = {
       type: 'string',
       enum: ['latest', 'skip'],
       description:
-        'After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence.',
+        "After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence. A tenant's suspension isn't caught up either way: once the tenant is restored, a schedule that's on fires next at its first occurrence after the restore.",
     },
     overlap: {
       type: 'string',
@@ -11456,7 +11484,7 @@ export const ScheduleFireSchema: JsonSchema = {
         'failed',
       ],
       description:
-        "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`: what an improve schedule waits for wasn't there (its threshold, or its monthly cap), as `detail` says. None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`.",
+        "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or pass started; its run or pass hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
     passId: {
@@ -11845,13 +11873,13 @@ export const WebhookFireSchema: JsonSchema = {
       type: 'string',
       enum: ['pending', 'started', 'skipped', 'refused', 'failed'],
       description:
-        "`pending` while its run starts. `skipped`: the trigger was paused, so the event was dropped. `refused`: `detail` says why. `failed`: the run couldn't start.",
+        "`pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); its run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
     detail: {
       type: 'string',
       description:
-        "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access.",
+        "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension or a close names `project-suspended`, `tenant-suspended` or `tenant-closing` in it.",
     },
     countsTowardPause: COUNTS_TOWARD_PAUSE,
     duplicates: {
@@ -11889,8 +11917,9 @@ export const WebhookReceiptSchema: JsonSchema = {
     },
     skipped: {
       type: 'string',
-      enum: ['paused'],
-      description: 'The trigger is paused: no run started, and the event was dropped.',
+      enum: ['paused', 'tenant-suspended', 'project-suspended'],
+      description:
+        "No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's tenant or project is suspended, and nothing was recorded.",
     },
     received: {
       type: 'string',
@@ -11947,7 +11976,7 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        "The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing).",
+        "The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing). Under `kindgi dev`, `generateSecret` writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`secret-name-invalid` otherwise).",
     },
     generateSecret: {
       type: 'boolean',
@@ -12555,6 +12584,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ExportSigningKey', ExportSigningKeySchema],
   ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['LicenseStatus', LicenseStatusSchema],
+  ['LicenseUsage', LicenseUsageSchema],
   ['ExportAuditBundleBody', ExportAuditBundleBodySchema],
   ['ExportAuditBundleResult', ExportAuditBundleResultSchema],
   ['ObservationStatus', ObservationStatusSchema],

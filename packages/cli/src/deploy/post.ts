@@ -31,6 +31,8 @@ import type {
   DeploymentRecord,
   FindProjectsOptions,
   FindProjectsResult,
+  GetDeploymentOptions,
+  GetDeploymentResult,
   PostDeploymentBody,
   PostDeploymentOptions,
   PostDeploymentResult,
@@ -315,4 +317,35 @@ export async function findProjectsReal(opts: FindProjectsOptions): Promise<FindP
       page.hasMore === true && typeof page.nextCursor === 'string' ? page.nextCursor : undefined;
   } while (cursor !== undefined);
   return { kind: 'ok', projects: found };
+}
+
+/** `GET /v1/deployments/:id`: the deployment as the runtime has it now. */
+export async function getDeploymentReal(opts: GetDeploymentOptions): Promise<GetDeploymentResult> {
+  const url = `${opts.endpoint.replace(/\/+$/, '')}/v1/deployments/${encodeURIComponent(opts.deploymentId)}`;
+  let res: Response;
+  try {
+    res = await opts.fetchImpl(url, {
+      headers: { Authorization: `Bearer ${opts.token}` },
+      ...(opts.signal !== undefined && { signal: opts.signal }),
+    });
+  } catch (err) {
+    return { kind: 'error', message: `GET ${url} failed: ${(err as Error).message}` };
+  }
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    return {
+      kind: 'error',
+      message: `GET ${url} answered HTTP ${res.status} with a body that isn't JSON`,
+    };
+  }
+  if (!res.ok) {
+    const code = (body as { error?: { code?: unknown } } | null)?.error?.code;
+    return {
+      kind: 'error',
+      message: `GET ${url} answered HTTP ${res.status}${typeof code === 'string' ? ` (${code})` : ''}`,
+    };
+  }
+  return { kind: 'ok', record: body as DeploymentRecord };
 }

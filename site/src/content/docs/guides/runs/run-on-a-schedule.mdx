@@ -101,9 +101,11 @@ history is newest first, kept for 30 days. Each row has:
 
 - **`FIRED`:** when the fire happened.
 - **`FOR`:** the time it was for, or `run-now` for one you started by hand.
-- **`OUTCOME`:** `started`, `skipped-overlap`, `skipped-erasure`, `skipped`
-  (an improve schedule's), `refused`, `failed`, or `pending` while a fire is
-  starting.
+- **`OUTCOME`:** `started`, `skipped-overlap`, `skipped-erasure`, `skipped`,
+  `refused`, `failed`, or `pending` while a fire is starting. A fire is
+  `skipped` when an improve schedule's threshold isn't met or its monthly cap
+  is reached, when its project is suspended, or when its tenant is suspended
+  or starts closing before its run or pass has started. `NOTE` says which.
 - **`STARTED`:** a run's id, or `pass <id>` for an
   [improve schedule](#improve-on-a-schedule).
 - **`NOTE`:** why it was skipped, refused or failed, or how many missed times

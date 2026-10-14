@@ -95,6 +95,28 @@ export interface SecretBinding {
    * leaves it unset, and `POST /v1/secrets` refuses `appEnvFile`.
    */
   readonly writesAppEnvFiles?: boolean;
+
+  /**
+   * Why this store can't write a secret named `name`, or `undefined` when it
+   * can. `set` refuses the same names with the same code. A route that
+   * stores something before the secret (a webhook trigger with
+   * `generateSecret`) asks first, so the name is the caller's `400` and
+   * nothing is stored. Reads may still find such a name (the dev store reads
+   * a key typed into `.env` by hand), so nothing that only reads asks.
+   * Unset: `set` alone says.
+   */
+  nameRefusal?(name: string): SecretNameRefusal | undefined;
+}
+
+/** A name a store can't write, and why ({@link SecretBinding.nameRefusal}). */
+export interface SecretNameRefusal {
+  /**
+   * `reserved-name-prefix`: the name starts with {@link RESERVED_SECRET_NAME_PREFIX}.
+   * `secret-name-invalid`: it breaks another of the store's rules.
+   */
+  readonly code: 'reserved-name-prefix' | 'secret-name-invalid';
+  /** The store's rule, said to the caller. */
+  readonly message: string;
 }
 
 // -------------------- observing writes --------------------
@@ -130,6 +152,7 @@ export const SECRET_BINDING_MEMBERS: Readonly<
   rotate: 'write',
   revoke: 'write',
   writesAppEnvFiles: 'flag',
+  nameRefusal: 'read',
 };
 
 /**
@@ -169,6 +192,9 @@ export function observeSecretWrites(binding: SecretBinding): {
       revoke: (input) => told(input, () => binding.revoke(input)),
       ...(binding.writesAppEnvFiles !== undefined && {
         writesAppEnvFiles: binding.writesAppEnvFiles,
+      }),
+      ...(binding.nameRefusal !== undefined && {
+        nameRefusal: (name: string) => binding.nameRefusal?.(name),
       }),
     },
     writes: {

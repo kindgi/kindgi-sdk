@@ -139,6 +139,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'rate-limit-exceeded': 429,
   // A gate asked for an approval past the tenant's limit on approvals waiting.
   'approvals-pending-limit': 429,
+  // An agent turn's memory, charged by size, is past the tenant's share or
+  // the runtime's whole (a runtime's limit, as Kindgi Cloud sets). No
+  // `Retry-After`: there's no honest time to give.
+  'turn-memory-limit-reached': 429,
   // 500 — server
   'internal-server-error': 500,
   'journal-error': 500,
@@ -360,8 +364,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // The operator manages sign-in (KINDGI_AUTH_TENANT_PROVIDERS=off): a
   // change to a provider takes the deployment's own token.
   'identity-providers-operator-managed': 403,
-  // `GET /v1/license` by a caller who may not read it: the license is the
-  // deployment's (its own token), or a sole tenant's admins' countdown.
+  // `GET /v1/license` or `GET /v1/license/usage` by anyone but the
+  // deployment's own token or a system key holding `system:license`, save a
+  // sole tenant's admins reading the license's countdown.
   'license-operator-only': 403,
   'invalid-provider-config': 400,
   'auth-not-session-token': 400,
@@ -433,6 +438,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'env-name-mismatch': 400,
   'env-cross-scope': 400,
   'reserved-name-prefix': 400,
+  /** A name the secrets store can't write (the dev store's env-file keys); the message says its rule. */
+  'secret-name-invalid': 400,
   'secret-value-too-large': 400,
   'secret-write-conflict': 409,
   'env-write-conflict': 409,

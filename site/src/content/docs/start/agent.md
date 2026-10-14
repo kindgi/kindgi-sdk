@@ -86,7 +86,7 @@ running and no model key yet:
 ```json
 {
   "ok": false,
-  "cliVersion": "0.1.6",
+  "cliVersion": "0.1.7",
   "project": {
     "dir": "…/my-agents",
     "language": "node"
@@ -253,9 +253,10 @@ that uses it, as that page shows. Otherwise:
 3. Run doctor again from the project's folder; `project` and
    `dependencies` should pass.
 
-`init` also gives you Kindgi's skills, in `.claude/skills/`, for the
-project's language (a Java or Scala project gets its own). Read them: they
-are how you write tools and agents for this project.
+`init` also gives you Kindgi's skills, in `.claude/skills/` and
+`.agents/skills/` (the same copy in each), for the project's language (a
+Java or Scala project gets its own). Read them: they are how you write tools
+and agents for this project.
 
 ## Step 3: start Kindgi
 
@@ -364,7 +365,8 @@ register the provider again or to restart `kindgi dev`.
    don't know, suggest: "Read a customer message and say how urgent it is,
    and why."
 2. Write that agent in the project, following the skills in
-   `.claude/skills/`. `kindgi dev` picks up the file when you save it.
+   `.claude/skills/` or `.agents/skills/`. `kindgi dev` picks up the file
+   when you save it.
 3. Run it with an example the person would recognise, and show them the
    answer:
 
