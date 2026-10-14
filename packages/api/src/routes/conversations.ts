@@ -15,12 +15,19 @@ import type { ProjectBinding } from '@kindgi/platform';
 import type { RunBinding } from '@kindgi/runtime';
 import type { AgentId, ProjectId, Semver, TenantId } from '@kindgi/types';
 
+import type { AgentRegistryBinding } from '../agent-binding.js';
 import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import {
+  type ReferenceScopeBinding,
+  outOfScopeResponse,
+  referencesOutOfScope,
+} from '../reference-scope.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
+import { participantRefusal } from './participant-access.js';
 import { parseListScope } from './scope-params.js';
 import { refuseMalformedUuidParam } from './uuid-param.js';
 
@@ -47,7 +54,8 @@ export function conversationsRouter(
   runBinding: RunBinding,
   /**
    * When wired, a `projectId` given to `POST /` must be one of the
-   * tenant's projects, and an omitted one is the tenant's Default project.
+   * tenant's projects; an omitted one is the agent's own project, or the
+   * tenant's Default for an agent `agentRegistry` doesn't place.
    */
   projectBinding?: ProjectBinding,
   /**
@@ -56,6 +64,10 @@ export function conversationsRouter(
    * closing one needs `execute` on its agent, as starting a run does.
    */
   authorizer?: Authorizer,
+  /** What a conversation's project may run (`reference-scope.ts`); absent → as named. */
+  referenceScope?: ReferenceScopeBinding,
+  /** Where an agent is filed: a conversation opened without `projectId` goes there. */
+  agentRegistry?: AgentRegistryBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -225,9 +237,6 @@ export function conversationsRouter(
         ),
       );
     }
-    // Omitted: the tenant's Default project, as for a run. No Default (or
-    // no project binding): no project, never a refusal.
-    const projectId = supplied ?? (await projectBinding?.getDefault(tenantId))?.id;
     const refused = await deniedBy(
       authorizer,
       c,
@@ -235,6 +244,32 @@ export function conversationsRouter(
       ref('agent', parsed.value.agentId as unknown as string),
     );
     if (refused !== undefined) return refused;
+    // Omitted: the agent's own project, as for a run. An agent the registry
+    // doesn't place (or from before projects): the tenant's Default. No
+    // Default (or no project binding): no project, never a refusal.
+    const projectId =
+      supplied ??
+      (
+        await agentRegistry?.getVersion({
+          tenantId,
+          agentId: parsed.value.agentId,
+          version: parsed.value.agentVersion,
+        })
+      )?.projectId ??
+      (await projectBinding?.getDefault(tenantId))?.id;
+    // Its agent must be its project's to reach (`reference-scope.ts`).
+    if (projectId !== undefined) {
+      const outOfScope = await referencesOutOfScope(referenceScope, tenantId, projectId, [
+        { path: '/agentId', kind: 'agent', id: parsed.value.agentId as unknown as string },
+      ]);
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    }
+    // Opening it for a participant: its turns run with their memory.
+    const notAllowed = await participantRefusal(c, authorizer, {
+      participantId: parsed.value.participantId,
+      projectId: projectId as unknown as string | undefined,
+    });
+    if (notAllowed !== undefined) return notAllowed;
 
     // Who opened it: the caller, never the body.
     const openedBy = callerRef(c);

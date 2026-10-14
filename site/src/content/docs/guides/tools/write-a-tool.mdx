@@ -1,6 +1,6 @@
 ---
 title: Write a tool
-description: Write a tool in TypeScript or Python, try it from a flow, test it, and give it to an agent.
+description: Write a tool in TypeScript, Python, Java or Scala, try it from a flow, test it, and give it to an agent.
 sidebar:
   order: 1
 ---
@@ -117,21 +117,125 @@ def lookup_order(ref: OrderRef, ctx: ToolContext) -> Order:
   blocking calls are fine; an `async def` handler runs on the event loop.
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/mypack/tools/LookupOrder.java
+package mypack.tools;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.kindgi.pack.Tool;
+import jakarta.validation.constraints.Pattern;
+import java.util.Map;
+
+public final class LookupOrder {
+  public record Input(@Pattern(regexp = "^ord_\\d+$") String orderId) {}
+
+  public enum Status {
+    @JsonProperty("pending") PENDING,
+    @JsonProperty("shipped") SHIPPED,
+    @JsonProperty("delivered") DELIVERED
+  }
+
+  public record Output(String orderId, Status status, long totalCents) {}
+
+  // Stands in for your app's database.
+  private static final Map<String, Output> ORDERS = Map.of(
+      "ord_1001", new Output("ord_1001", Status.SHIPPED, 4200),
+      "ord_1002", new Output("ord_1002", Status.PENDING, 1250));
+
+  public static final Tool<Input, Output> TOOL = Tool.define("my-pack.lookup-order")
+      .description("Looks up an order by id. Returns its status and total in cents.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .handler((input, ctx) -> {
+        Output order = ORDERS.get(input.orderId());
+        if (order == null) throw new IllegalArgumentException("No order " + input.orderId());
+        System.out.println("lookup-order " + input.orderId() + " for tenant " + ctx.tenantId());
+        return order;
+      });
+
+  private LookupOrder() {}
+}
+```
+
+- The tool is a `public static final` field of a class under `tools/`: the
+  indexer finds it there. The package comes from the pack's id (`my-pack` →
+  `mypack`).
+- `input` and `output` are records, and their schemas come from the records:
+  a Jakarta Validation constraint such as `@Pattern` becomes its schema
+  keyword, and an enum the list of its JSON values.
+- `ctx` carries `tenantId()`, `runId()`, `requestId()` and `cancellation()`,
+  which fires when the call is cancelled. In a run it also carries
+  `projectId()`, the run's project, and `orgId()`, the project's org when it
+  has one (else `null`). The runtime sets both from the run, never from the
+  input. Each call runs on its own thread, so blocking calls are fine.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/mypack/tools/LookupOrder.scala
+package mypack.tools
+
+import com.kindgi.pack.scaladsl._
+import jakarta.validation.constraints.Pattern
+
+object LookupOrder {
+  final case class Input(@Pattern(regexp = "^ord_\\d+$") orderId: String)
+
+  enum Status {
+    case pending, shipped, delivered
+  }
+
+  final case class Output(orderId: String, status: Status, totalCents: Long)
+
+  // Stands in for your app's database.
+  private val orders = Map(
+    "ord_1001" -> Output("ord_1001", Status.shipped, 4200),
+    "ord_1002" -> Output("ord_1002", Status.pending, 1250))
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("my-pack.lookup-order")
+    .description("Looks up an order by id. Returns its status and total in cents.")
+    .version("0.1.0")
+    .readOnly
+    .handler { (in, ctx) =>
+      val order = orders.getOrElse(in.orderId, throw new NoSuchElementException(s"No order ${in.orderId}"))
+      println(s"lookup-order ${in.orderId} for tenant ${ctx.tenantId}")
+      order
+    }
+}
+```
+
+- The tool is a `val` of an object named like its file, under `tools/`: the
+  indexer finds it there.
+- `Input` and `Output` are case classes, and their schemas come from them: a
+  Jakarta Validation constraint such as `@Pattern` becomes its schema
+  keyword, and a Scala 3 enum's cases are the values its string may take.
+- `ctx` is the same context as in Java: `ctx.tenantId`, `ctx.runId`,
+  `ctx.projectId` and `ctx.orgId` (`null` when the project has no org), set
+  by the runtime from the run.
+
+</TabItem>
 </Tabs>
 
-In both languages:
+In every language:
 
 - The id is `<pack-id>.<tool-name>`, in kebab case.
 - The description is what a model reads to decide when to call the tool. Say
   what it does and what it returns.
-- `mutating: false` declares that the tool only reads. See
+- `mutating: false` (`.mutating(false)` in Java, `.readOnly` in Scala)
+  declares that the tool only reads. See
   [Mark a tool read-only](../read-only-tools/).
-- What the handler logs shows in the `kindgi dev` terminal, prefixed `[pack]`.
+- What the handler prints shows in the `kindgi dev` terminal, prefixed `[pack]`.
 - Open files, databases and connections inside the handler, on first use,
-  not at the module's top level. `kindgi build` imports every tool,
-  guardrail and flow module to index it, so what a module does when it's
-  imported runs during the build too, inside an image that doesn't have your
-  app's files or services ([Build, sign and push your pack](../../../deploy/self-host/#3-build-sign-and-push-your-pack)).
+  not at the module's top level (in a static field or an object's `val`, in
+  Java and Scala). `kindgi build` loads every tool, guardrail and flow module
+  to index it, so what a module does when it's loaded runs during the build
+  too, inside an image that doesn't have your app's files or services
+  ([Build, sign and push your pack](../../../deploy/self-host/#3-build-sign-and-push-your-pack)).
 
 Save the file. `kindgi dev` indexes it and registers the tool; the next call
 runs the new code.
@@ -212,6 +316,69 @@ uv run kindgi runs start --flow=my-pack.check-order --input='{"orderId":"ord_100
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/mypack/flows/CheckOrder.java
+package mypack.flows;
+
+import com.kindgi.pack.Flow;
+import java.util.Map;
+import mypack.tools.LookupOrder;
+
+public final class CheckOrder {
+  public static final Flow FLOW = Flow.define("my-pack.check-order")
+      .version("0.1.0")
+      .set("name", "Check order")
+      .set("description", "Looks up one order.")
+      .node(Map.of(
+          "id", "lookup",
+          "kind", "tool",
+          "ref", LookupOrder.TOOL,
+          "inputMapping", Map.of("orderId", Map.of("path", "runInput.orderId"))))
+      .edge("e-start", "$start", "lookup")
+      .edge("e-end", "lookup", "$end")
+      .build();
+
+  private CheckOrder() {}
+}
+```
+
+```sh
+./kindgiw runs start --flow=my-pack.check-order --input='{"orderId":"ord_1001"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/mypack/flows/CheckOrder.scala
+package mypack.flows
+
+import com.kindgi.pack.scaladsl._
+import mypack.tools.LookupOrder
+
+object CheckOrder {
+  val flow: Flow = Flow("my-pack.check-order")
+    .version("0.1.0")
+    .set("name", "Check order")
+    .set("description", "Looks up one order.")
+    .node(Map(
+      "id" -> "lookup",
+      "kind" -> "tool",
+      "ref" -> LookupOrder.tool,
+      "inputMapping" -> Map("orderId" -> Map("path" -> "runInput.orderId"))))
+    .edge("e-start", "$start", "lookup")
+    .edge("e-end", "lookup", "$end")
+    .build()
+}
+```
+
+```sh
+./kindgiw runs start --flow=my-pack.check-order --input='{"orderId":"ord_1001"}'
+```
+
+</TabItem>
 </Tabs>
 
 ```json
@@ -249,7 +416,7 @@ an object, never in the message:
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 // in tools/lookup-order/index.ts, in the handler
 ctx.log?.info('looked up order', { orderId, status: order.status });
 ```
@@ -260,7 +427,7 @@ one, so write `ctx.log?.`.
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 # in tools/lookup_order.py, in the handler
 ctx.log.info("looked up order", {"orderId": ref.order_id, "status": order["status"]})
 ```
@@ -271,9 +438,9 @@ Fields can also be keywords (`order_id=…`). In a test,
 </TabItem>
 <TabItem label="Java">
 
-```java
-// in src/main/java/acme/tools/LookupOrder.java, in the handler
-ctx.log().info("looked up order", Map.of("orderId", input.orderId()));
+```java excerpt
+// in src/main/java/mypack/tools/LookupOrder.java, in the handler
+ctx.log().info("looked up order", Map.of("orderId", input.orderId(), "status", order.status()));
 ```
 
 `ctx.log().warn("retrying", e)` logs an exception, under `err`. In a
@@ -283,9 +450,9 @@ a logger.
 </TabItem>
 <TabItem label="Scala">
 
-```scala
-// in src/main/scala/acme/tools/LookupOrder.scala, in the handler
-ctx.log.info("looked up order", "orderId" -> in.orderId)
+```scala excerpt
+// in src/main/scala/mypack/tools/LookupOrder.scala, in the handler
+ctx.log.info("looked up order", "orderId" -> in.orderId, "status" -> order.status)
 ```
 
 Fields can also be a map. A case class is logged as an object of its fields,
@@ -304,7 +471,8 @@ pack:
 The record's subsystem is `pack.tool`, and its level is the method's: `info`,
 `warn`, `error`, `debug` or `trace`. Values under secret-looking keys are
 redacted, but don't log a secret. Printing the context itself
-(`console.log(ctx)`, `print(ctx)`) never shows its secrets.
+(`console.log(ctx)`, `print(ctx)`, `System.out.println(ctx)`) never shows its
+secrets.
 
 ## When a call fails
 
@@ -315,7 +483,7 @@ match the pattern never reaches it:
 kindgi runs start --flow=my-pack.check-order --input='{"orderId":"9999"}'
 ```
 
-```json
+```json excerpt
   "status": "failed",
   "failureMessage": "input-validation-failed: Input for tool \"my-pack.lookup-order\" failed validation",
 ```
@@ -326,7 +494,7 @@ An exception in the handler fails the call with its message:
 kindgi runs start --flow=my-pack.check-order --input='{"orderId":"ord_9999"}'
 ```
 
-```json
+```json excerpt
   "status": "failed",
   "failureMessage": "handler-error: Tool \"my-pack.lookup-order\" handler threw: handler-throw: Handler for tool \"my-pack.lookup-order\" threw: Error: No order ord_9999",
 ```
@@ -348,7 +516,7 @@ result.
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 // in tools/issue-refund/index.ts, in the handler
 const res = await fetch('https://payments.acme.example/refunds', {
   method: 'POST',
@@ -363,7 +531,7 @@ const res = await fetch('https://payments.acme.example/refunds', {
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 # in tools/issue_refund.py, in the handler
 headers = {"Idempotency-Key": ctx.idempotency_key} if ctx.idempotency_key else {}
 res = httpx.post(
@@ -376,8 +544,8 @@ res = httpx.post(
 </TabItem>
 <TabItem label="Java">
 
-```java
-// in src/main/java/acme/tools/IssueRefund.java, in the handler
+```java excerpt
+// in src/main/java/mypack/tools/IssueRefund.java, in the handler
 HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("https://payments.acme.example/refunds"))
     .POST(HttpRequest.BodyPublishers.ofString(body));
 if (ctx.idempotencyKey() != null) {
@@ -388,8 +556,8 @@ if (ctx.idempotencyKey() != null) {
 </TabItem>
 <TabItem label="Scala">
 
-```scala
-// in src/main/scala/acme/tools/IssueRefund.scala, in the handler
+```scala excerpt
+// in src/main/scala/mypack/tools/IssueRefund.scala, in the handler
 val request = HttpRequest.newBuilder(URI.create("https://payments.acme.example/refunds"))
   .POST(HttpRequest.BodyPublishers.ofString(body))
 Option(ctx.idempotencyKey).foreach(key => request.header("Idempotency-Key", key))
@@ -403,8 +571,8 @@ that must be unique) and look for it before you write. The key is a UUID.
 
 - **`requestId` won't do.** A model's call id is only unique within one of
   its answers: two turns of a loop can share one.
-- **It can be absent:** outside a run (a unit test passes its own), and with
-  a runtime from before 0.1.6. The call can't be deduped on it then.
+- **It can be absent** outside a run: a unit test passes its own, or none.
+  Check for it, as above; without one, the call can't be deduped on it.
 
 ## Check the run's org
 
@@ -417,7 +585,7 @@ proves nothing.
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 // in tools/lookup-order/index.ts
 // Stands in for your app's database. Each order belongs to one customer's org.
 const ORDERS = new Map([
@@ -437,7 +605,7 @@ const ORDERS = new Map([
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 # in tools/lookup_order.py
 # Stands in for your app's database. Each order belongs to one customer's org.
 ORDERS = {
@@ -457,19 +625,62 @@ def lookup_order(ref: OrderRef, ctx: ToolContext) -> Order:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/mypack/tools/LookupOrder.java
+// Stands in for your app's database. Each order belongs to one customer's org.
+record Stored(String orgId, Output order) {}
+
+private static final Map<String, Stored> ORDERS = Map.of(
+    "ord_1001", new Stored("1154e250-2a07-491e-b00a-3675b411c411", new Output("ord_1001", Status.SHIPPED, 4200)),
+    "ord_1002", new Stored("feb005e6-6798-47eb-a87a-8feed584d37b", new Output("ord_1002", Status.PENDING, 1250)));
+
+// …
+    .handler((input, ctx) -> {
+      Stored stored = ORDERS.get(input.orderId());
+      // Another org's order is as missing as one that doesn't exist.
+      if (stored == null || !stored.orgId().equals(ctx.orgId())) {
+        throw new IllegalArgumentException("No order " + input.orderId());
+      }
+      return stored.order();
+    });
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/mypack/tools/LookupOrder.scala
+// Stands in for your app's database. Each order belongs to one customer's org.
+private val orders = Map(
+  "ord_1001" -> ("1154e250-2a07-491e-b00a-3675b411c411", Output("ord_1001", Status.shipped, 4200)),
+  "ord_1002" -> ("feb005e6-6798-47eb-a87a-8feed584d37b", Output("ord_1002", Status.pending, 1250)))
+
+// …
+    .handler { (in, ctx) =>
+      orders.get(in.orderId) match {
+        // Another org's order is as missing as one that doesn't exist.
+        case Some((orgId, order)) if orgId == ctx.orgId => order
+        case _ => throw new NoSuchElementException(s"No order ${in.orderId}")
+      }
+    }
+```
+
+</TabItem>
 </Tabs>
 
 A run in the first org's project finds `ord_1001`. Asking it for the second
 org's order fails as if the order didn't exist:
 
-```json
+```json excerpt
   "status": "failed",
   "failureMessage": "handler-error: Tool \"my-pack.lookup-order\" handler threw: handler-throw: Handler for tool \"my-pack.lookup-order\" threw: Error: No order ord_1002",
 ```
 
-A project with no org has no `orgId` (`None` in Python), so in it this tool
-finds no order at all. Start a run in a project with `projectId` on
-`runs.start`.
+A project with no org has no `orgId` (`None` in Python, `null` in Java and
+Scala), so in it this tool finds no order at all. Start a run in a project
+with `projectId` on `runs.start`.
 
 ## Test it
 
@@ -556,6 +767,98 @@ uv run pytest
 Test files aren't indexed: they never become tools.
 
 </TabItem>
+<TabItem label="Java">
+
+`TOOL.call` runs the handler with an input and a context, as a unit test
+wants it. `ToolContext.forTest()` is a context with a test tenant and run,
+whose logger writes nothing. The pack service checks the input and the output
+against their schemas on every call; `call` doesn't.
+
+```java
+// src/test/java/mypack/tools/LookupOrderTest.java
+package mypack.tools;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import com.kindgi.pack.ToolContext;
+import org.junit.jupiter.api.Test;
+
+class LookupOrderTest {
+  @Test
+  void findsAShippedOrder() throws Exception {
+    LookupOrder.Output order = LookupOrder.TOOL.call(new LookupOrder.Input("ord_1001"), ToolContext.forTest());
+    assertEquals(LookupOrder.Status.SHIPPED, order.status());
+    assertEquals(4200, order.totalCents());
+  }
+
+  @Test
+  void anUnknownOrderThrows() {
+    assertThrows(IllegalArgumentException.class,
+        () -> LookupOrder.TOOL.call(new LookupOrder.Input("ord_9999"), ToolContext.forTest()));
+  }
+}
+```
+
+```sh
+./mvnw test
+```
+
+```text
+[INFO] Running mypack.tools.LookupOrderTest
+lookup-order ord_1001 for tenant t-test
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.091 s -- in mypack.tools.LookupOrderTest
+…
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0
+[INFO]
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+```
+
+Tests (`src/test/`, `*Test.java`) aren't indexed: they never become tools.
+
+</TabItem>
+<TabItem label="Scala">
+
+`tool.call` runs the handler, as in Java: the schema checks are the pack
+service's.
+
+```scala
+// src/test/scala/mypack/tools/LookupOrderSuite.scala
+package mypack.tools
+
+import com.kindgi.pack.ToolContext
+
+class LookupOrderSuite extends munit.FunSuite {
+  test("finds a shipped order") {
+    val order = LookupOrder.tool.call(LookupOrder.Input("ord_1001"), ToolContext.forTest())
+    assertEquals(order.status, LookupOrder.Status.shipped)
+    assertEquals(order.totalCents, 4200L)
+  }
+
+  test("an unknown order throws") {
+    intercept[NoSuchElementException] {
+      LookupOrder.tool.call(LookupOrder.Input("ord_9999"), ToolContext.forTest())
+    }
+  }
+}
+```
+
+```sh
+sbt test
+```
+
+```text
+lookup-order ord_1001 for tenant t-test
+…
+Test run mypack.tools.LookupOrderSuite finished: 0 failed, 0 ignored, 2 total 0.095s
+…
+[info] Passed: Total 5, Failed 0, Errors 0, Passed 5
+```
+
+Tests (`src/test/`) aren't indexed: they never become tools.
+
+</TabItem>
 </Tabs>
 
 ## Give it to an agent
@@ -565,7 +868,7 @@ An agent lists the tools it may call:
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 // in agents/order-desk/index.ts
 tools: [{ id: 'my-pack.lookup-order' as ToolId, version: '^0.1.0' }],
 ```
@@ -576,13 +879,35 @@ matches it.
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 # in agents/order_desk.py
 tools=[lookup_order],
 ```
 
 The `Tool` object pins its version. A ref with a range works too:
 `{"id": "my-pack.lookup-order", "version": "^0.1.0"}`.
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/mypack/agents/OrderDesk.java
+.tool(LookupOrder.TOOL)
+```
+
+The tool itself pins its version. A ref with a range works too:
+`.tool("my-pack.lookup-order", "^0.1.0")`.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/mypack/agents/OrderDesk.scala
+.tool(LookupOrder.tool)
+```
+
+The tool itself pins its version. A ref with a range works too:
+`.tool("my-pack.lookup-order", "^0.1.0")`.
 
 </TabItem>
 </Tabs>

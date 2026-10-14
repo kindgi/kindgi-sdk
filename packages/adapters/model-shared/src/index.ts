@@ -15,6 +15,8 @@ export {
 export {
   MAX_VENDOR_WAIT_MS,
   backoffMs,
+  isTransport,
+  refusedConnection,
   type RetryPolicy,
   type RetryableFailure,
   vendorWaitMs,

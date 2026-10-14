@@ -23,6 +23,12 @@ import {
 } from '../improvement-pass-binding.js';
 import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import {
+  type ReferenceScopeBinding,
+  liveScopeOutOfScope,
+  outOfScopeResponse,
+  referencesOutOfScope,
+} from '../reference-scope.js';
 import type { ProposalObjective } from '../supervisor-binding.js';
 import type { AppEnv } from '../types.js';
 import { actorOf, coordinatesOf } from './agent-releases.js';
@@ -37,6 +43,8 @@ export interface ImproveDeps {
   readonly agents: AgentRegistryBinding;
   readonly blocks: BlockRegistryBinding;
   readonly releases: AgentReleaseBindings;
+  /** What the agent's project may reach (`reference-scope.ts`); absent → as named. */
+  readonly referenceScope?: ReferenceScopeBinding;
 }
 
 export const DEFAULT_BUDGET: ImprovementBudget = { maxCostUsd: 5, maxCandidates: 30 };
@@ -86,6 +94,16 @@ export function mountImproveRoute(r: Hono<AppEnv>, deps: ImproveDeps, authorizer
         message: `${parsed.agentId} has no active version ${fromVersion ?? '(none is registered)'}`,
       });
     }
+    // The suite must be the agent's project's to reach, and the scope must
+    // reach the agent (`reference-scope.ts`).
+    const outOfScope =
+      (from.projectId === undefined
+        ? undefined
+        : await referencesOutOfScope(deps.referenceScope, tenantId, from.projectId, [
+            { path: '/suiteId', kind: 'suite', id: parsed.suiteId },
+          ])) ??
+      (await liveScopeOutOfScope(deps.referenceScope, tenantId, parsed.agentId, parsed.scope));
+    if (outOfScope !== undefined) return outOfScopeResponse(c, c.get('requestId'), outOfScope);
     const nothing = await nothingToTune(deps.blocks, tenantId, from, parsed.tiers[0]);
     if (nothing !== undefined) {
       return fail(c, 'validation-failed', {

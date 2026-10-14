@@ -5,9 +5,10 @@ sidebar:
   order: 1
 ---
 
-Signing in starts with your email. The console then offers the ways in this
-deployment has for it. Which ones it has is up to whoever runs it:
-[Turn on sign-in](../../../deploy/sign-in/).
+This page shows how you sign in to the console, and what each message on its
+sign-in page means. Signing in starts with your email. The console then
+offers the ways in that this deployment has for it. Whoever runs the
+deployment chooses which ones ([Turn on sign-in](../../../deploy/sign-in/)).
 
 ## Your email first
 
@@ -17,7 +18,7 @@ how to sign in:**
 - **Sign in with** your workspace's own identity provider, first, when your
   email's domain is set up for it;
 - **Continue with Google** or **Continue with Microsoft**, by who hosts your
-  domain's mail (both when that can't be told);
+  domain's mail, or both when that can't be told;
 - **Continue with GitHub**, when the deployment has a GitHub app;
 - **Email me a sign-in link**, when the deployment sends them.
 
@@ -71,8 +72,8 @@ The link works once, for ten minutes. After that:
 | Too many tries | Wait a minute, then try again. |
 | Sign-in didn't complete | Something went wrong between your identity provider and Kindgi. The **Detail** line under it is what your admin needs. |
 
-Each message ends with a **Detail** line, the code your admin can look up.
-Two you may meet with Google or Microsoft:
+Each message ends with a **Detail** line: the code your admin can look up.
+With Google or Microsoft, you may meet these two:
 
 ![Use your company's sign-in: Your workspace signs its people in with its own identity provider. Enter your email again and choose it. Detail: identity-provider-required](../../../../assets/sso/sign-in-idp-required.png)
 
@@ -80,12 +81,12 @@ Two you may meet with Google or Microsoft:
 
 ## With an API token
 
-Where the deployment allows it, the page also has **Your API token**: paste a
-token of your own, and it becomes a session. The browser doesn't keep the
-token.
+Where the deployment allows it, the page also has **Your API token**. Paste
+a token of your own there, and it becomes a session. The browser doesn't
+keep the token.
 
-A page that says **There's no way to sign in here yet** has no way in turned
-on. Ask whoever runs the deployment.
+When the page says **There's no way to sign in here yet**, the deployment
+has no way in turned on. Ask whoever runs it.
 
 ## Next
 

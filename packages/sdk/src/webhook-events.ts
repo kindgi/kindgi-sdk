@@ -62,7 +62,9 @@ export type EventShape =
       readonly required?: Fields;
       readonly optional?: Fields;
     }
-  | { readonly kind: 'union'; readonly discriminator: string; readonly variants: Fields };
+  | { readonly kind: 'union'; readonly discriminator: string; readonly variants: Fields }
+  /** Any JSON value: the schema gives no type (an error's `cause`). */
+  | { readonly kind: 'any' };
 
 /**
  * The typed event in a webhook request's body, one of `WebhookEvent`'s by its `type`. Call it
@@ -100,6 +102,7 @@ export function parseEvent(body: string | Uint8Array): ParseWebhookEventResult {
 
 /** The first way `value` doesn't fit `shape`, naming the field; undefined when it fits. */
 function check(shape: EventShape, value: unknown, path: string): string | undefined {
+  if (shape.kind === 'any') return undefined;
   const at = path === '' ? 'the body' : `\`${path}\``;
   if (value === null && shape.kind !== 'union' && shape.nullable === true) return undefined;
   switch (shape.kind) {

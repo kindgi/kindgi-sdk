@@ -118,11 +118,21 @@ export interface NodeContext {
    * No-op when the run was started without `authz` configured —
    * exists so handlers can be written uniformly for runs with and
    * without authorization.
+   *
+   * From runtime 0.1.8, the Kindgi runtime starts every run a person or
+   * a key starts with `authz`, so this, `can` and `check` are decided
+   * against the run's principal.
    */
   authorize(action: Action, resource: ResourceRef): Promise<void>;
-  /** Non-throwing check — returns a boolean. For conditional logic. */
+  /**
+   * Non-throwing check — returns a boolean. For conditional logic.
+   * Decided as `authorize` is.
+   */
   can(action: Action, resource: ResourceRef): Promise<boolean>;
-  /** Full Decision — for advanced cases needing reason/evidence. */
+  /**
+   * Full Decision — for advanced cases needing reason/evidence.
+   * Decided as `authorize` is.
+   */
   check(action: Action, resource: ResourceRef): Promise<Decision>;
   /**
    * Read the clock, as `record` does: each call journals `Date.now()`.

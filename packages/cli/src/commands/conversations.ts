@@ -91,7 +91,7 @@ const open: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "The project the conversation is in (`kindgi projects list`). Default: the tenant's Default project.",
+        "The project the conversation is in (`kindgi projects list`). Default: the agent's own project.",
     },
     participant: {
       type: 'string',
