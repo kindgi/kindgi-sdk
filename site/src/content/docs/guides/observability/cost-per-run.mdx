@@ -515,22 +515,22 @@ Anyone who can read the project sees its **Cost** page: what its model calls
 cost over a range, against the range before. The range is **7 days**,
 **30 days**, **90 days**, **12 months** or **Custom**.
 
-![A project's Cost page over 30 days: "$24.17 in the last 30 days, 77% more than the 30 days before.", "1,508 model calls · 8.4M tokens", spend by day stacked by agent, and Where it went by agent, with its Columns menu and Support agent at $15.00 (62%), 33% more than the 30 days before.](../../../../assets/cost/cost-30d.png)
+![A project's Cost page over 30 days: "$24.30", then "Last 30 days · 77% more than the 30 days before · 1,516 model calls · 8.4M tokens", spend by day stacked by agent, Where it went by agent, with its Columns menu and Support agent at $15.04 (62%), 32% more than the 30 days before, then Biggest changes and Per-turn caps.](../../../../assets/cost/cost-30d.png)
 
-- **The headline:** "$24.17 in the last 30 days, 77% more than the 30 days
-  before." and "1,508 model calls · 8.4M tokens".
+- **The headline:** the total, "$24.30", then "Last 30 days · 77% more than
+  the 30 days before · 1,516 model calls · 8.4M tokens".
 - **Spend by day (UTC), by agent:** a stacked chart, with a sentence under
-  it ("the costliest day was 8 Oct ($1.19). Support agent is 62% of it.").
+  it ("the costliest day was 14 Oct ($1.25). Support agent is 62% of it.").
   **Show as a table** gives the numbers. Over 12 months it's by month.
 - **Where it went:** **By agent**, **By model**, **By flow** or **By kind**,
-  the costliest against the range before ("33% more (was $11.28)", "new").
+  the costliest against the range before ("32% more (was $11.36)", "New").
   An agent's or a model's row filters the page to it. The table sorts by
   a column's header, and **Columns** chooses which columns it shows.
 - **Biggest changes:** against the range before, by dollars ("Research
-  agent new: $8.57", "Legacy summarizer −$1.81 (none now)").
+  agent new: $8.67", "Legacy summarizer −$1.81 (none now)").
 - **Per-turn caps:** each agent with a budget for one turn, and how close its
-  turns came ("Costliest turn $0.14 of $0.12; 36 turns used over 80% of it, 4
-  turns went over.").
+  turns came: its cap, its costliest turn, how many turns used over 80% of
+  it, and how many went over (Support agent: $0.12, $0.14, 36 and 4).
 - **Details:** the token split, and the exact
   [`GET /v1/cost/aggregate`](#one-customers-month) queries the page made.
 
@@ -542,7 +542,7 @@ same view.
 Every run's page has a **Cost** tab: the [run's calls](#a-runs-calls), as
 `cost.usage.query` returns them.
 
-![A flow run's Cost tab: "$0.08 over 7 model calls, its child runs included." and "The costliest call: step 2 of answer · Dev-Echo Agent (large-model), $0.05.", then each child run's calls with step, model, tokens, cost and time.](../../../../assets/cost/run-cost-flow.png)
+![A flow run's Cost tab: "$0.08 over 7 model calls, its child runs included." and "The costliest call: step 2 of answer · Dev-Echo Agent (large-model), $0.05.", then the calls of each child run, triage and answer, each with its own total, and each call's step, model, tokens, cost and time.](../../../../assets/cost/run-cost-flow.png)
 
 - **The total,** with a [flow's child runs](#a-flows-whole-run) included:
   "$0.08 over 7 model calls, its child runs included."
@@ -551,11 +551,14 @@ Every run's page has a **Cost** tab: the [run's calls](#a-runs-calls), as
 - **Each model call,** grouped by the run that made it: its step, model,
   tokens in and out, cost and how long it took. A failed call says why
   ("Failed: upstream timeout") and costs $0.00. When a fallback answered,
-  the call says so ("A fallback provider answered").
+  the call says so: "Answered by small-model (a fallback)", or "A fallback
+  provider answered" when it's the same model. A call outside a step, such
+  as a guardrail's judge, shows as "A call", with what it was for
+  ("small-model, judging for guardrail acme.tone").
 - **Details,** for one call: the call's id, the provider and its request
   id, how it finished, its attempts, cache-read tokens and when it was made.
 
-![An agent turn's Cost tab with the first call's Details open: its call id, provider, provider request, finish, attempts and cache-read tokens; the second call failed with "upstream timeout" and cost $0.00.](../../../../assets/cost/run-cost-turn.png)
+![An agent turn's Cost tab with the first call's Details open: its call id, provider, provider request, finish, attempts, cache-read tokens and when it was made; the second call failed with "upstream timeout" and cost $0.00, the next was answered by small-model (a fallback), and a last call was the guardrail acme.tone's judge.](../../../../assets/cost/run-cost-turn.png)
 
 A flow run's **Overview** tab gives the same total: "Cost: $0.08 over 7
 model calls, its child runs included. Each call →".
@@ -565,7 +568,7 @@ model calls, its child runs included. Each call →".
 Tenant admins see **Tenant costs**: every project's spend, laid out like a
 project's Cost page.
 
-![Tenant costs over 30 days: "$48.33 in the last 30 days, 77% more than the 30 days before.", "3,016 model calls · 16.9M tokens", spend by day stacked by project, and Where it went by project: Default and Ops, $24.17 each.](../../../../assets/cost/tenant-costs.png)
+![Tenant costs over 30 days: "$48.60", then "Last 30 days · 77% more than the 30 days before · 3,032 model calls · 16.9M tokens", spend by day stacked by project, and Where it went by project: Default and Ops, $24.30 each.](../../../../assets/cost/tenant-costs.png)
 
 - **The headline,** and **Spend by day (UTC), by project.**
 - **Where it went:** **By project**, **By org**, **By agent** or **By

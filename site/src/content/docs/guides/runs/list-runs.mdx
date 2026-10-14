@@ -606,7 +606,7 @@ it shows.
 
 ![The Runs page with the flow run acme.refunds opened to its agent turns: step answer and step triage, each a Dev-Echo Agent run of demo.echo-agent @1.0.0, under the flow run's $0.08; then a Dev-Echo Agent run of its own, $0.08. A search box and the Columns menu are above the list.](../../../../assets/runs/runs-agent-turns.png)
 
-![The Runs page filtered to Status: Failed and Started in the last hour: three failed runs of Support agent (two of acme.support @1.1.0, one of @1.0.0), each with when it started, how long it took and its cost.](../../../../assets/runs/runs-filters.png)
+![The Runs page filtered to Status: Failed and Started in the last hour, each shown as a chip: three failed runs of Support agent (two of 1.1.0, one of 1.0.0), each with when it started, how long it took, its cost and its run's id.](../../../../assets/runs/runs-filters.png)
 
 Its filters:
 - **Status:** Pending, Running, Waiting, Completed, Failed or Cancelled. A
@@ -627,7 +627,7 @@ Each filter shows as a chip ("Status: Failed", "Started in the last hour",
 too. The page's address keeps the filters, the sort and the search, so a
 link opens the same list.
 
-![The Runs page reached from a flow's "Runs of 1.1.0 →": the chips Flow: Refunds and Flow version: 1.1.0.](../../../../assets/runs/runs-flow-version.png)
+![The Runs page reached from the Runs → beside a flow's version 1.1.0: the chips Flow: Refunds and Flow version: 1.1.0, and that version's one run, completed.](../../../../assets/runs/runs-flow-version.png)
 
 ### What failed
 
@@ -635,7 +635,7 @@ link opens the same list.
 cause and by version, so a bad deploy shows. Approvals people decided are
 counted apart: they aren't errors.
 
-![What failed over the last 7 days: "In the last 7 days, 7 runs failed: 7 errors (in 3 groups)." The errors as bars by version, and a table: an unregistered guardrail (unresolved-guardrail) in Support agent 1.1.0, 4 runs; a guardrail that blocked the answer (guardrail-violation) in Support agent 1.0.0, 2 runs; and a failed run (run-failed) in the flow Refunds 1.0.0, 1 run.](../../../../assets/runs/runs-what-failed.png)
+![What failed over the last 7 days: "In the last 7 days, 7 runs failed: 7 errors (in 3 groups)." The errors as bars by version, and a table: an unregistered guardrail (unresolved-guardrail) in Support agent 1.1.0, 4 runs; a guardrail that blocked the answer (guardrail-violation) in Support agent 1.0.0, 2 runs; and a failed run (run-failed) in the flow Refunds 1.0.0, 1 run; each with when it was first and last seen, The latest and Its failed runs.](../../../../assets/runs/runs-what-failed.png)
 
 - **The window:** the last 24 hours, 7, 30 or 90 days.
 - **The headline:** "In the last 7 days, 7 runs failed: 7 errors (in 3

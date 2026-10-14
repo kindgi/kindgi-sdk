@@ -514,7 +514,7 @@ covers." Each row says:
 The list has a search box, sorts by a column's header, and **Columns**
 chooses which columns it shows.
 
-![The Guardrails page: "5 guardrails; 1 isn't named by any agent here.", a search box and the Columns menu, with No secrets in answers, Says thanks, No refund promises, No shouting and No placeholder text, each with how it checks, when it fires, where it applies and how many agents name it.](../../../../assets/guardrails/guardrails-list.png)
+![The Guardrails page: a search box and the Columns menu, with No secrets in answers ("An answer never says a password."), Says thanks, No refund promises, No shouting and No placeholder text, each with how it checks, when it fires, where it applies and how many agents name it.](../../../../assets/guardrails/guardrails-list.png)
 
 A guardrail's page has:
 - **What it checks:** how, the check, its settings, when it fires, its
@@ -525,12 +525,12 @@ A guardrail's page has:
   [Stop a turn or record a violation](../halt-or-record/#in-the-console)
   shows.
 
-![No secrets in answers' page: a rule, forbidden-substring (built in), patterns ["password"], the turn fails, critical, in runs and in CI; the agent version that names it, Guarded agent 1.0.0 (latest); and What it caught.](../../../../assets/guardrails/guardrail-page.png)
+![No secrets in answers' page, with Remove: a rule in code, no model call, forbidden substring (built in), Patterns: "password", the turn fails, critical, in runs and in CI; the agent version that names it, Guarded agent 1.0.0 (latest); and What it caught over the last 7 days: 8 answers, 6 passed and 2 blocked, with the latest runs it blocked.](../../../../assets/guardrails/guardrail-page.png)
 
 A flow step runs the agent version its flow version pins, so that version is
 checked too: "Drafts agent 1.0.0 (pinned by flow acme.drafting 1.0.0)".
 
-![No shouting's page, whose agent version is one a flow pins: Drafts agent 1.0.0 (pinned by flow acme.drafting 1.0.0).](../../../../assets/guardrails/guardrail-flow-pinned.png)
+![No shouting's page, whose agent version is one a flow pins: Drafts agent 1.0.0 (pinned by flow acme.drafting 1.0.0), and no answers checked in the last 7 days.](../../../../assets/guardrails/guardrail-flow-pinned.png)
 
 Guardrail admins also see **Remove**. Its dialog names the agent versions
 whose turns then fail, and how they come back:
@@ -552,7 +552,7 @@ There's no undo: registering it again brings it back.
   kindgi dev: the pack's files are its guardrails. Take it out of the pack,
   and kindgi dev reloads it."
 
-![The Unregister No secrets in answers? dialog: Guarded agent 1.0.0 (latest) names it, its turns fail until it's registered again or a version that doesn't name it goes live, and there's no reinstate.](../../../../assets/guardrails/guardrail-unregister.png)
+![The Remove No secrets in answers? dialog: Guarded agent 1.0.0 (latest) names it, its turns fail until it's registered again or a version that doesn't name it goes live, and there's no undo, with Keep it and Remove.](../../../../assets/guardrails/guardrail-remove.png)
 
 ## Next
 
