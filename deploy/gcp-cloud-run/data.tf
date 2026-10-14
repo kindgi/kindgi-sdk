@@ -50,6 +50,22 @@ resource "google_sql_database_instance" "kindgi" {
   }
 }
 
+# The instance the server serves from when it isn't the module's own
+# (database_instance): read, never managed here.
+data "google_sql_database_instance" "served" {
+  count = var.database_instance == null ? 0 : 1
+  name  = var.database_instance.name
+
+  lifecycle {
+    # The server reaches it through Cloud Run's /cloudsql volume, as it does
+    # the module's own instance in public-IP mode.
+    postcondition {
+      condition     = try(self.settings[0].ip_configuration[0].ipv4_enabled, false)
+      error_message = "database_instance names ${self.name}, which has no public IP: the server reaches its instance through the /cloudsql volume, which needs one."
+    }
+  }
+}
+
 resource "google_sql_database" "kindgi" {
   name     = var.database_name
   instance = google_sql_database_instance.kindgi.name

@@ -282,7 +282,7 @@ server_secret_env = {
 
 ## Testing the module
 
-`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, the server's own settings (sign-in), and the tenancy: `single` with its pack service, `multi` with each setting it needs, and what each refuses.
+`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, the server's own settings (sign-in), the tenancy: `single` with its pack service, `multi` with each setting it needs, and what each refuses; and `database_instance`: the server's volume, URL secret and grants on another instance, the module's own instance and grant kept, and each refusal.
 
 ## Upgrading
 
@@ -297,6 +297,64 @@ server_secret_env = {
 - **The AAD key is pinned, never rotated this way.** The server reads the version `secrets_aad_key_version` names, not `latest`. Every secret stored in Postgres is bound to it: a new version is a key change that needs every stored secret re-encrypted, and a version added by mistake must not reach the server.
   - **Upgrading from a module copy before this variable:** set it to the version your server reads now. `gcloud secrets versions list $N-secrets-aad-key` shows it; normally `1`.
 - **Slow tools:** the runtime waits `KINDGI_PACK_CALL_TIMEOUT_MS` (default 120 s, `pack_call_timeout_ms`) for a tool call. Keep the pack service's `pack_timeout` above it.
+
+## Serving from a restored instance
+
+A Cloud SQL restore never rewinds the instance that serves. A point in time makes a new instance ([Google: point-in-time recovery](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/pitr)), and a backup can go into a new one ([Google: restoring](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/restoring)). `database_instance` moves the server onto that instance and leaves the module's own as it is. Public-IP mode only: the server reaches either instance through its `/cloudsql` volume.
+
+1. **Restore into a new instance in this project.** `R` is its name, such as `$N-r20261023`:
+
+   ```sh
+   R=$N-r<yyyymmdd>
+   gcloud sql instances clone $N $R --point-in-time='<yyyy-mm-ddThh:mm:ss.000Z>'
+   ```
+
+   It needs a public IP, as the module's own has. The plan refuses an instance without one.
+2. **Its URL, in a secret of its own,** with a new password for the database user. The restored user has the old one.
+
+   ```sh
+   gcloud secrets create $R-database-url --replication-policy=user-managed --locations=<region>
+   CONN=$(gcloud sql instances describe $R --format='value(connectionName)')
+   DBPW=$(openssl rand -hex 24)
+   gcloud sql users set-password kindgi --instance=$R --password="$DBPW"
+   printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
+     | gcloud secrets versions add $R-database-url --data-file=-
+   unset DBPW
+   ```
+
+3. **Let the server read it:**
+
+   ```sh
+   gcloud secrets add-iam-policy-binding $R-database-url --role=roles/secretmanager.secretAccessor \
+     --member="serviceAccount:$(terraform output -json service_accounts | jq -r .server)"
+   ```
+
+   The module doesn't grant this one, since the secret isn't the module's. If a Terraform root of yours makes the secret, that root makes the grant too. When two roots hold the same grant, the first to remove it takes it away from the other.
+4. **Replay the erasure ledger on it before it serves.** A restore brings back what an erasure cleared. The runtime image's `erasures replay` does it, with the server's settings, `KINDGI_DATABASE_URL` from `$R-database-url`, and this instance at `/cloudsql`: a Cloud Run job, say. The docs' "Back up and restore" page has the command, under Erasures and backups.
+5. **Switch,** in your tfvars, then `terraform apply`:
+
+   ```hcl
+   database_instance = {
+     name       = "kindgi-prod-r20261023"
+     url_secret = "kindgi-prod-r20261023-database-url"
+   }
+   ```
+
+   - **What the apply changes:**
+     - the server's `/cloudsql` volume names the new instance alone;
+     - `KINDGI_DATABASE_URL` reads `url_secret`;
+     - the server's account gets `roles/cloudsql.client`, conditioned on the new instance, before the new revision starts.
+   - **The new revision applies the image's migrations** at boot, as on any start, and takes the traffic once it's ready. The old revision keeps its grant on the module's instance for the requests it still has.
+   - **The plan refuses:**
+     - private-IP mode;
+     - the module's own instance or its `$N-database-url`;
+     - an instance without a public IP;
+     - a connection name for `name`, or a path for `url_secret`.
+6. **The module's own instance stays,** with its deletion protection. The `sql_connection_name` output still names it. Writes made since the restore point are on it alone.
+
+**Anything else on the instance** comes back with it: another database there, an OpenFGA store's, say. That moves on your side, in the same window.
+
+**Going back:** set `database_instance` to null and apply. The server's revision changes first, and only then does the grant on the restored instance go. Writes made since the switch stay on the restored instance.
 
 ## Taking it down
 

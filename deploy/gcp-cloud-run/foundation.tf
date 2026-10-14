@@ -114,6 +114,23 @@ resource "google_project_iam_member" "server_sql_client" {
   }
 }
 
+# The instance it serves from instead (database_instance), as well: the old
+# revision keeps its own until the new one takes the traffic. Its own
+# condition, so a grant another root makes on the same instance is a
+# binding of its own, never this one.
+resource "google_project_iam_member" "server_sql_client_served" {
+  count   = var.database_instance != null && var.database_private_network == "" ? 1 : 0
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.server.email}"
+
+  condition {
+    title       = "kindgi-served-instance-only"
+    description = "The Cloud SQL instance Kindgi's server serves from (database_instance) only."
+    expression  = "resource.name == \"projects/${var.project_id}/instances/${var.database_instance.name}\""
+  }
+}
+
 # Gemini on Vertex with the server's own credentials (ADC).
 resource "google_project_iam_member" "server_vertex_ai" {
   count   = var.vertex_ai ? 1 : 0
