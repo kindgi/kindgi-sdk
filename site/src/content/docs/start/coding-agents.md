@@ -347,12 +347,14 @@ kindgi skills sync
 It keeps skills you edited, in either folder. `--force` replaces those too.
 A skill you deleted comes back. In a Python project, run it as
 `uv run kindgi skills sync`. If the project has a `.prettierignore`, it adds
-both folders to it, so your formatter leaves the copies alone.
+Kindgi's skills in both folders to it, so your formatter leaves the copies
+alone.
 
 Which release each copy came from, in both folders, is recorded in
 `.claude/skills/.kindgi-manifest.json`. Keep it, even if you don't use
-Claude Code: without it, `kindgi skills sync` takes every copy that's
-behind for one you edited, and keeps it.
+Claude Code: without it, `kindgi skills sync` can't tell a copy that's
+behind from one you edited, so it keeps every copy that's behind (`--force`
+replaces them).
 
 It says what it did in each folder, then prints the same as JSON (with
 `--json`, the JSON alone):
