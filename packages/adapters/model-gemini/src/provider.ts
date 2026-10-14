@@ -70,10 +70,10 @@ export interface GeminiProviderOptions {
 const CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 
 /**
- * The Gemini Developer API host. Given explicitly in `httpOptions.baseUrl`
- * so `GOOGLE_GEMINI_BASE_URL` in the server's environment can't move a
- * tenant's Developer API calls, with the tenant's key, to another host:
- * left unset, `@google/genai` reads that variable (its `getBaseUrl`).
+ * The Gemini Developer API host. Given explicitly in `httpOptions.baseUrl` so
+ * the adapter takes its host from configuration, not from `GOOGLE_GEMINI_BASE_URL`
+ * in the server's environment: left unset, `@google/genai` reads that variable
+ * (its `getBaseUrl`).
  */
 const GEMINI_DEVELOPER_BASE_URL = 'https://generativelanguage.googleapis.com/';
 
@@ -82,11 +82,10 @@ const VERTEX_MULTI_REGIONAL = new Set(['us', 'eu']);
 
 /**
  * The Vertex AI host for a location, given explicitly in `httpOptions.baseUrl`
- * so `GOOGLE_VERTEX_BASE_URL` in the server's environment can't move a
- * tenant's Vertex calls, with the tenant's key or the server's credentials,
- * to another host (left unset, `@google/genai` reads that variable). Mirrors
- * the SDK's own construction: `global` and the multi-regional locations each
- * get a dedicated host, every other location a regional one.
+ * so the adapter takes its host from configuration, not from `GOOGLE_VERTEX_BASE_URL`
+ * in the server's environment (left unset, `@google/genai` reads that variable).
+ * Mirrors the SDK's own construction: `global` and the multi-regional locations
+ * each get a dedicated host, every other location a regional one.
  */
 export function vertexBaseUrl(location: string): string {
   if (location === 'global') return 'https://aiplatform.googleapis.com/';
@@ -440,10 +439,10 @@ function checkTarget(providerId: string, options: GeminiProviderOptions): void {
 }
 
 /**
- * The SDK puts the project in the request path and builds the hostname
- * from the location (`https://<location>-aiplatform.googleapis.com/`):
- * anything but a project id and one DNS label could move the request,
- * with the server's credentials, to another host.
+ * The project goes in the request path and the location into the host that
+ * `vertexBaseUrl` builds, so each is held to one safe shape before it reaches
+ * a request URL: the project a Google Cloud project id or number, the location
+ * a single DNS label.
  */
 function vertexTargetProblemsOf(
   vertex: NonNullable<GeminiProviderOptions['vertex']>,
