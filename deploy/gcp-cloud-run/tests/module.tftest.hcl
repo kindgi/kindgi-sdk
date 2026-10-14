@@ -491,6 +491,14 @@ run "single_needs_a_pack_image" {
   expect_failures = [google_cloud_run_v2_service.server]
 }
 
+run "single_refuses_per_deployment_routing" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PACK_ROUTING = "per-deployment" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
 run "tenancy_refuses_a_word" {
   command = plan
   variables {

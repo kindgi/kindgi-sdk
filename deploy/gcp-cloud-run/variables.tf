@@ -38,7 +38,7 @@ variable "server_image" {
 }
 
 variable "pack_image" {
-  description = "The pack image `kindgi build` produced, by digest, in Artifact Registry: the one pack service the server calls (KINDGI_PACK_SERVICE_URL). Needed with tenancy = \"single\". Unset with \"multi\", where each deployment is a service of its own: then there's no pack service, no pack account and none of its grants, and the pack_* settings stay unset."
+  description = "The pack image `kindgi build` produced, by digest, in Artifact Registry: the one pack service the server calls (KINDGI_PACK_SERVICE_URL). Needed with tenancy = \"single\". Unset with \"multi\", where each deployment is a service of its own: then there's no pack service, no pack account and none of its grants, and pack_env, pack_secret_env, pack_cloud_sql_instances, pack_bucket_readers and pack_run_invokers stay unset (the pack service's other settings do nothing)."
   type        = string
   default     = ""
 
@@ -112,7 +112,7 @@ variable "openfga_api_url" {
 }
 
 variable "tenancy" {
-  description = "KINDGI_TENANCY: how many tenants the server serves. \"single\" (the default): one, seed_tenant_id's, with the one pack service (pack_image). \"multi\" (runtime 0.1.8 or later): every tenant created through the system API, each request's from its key or session, and each deployment a service of its own. It sets KINDGI_TENANCY = \"multi\" and no tenant or seed user, takes no pack_image, and needs openfga_api_url, secrets_backend = \"postgres\" and settings in server_env and server_secret_env, which the plan names: README."
+  description = "KINDGI_TENANCY: how many tenants the server serves. \"single\" (the default): one, seed_tenant_id's, with the one pack service (pack_image). \"multi\" (runtime 0.1.8 or later): every tenant created through the system API, taking each request's tenant from its key or session, with each deployment a service of its own. It sets KINDGI_TENANCY = \"multi\" and no tenant or seed user, takes no pack_image, and needs openfga_api_url, secrets_backend = \"postgres\" and settings in server_env and server_secret_env, which the plan names: README."
   type        = string
   default     = "single"
   validation {

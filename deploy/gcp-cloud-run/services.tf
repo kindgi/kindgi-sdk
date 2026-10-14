@@ -31,7 +31,7 @@ locals {
     lookup(var.server_env, "KINDGI_TENANT_HOST_ACCESS", "") == "isolated" ? "" : "server_env's KINDGI_TENANT_HOST_ACCESS = \"isolated\"",
     lookup(var.server_env, "KINDGI_PACK_ROUTING", "") == "per-deployment" ? "" : "server_env's KINDGI_PACK_ROUTING = \"per-deployment\"",
     lookup(var.server_env, "KINDGI_PACK_ENDPOINT_HOSTS", "") != "" ? "" : "server_env's KINDGI_PACK_ENDPOINT_HOSTS (the hosts a deployment's endpoint may be on)",
-    var.secrets_backend == "postgres" ? "" : "secrets_backend = \"postgres\" (each endpoint's token is sealed under its key)",
+    var.secrets_backend == "postgres" ? "" : "secrets_backend = \"postgres\" (each endpoint's token is sealed under the secrets' key)",
   ])
 }
 
@@ -510,11 +510,15 @@ resource "google_cloud_run_v2_service" "server" {
         length(var.pack_env) == 0 && length(var.pack_secret_env) == 0 && length(var.pack_cloud_sql_instances) == 0
         && length(var.pack_bucket_readers) == 0 && length(var.pack_run_invokers) == 0
       )
-      error_message = "The pack_* settings configure the one pack service, which exists only with pack_image: set pack_image, or unset them."
+      error_message = "pack_env, pack_secret_env, pack_cloud_sql_instances, pack_bucket_readers and pack_run_invokers configure the one pack service, which exists only with pack_image: set pack_image, or unset them."
     }
     precondition {
       condition     = var.tenancy != "single" || local.pack
       error_message = "tenancy = \"single\" needs pack_image: the one pack service the server calls."
+    }
+    precondition {
+      condition     = var.tenancy != "single" || lookup(var.server_env, "KINDGI_PACK_ROUTING", "single") == "single"
+      error_message = "tenancy = \"single\" calls the one pack service: server_env's KINDGI_PACK_ROUTING, if set, is \"single\". \"per-deployment\" needs tenancy = \"multi\"."
     }
     precondition {
       condition     = var.tenancy != "multi" || !local.pack
