@@ -302,11 +302,12 @@ server_secret_env = {
 
 A point-in-time recovery always makes a new instance ([Google: point-in-time recovery](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/pitr)). A backup can go into a new one too ([Google: restoring](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/restoring)); restored into the instance that serves, it overwrites everything on it. `database_instance` moves the server onto the new instance and leaves the module's own as it is. Public-IP mode only: the server reaches whichever instance it serves from through its `/cloudsql` volume.
 
-1. **Restore into a new instance in this project.** `R` is its name, such as `$N-r20261023`:
+1. **Restore into a new instance in this project.** `S` is the instance the server serves from: `$N`, or `database_instance.name` after an earlier restore, since writes made since that switch are only there. `R` is the new one's name, such as `$N-r20261023`:
 
    ```sh
+   S=$N
    R=$N-r<yyyymmdd>
-   gcloud sql instances clone $N $R --point-in-time='<yyyy-mm-ddThh:mm:ss.000Z>'
+   gcloud sql instances clone $S $R --point-in-time='<yyyy-mm-ddThh:mm:ss.000Z>'
    ```
 
    It needs a public IP, as the module's own has. The plan refuses an instance without one.
@@ -354,7 +355,7 @@ A point-in-time recovery always makes a new instance ([Google: point-in-time rec
 
 **Anything else on the instance** comes back with it: another database there, an OpenFGA store's, say. That moves on your side, in the same window.
 
-**Going back:** set `database_instance` to null and apply. The server's revision changes first, and only then does the grant on the restored instance go. Writes made since the switch stay on the restored instance.
+**Going back:** set `database_instance` to null and apply. The server's revision changes first, and only then does the grant on the restored instance go (the grant is created before it's destroyed). Writes made since the switch stay on the restored instance.
 
 ## Taking it down
 
