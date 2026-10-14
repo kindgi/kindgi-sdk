@@ -2,7 +2,7 @@
 title: Let a store's staff ask and approve in WordPress
 description: Connect a WordPress site to a project, so its staff ask the project's agents and decide approvals in wp-admin, each as themselves.
 sidebar:
-  order: 5
+  order: 4.5
   label: Ask and approve in WordPress
 ---
 
@@ -40,8 +40,8 @@ It also covers what the site's people can and can't do in Kindgi.
 
 ## Turn site sign-in on
 
-Site sign-in is off by default. It needs two more settings in the runtime's
-environment:
+Site sign-in needs a runtime on Kindgi 0.1.8.1 or later, and is off by
+default. It needs two more settings in the runtime's environment:
 - [authorization enforced](../../../deploy/authorization/), which holds a
   site's people to its project;
 - the runtime's public URL, which a site's statements carry as their
@@ -118,8 +118,9 @@ It needs WordPress 6.4 or later and PHP 7.4 or later.
 1. **Install it.** Zip the folder as `kindgi.zip` and upload it under
    **Plugins → Add New → Upload Plugin**, or copy the folder to
    `wp-content/plugins/kindgi`. Then activate it.
-2. **Connect.** Under **Kindgi → Settings**, paste the one-time code and the
-   Kindgi URL this server reaches, then choose **Connect**. The plugin makes
+2. **Connect.** An administrator, under **Kindgi → Settings**, pastes the
+   one-time code and the Kindgi URL this server reaches, then chooses
+   **Connect**. The plugin makes
    its signing key and sends Kindgi the public half. The page says
    "Connected: your staff can use the Kindgi page now."
 
@@ -232,6 +233,9 @@ another reviewer decides." instead of **Approve**.
   },
   ```
 
+  `senior` is above the default ceiling, `standard`. For a site whose ceiling
+  is `senior`, use `admin`.
+
 - **The same goes for a tool that acts outside the store:** email to
   customers, a payment provider, a CRM. Approving it from the site would
   give whoever controls the site reach that the store alone doesn't have.
@@ -257,12 +261,18 @@ another reviewer decides." instead of **Approve**.
   The code is `limited-session-cannot-mint`.
 
 **Their grants come from the site, and only from it.**
-- A route that would give one of them a grant, a team membership, a tenant
-  role, a reviewer role or an API key is refused with 403
+- A route that would give one of them a grant, a tenant role, a project or
+  team membership or its role, or a reviewer role is refused with 403
   `site-person-grants-managed`:
 
   ```text
   This person is signed in by a site: they hold only what their site's sign-in gives them
+  ```
+
+- So is minting them an API key, with its own message:
+
+  ```text
+  This person is signed in by a site: they act only through the sessions their site's sign-in gives, which end when the site is paused or unregistered, so they get no API key
   ```
 
 - So is a route that would take one away, since the site would give it back
@@ -340,14 +350,13 @@ Kindgi answers 401 `site-sign-in-refused` with a reason in
 
 | `reason` | Message | What to do |
 | --- | --- | --- |
-| `not-verified` | The statement couldn't be verified: check the site's id, key and signature | Connect the site again with a new code. Before the signature checks out, Kindgi says nothing more: an unknown site, an unknown or retired key and a bad signature all read the same. |
+| `not-verified` | The statement couldn't be verified: check the site's id, key and signature | Connect the site again with a new code. Kindgi says nothing more: an unknown site, an unknown or retired key, a bad signature, and a statement without `iat`, `exp`, `jti` or `sub` all read the same. |
 | `site-paused` | This site is paused: a tenant admin resumes it | Resume the site. |
 | `site-not-vouching` | This site doesn't sign its people in | Set `vouching` to `true`, unless the site was unregistered. |
 | `wrong-audience` | The statement's audience isn't this deployment's: expected … | The runtime's `KINDGI_PUBLIC_URL` changed since the site connected. Connect it again with a new code. |
 | `expired` | The statement has expired | Check the site's clock: Kindgi allows 30 seconds of difference. |
 | `issued-in-the-future` | The statement's `iat` is in the future | Check the site's clock. |
 | `too-long-lived` | A statement lives at most 60 s | Something other than the plugin signs the site's statements: use the plugin. |
-| `malformed` | The statement needs `iat`, `exp`, `jti` and `sub` | The same: use the plugin. |
 | `replayed` | This statement was already used | The plugin never sends one twice. A copied statement is refused. |
 | `role-not-allowed` | None of these roles may sign in through this site | Add the role to `allowedRoles`. A person who had signed in before loses what their roles gave them. |
 | `person-removed` | This person was removed: their site can't sign them in again | Nothing, through the site: removing a person is for good. |
@@ -392,7 +401,8 @@ the store's actions (look up an order, refund it) as
   The default server then never exposes it, even when the ability is
   otherwise public, and only your own server does.
 - **Give read-only tools `never_ask`.** An MCP tool always counts as one
-  that changes things, so a gate asks before each one by default:
+  that changes things, so, with `hitl.tools` set, a gate asks before it
+  unless a rule says otherwise:
 
   ```ts excerpt
   conversationPolicy: {
