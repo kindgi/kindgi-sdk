@@ -186,7 +186,9 @@ def is_secret_key(key: str, extra: Sequence[str] = ()) -> bool:
     return any(k.endswith(end) for end in (*_SECRET_KEY_ENDINGS, *(_normalize(e) for e in extra)))
 
 
-_KINDGI_TOKEN = re.compile(r"\bkgi_([a-z]{2})_([A-Za-z0-9._~+/=-]+)", re.ASCII)
+# A Kindgi token: `kgi_`, a kind of two or three letters (`bt`, `ak`, `sk`, `pt`,
+# `lk`, the license renewer's `lrk` and `lrp`), then its body.
+_KINDGI_TOKEN = re.compile(r"\bkgi_([a-z]{2,3})_([A-Za-z0-9._~+/=-]+)", re.ASCII)
 _BEARER = re.compile(r"\b(Bearer)\s+[^\s\"',;]+", re.ASCII | re.IGNORECASE)
 _URL_PASSWORD = re.compile(r"\b([a-z][a-z0-9+.-]*://[^\s:/@]+):[^\s@/]+@", re.ASCII | re.IGNORECASE)
 

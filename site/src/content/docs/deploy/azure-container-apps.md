@@ -5,12 +5,15 @@ sidebar:
   order: 2.5
 ---
 
-Kindgi's Terraform module runs the runtime and your pack's service as two
-container apps in one Azure resource group you already have, with everything
-around them. In the verification run, the first apply took about seven minutes
-(most of it PostgreSQL), the services under three more, and a new runtime
-replica was ready 10 seconds after its container started, its first
-migrations included.
+When you finish this page, the Kindgi runtime and your pack's service run
+as two container apps in an Azure resource group you already have, with
+everything around them, from Kindgi's Terraform module. You then deploy your
+pack to it and run a flow.
+
+In the verification run, the first apply took about seven minutes, most of
+it PostgreSQL. The services took under three more. A new runtime replica was
+ready 10 seconds after its container started, its first migrations
+included.
 
 :::note[Access to the runtime image]
 Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
@@ -38,10 +41,13 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
   ([A new VNet, or yours](#a-new-vnet-or-yours)).
 - **Log Analytics** for both apps' logs.
 
-Who calls whom: your app calls the runtime (its API token); the runtime calls
-your pack's service (the pack token), PostgreSQL, Key Vault and model APIs;
-`kindgi deploy` calls the runtime with a signed envelope, and the runtime
-reads the pack's image from the registry.
+Who calls whom:
+
+- your app calls the runtime, with its API token;
+- the runtime calls your pack's service, with the pack token, and
+  PostgreSQL, Key Vault and model APIs;
+- `kindgi deploy` calls the runtime with a signed envelope, and the runtime
+  reads the pack's image from the registry.
 
 ## Before you start
 
@@ -63,10 +69,10 @@ reads the pack's image from the registry.
   `<your group>-<name_prefix>-infra`. Azure creates it with the environment
   and deletes it with the environment. If your policies forbid new resource
   groups, exempt this one.
-- **Terraform** 1.11 or later (the database's admin password is write-only),
-  the **Azure CLI**, **Docker** with `buildx`, **jq**, and your pack's
-  `kindgi` CLI (0.1.6 or later). The module needs the `azurerm` provider 5.9
-  or later; its lock file pins it.
+- **Terraform 1.11 or later,** since the database's admin password is
+  write-only. Also the **Azure CLI**, **Docker** with `buildx`, **jq**, and
+  your pack's `kindgi` CLI, 0.1.6 or later. The module needs the `azurerm`
+  provider 5.9 or later, and its lock file pins it.
 - **Runtime 0.1.6 or later:** the first with Key Vault keys and the
   registry's managed identity.
 - **Access to the runtime image** (`kindgi auth registry`; see
@@ -76,14 +82,15 @@ reads the pack's image from the registry.
 - **A pack** that `kindgi build --local --push` builds, with an environment
   block for this deployment in its config, whose `registry` is the module's
   registry (step 2 prints it).
-- **Your Azure Policy assignments checked**
-  (`az policy assignment list -g <rg> --disable-scope-strict-search`): allowed
+- **Your Azure Policy assignments checked,** with
+  `az policy assignment list -g <rg> --disable-scope-strict-search`. Allowed
   locations, required tags, or a rule against public network access change the
   recipe.
 
 ## 1. The foundation
 
-The module is `deploy/azure-container-apps/` in the
+This step creates everything the two apps need, before their images and
+secrets exist. The module is `deploy/azure-container-apps/` in the
 [kindgi-sdk repository](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/azure-container-apps):
 copy the folder from the release you run. Its `README.md` lists every
 variable.
@@ -98,11 +105,20 @@ az role assignment create --assignee <you> --role "Storage Blob Data Contributor
   --scope "$(az storage account show -n <state account> -g <rg> --query id -o tsv)"
 ```
 
+- `<state account>` is a new storage account's name, and `<rg>` your
+  resource group.
+- `--allow-blob-public-access false` and `--min-tls-version TLS1_2` keep the
+  state private, and over TLS 1.2 or later.
+- `--auth-mode login` creates the container as you, with your Entra ID
+  sign-in.
+- `<you>` is your own user, such as your email: the role lets you read and
+  write the state.
+
 Give each deployment its own state key, never shared with your app's own
 infrastructure.
 
-The services need images and secret values that don't exist yet, so the first
-apply creates everything else:
+The services need images and secret values that the next steps make, so the
+first apply creates everything else:
 
 ```sh
 cp example.tfvars dev.tfvars   # subscription_id, resource_group_name, kindgi_env, the seed ids, …
@@ -117,30 +133,39 @@ terraform apply -var-file=dev.tfvars \
   -target=azurerm_role_assignment.pack_pulls
 ```
 
-The image variables need only a digest-shaped placeholder here, and
+- `dev.tfvars` holds this deployment's variables. `example.tfvars` lists
+  them.
+- `-backend-config` tells `init` where the state goes: the storage account
+  and container you made, and `<this deployment>.tfstate`, its own key.
+  `use_azuread_auth=true` reads it as you, with no storage key.
+- `-target` limits this apply to the environment, the database and the
+  roles, with what they need.
+
+The image variables need only a digest-shaped placeholder here.
 `secrets_aad_key_version` and `erasure_ledger_key_version` may stay empty.
-The plan creates 22 resources; in the verification run the apply took 6
+The plan creates 22 resources. In the verification run, the apply took 6
 minutes 47 seconds. The database's admin password is write-only: Terraform
 sends a random one that nobody keeps, and it never reaches the state. You set
 the real one in step 3.
 
-The vault has purge protection on (`key_vault_purge_protection`, default
-`true`). Every secret the runtime stores is wrapped by the vault's key, so a
+The vault has purge protection on: `key_vault_purge_protection`, `true` by
+default. Every secret the runtime stores is wrapped by the vault's key. So a
 deleted key, secret or vault stays recoverable for
-`key_vault_soft_delete_retention_days` (default 90), and nobody can purge it
-sooner, an owner included. Once on, purge protection can't be turned off.
+`key_vault_soft_delete_retention_days`, 90 by default, and nobody can purge
+it sooner, an owner included. Once on, purge protection can't be turned
+off.
 
 ### A new VNet, or yours
 
-- **A new VNet** (the default, `example.tfvars`): the module creates the VNet,
-  a subnet for the environment, a delegated subnet and a private DNS zone for
-  PostgreSQL. Pick it when your tools reach only the internet, or nothing
-  outside your pack.
-- **Yours** (`example-existing-vnet.tfvars`): give it two empty delegated
-  subnets and a private DNS zone (`environment_subnet_id`,
-  `database_subnet_id`, `database_private_dns_zone_id`); the module creates no
-  network. Pick it when your pack's tools reach private resources in that
-  VNet: an app database, an internal service, a private endpoint.
+- **A new VNet,** the default in `example.tfvars`: the module creates the
+  VNet, a subnet for the environment, and a delegated subnet and a private
+  DNS zone for PostgreSQL. Pick it when your tools reach only the internet,
+  or nothing outside your pack.
+- **Yours,** in `example-existing-vnet.tfvars`: give it two empty delegated
+  subnets and a private DNS zone, as `environment_subnet_id`,
+  `database_subnet_id` and `database_private_dns_zone_id`. The module then
+  creates no network. Pick it when your pack's tools reach private resources
+  in that VNet: an app database, an internal service, a private endpoint.
 
 In both, the environment holds only Kindgi's two apps. The private DNS zone
 and its link get your tags except any whose name has a colon: Azure ignores
@@ -148,19 +173,24 @@ those there.
 
 ## 2. The images into the registry
 
-Copy the runtime image into the module's registry by digest, with every
-platform it was built for:
+The two apps run from images in the module's registry. Copy the runtime
+image there by digest, with every platform it was built for:
 
 ```sh
 ACR=$(terraform output -raw image_registry)
 az acr login -n "${ACR%%.*}"
-docker buildx imagetools create --tag "$ACR/runtime:0.1.6" \
-  quay.io/kindgi/runtime:0.1.6@sha256:66c351d9cd0396f9cdffc40480fb1e236d212459dfc4900ab5de082ce0507f11
+docker buildx imagetools create --tag "$ACR/runtime:0.1.7" \
+  quay.io/kindgi/runtime:0.1.7@sha256:442e3232adf13830868b309390a2cbf74cb1f3538e7efbe3166fad925a10984c
 ```
 
-The copy keeps the release's digest. (A plain `docker pull`, `tag` and `push`
+- `ACR` is the registry's address, from the foundation's output, and
+  `${ACR%%.*}` its name, for `az acr login`.
+- `imagetools create --tag` copies the image by digest, every platform
+  included, under the tag you give.
+
+The copy keeps the release's digest. A plain `docker pull`, `tag` and `push`
 from an Apple silicon machine pushes only the arm64 image, which Container
-Apps can't run.)
+Apps can't run.
 
 Then build and push your pack's image, signed:
 
@@ -168,21 +198,37 @@ Then build and push your pack's image, signed:
 pnpm exec kindgi build --local --push --env dev
 ```
 
+- `--local` builds the image on your machine.
+- `--push` pushes it to the `registry` of your pack's `dev` environment
+  block, here the module's.
+- `--env dev` names that environment block.
+
+It prints the build as JSON, then each step. The last steps:
+
 ```text
+…
     ✓ Pushed acmeep0y.azurecr.io/acme@sha256:4d18e695…
+
+  Verifying build output
     ✓ /app/index.json in the image matches the local index byte for byte
+
+  Signing locally
     ✓ Ed25519 signature over (imageDigest, artifactVersion, indexHash, tenantId, publishedAt)
+      key: acme-dev
+
+  Deploy envelope written to …/.kindgi/build/deploy-envelope.json
+  Run `kindgi deploy --env=dev` to POST it.
 ```
 
-Set `server_image` and `pack_image` in `dev.tfvars` to the two digests
-(`…@sha256:…`).
+Set `server_image` and `pack_image` in `dev.tfvars` to the two images by
+digest, `…@sha256:…`.
 
 ## 3. The secrets
 
-Make each value here and pipe it straight into Key Vault: it's never on disk
-or in Terraform's state, and Kindgi generates none of them. The one
-exception is the database password, which `az postgres flexible-server update`
-takes as an argument.
+The apps read their secrets from Key Vault. Make each value here and pipe
+it straight into Key Vault: it's never on disk or in Terraform's state, and
+Kindgi generates none of them. The one exception is the database password,
+which `az postgres flexible-server update` takes as an argument.
 
 ```sh
 V=$(terraform output -raw key_vault_name)
@@ -217,11 +263,18 @@ openssl genpkey -algorithm ed25519 | base64 | tr -d '\n' | put export-signing-ke
 read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | put license-key && unset LICENSE_KEY
 ```
 
+- `put` stores what it reads on its input as the Key Vault secret its
+  argument names, and prints the secret's id.
+- `openssl rand -hex 24` and `openssl rand -hex 32` make random values, and
+  `openssl rand 32 | base64` 32 random bytes in base64.
+- `openssl genpkey -algorithm ed25519` makes an Ed25519 private key.
+- `read -rs` reads the license key you paste, without showing it.
+
 Put the two keys' versions in `secrets_aad_key_version` and
 `erasure_ledger_key_version`. The server reads those versions, never the
-latest: every secret stored in Postgres is bound to the AAD key, and erasures
-replay after a backup restore only with the same ledger key. The module
-refuses anything else:
+latest. Every secret stored in Postgres is bound to the AAD key, and
+erasures replay after a backup restore only with the same ledger key. The
+module refuses anything else:
 
 ```text
 Error: Invalid value for variable
@@ -238,39 +291,46 @@ secrets_aad_key_version is needed for the services: the version `az keyvault
 secret set` printed for secrets-aad-key (README, step 3).
 ```
 
-**Signed exports** are off by default (`export_signing = "none"`). With
-`"secret"`, the server signs with the key you put in the vault above as
-`export-signing-key` (Ed25519, or an EC P-256 key from
-`openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256`). With
-`"kms"`, the module makes an EC P-256 key in the vault and the server signs
-there, so the private key never leaves Key Vault; exports are then
-`ecdsa-p256-sha256`, since Key Vault has no Ed25519. See
-[Export signed evidence](../../guides/observability/export-signed-evidence/).
+**Signed exports** are off by default, with `export_signing = "none"`:
+
+- With `"secret"`, the server signs with the key you put in the vault as
+  `export-signing-key`. It's Ed25519, or an EC P-256 key from
+  `openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256`.
+- With `"kms"`, the module makes an EC P-256 key in the vault, and the
+  server signs there, so the private key never leaves Key Vault. Exports
+  are then `ecdsa-p256-sha256`, since Key Vault has no Ed25519.
+
+See [Export signed evidence](../../guides/observability/export-signed-evidence/).
 
 **The database login** is the server's admin, a member of `azure_pg_admin`
 with `CREATEROLE`, which is what the runtime needs.
 
 **Your pack's own secrets:** `kindgi env plan --env dev` lists what your pack
-needs. Create each one in the same vault with `put`, and the module passes
-them to the pack's service, which gets read access to exactly those:
+needs. Create each one in the same vault with `put`. The module passes them
+to the pack's service, which gets read access to exactly those:
 
 ```sh
 pnpm exec kindgi env plan --env dev > pack-env.json
 jq '{pack_env: .env, pack_secret_env: .secret_env}' pack-env.json > dev.pack-env.auto.tfvars.json
 ```
 
-Terraform reads `*.auto.tfvars.json` only from the module's directory.
+`jq` turns the plan's `env` and `secret_env` into the module's `pack_env`
+and `pack_secret_env` variables. Terraform reads `*.auto.tfvars.json` only
+from the module's directory.
 
 ## 4. The services
+
+With the images and the secrets in place, apply the whole module. It creates
+the two container apps:
 
 ```sh
 terraform apply -var-file=dev.tfvars
 ```
 
 The module waits a minute after granting the apps' roles before it creates
-them, so they start with the roles in place. In the verification run the apply
-took 2 minutes 43 seconds, and the runtime reached Key Vault and the pack's
-service on its first start, with no warning.
+them, so they start with the roles in place. In the verification run, the
+apply took 2 minutes 43 seconds. The runtime reached Key Vault and the
+pack's service on its first start, with no warning.
 
 The runtime logs JSON, so its startup lines are the `lines` of one record,
 `Kindgi runtime ready`, in Log Analytics:
@@ -281,6 +341,12 @@ az monitor log-analytics query -w "$WS" --analytics-query \
   "ContainerAppConsoleLogs_CL | where ContainerAppName_s == '<name_prefix>-server' and Log_s contains 'Kindgi runtime ready' | top 1 by TimeGenerated" \
   --query "[0].Log_s" -o tsv | jq -r '.lines[]'
 ```
+
+- `WS` is the Log Analytics workspace's id.
+- `--analytics-query` finds the runtime's newest `Kindgi runtime ready`
+  record. `<name_prefix>` is your `name_prefix` variable.
+- `--query "[0].Log_s" -o tsv` prints that record, and `jq -r '.lines[]'`
+  its lines.
 
 The first time, the CLI installs its `log-analytics` extension. A new
 replica's lines take a minute or more to reach the workspace.
@@ -330,22 +396,26 @@ content-type: text/plain
 stream timeout
 ```
 
-The run itself carries on: in the verification run it completed 30 seconds
-later. Start a run that can take longer in the background (`wait: false`) and
-follow it, as `kindgi runs start` does: it followed another run of the same
-flow to its end, 273 seconds later. For the same reason, the module refuses a `pack_call_timeout_ms`
-(the runtime's wait for one tool call) of 240000 or more.
+The run itself carries on: in the verification run, it completed 30 seconds
+later. Start a run that can take longer in the background, with
+`wait: false`, and follow it, as `kindgi runs start` does. It followed
+another run of the same flow to its end, 273 seconds later. For the same
+reason, the module refuses a `pack_call_timeout_ms` of 240000 or more: the
+runtime's wait for one tool call.
 
 ### Client addresses
 
 Container Apps' ingress appends the caller's address to `X-Forwarded-For`
 ([Microsoft: HTTP headers](https://learn.microsoft.com/en-us/azure/container-apps/ingress-overview#http-headers)).
-The module sets `KINDGI_TRUSTED_PROXIES=1` (`trusted_proxies`), so rate limits
-and audit records see the caller, not the ingress. If you put Front Door or
-Application Gateway in front, set `trusted_proxies = "2"`. See
-[Behind a load balancer or ingress](../self-host/#behind-a-load-balancer-or-ingress).
+The module sets `KINDGI_TRUSTED_PROXIES=1`, from `trusted_proxies`, so rate
+limits and audit records see the caller, not the ingress. If you put Front
+Door or Application Gateway in front, set `trusted_proxies = "2"`
+([Behind a load balancer or ingress](../self-host/#behind-a-load-balancer-or-ingress)).
 
 ## 5. Trust your key, and deploy
+
+The runtime accepts only deploys signed by a key it trusts. Trust your
+pack's key, then deploy:
 
 ```sh
 URL=$(terraform output -raw server_url)
@@ -353,16 +423,37 @@ KINDGI_API_TOKEN=$(az keyvault secret show --vault-name "$V" -n api-token --quer
 pnpm exec kindgi key trust acme-dev --label dev --url "$URL" --token "$KINDGI_API_TOKEN"
 ```
 
+It prints the key the runtime now trusts, then says so:
+
 ```text
-  ✓ Trusted acme-dev (sha256:d872dbbf…)
+{
+  "keyId": "acme-dev",
+  "tenantId": "722e23b8-bbb4-43dc-9a37-9640e369fa7d",
+  "algorithm": "ed25519",
+  "publicKey": "YoQxkUZcrXvo7NKCJmalfcMcGWMfNJzBhk+nhNctQBE=",
+  "label": "dev",
+  "createdAt": "2026-10-12T14:28:40.122Z"
+}
+
+  ✓ Trusted acme-dev (sha256:1b5dcdf07dacf4e91c1bab5b)
     The runtime now accepts deploys this key signs.
 ```
+
+- `acme-dev` is your signing key's id, from `~/.kindgi/keys/`. `--label` is
+  a label the runtime keeps with it.
+- `--url` and `--token` are the runtime's address and its API token, from
+  the vault. `kindgi deploy` takes the address as `--endpoint`.
+- `--env dev` deploys the pack's `dev` environment block.
 
 ```sh
 pnpm exec kindgi deploy --env dev --endpoint "$URL" --token "$KINDGI_API_TOKEN"
 ```
 
+It prints the deployment as JSON, then each step. The last steps:
+
 ```text
+…
+  Registering deployment
     ✓ POST /v1/deployments  →  201 Created
       deploymentId:    8ae8c6d0-…
       artifactVersion: 20261008.211554
@@ -370,7 +461,11 @@ pnpm exec kindgi deploy --env dev --endpoint "$URL" --token "$KINDGI_API_TOKEN"
       activatedAt:     2026-10-08T21:22:04.191Z
 
   Deploy complete.
+  Runs started from now use image sha256:4d18e69581b56… (artifactVersion 20261008.211554).
+  Runs already in flight continue on their pinned image.
 ```
+
+To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
 
 The runtime read your pack's image from the registry with its own identity
 (`KINDGI_IMAGE_REGISTRY_AUTH=azure`) to check it before registering it.
@@ -387,11 +482,15 @@ KINDGI_IMAGE_REGISTRY_AUTH=azure signs in to an Azure Container Registry: KINDGI
 
 ## 6. Check it
 
+Check the runtime answers, lists your pack's tools, and runs a flow:
+
 ```sh
-curl "$URL/health"                                   # {"ok":true}
-pnpm exec kindgi tools list --url "$URL" --token …   # your pack's tools
-pnpm exec kindgi runs start --flow=acme.greet-flow --input='{"name":"Azure"}' --url "$URL" --token …
+curl "$URL/health"                                                # {"ok":true}
+pnpm exec kindgi tools list --url "$URL" --token "$KINDGI_API_TOKEN"   # your pack's tools
+pnpm exec kindgi runs start --flow=acme.greet-flow --input='{"name":"Azure"}' --url "$URL" --token "$KINDGI_API_TOKEN"
 ```
+
+`--flow` names the flow to run, and `--input` is its input, as JSON.
 
 In the verification run, that flow (one tool step) completed in 399 ms, start
 to finish, with the output `{"greeting":"Hello, Azure!"}`.
@@ -410,21 +509,34 @@ to finish, with the output `{"greeting":"Hello, Azure!"}`.
 
 ## Operate it
 
-- **Upgrade:** make sure a restorable backup exists (automatic backups with
-  point-in-time restore are on), copy the new runtime image by digest, set
+- **Upgrade at least every 90 days while Kindgi is in preview.** Until
+  Kindgi 1.0, a release stops starting 90 days after it was released.
+  Container Apps starts new replicas on its own, and after that day none
+  comes up. The runtime warns from 30 days before, at startup and once a
+  day, in a log record with `"event": "kindgi.preview_expiry"`: alert on it
+  in Log Analytics
+  ([Licensing](../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
+- **Upgrade:** make sure a restorable backup exists. Automatic backups with
+  point-in-time restore are on. Copy the new runtime image by digest, set
   `server_image`, and apply. Migrations only go forward: never run two runtime
   versions on one database, and go back by restoring the backup.
-- **Rotate a secret:** add a version (`put` again). The apps read their
-  secrets when they start, and the module references every secret but the two
-  pinned keys without a version, so a replica that starts after Container
-  Apps picks up the new version gets it (when that happens:
-  [Microsoft: Key Vault secret URI and secret rotation](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)).
-  Never rotate the AAD key or the erasure ledger's key this way: they're
-  pinned.
-- **Rotate the wrapping key:** with `key_rotation_days` (90 by default), Key
+- **Rotate a secret:** add a version with `put` again. The apps read their
+  secrets when they start. The module references every secret but the two
+  pinned keys without a version. So a replica that starts after Container
+  Apps picks up the new version gets it
+  ([Microsoft: Key Vault secret URI and secret rotation](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)
+  says when that happens). Never rotate the AAD key or the erasure ledger's
+  key this way: they're pinned.
+- **Rotate the wrapping key:** with `key_rotation_days`, 90 by default, Key
   Vault adds a key version on schedule. New secrets use it, and the ones
   stored before keep unwrapping with theirs. In the verification run, a secret
   stored before `az keyvault key rotate` read back the same after it.
+- **Renew the license key:** enroll once, then run
+  `$(terraform output -raw license_renew_command)` by hand or from your
+  scheduler. Or set `license_renewal_schedule`, a cron in UTC, and the
+  module runs it as a job of its own. It comes with an alert for a failed run,
+  and one for a key within 7 days of its end
+  ([Renew the license key](../renew-the-license-key/#on-a-schedule)).
 - **A key the runtime can't use:** a new replica exits with code 2 and says
   why, and what to check:
 
@@ -441,10 +553,10 @@ to finish, with the output `{"greeting":"Hello, Azure!"}`.
   az monitor log-analytics query -w "$WS" --analytics-query \
     "ContainerAppConsoleLogs_CL | where ContainerAppName_s == '<name_prefix>-server' | order by TimeGenerated desc | take 50"
   ```
-- **Logs:** Log Analytics, per app (`ContainerAppConsoleLogs_CL`); the
+- **Logs:** Log Analytics, per app, in `ContainerAppConsoleLogs_CL`. The
   platform's events, such as image pulls and restarts, are in
   `ContainerAppSystemLogs_CL`. Filter the runtime's records by `traceId` to
-  follow one request or run. See [Logs](../logs/).
+  follow one request or run ([Logs](../logs/)).
 
 ## Tear it down
 
@@ -452,13 +564,14 @@ to finish, with the output `{"greeting":"Hello, Azure!"}`.
 terraform destroy -var-file=dev.tfvars
 ```
 
-- **The vault:** with `key_vault_purge_protection = true` (the default), the
+- **The vault:** with `key_vault_purge_protection = true`, the default, the
   deleted vault and its keys stay recoverable for
   `key_vault_soft_delete_retention_days`, and its name stays taken until then
   ([Microsoft: Key Vault soft-delete](https://learn.microsoft.com/en-us/azure/key-vault/general/soft-delete-overview)).
-  A sandbox can leave purge protection off from the start
-  (`key_vault_purge_protection = false` before the vault exists) and set
-  `key_vault_purge_on_destroy = true`, if whoever runs Terraform may purge.
+  A sandbox can leave purge protection off from the start, with
+  `key_vault_purge_protection = false` before the vault exists. It can then
+  set `key_vault_purge_on_destroy = true`, if whoever runs Terraform may
+  purge.
 - **The infrastructure group** goes with the environment. Check:
   `az group exists -n <rg>-<name_prefix>-infra`.
 - **How long:** in the verification run, one `destroy` took 25 minutes, most
@@ -468,8 +581,16 @@ terraform destroy -var-file=dev.tfvars
   `polling support for the Content-Type "" was not implemented`. 5.9 fixes it,
   which is why the module needs it.
 
-## Limits today
+## Limits
 
-- **One runtime replica.** Several aren't supported yet.
+- **One runtime replica.** Several aren't supported.
 - **Requests end at 240 seconds:** follow long runs instead of waiting
-  ([above](#requests-longer-than-240-seconds)).
+  ([Requests longer than 240 seconds](#requests-longer-than-240-seconds)).
+
+## Next
+
+- [Operate a self-hosted runtime](../operate/): health, backups, upgrades
+  and rotating keys.
+- [Renew the license key](../renew-the-license-key/): on the module's
+  schedule.
+- [Logs](../logs/): what the runtime logs, and how to follow a run.

@@ -23,8 +23,8 @@ language and living in its repository:
 - **Guardrails:** checks on what an agent says or does before it counts.
 
 You write packs in **TypeScript** (`@kindgi/sdk`) or **Python** (the
-`kindgi` package). Tools call your app's own modules; nothing is rewritten
-for Kindgi.
+`kindgi` package), and, in preview, in **Java** and **Scala**. Tools call
+your app's own modules; nothing is rewritten for Kindgi.
 
 ## The runtime
 
@@ -45,9 +45,7 @@ events as they happen, and receives signed webhooks when they finish.
 - **The SDKs:** TypeScript and Python clients for the API.
 - **The console:** in your browser, at `/console/` on any runtime, and the
   runtime's own address leads there (with `kindgi dev`,
-  `http://127.0.0.1:4000/console/`; `kindgi console` opens it, in Chrome or
-  Firefox: Safari can't keep the local sign-in over http yet,
-  see [Known limitations](../../deploy/operate/#known-limitations-in-015)). Each run has one page: what
+  `http://127.0.0.1:4000/console/`; `kindgi console` opens it). Each run has one page: what
   the agent was asked, the tools it called and their results, its answer, the
   model and the cost; its journal, one sentence per step; and where the answer
   came from. It also has approvals to approve or reject, conversations, and
@@ -66,8 +64,8 @@ try what it wrote, and the run's journal when something fails.
 ## Where it runs
 
 - **On your machine:** `kindgi dev` runs the runtime as a container next to
-  your pack's code and picks up every save. (The image is in private
-  preview: request access at contact@kindgi.com.)
+  your pack's code and picks up every save. (Its image's pull credentials
+  come from [access.kindgi.com](https://access.kindgi.com), with GitHub.)
 - **In your own cloud:** you deploy the same runtime image into your
   project; your data and prompts stay there.
 - **Kindgi Cloud:** we operate the runtime for you. It's in private
@@ -81,3 +79,11 @@ you're reading.
 
 The SDKs are Apache-2.0. The runtime is source-available under the Business
 Source License 1.1.
+
+## Next
+
+- [Install](../install/): what you need on your machine.
+- [Quickstart: TypeScript](../quickstart-typescript/), or the
+  [Python](../quickstart-python/), [Java](../quickstart-java/) or
+  [Scala](../quickstart-scala/) one: a first pack, running in ten minutes.
+- [Add Kindgi to an existing app](../existing-app/).

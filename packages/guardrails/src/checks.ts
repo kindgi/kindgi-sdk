@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import {
+  type CompiledTenantPattern,
+  type TenantInputBounds,
+  compileTenantPattern,
+  tenantInputBounds,
+} from '@kindgi/bounds';
+
 import { type GuardrailConfigProblem, guardrailConfigProblems } from './config-problems.js';
 import type { CheckFunction, CheckRegistry, RegisteredCheck } from './types.js';
 
@@ -22,23 +29,33 @@ import type { CheckFunction, CheckRegistry, RegisteredCheck } from './types.js';
  *
  * Default `sourcePattern` matches `[<name>]`-style citations; override for
  * verticals with different citation conventions.
+ *
+ * Counting stops once it has found `minCitations`, so a pass reports that
+ * many as `citationCount` (a fail, every one it found): a long output costs
+ * no more than the check needs. The bounds cap `minCitations`
+ * (`mustCiteMaxCitations`): over it, registration refuses the config and
+ * evaluation throws.
  */
 const mustCite: CheckFunction = async (config, trace) => {
   const minCitations = typeof config.minCitations === 'number' ? config.minCitations : 1;
+  const tooMany = tooManyCitations(minCitations);
+  if (tooMany !== undefined) throw new Error(tooMany);
   const sourcePattern =
     typeof config.sourcePattern === 'string' ? config.sourcePattern : '\\[[^\\]]+\\]';
   if (trace.output === undefined || trace.output.length === 0) {
     return { passed: false, reason: 'output empty; nothing to cite' };
   }
-  const re = new RegExp(sourcePattern, 'g');
-  const matches = trace.output.match(re) ?? [];
-  if (matches.length >= minCitations) {
-    return { passed: true, attributes: { citationCount: matches.length } };
+  const found = patternOf(config, 'sourcePattern', sourcePattern, '').count(
+    trace.output,
+    minCitations,
+  );
+  if (found >= minCitations) {
+    return { passed: true, attributes: { citationCount: found } };
   }
   return {
     passed: false,
-    reason: `expected >= ${minCitations} citations, found ${matches.length}`,
-    attributes: { citationCount: matches.length },
+    reason: `expected >= ${minCitations} citations, found ${found}`,
+    attributes: { citationCount: found },
   };
 };
 
@@ -104,9 +121,8 @@ const outputMatches: CheckFunction = async (config, trace) => {
   if (pattern.length === 0) {
     return { passed: false, reason: 'pattern config is required' };
   }
-  const re = new RegExp(pattern, flags);
   const output = trace.output ?? '';
-  const matched = re.test(output);
+  const matched = patternOf(config, 'pattern', pattern, flags).test(output);
   const passed = negate ? !matched : matched;
   return passed
     ? { passed: true }
@@ -219,6 +235,56 @@ const object = (
   additionalProperties: false,
 });
 
+/**
+ * A config's pattern, compiled once (by `@kindgi/bounds`, under the
+ * process's bounds) for registration and every evaluation after it; again
+ * only if the setting or the bounds change. Held by the config object, so
+ * it goes when the config does.
+ */
+const compiledPatterns = new WeakMap<
+  object,
+  {
+    readonly bounds: TenantInputBounds;
+    readonly source: string;
+    readonly flags: string;
+    readonly compiled: CompiledTenantPattern;
+  }
+>();
+
+function compiledPattern(config: object, source: string, flags: string): CompiledTenantPattern {
+  const bounds = tenantInputBounds();
+  const kept = compiledPatterns.get(config);
+  if (
+    kept !== undefined &&
+    kept.bounds === bounds &&
+    kept.source === source &&
+    kept.flags === flags
+  ) {
+    return kept.compiled;
+  }
+  const compiled = compileTenantPattern(source, flags);
+  compiledPatterns.set(config, { bounds, source, flags, compiled });
+  return compiled;
+}
+
+const notAPattern = (key: string, reason: string) =>
+  `config.${key} isn't a regular expression that compiles: ${reason}.`;
+
+/** A pattern evaluation runs: refused, it throws (a config the check refuses is never a pass). */
+function patternOf(config: object, key: string, source: string, flags: string) {
+  const compiled = compiledPattern(config, source, flags);
+  if (compiled.kind === 'refused') throw new Error(notAPattern(key, compiled.reason));
+  return compiled.pattern;
+}
+
+/** Why `must-cite`'s `minCitations` is over the bounds' cap, if it is. */
+function tooManyCitations(minCitations: unknown): string | undefined {
+  const max = tenantInputBounds().mustCiteMaxCitations;
+  return typeof minCitations === 'number' && minCitations > max
+    ? `config.minCitations is ${minCitations}, over the limit of ${max}.`
+    : undefined;
+}
+
 /** Each built-in's config, as JSON Schema: what registration and evaluation check it against. */
 const CONFIG_SCHEMAS: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
   'must-cite': object({
@@ -268,29 +334,37 @@ const REGEX_SETTINGS: Readonly<Record<string, readonly [pattern: string, flags?:
   'output-matches': ['pattern', 'flags'],
 };
 
-/** Every way `config` doesn't fit built-in `id`: its schema's problems, then a regex that won't compile. */
+/**
+ * Every way `config` doesn't fit built-in `id`: its schema's problems; or,
+ * once it fits, a setting over the bounds' cap and a regex that won't compile.
+ */
 function builtInConfigProblems(id: string, config: unknown): readonly GuardrailConfigProblem[] {
   const schema = CONFIG_SCHEMAS[id] as Readonly<Record<string, unknown>>;
   const problems = guardrailConfigProblems({ configSchema: schema, config });
   if (problems.length > 0) return problems;
+  const settings = (config ?? {}) as Record<string, unknown>;
+  const tooMany = id === 'must-cite' ? tooManyCitations(settings.minCitations) : undefined;
+  return [
+    ...(tooMany !== undefined ? [{ path: '/config/minCitations', message: tooMany }] : []),
+    ...regexProblems(id, settings),
+  ];
+}
+
+/** A regex setting of built-in `id`'s that won't compile, if there is one. */
+function regexProblems(
+  id: string,
+  settings: Readonly<Record<string, unknown>>,
+): readonly GuardrailConfigProblem[] {
   const regex = REGEX_SETTINGS[id];
   if (regex === undefined) return [];
   const [patternKey, flagsKey] = regex;
-  const settings = (config ?? {}) as Record<string, unknown>;
   const pattern = settings[patternKey];
   if (typeof pattern !== 'string') return [];
   const flags = flagsKey !== undefined ? settings[flagsKey] : undefined;
-  try {
-    new RegExp(pattern, typeof flags === 'string' ? flags : '');
-    return [];
-  } catch (error) {
-    return [
-      {
-        path: `/config/${patternKey}`,
-        message: `config.${patternKey} isn't a regular expression that compiles: ${(error as Error).message}.`,
-      },
-    ];
-  }
+  const compiled = compiledPattern(settings, pattern, typeof flags === 'string' ? flags : '');
+  return compiled.kind === 'ok'
+    ? []
+    : [{ path: `/config/${patternKey}`, message: notAPattern(patternKey, compiled.reason) }];
 }
 
 function builtIn(id: string, evaluate: CheckFunction): RegisteredCheck {

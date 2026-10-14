@@ -201,7 +201,9 @@ export interface RunFlowInput {
   /**
    * Authorization config — enables authorization checks inside the
    * runtime. When absent, `ctx.authorize` is a no-op and tool
-   * invocations skip their pre-flight check.
+   * invocations skip their pre-flight check. From runtime 0.1.8, the
+   * Kindgi runtime sets it (OpenFGA's URL only) on every run a person or
+   * a key starts.
    */
   readonly authz?: {
     readonly fgaApiUrl: string;

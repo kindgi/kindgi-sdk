@@ -5,6 +5,8 @@ import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, EnvName, TenantId } from '@kindgi/types';
 
+import type { RecordedSecretScope } from './secret-scope.js';
+
 /**
  * Caller-plugged surface for the MCP-endpoint catalog. Tenants register
  * the remote MCP servers they want the runtime to consume. At boot the
@@ -97,7 +99,7 @@ export interface MCPEndpointSecretRef {
 }
 
 /** How an endpoint signs in, beyond the plain bearer `secretRef` sends. */
-export const MCP_AUTH_SCHEMES = ['basic', 'oauth2-client-credentials'] as const;
+export const MCP_AUTH_SCHEMES = ['basic', 'oauth2-client-credentials', 'header'] as const;
 export type MCPAuthScheme = (typeof MCP_AUTH_SCHEMES)[number];
 
 /** How a client authenticates to an OAuth 2 token endpoint (RFC 6749 §2.3.1). */
@@ -137,19 +139,119 @@ export interface MCPOAuth2ClientCredentialsAuth {
   readonly clientAuth?: MCPOAuthClientAuth;
 }
 
-export type MCPEndpointAuth = MCPBasicAuth | MCPOAuth2ClientCredentialsAuth;
+/** The most headers a `header` auth sends. */
+export const MCP_AUTH_HEADERS_MAX = 4;
+
+/** One header a `header` auth sends: `<name>: <prefix><secret>`. */
+export interface MCPAuthHeader {
+  /** An HTTP header name, unique within the auth (case-insensitive). */
+  readonly name: string;
+  /** The value. */
+  readonly secretRef: MCPEndpointSecretRef;
+  /** Text before the secret (`Token `, `ApiKey `). Absent: none. Not a secret. */
+  readonly prefix?: string;
+}
+
+/**
+ * Headers of the server's own, each with a secret: an API key in `X-Api-Key`,
+ * a key and a secret in two headers, or `Authorization` with a prefix other
+ * than `Bearer ` (`Token …`). Each value is resolved from its `secretRef` when
+ * the runtime connects, and never stored or shown.
+ */
+export interface MCPHeaderAuth {
+  readonly scheme: 'header';
+  /** 1 to `MCP_AUTH_HEADERS_MAX` headers, distinct by name. */
+  readonly headers: readonly MCPAuthHeader[];
+}
+
+export type MCPEndpointAuth = MCPBasicAuth | MCPOAuth2ClientCredentialsAuth | MCPHeaderAuth;
+
+/** The secrets an endpoint's `auth` names: its password, client secret, or each header's. */
+export function mcpAuthSecretRefs(auth: MCPEndpointAuth): readonly MCPEndpointSecretRef[] {
+  return auth.scheme === 'header' ? auth.headers.map((h) => h.secretRef) : [auth.secretRef];
+}
+
+/**
+ * The secrets an endpoint names: its bearer `secretRef`, and its `auth`'s
+ * password, client secret or header secrets.
+ */
+export function mcpEndpointSecretRefs(
+  endpoint: Pick<MCPEndpoint, 'secretRef' | 'auth'>,
+): readonly MCPEndpointSecretRef[] {
+  return [
+    ...(endpoint.secretRef !== undefined ? [endpoint.secretRef] : []),
+    ...(endpoint.auth !== undefined ? mcpAuthSecretRefs(endpoint.auth) : []),
+  ];
+}
 
 /**
  * The secrets an endpoint names, by name: its bearer `secretRef`, and its
- * `auth`'s password or client secret.
+ * `auth`'s password, client secret or header secrets.
  */
 export function mcpEndpointSecretNames(
   endpoint: Pick<MCPEndpoint, 'secretRef' | 'auth'>,
 ): readonly string[] {
-  return [endpoint.secretRef?.name, endpoint.auth?.secretRef.name].filter(
-    (name): name is string => name !== undefined,
-  );
+  return [
+    ...(endpoint.secretRef !== undefined ? [endpoint.secretRef.name] : []),
+    ...(endpoint.auth !== undefined ? mcpAuthSecretRefs(endpoint.auth).map((r) => r.name) : []),
+  ];
 }
+
+/** Header names that always carry a credential. */
+const CREDENTIAL_HEADERS = new Set(['authorization', 'proxy-authorization', 'cookie']);
+/** A `-`/`_`-separated part that marks a header name as a credential's. */
+const CREDENTIAL_PARTS = new Set([
+  'token',
+  'secret',
+  'password',
+  'passwd',
+  'apikey',
+  'credential',
+  'credentials',
+  'signature',
+  'session',
+  'auth',
+  'authorization',
+  'authentication',
+]);
+/**
+ * Two adjacent parts that do (`X-Api-Key`, `Ocp-Apim-Subscription-Key`,
+ * `x-functions-key`). A lone `key` doesn't: `X-Idempotency-Key`,
+ * `X-Cache-Key` and `X-Partition-Key` are plain.
+ */
+const CREDENTIAL_PAIRS: readonly (readonly [string, string])[] = [
+  ['api', 'key'],
+  ['access', 'key'],
+  ['private', 'key'],
+  ['auth', 'key'],
+  ['subscription', 'key'],
+  ['functions', 'key'],
+  ['application', 'key'],
+  ['app', 'key'],
+  ['master', 'key'],
+  ['client', 'key'],
+  ['partner', 'key'],
+];
+
+/**
+ * Whether a header's name says it carries a credential: `Authorization`,
+ * `Proxy-Authorization`, `Cookie`, or a name with a part such as `token`,
+ * `secret`, `password`, `apikey`, `session`, `signature` or `auth`, or the
+ * pair `api-key` (`X-Api-Key`, `X-Auth-Token`, `X-Session-Id`). Such a header
+ * can't be set in plaintext `config.headers`: it's sent by reference through
+ * `auth` (`scheme: 'header'`) or `secretRef`, and a registered one's value is
+ * shown as `[redacted]`.
+ */
+export function isCredentialHeaderName(name: string): boolean {
+  const lower = name.toLowerCase();
+  if (CREDENTIAL_HEADERS.has(lower)) return true;
+  const parts = lower.split(/[-_]/);
+  if (parts.some((p) => CREDENTIAL_PARTS.has(p))) return true;
+  return parts.some((p, i) => CREDENTIAL_PAIRS.some(([a, b]) => p === a && parts[i + 1] === b));
+}
+
+/** What a registered credential header's value reads back as. */
+export const REDACTED_HEADER_VALUE = '[redacted]';
 
 /**
  * Wire shape for a registered MCP endpoint. Secrets never appear —
@@ -196,6 +298,15 @@ export interface MCPEndpoint {
    * `false` sends none. HTTP transports only (`stdio` has no headers).
    */
   readonly sendTraceparent?: boolean;
+  /**
+   * Where each secret the endpoint names is read, by name: recorded by the
+   * server when the endpoint is registered (`secret-scope.ts`), never sent
+   * by a caller. `null`: the person registering it administers no scope its
+   * secret could be read at, so none is read until an admin unregisters it
+   * and registers it again. Absent on endpoints registered before it was
+   * recorded.
+   */
+  readonly secretScopes?: Readonly<Record<string, RecordedSecretScope | null>>;
 }
 
 export interface MCPEndpointListInput {

@@ -20,6 +20,7 @@ import {
 } from '@kindgi/guardrails';
 import type {
   AgentId,
+  FlowId,
   GuardrailId,
   OrgId,
   ProjectId,
@@ -83,6 +84,8 @@ export function buildRunTrace(input: {
   /** 1-based number of this turn in the conversation. */
   readonly turnNumber: number;
   readonly agent: Agent;
+  /** The flow whose step started the turn; absent for a turn outside any flow. */
+  readonly flowId?: FlowId;
   /** The user message that started the turn. */
   readonly userMessage: string;
   /** The turn's structured input (`InvokeAgentInput.input`), when it has one. */
@@ -148,6 +151,7 @@ export function buildRunTrace(input: {
     projectId: input.projectId,
     ...(input.orgId !== undefined && { orgId: input.orgId }),
     agentId: input.agent.id as unknown as AgentId,
+    ...(input.flowId !== undefined && { flowId: input.flowId }),
     output,
     toolCalls,
     toolResults,

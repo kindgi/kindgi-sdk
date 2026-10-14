@@ -18,7 +18,9 @@ export const RESERVED_SECRET_NAME_PREFIX = 'kindgi.';
  * every secret-lifecycle op. Every method is scope + env-scoped, where
  * `scope` is the discriminated primitive from `@kindgi/platform`
  * (Tenant / Org / Project). Writes declare the scope explicitly; reads
- * resolve via most-specific-wins walk across the scope hierarchy.
+ * resolve via most-specific-wins walk across the scope hierarchy, or at
+ * the given scope only when the read is `exact`. A custom store must
+ * honour `exact` and report the scope it read (`SecretResolveOutcome.scope`).
  *
  * Callers (routes, runtime dispatch, SDK clients) speak this interface
  * ONLY. Concrete storage — envelope-encrypted bytes in a database,
@@ -93,6 +95,28 @@ export interface SecretBinding {
    * leaves it unset, and `POST /v1/secrets` refuses `appEnvFile`.
    */
   readonly writesAppEnvFiles?: boolean;
+
+  /**
+   * Why this store can't write a secret named `name`, or `undefined` when it
+   * can. `set` refuses the same names with the same code. A route that
+   * stores something before the secret (a webhook trigger with
+   * `generateSecret`) asks first, so the name is the caller's `400` and
+   * nothing is stored. Reads may still find such a name (the dev store reads
+   * a key typed into `.env` by hand), so nothing that only reads asks.
+   * Unset: `set` alone says.
+   */
+  nameRefusal?(name: string): SecretNameRefusal | undefined;
+}
+
+/** A name a store can't write, and why ({@link SecretBinding.nameRefusal}). */
+export interface SecretNameRefusal {
+  /**
+   * `reserved-name-prefix`: the name starts with {@link RESERVED_SECRET_NAME_PREFIX}.
+   * `secret-name-invalid`: it breaks another of the store's rules.
+   */
+  readonly code: 'reserved-name-prefix' | 'secret-name-invalid';
+  /** The store's rule, said to the caller. */
+  readonly message: string;
 }
 
 // -------------------- observing writes --------------------
@@ -128,6 +152,7 @@ export const SECRET_BINDING_MEMBERS: Readonly<
   rotate: 'write',
   revoke: 'write',
   writesAppEnvFiles: 'flag',
+  nameRefusal: 'read',
 };
 
 /**
@@ -167,6 +192,9 @@ export function observeSecretWrites(binding: SecretBinding): {
       revoke: (input) => told(input, () => binding.revoke(input)),
       ...(binding.writesAppEnvFiles !== undefined && {
         writesAppEnvFiles: binding.writesAppEnvFiles,
+      }),
+      ...(binding.nameRefusal !== undefined && {
+        nameRefusal: (name: string) => binding.nameRefusal?.(name),
       }),
     },
     writes: {
@@ -238,6 +266,14 @@ export interface SecretResolveInput {
   readonly name: string;
   readonly version?: number;
   readonly resolveContext: ResolveContext;
+  /**
+   * Read at `scope` only: no walk to a broader scope. A secret not set
+   * there is `secret-not-found`, whatever broader scopes have. Every
+   * store must honour it: an item's secret is read where it was recorded
+   * when the item was registered, and nowhere else (`resolveAtScope`).
+   * Absent: the most-specific-wins walk.
+   */
+  readonly exact?: true;
 }
 
 /**
@@ -260,6 +296,13 @@ export interface SecretResolveOutcome {
   readonly name: string;
   readonly versionId: number;
   readonly value: string;
+  /**
+   * The scope the value was read at: the one asked for, or a broader one
+   * the walk reached. A custom store must report the scope it read: every
+   * in-tree store does, and `resolveAtScope` refuses a value read at
+   * another scope than it asked for, or without one.
+   */
+  readonly scope?: Scope;
 }
 
 export interface SecretGetVersionInput {

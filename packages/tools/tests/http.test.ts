@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { type RequestListener, createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { gzipSync } from 'node:zlib';
+
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type { TenantId, ToolId } from '@kindgi/types';
@@ -551,6 +555,241 @@ describe('defineTool({spec: http}) — response handling', () => {
     const invoked = await invokeTool(tool.value, { owner: 'a', repo: 'b', number: 1 }, makeCtx());
     expect(invoked.kind).toBe('err');
     if (invoked.kind === 'err') expect(invoked.error.message).toContain('not valid JSON');
+  });
+});
+
+// -----------------------------------------------------------------------------
+// The response body: under the deadline, the caller's signal and a size cap
+// -----------------------------------------------------------------------------
+
+// Captured before `beforeEach` stubs it, for the tests against a real server.
+const realFetch = globalThis.fetch;
+
+function httpHandler(
+  over: HttpSpecOverrides = {},
+  options: { readonly fetch?: typeof fetch; readonly maxResponseBytes?: number } = {},
+): (input: unknown, ctx: ToolContext) => Promise<unknown> {
+  const synthesize = getToolSpecSynthesizer('http');
+  if (synthesize === undefined) throw new Error('no http synthesizer');
+  return synthesize(
+    { kind: 'http', method: 'GET', urlTemplate: 'https://api.example.com/items/{id}', ...over },
+    'acme.lookup',
+    { fetch: fetchMock as unknown as typeof fetch, ...options },
+  );
+}
+
+/**
+ * A body that hands over the next of `chunks` on each read, waiting
+ * `everyMs` first; past the last it sends the last again, forever.
+ * `seen` counts the reads and whether the reader cancelled it.
+ */
+function streamedBody(chunks: readonly string[], everyMs = 0) {
+  const seen = { reads: 0, cancelled: false };
+  const bytes = chunks.map((c) => new TextEncoder().encode(c));
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (everyMs > 0) await new Promise((resolve) => setTimeout(resolve, everyMs));
+      if (seen.cancelled) return;
+      const next = bytes[Math.min(seen.reads, bytes.length - 1)] as Uint8Array;
+      seen.reads += 1;
+      controller.enqueue(next);
+    },
+    cancel() {
+      seen.cancelled = true;
+    },
+  });
+  return { stream, seen };
+}
+
+/** A body that ends after `chunks`. */
+function finiteBody(chunks: readonly string[]) {
+  const seen = { reads: 0, cancelled: false };
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      const next = chunks[seen.reads];
+      if (next === undefined) {
+        controller.close();
+        return;
+      }
+      seen.reads += 1;
+      controller.enqueue(new TextEncoder().encode(next));
+    },
+    cancel() {
+      seen.cancelled = true;
+    },
+  });
+  return { stream, seen };
+}
+
+describe('defineTool({spec: http}) — the response body', () => {
+  test('a body that trickles past the deadline fails the call as timed out', async () => {
+    const { stream, seen } = streamedBody(['{"a":', ' '], 10);
+    fetchMock.mockResolvedValueOnce(new Response(stream, { status: 200 }));
+    const started = Date.now();
+    await expect(httpHandler({ timeoutMs: 150 })({ id: '1' }, makeCtx())).rejects.toThrow(
+      'http-tool "acme.lookup" timed out after 150ms',
+    );
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(seen.cancelled).toBe(true);
+  });
+
+  test("a failed call's body that never ends fails the call as timed out", async () => {
+    const { stream, seen } = streamedBody(['busy '], 10);
+    fetchMock.mockResolvedValueOnce(new Response(stream, { status: 503 }));
+    await expect(httpHandler({ timeoutMs: 150 })({ id: '1' }, makeCtx())).rejects.toThrow(
+      'timed out after 150ms',
+    );
+    expect(seen.cancelled).toBe(true);
+  });
+
+  test("the caller's cancel mid-body fails the call with the caller's reason", async () => {
+    const caller = new AbortController();
+    const seen = { reads: 0, cancelled: false };
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        seen.reads += 1;
+        if (seen.reads === 1) {
+          controller.enqueue(new TextEncoder().encode('{"a":'));
+          return;
+        }
+        // The rest never comes; the run is cancelled while it waits.
+        caller.abort(new Error('the run was cancelled'));
+        return new Promise<void>(() => undefined);
+      },
+      cancel() {
+        seen.cancelled = true;
+      },
+    });
+    fetchMock.mockResolvedValueOnce(new Response(stream, { status: 200 }));
+    await expect(
+      httpHandler()({ id: '1' }, makeCtx({ abortSignal: caller.signal })),
+    ).rejects.toThrow('the run was cancelled');
+    expect(seen.cancelled).toBe(true);
+  });
+
+  test('a body past maxResponseBytes fails the call, naming the cap; one at the cap is read', async () => {
+    const atCap = `"${'a'.repeat(1022)}"`;
+    fetchMock.mockResolvedValueOnce(new Response(atCap, { status: 200 }));
+    expect(await httpHandler({}, { maxResponseBytes: 1024 })({ id: '1' }, makeCtx())).toBe(
+      'a'.repeat(1022),
+    );
+
+    fetchMock.mockResolvedValueOnce(new Response(`"${'a'.repeat(1023)}"`, { status: 200 }));
+    await expect(
+      httpHandler({}, { maxResponseBytes: 1024 })({ id: '1' }, makeCtx()),
+    ).rejects.toThrow(
+      'http-tool "acme.lookup": the response body is longer than 1024 bytes, the most this tool reads',
+    );
+  });
+
+  test('without maxResponseBytes the cap is 10 MiB, and reading stops there', async () => {
+    const mib = 'a'.repeat(1024 * 1024);
+    const { stream, seen } = finiteBody(['"', ...Array.from({ length: 20 }, () => mib), '"']);
+    fetchMock.mockResolvedValueOnce(new Response(stream, { status: 200 }));
+    await expect(httpHandler()({ id: '1' }, makeCtx())).rejects.toThrow(
+      'longer than 10485760 bytes',
+    );
+    // The 11th MiB crosses the cap; the stream may have pulled one more ahead.
+    expect(seen.reads).toBeLessThanOrEqual(12);
+    expect(seen.cancelled).toBe(true);
+  });
+
+  test('parseJson: false text is capped the same way', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('x'.repeat(2048), { status: 200 }));
+    await expect(
+      httpHandler({ parseJson: false }, { maxResponseBytes: 1024 })({ id: '1' }, makeCtx()),
+    ).rejects.toThrow('longer than 1024 bytes');
+  });
+
+  test("a failed call's message reads only the start of a long body", async () => {
+    const { stream, seen } = finiteBody(Array.from({ length: 64 }, () => 'e'.repeat(1024)));
+    fetchMock.mockResolvedValueOnce(new Response(stream, { status: 500 }));
+    await expect(httpHandler()({ id: '1' }, makeCtx())).rejects.toThrow(
+      `got status 500  — ${'e'.repeat(512)}`,
+    );
+    // 2 KiB is read for the message; the stream may have pulled one more ahead.
+    expect(seen.reads).toBeLessThanOrEqual(4);
+    expect(seen.cancelled).toBe(true);
+  });
+
+  test('a maxResponseBytes that is not a positive whole number is refused when the tool is built', () => {
+    for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => httpHandler({}, { maxResponseBytes: bad })).toThrow(
+        'maxResponseBytes must be a positive whole number of bytes',
+      );
+    }
+  });
+});
+
+describe('defineTool({spec: http}) — the response body, from a real server', () => {
+  async function serve(
+    respond: RequestListener,
+  ): Promise<{ readonly url: string; readonly close: () => Promise<void> }> {
+    const server = createServer(respond);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as AddressInfo;
+    return {
+      url: `http://127.0.0.1:${port}/items/{id}`,
+      close: () =>
+        new Promise<void>((resolve) => {
+          server.closeAllConnections();
+          server.close(() => resolve());
+        }),
+    };
+  }
+
+  test('a server that answers at once and trickles its body is cut off at the deadline', async () => {
+    let timer: ReturnType<typeof setInterval> | undefined;
+    let closedByClient = false;
+    const server = await serve((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.write('{"a":');
+      timer = setInterval(() => res.write(' '), 10);
+      res.on('close', () => {
+        closedByClient = true;
+        clearInterval(timer);
+      });
+    });
+    try {
+      // The headers must come before the deadline, so it's the body read it cuts.
+      let headersAt: number | undefined;
+      const timedFetch = (async (...args: Parameters<typeof fetch>) => {
+        const response = await realFetch(...args);
+        headersAt = Date.now();
+        return response;
+      }) as typeof fetch;
+      const handler = httpHandler(
+        { urlTemplate: server.url, timeoutMs: 1_000 },
+        { fetch: timedFetch },
+      );
+      const started = Date.now();
+      await expect(handler({ id: '1' }, makeCtx())).rejects.toThrow('timed out after 1000ms');
+      expect(headersAt).toBeDefined();
+      expect((headersAt ?? Number.POSITIVE_INFINITY) - started).toBeLessThan(1_000);
+      await vi.waitFor(() => expect(closedByClient).toBe(true));
+    } finally {
+      clearInterval(timer);
+      await server.close();
+    }
+  });
+
+  test('a gzip body is counted as it decodes: a small download past the cap fails', async () => {
+    // 4 MiB of zeros, under 5 KiB on the wire.
+    const zipped = gzipSync(Buffer.from(`"${'0'.repeat(4 * 1024 * 1024)}"`));
+    expect(zipped.byteLength).toBeLessThan(1024 * 1024);
+    const server = await serve((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json', 'content-encoding': 'gzip' });
+      res.end(zipped);
+    });
+    try {
+      const handler = httpHandler(
+        { urlTemplate: server.url },
+        { fetch: realFetch, maxResponseBytes: 1024 * 1024 },
+      );
+      await expect(handler({ id: '1' }, makeCtx())).rejects.toThrow('longer than 1048576 bytes');
+    } finally {
+      await server.close();
+    }
   });
 });
 

@@ -18,11 +18,13 @@ export type {
 } from './run-snapshot-binding.js';
 export { DRAFTED_TEMPLATE_MAX, checkDraftedTemplate } from './drafted-template.js';
 export type { DraftedTemplateContext } from './drafted-template.js';
+export { templateProblem } from './liquid.js';
 export { defineAgent } from './define.js';
 export {
   BLOCK_KINDS,
   MODEL_SETTINGS_SCHEMA,
   TUNABLE_MARKER,
+  modelSettingsIssues,
   settingsSchemaIssues,
   tunableKeys,
   validateBlock,
@@ -73,14 +75,20 @@ export type {
   BudgetExceededError,
   CapabilityRoutingError,
   InvokeAgentBindings,
+  ToolCallAuthorization,
   InvokeAgentError,
   InvokeAgentInput,
   ModelInvocationError,
   OutputSchemaViolationError,
+  RateLimitExceededError,
   ResumeAgentTurnInput,
   RunSnapshotError,
   SemanticUnavailableError,
+  ApprovalsPendingLimitError,
   ToolInvocationError,
+  TurnMemoryBinding,
+  TurnMemoryCharge,
+  TurnMemoryLimitReachedError,
   UnresolvedToolError,
 } from './invoke.js';
 export {
@@ -116,6 +124,7 @@ export type {
   TurnStartedEvent,
 } from './streaming.js';
 export { AUTO_INJECTED_VARS, renderInstructions } from './prompt.js';
+export { TemplateRenderBudgetError } from './render-budget.js';
 export {
   EARLIER_ANSWER_NOTE,
   MEMORY_DATA_RULE,

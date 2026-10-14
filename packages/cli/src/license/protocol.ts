@@ -123,6 +123,85 @@ export function renewSigningInput(origin: string, body: Uint8Array): string {
   return `kindgi-license-renew-v1\nPOST ${origin}${RENEW_PATH}\n${digest}`;
 }
 
+/**
+ * The deployment's use in the current key's period, as a renewal carries it
+ * (`GET /v1/license/usage` on its runtime): counts only, no content, names
+ * or ids. The service records them; above its thresholds it holds a free
+ * key's renewal for review instead of issuing a new key.
+ */
+export interface RenewalUsage {
+  readonly since: string;
+  readonly until: string;
+  readonly runtimeVersion: string;
+  readonly runs: number;
+  readonly people: number;
+  readonly projectsInProduction?: number;
+}
+
+/**
+ * A runtime's answer as counts, its fields named one by one, or `undefined`
+ * when it isn't, as access.kindgi.com reads them: counts are whole numbers
+ * from 0 to a billion, the period two instants in UTC from 2026 (its start
+ * no later than its end), the version a short token. Nothing else is signed
+ * and sent, so counts this sends are counts the service accepts, and an
+ * answer that isn't counts is never quoted.
+ */
+export function readRenewalUsage(answer: unknown): RenewalUsage | undefined {
+  if (typeof answer !== 'object' || answer === null) return undefined;
+  const { since, until, runtimeVersion, runs, people, projectsInProduction } = answer as Record<
+    string,
+    unknown
+  >;
+  const count = (value: unknown): value is number =>
+    Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= MAX_COUNT;
+  if (
+    !isInstant(since) ||
+    !isInstant(until) ||
+    Date.parse(since) > Date.parse(until) ||
+    typeof runtimeVersion !== 'string' ||
+    !RUNTIME_VERSION.test(runtimeVersion) ||
+    !count(runs) ||
+    !count(people) ||
+    (projectsInProduction !== undefined && !count(projectsInProduction))
+  ) {
+    return undefined;
+  }
+  return {
+    since,
+    until,
+    runtimeVersion,
+    runs,
+    people,
+    ...(projectsInProduction !== undefined && { projectsInProduction }),
+  };
+}
+
+/** A runtime's version as it reports it: `0.1.8`, `0.1.8-rc.1`, `dev`. */
+const RUNTIME_VERSION = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$/;
+
+/** More than any deployment gets near in a key's period: the service refuses a larger count as malformed. */
+const MAX_COUNT = 1_000_000_000;
+
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
+
+/** No key was issued before this, so no period starts earlier. */
+const EARLIEST = Date.parse('2026-01-01T00:00:00Z');
+
+/**
+ * An instant in UTC that exists, as the runtime answers it (`toISOString()`).
+ * `Date.parse` alone takes `canary 2026` and rolls 30 February into March,
+ * so the form is checked and the time read back.
+ */
+function isInstant(value: unknown): value is string {
+  if (typeof value !== 'string' || !ISO_INSTANT.test(value)) return false;
+  const ms = Date.parse(value);
+  return (
+    Number.isFinite(ms) &&
+    ms >= EARLIEST &&
+    new Date(ms).toISOString().slice(0, 19) === value.slice(0, 19)
+  );
+}
+
 /** A renewal request, signed: its body and the signature header's value. */
 export function signRenewRequest(
   key: RenewerKey,
@@ -131,12 +210,15 @@ export function signRenewRequest(
     /** Seconds since the epoch. */
     readonly now?: number;
     readonly nonce?: string;
+    /** Sent in the body, so the signature covers it too. */
+    readonly usage?: RenewalUsage;
   } = {},
 ): { readonly body: string; readonly signature: string } {
   const body = JSON.stringify({
     renewerId: key.renewerId,
     ts: options.now ?? Math.floor(Date.now() / 1000),
     nonce: options.nonce ?? randomBytes(16).toString('base64url'),
+    ...(options.usage !== undefined && { usage: usageFields(options.usage) }),
   });
   const signature = sign(
     null,
@@ -144,4 +226,17 @@ export function signRenewRequest(
     key.privateKey,
   ).toString('base64url');
   return { body, signature };
+}
+
+/** The usage's fields, named one by one: nothing else a runtime answers is sent. */
+function usageFields(usage: RenewalUsage): RenewalUsage {
+  const { since, until, runtimeVersion, runs, people, projectsInProduction } = usage;
+  return {
+    since,
+    until,
+    runtimeVersion,
+    runs,
+    people,
+    ...(projectsInProduction !== undefined && { projectsInProduction }),
+  };
 }
