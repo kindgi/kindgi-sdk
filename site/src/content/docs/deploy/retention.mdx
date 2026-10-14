@@ -498,7 +498,7 @@ and no audit event is ever purged. With it on, a pass that purged something
 logs it, per tenant:
 
 ```text
-<time> INFO  [audit.retention] tenant 5c0a7e11-0000-4000-8000-00000000c0de: purged 2 (authz-decision 1, run-outcome 1)
+22:19:29.073 INFO  [audit.retention] tenant 5c0a7e11-0000-4000-8000-00000000c0de: purged 1 (authz-decision 1)
 ```
 
 Any other value stops the runtime at start:
@@ -537,7 +537,7 @@ names the file:
 ```
 
 A pass still counts each kind under its own name:
-`purged 2 (run-outcome 1, guardrail-violation 1)`.
+`purged 2 (env-set 1, env-deleted 1)`.
 
 The kind an entry names must have a policy of its own. A name that names
 another name, or a kind the file doesn't list, stops the runtime at start
