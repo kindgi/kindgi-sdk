@@ -723,7 +723,7 @@ server_env = {
   so the plan refuses any path outside `/kindgi/`, which the runtime's image
   doesn't have: `/app`, `/etc` or `/cloudsql` would hide the runtime, the
   system's files or the database's socket. So on Cloud Run the classifier
-  isn't at the retention page's `/etc/kindgi/classifier.json`.
+  can't be at the retention page's `/etc/kindgi/classifier.json`.
 - **Pin a version number.** The plan refuses `latest` and aliases: a volume
   at `latest` follows each new version, even under a running server
   ([Google: secrets as volumes](https://docs.cloud.google.com/run/docs/configuring/services/secrets)). Pinned,

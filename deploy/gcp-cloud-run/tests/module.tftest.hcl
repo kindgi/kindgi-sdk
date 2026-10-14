@@ -439,6 +439,14 @@ run "a_server_file_outside_kindgi_is_refused" {
   expect_failures = [var.server_secret_files]
 }
 
+run "a_server_file_beside_kindgi_is_refused" {
+  command = plan
+  variables {
+    server_secret_files = { "/kindgi-data/classifier.json" = { secret = "kindgi-dev-compliance-classifier", version = "1" } }
+  }
+  expect_failures = [var.server_secret_files]
+}
+
 run "a_server_file_in_the_apps_directory_is_refused" {
   command = plan
   variables {
