@@ -16,7 +16,7 @@ import type { AppEnv } from '../types.js';
 import { refused } from './denied.js';
 import { clampLimit } from './pagination.js';
 
-/** The default upload cap: 100 MB. */
+/** The default upload cap: 100 MiB. */
 export const DEFAULT_ARTIFACT_MAX_BYTES = 100 * 1024 * 1024;
 
 export interface ArtifactsRouterDeps {
@@ -29,7 +29,7 @@ export interface ArtifactsRouterDeps {
 }
 
 /**
- * An upload's size limit: more than `maxBytes` (default 100 MB) is
+ * An upload's size limit: more than `maxBytes` (default 100 MiB) is
  * `413 artifact-too-large`. The app checks it before the body is read
  * (`readBodyOnce`), once the caller is known.
  */
