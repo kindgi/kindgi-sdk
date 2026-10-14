@@ -416,3 +416,98 @@ run "the_refused_names_cover_every_option_kms_signing" {
     error_message = "A name the module sets on the server is missing from server_module_env."
   }
 }
+
+run "backups_keep_cloud_sqls_defaults" {
+  command = plan
+
+  assert {
+    condition     = length(google_sql_database_instance.kindgi.settings[0].backup_configuration[0].backup_retention_settings) == 0
+    error_message = "Without database_backup_retention, the module sets no retention: Cloud SQL's default (7) stays."
+  }
+}
+
+run "backups_kept_where_and_as_long_as_asked" {
+  command = plan
+
+  variables {
+    database_backup_retention   = 30
+    database_backup_location    = "us"
+    database_point_in_time_days = 7
+  }
+
+  assert {
+    condition     = google_sql_database_instance.kindgi.settings[0].backup_configuration[0].backup_retention_settings[0].retained_backups == 30
+    error_message = "database_backup_retention reaches the instance's retained backups."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi.settings[0].backup_configuration[0].backup_retention_settings[0].retention_unit == "COUNT"
+    error_message = "Retention counts backups."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi.settings[0].backup_configuration[0].location == "us"
+    error_message = "database_backup_location reaches the backups' location."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi.settings[0].backup_configuration[0].transaction_log_retention_days == 7
+    error_message = "database_point_in_time_days reaches the transaction logs' retention."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi.settings[0].backup_configuration[0].enabled && google_sql_database_instance.kindgi.settings[0].backup_configuration[0].point_in_time_recovery_enabled
+    error_message = "Backups and point-in-time recovery stay on."
+  }
+}
+
+run "backup_retention_refuses_none_or_a_fraction" {
+  command = plan
+
+  variables {
+    database_backup_retention = 0
+  }
+
+  expect_failures = [var.database_backup_retention]
+}
+
+run "backup_location_refuses_a_bucket_like_name" {
+  command = plan
+
+  variables {
+    database_backup_location = "gs://acme-backups"
+  }
+
+  expect_failures = [var.database_backup_location]
+}
+
+run "point_in_time_days_refuses_more_than_35" {
+  command = plan
+
+  variables {
+    database_point_in_time_days = 36
+  }
+
+  expect_failures = [var.database_point_in_time_days]
+}
+
+run "point_in_time_days_over_7_need_enterprise_plus" {
+  command = plan
+
+  variables {
+    database_point_in_time_days = 14
+  }
+
+  expect_failures = [google_sql_database_instance.kindgi]
+}
+
+run "point_in_time_days_up_to_35_on_enterprise_plus" {
+  command = plan
+
+  variables {
+    database_edition            = "ENTERPRISE_PLUS"
+    database_tier               = "db-perf-optimized-N-2"
+    database_point_in_time_days = 14
+  }
+
+  assert {
+    condition     = google_sql_database_instance.kindgi.settings[0].backup_configuration[0].transaction_log_retention_days == 14
+    error_message = "ENTERPRISE_PLUS keeps more than 7 days of transaction logs."
+  }
+}

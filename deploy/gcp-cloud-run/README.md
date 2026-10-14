@@ -242,7 +242,7 @@ Pin each secret to a version, as above, rather than `latest`: a new version then
 
 ## Testing the module
 
-`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, and the server's own settings (sign-in).
+`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, the server's own settings (sign-in), and the database's backup settings.
 
 ## Upgrading
 
@@ -252,6 +252,9 @@ Pin each secret to a version, as above, rather than `latest`: a new version then
 ## Operating it
 
 - **Client addresses:** the server trusts one proxy, Cloud Run's front end, which appends the caller to `X-Forwarded-For` (`trusted_proxies = "1"`, `KINDGI_TRUSTED_PROXIES`), so rate limits and audit records see the caller. With an external Application Load Balancer in front, set `"2"`: it appends the client and then its own address ([Google: the X-Forwarded-For header](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
+- **Backups:** Cloud SQL backs the database up daily, with point-in-time recovery. By default it keeps 7 backups and 7 days of transaction logs on `ENTERPRISE` (the module's edition), 15 backups and 14 days on `ENTERPRISE_PLUS`, in the multi-region nearest the instance ([Google: Cloud SQL backup options](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/backup-options)).
+  - **Changing them:** `database_backup_retention`, `database_point_in_time_days` (at most 7 days on `ENTERPRISE`, checked at plan) and `database_backup_location` (for example 30 backups, in `us`).
+  - **What a restore reaches:** any second within the logs' days, or one of the kept daily backups.
 - **One server instance** (`server_max_instances = 1`) until several replicas are verified. Migrations run at boot and need a direct database connection (the socket or a private IP, not a transaction pooler).
 - **Rotating a secret:** add a version, then roll a new revision of each service that reads it (`gcloud run services update <service> --update-labels=rotated=$(date +%s)`).
 - **The AAD key is pinned, never rotated this way.** The server reads the version `secrets_aad_key_version` names, not `latest`. Every secret stored in Postgres is bound to it: a new version is a key change that needs every stored secret re-encrypted, and a version added by mistake must not reach the server.

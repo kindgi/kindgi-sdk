@@ -616,6 +616,14 @@ A new grant can take a minute or two to apply.
   version your server reads, normally `1`
   (`gcloud secrets versions list $N-secrets-aad-key` lists them). Without
   it, `terraform plan` stops and asks for it.
+- **Backups:** Cloud SQL backs the database up daily, with point-in-time
+  recovery. On the module's edition (`ENTERPRISE`) it keeps 7 backups and
+  7 days of transaction logs by default, in the multi-region nearest the
+  instance ([Google: Cloud SQL backup options](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/backup-options)).
+  To keep more, or choose where they're stored, set
+  `database_backup_retention`, `database_point_in_time_days` (at most 7 on
+  `ENTERPRISE`) and `database_backup_location`. A restore reaches any
+  second within the logs' days, or one of the kept backups.
 - **Rotate a secret:** add a version, then roll a new revision of each service
   that reads it (`gcloud run services update … --update-labels=rotated=$(date +%s)`).
 - **The AAD key is never rotated.** Every stored secret is bound to the
