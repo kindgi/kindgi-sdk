@@ -2457,7 +2457,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemDeployments.recordProblem',
     summary: 'Record why a deployment has no pack service yet',
     description:
-      "For whatever creates the pack services: records why a `pending` deployment has none yet, as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.",
+      "For whatever creates the pack services: records why a deployment waiting for one has none yet (`pending`, or `cleared` and listed as needing a pack service again after a suspension is lifted), as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.",
     tags: ['system-deployments'],
     security: 'bearer',
     parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam, IdempotencyKeyParam],
@@ -2476,7 +2476,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
       ),
       '409': ErrorResponse(
-        "The deployment's endpoint isn't `pending` (`endpoint-not-pending`, with `details.status`).",
+        "The deployment's endpoint isn't waiting for a pack service: `ready`, or `cleared` and not listed as needing one (`endpoint-not-pending`, with `details.status`).",
       ),
       '503': ErrorResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",

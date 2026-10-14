@@ -2279,12 +2279,16 @@ async function rollback(actions: readonly RollbackAction[]): Promise<void> {
   }
 }
 
-/** Named fields only: an endpoint's URL and token never reach a tenant. */
+/**
+ * Named fields only: an endpoint's URL and token never reach a tenant. The
+ * problem shows while there's no pack service (pending, or cleared); a ready
+ * one has none.
+ */
 function serializeEndpoint(e: DeploymentEndpoint): Record<string, unknown> {
   return {
     status: e.status,
     since: e.since,
-    ...(e.status === 'pending' &&
+    ...(e.status !== 'ready' &&
       e.problem !== undefined && { problem: { code: e.problem.code, since: e.problem.since } }),
   };
 }

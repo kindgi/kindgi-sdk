@@ -102,8 +102,10 @@ export interface DeploymentBinding {
 export type DeploymentEndpointStatus = 'pending' | 'ready' | 'cleared';
 
 /**
- * Why a `pending` deployment has no pack service yet. A fixed code, never
- * free text, so nothing about the operator's setup reaches the tenant.
+ * Why a deployment waiting for its pack service has none yet: a `pending`
+ * one, or a `cleared` one that lists as needing a pack service again (after
+ * a suspension is lifted). A fixed code, never free text, so nothing about
+ * the operator's setup reaches the tenant.
  *
  * The server refused the endpoint it was given:
  * - `endpoint-url-invalid`: not `https`, or with user info or a path;
@@ -133,7 +135,7 @@ export const DEPLOYMENT_ENDPOINT_PROBLEM_CODES = [
 
 export type DeploymentEndpointProblemCode = (typeof DEPLOYMENT_ENDPOINT_PROBLEM_CODES)[number];
 
-/** Why a `pending` deployment has no pack service yet, and since when. */
+/** Why a deployment waiting for its pack service has none yet, and since when. */
 export interface DeploymentEndpointProblem {
   readonly code: DeploymentEndpointProblemCode;
   /** When it was recorded. ISO-8601. */
@@ -146,8 +148,9 @@ export interface DeploymentEndpoint {
   /** When the status last changed. ISO-8601. */
   readonly since: string;
   /**
-   * With `pending` only: the last reason it has no pack service yet. Gone
-   * once the status changes.
+   * While it waits for a pack service (`pending`, or `cleared` after a
+   * suspension is lifted): the last reason it has none yet. Gone once the
+   * status changes; a `ready` one has none.
    */
   readonly problem?: DeploymentEndpointProblem;
 }

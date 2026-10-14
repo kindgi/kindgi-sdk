@@ -17251,7 +17251,7 @@
           "code",
           "since"
         ],
-        "description": "With `pending` only: the last reason the deployment has no pack service yet, gone once the status changes. A fixed code, never free text.",
+        "description": "While the deployment waits for a pack service (`pending`, or `cleared` after a suspension is lifted): the last reason it has none yet, gone once the status changes. A fixed code, never free text.",
         "properties": {
           "code": {
             "type": "string",
@@ -17271,7 +17271,7 @@
           "status",
           "since"
         ],
-        "description": "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`). Carries no URL and no token.",
+        "description": "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); after a suspension is lifted, `problem` says why it isn't back yet. Carries no URL and no token.",
         "properties": {
           "status": {
             "type": "string",
@@ -25765,7 +25765,7 @@
             }
           },
           "409": {
-            "description": "The deployment's endpoint isn't `pending` (`endpoint-not-pending`, with `details.status`).",
+            "description": "The deployment's endpoint isn't waiting for a pack service: `ready`, or `cleared` and not listed as needing one (`endpoint-not-pending`, with `details.status`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -25805,7 +25805,7 @@
             }
           }
         },
-        "description": "For whatever creates the pack services: records why a `pending` deployment has none yet, as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.",
+        "description": "For whatever creates the pack services: records why a deployment waiting for one has none yet (`pending`, or `cleared` and listed as needing a pack service again after a suspension is lifted), as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.",
         "parameters": [
           {
             "name": "tenantId",

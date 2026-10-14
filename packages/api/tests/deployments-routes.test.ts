@@ -2379,7 +2379,23 @@ describe('GET /v1/deployments — the endpoint, under per-deployment routing', (
     expect(page.data[0]?.endpoint).toEqual(expected);
   });
 
-  test('a problem goes with pending only: a ready deployment shows none', async () => {
+  test('a cleared deployment carries its problem too: its pack service is wanted again after a suspension', async () => {
+    const { app, deploymentId } = await seeded({
+      status: 'cleared',
+      since: '2026-10-11T12:00:00.000Z',
+      problem: { code: 'service-start-failed', since: '2026-10-11T12:03:00.000Z' },
+    });
+    const one = await app.request(`/v1/deployments/${deploymentId}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(((await one.json()) as Record<string, unknown>).endpoint).toEqual({
+      status: 'cleared',
+      since: '2026-10-11T12:00:00.000Z',
+      problem: { code: 'service-start-failed', since: '2026-10-11T12:03:00.000Z' },
+    });
+  });
+
+  test('a ready deployment shows no problem, whatever the binding holds', async () => {
     const { app, deploymentId } = await seeded({
       status: 'ready',
       since: '2026-10-11T12:05:00.000Z',

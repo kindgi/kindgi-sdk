@@ -8826,7 +8826,7 @@ class DeploymentContents(BaseModel):
 
 class DeploymentEndpointProblem(BaseModel):
     """
-    With `pending` only: the last reason the deployment has no pack service yet, gone once the status changes. A fixed code, never free text.
+    While the deployment waits for a pack service (`pending`, or `cleared` after a suspension is lifted): the last reason it has none yet, gone once the status changes. A fixed code, never free text.
     """
 
     model_config = ConfigDict(
@@ -8845,7 +8845,7 @@ class DeploymentEndpointProblem(BaseModel):
 
 class DeploymentEndpoint(BaseModel):
     """
-    Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`). Carries no URL and no token.
+    Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); after a suspension is lifted, `problem` says why it isn't back yet. Carries no URL and no token.
     """
 
     model_config = ConfigDict(

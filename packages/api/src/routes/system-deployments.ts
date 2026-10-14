@@ -161,7 +161,11 @@ export interface SystemDeploymentsBinding {
   ): Promise<
     { readonly kind: 'ok'; readonly endpoint: DeploymentEndpoint } | { readonly kind: 'not-found' }
   >;
-  /** Records why a pending deployment has no pack service yet. */
+  /**
+   * Records why a deployment waiting for its pack service has none yet: a
+   * pending one, or a cleared one that lists as needing a pack service
+   * again. Any other is `not-pending`.
+   */
   recordProblem(
     input: DeploymentRef & { readonly code: DeploymentEndpointProblemCode },
   ): Promise<
@@ -359,7 +363,7 @@ export function systemDeploymentsRouter(
             case 'not-pending':
               return fail(c, {
                 code: 'endpoint-not-pending',
-                message: `Deployment ${ref.value.deploymentId}'s endpoint is ${recorded.endpoint.status}: a problem goes with pending only.`,
+                message: `Deployment ${ref.value.deploymentId}'s endpoint is ${recorded.endpoint.status} and not waiting for a pack service: a problem goes with a pending one, or a cleared one that lists as needing a pack service again.`,
                 status: recorded.endpoint.status,
               });
           }
@@ -460,12 +464,15 @@ function entryToWire(entry: SystemDeploymentEntry) {
   };
 }
 
-/** Named fields only: never the URL, the auth or the token. */
+/**
+ * Named fields only: never the URL, the auth or the token. The problem shows
+ * while there's no pack service (pending, or cleared); a ready one has none.
+ */
 function endpointToWire(endpoint: DeploymentEndpoint) {
   return {
     status: endpoint.status,
     since: endpoint.since,
-    ...(endpoint.status === 'pending' &&
+    ...(endpoint.status !== 'ready' &&
       endpoint.problem !== undefined && {
         problem: { code: endpoint.problem.code, since: endpoint.problem.since },
       }),
