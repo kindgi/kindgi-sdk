@@ -109,10 +109,11 @@ export interface SecretBinding {
 
   /**
    * The env names this store holds a secret under, at any scope of the
-   * tenant: the `envName` of each secret `list` returns with
-   * `includeRevoked`. Each name once, in byte order, after `input.after`,
-   * at most `input.limit`. `GET /v1/environments` reads it; with a store
-   * that leaves it unset, that route answers `501 environments-unsupported`.
+   * tenant: the `envName` of each secret `list` returns (a revoked one
+   * isn't, as `GET /v1/secrets` doesn't show it). Each name once, in byte
+   * order, after `input.after`, at most `input.limit`. `GET /v1/environments`
+   * reads it; with a store that leaves it unset, that route answers
+   * `501 environments-unsupported`.
    */
   listEnvNames?(input: EnvNamesInput): Promise<readonly EnvName[]>;
 }
