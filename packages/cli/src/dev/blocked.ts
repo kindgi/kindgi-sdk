@@ -69,11 +69,11 @@ export function dockerUnreachable(outcome: DockerOutcome, command: string): stri
     case 'not-installed':
       return `Docker isn't installed, or \`docker\` isn't on your PATH (${detail(outcome)}).\n  kindgi dev runs the Kindgi runtime in Docker: install Docker Desktop (or a Docker engine on Linux), then run this again.`;
     case 'not-started':
-      return `This process couldn't start \`docker\` (${detail(outcome)}).\n  ${ownTerminalFix(command)} Otherwise, check that the \`docker\` on your PATH can run.`;
+      return `\`${command}\` couldn't start \`docker\` (${detail(outcome)}).\n  ${ownTerminalFix(command)} Otherwise, check that the \`docker\` on your PATH can run.`;
     case 'socket-denied':
-      return `Docker's socket refused this process: ${detail(outcome)}\n  ${ownTerminalFix(command)} Otherwise, your user needs access to Docker (on Linux, the \`docker\` group, or rootless Docker).`;
+      return `Docker's socket refused \`${command}\`: ${detail(outcome)}\n  ${ownTerminalFix(command)} Otherwise, your user needs access to Docker (on Linux, the \`docker\` group, or rootless Docker).`;
     case 'not-running':
-      return `Docker isn't running, or this process can't reach it: ${detail(outcome)}\n  Start Docker Desktop (or the Docker engine), then run this again. If it's running, a coding agent's sandbox may be what keeps it out of reach: run \`${command}\` in your own terminal instead.`;
+      return `Docker isn't running, or \`${command}\` can't reach it: ${detail(outcome)}\n  Start Docker Desktop (or the Docker engine), then run this again. If it's running, a coding agent's sandbox may be what keeps it out of reach: run \`${command}\` in your own terminal instead.`;
     case 'failed':
       return undefined;
   }
@@ -115,13 +115,13 @@ export function listenRefusal(err: unknown, port: number): string | undefined {
 /** What `kindgi dev` says when it can't listen on `127.0.0.1` at all (`port` 0: any port). */
 export function localPortsRefused(port: number, code: string): string {
   const which = port === 0 ? code : `port ${port}: ${code}`;
-  return `kindgi dev can't listen on 127.0.0.1 here (${which}): something around this process keeps it off local ports.\n  ${ownTerminalFix('kindgi dev')}\n`;
+  return `kindgi dev isn't allowed to listen on 127.0.0.1 (${which}), so no local port would work.\n  ${ownTerminalFix('kindgi dev')}\n`;
 }
 
 /** What `kindgi dev` says when it can't write a file or folder it needs. */
 export function writeRefused(err: unknown, code: string): string {
   const path = (err as NodeJS.ErrnoException).path;
-  return `kindgi dev can't write ${path ?? 'the pack folder'} here (${code}): something around this process keeps it read-only.\n  ${ownTerminalFix('kindgi dev')}\n`;
+  return `kindgi dev isn't allowed to write ${path ?? 'the pack folder'} (${code}).\n  ${ownTerminalFix('kindgi dev')} Otherwise, check that your user can write there.\n`;
 }
 
 /** The system calls that write: a refusal of one is a read-only place. */

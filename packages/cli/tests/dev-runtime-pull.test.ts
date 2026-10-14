@@ -153,7 +153,7 @@ describe.skipIf(process.platform === 'win32')(
       expect(result).toEqual({
         kind: 'error',
         message:
-          "Docker isn't running, or this process can't reach it: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?\n  Start Docker Desktop (or the Docker engine), then run this again. If it's running, a coding agent's sandbox may be what keeps it out of reach: run `kindgi dev` in your own terminal instead.",
+          "Docker isn't running, or `kindgi dev` can't reach it: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?\n  Start Docker Desktop (or the Docker engine), then run this again. If it's running, a coding agent's sandbox may be what keeps it out of reach: run `kindgi dev` in your own terminal instead.",
       });
     });
 
@@ -164,7 +164,7 @@ describe.skipIf(process.platform === 'win32')(
       expect(result).toEqual({
         kind: 'error',
         message: expect.stringMatching(
-          /^Docker's socket refused this process: permission denied while trying to connect to the Docker daemon socket .*\n {2}If a coding agent runs this, its sandbox is likely what stops it: run `kindgi dev` in your own terminal instead\. Otherwise, your user needs access to Docker \(on Linux, the `docker` group, or rootless Docker\)\.$/,
+          /^Docker's socket refused `kindgi dev`: permission denied while trying to connect to the Docker daemon socket .*\n {2}If a coding agent runs this, its sandbox is likely what stops it: run `kindgi dev` in your own terminal instead\. Otherwise, your user needs access to Docker \(on Linux, the `docker` group, or rootless Docker\)\.$/,
         ),
       });
     });
@@ -178,7 +178,7 @@ describe.skipIf(process.platform === 'win32')(
       expect(result).toEqual({
         kind: 'error',
         message:
-          "This process couldn't start `docker` (spawn docker EACCES).\n  If a coding agent runs this, its sandbox is likely what stops it: run `kindgi dev` in your own terminal instead. Otherwise, check that the `docker` on your PATH can run.",
+          "`kindgi dev` couldn't start `docker` (spawn docker EACCES).\n  If a coding agent runs this, its sandbox is likely what stops it: run `kindgi dev` in your own terminal instead. Otherwise, check that the `docker` on your PATH can run.",
       });
     });
   },

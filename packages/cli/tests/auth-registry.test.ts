@@ -590,7 +590,7 @@ describe('without Docker', () => {
     const out = await runRegistry(['--check'], { docker: fake.run });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain(
-      "Docker isn't running, or this process can't reach it: Cannot connect to the Docker daemon",
+      "Docker isn't running, or `kindgi auth registry` can't reach it: Cannot connect to the Docker daemon",
     );
     expect(out.stderr).toContain('run `kindgi auth registry` in your own terminal instead.');
     expect(fake.commands()).toEqual(['version --format {{.Server.Version}}']);

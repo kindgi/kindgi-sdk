@@ -363,7 +363,7 @@ describe('startServicesReal: docker compose, else plain docker', () => {
       {
         kind: 'unavailable',
         reason:
-          "Docker isn't running, or this process can't reach it: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?\n  Start Docker Desktop (or the Docker engine), then run this again. If it's running, a coding agent's sandbox may be what keeps it out of reach: run `kindgi dev` in your own terminal instead.",
+          "Docker isn't running, or `kindgi dev` can't reach it: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?\n  Start Docker Desktop (or the Docker engine), then run this again. If it's running, a coding agent's sandbox may be what keeps it out of reach: run `kindgi dev` in your own terminal instead.",
         reach: 'not-running',
       },
     );

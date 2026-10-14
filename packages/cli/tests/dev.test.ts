@@ -3043,7 +3043,7 @@ describe('kindgi dev — something around it refuses what it needs (a sandbox)',
     const out = await dev({ ...fixtures, runners });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toBe(
-      `kindgi dev can't listen on 127.0.0.1 here (port ${asked[0]}: EPERM): something around this process keeps it off local ports.\n  ${OWN_TERMINAL}\n`,
+      `kindgi dev isn't allowed to listen on 127.0.0.1 (port ${asked[0]}: EPERM), so no local port would work.\n  ${OWN_TERMINAL}\n`,
     );
     // The first refusal ends it: no walk through the other ports.
     expect(asked).toHaveLength(1);
@@ -3058,9 +3058,11 @@ describe('kindgi dev — something around it refuses what it needs (a sandbox)',
         const out = await dev(makeFixtures());
         expect(out.exitCode).toBe(1);
         expect(out.stderr).toMatch(
-          /^kindgi dev can't write \S*\/sample-pack\/\.kindgi\S* here \(EACCES\): something around this process keeps it read-only\.\n/,
+          /^kindgi dev isn't allowed to write \S*\/sample-pack\/\.kindgi\S* \(EACCES\)\.\n/,
         );
-        expect(out.stderr).toContain(OWN_TERMINAL);
+        expect(out.stderr).toContain(
+          `${OWN_TERMINAL} Otherwise, check that your user can write there.\n`,
+        );
       } finally {
         await chmod(packDir, 0o755);
       }
@@ -3089,7 +3091,7 @@ describe('kindgi dev — something around it refuses what it needs (a sandbox)',
     const out = await dev({ ...fixtures, runners });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toBe(
-      `kindgi dev can't listen on 127.0.0.1 here (EPERM): something around this process keeps it off local ports.\n  ${OWN_TERMINAL}\n`,
+      `kindgi dev isn't allowed to listen on 127.0.0.1 (EPERM), so no local port would work.\n  ${OWN_TERMINAL}\n`,
     );
     expect(closed).toBe(1);
   });
@@ -3106,13 +3108,13 @@ describe('kindgi dev — something around it refuses what it needs (a sandbox)',
     const out = await dev({ ...fixtures, runners });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toBe(
-      `kindgi dev can't write ${file} here (EROFS): something around this process keeps it read-only.\n  ${OWN_TERMINAL}\n`,
+      `kindgi dev isn't allowed to write ${file} (EROFS).\n  ${OWN_TERMINAL} Otherwise, check that your user can write there.\n`,
     );
   });
 
   test('Docker out of reach at the Postgres step: its own fix, not "install Docker"', async () => {
     const fixtures = makeFixtures();
-    const reason = `Docker's socket refused this process: dial unix /var/run/docker.sock: connect: operation not permitted\n  ${OWN_TERMINAL} Otherwise, your user needs access to Docker (on Linux, the \`docker\` group, or rootless Docker).`;
+    const reason = `Docker's socket refused \`kindgi dev\`: dial unix /var/run/docker.sock: connect: operation not permitted\n  ${OWN_TERMINAL} Otherwise, your user needs access to Docker (on Linux, the \`docker\` group, or rootless Docker).`;
     const runners: DevRunners = {
       ...fixtures.runners,
       startServices: async () => ({ kind: 'unavailable', reason, reach: 'socket-denied' }),
@@ -3120,7 +3122,7 @@ describe('kindgi dev — something around it refuses what it needs (a sandbox)',
     const out = await dev({ ...fixtures, runners }, {});
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toBe(
-      `kindgi dev needs Docker, for its Postgres and the Kindgi runtime. ${reason}\n`,
+      `kindgi dev needs Docker for its Postgres and the Kindgi runtime. ${reason}\n`,
     );
   });
 });

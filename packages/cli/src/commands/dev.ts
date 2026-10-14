@@ -362,7 +362,7 @@ const OUT_OF_REACH: ReadonlySet<DockerReach> = new Set([
 
 function renderMissingDbHint(reason: string, reach?: DockerReach): string {
   if (reach !== undefined && OUT_OF_REACH.has(reach)) {
-    return `kindgi dev needs Docker, for its Postgres and the Kindgi runtime. ${reason}\n`;
+    return `kindgi dev needs Docker for its Postgres and the Kindgi runtime. ${reason}\n`;
   }
   return `kindgi dev needs Postgres, and couldn't start the bundled one: ${reason}\n\nOptions:\n  1. Install Docker (Docker Desktop, or Docker Engine on Linux) and make sure it runs: kindgi dev then starts the bundled Postgres itself, with \`docker compose\` when it's there and plain \`docker\` otherwise.\n  2. Use your own Postgres (16, with pgvector): pass --database-url=<url>, or set KINDGI_DATABASE_URL.\n`;
 }

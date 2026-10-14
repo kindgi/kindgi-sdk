@@ -88,14 +88,15 @@ describe('dockerReach', () => {
 describe('dockerUnreachable', () => {
   test('a docker that would not start names the system refusal, then the fix', () => {
     expect(dockerUnreachable(unspawned('spawn docker EPERM', 'EPERM'), 'kindgi dev')).toBe(
-      `This process couldn't start \`docker\` (spawn docker EPERM).\n  ${OWN_TERMINAL} Otherwise, check that the \`docker\` on your PATH can run.`,
+      `\`kindgi dev\` couldn't start \`docker\` (spawn docker EPERM).\n  ${OWN_TERMINAL} Otherwise, check that the \`docker\` on your PATH can run.`,
     );
   });
 
-  test('the fix names the command being run', () => {
-    expect(
-      dockerUnreachable(failed('connect: permission denied'), 'kindgi doctor')?.split('\n')[1],
-    ).toBe(
+  test('the message and its fix name the command being run', () => {
+    const [said, fix] =
+      dockerUnreachable(failed('connect: permission denied'), 'kindgi doctor')?.split('\n') ?? [];
+    expect(said).toBe("Docker's socket refused `kindgi doctor`: connect: permission denied");
+    expect(fix).toBe(
       '  If a coding agent runs this, its sandbox is likely what stops it: run `kindgi doctor` in your own terminal instead. Otherwise, your user needs access to Docker (on Linux, the `docker` group, or rootless Docker).',
     );
   });
@@ -134,23 +135,23 @@ describe('the system refusing a port or a write', () => {
 
   test('a listen refused: the port, the code, the fix', () => {
     expect(refusedHere(sysError('EPERM', 'listen', { port: 4000 }))).toBe(
-      `kindgi dev can't listen on 127.0.0.1 here (port 4000: EPERM): something around this process keeps it off local ports.\n  ${OWN_TERMINAL}\n`,
+      `kindgi dev isn't allowed to listen on 127.0.0.1 (port 4000: EPERM), so no local port would work.\n  ${OWN_TERMINAL}\n`,
     );
     // Any port (0): the code alone.
     expect(localPortsRefused(0, 'EPERM')).toMatch(
-      /^kindgi dev can't listen on 127\.0\.0\.1 here \(EPERM\)/,
+      /^kindgi dev isn't allowed to listen on 127\.0\.0\.1 \(EPERM\), so no local port would work\./,
     );
     expect(refusedHere(sysError('EADDRINUSE', 'listen', { port: 4000 }))).toBe(undefined);
   });
 
   test('a write refused: the path, the code, the fix', () => {
     expect(refusedHere(sysError('EROFS', 'mkdir', { path: '/work/acme-pack/.kindgi/dev' }))).toBe(
-      `kindgi dev can't write /work/acme-pack/.kindgi/dev here (EROFS): something around this process keeps it read-only.\n  ${OWN_TERMINAL}\n`,
+      `kindgi dev isn't allowed to write /work/acme-pack/.kindgi/dev (EROFS).\n  ${OWN_TERMINAL} Otherwise, check that your user can write there.\n`,
     );
     expect(
       refusedHere(sysError('EACCES', 'open', { path: '/work/acme-pack/.kindgi/dev/runtime.env' })),
     ).toMatch(
-      /^kindgi dev can't write \/work\/acme-pack\/\.kindgi\/dev\/runtime\.env here \(EACCES\)/,
+      /^kindgi dev isn't allowed to write \/work\/acme-pack\/\.kindgi\/dev\/runtime\.env \(EACCES\)\./,
     );
   });
 

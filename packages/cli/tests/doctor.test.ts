@@ -301,7 +301,7 @@ describe('the machine', () => {
   test('Docker not running: the fix says to start it; the human report shows ✗ and Fix', async () => {
     const json = await doctor({ seam: seam({ docker: dockerThat('stopped') }) });
     expect(json.check('docker')?.message).toContain(
-      "Docker isn't running, or this process can't reach it",
+      "Docker isn't running, or `kindgi doctor` can't reach it",
     );
     expect(json.check('docker')?.fix).toBe(
       "Start Docker Desktop (or the Docker engine), then run this again. If it's running, a coding agent's sandbox may be what keeps it out of reach: run `kindgi doctor` in your own terminal instead.",
@@ -314,10 +314,10 @@ describe('the machine', () => {
   });
 
   test.each([
-    ['not-started', "This process couldn't start `docker` (spawn docker EPERM)."],
+    ['not-started', "`kindgi doctor` couldn't start `docker` (spawn docker EPERM)."],
     [
       'denied',
-      "Docker's socket refused this process: permission denied while trying to connect to the Docker daemon socket",
+      "Docker's socket refused `kindgi doctor`: permission denied while trying to connect to the Docker daemon socket",
     ],
   ] as const)("Docker %s: the fix is the person's own terminal", async (state, message) => {
     const { check } = await doctor({ seam: seam({ docker: dockerThat(state) }) });
