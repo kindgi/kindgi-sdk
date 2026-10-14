@@ -53,6 +53,9 @@ class RunTrace(_Wire):
     """The project's org, when it belongs to one: resolved by the runtime, never from input."""
     agent_id: str | None = None
     flow_id: str | None = None
+    """The flow whose step started the run, which a guardrail scoped to flows applies by. An
+    agent turn's trace names it only when one of the turn's guardrails is scoped to flows, and
+    never for a turn outside any flow."""
     output: str | None = None
     """Final assistant output text, when the run produced text."""
     tool_calls: list[ToolCallRecord] = Field(default_factory=list[ToolCallRecord])
