@@ -120,7 +120,11 @@ export interface ApprovalsRouterOptions {
  * (`TokenResolution.reviewerRole`), or its user's in the reviewer roster
  * (`ReviewerBinding.resolveReviewerRole`). A caller with neither gets
  * `403 permission-denied` on every approvals route — this surface is
- * reviewer-only.
+ * reviewer-only — with one exception: with an authorizer, a person who
+ * is the tenant's admin reads (the list and one approval) as an `admin`
+ * reviewer, whatever the roster says. It's the set that may register
+ * itself as one (`reviewersRouter`). Deciding stays the roster's, and an
+ * API key with no user reads nothing it couldn't before.
  *
  * Visibility filter: a caller with role `R` sees approvals whose
  * `requiredRole` rank ≤ their rank (standard < senior < admin). The
@@ -164,9 +168,23 @@ export function approvalsRouter(
 
   // ---------- role gate for the whole resource ----------
   // A reviewer: a token that carries a role, or whose user the roster
-  // names (a session or API key of a registered reviewer).
+  // names (a session or API key of a registered reviewer). A read (the
+  // only GETs here are the list and one approval) by a person who is the
+  // tenant's admin goes on as an `admin` reviewer: the tier checks then
+  // pass, and the project filter still applies. The authorizer records
+  // that check, as it records every one; the roster shows no entry.
   r.use('*', async (c, next) => {
-    const role = await callerReviewerRole(c, reviewerBinding);
+    let role = await callerReviewerRole(c, reviewerBinding);
+    if (
+      role !== 'admin' &&
+      c.req.method === 'GET' &&
+      authorizer !== undefined &&
+      c.get('userId') !== undefined &&
+      (await authorizer.can(c, 'admin', ref('tenant', c.get('tenantId') as unknown as string)))
+    ) {
+      role = 'admin';
+      c.set('reviewerRole', role);
+    }
     if (role === undefined) {
       return refused(c, authorizer, {
         action: c.req.method === 'GET' ? 'read' : 'admin',

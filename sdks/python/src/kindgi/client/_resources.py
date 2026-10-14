@@ -2275,7 +2275,7 @@ class ApprovalsResource:
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
 
-        Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.
+        Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). With authorization on, a person who is the tenant's admin reads too, as an `admin` reviewer, with no roster entry: the roster then doesn't show everyone who reads approvals, but the access audit records each such read's tenant-admin check (`authz-decision`). An API key with no user doesn't. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). With authorization on, only approvals whose project the caller may read. `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return self._client._request(
             _OPERATIONS["approvals.list"],
@@ -2302,7 +2302,7 @@ class ApprovalsResource:
     def get(self, approval_id: str | UUID, /, *, timeout: float | None = None) -> _models.Approval:
         """Fetch a single approval. `GET /v1/approvals/{approvalId}`
 
-        Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4). A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).
+        Requires a reviewer, or (with authorization on) a person who is the tenant's admin, as the list does. Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4), or that are in a project the caller may not read. A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).
         """
         return self._client._request(
             _OPERATIONS["approvals.get"],
@@ -10032,7 +10032,7 @@ class AsyncApprovalsResource:
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
 
-        Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.
+        Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). With authorization on, a person who is the tenant's admin reads too, as an `admin` reviewer, with no roster entry: the roster then doesn't show everyone who reads approvals, but the access audit records each such read's tenant-admin check (`authz-decision`). An API key with no user doesn't. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). With authorization on, only approvals whose project the caller may read. `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return await self._client._request(
             _OPERATIONS["approvals.list"],
@@ -10061,7 +10061,7 @@ class AsyncApprovalsResource:
     ) -> _models.Approval:
         """Fetch a single approval. `GET /v1/approvals/{approvalId}`
 
-        Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4). A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).
+        Requires a reviewer, or (with authorization on) a person who is the tenant's admin, as the list does. Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4), or that are in a project the caller may not read. A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).
         """
         return await self._client._request(
             _OPERATIONS["approvals.get"],
