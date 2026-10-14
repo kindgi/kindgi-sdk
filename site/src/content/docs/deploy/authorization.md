@@ -30,8 +30,8 @@ Authorization is for several people and teams sharing one deployment:
   and why ([The access audit](#the-access-audit)).
 - **Registering an approval reviewer takes a tenant admin.** A tenant admin
   reads approvals at every tier without registering, through a session or an
-  unlimited `admin` key, in the projects they may read. Deciding takes the
-  roster.
+  `admin` key not limited to a project, in the projects they may read.
+  Deciding takes the roster.
 - **A team can have a role on a project** through the API
   ([Team grants](#team-grants)). The console doesn't offer it.
 
