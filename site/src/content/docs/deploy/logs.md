@@ -54,7 +54,7 @@ A subsystem no part of the runtime logs under only warns:
 `boot`, `http`, `authz`, `runs`, `kernel`, `leases`, `approvals`,
 `retention`, `audit`, `compliance`, `webhooks`, `mcp`, `providers`,
 `promotions`, `tools`, `guardrails`, `pack`, `ready`, `shutdown`,
-`schedules`, `references`, `secrets`, `aws-identity`, `judging`,
+`schedules`, `references`, `secrets`, `license`, `aws-identity`, `judging`,
 `migrations`, `openfga`, `sso`, `tenants` and `improvement-passes`, with
 these nested ones:
 `kernel.waitpoints`, `kernel.sweeper`, `webhooks.worker`, `authz.outbox`,
