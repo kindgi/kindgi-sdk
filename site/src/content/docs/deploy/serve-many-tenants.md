@@ -26,6 +26,18 @@ the runtime's address from `$KINDGI_URL`.
 - **The deployment's own token is the operator's.** `KINDGI_API_TOKEN` has
   the full system capability, `kindgi:system`. It acts in no tenant and
   reaches `/v1/system/*` only.
+- **A tenant's own identity provider is offered only on the domains you
+  list** in `KINDGI_AUTH_VERIFIED_DOMAINS`
+  ([Which domains find a workspace's identity provider](../sign-in/#which-domains-find-a-workspaces-identity-provider)).
+  A runtime serving one tenant routes that tenant's domains with nothing to
+  set. On a domain not listed, its people reach the provider only through
+  its own link, and GitHub and the emailed link aren't refused to them
+  ([Who gets in](../sign-in/#who-gets-in)).
+- **The emailed sign-in link needs a captcha.** Without the Turnstile keys
+  ([Sign-in links by email](../sign-in/#sign-in-links-by-email)), the start
+  stops: "The emailed sign-in link on a runtime that serves several tenants
+  needs a captcha: set KINDGI_AUTH_TURNSTILE_SECRET (or
+  KINDGI_AUTH_TURNSTILE_SECRET_PATH) and KINDGI_AUTH_TURNSTILE_SITE_KEY."
 - **Each tenant is created through `POST /v1/system/tenants`**, with its
   setup: its Default project and its authorization store.
 - **The start sets nothing up per tenant.** After an upgrade that adds a
@@ -336,10 +348,13 @@ keys and people, as the first of many.
 3. **Start it with many tenants:** `KINDGI_TENANCY=multi` and the
    [settings above](#the-settings-it-starts-only-with), with
    `KINDGI_TENANT_ID`, `KINDGI_SEED_USER_ID` and the rest that name one
-   tenant removed ([What changes](#what-changes)). `KINDGI_API_TOKEN` is now
-   the operator's and acts in no tenant, so whoever used it as the tenant's
-   admin needs another way in first. A tenant key minted before the switch,
-   and the tenant's sign-in, both keep working.
+   tenant removed ([What changes](#what-changes)). If the tenant has its own
+   identity provider, list its domains in `KINDGI_AUTH_VERIFIED_DOMAINS`. If
+   the emailed sign-in link is on, set the Turnstile keys: the start stops
+   without them. `KINDGI_API_TOKEN` is now the operator's and acts in no
+   tenant, so whoever used it as the tenant's admin needs another way in
+   first. A tenant key minted before the switch keeps working, and so does
+   the tenant's sign-in.
 4. **Run `kindgi-runtime tenants repair --all`** once.
 5. **Set the tenant's image repository:**
    `PUT /v1/system/tenants/{tenantId}/image-prefix` with `{"prefix": "<host>/<path>"}`.
