@@ -153,9 +153,9 @@ timetable, and what each one fired." Each row says:
 - its name, its timetable in words, such as "Every day at 2:00 AM UTC", and
   its cron on a line of its own;
 - whether it's active or paused;
-- what it runs, such as "the agent demo.echo-agent (its live version)" or
-  "the flow acme.refunds 1.0.0";
-- when it next fires, such as "Next in 14h (11 Oct 2026, 10:00 PM EDT)", or
+- what it runs, by name, such as "the agent Dev-Echo Agent (its live
+  version)" or "the flow Refunds 1.0.0";
+- when it next fires, such as "Next in 13h (14 Oct 2026, 10:00 PM EDT)", or
   that it's paused;
 - its last scheduled fire, and **Runs it started →**.
 
@@ -164,7 +164,7 @@ names one. Every other time is on your own clock, or on UTC if you choose
 it under **Times** in the console's person menu. The list has a search box
 and sorts by a column's header. **Columns** chooses which columns it shows.
 
-![The Schedules page: "2 schedules, 1 paused; the next fires in 14 h.", a search box and the Columns menu, the active nightly digest (the agent demo.echo-agent, 0 2 * * *, next in 14 h) with Pause, and the paused weekly report (the flow acme.refunds 1.0.0, 0 9 * * 1) with Resume, each with Run now and Unregister.](../../../../assets/schedules/schedules-list.png)
+![The Schedules page: a search box and Columns, the paused weekly report (Mondays at 9:00 AM UTC, 0 9 * * 1, the flow Refunds 1.0.0) and the active nightly digest (Every day at 2:00 AM UTC, 0 2 * * *, the agent Dev-Echo Agent at its live version, next in 13h), each with Runs it started → and its actions as icons.](../../../../assets/schedules/schedules-list.png)
 
 A schedule's page has:
 - **When:** its timetable in words, its cron, and its next five times in
@@ -180,7 +180,7 @@ A schedule's page has:
   **Columns** chooses which columns it shows. **Runs it started →** opens
   the runs list filtered to the schedule.
 
-![The nightly digest's page: Active, with Pause, Run now and Unregister, "Starts the agent demo.echo-agent (its live version). Next in 13 h (2026-10-12 02:00 UTC).", its next five times from 2026-10-12 02:00 UTC, "Runs as you, with your access.", and What it fired: "Of its 2 fires, 2 started a run.", with the Columns menu and two fires, each "Started a run (run now)" and linking its run.](../../../../assets/schedules/schedule-fires.png)
+![The nightly digest's page: Active, with Pause, Run now and Remove, "Starts the agent Dev-Echo Agent (its live version). Next in 13h (14 Oct 2026, 10:00 PM EDT).", When: Every day at 2:00 AM UTC and its next five times, each in UTC and on EDT, "Runs as you, with your access.", and What it fired: "Of its 2 fires, 2 started a run.", with two fires, each "Started a run (run now)" and its run.](../../../../assets/schedules/schedule-fires.png)
 
 Project editors and up have, on the list and on the page:
 - **Pause** and **Resume**;
@@ -189,6 +189,8 @@ Project editors and up have, on the list and on the page:
 - **Remove,** which asks first, "Remove this schedule?": "It stops firing.
   The runs it started stay, with their record of what started them." and
   "It can't be brought back: create it again to start over."
+
+On the list, each is an icon, named in its tooltip.
 
 On a schedule that runs as someone else, project admins also get **Take
 over**: "Its next runs start as you, with your access. Runs already started
@@ -199,14 +201,14 @@ keep theirs. If it's paused, it stays paused."
 After it, the page says "Runs as you, with your access.", and a paused
 schedule stays paused:
 
-![The weekly report's page after Take over: Paused, with Resume, Run now and Unregister, "Starts the flow acme.refunds 1.0.0. Paused.", "It doesn’t fire while paused.", "Runs as you, with your access.", and "It hasn’t fired yet. Its runs →".](../../../../assets/schedules/schedule-page.png)
+![The weekly report's page after Take over: Paused, with Resume, Run now and Remove, "Starts the flow Refunds 1.0.0. Paused.", Mondays at 9:00 AM UTC with "It doesn’t fire while paused.", "Runs as you, with your access.", and "It hasn’t fired yet."](../../../../assets/schedules/schedule-page.png)
 
 A run a schedule started says so under **Started by** on its page: "The
-schedule “nightly digest”", linking the schedule's page, with its cron and
-the time that fire was for. **Its other runs →** opens the runs list
-filtered to that schedule.
+schedule “nightly digest”", linking the schedule's page, with its timetable
+in words and, for a scheduled fire, the time it was for.
+**Its other runs →** opens the runs list filtered to that schedule.
 
-![A run's page with "Started by the schedule “nightly digest” (0 2 * * *). Its other runs →" under its header.](../../../../assets/schedules/run-started-by-schedule.png)
+![A run's page whose Started by says "The schedule “nightly digest”", "Every day at 2:00 AM UTC" and Its other runs →.](../../../../assets/schedules/run-started-by-schedule.png)
 
 ## Improve on a schedule
 
