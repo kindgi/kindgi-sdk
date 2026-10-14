@@ -457,14 +457,17 @@ server_secret_env = {
   - **Its host** matches `KINDGI_PACK_ENDPOINT_HOSTS`. On Cloud Run,
     `*-<project number>.<region>.run.app` admits only one project's services;
     `*.run.app` and `*.<region>.run.app` are refused at start. Record its
-    endpoint by that URL: Cloud Run's other URL for the service
-    (`…-uc.a.run.app`) doesn't match.
+    endpoint by that URL: Cloud Run's other URL for the service, the one
+    ending in `.a.run.app`, doesn't match.
   - **The server calls it with its own identity** when the endpoint's auth is
     a Google ID token, so the service grants `roles/run.invoker` to the
     server's account (`terraform output service_accounts`).
   - **In `connector` mode its ingress is all traffic,** with IAM as the
     guard: the server's connector carries private ranges only. In `direct`
-    mode it can be internal, as the module's own pack service is.
+    mode it can be internal when it runs in the server's project (or inside a
+    VPC Service Controls perimeter with it), as the module's own pack service
+    does
+    ([Cloud Run: Restrict network endpoint ingress](https://docs.cloud.google.com/run/docs/securing/ingress)).
 - **What the module sets:** `KINDGI_TENANCY=multi`
   ([the variable](../../reference/env-vars/#kindgi_tenancy)), and none of
   `KINDGI_TENANT_ID`, `KINDGI_SEED_USER_ID`, `KINDGI_PACK_SERVICE_URL`,
