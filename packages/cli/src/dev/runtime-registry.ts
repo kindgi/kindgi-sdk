@@ -12,6 +12,7 @@
  */
 
 import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
+import { dockerUnreachable } from './blocked.js';
 import type { DockerOutcome, DockerRunner } from './runtime-container.js';
 import { RUNTIME_IMAGE_REGISTRY, registryOf } from './runtime-image.js';
 
@@ -69,22 +70,20 @@ export type DockerCheck =
   | { readonly kind: 'ok' }
   | { readonly kind: 'error'; readonly message: string };
 
-/** Docker is installed and its engine answers: the login and the pull both need it. */
-export async function checkDocker(run: DockerRunner): Promise<DockerCheck> {
+/**
+ * Docker is installed and its engine answers: the login and the pull both
+ * need it. `command` is the one being run, named in the fix when a
+ * sandbox may be what keeps Docker out of reach.
+ */
+export async function checkDocker(run: DockerRunner, command: string): Promise<DockerCheck> {
   const version = await run(['version', '--format', '{{.Server.Version}}']);
-  if (version.code === null) {
-    return {
-      kind: 'error',
-      message: `Docker isn't installed, or \`docker\` isn't on your PATH (${detail(version)}).\n  kindgi dev runs the Kindgi runtime in Docker: install Docker Desktop (or a Docker engine on Linux), then run this again.`,
-    };
-  }
-  if (version.code !== 0) {
-    return {
-      kind: 'error',
-      message: `Docker isn't running: ${detail(version)}\n  Start Docker Desktop (or the Docker engine), then run this again.`,
-    };
-  }
-  return { kind: 'ok' };
+  if (version.code === 0) return { kind: 'ok' };
+  return {
+    kind: 'error',
+    message:
+      dockerUnreachable(version, command) ??
+      `Docker isn't running: ${detail(version)}\n  Start Docker Desktop (or the Docker engine), then run this again.`,
+  };
 }
 
 export type RegistryLogin =

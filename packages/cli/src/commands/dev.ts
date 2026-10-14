@@ -70,6 +70,12 @@ import {
 import type { CommandContext } from '../context.js';
 import { ALREADY_RUNNING_EXIT_CODE, alreadyRunning } from '../dev/already-running.js';
 import {
+  type DockerReach,
+  LocalPortsRefused,
+  localPortsRefused,
+  refusedHere,
+} from '../dev/blocked.js';
+import {
   DEV_LOCK_FILE,
   type DevLockOutcome,
   type HeldDevLock,
@@ -347,8 +353,28 @@ async function withHeartbeat<T>(
   }
 }
 
-function renderMissingDbHint(reason: string): string {
-  return `kindgi dev needs Postgres, and couldn't start the bundled one: ${reason}\n\nOptions:\n  1. Install Docker (Docker Desktop, or Docker Engine on Linux) and make sure it runs: kindgi dev then starts the bundled Postgres itself, with \`docker compose\` when it's there and plain \`docker\` otherwise.\n  2. Use your own Postgres (16, with pgvector): pass --database-url=<url>, or set KINDGI_DATABASE_URL.\n`;
+/**
+ * Docker that's there but out of reach: its own fix, since another
+ * Postgres wouldn't start the runtime either. With `--runtime-url` the
+ * runtime isn't Docker's, so the person's own Postgres is a way out too.
+ */
+const OUT_OF_REACH: ReadonlySet<DockerReach> = new Set([
+  'not-started',
+  'socket-denied',
+  'not-running',
+]);
+
+/** The way out that needs no Docker: "Use …" in the options, "Or use …" after a fix. */
+const OWN_POSTGRES =
+  'your own Postgres (16, with pgvector): pass --database-url=<url>, or set KINDGI_DATABASE_URL.';
+
+function renderMissingDbHint(reason: string, reach?: DockerReach, ownRuntime = false): string {
+  if (reach !== undefined && OUT_OF_REACH.has(reach)) {
+    return ownRuntime
+      ? `kindgi dev needs Docker for its Postgres. ${reason}\n  Or use ${OWN_POSTGRES}\n`
+      : `kindgi dev needs Docker for its Postgres and the Kindgi runtime. ${reason}\n`;
+  }
+  return `kindgi dev needs Postgres, and couldn't start the bundled one: ${reason}\n\nOptions:\n  1. Install Docker (Docker Desktop, or Docker Engine on Linux) and make sure it runs: kindgi dev then starts the bundled Postgres itself, with \`docker compose\` when it's there and plain \`docker\` otherwise.\n  2. Use ${OWN_POSTGRES}\n`;
 }
 
 interface ResolvedDevArgs {
@@ -417,6 +443,8 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   try {
     taken = await takeDevLock(args.packDir, dev.devLockProcesses);
   } catch (cause) {
+    const refused = refusedHere(cause);
+    if (refused !== undefined) return { kind: 'error', stderr: refused, exitCode: 1 };
     return { kind: 'error', stderr: `kindgi dev: ${(cause as Error).message}\n`, exitCode: 1 };
   }
   if (taken.kind === 'held') {
@@ -563,7 +591,7 @@ async function runDevForPack(
     if (outcome.kind === 'unavailable') {
       return {
         kind: 'error',
-        stderr: renderMissingDbHint(outcome.reason),
+        stderr: renderMissingDbHint(outcome.reason, outcome.reach, args.runtimeUrl !== undefined),
         exitCode: 1,
       };
     }
@@ -742,6 +770,11 @@ async function runDevForPack(
   try {
     packFront = await pack.listen();
   } catch (err) {
+    const refused = refusedHere(err);
+    if (refused !== undefined) {
+      await pack.close().catch(() => undefined);
+      return { kind: 'error', stderr: refused, exitCode: 1 };
+    }
     if (previous.packServicePort === undefined) throw err;
     emitProgress(
       `  the pack service's port ${previous.packServicePort} is taken: using another one${args.runtimeUrl !== undefined ? ' (restart your runtime with the new runtime.env)' : ''}`,
@@ -836,6 +869,8 @@ async function runDevForPack(
       };
     }
     if (err instanceof RuntimeOwnedElsewhere) return ownedElsewhereRefusal(err);
+    const refused = refusedHere(err);
+    if (refused !== undefined) return { kind: 'error', stderr: refused, exitCode: 1 };
     return {
       kind: 'error',
       stderr: `kindgi dev couldn't start the Kindgi runtime: ${(err as Error).message}${previewRefusalHint((err as Error).message, devRuntimeSource(args))}\n`,
@@ -1359,12 +1394,25 @@ async function pickRuntimePort(
     return { kind: 'ok', port: args.port };
   }
   const inUse = (port: number) => dev.runtimePortInUse!({ packDir: args.packDir, port, ...owner });
+  // Every probe, the walk's too: a port that only answers a connect reads
+  // as taken without a listen, so the refusal can come from the next one.
   try {
-    if (!(await inUse(args.port))) return { kind: 'ok', port: args.port };
+    return await walkRuntimePorts(args, inUse);
   } catch (err) {
     if (err instanceof RuntimeOwnedElsewhere) return ownedElsewhereRefusal(err);
+    if (err instanceof LocalPortsRefused) {
+      return { kind: 'error', stderr: localPortsRefused(err.port, err.code), exitCode: 1 };
+    }
     throw err;
   }
+}
+
+/** The asked port when it's free, else (when it wasn't given) the next free one. */
+async function walkRuntimePorts(
+  args: ResolvedDevArgs,
+  inUse: (port: number) => Promise<boolean>,
+): Promise<RuntimePortOutcome> {
+  if (!(await inUse(args.port))) return { kind: 'ok', port: args.port };
   if (args.portGiven) {
     return {
       kind: 'error',

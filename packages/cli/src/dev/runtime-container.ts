@@ -19,6 +19,7 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
 import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
+import { dockerUnreachable } from './blocked.js';
 import { lineReader } from './lines.js';
 import { parseRecord, textLines } from './log-view.js';
 import {
@@ -46,6 +47,8 @@ export interface DockerOutcome {
   readonly code: number | null;
   readonly stdout: string;
   readonly stderr: string;
+  /** Why it couldn't be spawned, when it couldn't: the error's code (`ENOENT`, `EPERM`). */
+  readonly errorCode?: string;
 }
 
 export interface DockerRunOptions {
@@ -89,7 +92,14 @@ export function docker(
       stderr += chunk.toString();
       errLines?.push(chunk.toString());
     });
-    child.once('error', (err) => resolve({ code: null, stdout, stderr: err.message }));
+    child.once('error', (err: NodeJS.ErrnoException) =>
+      resolve({
+        code: null,
+        stdout,
+        stderr: err.message,
+        ...(typeof err.code === 'string' && { errorCode: err.code }),
+      }),
+    );
     child.once('close', (code) => {
       outLines?.end();
       errLines?.end();
@@ -159,9 +169,10 @@ export async function ensureRuntimeImage(
 ): Promise<{ readonly kind: 'ok' } | { readonly kind: 'error'; readonly message: string }> {
   const present = await docker(['image', 'inspect', '--format', '{{.Id}}', image]);
   if (present.code === 0) return { kind: 'ok' };
-  if (present.code === null) {
-    return { kind: 'error', message: `Docker isn't available: ${present.stderr}` };
-  }
+  // Docker out of reach is said as such: a pull would fail the same way,
+  // and read as the registry's fault.
+  const unreachable = dockerUnreachable(present, 'kindgi dev');
+  if (unreachable !== undefined) return { kind: 'error', message: unreachable };
   phases.begin('pull', `${image} (first run only)`);
   const progress = pullProgress();
   const manifestRead = new AbortController();
@@ -543,6 +554,10 @@ export async function startRuntimeContainer(
   logs.stderr?.setEncoding('utf8');
   logs.stdout?.on('data', (chunk: string) => out.push(chunk));
   logs.stderr?.on('data', (chunk: string) => err.push(chunk));
+  // A follower that can't start is only no lines: the boot wait reads the
+  // runtime's health, and a failure reads its logs again. Unheard, its
+  // 'error' would end the CLI.
+  logs.once('error', () => undefined);
 
   // Stop following: listeners off first, so the follower's last output
   // (`docker logs --follow` can panic once its container is gone) is never
