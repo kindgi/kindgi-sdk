@@ -300,7 +300,7 @@ server_secret_env = {
 
 ## Serving from a restored instance
 
-A Cloud SQL restore never rewinds the instance that serves. A point in time makes a new instance ([Google: point-in-time recovery](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/pitr)), and a backup can go into a new one ([Google: restoring](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/restoring)). `database_instance` moves the server onto that instance and leaves the module's own as it is. Public-IP mode only: the server reaches either instance through its `/cloudsql` volume.
+A point-in-time recovery always makes a new instance ([Google: point-in-time recovery](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/pitr)). A backup can go into a new one too ([Google: restoring](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/restoring)); restored into the instance that serves, it overwrites everything on it. `database_instance` moves the server onto the new instance and leaves the module's own as it is. Public-IP mode only: the server reaches whichever instance it serves from through its `/cloudsql` volume.
 
 1. **Restore into a new instance in this project.** `R` is its name, such as `$N-r20261023`:
 

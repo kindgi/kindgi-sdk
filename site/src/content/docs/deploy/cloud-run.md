@@ -713,9 +713,10 @@ A new grant can take a minute or two to apply.
   version your server reads, normally `1`
   (`gcloud secrets versions list $N-secrets-aad-key` lists them). Without
   it, `terraform plan` stops and asks for it.
-- **Restore Cloud SQL:** a restore makes a new instance, to a point in time
-  or from a backup, and never rewinds the one serving. `database_instance`
-  moves the server onto it: the instance's name, and a secret of yours
+- **Restore Cloud SQL:** a point-in-time recovery always makes a new
+  instance, and a backup can go into one too (restored into the serving
+  instance, it overwrites everything on it). `database_instance` moves the
+  server onto the new instance: the instance's name, and a secret of yours
   holding the server's URL to it. The module's own instance stays as it is.
   The module's README has the steps, under
   [Serving from a restored instance](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#serving-from-a-restored-instance):
