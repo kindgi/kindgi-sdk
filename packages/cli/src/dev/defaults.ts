@@ -1231,7 +1231,8 @@ function bundledDatabaseUrl(port: number): string {
  * Without compose (a Docker engine without the plugin), the same
  * Postgres starts with plain `docker` (`postgres-container.ts`): the
  * same names, so the data is shared whichever way it was started.
- * `unavailable` only when docker itself doesn't work.
+ * `unavailable` when docker itself doesn't work, or its engine is out of
+ * reach (asked first, compose or not).
  *
  * Not testcontainers: its reaper (Ryuk) is handed the compose project
  * and, when the process exits, deletes everything labelled with it —
@@ -1247,9 +1248,16 @@ export async function startServicesReal(
   options: { readonly recreate: boolean },
   run: DockerRunner = docker,
 ): Promise<StartServicesResult> {
+  // The engine first: `docker compose version` answers without it, so an
+  // engine out of reach would get as far as `compose up` and fail there
+  // unexplained. A failure of Docker's own (`failed`) leaves compose to
+  // try, as before.
+  const noDocker = await detectDocker(run);
+  if (noDocker !== undefined && noDocker.reach !== 'failed') {
+    return { kind: 'unavailable', ...noDocker };
+  }
   const reason = await detectDockerCompose(run);
   if (reason !== undefined) {
-    const noDocker = await detectDocker(run);
     if (noDocker !== undefined) return { kind: 'unavailable', ...noDocker };
     return startPostgresWithDocker(options, run);
   }

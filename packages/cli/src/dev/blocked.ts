@@ -124,7 +124,13 @@ export function writeRefused(err: unknown, code: string): string {
   return `kindgi dev isn't allowed to write ${path ?? 'the pack folder'} (${code}).\n  ${ownTerminalFix('kindgi dev')} Otherwise, check that your user can write there.\n`;
 }
 
-/** The system calls that write: a refusal of one is a read-only place. */
+/**
+ * The system calls that write: a refusal of one is a read-only place.
+ * `open` is a read's call too. It's here because, where `kindgi dev`
+ * asks (the dev lock, the pack service's listen, the runtime's start),
+ * every read handles its own refusal first, so an `open` that gets here
+ * was a write's. A new caller that reads must do the same.
+ */
 const WRITES = new Set([
   'open',
   'mkdir',

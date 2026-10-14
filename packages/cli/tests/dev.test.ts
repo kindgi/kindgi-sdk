@@ -3023,11 +3023,11 @@ describe('kindgi dev — something around it refuses what it needs (a sandbox)',
     'If a coding agent runs this, its sandbox is likely what stops it: run `kindgi dev` in your own terminal instead.';
   const sysError = (code: string, syscall: string, more: Record<string, unknown> = {}) =>
     Object.assign(new Error(`${syscall} ${code}`), { code, syscall, ...more });
-  const dev = (fixtures: Fixtures, env?: Record<string, string>) =>
+  const dev = (fixtures: Fixtures, env?: Record<string, string>, more: readonly string[] = []) =>
     runCli({
       ...baseInputs(fixtures),
       ...(env !== undefined && { env }),
-      argv: ['dev', '--no-watch', `--path=${packDir}`],
+      argv: ['dev', '--no-watch', `--path=${packDir}`, ...more],
     });
 
   test('no port on 127.0.0.1 at all: said as such, not "all in use"', async () => {
@@ -3047,6 +3047,26 @@ describe('kindgi dev — something around it refuses what it needs (a sandbox)',
     );
     // The first refusal ends it: no walk through the other ports.
     expect(asked).toHaveLength(1);
+  });
+
+  test('the first port answering a connect, the next refused: the same message', async () => {
+    // A taken port reads as taken without a listen, so the refusal comes from the walk.
+    const fixtures = makeFixtures();
+    const asked: number[] = [];
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      runtimePortInUse: async (input) => {
+        asked.push(input.port);
+        if (asked.length === 1) return true;
+        throw new LocalPortsRefused(input.port, 'EPERM');
+      },
+    };
+    const out = await dev({ ...fixtures, runners });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev isn't allowed to listen on 127.0.0.1 (port ${asked[1]}: EPERM), so no local port would work.\n  ${OWN_TERMINAL}\n`,
+    );
+    expect(asked).toEqual([asked[0], (asked[0] ?? 0) + 1]);
   });
 
   test.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
@@ -3123,6 +3143,20 @@ describe('kindgi dev — something around it refuses what it needs (a sandbox)',
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toBe(
       `kindgi dev needs Docker for its Postgres and the Kindgi runtime. ${reason}\n`,
+    );
+  });
+
+  test('Docker out of reach with --runtime-url: only Postgres needs it, and your own is a way out', async () => {
+    const fixtures = makeFixtures();
+    const reason = `Docker isn't running, or \`kindgi dev\` can't reach it: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?\n  Start Docker Desktop (or the Docker engine), then run this again. If it's running, a coding agent's sandbox may be what keeps it out of reach: run \`kindgi dev\` in your own terminal instead.`;
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      startServices: async () => ({ kind: 'unavailable', reason, reach: 'not-running' }),
+    };
+    const out = await dev({ ...fixtures, runners }, {}, ['--runtime-url=http://127.0.0.1:4000']);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev needs Docker for its Postgres. ${reason}\n  Or use your own Postgres (16, with pgvector): pass --database-url=<url>, or set KINDGI_DATABASE_URL.\n`,
     );
   });
 });
