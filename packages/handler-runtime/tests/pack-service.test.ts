@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -814,6 +815,183 @@ ${MODULES['tools/echo.mjs'] ?? ''}`,
     } finally {
       Reflect.deleteProperty(process.env, 'ACME_UNDECLARED_KEY');
       await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('pack service — pinned to one tenant (KINDGI_PACK_TENANT_ID)', () => {
+  let pinned: RunningPackService;
+  let pinnedDir: string;
+  const pinnedEvents: (PackServiceLogEvent | Record<string, unknown>)[] = [];
+  const checkCall = {
+    v: 2,
+    kind: 'check-invoke',
+    check: { id: 'pack.checks.ok' },
+    config: { pass: true },
+    trace: {},
+  };
+
+  beforeAll(async () => {
+    pinnedDir = await mkdtemp(join(tmpdir(), 'kindgi-pack-pinned-'));
+    const pinnedIndex = await writePack(pinnedDir, INDEX);
+    const started = await startPackService(
+      { indexPath: pinnedIndex, moduleRoot: pinnedDir, token: TOKEN, port: 0, tenantId: 't-1' },
+      (e) => pinnedEvents.push(e),
+    );
+    if (started.kind === 'err') throw new Error(started.problems.join('; '));
+    pinned = started.value;
+  });
+
+  afterAll(async () => {
+    await pinned?.stop(1000);
+    await rm(pinnedDir, { recursive: true, force: true });
+  });
+
+  test("its own tenant's calls run: the header and the tool call's context both name it", async () => {
+    const tool = await invoke(
+      call('pack.echo', { message: 'hi' }),
+      { 'kindgi-tenant-id': 't-1' },
+      pinned.port,
+    );
+    expect(tool.status).toBe(200);
+    expect(tool.body).toEqual({ v: 2, kind: 'result', output: { echoed: 'hi', runId: 'run-1' } });
+    const check = await invoke(checkCall, { 'kindgi-tenant-id': 't-1' }, pinned.port);
+    expect(check.body).toEqual({ v: 2, kind: 'check-result', result: { passed: true } });
+  });
+
+  test.each([
+    ['no header', {}],
+    ['another tenant in the header', { 'kindgi-tenant-id': 't-2' }],
+    ['an empty header', { 'kindgi-tenant-id': '' }],
+  ])(
+    '%s: 421 pack-tenant-mismatch, naming neither tenant, and no pack code runs',
+    async (_, headers) => {
+      const before = pinnedEvents.filter((e) => e.kind === 'call').length;
+      for (const message of [call('pack.echo', { message: 'x' }), checkCall]) {
+        const res = await invoke(message, headers, pinned.port);
+        expect(res.status).toBe(421);
+        expect(res.body).toEqual({
+          error: 'This pack service serves another tenant',
+          code: 'pack-tenant-mismatch',
+        });
+      }
+      expect(pinnedEvents.filter((e) => e.kind === 'call').length).toBe(before);
+      expect(pinnedEvents).toContainEqual({ kind: 'tenant-mismatch', via: 'header' });
+    },
+  );
+
+  test("a tool call whose context names another tenant: 421, even with its own tenant's header", async () => {
+    const message = {
+      ...call('pack.echo', { message: 'x' }),
+      ctx: { tenantId: 't-2', runId: 'r', requestId: 'c' },
+    };
+    const res = await invoke(message, { 'kindgi-tenant-id': 't-1' }, pinned.port);
+    expect(res.status).toBe(421);
+    expect(res.body).toMatchObject({ code: 'pack-tenant-mismatch' });
+    expect(pinnedEvents).toContainEqual({ kind: 'tenant-mismatch', via: 'context' });
+  });
+
+  test('tenant ids compare without regard to case (UUIDs), so a pin set in capitals still serves', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'kindgi-pack-pinned-upper-'));
+    try {
+      const upperIndex = await writePack(root, INDEX);
+      const started = await startPackService({
+        indexPath: upperIndex,
+        moduleRoot: root,
+        token: TOKEN,
+        port: 0,
+        tenantId: 'T-1',
+      });
+      if (started.kind === 'err') throw new Error(started.problems.join('; '));
+      try {
+        const res = await invoke(
+          call('pack.echo', { message: 'hi' }),
+          { 'kindgi-tenant-id': 't-1' },
+          started.value.port,
+        );
+        expect(res.status).toBe(200);
+        const other = await invoke(
+          call('pack.echo', { message: 'hi' }),
+          { 'kindgi-tenant-id': 't-2' },
+          started.value.port,
+        );
+        expect(other.status).toBe(421);
+      } finally {
+        await started.value.stop(0);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('the token is still checked first: a wrong token is 401, not 421', async () => {
+    const res = await invoke(
+      call('pack.echo', { message: 'x' }),
+      {
+        'kindgi-pack-token': 'no',
+      },
+      pinned.port,
+    );
+    expect(res.status).toBe(401);
+  });
+
+  test('unpinned (the default), the header is ignored: a call naming any tenant runs', async () => {
+    const res = await invoke(call('pack.echo', { message: 'hi' }), { 'kindgi-tenant-id': 't-9' });
+    expect(res.status).toBe(200);
+  });
+
+  test("info reports indexHash: sha256 of the index file's bytes, as a deployment signs it", async () => {
+    const bytes = await readFile(join(pinnedDir, 'index.json'));
+    const expected = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+    const res = await fetch(url('/v1/info', pinned.port), {
+      headers: { 'kindgi-pack-token': TOKEN, 'kindgi-tenant-id': 't-1' },
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as Record<string, unknown>).indexHash).toBe(expected);
+  });
+
+  test.each([
+    ['no header', {}],
+    ['another tenant in the header', { 'kindgi-tenant-id': 't-2' }],
+  ])(
+    'info is pinned too: %s is 421, and tells nothing of what the pack holds',
+    async (_, headers: Record<string, string>) => {
+      const res = await fetch(url('/v1/info', pinned.port), {
+        headers: { 'kindgi-pack-token': TOKEN, ...headers },
+      });
+      expect(res.status).toBe(421);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toEqual({
+        error: 'This pack service serves another tenant',
+        code: 'pack-tenant-mismatch',
+      });
+    },
+  );
+
+  test('the probes stay open on a pinned service: the platform checks them without a tenant', async () => {
+    for (const path of ['/healthz', '/readyz']) {
+      const res = await fetch(url(path, pinned.port));
+      expect(res.status, path).toBe(200);
+    }
+  });
+
+  test("the process reads KINDGI_PACK_TENANT_ID: trimmed, and refused at startup unless it's a tenant's id", () => {
+    const ok = readPackServiceConfig([], {
+      KINDGI_PACK_SERVICE_TOKEN: 't',
+      KINDGI_PACK_TENANT_ID: ' 4fc847d5-95b4-4c68-bf9d-618a241c9771\n',
+    });
+    expect(ok).toMatchObject({
+      kind: 'ok',
+      value: { tenantId: '4fc847d5-95b4-4c68-bf9d-618a241c9771' },
+    });
+    const unset = readPackServiceConfig([], { KINDGI_PACK_SERVICE_TOKEN: 't' });
+    expect(unset.kind === 'ok' && 'tenantId' in unset.value).toBe(false);
+    for (const raw of ['two words', 'acme', '00000000-0000-4000-8000-000000000000']) {
+      const bad = readPackServiceConfig([], {
+        KINDGI_PACK_SERVICE_TOKEN: 't',
+        KINDGI_PACK_TENANT_ID: raw,
+      });
+      expect(bad, raw).toMatchObject({ kind: 'err' });
     }
   });
 });

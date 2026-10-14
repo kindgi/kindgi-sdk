@@ -26,7 +26,10 @@ import { clampLimit } from './pagination.js';
  * a tenant).
  *
  *   - `GET   /`         — returns `{ id, name, slug, createdAt,
- *                         updatedAt }` for the caller's tenant.
+ *                         updatedAt }` for the caller's tenant, plus,
+ *                         when the runtime knows them,
+ *                         `productionAllowed`, `productionNext` (only
+ *                         while not allowed) and `limits`.
  *                         Reads the tenant via the tenant-hierarchy
  *                         binding.
  *   - `GET   /config`   — cursor-paginated list of the tenant's config
@@ -63,6 +66,12 @@ export interface TenantRouterOptions {
   readonly envBinding?: EnvBinding;
   readonly secretsBinding?: SecretBinding;
   readonly authorizer?: Authorizer;
+  /**
+   * Where a tenant that may not put projects in production goes to be
+   * allowed (`KINDGI_PRODUCTION_NEXT_URL`): `GET /`'s `productionNext`,
+   * shown only while the tenant isn't allowed.
+   */
+  readonly productionNext?: string;
 }
 
 /**
@@ -137,7 +146,8 @@ export function resolveTenantConfigEnvName(): EnvName {
 }
 
 export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
-  const { tenantHierarchyBinding, envBinding, secretsBinding, authorizer } = options;
+  const { tenantHierarchyBinding, envBinding, secretsBinding, authorizer, productionNext } =
+    options;
   const r = new Hono<AppEnv>();
 
   // Authorization — gate every /v1/tenant route with `read` on the
@@ -182,6 +192,12 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
       slug: row.slug,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
+      // What a runtime that gates production and sets limits knows; absent
+      // otherwise. `productionNext` only while the tenant isn't allowed.
+      ...(row.productionAllowed !== undefined && { productionAllowed: row.productionAllowed }),
+      ...(row.productionAllowed === false && productionNext !== undefined && { productionNext }),
+      ...(row.limits !== undefined && { limits: row.limits }),
+      ...(row.state !== undefined && { state: row.state }),
     });
   });
 
@@ -446,7 +462,8 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
           },
         });
       }
-      c.status(500);
+      // The store's code, at its status: a name it can't write is the caller's `400`.
+      c.status(statusFor(outcome.code) as never);
       return c.json(toWireError({ code: outcome.code, message: outcome.message }, requestId));
     }
 

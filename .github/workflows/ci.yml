@@ -191,6 +191,13 @@ jobs:
           KINDGI_CONFORMANCE_PYTHON=/tmp/kindgi-floors/bin/python pnpm --filter @kindgi/pack-conformance exec vitest run tests/python.test.ts tests/python-supervisor.test.ts
       - name: Publish-readiness (publint + attw on publishable packages)
         run: pnpm run check:publish
+      # The site's build scripts' own tests (node:test, site/scripts): which
+      # versions build and from where, the version fixes, the agents'
+      # Markdown, the pinned tutorials, the samples check. Before the build.
+      # The samples check's end-to-end test makes fresh packs and adds
+      # libraries to them with uv and pnpm, so it needs the network.
+      - name: Docs site scripts
+        run: pnpm run docs:test-scripts
       # The documentation site (docs.kindgi.com) builds, with its link check
       # and search index, from the workspace built above.
       - name: Docs site

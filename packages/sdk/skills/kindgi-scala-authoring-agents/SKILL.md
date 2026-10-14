@@ -33,7 +33,7 @@ sources:
 > `kindgi <command>` below runs as `./kindgiw <command>`.
 >
 > Scala support is in preview: tested and supported, but the API may still
-> change in 0.1.6 without the usual deprecation period.
+> change in a later release without the usual deprecation period.
 
 An **agent** is a versioned, model-driven orchestrator. It's made of:
 - instructions (a prompt template);

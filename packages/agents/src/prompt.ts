@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Liquid } from 'liquidjs';
+import { TenantBudgetError } from '@kindgi/bounds';
 
 import type { PromptBlockContent } from './blocks.js';
+import { liquidProblem, renderTenantTemplate } from './liquid.js';
 import type { Agent, PromptParameter, PromptRef } from './types.js';
 
 /**
@@ -94,13 +95,16 @@ export interface RenderFailureError {
  * applies defaults for optional parameters. Missing required parameters
  * are surfaced as `missing-parameter` before Liquid ever runs.
  *
- * Uses `strictVariables: true` so an unresolved `{{ var }}` is an error
+ * Renders with `strictVariables: true` (`renderTenantTemplate`'s), so an unresolved `{{ var }}` is an error
  * — never a silent empty string. This is load-bearing for correctness
  * (a system prompt with a missing firm name is worse than a hard fail).
  *
  * When the instructions come from a prompt block, `prompt` is the
  * version the turn runs (its template and declared parameters); an
  * agent whose instructions are a prompt block can't render without it.
+ *
+ * Throws `TemplateRenderBudgetError` (a `TenantBudgetError`) when the
+ * tenant has spent its render budget: that's no fault of the template's.
  */
 export function renderInstructions(
   agent: Agent,
@@ -125,11 +129,14 @@ export function renderInstructions(
   }
 
   const merged = mergeContext(agent, declared, context);
-  const liquid = new Liquid({ strictVariables: true, strictFilters: true });
+  // Under the bounds' limits; `include`, `render` and `layout` fail the render.
   try {
-    const rendered = liquid.parseAndRenderSync(template, merged);
+    const rendered = renderTenantTemplate(template, merged);
     return { ok: true, value: { rendered, context: merged } };
   } catch (cause) {
+    // A tenant past its render budget: not the template's failure, and
+    // retryable. The turn answers for it.
+    if (cause instanceof TenantBudgetError) throw cause;
     // LiquidJS throws UndefinedVariableError for unresolved refs — surface
     // as missing-parameter so callers get one consistent error code.
     const message = cause instanceof Error ? cause.message : String(cause);
@@ -148,7 +155,7 @@ export function renderInstructions(
       ok: false,
       error: {
         code: 'render-failure',
-        message: `Template render failed: ${message}`,
+        message: `Template render failed: ${liquidProblem(cause) ?? message}`,
         cause,
       },
     };

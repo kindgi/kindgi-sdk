@@ -218,8 +218,7 @@ calls the first tool. For Claude, with `kindgi dev` running:
 {{KINDGI}} providers register --preset=anthropic
 ```
 
-`.claude/skills/kindgi-authoring-providers/SKILL.md` has the other
-providers.
+The `kindgi-authoring-providers` skill has the other providers.
 
 Ask the content agent something:
 
@@ -286,7 +285,7 @@ starts a run:
 ```sh
 composer require drupal/webhooks:^3.0@rc && drush en webhooks
 {{KINDGI}} webhooks register --flow={{PACK_ID}}.content-review --flow-version={{PACK_VERSION}} \
-  --preset=drupal-webhooks --generate-secret --secret=DRUPAL_WEBHOOK_SECRET --env=local \
+  --preset=drupal-webhooks --generate-secret --secret=DRUPAL_WEBHOOK_SECRET \
   --label="Drupal articles"
 ```
 

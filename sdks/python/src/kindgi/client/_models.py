@@ -569,7 +569,7 @@ class UnpinBody(BaseModel):
 
 class RunFailure(BaseModel):
     """
-    Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …); any other failure is `run-failed`, with the run's failure message.
+    Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …; `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed, with `details` naming the budget); any other failure is `run-failed`, with the run's failure message.
     """
 
     model_config = ConfigDict(
@@ -585,6 +585,10 @@ class RunFailure(BaseModel):
     reason: str | None = None
     """
     The error's own reason, when it gives one: for a turn that ended at its approval (`hitl-cancelled`), `timeout` when nobody decided in time. Absent from an older runtime and from errors without one; read `code` then.
+    """
+    details: dict[str, Any] | None = None
+    """
+    The error's own facts, for a code that has them: for `rate-limit-exceeded`, `limit` (the budget that refused: `schema-compile-time` or `template-render-time`) and `budgetMs`, the names the API's `429` uses. Never the wait: read back later, it's stale. Absent for any other code, and from an older runtime.
     """
 
 
@@ -910,6 +914,521 @@ class Capability(RootModel[str]):
     root: Annotated[str, Field(max_length=100, min_length=1)]
 
 
+class SystemKey(BaseModel):
+    """
+    A system key (`kgi_sy_…`): the operator's, acting in no tenant. Never its secret.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The key's id.
+    """
+    label: str | None = None
+    """
+    What the key is for, as given at mint.
+    """
+    scopes: list[
+        Literal[
+            "system:tenants",
+            "system:tenants:create",
+            "system:tenants:image-prefix",
+            "system:tenants:production",
+            "system:tenants:limits",
+            "system:tenants:contacts",
+            "system:tenants:purge",
+            "system:suspend",
+            "system:deployments",
+            "system:license",
+            "kindgi:system",
+        ]
+    ]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    revoked_at: Annotated[AwareDatetime | None, Field(alias="revokedAt")] = None
+    minted_by: Annotated[str, Field(alias="mintedBy")]
+    """
+    Who minted it: a system key's id, or `boot` for the deployment's own token.
+    """
+
+
+class MintSystemKeyBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    scopes: Annotated[
+        list[
+            Literal[
+                "system:tenants",
+                "system:tenants:create",
+                "system:tenants:image-prefix",
+                "system:tenants:production",
+                "system:tenants:limits",
+                "system:tenants:contacts",
+                "system:tenants:purge",
+                "system:suspend",
+                "system:deployments",
+                "system:license",
+                "kindgi:system",
+            ]
+        ],
+        Field(min_length=1),
+    ]
+    """
+    The least the key's service needs; `kindgi:system` alone for a full key.
+    """
+    label: Annotated[str | None, Field(max_length=100, min_length=1)] = None
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    """
+    When it stops working. A minter that expires mints only keys expiring no later than it.
+    """
+
+
+class MintSystemKeyResult(BaseModel):
+    """
+    The new system key, plus its secret.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The key's id.
+    """
+    label: str | None = None
+    """
+    What the key is for, as given at mint.
+    """
+    scopes: list[
+        Literal[
+            "system:tenants",
+            "system:tenants:create",
+            "system:tenants:image-prefix",
+            "system:tenants:production",
+            "system:tenants:limits",
+            "system:tenants:contacts",
+            "system:tenants:purge",
+            "system:suspend",
+            "system:deployments",
+            "system:license",
+            "kindgi:system",
+        ]
+    ]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    revoked_at: Annotated[AwareDatetime | None, Field(alias="revokedAt")] = None
+    minted_by: Annotated[str, Field(alias="mintedBy")]
+    """
+    Who minted it: a system key's id, or `boot` for the deployment's own token.
+    """
+    token: str
+    """
+    Plaintext bearer token (`kgi_sy_…`). Returned exactly once at mint time.
+    """
+
+
+class Datum2(BaseModel):
+    """
+    A system key (`kgi_sy_…`): the operator's, acting in no tenant. Never its secret.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The key's id.
+    """
+    label: str | None = None
+    """
+    What the key is for, as given at mint.
+    """
+    scopes: list[
+        Literal[
+            "system:tenants",
+            "system:tenants:create",
+            "system:tenants:image-prefix",
+            "system:tenants:production",
+            "system:tenants:limits",
+            "system:tenants:contacts",
+            "system:tenants:purge",
+            "system:suspend",
+            "system:deployments",
+            "system:license",
+            "kindgi:system",
+        ]
+    ]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    revoked_at: Annotated[AwareDatetime | None, Field(alias="revokedAt")] = None
+    minted_by: Annotated[str, Field(alias="mintedBy")]
+    """
+    Who minted it: a system key's id, or `boot` for the deployment's own token.
+    """
+
+
+class SystemKeyList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Datum2]
+
+
+class RevokeSystemKeyResult(BaseModel):
+    """
+    The revoked system key, and the keys revoked with it because they were minted from it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The key's id.
+    """
+    label: str | None = None
+    """
+    What the key is for, as given at mint.
+    """
+    scopes: list[
+        Literal[
+            "system:tenants",
+            "system:tenants:create",
+            "system:tenants:image-prefix",
+            "system:tenants:production",
+            "system:tenants:limits",
+            "system:tenants:contacts",
+            "system:tenants:purge",
+            "system:suspend",
+            "system:deployments",
+            "system:license",
+            "kindgi:system",
+        ]
+    ]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    revoked_at: Annotated[AwareDatetime | None, Field(alias="revokedAt")] = None
+    minted_by: Annotated[str, Field(alias="mintedBy")]
+    """
+    Who minted it: a system key's id, or `boot` for the deployment's own token.
+    """
+    also_revoked: Annotated[list[str], Field(alias="alsoRevoked")]
+    """
+    The ids of the keys minted from it, however deep, revoked with it.
+    """
+
+
+class SystemDeploymentEntry(BaseModel):
+    """
+    A deployment as whatever runs its pack service needs it: ids and the image, nothing of the tenant beyond its id. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). In the `retire` list, `reason` says why the service should go.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    deployment_id: Annotated[str, Field(alias="deploymentId", min_length=1)]
+    pack_id: Annotated[str, Field(alias="packId", min_length=1)]
+    """
+    The pack it deploys (the image index's `packId`): keep the newest few superseded deployments per tenant and pack.
+    """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project the deploy was scoped to. Absent for a tenant-wide deploy.
+    """
+    image_ref: Annotated[str, Field(alias="imageRef")]
+    """
+    Digest-pinned, as registered: the pack service is created from exactly this.
+    """
+    image_digest: Annotated[str, Field(alias="imageDigest", pattern="^sha256:[0-9a-f]{64}$")]
+    artifact_version: Annotated[str, Field(alias="artifactVersion")]
+    activated_at: Annotated[AwareDatetime, Field(alias="activatedAt")]
+    reason: (
+        Literal[
+            "superseded",
+            "tenant-closing",
+            "tenant-suspended",
+            "project-suspended",
+            "pack-suspended",
+        ]
+        | None
+    ) = None
+    """
+    In the `retire` list only. `superseded`: no live or promoted version routes to it any more (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.
+    """
+
+
+class SystemDeploymentPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[SystemDeploymentEntry]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class SetPackEndpointBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    url: str
+    """
+    `https://<host>`: no user info, path, query or fragment. Its host must be on the operator's allowlist (`KINDGI_PACK_ENDPOINT_HOSTS`) and begin with the deployment's own service name (`packServiceName`), then `-` or `.`.
+    """
+    auth: Literal["google-id-token", "token"]
+    """
+    How the server calls it: `google-id-token` adds an ID token for the URL (Cloud Run's invoker check) to the pack token; `token` sends the pack token only.
+    """
+    token: Annotated[str, Field(max_length=512, min_length=16)]
+    """
+    The pack service's token (`KINDGI_PACK_SERVICE_TOKEN`), printable ASCII without spaces. Stored wrapped; never returned, logged or recorded.
+    """
+
+
+class RecordDeploymentProblemBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: Literal[
+        "endpoint-url-invalid",
+        "endpoint-host-not-allowed",
+        "endpoint-name-mismatch",
+        "endpoint-unreachable",
+        "endpoint-info-mismatch",
+        "image-not-allowed",
+        "tenant-not-provisioned",
+        "capacity-unavailable",
+        "service-start-failed",
+    ]
+    """
+    Why the pack service couldn't be created, or was refused: one of `DEPLOYMENT_ENDPOINT_PROBLEM_CODES`. The tenant sees the code, never more.
+    """
+
+
+class SetPackSuspendedBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    suspended: bool
+    reason: Annotated[str | None, Field(max_length=500, min_length=1)] = None
+    """
+    Why, for the operator's record.
+    """
+
+
+class PackSuspension(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    suspended: bool
+    since: AwareDatetime
+    """
+    When it last changed.
+    """
+
+
+class SystemTenant(BaseModel):
+    """
+    A tenant, as the operator sees it: never its content.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    name: str
+    slug: str
+    state: Literal["active", "suspended", "closing"]
+    """
+    `closing`: readable and exportable with its own keys for its window, nothing runs. `suspended`: the same, reversibly. `closing` wins over `suspended`.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    test: bool
+    """
+    A test tenant: left out of usage, invoices and counts.
+    """
+    production_allowed: Annotated[bool, Field(alias="productionAllowed")]
+    image_prefix: Annotated[str | None, Field(alias="imagePrefix")] = None
+    """
+    The repository its deployments' images must sit at or under, `<host>/<path>`.
+    """
+    closing_at: Annotated[AwareDatetime | None, Field(alias="closingAt")] = None
+    suspended_at: Annotated[AwareDatetime | None, Field(alias="suspendedAt")] = None
+    suspended_reason: Annotated[str | None, Field(alias="suspendedReason")] = None
+
+
+class FirstAdmin(BaseModel):
+    """
+    The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    email: Annotated[str, Field(max_length=254)]
+    """
+    An email address.
+    """
+    name: Annotated[str, Field(max_length=100, min_length=1)]
+
+
+class CreateSystemTenantBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: Annotated[str, Field(max_length=100, min_length=1)]
+    slug: Annotated[str | None, Field(max_length=63, pattern="^[a-z0-9](?:-?[a-z0-9])*$")] = None
+    """
+    Lowercase letters, digits and single hyphens; generated when absent.
+    """
+    production_allowed: Annotated[bool | None, Field(alias="productionAllowed")] = None
+    """
+    Whether it may put projects in production. Absent: blocked, until the operator allows it; `true` takes `system:tenants:production`.
+    """
+    test: bool | None = None
+    """
+    A test tenant. The full system capability only.
+    """
+    image_prefix: Annotated[str | None, Field(alias="imagePrefix")] = None
+    """
+    The repository its deployments' images must sit in, `<host>/<path>` with no trailing slash; takes `system:tenants:image-prefix`. On a runtime serving many tenants, a tenant without one can't register a deployment.
+    """
+    first_admin: Annotated[FirstAdmin | None, Field(alias="firstAdmin")] = None
+    """
+    The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.
+    """
+
+
+class FirstAdmin1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    person_id: Annotated[str, Field(alias="personId")]
+
+
+class AdminKey(BaseModel):
+    """
+    The tenant's first admin key, without `firstAdmin`: shown once.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    token_id: Annotated[str, Field(alias="tokenId")]
+    token: str
+
+
+class CreateSystemTenantResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant: SystemTenant
+    first_admin: Annotated[FirstAdmin1 | None, Field(alias="firstAdmin")] = None
+    admin_key: Annotated[AdminKey | None, Field(alias="adminKey")] = None
+    """
+    The tenant's first admin key, without `firstAdmin`: shown once.
+    """
+
+
+class SystemTenantList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[SystemTenant]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque; absent when `hasMore` is false.
+    """
+
+
+class SetTenantSuspendedBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    suspended: bool
+    reason: Annotated[str | None, Field(max_length=500, min_length=1)] = None
+
+
+class SetTenantImagePrefixBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    prefix: str
+    """
+    `<host>/<path>`, with no trailing slash.
+    """
+
+
+class ProjectSuspension(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    suspended: bool
+    suspended_at: Annotated[AwareDatetime | None, Field(alias="suspendedAt")] = None
+    suspended_reason: Annotated[str | None, Field(alias="suspendedReason")] = None
+
+
+class Datum3(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId")]
+    email: str
+    display_name: Annotated[str | None, Field(alias="displayName")] = None
+
+
+class TenantAdminContacts(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: Annotated[list[Datum3], Field(max_length=100)]
+
+
+class SystemWhoami(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key_id: Annotated[str, Field(alias="keyId")]
+    """
+    The system key's id, or `boot` for the deployment's own token.
+    """
+    scopes: list[str]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+
+
 class ApiKeyPrincipal(BaseModel):
     """
     Whom an API key acts for: a person, or a service account.
@@ -1193,7 +1712,7 @@ class CompleteApprovalBody(BaseModel):
 
 class Resume(BaseModel):
     """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
     """
 
     model_config = ConfigDict(
@@ -1205,7 +1724,7 @@ class Resume(BaseModel):
 
 class Resume1(BaseModel):
     """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
     """
 
     model_config = ConfigDict(
@@ -1322,40 +1841,34 @@ class ExportSigningKeyList(BaseModel):
     """
 
 
-class LicenseStatus(BaseModel):
+class LicenseUsage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    mode: Literal["development", "licensed"]
+    since: AwareDatetime
     """
-    `development`: no key needed (`KINDGI_DEV`); the other fields are absent.
+    The period's start, as asked.
     """
-    name: str | None = None
+    until: AwareDatetime
     """
-    Whose key: the name the banner prints.
+    When they were counted.
     """
-    use: Literal["production", "non-production"] | None = None
-    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
-    starts_until: Annotated[AwareDatetime | None, Field(alias="startsUntil")] = None
+    runtime_version: Annotated[str, Field(alias="runtimeVersion")]
     """
-    Until when the runtime starts with this key: `expiresAt` plus the 14-day grace.
+    The runtime's version.
     """
-    days_left: Annotated[int | None, Field(alias="daysLeft")] = None
+    runs: Annotated[int, Field(ge=0)]
     """
-    Whole days until it expires; negative once it has.
+    Runs started in the period: not dry runs, replays, evals or child runs.
     """
-    standing: Literal["valid", "expiring", "grace", "expired"] | None = None
+    people: Annotated[int, Field(ge=0)]
     """
-    `expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days). `expired`: past the grace too: this server runs on, but won't start with it again.
+    Distinct people who started runs or decided approvals in the period, counted in each tenant and summed.
     """
-    renew_by: Annotated[Literal["command", "contact"] | None, Field(alias="renewBy")] = None
+    projects_in_production: Annotated[int | None, Field(alias="projectsInProduction", ge=0)] = None
     """
-    Which way to the next key applies: `command`, a key this deployment renews itself (`kindgi license renew`); `contact`, a key Kindgi issued (write to Kindgi).
-    """
-    renew: str | None = None
-    """
-    How to get the next key, as the banner says it, with where the deployment keeps its key and renewer. Present from 30 days before the key expires, and only to the deployment's own token.
+    Projects in production at `until`; absent when the runtime has no such setting.
     """
 
 
@@ -2900,61 +3413,6 @@ class ToolSpec(RootModel[HttpToolSpec]):
     """
 
 
-class Tool1(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: Annotated[str, Field(min_length=1)]
-    """
-    ToolId — dotted namespace (e.g. `acme.verify-citation`).
-    """
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    """
-    The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
-    """
-    description: Annotated[str, Field(min_length=1)]
-    version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
-    input: dict[str, Any]
-    """
-    JSON Schema (Draft 2020-12) for the tool input.
-    """
-    output: dict[str, Any]
-    """
-    JSON Schema (Draft 2020-12) for the tool output.
-    """
-    needs: list[ToolNeed] | None = None
-    effects: list[ToolEffect] | None = None
-    transport: Literal["auto", "native", "mcp"] | None = None
-    mcp_endpoint: Annotated[str | None, Field(alias="mcpEndpoint")] = None
-    metadata: dict[str, Any] | None = None
-    mutating: bool | None = None
-    """
-    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
-    """
-    sandbox: Literal["none", "context-isolated", "strict"] | None = None
-    """
-    Isolation posture the runtime enforces around the handler. Optional additive field.
-    """
-    limits: RuntimeLimits | None = None
-    network: NetworkPolicy1 | NetworkPolicy2 | None = None
-    """
-    Network egress policy. Optional additive field. Discriminated on `kind`.
-    """
-    needs_spec: Annotated[TypedNeeds | None, Field(alias="needsSpec")] = None
-    code_artifact_ref: Annotated[
-        CodeArtifactRef1 | CodeArtifactRef2 | None, Field(alias="codeArtifactRef")
-    ] = None
-    """
-    Handler-artifact pointer. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the pack's on-disk handler file. Production servers SHOULD reject `filesystem`.
-    """
-    spec: ToolSpec | None = None
-    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
-    """
-    Present only on an unregistered version: a retired tool (every version unregistered) as `GET /v1/tools?includeRetired=true` lists it.
-    """
-
-
 class RegisterToolBody(BaseModel):
     """
     ToolManifest — Tool minus its runtime `handler`. Validated server-side via `@kindgi/tools.validateToolManifest`. Metadata-only registration: the handler is not uploaded and must already be available to the runtime.
@@ -3039,87 +3497,6 @@ class ReinstateToolVersionResult(BaseModel):
     """
     `true` when this call un-tombstoned the version; `false` when it was already active (idempotent no-op).
     """
-
-
-class ToolCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[Tool1]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. Absent when `hasMore: false`.
-    """
-    has_more: Annotated[bool, Field(alias="hasMore")]
-
-
-class ToolVersionRow(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: Annotated[str, Field(min_length=1)]
-    """
-    ToolId — dotted namespace (e.g. `acme.verify-citation`).
-    """
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    """
-    The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
-    """
-    description: Annotated[str, Field(min_length=1)]
-    version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
-    input: dict[str, Any]
-    """
-    JSON Schema (Draft 2020-12) for the tool input.
-    """
-    output: dict[str, Any]
-    """
-    JSON Schema (Draft 2020-12) for the tool output.
-    """
-    needs: list[ToolNeed] | None = None
-    effects: list[ToolEffect] | None = None
-    transport: Literal["auto", "native", "mcp"] | None = None
-    mcp_endpoint: Annotated[str | None, Field(alias="mcpEndpoint")] = None
-    metadata: dict[str, Any] | None = None
-    mutating: bool | None = None
-    """
-    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
-    """
-    sandbox: Literal["none", "context-isolated", "strict"] | None = None
-    """
-    Isolation posture the runtime enforces around the handler. Optional additive field.
-    """
-    limits: RuntimeLimits | None = None
-    network: NetworkPolicy1 | NetworkPolicy2 | None = None
-    """
-    Network egress policy. Optional additive field. Discriminated on `kind`.
-    """
-    needs_spec: Annotated[TypedNeeds | None, Field(alias="needsSpec")] = None
-    code_artifact_ref: Annotated[
-        CodeArtifactRef1 | CodeArtifactRef2 | None, Field(alias="codeArtifactRef")
-    ] = None
-    """
-    Handler-artifact pointer. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the pack's on-disk handler file. Production servers SHOULD reject `filesystem`.
-    """
-    spec: ToolSpec | None = None
-    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
-    """
-    ISO 8601 timestamp — present iff this version has been soft-tombstoned via `POST /versions/:v/unregister`. Absent on active versions.
-    """
-
-
-class ToolVersionCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[ToolVersionRow]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. Absent when `hasMore: false`.
-    """
-    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class Retry(BaseModel):
@@ -3386,7 +3763,7 @@ class Conversation(BaseModel):
     participant_id: Annotated[str | None, Field(alias="participantId")] = None
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The project the conversation is in: the project of the run that opened it, or `projectId` on open (the tenant's Default project when omitted). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.
+    The project the conversation is in: the project of the run that opened it, or `projectId` on open (when omitted, the agent's own project, or the tenant's Default project for an agent filed under none). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.
     """
     scope: dict[str, Any]
     """
@@ -3454,7 +3831,7 @@ class OpenConversationBody(BaseModel):
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`. Omitted: the tenant's Default project, as for a run.
+    The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`, that reaches the agent, else `400 reference-out-of-scope`. Omitted: the agent's own project, as for a run (the tenant's Default project for an agent filed under none).
     """
     scope: dict[str, Any] | None = None
     """
@@ -5031,7 +5408,7 @@ class BlobMeta(BaseModel):
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
 
 
-class Datum3(BaseModel):
+class Datum5(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -5081,7 +5458,7 @@ class ArtifactCollectionPage(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Datum3]
+    data: list[Datum5]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
 
@@ -5418,6 +5795,9 @@ class Config1(BaseModel):
     Optional distinct SSE endpoint if the server splits them.
     """
     headers: dict[str, str] | None = None
+    """
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    """
 
 
 class Config2(BaseModel):
@@ -5432,11 +5812,52 @@ class Config2(BaseModel):
     transport: Literal["streamable-http"]
     url: AnyUrl
     headers: dict[str, str] | None = None
+    """
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    """
+
+
+class RecordedSecretScope1(BaseModel):
+    """
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["tenant"]
+
+
+class RecordedSecretScope2(BaseModel):
+    """
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["org"]
+    org_id: Annotated[UUID, Field(alias="orgId")]
+
+
+class RecordedSecretScope3(BaseModel):
+    """
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["project"]
+    project_id: Annotated[UUID, Field(alias="projectId")]
 
 
 class MCPEndpointSecretRef(BaseModel):
     """
-    The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password or client secret. The endpoint keeps only this reference.
+    The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password, client secret or header value. The endpoint keeps only this reference.
     """
 
     model_config = ConfigDict(
@@ -5496,6 +5917,28 @@ class MCPOAuth2ClientCredentialsAuth(BaseModel):
     """
 
 
+class MCPAuthHeader(BaseModel):
+    """
+    One header a `header` auth sends: `<name>: <prefix><secret>`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: Annotated[
+        str, Field(max_length=256, min_length=1, pattern="^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+    ]
+    """
+    An HTTP header name, once per `auth` (case-insensitive). Not one the MCP transport or HTTP sets itself (`Host`, `Content-Type`, `Content-Length`, `Accept`, `Connection`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Last-Event-ID`, `traceparent`, `tracestate`, …): reason `invalid-auth`.
+    """
+    secret_ref: Annotated[MCPEndpointSecretRef, Field(alias="secretRef")]
+    prefix: Annotated[str | None, Field(max_length=64, min_length=1)] = None
+    """
+    Text sent before the secret, such as `Token ` or `ApiKey `, without control characters. Absent: none. Not a secret: it reads back as registered.
+    """
+
+
 class Config3(BaseModel):
     """
     Transport-tagged config union. Server enforces `config.transport === transport` at registration.
@@ -5527,6 +5970,9 @@ class Config4(BaseModel):
     Optional distinct SSE endpoint if the server splits them.
     """
     headers: dict[str, str] | None = None
+    """
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    """
 
 
 class Config5(BaseModel):
@@ -5541,6 +5987,9 @@ class Config5(BaseModel):
     transport: Literal["streamable-http"]
     url: AnyUrl
     headers: dict[str, str] | None = None
+    """
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    """
 
 
 class RegisterMCPEndpointResult(BaseModel):
@@ -8375,6 +8824,42 @@ class DeploymentContents(BaseModel):
     flows: list[Flow2]
 
 
+class DeploymentEndpointProblem(BaseModel):
+    """
+    With `pending` only: the last reason the deployment has no pack service yet, gone once the status changes. A fixed code, never free text.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: str
+    """
+    One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start).
+    """
+    since: AwareDatetime
+    """
+    When it was recorded.
+    """
+
+
+class DeploymentEndpoint(BaseModel):
+    """
+    Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`). Carries no URL and no token.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    status: Literal["pending", "ready", "cleared"]
+    since: AwareDatetime
+    """
+    When the status last changed.
+    """
+    problem: DeploymentEndpointProblem | None = None
+
+
 class DeploymentRecord(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -8415,6 +8900,11 @@ class DeploymentRecord(BaseModel):
     """
     Server-side ledger timestamp — when the register call succeeded.
     """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's Default project).
+    """
+    endpoint: DeploymentEndpoint | None = None
     primitives: DeploymentPrimitiveCounts
     contents: DeploymentContents
 
@@ -8448,6 +8938,10 @@ class DeploymentRegistrationBody(BaseModel):
     published_at: Annotated[AwareDatetime, Field(alias="publishedAt")]
     """
     Issuer-supplied ISO-8601 timestamp — covered by the signature.
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The project to deploy into, one per client: its agents, flows, tools and guardrails are registered there, and its secret sync writes there. It takes admin on that project (a key limited to another project is refused). Absent: a tenant-wide deploy, into the tenant's Default project. An id that already lives in another project is `409` (`tool-project-mismatch` and the like): each client gets its own pack, whose ids carry its own pack id. Not covered by the signature, which attests the image.
     """
 
 
@@ -9322,8 +9816,35 @@ class Project(BaseModel):
     slug: str
     is_default: Annotated[bool, Field(alias="isDefault")]
     description: str | None = None
+    production_since: Annotated[AwareDatetime | None, Field(alias="productionSince")] = None
+    """
+    When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging.
+    """
     created_at: Annotated[str, Field(alias="createdAt")]
     updated_at: Annotated[str, Field(alias="updatedAt")]
+
+
+class ProjectProductionBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    production: bool
+    """
+    `true` puts the project in production; `false` takes it out.
+    """
+
+
+class ProjectProduction(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str, Field(alias="projectId")]
+    production_since: Annotated[AwareDatetime | None, Field(alias="productionSince")]
+    """
+    When the project went into production; `null` while it isn't in production.
+    """
 
 
 class ProjectSpec(BaseModel):
@@ -9430,16 +9951,80 @@ class AddProjectMembershipResult(BaseModel):
     """
 
 
-class Tenant(BaseModel):
+class TenantLimits(BaseModel):
+    """
+    The tenant's limits that are set. A limit that isn't set is absent, and isn't enforced.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    id: UUID
-    name: str
-    slug: str
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    api_requests_per_minute: Annotated[int | None, Field(alias="apiRequestsPerMinute", ge=1)] = None
+    """
+    API requests a minute. Past it: 429 `rate-limit-exceeded`.
+    """
+    webhook_receives_per_minute: Annotated[
+        int | None, Field(alias="webhookReceivesPerMinute", ge=1)
+    ] = None
+    """
+    Webhook deliveries received a minute, across the tenant's triggers. Past it: 429.
+    """
+    runs_at_once: Annotated[int | None, Field(alias="runsAtOnce", ge=1)] = None
+    """
+    Runs executing at once. Past it, a new run waits as `pending`.
+    """
+    runs_pending: Annotated[int | None, Field(alias="runsPending", ge=1)] = None
+    """
+    Runs waiting as `pending`. Past it, a new run is refused with 429.
+    """
+    tool_calls_in_flight: Annotated[int | None, Field(alias="toolCallsInFlight", ge=1)] = None
+    """
+    Tool calls in flight to the tenant's pack services. Past it, a call waits for a slot.
+    """
+    approvals_pending: Annotated[int | None, Field(alias="approvalsPending", ge=1)] = None
+    """
+    Approvals waiting for a decision. Past it, the step that asks fails, naming the limit.
+    """
+    projects_in_production: Annotated[int | None, Field(alias="projectsInProduction", ge=1)] = None
+    """
+    Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production.
+    """
+
+
+class ProductionAllowedBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    allowed: bool
+    """
+    `true` allows the tenant to put projects in production; `false` stops it.
+    """
+
+
+class TenantProductionAllowed(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    production_allowed: Annotated[bool, Field(alias="productionAllowed")]
+
+
+class TenantLimitsInUse(BaseModel):
+    """
+    How much of each limit that counts something the tenant uses now, whether the limit is set or not: on `GET …/limits` only, and only from a runtime that counts it. A limit can be lowered below it: nothing is taken back, and the next one waits until the count is under the limit.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    projects_in_production: Annotated[int, Field(alias="projectsInProduction", ge=0)]
+    """
+    The tenant's projects in production.
+    """
 
 
 class TenantConfigEntry(BaseModel):
@@ -9751,6 +10336,10 @@ class SecretResolveOutcome(BaseModel):
     name: str
     version_id: Annotated[int, Field(alias="versionId", ge=1)]
     value: str
+    scope: Scope2 | Scope3 | Scope4 | None = None
+    """
+    Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
+    """
 
 
 class SecretRotateOutcome1(BaseModel):
@@ -9987,7 +10576,7 @@ class ScheduleFire(BaseModel):
         "pending", "started", "skipped-overlap", "skipped-erasure", "skipped", "refused", "failed"
     ]
     """
-    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`: what an improve schedule waits for wasn't there (its threshold, or its monthly cap), as `detail` says. None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do.
+    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or pass started; its run or pass hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
     """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
@@ -10000,6 +10589,10 @@ class ScheduleFire(BaseModel):
     detail: str | None = None
     """
     Why it was refused, skipped or failed.
+    """
+    counts_toward_pause: Annotated[bool | None, Field(alias="countsTowardPause")] = None
+    """
+    Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for a refusal for a limit, such as the tenant's runs pending (`detail` starts `rate-limited:`): the limit passes, and the trigger isn't at fault. Absent from a runtime that doesn't say: `refused` and `failed` fires counted, and the others didn't.
     """
     missed_count: Annotated[int | None, Field(alias="missedCount", ge=1)] = None
     """
@@ -10140,7 +10733,18 @@ class WebhookTriggerRecord(BaseModel):
     """
     hmac_secret_name: Annotated[str, Field(alias="hmacSecretName", min_length=1)]
     """
-    The signing secret, by name (written with `POST /v1/secrets`). Read in the env the deployment serves.
+    The signing secret, by name (written with `POST /v1/secrets`, or made by `generateSecret`). Read in the env the deployment serves, at `hmacSecretScope`.
+    """
+    hmac_secret_scope: Annotated[
+        RecordedSecretScope1 | RecordedSecretScope2 | RecordedSecretScope3 | None,
+        Field(alias="hmacSecretScope"),
+    ] = None
+    """
+    Where the signing secret is read, recorded when the trigger was registered (or its secret named again). `null`: none usable, so no delivery verifies until an admin names it again. Absent on triggers registered before it was recorded: read at the tenant, as before.
+    """
+    signing_secret: Annotated[str | None, Field(alias="signingSecret")] = None
+    """
+    Only in the answer to a register with `generateSecret`: the new signing secret, shown this once, to paste into the sender. It's stored as `hmacSecretName` in the trigger's own scope; no later read shows it.
     """
     signature: WebhookSignature1 | WebhookSignature2
     """
@@ -10192,7 +10796,7 @@ class WebhookFire(BaseModel):
     fired_at: Annotated[AwareDatetime, Field(alias="firedAt")]
     outcome: Literal["pending", "started", "skipped", "refused", "failed"]
     """
-    `pending` while its run starts. `skipped`: the trigger was paused, so the event was dropped. `refused`: `detail` says why. `failed`: the run couldn't start.
+    `pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); its run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.
     """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
@@ -10200,7 +10804,11 @@ class WebhookFire(BaseModel):
     """
     detail: str | None = None
     """
-    Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, or the owner's lost access.
+    Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension or a close names `project-suspended`, `tenant-suspended` or `tenant-closing` in it.
+    """
+    counts_toward_pause: Annotated[bool | None, Field(alias="countsTowardPause")] = None
+    """
+    Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for a refusal for a limit, such as the tenant's runs pending (`detail` starts `rate-limited:`): the limit passes, and the trigger isn't at fault. Absent from a runtime that doesn't say: `refused` and `failed` fires counted, and the others didn't.
     """
     duplicates: Annotated[int | None, Field(ge=1)] = None
     """
@@ -10236,9 +10844,9 @@ class WebhookReceipt(BaseModel):
     """
     An earlier fire holds this delivery's dedupe key: nothing new started.
     """
-    skipped: Literal["paused"] | None = None
+    skipped: Literal["paused", "tenant-suspended", "project-suspended"] | None = None
     """
-    The trigger is paused: no run started, and the event was dropped.
+    No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's tenant or project is suspended, and nothing was recorded.
     """
     received: Literal["ping"] | None = None
     """
@@ -10278,7 +10886,11 @@ class RegisterWebhookTriggerBody(BaseModel):
     config: Config8 | None = None
     hmac_secret_name: Annotated[str, Field(alias="hmacSecretName", min_length=1)]
     """
-    The signing secret, by name: written first with `POST /v1/secrets`. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing).
+    The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing). Under `kindgi dev`, `generateSecret` writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`secret-name-invalid` otherwise).
+    """
+    generate_secret: Annotated[bool | None, Field(alias="generateSecret")] = None
+    """
+    Make a new signing secret, store it as `hmacSecretName` in the trigger's own project (in the env the deployment serves), and return it once as `signingSecret`. Needs only `write` on the project. A name the project already has is refused (`secret-write-conflict`, 409), never overwritten. Letters and digits, or `whsec_…` for `standard-webhooks`.
     """
     signature: WebhookSignature1 | WebhookSignature2 | None = None
     """
@@ -10647,6 +11259,34 @@ class WebhookTestEvent(BaseModel):
     data: Data2
 
 
+class LicensePreview(BaseModel):
+    """
+    This build's own expiry, before Kindgi 1.0: a preview release stops starting 90 days after it was released, in every mode, unless a production key exempts it. Absent when nothing expires: a 1.0 or later release, a build from source, or a production key.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    """
+    This build's release, `0.1.8`.
+    """
+    released_at: Annotated[AwareDatetime, Field(alias="releasedAt")]
+    expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
+    """
+    From then on, it no longer starts: `releasedAt` plus 90 days.
+    """
+    days_left: Annotated[int, Field(alias="daysLeft")]
+    """
+    Whole days until then; negative once it has passed.
+    """
+    standing: Literal["valid", "expiring", "expired"]
+    """
+    `expiring`: 30 days or fewer left. `expired`: past it: this server runs on, but won't start again; run a newer release.
+    """
+
+
 class SystemOpenapiResponse(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -10675,7 +11315,7 @@ class AuditSignInsListResponse(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class Datum4(BaseModel):
+class Datum6(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -10701,7 +11341,7 @@ class AuditAuthzListResponse(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Datum4]
+    data: list[Datum6]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
@@ -11093,7 +11733,7 @@ class ApiToken(BaseModel):
     """
 
 
-class Datum2(BaseModel):
+class Datum4(BaseModel):
     """
     An API key. Never includes the secret. `principal` is whom it acts for; absent on a key that is a service account of its own (`service_account:<tokenId>`), as keys minted before principals are.
     """
@@ -11138,7 +11778,7 @@ class ApiTokenPage(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Datum2]
+    data: list[Datum4]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
     Opaque cursor for the next page. Absent when `hasMore: false`.
@@ -11374,8 +12014,46 @@ class CompleteApprovalResult(BaseModel):
     ] = None
     resume: Resume | Resume1 | None = None
     """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
     """
+
+
+class LicenseStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    mode: Literal["development", "licensed"]
+    """
+    `development`: no key needed (`KINDGI_DEV`); the key's fields are absent, and `preview` may be present.
+    """
+    name: str | None = None
+    """
+    Whose key: the name the banner prints.
+    """
+    use: Literal["production", "non-production"] | None = None
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    starts_until: Annotated[AwareDatetime | None, Field(alias="startsUntil")] = None
+    """
+    Until when the runtime starts with this key: `expiresAt` plus the 14-day grace.
+    """
+    days_left: Annotated[int | None, Field(alias="daysLeft")] = None
+    """
+    Whole days until it expires; negative once it has.
+    """
+    standing: Literal["valid", "expiring", "grace", "expired"] | None = None
+    """
+    `expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days). `expired`: past the grace too: this server runs on, but won't start with it again.
+    """
+    renew_by: Annotated[Literal["command", "contact"] | None, Field(alias="renewBy")] = None
+    """
+    Which way to the next key applies: `command`, a key this deployment renews itself (`kindgi license renew`); `contact`, a key Kindgi issued (write to Kindgi).
+    """
+    renew: str | None = None
+    """
+    How to get the next key, as the banner says it, with where the deployment keeps its key and renewer. Present from 30 days before the key expires, and only to the deployment's own token.
+    """
+    preview: LicensePreview | None = None
 
 
 class JudgeClass(BaseModel):
@@ -11551,6 +12229,156 @@ class AgentCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class Tool1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: Annotated[str, Field(min_length=1)]
+    """
+    ToolId — dotted namespace (e.g. `acme.verify-citation`).
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
+    """
+    description: Annotated[str, Field(min_length=1)]
+    version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
+    input: dict[str, Any]
+    """
+    JSON Schema (Draft 2020-12) for the tool input.
+    """
+    output: dict[str, Any]
+    """
+    JSON Schema (Draft 2020-12) for the tool output.
+    """
+    needs: list[ToolNeed] | None = None
+    effects: list[ToolEffect] | None = None
+    transport: Literal["auto", "native", "mcp"] | None = None
+    mcp_endpoint: Annotated[str | None, Field(alias="mcpEndpoint")] = None
+    metadata: dict[str, Any] | None = None
+    mutating: bool | None = None
+    """
+    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
+    """
+    sandbox: Literal["none", "context-isolated", "strict"] | None = None
+    """
+    Isolation posture the runtime enforces around the handler. Optional additive field.
+    """
+    limits: RuntimeLimits | None = None
+    network: NetworkPolicy1 | NetworkPolicy2 | None = None
+    """
+    Network egress policy. Optional additive field. Discriminated on `kind`.
+    """
+    needs_spec: Annotated[TypedNeeds | None, Field(alias="needsSpec")] = None
+    code_artifact_ref: Annotated[
+        CodeArtifactRef1 | CodeArtifactRef2 | None, Field(alias="codeArtifactRef")
+    ] = None
+    """
+    Handler-artifact pointer. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the pack's on-disk handler file. Production servers SHOULD reject `filesystem`.
+    """
+    spec: ToolSpec | None = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Present only on an unregistered version: a retired tool (every version unregistered) as `GET /v1/tools?includeRetired=true` lists it.
+    """
+    secret_scopes: Annotated[
+        dict[str, RecordedSecretScope1 | RecordedSecretScope2 | RecordedSecretScope3 | None] | None,
+        Field(alias="secretScopes"),
+    ] = None
+    """
+    Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.
+    """
+
+
+class ToolCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Tool1]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class ToolVersionRow(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: Annotated[str, Field(min_length=1)]
+    """
+    ToolId — dotted namespace (e.g. `acme.verify-citation`).
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
+    """
+    description: Annotated[str, Field(min_length=1)]
+    version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
+    input: dict[str, Any]
+    """
+    JSON Schema (Draft 2020-12) for the tool input.
+    """
+    output: dict[str, Any]
+    """
+    JSON Schema (Draft 2020-12) for the tool output.
+    """
+    needs: list[ToolNeed] | None = None
+    effects: list[ToolEffect] | None = None
+    transport: Literal["auto", "native", "mcp"] | None = None
+    mcp_endpoint: Annotated[str | None, Field(alias="mcpEndpoint")] = None
+    metadata: dict[str, Any] | None = None
+    mutating: bool | None = None
+    """
+    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
+    """
+    sandbox: Literal["none", "context-isolated", "strict"] | None = None
+    """
+    Isolation posture the runtime enforces around the handler. Optional additive field.
+    """
+    limits: RuntimeLimits | None = None
+    network: NetworkPolicy1 | NetworkPolicy2 | None = None
+    """
+    Network egress policy. Optional additive field. Discriminated on `kind`.
+    """
+    needs_spec: Annotated[TypedNeeds | None, Field(alias="needsSpec")] = None
+    code_artifact_ref: Annotated[
+        CodeArtifactRef1 | CodeArtifactRef2 | None, Field(alias="codeArtifactRef")
+    ] = None
+    """
+    Handler-artifact pointer. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the pack's on-disk handler file. Production servers SHOULD reject `filesystem`.
+    """
+    spec: ToolSpec | None = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    ISO 8601 timestamp — present iff this version has been soft-tombstoned via `POST /versions/:v/unregister`. Absent on active versions.
+    """
+    secret_scopes: Annotated[
+        dict[str, RecordedSecretScope1 | RecordedSecretScope2 | RecordedSecretScope3 | None] | None,
+        Field(alias="secretScopes"),
+    ] = None
+    """
+    Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.
+    """
+
+
+class ToolVersionCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ToolVersionRow]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
 class EvaluateProposalBody(BaseModel):
     """
     Compare the proposal's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).
@@ -11674,51 +12502,17 @@ class ProviderCapabilitiesResult(BaseModel):
     data: list[CapabilityDescriptor]
 
 
-class RegisterMCPEndpointBody(BaseModel):
+class MCPHeaderAuth(BaseModel):
+    """
+    Headers of the server's own, each with a secret: an API key in `X-Api-Key`, a key and a secret in two headers, or `Authorization` with a prefix other than `Bearer ` (`Token …`). The runtime resolves each `secretRef` when it connects, and refuses to follow a redirect with them, as it does for every `auth`.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    endpoint_id: Annotated[str, Field(alias="endpointId", min_length=1)]
-    name: Annotated[str, Field(min_length=1)]
-    """
-    Human-readable display name.
-    """
-    transport: Literal["stdio", "http-sse", "streamable-http"]
-    """
-    MCP transport variant. `stdio` — local subprocess (spawn a command). `http-sse` — the older MCP HTTP+SSE transport (separate POST + SSE endpoints). `streamable-http` — the Streamable HTTP transport (single endpoint, session id via header).
-    """
-    config: Config3 | Config4 | Config5
-    """
-    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
-    """
-    secret_ref: Annotated[MCPEndpointSecretRef | None, Field(alias="secretRef")] = None
-    auth: Annotated[
-        MCPBasicAuth | MCPOAuth2ClientCredentialsAuth | None, Field(discriminator="scheme")
-    ] = None
-    """
-    How the endpoint signs in when it isn't a plain bearer: `basic` or `oauth2-client-credentials`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with an `Authorization` header in `config.headers` (reason `auth-with-authorization-header`). An older runtime refuses the field as unknown.
-    """
-    instructions: str | None = None
-    """
-    Optional pass-through to the MCP client `serverInfo.instructions`.
-    """
-    metadata: dict[str, Any] | None = None
-    """
-    Optional caller-defined metadata bag.
-    """
-    send_traceparent: Annotated[bool | None, Field(alias="sendTraceparent")] = None
-    """
-    Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
-    """
-    scope_kind: Annotated[Literal["tenant", "org", "project"], Field(alias="scopeKind")]
-    """
-    Discriminator for the ?scopeKind + ?scopeId + ?inherit triplet. Tenant carries no id (implicit from session); org/project require scopeId.
-    """
-    scope_id: Annotated[str | None, Field(alias="scopeId", min_length=1)] = None
-    """
-    Required when `scopeKind` is `org` or `project`; absent for `tenant` (implicit from the session).
-    """
+    scheme: Literal["header"]
+    headers: Annotated[list[MCPAuthHeader], Field(max_length=4, min_length=1)]
 
 
 class CostRecord(BaseModel):
@@ -11921,6 +12715,41 @@ class DeploymentSecretsSyncRequest(BaseModel):
     """
 
 
+class Tenant(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    name: str
+    slug: str
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    production_allowed: Annotated[bool | None, Field(alias="productionAllowed")] = None
+    """
+    Whether the tenant may put projects in production. Absent from a runtime that doesn't gate production.
+    """
+    production_next: Annotated[str | None, Field(alias="productionNext")] = None
+    """
+    Where to go to be allowed to put projects in production, for example a billing page. Only while `productionAllowed` is `false`, and only when the runtime names one.
+    """
+    state: Literal["active", "suspended", "closing"] | None = None
+    """
+    On a runtime serving many tenants: `closing` (readable and exportable for its window, nothing changes) or `suspended` (the same, until restored). `closing` wins. Absent: active.
+    """
+    limits: TenantLimits | None = None
+
+
+class TenantLimitsResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    limits: TenantLimits
+    in_use: Annotated[TenantLimitsInUse | None, Field(alias="inUse")] = None
+
+
 class ScheduleRecord(BaseModel):
     """
     A schedule: what it runs (a flow at a version, or an agent), when (a cron expression in a timezone), as whom (its owner), and what it does after a gap or while a run is still going.
@@ -11971,7 +12800,7 @@ class ScheduleRecord(BaseModel):
     """
     catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
     """
-    After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence.
+    After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence. A tenant's suspension isn't caught up either way: once the tenant is restored, a schedule that's on fires next at its first occurrence after the restore.
     """
     overlap: Literal["skip", "allow"] | None = None
     """
@@ -12151,6 +12980,10 @@ class FinishedRun(BaseModel):
     """
     Why the run failed or was cancelled; `null` when it completed.
     """
+    failure: RunFailure | None = None
+    """
+    A failed run's error, as `GET /v1/runs/{runId}` reads it back: its `code`, and the error's own `details` when it has them. Absent unless the run failed, and from a runtime that doesn't send it yet; read `failureMessage` then.
+    """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     completed_at: Annotated[AwareDatetime, Field(alias="completedAt")]
     usage: RunTreeUsage | None = None
@@ -12225,7 +13058,7 @@ class WebhookDeliveryCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class MCPEndpoint(BaseModel):
+class RegisterMCPEndpointBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -12239,16 +13072,17 @@ class MCPEndpoint(BaseModel):
     """
     MCP transport variant. `stdio` — local subprocess (spawn a command). `http-sse` — the older MCP HTTP+SSE transport (separate POST + SSE endpoints). `streamable-http` — the Streamable HTTP transport (single endpoint, session id via header).
     """
-    config: Config | Config1 | Config2
+    config: Config3 | Config4 | Config5
     """
     Transport-tagged config union. Server enforces `config.transport === transport` at registration.
     """
     secret_ref: Annotated[MCPEndpointSecretRef | None, Field(alias="secretRef")] = None
     auth: Annotated[
-        MCPBasicAuth | MCPOAuth2ClientCredentialsAuth | None, Field(discriminator="scheme")
+        MCPBasicAuth | MCPOAuth2ClientCredentialsAuth | MCPHeaderAuth | None,
+        Field(discriminator="scheme"),
     ] = None
     """
-    How the endpoint signs in when it isn't a plain bearer: `basic` or `oauth2-client-credentials`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with an `Authorization` header in `config.headers` (reason `auth-with-authorization-header`). An older runtime refuses the field as unknown.
+    How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`.
     """
     instructions: str | None = None
     """
@@ -12262,16 +13096,14 @@ class MCPEndpoint(BaseModel):
     """
     Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
     """
-
-
-class MCPEndpointCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[MCPEndpoint]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    has_more: Annotated[bool, Field(alias="hasMore")]
+    scope_kind: Annotated[Literal["tenant", "org", "project"], Field(alias="scopeKind")]
+    """
+    Discriminator for the ?scopeKind + ?scopeId + ?inherit triplet. Tenant carries no id (implicit from session); org/project require scopeId.
+    """
+    scope_id: Annotated[str | None, Field(alias="scopeId", min_length=1)] = None
+    """
+    Required when `scopeKind` is `org` or `project`; absent for `tenant` (implicit from the session).
+    """
 
 
 class PersonGrants(BaseModel):
@@ -12301,6 +13133,63 @@ class PersonGrants(BaseModel):
     Team memberships.
     """
     reviewer: PersonReviewerRole | None = None
+
+
+class MCPEndpoint(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    endpoint_id: Annotated[str, Field(alias="endpointId", min_length=1)]
+    name: Annotated[str, Field(min_length=1)]
+    """
+    Human-readable display name.
+    """
+    transport: Literal["stdio", "http-sse", "streamable-http"]
+    """
+    MCP transport variant. `stdio` — local subprocess (spawn a command). `http-sse` — the older MCP HTTP+SSE transport (separate POST + SSE endpoints). `streamable-http` — the Streamable HTTP transport (single endpoint, session id via header).
+    """
+    config: Config | Config1 | Config2
+    """
+    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
+    """
+    secret_ref: Annotated[MCPEndpointSecretRef | None, Field(alias="secretRef")] = None
+    auth: Annotated[
+        MCPBasicAuth | MCPOAuth2ClientCredentialsAuth | MCPHeaderAuth | None,
+        Field(discriminator="scheme"),
+    ] = None
+    """
+    How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`.
+    """
+    instructions: str | None = None
+    """
+    Optional pass-through to the MCP client `serverInfo.instructions`.
+    """
+    metadata: dict[str, Any] | None = None
+    """
+    Optional caller-defined metadata bag.
+    """
+    send_traceparent: Annotated[bool | None, Field(alias="sendTraceparent")] = None
+    """
+    Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
+    """
+    secret_scopes: Annotated[
+        dict[str, RecordedSecretScope1 | RecordedSecretScope2 | RecordedSecretScope3 | None] | None,
+        Field(alias="secretScopes"),
+    ] = None
+    """
+    Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.
+    """
+
+
+class MCPEndpointCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[MCPEndpoint]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class UserRecord(BaseModel):

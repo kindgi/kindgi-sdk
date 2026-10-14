@@ -131,6 +131,7 @@ export function createInMemoryTriggerRegistry(
         config: input.config,
         webhookId: input.webhookId,
         hmacSecretName: input.hmacSecretName,
+        ...(input.hmacSecretScope !== undefined && { hmacSecretScope: input.hmacSecretScope }),
         signature: input.signature ?? DEFAULT_WEBHOOK_SIGNATURE,
         ...(input.deliveryIdHeader !== undefined && { deliveryIdHeader: input.deliveryIdHeader }),
         bodyLimitBytes: input.bodyLimitBytes ?? WEBHOOK_BODY_LIMITS.defaultBytes,
@@ -170,6 +171,7 @@ export function createInMemoryTriggerRegistry(
           config: { ...row.config, ...input.config },
           ...(input.flowVersion !== undefined && { flowVersion: input.flowVersion }),
           ...(input.hmacSecretName !== undefined && { hmacSecretName: input.hmacSecretName }),
+          ...(input.hmacSecretScope !== undefined && { hmacSecretScope: input.hmacSecretScope }),
           ...(input.signature !== undefined && { signature: input.signature }),
           ...(typeof input.deliveryIdHeader === 'string' && {
             deliveryIdHeader: input.deliveryIdHeader,

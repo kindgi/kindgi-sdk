@@ -209,6 +209,24 @@ def test_parse_event_reads_run_finished() -> None:
     assert event.data.run.flow_id == "acme.order-review"
     assert event.data.run.status == "failed"
     assert event.created_at == datetime(2026, 10, 2, tzinfo=UTC)
+    assert event.data.run.failure is None
+
+
+def test_parse_event_reads_a_run_finished_failure_and_its_details() -> None:
+    run = {
+        **RUN_FINISHED["data"]["run"],
+        "failure": {
+            "code": "rate-limit-exceeded",
+            "message": "Template render budget reached for this tenant",
+            "details": {"limit": "template-render-time", "budgetMs": 5000},
+        },
+    }
+    event = webhooks.parse_event(json.dumps({**RUN_FINISHED, "data": {"run": run}}))
+    assert isinstance(event, models.RunFinishedEvent)
+    failure = event.data.run.failure
+    assert failure is not None
+    assert failure.code == "rate-limit-exceeded"
+    assert failure.details == {"limit": "template-render-time", "budgetMs": 5000}
 
 
 def test_parse_event_reads_the_test_event() -> None:

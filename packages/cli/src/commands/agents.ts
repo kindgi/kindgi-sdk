@@ -14,6 +14,7 @@ import type { AgentId } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
+import { callWaitingOutRateLimits } from '../rate-limit-wait.js';
 import {
   type TableSpec,
   integerFlag,
@@ -129,7 +130,9 @@ const publish: LeafCommand = {
       if (specText === undefined) throw new UsageError('--spec=<json-or-@file> is required');
       const spec = (await readJsonInput(specText)) as AgentDefinitionSpec;
       const projectId = await projectIdFlag(ctx);
-      const agentId = await ctx.client().agents.define(spec, { projectId });
+      const agentId = await callWaitingOutRateLimits(ctx, () =>
+        ctx.client().agents.define(spec, { projectId }),
+      );
       return { agentId };
     }),
 };

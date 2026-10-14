@@ -1022,8 +1022,9 @@ export interface Conversation {
   readonly participantId?: string;
   /**
    * The project the conversation is in: the project of the run that
-   * opened it, or `projectId` on open (the tenant's Default project when
-   * omitted). Absent on conversations from before 0.1.3.
+   * opened it, or `projectId` on open (when omitted, the agent's own
+   * project, or the tenant's Default project for an agent filed under
+   * none). Absent on conversations from before 0.1.3.
    */
   readonly projectId?: string;
   /** Structural scope (project id, matter id, etc.). */
@@ -1047,8 +1048,9 @@ export interface OpenConversationInput {
   readonly agentId: import('@kindgi/types').AgentId;
   readonly agentVersion: string;
   /**
-   * Put the conversation in a project (one of the tenant's): lists filter
-   * by it. Omitted: the tenant's Default project, as for a run.
+   * Put the conversation in a project (one of the tenant's, reaching the
+   * agent): lists filter by it. Omitted: the agent's own project, as for a
+   * run.
    */
   readonly projectId?: string;
   readonly scope?: Readonly<Record<string, unknown>>;
@@ -2444,11 +2446,21 @@ export type McpEndpointConfig =
       readonly url: string;
       /** Optional distinct SSE endpoint if the server splits them. */
       readonly sseUrl?: string;
+      /**
+       * Plain headers, never a credential: a name such as `Authorization`,
+       * `Cookie`, `X-Api-Key` or `X-Auth-Token` is refused (`credential-in-headers`);
+       * send it with `McpHeaderAuth`. One registered before reads back as `[redacted]`.
+       */
       readonly headers?: Readonly<Record<string, string>>;
     }
   | {
       readonly transport: 'streamable-http';
       readonly url: string;
+      /**
+       * Plain headers, never a credential: a name such as `Authorization`,
+       * `Cookie`, `X-Api-Key` or `X-Auth-Token` is refused (`credential-in-headers`);
+       * send it with `McpHeaderAuth`. One registered before reads back as `[redacted]`.
+       */
       readonly headers?: Readonly<Record<string, string>>;
     };
 
@@ -2496,8 +2508,29 @@ export interface McpOAuth2ClientCredentialsAuth {
   readonly clientAuth?: 'client_secret_basic' | 'client_secret_post';
 }
 
+/** One header a `header` auth sends (`@kindgi/api/openapi.json#MCPAuthHeader`): `<name>: <prefix><secret>`. */
+export interface McpAuthHeader {
+  /** An HTTP header name, once per auth; not one the transport sets (`Host`, `Content-Type`, …). */
+  readonly name: string;
+  /** The value, by reference. */
+  readonly secretRef: McpEndpointSecretRef;
+  /** Text before the secret (`Token `, `ApiKey `). Not a secret. Absent: none. */
+  readonly prefix?: string;
+}
+
+/**
+ * Headers of the server's own, each with a secret
+ * (`@kindgi/api/openapi.json#MCPHeaderAuth`): an API key in `X-Api-Key`, a key
+ * and a secret in two headers, or `Authorization` with a prefix other than
+ * `Bearer `. 1 to 4 headers, distinct by name.
+ */
+export interface McpHeaderAuth {
+  readonly scheme: 'header';
+  readonly headers: readonly McpAuthHeader[];
+}
+
 /** How an endpoint signs in when it isn't a plain bearer (`@kindgi/api/openapi.json#MCPEndpointAuth`). */
-export type McpEndpointAuth = McpBasicAuth | McpOAuth2ClientCredentialsAuth;
+export type McpEndpointAuth = McpBasicAuth | McpOAuth2ClientCredentialsAuth | McpHeaderAuth;
 
 /**
  * Wire shape — matches `@kindgi/api/openapi.json#MCPEndpoint`. Represents an
@@ -2533,9 +2566,10 @@ export interface RegisterMcpEndpointInput {
   readonly secretRef?: McpEndpointSecretRef;
   /**
    * How it signs in when it isn't a plain bearer: `basic` (a user name and a
-   * password secret) or `oauth2-client-credentials` (a token the runtime
-   * fetches and refreshes). Not with `secretRef`, not on `stdio`, and not with
-   * an `Authorization` header in `config.headers`.
+   * password secret), `oauth2-client-credentials` (a token the runtime
+   * fetches and refreshes) or `header` (headers of the server's own, each with
+   * a secret). Not with `secretRef`, not on `stdio`, and not with a header
+   * `auth` sends in `config.headers` too.
    */
   readonly auth?: McpEndpointAuth;
   /**

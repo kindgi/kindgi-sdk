@@ -8,8 +8,8 @@
  * `WebhookEvent` in `packages/api/openapi.json` is the JSON body of every webhook request. This
  * walks it, and everything it refers to, into plain data for `parseEvent`'s checker
  * (`packages/sdk/src/webhook-events.ts`): each field's type, whether it's required, its enum
- * or const, its format (`uuid`, `date-time`), its bounds and pattern, array items, and the
- * discriminated unions. So the parser checks what the schema says, as Python's generated models
+ * or const, its format (`uuid`, `date-time`), its bounds and pattern, array items, the
+ * discriminated unions, and a field that may be any JSON value (one with no `type`). So the parser checks what the schema says, as Python's generated models
  * do, with no runtime dependency. A keyword the checker doesn't know fails the generation,
  * naming where, instead of being skipped. Fields the schema doesn't name are allowed, as Python's
  * models allow them (`extra="allow"`), so a newer runtime's additions don't break a receiver.
@@ -71,6 +71,7 @@ function shapeOf(schema, schemas, path) {
     return shapeOf(target, schemas, name);
   }
   if (schema.oneOf !== undefined) return unionOf(schema, schemas, path);
+  if (schema.type === undefined) return anyShape(schema, path);
   const { kind, nullable } = typeOf(schema, path);
   const shape = { kind, ...(nullable && { nullable: true }) };
   if (kind === 'string') return stringShape(shape, schema, path);
@@ -83,6 +84,15 @@ function shapeOf(schema, schemas, path) {
   }
   if (kind === 'object') return objectShape(shape, schema, schemas, path);
   return shape;
+}
+
+/** A field of any JSON value (no `type`, e.g. an error's `cause`): only ignored keywords. */
+function anyShape(schema, path) {
+  const unread = Object.keys(schema).find((k) => !ignored(k));
+  if (unread !== undefined) {
+    throw new Error(`${path}: "${unread}" without a type isn't a keyword the checker reads`);
+  }
+  return { kind: 'any' };
 }
 
 /** The schema's one type besides `null`, refusing a keyword the checker doesn't read for it. */

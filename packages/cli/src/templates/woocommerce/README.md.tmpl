@@ -163,14 +163,39 @@ calls the first tool. For Claude, with `kindgi dev` running:
 {{KINDGI}} providers register --preset=anthropic
 ```
 
-`.claude/skills/kindgi-authoring-providers/SKILL.md` has the other
-providers.
+The `kindgi-authoring-providers` skill has the other providers.
 
 Ask the store agent something:
 
 ```sh
 {{KINDGI}} runs start --agent={{PACK_ID}}.store-agent --input='{"userMessage": "Refund 40 on order 1043: the jacket arrived torn."}'
 ```
+
+## One project and one pack per client
+
+This pack is one client's: every id in it starts with `{{PACK_ID}}.`. For
+another client, make another copy, so its ids start with that client's
+name:
+
+```sh
+{{KINDGI}} init <client> --template=woocommerce
+```
+
+Deploy each copy into its client's project (its id or its slug):
+
+```sh
+{{KINDGI}} deploy --project <client project>
+```
+
+The agents and tools are registered in that project. Give it the store's
+credentials there too, apart from your other clients':
+
+```sh
+{{KINDGI}} secrets set WOO_APP_PASSWORD --env=<env> --scope=project:<client project id>
+```
+
+Deploying this same pack into a second project is refused with a `409`,
+since its ids already belong to the first.
 
 ## Review each new order
 
@@ -226,7 +251,7 @@ delivery, and Kindgi checks the signature before it starts a run:
 
 ```sh
 {{KINDGI}} webhooks register --flow={{PACK_ID}}.order-review --flow-version={{PACK_VERSION}} \
-  --preset=woocommerce --generate-secret --secret=WOO_WEBHOOK_SECRET --env=local \
+  --preset=woocommerce --generate-secret --secret=WOO_WEBHOOK_SECRET \
   --label="WooCommerce orders"
 ```
 
