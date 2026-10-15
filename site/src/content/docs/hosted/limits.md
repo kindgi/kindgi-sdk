@@ -167,13 +167,14 @@ isn't counted. When the turn ends, what it held is free again.
 A turn that would go past either limit fails before the model is called,
 with `429 turn-memory-limit-reached`:
 
-```json
-CAPTURE: the turn's 429, as the run shows it
+```text
+{"error":{"code":"turn-memory-limit-reached","message":"The turn needs more memory than the tenant's share of turn memory has left (0.0 of … MiB held). Retry later, or use a smaller conversation.","details":{"limit":"tenant","heldBytes":0,"limitBytes":…,"runId":"…"},"requestId":"…"}}
 ```
 
 `details.limit` says which limit refused it: `tenant` for your workspace's,
 `server` for the shared one. `heldBytes` and `limitBytes` say what was held
-and the limit, and `runId` names the turn's run. There's no `Retry-After`:
+and the limit, and `runId` names the turn's run, which has failed with the
+same code. There's no `Retry-After`:
 try again later, or with a smaller conversation. Every tool call the turn
 finished is in the conversation, so a new turn there doesn't call it again
 ([`turn-memory-limit-reached`](../../reference/errors/#turn-memory-limit-reached)).
