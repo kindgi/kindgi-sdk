@@ -435,23 +435,22 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
     const setScope = bodyScope.scope;
 
     // A secret's name is held to the shared grammar whenever the write would
-    // CREATE it: always on `create-new`, and on `add-version` when the name
-    // isn't stored yet (`add-version` creates if there's nothing there). An
-    // existing name reached by `add-version` is left as the store has it, so a
-    // name stored before this release stays usable. A store may still refuse
-    // more of its own names when it writes (`SecretBinding.nameRefusal`).
-    let gateNewName = b.writeMode === 'create-new';
-    if (!gateNewName) {
-      const existing = await secretsBinding.get({
-        scope: setScope,
-        envName: envNameResult.envName,
-        name: b.name,
-      });
-      gateNewName = existing === null;
-    }
-    if (gateNewName) {
-      const nameRefusal = secretNameGrammarRefusal(b.name);
-      if (nameRefusal !== undefined) {
+    // CREATE it. A name that passes the grammar needs no store read. A name
+    // that fails it is refused — unless this is an `add-version` to a name the
+    // store already has (left as the store holds it, so a name stored before
+    // this release stays usable). `create-new` of such a name is always
+    // refused. A store may still refuse more of its own names when it writes
+    // (`SecretBinding.nameRefusal`).
+    const nameRefusal = secretNameGrammarRefusal(b.name);
+    if (nameRefusal !== undefined) {
+      const alreadyStored =
+        b.writeMode === 'add-version' &&
+        (await secretsBinding.get({
+          scope: setScope,
+          envName: envNameResult.envName,
+          name: b.name,
+        })) !== null;
+      if (!alreadyStored) {
         c.status(statusFor(nameRefusal.code) as never);
         return c.json(
           toWireError({ code: nameRefusal.code, message: nameRefusal.message }, requestId),

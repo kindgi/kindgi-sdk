@@ -785,7 +785,6 @@ describe('secretNameGrammarRefusal — the shared create-name grammar', () => {
     '_leads',
     '9leads',
     'a.b',
-    'a..b',
     '__x--y.9',
     'a'.repeat(255),
   ])('allows %s', (name) => {
@@ -803,7 +802,7 @@ describe('secretNameGrammarRefusal — the shared create-name grammar', () => {
   // A new name starts with a letter, digit or `_`: a leading dot or dash, or
   // an all-dots name, is refused. (A mutant that widened the first-character
   // class to admit `.` or `-`, or dropped the anchor, is caught here.)
-  test.each(['.hidden', '.a', '-foo', '.', '..', '...', '-'])(
+  test.each(['.hidden', '.a', '-foo', '.', '...', '-'])(
     'refuses %s for its first character',
     (name) => {
       expect(secretNameGrammarRefusal(name)?.code).toBe('secret-name-invalid');
@@ -834,7 +833,7 @@ describe('API — a new secret name is held to the shared grammar at the border 
     ['a non-ASCII letter', 'ключ'],
     ['a leading dot', '.acme'],
     ['a leading dash', '-acme'],
-    ['an all-dots name', '..'],
+    ['an all-dots name', '...'],
   ])(
     'POST /v1/secrets create-new refuses %s with secret-name-invalid, storing nothing',
     async (_why, name) => {

@@ -1179,26 +1179,26 @@ export function deploymentsRouter(
     }
 
     // A new inline secret's name is held to the shared grammar before any
-    // write, so a refusal leaves nothing half-written. An existing name
-    // reached by `add-version` is left as the store has it.
+    // write, so a refusal leaves nothing half-written. A name that passes
+    // needs no store read; a name that fails is refused unless it's already
+    // stored (an `add-version` to a name written before this release).
     for (const entry of parsed) {
       if (entry.kind !== 'value') continue;
+      const nameRefusal = secretNameGrammarRefusal(entry.name);
+      if (nameRefusal === undefined) continue;
       const existing = await bindings.secretsBinding.get({ scope, envName, name: entry.name });
       if (existing !== null) continue;
-      const nameRefusal = secretNameGrammarRefusal(entry.name);
-      if (nameRefusal !== undefined) {
-        c.status(statusFor(nameRefusal.code) as never);
-        return c.json(
-          toWireError(
-            {
-              code: nameRefusal.code,
-              message: `secrets[${entry.name}]: ${nameRefusal.message}`,
-              name: entry.name,
-            },
-            requestId,
-          ),
-        );
-      }
+      c.status(statusFor(nameRefusal.code) as never);
+      return c.json(
+        toWireError(
+          {
+            code: nameRefusal.code,
+            message: `secrets[${entry.name}]: ${nameRefusal.message}`,
+            name: entry.name,
+          },
+          requestId,
+        ),
+      );
     }
 
     let resolvedCount = 0;
