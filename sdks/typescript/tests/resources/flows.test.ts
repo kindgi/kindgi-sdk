@@ -115,6 +115,19 @@ describe('flows.versions / flows.getVersion', () => {
       'https://api.example.com/v1/flows/ingest.contract-pdf/versions/1.0.0',
     );
   });
+
+  it("versions.get keeps an unregistered version's unregisteredAt", async () => {
+    const stub = jsonFetch({ ...WIRE_GRAPH, unregisteredAt: '2026-09-24T22:00:00.000Z' });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+
+    const retired = await client.flows.versions.get('ingest.contract-pdf' as never, '1.0.0');
+    expect(retired.version).toBe('1.0.0');
+    expect(retired.unregisteredAt).toBe('2026-09-24T22:00:00.000Z');
+  });
 });
 
 describe('flows.delete', () => {
