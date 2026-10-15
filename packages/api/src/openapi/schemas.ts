@@ -9746,7 +9746,7 @@ export const DeploymentEndpointSchema: JsonSchema = {
       type: 'boolean',
       const: true,
       description:
-        "`cleared` only: a pack service is wanted for it again, as once a suspension that took its service down is lifted, so one is on its way; `problem` says why it isn't back yet. A `cleared` endpoint carries this or `retired`, never both. Absent from older servers, which send neither.",
+        "`cleared` only: a pack service is wanted for it again, as once a suspension that took its service down is lifted, and it lists as needing one; `problem` says why it isn't back yet. A `cleared` endpoint carries this or `retired`, never both. Absent from older servers, which send neither.",
     },
     retired: {
       type: 'string',

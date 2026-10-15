@@ -107,7 +107,7 @@ export interface DeploymentEndpointRecord {
   readonly since: string;
   /** While it waits (`pending`, or `cleared` and `waiting`): why there's no pack service yet, a fixed code. */
   readonly problem?: { readonly code: string; readonly since: string };
-  /** `cleared` only: a pack service is wanted for it again, so one is on its way. */
+  /** `cleared` only: a pack service is wanted for it again, and it lists as needing one. */
   readonly waiting?: true;
   /** `cleared` only: why no pack service is wanted for it now (`superseded`, `pack-suspended`, …). */
   readonly retired?: string;

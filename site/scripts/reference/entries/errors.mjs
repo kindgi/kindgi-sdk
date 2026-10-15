@@ -2411,7 +2411,7 @@ export const ERROR_ENTRIES = {
   },
   'endpoint-not-pending': {
     description:
-      "A problem was recorded for a deployment that isn't waiting for a pack service. A problem goes with a `pending` one, or a `cleared` one listed as needing a pack service again (once a suspension is lifted).",
+      "A problem was sent for a deployment that isn't waiting for a pack service. A problem goes with a `pending` one, or a `cleared` one listed as needing a pack service again (`waiting`, once a suspension is lifted).",
     details: [
       {
         key: 'status',

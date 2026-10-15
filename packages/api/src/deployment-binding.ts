@@ -176,7 +176,8 @@ export interface DeploymentEndpoint {
   readonly problem?: DeploymentEndpointProblem;
   /**
    * `cleared` only: a pack service is wanted for it again, as once a
-   * suspension that took its service down is lifted, so one is on its way.
+   * suspension that took its service down is lifted, and it lists as
+   * needing one.
    * A `cleared` one carries this or `retired`, never both (from runtime
    * 0.1.8.1; an older server sends neither).
    */

@@ -144,7 +144,7 @@ export interface SystemDeploymentsBinding {
   /**
    * Records why a deployment waiting for its pack service has none yet: a
    * pending one, or a cleared one that lists as needing a pack service
-   * again. Any other is `not-pending`.
+   * again (`waiting`). Any other is `not-pending`.
    */
   recordProblem(
     input: DeploymentRef & { readonly code: DeploymentEndpointProblemCode },
@@ -343,7 +343,7 @@ export function systemDeploymentsRouter(
             case 'not-pending':
               return fail(c, {
                 code: 'endpoint-not-pending',
-                message: `Deployment ${ref.value.deploymentId}'s endpoint is ${recorded.endpoint.status} and not waiting for a pack service: a problem goes with a pending one, or a cleared one that lists as needing a pack service again.`,
+                message: `Deployment ${ref.value.deploymentId}'s endpoint is ${recorded.endpoint.status} and not waiting for a pack service: a problem goes with a pending one, or a cleared one that lists as needing a pack service again (\`waiting\`).`,
                 status: recorded.endpoint.status,
               });
           }
