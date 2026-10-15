@@ -162,6 +162,16 @@ describe('GET /v1/runs/:runId/journal paging', () => {
     expect(other.body.error?.code).toBe('bad-input');
   });
 
+  test('a limit that is not a whole number from 1 is 400 bad-input, and the journal is not read', async () => {
+    const { get, reads } = appWithJournal(3);
+    for (const limit of ['0', '-1', 'abc', '2.5', '1e2']) {
+      const { status, body } = await get(`?limit=${limit}`);
+      expect(status).toBe(400);
+      expect(body.error?.code).toBe('bad-input');
+    }
+    expect(reads).toEqual([]);
+  });
+
   test('limit is at most 100', async () => {
     const { get } = appWithJournal(130);
     const { body } = await get('?limit=500');

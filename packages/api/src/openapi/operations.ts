@@ -1671,7 +1671,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     security: 'bearer',
     parameters: [RunIdPathParam, JournalSinceQueryParam, JournalLimitQueryParam, CursorQueryParam],
     responses: {
-      '400': ErrorResponse('`runId` is not a run id (a UUID), or `cursor` is malformed.'),
+      '400': ErrorResponse(
+        '`runId` is not a run id (a UUID), `limit` is not a whole number of 1 or more, or `cursor` is malformed.',
+      ),
       '200': { description: 'Journal page.', schema: ref('RunJournalPage') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No run with that id under this tenant.'),

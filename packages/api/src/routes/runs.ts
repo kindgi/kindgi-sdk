@@ -743,17 +743,12 @@ export function runsRouter(
     const since = sinceRaw !== undefined ? Number.parseInt(sinceRaw, 10) : undefined;
     // Paging is opt-in: with `limit`, at most that many entries after
     // `cursor`; without it, the whole journal, as before paging.
-    const limitRaw = c.req.query('limit');
-    const limit = limitRaw !== undefined && limitRaw !== '' ? clampLimit(limitRaw) : undefined;
-    const cursorRaw = c.req.query('cursor');
-    const after =
-      cursorRaw !== undefined && cursorRaw !== '' ? decodeJournalCursor(cursorRaw) : undefined;
-    if (after === null) {
+    const paging = parseJournalPaging(c.req.query('limit'), c.req.query('cursor'));
+    if (paging.kind === 'err') {
       c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError({ code: 'bad-input', message: '`cursor` is malformed' }, requestId),
-      );
+      return c.json(toWireError({ code: 'bad-input', message: paging.message }, requestId));
     }
+    const { limit, after } = paging;
 
     const journal = await runBinding.readJournal(tenantId, runId);
     if (journal.kind === 'err') {
@@ -1302,6 +1297,36 @@ function parseStartRunBody(
       ...(wait !== undefined && { wait }),
     },
   };
+}
+
+/**
+ * A journal read's paging: at most `limit` entries (a whole number from 1;
+ * more than 100 gives 100), after the sequence `cursor` names. An empty
+ * one is none. One that isn't one is refused, never read as a default.
+ */
+function parseJournalPaging(
+  limitRaw: string | undefined,
+  cursorRaw: string | undefined,
+):
+  | { readonly kind: 'ok'; readonly limit: number | undefined; readonly after: number | undefined }
+  | { readonly kind: 'err'; readonly message: string } {
+  let limit: number | undefined;
+  if (limitRaw !== undefined && limitRaw !== '') {
+    if (!/^[1-9][0-9]*$/.test(limitRaw)) {
+      return {
+        kind: 'err',
+        message: '`limit` must be a whole number, 1 or more (a page holds at most 100)',
+      };
+    }
+    limit = clampLimit(limitRaw);
+  }
+  let after: number | undefined;
+  if (cursorRaw !== undefined && cursorRaw !== '') {
+    const decoded = decodeJournalCursor(cursorRaw);
+    if (decoded === null) return { kind: 'err', message: '`cursor` is malformed' };
+    after = decoded;
+  }
+  return { kind: 'ok', limit, after };
 }
 
 /**

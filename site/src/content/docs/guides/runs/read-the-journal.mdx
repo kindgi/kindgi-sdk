@@ -233,9 +233,9 @@ For a run of `acme.escalate-order` that waited for an approval, it prints:
 ```
 
 `runs.journal` returns the whole journal in one answer. To read a long one
-in pages, pass `limit` (1 to 100): each page has `hasMore`, and
-`nextCursor` while more remain, which you pass as `cursor` for the next
-page. A runtime before 0.1.8 answers the whole journal either way.
+in pages, pass `limit` (1 to 100): each page has `hasMore` (`has_more` in
+Python), and `nextCursor` (`next_cursor`) while more remain, which you pass
+as `cursor` for the next page. A runtime before 0.1.8 answers the whole journal either way.
 
 ## Next
 

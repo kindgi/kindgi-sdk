@@ -22764,7 +22764,7 @@
             }
           },
           "400": {
-            "description": "`runId` is not a run id (a UUID), or `cursor` is malformed.",
+            "description": "`runId` is not a run id (a UUID), `limit` is not a whole number of 1 or more, or `cursor` is malformed.",
             "content": {
               "application/json": {
                 "schema": {
