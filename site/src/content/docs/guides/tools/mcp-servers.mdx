@@ -647,9 +647,10 @@ own tool gets as `ctx.idempotencyKey`
 A server that doesn't read `_meta` works as before.
 
 A model that asks for a tool again, after the tool answered with an error,
-makes a new call, perhaps with other arguments, so it sends a new key. The key
-can't tell that call from the first. So a tool that moves money also checks
-what's already there before it acts, such as the order's refunds.
+makes a new call, perhaps with other arguments, so it sends a new key, and the
+server can't tell from the key that it's the same request. So a tool that moves
+money also checks what's already there before it acts, such as the order's
+refunds.
 
 <Tabs>
 <TabItem label="TypeScript">
