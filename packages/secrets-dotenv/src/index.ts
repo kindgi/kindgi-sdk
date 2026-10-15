@@ -27,7 +27,10 @@
  *     runtime config and are invisible here. Version metadata is
  *     synthetic (`versionId: 1`) — dotenv files don't version. A file
  *     that exists but can't be read is left out, and a `resolve` that
- *     misses says which.
+ *     misses says which. `list` pages by name: its `nextCursor` names the
+ *     page's last secret, and the next page starts after it, so a name
+ *     added or removed between pages neither repeats nor skips another.
+ *     Nothing is ever revoked here, so `includeRevoked` lists the same.
  *   - **`set`**: for `local`, writes Kindgi's `.kindgi/secrets.env`, a
  *     file the application doesn't load; with `appEnvFile`, the app's
  *     highest-precedence file (`.env.local` by default) instead, for a
@@ -81,7 +84,7 @@ import {
   renderEntry,
   setKey,
 } from '@kindgi/dotenv-file';
-import type { Result } from '@kindgi/types';
+import type { Cursor, Result } from '@kindgi/types';
 
 import {
   type PackEnv,
@@ -162,13 +165,18 @@ export function createDotenvSecretBinding(
 
   async function list(input: SecretListInput): Promise<SecretListPage> {
     const prefix = input.namePrefix;
+    const after = decodeListCursor(input.cursor);
     const names = Object.keys(await secretsOf(input.envName))
-      .filter((k) => prefix === undefined || k.startsWith(prefix))
+      .filter(
+        (k) => (prefix === undefined || k.startsWith(prefix)) && (after === null || k > after),
+      )
       .sort();
+    const page = names.slice(0, input.limit);
+    const last = page.at(-1);
     return {
-      data: names
-        .slice(0, input.limit)
-        .map((name) => toRecord({ scope: input.scope, envName: input.envName, name })),
+      data: page.map((name) => toRecord({ scope: input.scope, envName: input.envName, name })),
+      ...(page.length < names.length &&
+        last !== undefined && { nextCursor: encodeListCursor(last) }),
     };
   }
 
@@ -216,6 +224,11 @@ export function createDotenvSecretBinding(
     return Object.hasOwn(await secretsOf(input.envName), input.name)
       ? { data: [toVersion(input)] }
       : { data: [] };
+  }
+
+  /** A `list` page's cursor decodes; `listVersions` never issues one (a secret has one version here). */
+  function issuedCursor(list: 'secrets' | 'versions', cursor: Cursor): boolean {
+    return list === 'secrets' && decodeListCursor(cursor) !== null;
   }
 
   async function set(input: SecretSetInput): Promise<SecretSetOutcome> {
@@ -309,6 +322,7 @@ export function createDotenvSecretBinding(
     resolve,
     getVersion,
     listVersions,
+    issuedCursor,
     set,
     rotate,
     revoke,
@@ -394,6 +408,23 @@ function envKeyLike(name: string): string | undefined {
   return ENV_KEY_REGEX.test(like) && /[A-Z0-9]/.test(like) && !isRuntimeKey(like)
     ? like
     : undefined;
+}
+
+/** A `list` cursor: url-safe base64 of the page's last name. */
+function encodeListCursor(lastName: string): Cursor {
+  return Buffer.from(JSON.stringify({ n: lastName }), 'utf8').toString('base64url') as Cursor;
+}
+
+/** The name a `list` cursor starts after; `null` (the first page) for none or one that isn't. */
+function decodeListCursor(cursor: Cursor | undefined): string | null {
+  const raw = cursor as unknown as string | undefined;
+  if (raw === undefined || raw.length === 0) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as { n?: unknown };
+    return typeof parsed?.n === 'string' ? parsed.n : null;
+  } catch {
+    return null;
+  }
 }
 
 function storeError(message: string): SecretSetOutcome {
