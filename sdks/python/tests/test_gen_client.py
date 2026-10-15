@@ -228,6 +228,29 @@ def test_two_members_nothing_tells_apart_fail_generation_naming_the_field(tmp_pa
         generate(tmp_path, {**SCHEMAS, "Holder": either})
 
 
+def test_members_alike_that_are_components_generate_each_at_its_own_name(tmp_path: Path) -> None:
+    # A component sits at its own name, so nothing in the union need tell it apart: not
+    # from another of the same properties, nor from an inline member of them.
+    def ref(name: str) -> dict[str, str]:
+        return {"$ref": f"#/components/schemas/{name}"}
+
+    def sku(kind: str) -> dict[str, Any]:
+        return {"type": "object", "properties": {"sku": {"type": kind}}}
+
+    either = {
+        "type": "object",
+        "properties": {"pick": {"oneOf": [ref("SkuText"), ref("SkuNumber"), sku("boolean")]}},
+    }
+    generate(
+        tmp_path,
+        {**SCHEMAS, "SkuText": sku("string"), "SkuNumber": sku("integer"), "Holder": either},
+    )
+    written = json.loads((tmp_path / "out" / "model_names.json").read_text("utf-8"))
+    assert written["SkuText"] == ["SkuText"]
+    assert written["SkuNumber"] == ["SkuNumber"]
+    assert written["Pick"] == ["Holder.pick{sku}"]
+
+
 # The API's own document, and the names generated from it.
 API: dict[str, Any] = json.loads(gen.DEFAULT_OPENAPI.read_text("utf-8"))
 PINNED: dict[str, list[str]] = json.loads(gen.MODEL_NAMES.read_text("utf-8"))
@@ -262,12 +285,12 @@ def generate_api(tmp_path: Path, doc: dict[str, Any]) -> dict[str, list[str]]:
     return json.loads((tmp_path / "out" / "model_names.json").read_text("utf-8"))
 
 
-def first_in(union: str) -> dict[str, Any]:
-    """The API's document, `QUEUED` put first in one of its unions."""
+def first_in(union: str, member: dict[str, Any] = QUEUED) -> dict[str, Any]:
+    """The API's document, `member` put first in one of its unions."""
     doc = copy.deepcopy(API)
     path, _ = UNIONS[union]
     reduce(lambda node, key: node[key], path, doc["components"]["schemas"])["oneOf"].insert(
-        0, QUEUED
+        0, member
     )
     return doc
 
@@ -293,6 +316,30 @@ def test_a_member_put_first_fails_generation_naming_each_model_and_its_places(
         " now at CompleteApprovalResult.resume{kind}"
     ) in lines
     assert "edit its line in scripts/model_names.json" in str(failed.value)
+
+
+def test_a_member_put_first_with_the_discriminator_fails_generation_naming_each_by_its_value(
+    tmp_path: Path,
+) -> None:
+    # The likeliest new member: another transport. The union keeps its discriminator.
+    unix = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["transport", "path"],
+        "properties": {"transport": {"const": "unix"}, "path": {"type": "string"}},
+    }
+    with pytest.raises(SystemExit) as failed:
+        generate_api(tmp_path, first_in("Config", unix))
+    lines = str(failed.value).splitlines()
+    for name, was, now in (
+        ("Config", "stdio", "unix"),
+        ("Config1", "http-sse", "stdio"),
+        ("Config2", "streamable-http", "http-sse"),
+    ):
+        assert (
+            f"  {name}: was at MCPEndpoint.config[transport={was}],"
+            f" now at MCPEndpoint.config[transport={now}]"
+        ) in lines
 
 
 @pytest.mark.parametrize("union", list(UNIONS))

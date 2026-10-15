@@ -724,10 +724,14 @@ def literal_value(annotation: ast.expr) -> str | None:
 
 
 def member_keys(
-    field: str, names: list[str], models: dict[str, list[tuple[str, ast.expr]]]
+    field: str,
+    names: list[str],
+    models: dict[str, list[tuple[str, ast.expr]]],
+    components: dict[str, Any],
 ) -> dict[str, str]:
     """How a field tells apart the models its type names: alone, by nothing; in a union, by
-    the value of its discriminator (`[kind=ok]`), else by their properties (`{code,kind}`)."""
+    the value of its discriminator (`[kind=ok]`), else by their properties (`{code,kind}`).
+    A component sits at its own name, so only the other members' keys must differ."""
     if len(names) == 1:
         return {names[0]: ""}
     # Each as the schema it was generated from: its properties, a `Literal` one's value.
@@ -749,7 +753,8 @@ def member_keys(
             if value is not None
             else "{" + ",".join(sorted(member["properties"])) + "}"
         )
-    alike = sorted(name for name in names if list(keys.values()).count(keys[name]) > 1)
+    own = [keys[name] for name in names if name not in components]
+    alike = sorted(name for name in names if name not in components and own.count(keys[name]) > 1)
     if alike:
         raise SystemExit(
             f"gen_client: {field}: {', '.join(alike)} have the same properties and no"
@@ -797,7 +802,7 @@ def model_locations(doc: dict[str, Any], tree: ast.Module) -> dict[str, list[str
             )
             if not named:
                 continue
-            keys = member_keys(f"{owner}.{wire}", named, models)
+            keys = member_keys(f"{owner}.{wire}", named, models, components)
             for name in named:
                 parents.setdefault(name, []).append((owner, f"{wire}{keys[name]}"))
 
