@@ -1596,6 +1596,8 @@ export interface CostRecordFilter extends Filter {
   readonly includeDescendants?: boolean;
   /** Every record of the run tree whose root is this run. */
   readonly rootRunId?: import('@kindgi/types').RunId;
+  /** Every record of the run trees whose root is a run of this flow (the record's `flowId`). */
+  readonly flowId?: string;
   readonly agentId?: import('@kindgi/types').AgentId;
   readonly conversationId?: import('@kindgi/types').ThreadId;
   readonly category?: string;

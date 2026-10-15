@@ -38417,7 +38417,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.",
+        "description": "Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `flowId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.",
         "parameters": [
           {
             "name": "limit",
@@ -38514,6 +38514,15 @@
             },
             "required": false,
             "description": "Every record of the run tree whose root is this run: a flow run and the agent turns and sub-flows it started."
+          },
+          {
+            "name": "flowId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Every record of the run trees whose root is a run of this flow (the record's `flowId`, exact match): the flow's spend across its runs, any version."
           },
           {
             "name": "includeDescendants",
@@ -38819,6 +38828,15 @@
             },
             "required": false,
             "description": "Every record of the run tree whose root is this run: a flow run and the agent turns and sub-flows it started."
+          },
+          {
+            "name": "flowId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Every record of the run trees whose root is a run of this flow (the record's `flowId`, exact match): the flow's spend across its runs, any version."
           },
           {
             "name": "includeDescendants",

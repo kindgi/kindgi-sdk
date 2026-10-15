@@ -5010,6 +5010,7 @@ class CostRecordsResource:
         model: str | None = None,
         served_model: str | None = None,
         root_run_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         include_descendants: bool | None = None,
         from_: str | None = None,
         to: str | None = None,
@@ -5021,7 +5022,7 @@ class CostRecordsResource:
     ) -> _models.CostRecordCollectionPage:
         """List cost records. `GET /v1/cost/records`
 
-        Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.
+        Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `flowId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.
         """
         return self._client._request(
             _OPERATIONS["cost.records.list"],
@@ -5037,6 +5038,7 @@ class CostRecordsResource:
                 "model": model,
                 "servedModel": served_model,
                 "rootRunId": root_run_id,
+                "flowId": flow_id,
                 "includeDescendants": include_descendants,
                 "from": from_,
                 "to": to,
@@ -5092,6 +5094,7 @@ class CostResource:
         model: str | None = None,
         served_model: str | None = None,
         root_run_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         include_descendants: bool | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
@@ -5118,6 +5121,7 @@ class CostResource:
                 "model": model,
                 "servedModel": served_model,
                 "rootRunId": root_run_id,
+                "flowId": flow_id,
                 "includeDescendants": include_descendants,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
@@ -12784,6 +12788,7 @@ class AsyncCostRecordsResource:
         model: str | None = None,
         served_model: str | None = None,
         root_run_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         include_descendants: bool | None = None,
         from_: str | None = None,
         to: str | None = None,
@@ -12795,7 +12800,7 @@ class AsyncCostRecordsResource:
     ) -> _models.CostRecordCollectionPage:
         """List cost records. `GET /v1/cost/records`
 
-        Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.
+        Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `flowId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.
         """
         return await self._client._request(
             _OPERATIONS["cost.records.list"],
@@ -12811,6 +12816,7 @@ class AsyncCostRecordsResource:
                 "model": model,
                 "servedModel": served_model,
                 "rootRunId": root_run_id,
+                "flowId": flow_id,
                 "includeDescendants": include_descendants,
                 "from": from_,
                 "to": to,
@@ -12866,6 +12872,7 @@ class AsyncCostResource:
         model: str | None = None,
         served_model: str | None = None,
         root_run_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         include_descendants: bool | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
@@ -12892,6 +12899,7 @@ class AsyncCostResource:
                 "model": model,
                 "servedModel": served_model,
                 "rootRunId": root_run_id,
+                "flowId": flow_id,
                 "includeDescendants": include_descendants,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
