@@ -10,6 +10,11 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **a sign-in session carries the capabilities its person holds.**
+  `identity.me.permissions()`'s `token_capabilities` for a sign-in session
+  were always empty. Now they're its person's: none, unless the runtime gives
+  them some, as it gives a tenant's first admin every capability but
+  `secrets:reveal`. (#893)
 - The CLI, for a Python pack: **a stored API key goes only to the address it
   was stored for** (by `kindgi auth login`, or in `kindgi dev`'s
   `.kindgirc.json`). A `--url`, `KINDGI_API_URL` or environment `endpoint`
@@ -38,6 +43,14 @@ same version, and the CLI's own changes are in
   the folder Codex and Gemini CLI read, as well as `.claude/skills/`
   (`kindgi init` and `kindgi skills sync`). The Python pack's `AGENTS.md` and
   `kindgi-python-getting-started` address any coding agent. (#852)
+- `kindgi`: **a delivery or fire skipped for a suspension or a close says
+  so.** `WebhookReceipt.skipped` can be `tenant-suspended` or
+  `project-suspended`, besides `paused`: the delivery was taken and dropped,
+  and nothing was recorded. A closing tenant's delivery is
+  `409 tenant-closing`. A `ScheduleFire` or `WebhookFire` whose `outcome` is
+  `skipped` names `project-suspended`, `tenant-suspended` or `tenant-closing`
+  in its `detail`. For a schedule, such a fire neither counts toward the
+  auto-pause nor resets its count of fires in a row. (#836, #840, #848)
 - `kindgi`: **a guardrail scoped to flows applies in its flows' steps.** A
   guardrail with `scope: {flows: [...]}` was skipped on every agent turn, a
   `halt` guardrail too. A turn's trace now names the flow whose step started
