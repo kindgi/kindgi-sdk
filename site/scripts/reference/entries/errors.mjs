@@ -1434,7 +1434,7 @@ export const ERROR_ENTRIES = {
   },
   'retention-over-limit': {
     description:
-      "The retention policy keeps its domain's deleted rows longer than this server's limit for that domain, or holds them (`graceSeconds: -1`). Publish it with a `graceSeconds` at or under the limit. A version over the limit stays retired: reinstating it is refused the same way. A `*` policy isn't refused; the server keeps each limited domain's rows no longer than its limit.",
+      "The retention policy keeps its domain's records longer than this server's limit for that domain, or holds them (`graceSeconds: -1`). Publish it with a `graceSeconds` at or under the limit. A version over the limit stays retired: reinstating it is refused the same way. A `*` policy isn't refused: in a limited domain, the server keeps records no longer than the limit.",
     details: [
       {
         key: 'domain',

@@ -7,6 +7,7 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-models`: **a server's retention limit.** `RetentionScheduledItem`'s `policyId` and `policyVersion` can be `null`: a record that a server's limit decides, in a domain no policy covers, has neither. `limitApplied`, on `RetentionScheduledItem` and `RetentionSweepResult.PerDomainItem`, is `true` when the limit decides; `null` otherwise.
 - `kindgi-models`: **where a secret an item names is read**, as the server recorded it when the item was registered: `secretScopes` on a `Tool` and an `MCPEndpoint` (by secret name) and `hmacSecretScope` on a webhook trigger, each a `RecordedSecretScope` (`Tenant`, `Org` or `Project`), `null` when none is usable. `SecretResolveOutcome` gains `scope`. The generator now takes a nullable reference to a tagged union, alone or as a map's values.
 
 ## 0.1.7
