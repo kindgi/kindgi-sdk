@@ -13,8 +13,11 @@ to your workspace's own repository.
 ## Before you start
 
 - **The Kindgi CLI, signed in to your workspace.** In the console, open
-  **API keys** and **Create a key**. The secret shows once. In a terminal,
-  paste it at a prompt that doesn't echo it, then sign in:
+  **API keys** and **Create a key**. Under **How far it goes**, choose
+  **Admin**. Under **What it can change**, tick **Trust signing keys**, and
+  **Store secrets** if you'll send secrets with `--sync-secrets`. The secret
+  shows once. In a terminal, paste it at a prompt that doesn't echo it,
+  then sign in:
 
   ```sh
   read -rs KINDGI_API_TOKEN && export KINDGI_API_TOKEN
@@ -35,7 +38,8 @@ to your workspace's own repository.
 
   `kindgi key create` writes the private key to
   `~/.kindgi/keys/acme-agency.pem`, and `kindgi key trust` adds its public
-  half to your workspace's trust list.
+  half to your workspace's trust list. For that, the CLI's key needs
+  **Trust signing keys**, as above.
 - **A pack that builds,** at most 30 MiB packed. A larger one isn't sent:
   the CLI says so and links
   [what the pack's image needs](../../start/existing-app-typescript/#what-the-packs-image-needs).
