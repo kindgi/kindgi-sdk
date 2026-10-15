@@ -7222,8 +7222,6 @@ export const RetentionScheduledItemSchema: JsonSchema = {
     'unregisteredAt',
     'purgeAt',
     'pastGrace',
-    'policyId',
-    'policyVersion',
     'graceSeconds',
   ],
   properties: {
@@ -7233,17 +7231,28 @@ export const RetentionScheduledItemSchema: JsonSchema = {
     purgeAt: {
       type: 'string',
       format: 'date-time',
-      description: "`unregisteredAt` plus the policy's grace: when a sweep purges the row.",
+      description: '`unregisteredAt` plus `graceSeconds`: when a sweep purges the row.',
     },
     pastGrace: {
       type: 'boolean',
       description: 'Whether a sweep would purge the row now.',
     },
-    policyId: { type: 'string', description: 'The retention policy that applies.' },
-    policyVersion: { type: 'string' },
+    policyId: {
+      type: 'string',
+      description:
+        "The retention policy that covers the domain. Absent when none does, and this server's limit decides (`limitApplied`); always present on a server with no limit.",
+    },
+    policyVersion: { type: 'string', description: "The policy's version. Absent with `policyId`." },
     graceSeconds: {
       type: 'integer',
-      description: "The policy's grace, in seconds (`-1`: a hold, never purged).",
+      description:
+        "How long the row is kept, in seconds (`-1`: a hold, never purged): the policy's grace, or this server's limit (`limitApplied`).",
+    },
+    limitApplied: {
+      type: 'boolean',
+      const: true,
+      description:
+        "Present when this server's retention limit for the domain set `graceSeconds`: no policy covers the domain, or its policy keeps rows longer than the limit, or holds them.",
     },
   },
 };
@@ -7276,7 +7285,8 @@ export const RetentionScheduledPageSchema: JsonSchema = {
     unpolicedDomains: {
       type: 'array',
       items: { $ref: '#/components/schemas/RetentionDomain' },
-      description: 'Domains no retention policy covers: their tombstones are kept.',
+      description:
+        "Domains no retention policy covers and this server sets no retention limit for: their tombstones are kept.",
     },
     conflicts: {
       type: 'array',
@@ -7337,6 +7347,12 @@ export const RetentionSweepResultSchema: JsonSchema = {
             description: 'Rows past grace this call left (the `maxPerDomain` cap); sweep again.',
           },
           policyId: { type: 'string', description: 'The retention policy that applied.' },
+          limitApplied: {
+            type: 'boolean',
+            const: true,
+            description:
+              "Present when this server's retention limit set the grace (see `RetentionScheduledItem.limitApplied`).",
+          },
           missingAdapter: {
             type: 'boolean',
             const: true,

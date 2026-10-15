@@ -235,6 +235,18 @@ PublishPolicyResult[policyId=acme.keep-providers, version=1.0.0]
 - **A spec that doesn't fit is refused** with `400 validation-failed`, naming
   the field: `policy.spec/mode can't be "archive" yet: use "purge"`, or
   `policy.spec/domain must be one of: org, agent, …, provider, * (got "blocks")`.
+- **A server can limit how long a domain's records are kept.** Where it
+  does, a policy for that domain that keeps them longer, or for good
+  (`-1`), is refused (`400 retention-over-limit`), and so is reinstating a
+  retired version that does:
+
+  ```text
+  `graceSeconds` 31536000 (365 days) is over the retention limit for `run` rows, 90 days.
+  ```
+
+  A `*` policy isn't refused: the server keeps each limited domain's
+  records no longer than its limit, and applies the limit to a limited
+  domain no policy covers.
 - **Two policies can still cover one domain** when an older runtime took
   both. The console warns. Lists, sweeps and the runtime's log say which one
   applies: unregister the others.
@@ -388,7 +400,10 @@ purged:
 - **`pastGraceOnly`**, `past_grace_only` in Python, narrows the list to what
   a sweep would purge now.
 - **`unpolicedDomains`**, in the list's answer, names the domains no policy
-  covers. Their deleted records are kept.
+  covers and the server doesn't limit. Their deleted records are kept.
+- **`limitApplied: true`** marks a record the server's limit decides: no
+  policy covers its domain, so it has no `policyId`, or its policy keeps
+  records longer than the limit. `graceSeconds` is then the limit.
 - **A long list comes in pages.** `limit` is how many records per domain:
   25 unless you say, at most 100. `hasMore` says there are more, and
   `nextCursor`, passed back as `cursor`, gets the next page. In Python,
@@ -440,7 +455,7 @@ startup log says so:
 
 A policy with `graceSeconds: -1` keeps a domain's deleted records, and sweeps
 skip it. With `"domain": "*"`, nothing is purged except in the domains that
-have a policy of their own:
+have a policy of their own, or a limit on the server:
 
 ```json
 { "id": "acme.keep-everything", "version": "1.0.0", "kind": "retention",

@@ -203,6 +203,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'policy-already-registered': 409,
   'policy-scope-taken': 409,
   'policy-scope-changed': 409,
+  /** A retention policy that keeps its domain's rows longer than the server's limit allows (`retentionLimits`), or holds them. */
+  'retention-over-limit': 400,
   // Admin plane — eval suites.
   'block-not-found': 404,
   'block-already-registered': 409,

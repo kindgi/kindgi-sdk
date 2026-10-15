@@ -1051,6 +1051,7 @@ export type { JsonSchema } from './openapi/schemas.js';
 
 export type {
   RetentionBinding,
+  RetentionLimits,
   RetentionPolicyConflict,
   RetentionScheduledInput,
   RetentionScheduledItem,

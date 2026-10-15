@@ -1914,15 +1914,24 @@ export interface RetentionScheduledItem {
   /** The row's id in its domain. */
   readonly id: string;
   readonly unregisteredAt: string;
-  /** `unregisteredAt` plus the policy's grace. */
+  /** `unregisteredAt` plus `graceSeconds`. */
   readonly purgeAt: string;
   /** Whether a sweep would purge it now. */
   readonly pastGrace: boolean;
-  /** The retention policy that applies. */
-  readonly policyId: string;
-  readonly policyVersion: string;
-  /** `-1`: a hold, never purged. */
+  /**
+   * The retention policy that covers the domain. Absent when none does,
+   * and the server's retention limit decides (`limitApplied`).
+   */
+  readonly policyId?: string;
+  readonly policyVersion?: string;
+  /** How long the row is kept, in seconds (`-1`: a hold, never purged). */
   readonly graceSeconds: number;
+  /**
+   * The server's retention limit for the domain set `graceSeconds`: no
+   * policy covers the domain, or its policy keeps rows longer, or holds
+   * them.
+   */
+  readonly limitApplied?: true;
 }
 
 /**
@@ -1951,7 +1960,7 @@ export interface RetentionScheduledPage {
   readonly nextCursor?: string;
   /** Covered domains this deployment can't purge (no adapter). */
   readonly domainsMissingAdapter: readonly RetentionDomain[];
-  /** Domains no retention policy covers: their tombstones are kept. */
+  /** Domains no retention policy covers and the server sets no limit for: their tombstones are kept. */
   readonly unpolicedDomains: readonly RetentionDomain[];
   readonly conflicts?: readonly RetentionPolicyConflict[];
 }
@@ -1964,6 +1973,8 @@ export interface RetentionSweepResult {
     /** Rows past grace this call left (the `maxPerDomain` cap); sweep again. */
     readonly remaining: number;
     readonly policyId?: string;
+    /** The server's retention limit set the grace (see `RetentionScheduledItem.limitApplied`). */
+    readonly limitApplied?: true;
     /** This deployment can't purge the domain (no adapter). */
     readonly missingAdapter?: true;
   }[];
