@@ -74,6 +74,8 @@ soon as your workspace is ready.
 
 ## Next
 
+- [Quickstart: TypeScript](../../start/quickstart-typescript/): make your
+  first pack.
 - [Build and deploy](../build-and-deploy/): put your pack on your workspace.
 - [Limits](../limits/): what every account can do at once, and how to ask
   for more.
