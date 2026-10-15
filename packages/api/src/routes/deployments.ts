@@ -2003,24 +2003,25 @@ function validateAgentIndexShape(
   if (!Array.isArray(spec.tools)) {
     out.push({ path: '/tools', message: 'agent.tools must be an array of tool ids' });
   }
-  if (spec.output !== undefined) {
-    const output = spec.output as { schema?: unknown } | null;
-    if (typeof output !== 'object' || output === null || Array.isArray(output)) {
-      out.push({
-        path: '/output',
-        message: 'agent.output must be an object { schema, name?, maxRepairs? }',
-      });
-    } else {
-      // The compile `defineAgent` runs, and each structured turn after it:
-      // one that doesn't compile would fail every turn.
-      const compiled = compileInlineSchema(output.schema);
-      if (compiled.kind === 'err') {
-        const why = compiled.error.message.replace(/^Inline schema failed to compile: /, '');
-        out.push({ path: '/output/schema', message: `doesn't compile: ${why}` });
-      }
-    }
-  }
+  out.push(...agentOutputProblems(spec.output));
   return out;
+}
+
+/** An agent's `output`, when it has one: an object whose schema compiles. */
+function agentOutputProblems(raw: unknown): readonly { path: string; message: string }[] {
+  if (raw === undefined) return [];
+  const output = raw as { schema?: unknown } | null;
+  if (typeof output !== 'object' || output === null || Array.isArray(output)) {
+    return [
+      { path: '/output', message: 'agent.output must be an object { schema, name?, maxRepairs? }' },
+    ];
+  }
+  // The compile `defineAgent` runs, and each structured turn after it:
+  // one that doesn't compile would fail every turn.
+  const compiled = compileInlineSchema(output.schema);
+  if (compiled.kind === 'ok') return [];
+  const why = compiled.error.message.replace(/^Inline schema failed to compile: /, '');
+  return [{ path: '/output/schema', message: `doesn't compile: ${why}` }];
 }
 
 /**

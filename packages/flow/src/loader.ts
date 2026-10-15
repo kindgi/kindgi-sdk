@@ -205,19 +205,20 @@ export function flowSchemaProblems(flow: unknown): readonly FlowSchemaProblem[] 
   const walk = (nodes: unknown, at: string): void => {
     if (!Array.isArray(nodes)) return;
     nodes.forEach((node: unknown, i) => {
-      if (!isRecord(node)) return;
-      const here = `${at}/${i}`;
-      if (node.kind === 'loop') {
-        check(`${here}/outputSchema`, node.outputSchema);
-        if (isRecord(node.body)) walk(node.body.nodes, `${here}/body/nodes`);
-      } else if (node.kind === 'subgraph') {
-        check(`${here}/outputSchema`, node.outputSchema);
-      } else if (node.kind === 'fanout' && Array.isArray(node.branches)) {
-        node.branches.forEach((branch: unknown, k) => {
-          if (isRecord(branch)) check(`${here}/branches/${k}/outputSchema`, branch.outputSchema);
-        });
-      }
+      if (isRecord(node)) visit(node, `${at}/${i}`);
     });
+  };
+  const visit = (node: Record<string, unknown>, here: string): void => {
+    if (node.kind === 'loop') {
+      check(`${here}/outputSchema`, node.outputSchema);
+      if (isRecord(node.body)) walk(node.body.nodes, `${here}/body/nodes`);
+    } else if (node.kind === 'subgraph') {
+      check(`${here}/outputSchema`, node.outputSchema);
+    } else if (node.kind === 'fanout' && Array.isArray(node.branches)) {
+      node.branches.forEach((branch: unknown, k) => {
+        if (isRecord(branch)) check(`${here}/branches/${k}/outputSchema`, branch.outputSchema);
+      });
+    }
   };
   if (!isRecord(flow)) return out;
   walk(flow.nodes, '/nodes');
