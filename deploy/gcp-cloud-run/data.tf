@@ -138,6 +138,15 @@ resource "google_secret_manager_secret_iam_member" "server_reads_its_secrets" {
   member    = "serviceAccount:${google_service_account.server.email}"
 }
 
+# The server's files (var.server_secret_files), granted the same way. A
+# secret is in one of the two variables only, so each grant has one owner.
+resource "google_secret_manager_secret_iam_member" "server_reads_its_files" {
+  for_each  = { for path, ref in var.server_secret_files : path => ref if ref.project == null }
+  secret_id = "projects/${var.project_id}/secrets/${each.value.secret}"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.server.email}"
+}
+
 # ---- export signing (opt-in: var.export_signing) ----------------------------
 
 # "secret": the key in Secret Manager. Its own container, created only

@@ -665,8 +665,9 @@ then reaches the runtime only when you change `version`.
   Turnstile** go the same way: each provider's client id,
   `KINDGI_AUTH_VERIFIED_DOMAINS` and the Turnstile site key in `server_env`;
   each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET` in
-  `server_secret_env`. The module mounts no files, so use the value forms of
-  the settings, not their `…_PATH` forms.
+  `server_secret_env`. Use the value forms of the settings, not their
+  `…_PATH` forms: a file the module mounts ([Give the server a
+  file](#give-the-server-a-file)) is readable by every user in the container.
 
 **Check it worked:** after the apply, the new revision's startup lines say
 where it's reached, and which ways in the console has, instead of the
@@ -712,6 +713,50 @@ Model call to gemini (gemini-2.5-flash) failed: {"error":{"code":403,"message":"
 ```
 
 A new grant can take a minute or two to apply.
+
+## Give the server a file
+
+A setting can name a file: `KINDGI_COMPLIANCE_CLASSIFIER`, for example, takes
+the path of [your own classifier](../retention/#your-own-classifier), which
+says how long the server keeps each kind of audit event. The module mounts
+each file from Secret Manager, with `server_secret_files`:
+
+```sh
+gcloud secrets create $N-compliance-classifier --data-file=compliance-classifier.json
+```
+
+```hcl
+server_secret_files = {
+  "/kindgi/compliance/classifier.json" = { secret = "kindgi-compliance-classifier", version = "1" }
+}
+server_env = {
+  KINDGI_COMPLIANCE_CLASSIFIER = "/kindgi/compliance/classifier.json"
+}
+```
+
+- **Each file is the mount of its own directory, under `/kindgi/`:** one
+  file per directory, none below another file's. A mount hides what's in its
+  directory ([Google: secrets as volumes](https://docs.cloud.google.com/run/docs/configuring/services/secrets)),
+  so the plan refuses any path outside `/kindgi/`, which the runtime's image
+  doesn't have: `/app`, `/etc` or `/cloudsql` would hide the runtime, the
+  system's files or the database's socket. So on Cloud Run the classifier
+  can't be at the retention page's `/etc/kindgi/classifier.json`.
+- **Pin a version number.** The plan refuses `latest` and aliases: a volume
+  at `latest` follows each new version, even under a running server
+  ([Google: secrets as volumes](https://docs.cloud.google.com/run/docs/configuring/services/secrets)). Pinned,
+  a changed file is a new version and a change to `server_secret_files`,
+  which rolls a new revision.
+- **Every user in the container can read the file** (Cloud Run mounts it
+  0444: [Google: `defaultMode`](https://docs.cloud.google.com/run/docs/reference/rest/v2/Volume#SecretVolumeSource)),
+  so never a key: a key goes in `server_secret_env`. The plan refuses a
+  secret that's in both, one of the module's own secrets (`database_instance`'s
+  `url_secret` included), and one of the pack's (`pack_secret_env`).
+- **Read access:** the server's service account gets it on exactly these
+  secrets. Set `project` only for a secret in another project, which is
+  granted there; for one in this project leave it out, or the server isn't
+  granted it.
+- **A file is at most 64 KiB,** Secret Manager's limit for a version
+  ([Google: Secret Manager quotas](https://docs.cloud.google.com/secret-manager/quotas)).
 
 ## Operate it
 

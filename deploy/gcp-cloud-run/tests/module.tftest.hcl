@@ -348,6 +348,208 @@ run "kindgi_dev_is_refused" {
   expect_failures = [google_cloud_run_v2_service.server]
 }
 
+run "no_server_files_by_default" {
+  command = plan
+  assert {
+    condition     = [for v in google_cloud_run_v2_service.server.template[0].volumes : v.name] == ["cloudsql"]
+    error_message = "By default the server mounts the database's socket and nothing else."
+  }
+  assert {
+    condition     = length(google_secret_manager_secret_iam_member.server_reads_its_files) == 0
+    error_message = "Without server_secret_files, the server gets no grant for files."
+  }
+}
+
+run "server_secret_files_are_mounted_one_per_directory" {
+  command = plan
+  variables {
+    server_env = { KINDGI_COMPLIANCE_CLASSIFIER = "/kindgi/compliance/classifier.json" }
+    server_secret_files = {
+      "/kindgi/compliance/classifier.json" = { secret = "kindgi-dev-compliance-classifier", version = "1" }
+      "/kindgi/shared/acme.json"           = { secret = "acme-config", version = "3", project = "acme-shared" }
+    }
+  }
+  assert {
+    condition = toset([
+      for v in google_cloud_run_v2_service.server.template[0].volumes : "${v.secret[0].secret}@${v.secret[0].items[0].version}:${v.secret[0].items[0].path}"
+      if v.name != "cloudsql"
+    ]) == toset(["kindgi-dev-compliance-classifier@1:classifier.json", "projects/acme-shared/secrets/acme-config@3:acme.json"])
+    error_message = "Each file is its secret at its version, under its own name; another project's secret by its full name."
+  }
+  assert {
+    condition = toset([
+      for m in google_cloud_run_v2_service.server.template[0].containers[0].volume_mounts : "${m.mount_path}=${one([
+        for v in google_cloud_run_v2_service.server.template[0].volumes : v.secret[0].items[0].path if v.name == m.name && v.name != "cloudsql"
+      ])}"
+      if m.name != "cloudsql"
+    ]) == toset(["/kindgi/compliance=classifier.json", "/kindgi/shared=acme.json"])
+    error_message = "Each file's volume is mounted at the file's directory."
+  }
+  assert {
+    condition     = one([for m in google_cloud_run_v2_service.server.template[0].containers[0].volume_mounts : m.mount_path if m.name == "cloudsql"]) == "/cloudsql"
+    error_message = "The database's socket stays mounted beside the files."
+  }
+  assert {
+    condition     = keys(google_secret_manager_secret_iam_member.server_reads_its_files) == ["/kindgi/compliance/classifier.json"]
+    error_message = "The server is granted the same-project file's secret only; another project's is granted there."
+  }
+  assert {
+    condition     = one([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value if e.name == "KINDGI_COMPLIANCE_CLASSIFIER"]) == "/kindgi/compliance/classifier.json"
+    error_message = "The setting that names the file's path reaches the server from server_env."
+  }
+}
+
+run "a_relative_server_file_path_is_refused" {
+  command = plan
+  variables {
+    server_secret_files = { "kindgi/compliance/classifier.json" = { secret = "kindgi-dev-compliance-classifier", version = "1" } }
+  }
+  expect_failures = [var.server_secret_files]
+}
+
+run "a_server_file_needs_a_directory" {
+  command = plan
+  variables {
+    server_secret_files = { "/classifier.json" = { secret = "kindgi-dev-compliance-classifier", version = "1" } }
+  }
+  expect_failures = [var.server_secret_files]
+}
+
+run "a_server_file_path_with_dot_dot_is_refused" {
+  command = plan
+  variables {
+    server_secret_files = { "/kindgi/../classifier.json" = { secret = "kindgi-dev-compliance-classifier", version = "1" } }
+  }
+  expect_failures = [var.server_secret_files]
+}
+
+run "a_server_file_over_the_images_directories_is_refused" {
+  command = plan
+  variables {
+    server_secret_files = { "/etc/kindgi/classifier.json" = { secret = "kindgi-dev-compliance-classifier", version = "1" } }
+  }
+  expect_failures = [var.server_secret_files]
+}
+
+run "a_server_file_outside_kindgi_is_refused" {
+  command = plan
+  variables {
+    server_secret_files = { "/data/classifier.json" = { secret = "kindgi-dev-compliance-classifier", version = "1" } }
+  }
+  expect_failures = [var.server_secret_files]
+}
+
+run "a_server_file_beside_kindgi_is_refused" {
+  command = plan
+  variables {
+    server_secret_files = { "/kindgi-data/classifier.json" = { secret = "kindgi-dev-compliance-classifier", version = "1" } }
+  }
+  expect_failures = [var.server_secret_files]
+}
+
+run "a_server_file_in_the_apps_directory_is_refused" {
+  command = plan
+  variables {
+    server_secret_files = { "/app/config/classifier.json" = { secret = "kindgi-dev-compliance-classifier", version = "1" } }
+  }
+  expect_failures = [var.server_secret_files]
+}
+
+run "a_server_file_under_cloudsql_is_refused" {
+  command = plan
+  variables {
+    server_secret_files = { "/cloudsql/classifier.json" = { secret = "kindgi-dev-compliance-classifier", version = "1" } }
+  }
+  expect_failures = [var.server_secret_files]
+}
+
+run "two_server_files_in_one_directory_are_refused" {
+  command = plan
+  variables {
+    server_secret_files = {
+      "/kindgi/compliance/classifier.json" = { secret = "kindgi-dev-compliance-classifier", version = "1" }
+      "/kindgi/compliance/other.json"      = { secret = "acme-other", version = "1" }
+    }
+  }
+  expect_failures = [var.server_secret_files]
+}
+
+run "a_server_file_below_another_files_directory_is_refused" {
+  command = plan
+  variables {
+    server_secret_files = {
+      "/kindgi/classifier.json"  = { secret = "kindgi-dev-compliance-classifier", version = "1" }
+      "/kindgi/shared/acme.json" = { secret = "acme-config", version = "1" }
+    }
+  }
+  expect_failures = [var.server_secret_files]
+}
+
+run "a_server_file_at_latest_is_refused" {
+  command = plan
+  variables {
+    server_secret_files = { "/kindgi/compliance/classifier.json" = { secret = "kindgi-dev-compliance-classifier", version = "latest" } }
+  }
+  expect_failures = [var.server_secret_files]
+}
+
+run "one_secret_as_two_server_files_is_refused" {
+  command = plan
+  variables {
+    server_secret_files = {
+      "/kindgi/compliance/classifier.json" = { secret = "kindgi-dev-compliance-classifier", version = "1" }
+      "/kindgi/copy/classifier.json"       = { secret = "kindgi-dev-compliance-classifier", version = "2" }
+    }
+  }
+  expect_failures = [var.server_secret_files]
+}
+
+run "a_secret_as_a_setting_and_a_file_is_refused" {
+  command = plan
+  variables {
+    server_secret_files = { "/kindgi/auth/secret" = { secret = "kindgi-dev-auth-secret", version = "1" } }
+    public_url          = "https://kindgi.acme.example"
+    server_secret_env   = { KINDGI_AUTH_SECRET = { secret = "kindgi-dev-auth-secret", version = "1" } }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "a_secret_as_a_setting_and_a_file_by_its_project_is_refused" {
+  command = plan
+  variables {
+    server_secret_files = { "/kindgi/auth/secret" = { secret = "kindgi-dev-auth-secret", version = "1", project = "acme-app-dev" } }
+    public_url          = "https://kindgi.acme.example"
+    server_secret_env   = { KINDGI_AUTH_SECRET = { secret = "kindgi-dev-auth-secret", version = "1" } }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "a_file_of_the_modules_own_secret_is_refused" {
+  command = plan
+  variables {
+    server_secret_files = { "/kindgi/database/url" = { secret = "kindgi-dev-database-url", version = "1" } }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "a_file_of_the_served_instances_url_secret_is_refused" {
+  command = plan
+  variables {
+    database_instance   = { name = "kindgi-dev-restored", url_secret = "kindgi-dev-restored-database-url" }
+    server_secret_files = { "/kindgi/database/url" = { secret = "kindgi-dev-restored-database-url", version = "1" } }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "a_packs_secret_as_a_server_file_is_refused" {
+  command = plan
+  variables {
+    pack_secret_env     = { ACME_API_KEY = { secret = "acme-api-key", version = "1" } }
+    server_secret_files = { "/kindgi/acme/key" = { secret = "acme-api-key", version = "1" } }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
 run "the_public_url_goes_in_its_variable" {
   command = plan
   variables {
