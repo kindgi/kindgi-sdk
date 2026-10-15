@@ -72,6 +72,7 @@ export type KindOutcome =
 export interface Manifest {
   readonly cliVersion: string;
   readonly server: string;
+  /** The tenant, and its state as the export last read it, when the server says it. */
   readonly tenant: { readonly id: string; readonly state?: string };
   readonly startedAt: string;
   readonly finishedAt?: string;
@@ -114,15 +115,16 @@ export async function createExport(input: CreateExportInput): Promise<Manifest> 
   const progress = input.progress ?? (() => undefined);
   const earlier = await prepareFolder(input);
   const started = now().toISOString();
-  const state = await tenantState(input.reader);
+  // The tenant's state as each read found it: at the start, and at the end.
+  const states = [await tenantState(input.reader)];
   const kinds: Record<string, KindOutcome> = { ...(earlier?.kinds ?? {}) };
   const manifest = (finishedAt?: string): Manifest => ({
     cliVersion: input.cliVersion,
     server: input.server,
-    tenant: { id: input.tenantId, ...(state !== undefined && { state }) },
+    tenant: { id: input.tenantId, ...lastState(states) },
     startedAt: earlier?.startedAt ?? started,
     ...(finishedAt !== undefined && { finishedAt }),
-    consistency: consistencyOf(state, earlier),
+    consistency: consistencyOf(states, earlier),
     kinds,
     neverExported: NEVER_EXPORTED,
   });
@@ -133,20 +135,39 @@ export async function createExport(input: CreateExportInput): Promise<Manifest> 
     );
 
   const ctx: KindContext = { ...input, now, kinds };
-  const steps: readonly (readonly [string, () => Promise<KindOutcome>])[] = [
-    ...EXPORT_PLAN.map((kind) => [kind.name, () => exportKind(ctx, kind)] as const),
-    [SIGNED.approvals, () => signApprovals(ctx)],
-    [SIGNED.provenance, () => signProvenance(ctx)],
-    [SIGNED.evidence, () => signEvidence(ctx)],
+  const steps: readonly Step[] = [
+    ...EXPORT_PLAN.map(
+      (kind): Step => ({
+        name: kind.name,
+        writes: [
+          `${kind.name}.jsonl`,
+          `${kind.name}.jsonl.partial`,
+          ...(kind.bytes === undefined ? [] : [kind.bytes.dir]),
+        ],
+        run: () => exportKind(ctx, kind),
+      }),
+    ),
+    { name: SIGNED.approvals, writes: [SIGNED.approvals], run: () => signApprovals(ctx) },
+    { name: SIGNED.provenance, writes: [SIGNED.provenance], run: () => signProvenance(ctx) },
+    {
+      name: SIGNED.evidence,
+      writes: [`${SIGNED.evidence}.json`, `${SIGNED.evidence}.json.partial`],
+      run: () => signEvidence(ctx),
+    },
   ];
   const stopped = (): boolean => input.stopSignal?.aborted === true;
   await save();
   // A kind is `ok` only when what it's read from was, so keeping the `ok`
   // ones never leaves a kind read from data this run read again.
-  for (const [name, run] of steps) {
+  for (const { name, writes, run } of steps) {
     if (stopped()) break;
     if (kinds[name]?.status === 'ok') continue;
+    // Each kind is whole or absent: what a run that stopped part way left
+    // of it goes before it's read, and what this read wrote goes unless
+    // it's `ok`.
+    await clear(input.out, writes);
     const outcome = await run();
+    if (outcome.status !== 'ok') await clear(input.out, writes);
     // Stopped part way: the kind is left for --resume, not marked failed.
     if (stopped() && outcome.status === 'failed') break;
     kinds[name] = outcome;
@@ -154,8 +175,17 @@ export async function createExport(input: CreateExportInput): Promise<Manifest> 
     await save();
   }
   const finished = stopped() ? undefined : now().toISOString();
+  // A tenant closing or suspended at the start may be active again now.
+  if (finished !== undefined) states.push(await tenantState(input.reader));
   await save(finished);
   return manifest(finished);
+}
+
+/** A kind of the export's: what it writes, under `out`, and how it's read. */
+interface Step {
+  readonly name: string;
+  readonly writes: readonly string[];
+  readonly run: () => Promise<KindOutcome>;
 }
 
 /** The kinds a kind is read from: its parent, or, read at each env and scope, what lists them. */
@@ -222,21 +252,30 @@ async function tenantState(reader: Reader): Promise<string | undefined> {
   }
 }
 
+/** The state the last read found, for the manifest. */
+function lastState(states: readonly (string | undefined)[]): { state?: string } {
+  const state = states.findLast((s) => s !== undefined);
+  return state === undefined ? {} : { state };
+}
+
 const CHANGING =
   "Records can change while the export reads them, so the files are each kind as it stood when it was read (its `at`), not one moment's snapshot.";
 
 /**
  * How far the files agree. A closing or suspended tenant changes only by
  * deletes and erasures, so its files agree, when it was closing or
- * suspended through every run of the export (an earlier run's manifest
- * says whether it was).
+ * suspended through every run of the export: at each run's start and end
+ * (an earlier run's manifest says whether it was).
  */
-function consistencyOf(state: string | undefined, earlier: Manifest | undefined): string {
+function consistencyOf(
+  states: readonly (string | undefined)[],
+  earlier: Manifest | undefined,
+): string {
   const frozen = (s: string | undefined) => s === 'closing' || s === 'suspended';
   const frozenBefore =
     earlier === undefined || (frozen(earlier.tenant?.state) && earlier.consistency !== CHANGING);
-  if (frozen(state) && frozenBefore) {
-    return `The tenant is ${state}: nothing in it changes but deletes and erasures, so the files agree with each other, but for a delete or an erasure made while the export ran.`;
+  if (states.every((s) => frozen(s)) && frozenBefore) {
+    return `The tenant is ${states.at(-1)}: nothing in it changes but deletes and erasures, so the files agree with each other, but for a delete or an erasure made while the export ran.`;
   }
   return CHANGING;
 }
@@ -273,8 +312,6 @@ async function exportKind(ctx: KindContext, kind: ExportKind): Promise<KindOutco
     await rename(partial, join(ctx.out, file));
   } catch (err) {
     await sink.close().catch(() => undefined);
-    await rm(partial, { force: true });
-    if (kind.bytes !== undefined) await rmDir(ctx, kind.bytes.dir);
     const notServed = notServedBy(err, kind, tally.records);
     if (notServed !== undefined) return { status: 'skipped', reason: notServed.message };
     return { status: 'failed', error: (err as Error).message };
@@ -317,9 +354,9 @@ function throwIfNotServed(err: unknown, route: string): void {
   if (isNotServed(err)) throw new NotServed(route, (err as ReadError).status);
 }
 
-/** A folder of the export's, removed: a kind that writes one is whole or absent. */
-async function rmDir(ctx: KindContext, dir: string): Promise<void> {
-  await rm(join(ctx.out, dir), { recursive: true, force: true });
+/** What a kind writes, removed: its files, and its folders with what's in them. */
+async function clear(out: string, writes: readonly string[]): Promise<void> {
+  for (const path of writes) await rm(join(out, path), { recursive: true, force: true });
 }
 
 function ok(
@@ -528,8 +565,6 @@ async function writeBytes(
 ): Promise<void> {
   const bytes = kind.bytes as NonNullable<ExportKind['bytes']>;
   const dir = join(ctx.out, bytes.dir);
-  // What an earlier run left of it goes, so the folder is this read's whole.
-  await rmDir(ctx, bytes.dir);
   await mkdir(dir, { recursive: true, mode: FOLDER_MODE });
   const lines = createInterface({
     input: createReadStream(listed),
@@ -613,7 +648,6 @@ async function signEach(ctx: KindContext, each: SignedEach): Promise<KindOutcome
   if (unmet !== undefined) return { status: 'skipped', reason: unmet };
   const tally = { records: 0, gone: 0, withoutMessages: 0 };
   try {
-    await rmDir(ctx, each.dir);
     await mkdir(join(ctx.out, each.dir), { recursive: true, mode: FOLDER_MODE });
     for await (const record of recordsOf(ctx, each.from)) {
       const id = each.idOf(record);
@@ -628,7 +662,6 @@ async function signEach(ctx: KindContext, each: SignedEach): Promise<KindOutcome
       tally.records++;
     }
   } catch (err) {
-    await rmDir(ctx, each.dir);
     if (err instanceof NotServed) return { status: 'skipped', reason: err.message };
     return { status: 'failed', error: (err as Error).message };
   }

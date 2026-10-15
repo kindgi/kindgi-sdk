@@ -664,6 +664,21 @@ describe('kindgi exports create', () => {
     );
     expect(decided.exitCode).toBe(1);
     expect(decided.stderr).toContain("You aren't a tenant admin here");
+    // As the server decides it: a member key's scope, or a project key's, isn't a tenant admin's.
+    for (const key of [{ role: 'member' }, { projectId: 'proj-1' }]) {
+      const narrow = await cli(
+        server({ '/v1/identity/whoami': { tenantId: TENANT, scopes: ['tenant-admin'], ...key } }),
+      );
+      expect(narrow.exitCode, JSON.stringify(key)).toBe(1);
+      expect(narrow.stderr).toContain("You aren't a tenant admin here");
+    }
+    const full = await cli(
+      server({
+        '/v1/identity/whoami': { tenantId: TENANT, scopes: ['tenant-admin'], role: 'admin' },
+      }),
+    );
+    expect(full.exitCode, full.stderr).toBe(0);
+    await rm(out, { recursive: true, force: true });
 
     const nameless = await cli(server({ '/v1/identity/whoami': { scopes: ['tenant-admin'] } }));
     expect(nameless.exitCode).toBe(1);
@@ -698,6 +713,52 @@ describe('kindgi exports create', () => {
     expect((await manifest()).consistency).toBe(
       'The tenant is closing: nothing in it changes but deletes and erasures, so the files agree with each other, but for a delete or an erasure made while the export ran.',
     );
+
+    // Suspended when it started, active again by the end.
+    let reads = 0;
+    answers['/v1/tenant'] = () =>
+      json(200, { id: TENANT, state: reads++ === 0 ? 'suspended' : 'active' });
+    await rm(out, { recursive: true, force: true });
+    expect((await cli(server(answers))).exitCode).toBe(0);
+    const thawed = await manifest();
+    expect(reads).toBeGreaterThan(2);
+    expect(thawed.tenant.state).toBe('active');
+    expect(thawed.consistency).toMatch(/^Records can change while the export reads them/);
+  });
+
+  test('a kind skipped on a later run leaves none of what a run that stopped part way wrote of it', async () => {
+    const refused = () => json(400, { error: { code: 'invalid-request', message: 'No' } });
+    const first = await cli(
+      server({
+        '/v1/identity/users': refused,
+        '/v1/approvals': [{ id: 'appr-1', status: 'approved' }],
+        '/v1/approvals/appr-1/audit-bundle': refused,
+        '/v1/compliance/evidence/export': refused,
+      }),
+    );
+    expect(first.exitCode).toBe(1);
+    // What a run that stopped part way could leave of each.
+    await writeFile(join(out, 'users.jsonl'), '{}\n');
+    await writeFile(join(out, 'users.jsonl.partial'), '{}\n');
+    await mkdir(join(out, 'signed/approvals'), { recursive: true });
+    await writeFile(join(out, 'signed/approvals/appr-1.json'), '{}');
+    await writeFile(join(out, 'signed/compliance-evidence.json'), '{}');
+
+    const again = await cli(
+      server({ '/v1/identity/whoami': { tenantId: TENANT, scopes: [], tenantAdmin: false } }),
+      ['--resume', '--yes', '--no-signed'],
+    );
+    expect(again.exitCode, again.stderr).toBe(0);
+    const m = await manifest();
+    for (const kind of ['users', 'signed/approvals', 'signed/compliance-evidence']) {
+      expect(m.kinds[kind], kind).toMatchObject({ status: 'skipped' });
+    }
+    const left = await readdir(out, { recursive: true });
+    // The provenance exports were done (none) in the first run, so their folder is kept.
+    expect(left.filter((p) => p.startsWith('users') || p.startsWith('signed')).sort()).toEqual([
+      'signed',
+      'signed/provenance',
+    ]);
   });
 
   test('--json prints the manifest', async () => {

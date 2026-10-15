@@ -273,11 +273,14 @@ describe('each kind reads its route as the route takes it', () => {
     expect(fillsAPath(fieldAt(recordSchema(kindNamed(name)), path))).toBe(true);
   });
 
-  test('whoami answers the tenant, whether the caller is its admin, and its key’s scopes', () => {
+  test('whoami answers the tenant, whether the caller is its admin, and its key’s scopes, role and project', () => {
     const me = answer('/v1/identity/whoami');
     expect(typesOf(fieldAt(me, ['tenantId']))).toEqual(['string']);
     expect(typesOf(fieldAt(me, ['tenantAdmin']))).toEqual(['boolean']);
     expect(typesOf(fieldAt(me, ['scopes']))).toEqual(['array']);
+    expect(typesOf(fieldAt(me, ['role']))).toEqual(['string']);
+    expect(fieldAt(me, ['role'])?.enum).toContain('member');
+    expect(typesOf(fieldAt(me, ['projectId']))).toEqual(['string']);
   });
 
   test.each(

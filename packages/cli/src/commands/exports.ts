@@ -175,7 +175,6 @@ const create: LeafCommand = {
   },
 };
 
-/** What the export holds, in a few lines. */
 /**
  * The caller's tenant, and whether they're its admin, as whoami answers:
  * it's always served, unlike `me/permissions`, which a runtime without an
@@ -188,20 +187,28 @@ async function caller(
     tenantId?: unknown;
     tenantAdmin?: unknown;
     scopes?: unknown;
+    role?: unknown;
+    projectId?: unknown;
   };
   if (typeof me.tenantId !== 'string' || me.tenantId === '') {
     throw new Error(
       'GET /v1/identity/whoami answered no tenantId, so the export has no tenant to name.',
     );
   }
-  // A server that answers no `tenantAdmin` says it by the key's scopes.
+  // A server that answers no `tenantAdmin` says it by the key, as its admin
+  // routes decide it without an authorizer: the `tenant-admin` scope of a
+  // full key, never a `member` key's or one limited to a project.
   const admin =
     typeof me.tenantAdmin === 'boolean'
       ? me.tenantAdmin
-      : Array.isArray(me.scopes) && me.scopes.includes('tenant-admin');
+      : Array.isArray(me.scopes) &&
+        me.scopes.includes('tenant-admin') &&
+        me.role !== 'member' &&
+        me.projectId === undefined;
   return { tenantId: me.tenantId, admin };
 }
 
+/** What the export holds, in a few lines. */
 function summary(manifest: Manifest, out: string): string {
   const outcomes = Object.entries(manifest.kinds);
   const count = (status: string) => outcomes.filter(([, k]) => k.status === status).length;
