@@ -161,7 +161,7 @@ CAPTURE: a second project put in production, as Kindgi Cloud refuses it
 While an agent turn runs, it holds memory for its conversation. Before each
 call to the model, the turn counts four times the size of its conversation
 as sent, and once more for each round it has done (a model call and its
-tool calls). A resumed run's turn also counts the run's journal. A dry run
+tool calls). A resumed run also counts its journal while it runs. A dry run
 isn't counted. When the turn ends, what it held is free again.
 
 A turn that would go past either limit fails before the model is called,
@@ -177,7 +177,15 @@ and the limit, and `runId` names the turn's run. There's no `Retry-After`:
 try again later, or with a smaller conversation. Every tool call the turn
 finished is in the conversation, so a new turn there doesn't call it again
 ([`turn-memory-limit-reached`](../../reference/errors/#turn-memory-limit-reached)).
-A resume whose journal alone is over your workspace's limit fails at once.
+
+A resumed run whose journal alone is over your workspace's limit fails at
+once, with the same code. One that only finds no room yet waits:
+
+- **A conversation's turn** goes back to `pending`, first in line, and goes
+  on when other turns free enough.
+- **A turn that's a step of a flow** is tried again about every 5 minutes.
+  The third try without room fails it with `turn-memory-limit-reached`,
+  about 15 minutes on, and the flow's retry policy then applies to the step.
 
 These two limits are the same for every workspace, and `GET /v1/tenant`
 doesn't list them.
