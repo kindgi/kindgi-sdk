@@ -7096,10 +7096,11 @@ export const PolicyCollectionPageSchema: JsonSchema = {
 };
 
 /**
- * Row shape returned by `GET /v1/policies/:policyId/versions`. Matches
+ * A version as `GET /v1/policies/:policyId/versions` and
+ * `GET /v1/policies/:policyId/versions/:version` return it. Matches
  * `Policy` plus an optional `unregisteredAt` timestamp that is present
  * iff the version has been soft-tombstoned. Kept as a dedicated schema
- * so the head routes (`get` / `getVersion`) keep their existing shape
+ * so the head route (`get`, the latest active version) keeps its shape
  * locked down under `additionalProperties: false`.
  */
 export const PolicyVersionRowSchema: JsonSchema = {

@@ -5566,11 +5566,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/policies/{policyId}/versions/{version}',
     operationId: 'policies.versions.get',
     summary: 'Fetch a specific policy version',
+    description: 'An unregistered version is returned too, with `unregisteredAt`.',
     tags: ['policies'],
     security: 'bearer',
     parameters: [PolicyIdPathParam, PolicyVersionPathParam],
     responses: {
-      '200': { description: 'Policy at that version.', schema: ref('Policy') },
+      '200': { description: 'Policy at that version.', schema: ref('PolicyVersionRow') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No policy at that (id, version) under this tenant.'),
     },

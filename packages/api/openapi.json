@@ -39576,7 +39576,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Policy"
+                  "$ref": "#/components/schemas/PolicyVersionRow"
                 }
               }
             }
@@ -39602,6 +39602,7 @@
             }
           }
         },
+        "description": "An unregistered version is returned too, with `unregisteredAt`.",
         "parameters": [
           {
             "name": "policyId",

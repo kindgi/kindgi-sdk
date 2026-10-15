@@ -5253,14 +5253,17 @@ class PoliciesVersionsResource:
 
     def get(
         self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.Policy:
-        """Fetch a specific policy version. `GET /v1/policies/{policyId}/versions/{version}`"""
+    ) -> _models.PolicyVersionRow:
+        """Fetch a specific policy version. `GET /v1/policies/{policyId}/versions/{version}`
+
+        An unregistered version is returned too, with `unregisteredAt`.
+        """
         return self._client._request(
             _OPERATIONS["policies.versions.get"],
             path={"policyId": policy_id, "version": version},
             query={},
             headers={},
-            response=_models.Policy,
+            response=_models.PolicyVersionRow,
             timeout=timeout,
         )
 
@@ -13029,14 +13032,17 @@ class AsyncPoliciesVersionsResource:
 
     async def get(
         self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.Policy:
-        """Fetch a specific policy version. `GET /v1/policies/{policyId}/versions/{version}`"""
+    ) -> _models.PolicyVersionRow:
+        """Fetch a specific policy version. `GET /v1/policies/{policyId}/versions/{version}`
+
+        An unregistered version is returned too, with `unregisteredAt`.
+        """
         return await self._client._request(
             _OPERATIONS["policies.versions.get"],
             path={"policyId": policy_id, "version": version},
             query={},
             headers={},
-            response=_models.Policy,
+            response=_models.PolicyVersionRow,
             timeout=timeout,
         )
 
