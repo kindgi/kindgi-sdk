@@ -193,7 +193,10 @@ give the schema yourself with `.set("output", Map("schema" -> …, "name" ->
 </TabItem>
 </Tabs>
 
-- **`schema`** is what the answer must match.
+- **`schema`** is what the answer must match. One that doesn't compile
+  (strict JSON Schema, draft 2020-12) is refused where the agent arrives:
+  by `defineAgent`, when it's registered, or by a deploy
+  (`400 deployment-validation-failed`, at `/output/schema`), not at each turn.
 - **`name`** names the answer in what the model is told when it gets it wrong,
   and in errors. It's `output` by default.
 - **`maxRepairs`** is how many times a wrong answer goes back to the model, 1
@@ -207,6 +210,10 @@ with it, in the words a repair repeats, and tells the model to call the tools
 it needs first. So its first answer can already fit. Describing the JSON in
 the instructions, as this agent does, still helps the model fill the fields
 well.
+
+The schema goes with every model call, its descriptions included, so every
+call's prompt tokens count it. Keep it, and its descriptions, to what the
+answer needs.
 
 From a local model, Qwen 2.5 7B through Ollama, with instructions that don't
 describe the JSON, the first call's system message ends:
