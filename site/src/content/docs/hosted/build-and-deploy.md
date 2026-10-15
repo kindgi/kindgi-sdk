@@ -72,8 +72,8 @@ CAPTURE: kindgi deploy --hosted, from the build to the pack service ready
 ```
 
 - **No `endpoint`.** The deploy goes to the address you signed in to, and
-  only there. An `endpoint` in the environment, or `--endpoint`, that names
-  another address is refused, naming both.
+  only there. An `endpoint` in the environment, `--endpoint`, `--url` or
+  `KINDGI_API_URL` that names another address is refused, naming both.
 - **The build** runs on the build service, and its log streams as it goes.
   When the stream is cut before the build ends, the CLI opens it again and
   prints each line once.
