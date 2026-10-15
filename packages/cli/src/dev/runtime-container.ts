@@ -20,7 +20,7 @@ import { createHash } from 'node:crypto';
 
 import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
 import { dockerUnreachable } from './blocked.js';
-import { lineReader } from './lines.js';
+import { type LineReader, lineReader } from './lines.js';
 import { parseRecord, textLines } from './log-view.js';
 import {
   RUNTIME_EXPORT_SIGNING_KEY,
@@ -696,23 +696,41 @@ function describeExit(exit: ContainerExit): string {
   return ` (exit code ${exit.code}${meaning}${error})`;
 }
 
-/** A stopped container's whole log, in the order it was written, and how it exited. */
+/**
+ * One stream of a stopped container's log, read into `out` as the
+ * follower keeps its lines: whole lines only (a chunk can end mid-record),
+ * each record as its text (`textLines`), and none of `docker logs`' own
+ * errors. A runtime that logs JSON says why it stopped in a `boot` record,
+ * which a person reads as its pretty line, never raw.
+ */
+export function stoppedLogReader(out: string[]): LineReader {
+  return lineReader((line) => {
+    if (!line.startsWith(DOCKER_DAEMON_ERROR)) out.push(...textLines(line));
+  });
+}
+
+/** A stopped container's whole log as text, in the order it was written, and how it exited. */
 async function stoppedContainer(
   id: string,
   run: DockerRunner,
 ): Promise<{ readonly lines: readonly string[]; readonly exit: ContainerExit }> {
   const logLines = await new Promise<string[]>((resolve) => {
     const out: string[] = [];
+    // A reader per stream: each has its own line in progress.
+    const outLines = stoppedLogReader(out);
+    const errLines = stoppedLogReader(out);
     const child = spawn('docker', ['logs', id], { stdio: ['ignore', 'pipe', 'pipe'] });
-    const onChunk = (chunk: Buffer) => {
-      for (const line of chunk.toString().split('\n')) {
-        if (line !== '' && !line.startsWith(DOCKER_DAEMON_ERROR)) out.push(line);
-      }
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => outLines.push(chunk));
+    child.stderr?.on('data', (chunk: string) => errLines.push(chunk));
+    const done = () => {
+      outLines.end();
+      errLines.end();
+      resolve(out);
     };
-    child.stdout?.on('data', onChunk);
-    child.stderr?.on('data', onChunk);
-    child.on('error', () => resolve(out));
-    child.on('close', () => resolve(out));
+    child.on('error', done);
+    child.on('close', done);
   });
   const state = await run([
     'inspect',

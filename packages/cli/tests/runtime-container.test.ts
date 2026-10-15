@@ -16,6 +16,7 @@ import {
   pauseUnlessStopped,
   runtimeContainerName,
   runtimeRunArgs,
+  stoppedLogReader,
 } from '../src/dev/runtime-container.js';
 
 const OPTIONS: RuntimeContainerOptions = {
@@ -174,6 +175,34 @@ describe('describeStartupStop', () => {
       ),
     ).toBe(true);
     expect(text.endsWith('line 20')).toBe(true);
+  });
+
+  test('a runtime that logs JSON: its boot error record as the line a person reads, never raw', () => {
+    const record = JSON.stringify({
+      time: '2026-10-15T01:00:00.000Z',
+      level: 'error',
+      subsystem: 'boot',
+      message: 'KINDGI_TENANCY must be one of single, multi. Got "many".',
+    });
+    // The stopped container's log, read again: a line that isn't a record
+    // stays as it is, the record arrives split between two chunks, and
+    // `docker logs`' own error isn't the runtime's.
+    const lines: string[] = [];
+    const stdout = stoppedLogReader(lines);
+    const stderr = stoppedLogReader(lines);
+    stderr.push('kindgi-runtime: starting\n');
+    stdout.push(record.slice(0, 40));
+    stdout.push(`${record.slice(40)}\n`);
+    stderr.push('Error response from daemon: can not get logs from container which is dead\n');
+    stdout.end();
+    stderr.end();
+    expect(describeStartupStop(lines, { code: 2, oomKilled: false })).toBe(
+      [
+        'the Kindgi runtime container stopped while starting (exit code 2):',
+        'kindgi-runtime: starting',
+        '01:00:00.000 ERROR [boot] KINDGI_TENANCY must be one of single, multi. Got "many".',
+      ].join('\n'),
+    );
   });
 });
 
