@@ -145,14 +145,15 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'turn-memory-limit-reached': 429,
   // 500 — server
   'internal-server-error': 500,
-  /**
-   * A GET or HEAD the database was too busy to answer in time: a lock or
-   * statement timeout, or no free connection within the pool's wait
-   * (`Retry-After`). Any other method answers 500 (`mapThrownError`).
-   */
-  'database-busy': 503,
   'journal-error': 500,
   stuck: 500,
+  // 503 — the database, on any GET or HEAD. With `Retry-After`.
+  /**
+   * A GET or HEAD the database was too busy to answer in time: a lock or
+   * statement timeout, or no free connection within the pool's wait. Any
+   * other method answers 500 (`mapThrownError`).
+   */
+  'database-busy': 503,
   // Waitpoint domain: "no pending token" or "already resolved" are
   // 409-shaped (a caller conflict with the run's current state).
   'waitpoint-error': 409,
