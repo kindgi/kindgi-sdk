@@ -491,6 +491,31 @@ describe('kindgi build — argument resolution', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('outside the pack root');
   });
+
+  test('--out via a dangling in-pack symlink pointing outside the pack root is refused', async () => {
+    const fixtures = makeFixtures();
+    // A symlink inside the pack whose target does NOT exist and points
+    // outside: realpath can't resolve it, so only reading the link (not an
+    // opaque ENOENT, not a lexical in-pack check) reveals the escape.
+    const link = join(packDir, 'dangle');
+    await symlink(join(cwd, 'dangling-target'), link);
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', `--out=${link}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('outside the pack root');
+  });
+
+  test('--out equal to the pack root is refused', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', `--out=${packDir}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('is the pack root');
+  });
 });
 
 describe('kindgi build --hosted', () => {
@@ -1233,6 +1258,19 @@ describe('kindgi build — a Python pack', () => {
     expect(fixtures.state.signCalls).toBe(1);
   });
 
+  test('--out outside the pack root is accepted (the Python indexer takes the pack dir, not <out>/dist)', async () => {
+    await pythonPack();
+    const fixtures = makeFixtures();
+    withPython(fixtures);
+    const outside = join(cwd, 'outside-py');
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, { language: 'python', dev: { python: ['/opt/py/bin/python'] } }),
+      argv: ['build', '--env=staging', `--out=${outside}`, `--path=${packDir}`],
+    });
+    expect(out.stderr).not.toContain('outside the pack root');
+    expect(out.exitCode).toBe(0);
+  });
+
   test('without uv.lock the build stops before uploading', async () => {
     await pythonPack(false);
     const fixtures = makeFixtures();
@@ -1419,6 +1457,19 @@ describe('kindgi build — a Java pack', () => {
     expect(fixtures.state.tarCalls).toBe(1);
     expect(fixtures.state.postCalls).toBe(1);
     expect(fixtures.state.signCalls).toBe(1);
+  });
+
+  test('--out outside the pack root is accepted (the JVM indexer compiles into <out>/java with an explicit classpath)', async () => {
+    await javaPack();
+    const fixtures = makeFixtures();
+    withJava(fixtures);
+    const outside = join(cwd, 'outside-java');
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, JAVA_CONFIG),
+      argv: ['build', '--env=staging', `--out=${outside}`, `--path=${packDir}`],
+    });
+    expect(out.stderr).not.toContain('outside the pack root');
+    expect(out.exitCode, out.stderr).toBe(0);
   });
 
   test("the image's launcher keeps the names the index declares, required and optional", async () => {

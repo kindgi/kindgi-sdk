@@ -147,7 +147,7 @@ export const deployCommand: LeafCommand = {
     out: {
       type: 'string',
       description:
-        'Where the envelope is looked for, and an inline build writes. Default: `.kindgi/build` under the pack root.',
+        'Where the envelope is looked for, and an inline build writes (default: `.kindgi/build`). An inline build applies the same --out rules as `kindgi build`: not the pack root, and under it for a TypeScript pack.',
     },
     'artifact-version': {
       type: 'string',

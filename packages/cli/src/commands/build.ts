@@ -25,7 +25,7 @@
  * that's `kindgi deploy`.
  */
 
-import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readlink, realpath, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import {
@@ -170,7 +170,7 @@ export const buildCommand: LeafCommand = {
     out: {
       type: 'string',
       description:
-        'Where the build output and `deploy-envelope.json` go. Must be under the pack root (default: `.kindgi/build`).',
+        'Where the build output and `deploy-envelope.json` go (default: `.kindgi/build`). It cannot be the pack root itself; for a TypeScript pack it must stay under the pack root.',
     },
     'artifact-version': {
       type: 'string',
@@ -1191,19 +1191,45 @@ async function prepareJvmContext(
 
 // Resolve a path to its real location, following symlinks, even when the
 // path (or a leaf of it) does not exist yet: realpath the deepest existing
-// ancestor, then re-append the missing tail. Used so an in-pack symlink
-// can't point the build output outside the pack root.
-async function realpathUnderExisting(target: string): Promise<string> {
-  let existing = resolve(target);
-  const missing: string[] = [];
+// ancestor, then re-append the missing tail. A final dangling symlink (the
+// link exists, its target does not) is followed via readlink, so an in-pack
+// symlink that points outside the pack is caught here, not mistaken for a
+// plain in-pack path (nor surfaced later as an opaque ENOENT). Used so an
+// in-pack symlink can't point the build output outside the pack root.
+async function realpathUnderExisting(target: string, depth = 0): Promise<string> {
+  const abs = resolve(target);
+  try {
+    return await realpath(abs);
+  } catch (error) {
+    if ((error as { code?: string }).code !== 'ENOENT') return abs;
+  }
+  // `abs` is a dangling symlink, or it (or an ancestor) does not exist yet. A
+  // dangling symlink still has a target to follow; cap the chain so a cyclic
+  // one can't loop forever.
+  if (depth < 40) {
+    try {
+      if ((await lstat(abs)).isSymbolicLink()) {
+        return await realpathUnderExisting(resolve(dirname(abs), await readlink(abs)), depth + 1);
+      }
+    } catch {
+      // Not a symlink, or unreadable — fall through to the ancestor walk.
+    }
+  }
+  return realpathDeepestAncestor(abs);
+}
+
+// Walk up to the deepest existing ancestor, realpath it (following symlinks
+// in the ancestors), then re-append the missing tail lexically.
+async function realpathDeepestAncestor(abs: string): Promise<string> {
+  let existing = dirname(abs);
+  const missing: string[] = [basename(abs)];
   for (;;) {
     try {
-      const real = await realpath(existing);
-      return missing.length === 0 ? real : resolve(real, ...missing);
+      return resolve(await realpath(existing), ...missing);
     } catch (error) {
-      if ((error as { code?: string }).code !== 'ENOENT') return resolve(target);
+      if ((error as { code?: string }).code !== 'ENOENT') return abs;
       const parent = dirname(existing);
-      if (parent === existing) return resolve(target);
+      if (parent === existing) return abs;
       missing.unshift(basename(existing));
       existing = parent;
     }
@@ -1320,20 +1346,35 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   const outDirRaw = typeof outFlag === 'string' && outFlag !== '' ? outFlag : DEFAULT_OUT_DIR;
   const outDir = isAbsolute(outDirRaw) ? outDirRaw : resolve(packDir, outDirRaw);
 
-  // --out must resolve inside the pack root. The build output's local
-  // indexer runs `node <outDir>/dist/kindgi-index.mjs`, which resolves the
-  // bundle's bare externals (and @kindgi/*) by walking up from the output
-  // dir into the pack's node_modules, and the pack image's build context is
-  // the pack root — an output dir outside the pack root breaks both. Follow
-  // symlinks (realpath) so an in-pack symlink can't escape. Mirrors the
-  // local-dependency refusal in build/host-install.ts.
+  // The build writes its output — `dist/`, the Containerfile, `context/`
+  // (and `<language>/` for a JVM pack) — under --out. Two rules constrain
+  // it, both following symlinks (realpath) so an in-pack symlink can't slip
+  // past. Mirrors the local-dependency refusal in build/host-install.ts.
   const realPackDir = await realpathUnderExisting(packDir);
   const realOutDir = await realpathUnderExisting(outDir);
-  const outRel = relative(realPackDir, realOutDir);
-  if (outRel === '..' || outRel.startsWith(`..${sep}`) || isAbsolute(outRel)) {
+  // 1. In any language, --out must not BE the pack root: the build would
+  //    write its dist/, Containerfile and context/ over the pack's own files.
+  if (realOutDir === realPackDir) {
     return failure(
-      `--out ${outDirRaw} resolves to ${realOutDir}, outside the pack root ${realPackDir}: the build output must live under the pack root so the pack image includes it and the local indexer resolves dependencies from the pack. Use a path inside the pack (default: ${DEFAULT_OUT_DIR}).\n`,
+      `--out ${outDirRaw} is the pack root ${realPackDir}: the build writes dist/, the Containerfile and context/ there, over the pack's own files. Use a subdirectory (default: ${DEFAULT_OUT_DIR}).\n`,
     );
+  }
+  // 2. A TypeScript pack's --out must stay UNDER the pack root. Its local
+  //    indexer runs `node <out>/dist/kindgi-index.mjs`, whose bundle keeps
+  //    the pack's dependencies (zod, @kindgi/*) as bare externals that Node
+  //    resolves by walking up from <out>/dist into the pack's node_modules —
+  //    only reachable under the pack root. A Python or JVM pack's indexer
+  //    takes the pack dir and an explicit output path and never walks up from
+  //    <out>, so its output may sit anywhere; only this walk-up is bound to
+  //    the pack root.
+  const isTypeScriptPack = language !== 'python' && language !== 'java' && language !== 'scala';
+  if (isTypeScriptPack) {
+    const outRel = relative(realPackDir, realOutDir);
+    if (outRel === '..' || outRel.startsWith(`..${sep}`) || isAbsolute(outRel)) {
+      return failure(
+        `--out ${outDirRaw} resolves to ${realOutDir}, outside the pack root ${realPackDir}: a TypeScript pack's build indexes from <out>/dist and resolves the pack's dependencies by walking up into its node_modules, which only works under the pack root. Use a path inside the pack (default: ${DEFAULT_OUT_DIR}).\n`,
+      );
+    }
   }
 
   // --artifact-version and --published-at: pinned, else the build time.
