@@ -94,6 +94,20 @@ describe('an audit append that fails is logged through the given log', () => {
         message: 'env-set audit event failed',
         kind: 'env-set',
         err: expect.objectContaining({ name: 'Error', message: 'connection reset' }),
+        inMessage: ['kind'],
+      }),
+    ]);
+  });
+
+  test('an append that throws something not an Error: the warn carries it as text', async () => {
+    const { log, records } = capturing();
+    await emitResolveEvent(resolveInput(throwing('boom'), log));
+    expect(records()).toEqual([
+      expect.objectContaining({
+        level: 'warn',
+        message: 'secret-resolved audit event failed',
+        kind: 'secret-resolved',
+        err: 'boom',
       }),
     ]);
   });
