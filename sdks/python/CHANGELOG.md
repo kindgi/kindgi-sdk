@@ -10,6 +10,8 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+## 0.1.8rc0
+
 - `kindgi`: **a sign-in session carries the capabilities its person holds.**
   `identity.me.permissions()`'s `token_capabilities` for a sign-in session
   were always empty. Now they're its person's: none, unless the runtime gives

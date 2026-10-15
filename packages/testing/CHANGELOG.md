@@ -1,5 +1,54 @@
 # @kindgi/testing
 
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [fddc8f7]
+- Updated dependencies [3a3f233]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ba8d9a1]
+- Updated dependencies [ebf405d]
+- Updated dependencies [059c2c2]
+- Updated dependencies [3a3f233]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [b22e616]
+- Updated dependencies [ebf405d]
+- Updated dependencies [cfe5422]
+- Updated dependencies [70b85f8]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [3a3f233]
+- Updated dependencies [1c8b391]
+- Updated dependencies [08bf3e5]
+- Updated dependencies [6329f93]
+- Updated dependencies [ebf405d]
+- Updated dependencies [9ba9e5f]
+- Updated dependencies [ebf405d]
+- Updated dependencies [14d02c5]
+- Updated dependencies [d985473]
+- Updated dependencies [718e635]
+- Updated dependencies [036605f]
+- Updated dependencies [fddc8f7]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [9f4340c]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [a2ee44b]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f05d320]
+- Updated dependencies [1bd39aa]
+  - @kindgi/api@0.1.8-rc.0
+
 ## 0.1.7
 
 ### Patch Changes
