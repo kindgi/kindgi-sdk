@@ -36,6 +36,7 @@ import {
   resolvePackEnv,
 } from '@kindgi/handler-runtime';
 
+import { hostedApiAddress } from '../api-address.js';
 import { checkAptPackages } from '../build/apt.js';
 import { PACK_SERVICE_COMMAND } from '../build/containerfile.js';
 import { collectIncludeFiles, readBundleConfig } from '../build/context-files.js';
@@ -672,10 +673,7 @@ async function signAndWriteEnvelope(
     lines('  ⚠ Signing SKIPPED — --skip-sign. Emitted envelope is unsigned; deploy will refuse');
     lines('    it. Use only for CI that signs elsewhere.');
   } else if (args.signingKeyPath === undefined) {
-    return failure(
-      'Signing key not configured. Set environments.<env>.signingKey in kindgi.config.ts, ' +
-        'pass --signing-key <path>, or use --skip-sign to emit an unsigned envelope.\n',
-    );
+    return failure(noSigningKey(args.envName));
   } else {
     const privateKeyPem = await readFile(args.signingKeyPath, 'utf8');
     const message = canonicaliseSignatureBody({
@@ -1267,16 +1265,14 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
     if (clash !== undefined) {
       return failure(`--hosted builds on the hosted build service, and ${clash}: leave one out.\n`);
     }
-    // The API: `--url` > the env block's `endpoint` > KINDGI_API_URL or `kindgi auth login`'s.
-    const apiUrl =
-      ctx.config.source.apiUrl === 'flag'
-        ? ctx.config.apiUrl
-        : (envBlock?.endpoint ?? ctx.config.apiUrl);
-    if (apiUrl === undefined || apiUrl === '') {
-      return failure(
-        `kindgi build --hosted builds at the API's address, and none is set. Set environments.${envName}.endpoint in kindgi.config.ts, run \`kindgi auth login --url <url>\`, or export KINDGI_API_URL.\n`,
-      );
-    }
+    // The API: the CLI's own address (`--url`, KINDGI_API_URL or
+    // `kindgi auth login`'s), the one the key is for. The env block's
+    // `endpoint` may only repeat it (api-address.ts).
+    const address = hostedApiAddress('kindgi build --hosted', ctx.config, [
+      { url: envBlock?.endpoint, where: `environments.${envName}.endpoint` },
+    ]);
+    if (address.kind === 'refused') return failure(`${address.message}\n`);
+    const apiUrl = address.url;
     const token = ctx.config.token;
     if (token === undefined || token === '') {
       return failure(
@@ -1397,6 +1393,20 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
         ? 'linux/amd64'
         : undefined;
 
+  // A build that signs (the build server's, or --local --push) needs its
+  // key before anything is built or sent; the other settings are checked
+  // first.
+  if (!skipSign && (!local || push !== undefined)) {
+    const keyRefusal = await signingKeyRefusal(
+      signingKeyPath,
+      typeof signKeyFlag === 'string' && signKeyFlag !== ''
+        ? '--signing-key'
+        : `environments.${envName}.signingKey`,
+      envName,
+    );
+    if (keyRefusal !== undefined) return failure(keyRefusal);
+  }
+
   return {
     kind: 'ok',
     args: {
@@ -1426,6 +1436,33 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       config,
     },
   };
+}
+
+/**
+ * Why a build can't sign, before it starts: no key set, or a key file
+ * that isn't there. `undefined` when the key is there to read.
+ */
+async function signingKeyRefusal(
+  keyPath: string | undefined,
+  from: string,
+  envName: string,
+): Promise<string | undefined> {
+  if (keyPath === undefined) return noSigningKey(envName);
+  try {
+    await stat(keyPath);
+    return undefined;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    return `The signing key ${keyPath} (${from}) isn't there. ${MAKE_A_KEY} Then name it in environments.${envName}.signingKey in kindgi.config.ts, or with --signing-key ~/.kindgi/keys/<id>.pem.\n`;
+  }
+}
+
+/** How a signing key comes to be, and to be trusted. */
+const MAKE_A_KEY =
+  "Make a key with `kindgi key create <id>`, and add it to the runtime's trust list with `kindgi key trust <id>` (once).";
+
+function noSigningKey(envName: string): string {
+  return `No signing key is set. ${MAKE_A_KEY} Then set environments.${envName}.signingKey to ~/.kindgi/keys/<id>.pem in kindgi.config.ts, or pass --signing-key. (--skip-sign emits an unsigned envelope, which kindgi deploy refuses.)\n`;
 }
 
 async function loadBuildConfig(

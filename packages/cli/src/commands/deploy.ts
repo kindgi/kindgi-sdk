@@ -31,6 +31,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 
 import { LOCAL_ENV_NAME, type PackEnv, packValues, readPackEnv } from '@kindgi/secrets-dotenv';
 
+import { deployApiAddress, hostedApiAddress } from '../api-address.js';
 import { HOSTED_BUILD } from '../build/hosted.js';
 import type { CommandContext } from '../context.js';
 import { isEnvelopeSigned } from '../deploy/envelope-loader.js';
@@ -974,7 +975,7 @@ async function resolveProject(
   if (only === undefined) {
     return {
       kind: 'error',
-      message: `--project ${ref}: no project of this tenant has that slug. \`kindgi projects list\` shows them; create one per client with \`kindgi projects create\`.\n`,
+      message: `--project ${ref}: no project of this tenant has that slug. \`kindgi projects list\` shows them.\n`,
     };
   }
   if (more.length > 0) {
@@ -1021,23 +1022,39 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   const outDirRaw = typeof outFlag === 'string' && outFlag !== '' ? outFlag : '.kindgi/build';
   const outDir = isAbsolute(outDirRaw) ? outDirRaw : resolve(packDir, outDirRaw);
 
-  // --endpoint — env.endpoint > --endpoint flag > config apiUrl > KINDGI_API_URL > error.
+  const hosted = ctx.options.hosted === true || envBlock?.build === HOSTED_BUILD;
+  if (ctx.options.hosted === true && ctx.options['build-endpoint'] !== undefined) {
+    return {
+      kind: 'error',
+      stderr:
+        '--hosted builds on the hosted build service, and --build-endpoint names another build server: leave one out.\n',
+      exitCode: 1,
+    };
+  }
+
+  // The API (api-address.ts): --endpoint > the env block's `endpoint` >
+  // the CLI's own address (`--url`, KINDGI_API_URL or the stored one).
+  // The stored key goes only to its own address; a hosted deploy goes
+  // to the CLI's own address alone.
   const endpointFlag = ctx.options.endpoint;
-  const endpoint =
-    typeof endpointFlag === 'string' && endpointFlag !== ''
-      ? endpointFlag
-      : (envBlock?.endpoint ??
-        ctx.config.apiUrl ??
-        (typeof ctx.env.KINDGI_API_URL === 'string'
-          ? (ctx.env.KINDGI_API_URL as string)
-          : undefined));
-  if (endpoint === undefined || endpoint === '') {
+  const named = [
+    { url: typeof endpointFlag === 'string' ? endpointFlag : undefined, where: '--endpoint' },
+    { url: envBlock?.endpoint, where: `environments.${envName}.endpoint` },
+  ];
+  const address = hosted
+    ? hostedApiAddress('kindgi deploy --hosted', ctx.config, named)
+    : deployApiAddress(ctx.config, named);
+  if (address === undefined) {
     return {
       kind: 'error',
       stderr: `kindgi deploy could not resolve an API endpoint. Set environments.${envName}.endpoint in kindgi.config.ts, pass --endpoint <url>, or export KINDGI_API_URL.\n`,
       exitCode: 1,
     };
   }
+  if (address.kind === 'refused') {
+    return { kind: 'error', stderr: `${address.message}\n`, exitCode: 1 };
+  }
+  const endpoint = address.url;
 
   // --token — bearer token; standard config precedence.
   const token = ctx.config.token;
@@ -1068,16 +1085,6 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   const projectFlag = ctx.options.project;
   const projectRef =
     typeof projectFlag === 'string' && projectFlag !== '' ? projectFlag : undefined;
-
-  const hosted = ctx.options.hosted === true || envBlock?.build === HOSTED_BUILD;
-  if (ctx.options.hosted === true && ctx.options['build-endpoint'] !== undefined) {
-    return {
-      kind: 'error',
-      stderr:
-        '--hosted builds on the hosted build service, and --build-endpoint names another build server: leave one out.\n',
-      exitCode: 1,
-    };
-  }
 
   const idempotencyKeyFlag = ctx.options['idempotency-key'];
   const idempotencyKeyOverride =
