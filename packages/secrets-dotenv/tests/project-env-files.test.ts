@@ -129,6 +129,45 @@ describe("writes land in Kindgi's own file, which wins; nothing else changes", (
     expect(await resolved(b, 'TRICKY')).toBe(value);
   });
 
+  test.each([
+    ['a double quote and a carriage return', 'a"b\rc'],
+    ['a backslash before n, and a carriage return', 'a\\nb\rc'],
+    ['a double quote, a single quote and a backtick', `"a" 'b' \`c\``],
+    ['a backslash before r, a single quote and a backtick', "\\r 'b' `c`"],
+  ])(
+    "refuses a value with %s as the caller's secret-value-invalid, before any file, never saying it",
+    async (_, value) => {
+      await put('.env.local', 'KEEP=1\n');
+      const b = createDotenvSecretBinding({ packDir: dir });
+      for (const writeMode of ['add-version', 'create-new'] as const) {
+        // `create-new` on a name the files have: the value is refused first.
+        const r = await set(b, 'KEEP', value, writeMode);
+        expect(r).toEqual({
+          kind: 'error',
+          code: 'secret-value-invalid',
+          message: expect.stringContaining(
+            'no env-file quoting can hold the value for KEEP so that it reads back unchanged',
+          ),
+        });
+        expect(r.kind === 'error' && r.message).not.toContain(value);
+      }
+      expect(await read('.env.local')).toBe('KEEP=1\n');
+      await expect(read('.kindgi/secrets.env')).rejects.toThrow(/ENOENT/);
+    },
+  );
+
+  test.each([
+    ['a double quote and a newline', 'a"b\nc'],
+    ['a carriage return alone', 'a\rb'],
+    ['a backslash before n alone', 'a\\nb'],
+    ['a double quote and a single quote', `"a" 'b'`],
+    ['a double quote and a backtick', '"a" `b`'],
+  ])('still writes a value with %s, which reads back unchanged', async (_, value) => {
+    const b = createDotenvSecretBinding({ packDir: dir });
+    expect((await set(b, 'NEAR_MISS', value)).kind).toBe('ok');
+    expect(await resolved(b, 'NEAR_MISS')).toBe(value);
+  });
+
   test("with dev.envFiles, a secret still goes to Kindgi's file; appEnvFile, to the last of them", async () => {
     const b = createDotenvSecretBinding({ packDir: dir, localEnvFiles: ['.env', '.env.dev'] });
     await set(b, 'K', 'v');
