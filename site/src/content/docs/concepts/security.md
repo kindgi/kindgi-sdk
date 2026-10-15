@@ -176,7 +176,7 @@ Error [invalid-request]: Provider "bedrock" doesn't fit adapter @kindgi/adapter-
 A provider registered before the runtime moved to `isolated`, and that signs
 in as the runtime, isn't used there. Here, a `bedrock` preset registration:
 a turn that needs it fails with `422 capability-routing-failed`, and the
-error's message says why:
+error's message names the setting the adapter refuses:
 
 ```json
 {"error":{"code":"capability-routing-failed","message":"No registered provider satisfies the capability declaration. Provider \"bedrock\" can't be set up on this runtime: adapter @kindgi/adapter-model-bedrock refuses its /adapter_config/auth (GET /v1/providers/bedrock/check says why).","details":{"runId":"a6b708ca-d4cc-4cc7-a365-be066858d59f"},"requestId":"req-8b1ef821-9ec2-4f01-9c92-18eeedf4a9b0"}}
