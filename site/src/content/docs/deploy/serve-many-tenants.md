@@ -285,8 +285,13 @@ Once the window has passed, purge it. Its keys and sessions go with its
 rows. Until then, nothing of the tenant runs, and it writes only deletes,
 revokes, erasures, exports and sign-ins. One of those during the purge can
 leave a row: the purge exits `1` and names it, and running it again
-finishes it. Within about 5 seconds of the tenant being marked purged,
-nothing of it signs in or is served.
+finishes it.
+
+When nothing of the tenant is left, the purge marks it purged. Each server
+keeps a tenant's state for about 5 seconds, so within about 5 seconds of
+the mark nothing of it signs in or is served. The purge waits three times
+that, then deletes again: work of the tenant under way at the mark, such as
+a request that started before it, can still write a row.
 
 ```sh
 kindgi-runtime tenants purge <tenant id> --confirm <tenant slug> --record <where>
@@ -315,25 +320,22 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
 - **Refused (exit 2)** for a tenant that isn't closing or is still in its
   window, or one with artifacts or an OpenFGA store when `KINDGI_ARTIFACTS`
   or `KINDGI_OPENFGA_API_URL` isn't set as the server has it. **Exit 1** when rows or bytes of it are left, named: run it again.
+- **Exit 1, too, when work in flight at the mark wrote rows of it:** each
+  is named (`written after its mark: …`) and deleted. One that needs a
+  setting the run doesn't have is left, with why (`written after its mark,
+  not deleted: …`): run it again with that setting, or report it.
+- **A day later,** run it again with `--dry-run`, and without it if it
+  lists anything. On a tenant already purged, the purge deletes what's of
+  it, and its mark and its record stay as they were. Nothing should write
+  to a tenant a day after its mark, so report the tables it names.
+  `kindgi-runtime check purged-tenants` lists every tenant marked purged
+  that still holds rows, by table and count: rows only, not the bytes under
+  its prefix.
 - **`--record`** (`local:<dir>` or `gcs:<bucket>[/<prefix>]`) keeps a record
   of each purge. After a [restore](../back-up-and-restore/), and before the
   runtime serves, `kindgi-runtime tenants repurge --from <where>` purges
-  again every tenant a record names.
-
-:::caution
-In two cases, rows of a tenant stay after its purge:
-
-- A tenant whose people sign in with its own SSO doesn't finish purging:
-  every run exits `1`, naming `auth_users` and `auth_sso_providers`, and the
-  tenant isn't marked purged. Nothing is deleted that shouldn't be. A tenant
-  whose people sign in only with Google, Microsoft, GitHub or an emailed
-  link isn't affected.
-- The purge marks a tenant purged once its count finds nothing left. Work of
-  the tenant still under way then, such as a request that started before it
-  or a background pass that listed the tenant before it, can still write a
-  row. That row stays: running the purge again only says the tenant is
-  already purged.
-:::
+  again every tenant a record names. On one still marked purged, it deletes
+  what's of it, and leaves its mark and its record as they were.
 
 ## After each upgrade: tenants repair
 
