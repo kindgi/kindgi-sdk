@@ -92,7 +92,7 @@ export interface SecretListInput {
   /** Where the previous page ended: its `nextCursor`, as it came. */
   readonly cursor?: Cursor;
   readonly namePrefix?: string;
-  /** Revoked secrets too, with `revokedAt`. Never a value. */
+  /** Revoked secrets too, with their `revokedAt` and `revokeReason`. Never a value. */
   readonly includeRevoked?: boolean;
   /** The most secrets in a page (default 25, at most 100), with `nextCursor` while more remain. */
   readonly limit?: number;

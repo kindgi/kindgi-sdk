@@ -49995,7 +49995,7 @@
               ]
             },
             "required": false,
-            "description": "`true` lists revoked secrets too, with `revokedAt`. Metadata only, never a value."
+            "description": "`true` lists revoked secrets too, with their `revokedAt` and `revokeReason`. Metadata only, never a value."
           }
         ],
         "security": [

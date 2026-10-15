@@ -8529,7 +8529,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         in: 'query',
         required: false,
         description:
-          '`true` lists revoked secrets too, with `revokedAt`. Metadata only, never a value.',
+          '`true` lists revoked secrets too, with their `revokedAt` and `revokeReason`. Metadata only, never a value.',
         schema: { type: 'string', enum: ['true', 'false'] },
       },
     ],

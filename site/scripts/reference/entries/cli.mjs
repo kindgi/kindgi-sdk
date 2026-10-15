@@ -945,6 +945,10 @@ export const CLI_EXAMPLES = {
       purpose: 'Page through the secrets whose names start with ACME_.',
       line: 'kindgi secrets list --env=production --scope=tenant --name-prefix=ACME_ --limit=10',
     },
+    {
+      purpose: 'List revoked secrets too, with when and why each was revoked.',
+      line: 'kindgi secrets list --env=production --scope=tenant --include-revoked',
+    },
   ],
   'secrets rotate': [
     {

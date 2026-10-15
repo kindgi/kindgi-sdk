@@ -251,7 +251,7 @@ export interface SecretListInput {
   readonly cursor?: Cursor;
   readonly namePrefix?: string;
   readonly tagFilter?: Readonly<Record<string, string>>;
-  /** Revoked secrets too, with `revokedAt`: metadata only, never a value. */
+  /** Revoked secrets too, with `revokedAt` and `revokeReason`: metadata only, never a value. */
   readonly includeRevoked?: boolean;
 }
 

@@ -289,7 +289,8 @@ const listCmd: LeafCommand = {
     ...SCOPE_OPTION_SPEC,
     'include-revoked': {
       type: 'boolean' as const,
-      description: 'Include revoked secrets, with `revokedAt`. Never a value.',
+      description:
+        'Include revoked secrets, with their `revokedAt` and `revokeReason`. Never a value.',
     },
     'name-prefix': {
       type: 'string' as const,
