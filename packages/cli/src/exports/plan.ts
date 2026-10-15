@@ -161,7 +161,7 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     route: '/v1/secrets',
     paging: cursor,
     envScoped: true,
-    query: { inherit: 'false' },
+    query: { inherit: 'false', includeRevoked: 'true' },
     covers: ['/v1/secrets/{name}'],
   },
   {
@@ -383,7 +383,7 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
   {
     name: 'run-journals',
     route: '/v1/runs/{runId}/journal',
-    paging: whole,
+    paging: cursor,
     parent: { kind: 'runs', params: { runId: 'id' } },
   },
   {

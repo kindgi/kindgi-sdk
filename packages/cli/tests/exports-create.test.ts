@@ -222,7 +222,8 @@ describe('kindgi exports create', () => {
 
   test('reads what a route leaves out unless asked, and every page', async () => {
     const runs = Array.from({ length: 150 }, (_, i) => ({ id: `run-${i}` }));
-    const fake = server({ '/v1/runs': runs });
+    const journal = Array.from({ length: 120 }, (_, i) => ({ sequence: i + 1 }));
+    const fake = server({ '/v1/runs': runs, '/v1/runs/run-0/journal': journal });
     const res = await cli(fake);
     expect(res.exitCode, res.stderr).toBe(0);
     expect(await lines('runs')).toHaveLength(150);
@@ -231,10 +232,16 @@ describe('kindgi exports create', () => {
       'GET /v1/runs?replays=include&include=output&limit=100&cursor=100',
     );
     expect(fake.calls).toContain('GET /v1/agents?includeRetired=true&limit=100');
-    // Each run's journal, read once per run.
+    // Each run's journal, a page each, and two for the one with 120 entries.
     expect(
       fake.calls.filter((c) => c.startsWith('GET /v1/runs/run-') && c.includes('/journal')),
-    ).toHaveLength(150);
+    ).toHaveLength(151);
+    expect(fake.calls).toContain('GET /v1/runs/run-0/journal?limit=100&cursor=100');
+    const journals = (await lines('run-journals')) as {
+      parent: { runId: string };
+      item: unknown;
+    }[];
+    expect(journals.filter((l) => l.parent.runId === 'run-0').map((l) => l.item)).toEqual(journal);
   });
 
   test('env and secrets are read for each env name at each scope; a secret’s versions at its own', async () => {
@@ -265,6 +272,12 @@ describe('kindgi exports create', () => {
       'GET /v1/env?inherit=false&envName=prod&scopeKind=tenant&limit=100',
       'GET /v1/env?inherit=false&envName=prod&scopeKind=org&scopeId=org-1&limit=100',
       'GET /v1/env?inherit=false&envName=prod&scopeKind=project&scopeId=proj-1&limit=100',
+    ]);
+    // Revoked secrets too: their metadata is the workspace's.
+    expect(fake.calls.filter((c) => c.startsWith('GET /v1/secrets?'))).toEqual([
+      'GET /v1/secrets?inherit=false&includeRevoked=true&envName=prod&scopeKind=tenant&limit=100',
+      'GET /v1/secrets?inherit=false&includeRevoked=true&envName=prod&scopeKind=org&scopeId=org-1&limit=100',
+      'GET /v1/secrets?inherit=false&includeRevoked=true&envName=prod&scopeKind=project&scopeId=proj-1&limit=100',
     ]);
     expect(fake.calls).toContain(
       'GET /v1/secrets/STRIPE_KEY/versions?envName=prod&scopeKind=project&scopeId=proj-1&limit=100',
