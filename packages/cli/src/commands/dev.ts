@@ -692,7 +692,7 @@ async function runDevForPack(
   //   3. The previous boot's, from `.kindgirc.json` in the pack dir.
   //   4. Server-generated on this boot (the very first one, or after
   //      `--reset`, which already deleted the file), then persisted.
-  // Per field: `--dev-token` alone keeps the previous tenant.
+  // Per field: `--dev-token` alone leaves the tenant to steps 2-4.
   // Start the runtime. A failed start is the loudest error path, so
   // we tear down auto-started services (if any) before returning. The
   // first boot (or the first after `--reset`) makes the tenant, token and

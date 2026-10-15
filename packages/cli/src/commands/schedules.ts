@@ -100,7 +100,7 @@ const TARGET_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   },
 };
 
-const WHEN_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
+const WHEN_FLAGS = {
   cron: {
     type: 'string',
     description: 'A cron expression: `0 7 * * 1-5` (07:00 on weekdays), `@daily`, …',
@@ -128,10 +128,13 @@ const WHEN_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
     description: 'Seconds a run may start late and still count as on time (default 600).',
   },
   label: { type: 'string', description: 'A short label.' },
-};
+} satisfies Readonly<Record<string, ParseArgsOption>>;
 
-/** `update`'s: the same flags, with no defaults. A flag left out keeps the schedule's value. */
-const UPDATE_WHEN_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
+/**
+ * `update`'s: the same flags (its type holds it to `WHEN_FLAGS`' keys), with
+ * no defaults. A flag left out keeps the schedule's value.
+ */
+const UPDATE_WHEN_FLAGS: Readonly<Record<keyof typeof WHEN_FLAGS, ParseArgsOption>> = {
   cron: {
     type: 'string',
     description: 'A new cron expression: `0 7 * * 1-5` (07:00 on weekdays), `@daily`, …',

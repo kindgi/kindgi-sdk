@@ -150,7 +150,7 @@ const start: LeafCommand = {
     kind: {
       type: 'string' as const,
       description:
-        '`oidc` (OpenID Connect) or `saml`. Needed until the provider is registered, unless `--idp` gives it; after that, its own.',
+        "`oidc` (OpenID Connect) or `saml`. Needed until the provider is registered, unless `--idp` gives it; after that, the registered provider's kind.",
     },
     idp: {
       type: 'string' as const,
