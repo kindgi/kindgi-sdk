@@ -2099,12 +2099,12 @@ export const ERROR_ENTRIES = {
   },
   'invalid-mcp-endpoint': {
     description:
-      "The body of `POST /v1/mcp/endpoints` isn't a valid MCP endpoint registration: an unknown field, a missing or empty id or name, an unknown transport, or a config that doesn't match its transport.",
+      "The body of `POST /v1/mcp/endpoints` isn't a valid MCP endpoint registration: an unknown field, a missing or empty id or name, an id with a `.`, an unknown transport, or a config that doesn't match its transport.",
     details: [
       {
         key: 'reason',
         meaning:
-          'short machine-readable reason, such as `unknown-field`, `empty-endpoint-id`, `unknown-transport`, `missing-config`, `config-transport-mismatch` or `invalid-secret-ref`',
+          'short machine-readable reason, such as `unknown-field`, `empty-endpoint-id`, `dot-in-endpoint-id`, `unknown-transport`, `missing-config`, `config-transport-mismatch` or `invalid-secret-ref`',
       },
     ],
   },

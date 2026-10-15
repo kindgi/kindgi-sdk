@@ -6524,6 +6524,13 @@ export const RegisterMCPEndpointBodySchema: JsonSchema = {
   required: ['endpointId', 'name', 'transport', 'config', 'scopeKind'],
   properties: {
     ...mcpEndpointBodyProperties,
+    endpointId: {
+      type: 'string',
+      minLength: 1,
+      pattern: '^[^.]+$',
+      description:
+        "No `.`: an MCP tool's id is `<endpointId>.<tool name>`, so it splits at its first `.`. An endpoint registered with one before keeps it.",
+    },
     scopeKind: { $ref: '#/components/schemas/ScopeKind' },
     scopeId: {
       type: 'string',

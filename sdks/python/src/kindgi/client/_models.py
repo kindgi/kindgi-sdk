@@ -13067,7 +13067,10 @@ class RegisterMCPEndpointBody(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    endpoint_id: Annotated[str, Field(alias="endpointId", min_length=1)]
+    endpoint_id: Annotated[str, Field(alias="endpointId", min_length=1, pattern="^[^.]+$")]
+    """
+    No `.`: an MCP tool's id is `<endpointId>.<tool name>`, so it splits at its first `.`. An endpoint registered with one before keeps it.
+    """
     name: Annotated[str, Field(min_length=1)]
     """
     Human-readable display name.

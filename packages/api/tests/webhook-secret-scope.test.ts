@@ -514,18 +514,18 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
       scopeId: P,
     });
     expect(
-      (await h.post('p-admin', '/v1/mcp/endpoints', endpoint('acme.own', 'P_TOKEN'))).status,
+      (await h.post('p-admin', '/v1/mcp/endpoints', endpoint('acme-own', 'P_TOKEN'))).status,
     ).toBe(201);
-    expect(h.endpoints.get('acme.own')?.secretScopes).toEqual({
+    expect(h.endpoints.get('acme-own')?.secretScopes).toEqual({
       P_TOKEN: { kind: 'project', projectId: P },
     });
-    await h.post('p-admin', '/v1/mcp/endpoints', endpoint('acme.borrows', 'TENANT_TOKEN'));
-    expect(h.endpoints.get('acme.borrows')?.secretScopes).toEqual({
+    await h.post('p-admin', '/v1/mcp/endpoints', endpoint('acme-borrows', 'TENANT_TOKEN'));
+    expect(h.endpoints.get('acme-borrows')?.secretScopes).toEqual({
       TENANT_TOKEN: { kind: 'project', projectId: P },
     });
     // A caller never sets it.
     const sent = await h.post('p-admin', '/v1/mcp/endpoints', {
-      ...endpoint('acme.sets', 'P_TOKEN'),
+      ...endpoint('acme-sets', 'P_TOKEN'),
       secretScopes: { P_TOKEN: { kind: 'tenant' } },
     });
     expect(sent.status).toBe(400);
@@ -536,7 +536,7 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
     h.stored.set(keyOf(tenant, ENV, 'TENANT_KEY'), 'x');
     h.stored.set(keyOf(project, ENV, 'P_SECRET'), 'y');
     const res = await h.post('p-admin', '/v1/mcp/endpoints', {
-      endpointId: 'acme.shop',
+      endpointId: 'acme-shop',
       name: 'Shop',
       transport: 'streamable-http',
       config: { transport: 'streamable-http', url: 'https://mcp.acme.test/mcp' },
@@ -555,7 +555,7 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
       scopeId: P,
     });
     expect(res.status).toBe(201);
-    expect(h.endpoints.get('acme.shop')?.secretScopes).toEqual({
+    expect(h.endpoints.get('acme-shop')?.secretScopes).toEqual({
       TENANT_KEY: { kind: 'project', projectId: P },
       P_SECRET: { kind: 'project', projectId: P },
     });
