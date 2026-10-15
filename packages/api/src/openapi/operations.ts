@@ -8513,7 +8513,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'secrets.list',
     summary: 'List secret metadata',
     description:
-      'Cursor-paginated list of secret metadata at the given `(scope, envName)`. `value` is ALWAYS absent (structural redaction).',
+      'Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. `value` is ALWAYS absent (structural redaction).',
     tags: ['secrets'],
     security: 'bearer',
     parameters: [
@@ -8524,6 +8524,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
       LimitQueryParam,
       CursorQueryParam,
       NamePrefixQueryParam,
+      {
+        name: 'includeRevoked',
+        in: 'query',
+        required: false,
+        description:
+          '`true` lists revoked secrets too, with `revokedAt`. Metadata only, never a value.',
+        schema: { type: 'string', enum: ['true', 'false'] },
+      },
     ],
     responses: {
       '200': {

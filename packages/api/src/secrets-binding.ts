@@ -42,7 +42,10 @@ export const RESERVED_SECRET_NAME_PREFIX = 'kindgi.';
 export interface SecretBinding {
   // -------------------- read --------------------
 
-  /** Cursor-paginated list of secret metadata. Never returns `value`. */
+  /**
+   * Cursor-paginated list of secret metadata, in name order. Never returns
+   * `value`. At most `limit` records, with a `nextCursor` while more remain.
+   */
   list(input: SecretListInput): Promise<SecretListPage>;
 
   /** Fetch metadata for a single secret. `null` when unknown. */
@@ -242,15 +245,19 @@ export interface SecretVersionRecord {
 export interface SecretListInput {
   readonly scope: Scope;
   readonly envName: EnvName;
+  /** The most records in the page. */
   readonly limit: number;
+  /** Where the previous page ended: its `nextCursor`, as the store gave it. */
   readonly cursor?: Cursor;
   readonly namePrefix?: string;
   readonly tagFilter?: Readonly<Record<string, string>>;
+  /** Revoked secrets too, with `revokedAt`: metadata only, never a value. */
   readonly includeRevoked?: boolean;
 }
 
 export interface SecretListPage {
   readonly data: readonly SecretRecord[];
+  /** Set while more records remain after this page; absent on the last. */
   readonly nextCursor?: Cursor;
 }
 

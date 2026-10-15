@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'vitest';
 
 import type { Scope } from '@kindgi/platform';
-import type { EnvName, Result, TenantId } from '@kindgi/types';
+import type { Cursor, EnvName, Result, TenantId } from '@kindgi/types';
 import { makeEnvName } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
@@ -15,6 +15,8 @@ import type {
   RunHandlerBinding,
   SecretBinding,
   SecretError,
+  SecretListInput,
+  SecretListPage,
   SecretRecord,
   SecretResolveOutcome,
   SecretRotateOutcome,
@@ -679,6 +681,73 @@ describe('API — validation — envName + scope required', () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe('scope-kind-required');
+  });
+});
+
+describe('API — GET /v1/secrets — what reaches the store, and its page', () => {
+  /** An app whose store answers `page` and keeps each list input. */
+  function listing(page: SecretListPage) {
+    const inputs: SecretListInput[] = [];
+    const secrets: SecretBinding = {
+      ...makeInMemorySecretsBinding(),
+      async list(input) {
+        inputs.push(input);
+        return page;
+      },
+    };
+    const app = makeApp({ secrets });
+    const get = async (query: string) => {
+      const res = await app.request(`/v1/secrets?envName=staging&scopeKind=tenant${query}`, {
+        headers: { authorization: `Bearer ${TOKEN_RO}` },
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+    };
+    return { get, inputs };
+  }
+
+  test('includeRevoked=true asks the store for revoked secrets too; false or none does not', async () => {
+    const { get, inputs } = listing({ data: [] });
+    for (const query of ['&includeRevoked=true', '&includeRevoked=false', '']) {
+      expect((await get(query)).status).toBe(200);
+    }
+    expect(inputs.map((i) => i.includeRevoked)).toEqual([true, undefined, undefined]);
+  });
+
+  test('a revoked secret lists with revokedAt and revokeReason, and never a value', async () => {
+    const revoked: SecretRecord = {
+      scope: { kind: 'tenant', tenantId: tenantA },
+      envName: staging,
+      name: 'old.key',
+      currentVersion: 2,
+      createdAt: '2026-10-01T00:00:00.000Z',
+      updatedAt: '2026-10-14T12:00:00.000Z',
+      revokedAt: '2026-10-14T12:00:00.000Z',
+      revokeReason: 'erased',
+    };
+    const { get } = listing({ data: [revoked] });
+    const { body } = await get('&includeRevoked=true');
+    expect(body.data).toEqual([
+      {
+        scope: { kind: 'tenant', tenantId: tenantA },
+        envName: 'staging',
+        name: 'old.key',
+        currentVersion: 2,
+        createdAt: '2026-10-01T00:00:00.000Z',
+        updatedAt: '2026-10-14T12:00:00.000Z',
+        revokedAt: '2026-10-14T12:00:00.000Z',
+        revokeReason: 'erased',
+      },
+    ]);
+  });
+
+  test("the cursor and limit reach the store, and the store's nextCursor comes back with hasMore", async () => {
+    const { get, inputs } = listing({ data: [], nextCursor: 'next-1' as Cursor });
+    const { status, body } = await get('&cursor=prev-1&limit=26');
+    expect(status).toBe(200);
+    expect(inputs[0]).toMatchObject({ cursor: 'prev-1', limit: 26 });
+    expect(body).toEqual({ data: [], hasMore: true, nextCursor: 'next-1' });
+    const last = listing({ data: [] });
+    expect((await last.get('')).body).toEqual({ data: [], hasMore: false });
   });
 });
 

@@ -168,6 +168,7 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
       limit,
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
       ...(namePrefix !== undefined && namePrefix.length > 0 && { namePrefix }),
+      ...(c.req.query('includeRevoked') === 'true' && { includeRevoked: true }),
     });
     return c.json({
       data: page.data.map(serializeSecretRecord),

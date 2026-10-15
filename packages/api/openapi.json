@@ -49914,7 +49914,7 @@
             }
           }
         },
-        "description": "Cursor-paginated list of secret metadata at the given `(scope, envName)`. `value` is ALWAYS absent (structural redaction).",
+        "description": "Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. `value` is ALWAYS absent (structural redaction).",
         "parameters": [
           {
             "name": "envName",
@@ -49983,6 +49983,19 @@
             },
             "required": false,
             "description": "Prefix match on entry name."
+          },
+          {
+            "name": "includeRevoked",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "required": false,
+            "description": "`true` lists revoked secrets too, with `revokedAt`. Metadata only, never a value."
           }
         ],
         "security": [
