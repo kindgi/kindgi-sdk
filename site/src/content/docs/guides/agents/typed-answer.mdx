@@ -211,6 +211,10 @@ it needs first. So its first answer can already fit. Describing the JSON in
 the instructions, as this agent does, still helps the model fill the fields
 well.
 
+The schema goes with every model call, its descriptions included, so every
+call's prompt tokens count it. Keep it, and its descriptions, to what the
+answer needs.
+
 From a local model, Qwen 2.5 7B through Ollama, with instructions that don't
 describe the JSON, the first call's system message ends:
 
