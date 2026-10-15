@@ -4,6 +4,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
 
 import { describe, expect, test } from 'vitest';
 
@@ -13,10 +14,11 @@ import {
   RuntimeStartStopped,
   describeStartupStop,
   dockerFailureDetail,
+  logTail,
   pauseUnlessStopped,
+  readStoppedLog,
   runtimeContainerName,
   runtimeRunArgs,
-  stoppedLogReader,
 } from '../src/dev/runtime-container.js';
 
 const OPTIONS: RuntimeContainerOptions = {
@@ -167,8 +169,8 @@ describe('describeStartupStop', () => {
   });
 
   test('otherwise its last 15 lines, after how it exited', () => {
-    const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
-    const text = describeStartupStop(lines, { code: 1, oomKilled: false });
+    const log = Array.from({ length: 20 }, (_, i) => [`line ${i + 1}`]);
+    const text = describeStartupStop(log, { code: 1, oomKilled: false });
     expect(
       text.startsWith(
         'the Kindgi runtime container stopped while starting (exit code 1):\nline 6\n',
@@ -177,32 +179,130 @@ describe('describeStartupStop', () => {
     expect(text.endsWith('line 20')).toBe(true);
   });
 
-  test('a runtime that logs JSON: its boot error record as the line a person reads, never raw', () => {
+  test('a crash record past 15 lines of text keeps its first line, the one that says why', async () => {
+    const frames = (fn: string) =>
+      Array.from(
+        { length: 10 },
+        (_, i) => `    at ${fn}${i + 1} (file:///app/dist/boot.js:${i + 1}:1)`,
+      );
+    const record = JSON.stringify({
+      time: '2026-10-15T01:00:00.000Z',
+      level: 'error',
+      subsystem: 'boot',
+      message: 'the runtime stopped while starting',
+      err: {
+        name: 'Error',
+        message: "OpenFGA at http://openfga.acme.example refused the server's call (401)",
+        stack: ['Error: OpenFGA refused', ...frames('outer')].join('\n'),
+        cause: {
+          name: 'TypeError',
+          message: 'fetch failed',
+          stack: ['TypeError: fetch failed', ...frames('inner')].join('\n'),
+        },
+      },
+    });
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    const read = readStoppedLog(stdout, stderr);
+    stderr.end('kindgi-runtime: starting\n');
+    stdout.end(`${record}\n`);
+    const log = await read;
+    // The record's text alone is 22 lines: kept whole, and the line
+    // before it, which would pass 15, isn't.
+    expect(log.map((text) => text.length)).toEqual([1, 22]);
+    const text = describeStartupStop(log, { code: 1, oomKilled: false });
+    const [how, first, ...rest] = text.split('\n');
+    expect(how).toBe('the Kindgi runtime container stopped while starting (exit code 1):');
+    expect(first).toBe(
+      `01:00:00.000 ERROR [boot] the runtime stopped while starting err="Error: OpenFGA at http://openfga.acme.example refused the server's call (401)"`,
+    );
+    expect(rest[0]).toBe('    at outer1 (file:///app/dist/boot.js:1:1)');
+    expect(rest).toContain('  caused by: TypeError: fetch failed');
+    expect(rest.at(-1)).toBe('      at inner10 (file:///app/dist/boot.js:10:1)');
+  });
+});
+
+describe('logTail: the end of the runtime log, its lines whole', () => {
+  const line = (name: string, size: number) =>
+    Array.from({ length: size }, (_, i) => (i === 0 ? name : `${name} frame ${i}`));
+
+  test('whole lines from the end, up to 15 lines of text', () => {
+    // 3 + 6 + 6 = 15 fit; the 2 before them would pass 15.
+    const tail = logTail([line('a', 2), line('b', 3), line('c', 6), line('d', 6)]).split('\n');
+    expect(tail).toHaveLength(15);
+    expect(tail[0]).toBe('b');
+    expect(tail).not.toContain('a frame 1');
+  });
+
+  test("one that doesn't fit ends the tail: no gap, even when an earlier one would fit", () => {
+    const tail = logTail([line('a', 1), line('b', 10), line('c', 6)]).split('\n');
+    expect(tail[0]).toBe('c');
+    expect(tail).toHaveLength(6);
+  });
+
+  test('the last line is kept whole even when its text alone passes 15', () => {
+    const tail = logTail([line('a', 1), line('b', 20)]).split('\n');
+    expect(tail).toHaveLength(20);
+    expect(tail[0]).toBe('b');
+  });
+
+  test('nothing logged: no text', () => {
+    expect(logTail([])).toBe('');
+  });
+});
+
+describe('readStoppedLog: a stopped container log, both streams, as text', () => {
+  test('a runtime that logs JSON: its boot error record as the line a person reads, never raw', async () => {
     const record = JSON.stringify({
       time: '2026-10-15T01:00:00.000Z',
       level: 'error',
       subsystem: 'boot',
       message: 'KINDGI_TENANCY must be one of single, multi. Got "many".',
     });
-    // The stopped container's log, read again: a line that isn't a record
-    // stays as it is, the record arrives split between two chunks, and
-    // `docker logs`' own error isn't the runtime's.
-    const lines: string[] = [];
-    const stdout = stoppedLogReader(lines);
-    const stderr = stoppedLogReader(lines);
-    stderr.push('kindgi-runtime: starting\n');
-    stdout.push(record.slice(0, 40));
-    stdout.push(`${record.slice(40)}\n`);
-    stderr.push('Error response from daemon: can not get logs from container which is dead\n');
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    const read = readStoppedLog(stdout, stderr);
+    // The record arrives split between two chunks, and the other stream
+    // writes a line while it's half sent; a line that isn't a record stays
+    // as it is, and `docker logs`' own error isn't the runtime's.
+    stdout.write(record.slice(0, 40));
+    stderr.write('kindgi-runtime: starting\n');
+    stdout.write(`${record.slice(40)}\n`);
+    stderr.end('Error response from daemon: can not get logs from container which is dead\n');
     stdout.end();
-    stderr.end();
-    expect(describeStartupStop(lines, { code: 2, oomKilled: false })).toBe(
+    expect(describeStartupStop(await read, { code: 2, oomKilled: false })).toBe(
       [
         'the Kindgi runtime container stopped while starting (exit code 2):',
         'kindgi-runtime: starting',
         '01:00:00.000 ERROR [boot] KINDGI_TENANCY must be one of single, multi. Got "many".',
       ].join('\n'),
     );
+  });
+
+  test('a character split between chunks stays whole, and a last line without a line break is kept', async () => {
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    const read = readStoppedLog(stdout, stderr);
+    const bytes = Buffer.from('  Pack service: http://127.0.0.1:4101 — acme\n');
+    const dash = bytes.indexOf(Buffer.from('—'));
+    stdout.write(bytes.subarray(0, dash + 1));
+    stdout.write(bytes.subarray(dash + 1));
+    stdout.end('kindgi-runtime: exiting');
+    stderr.end();
+    expect(await read).toEqual([
+      ['  Pack service: http://127.0.0.1:4101 — acme'],
+      ['kindgi-runtime: exiting'],
+    ]);
+  });
+
+  test('a stream that fails ends its part: what it wrote is kept', async () => {
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    const read = readStoppedLog(stdout, stderr);
+    stdout.write('kindgi-runtime: starting\n');
+    stdout.destroy(new Error('read EPIPE'));
+    stderr.end();
+    expect(await read).toEqual([['kindgi-runtime: starting']]);
   });
 });
 
