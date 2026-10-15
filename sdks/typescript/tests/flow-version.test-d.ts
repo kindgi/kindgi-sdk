@@ -3,8 +3,7 @@
 
 /**
  * A flow version answers as a row of its versions list does: an
- * unregistered one carries its `unregisteredAt`, as the wire and the
- * Python client have it.
+ * unregistered one carries its `unregisteredAt`, as the wire has it.
  */
 
 import { describe, expectTypeOf, test } from 'vitest';
