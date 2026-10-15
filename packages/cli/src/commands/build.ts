@@ -25,8 +25,8 @@
  * that's `kindgi deploy`.
  */
 
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
+import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import {
   type DiscoveryConfig,
@@ -170,7 +170,7 @@ export const buildCommand: LeafCommand = {
     out: {
       type: 'string',
       description:
-        'Where the build output and `deploy-envelope.json` go. Default: `.kindgi/build` under the pack root.',
+        'Where the build output and `deploy-envelope.json` go. Must be under the pack root (default: `.kindgi/build`).',
     },
     'artifact-version': {
       type: 'string',
@@ -1189,6 +1189,27 @@ async function prepareJvmContext(
   return { kind: 'ok', contextDir, counts: localIndex.counts, secrets: [] };
 }
 
+// Resolve a path to its real location, following symlinks, even when the
+// path (or a leaf of it) does not exist yet: realpath the deepest existing
+// ancestor, then re-append the missing tail. Used so an in-pack symlink
+// can't point the build output outside the pack root.
+async function realpathUnderExisting(target: string): Promise<string> {
+  let existing = resolve(target);
+  const missing: string[] = [];
+  for (;;) {
+    try {
+      const real = await realpath(existing);
+      return missing.length === 0 ? real : resolve(real, ...missing);
+    } catch (error) {
+      if ((error as { code?: string }).code !== 'ENOENT') return resolve(target);
+      const parent = dirname(existing);
+      if (parent === existing) return resolve(target);
+      missing.unshift(basename(existing));
+      existing = parent;
+    }
+  }
+}
+
 async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   // --path — pack root; auto-detects repo root separately so augment-
   // mode packs (kindgi.config.ts under <repo>/kindgi/, package.json at
@@ -1298,6 +1319,22 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   const outFlag = ctx.options.out;
   const outDirRaw = typeof outFlag === 'string' && outFlag !== '' ? outFlag : DEFAULT_OUT_DIR;
   const outDir = isAbsolute(outDirRaw) ? outDirRaw : resolve(packDir, outDirRaw);
+
+  // --out must resolve inside the pack root. The build output's local
+  // indexer runs `node <outDir>/dist/kindgi-index.mjs`, which resolves the
+  // bundle's bare externals (and @kindgi/*) by walking up from the output
+  // dir into the pack's node_modules, and the pack image's build context is
+  // the pack root — an output dir outside the pack root breaks both. Follow
+  // symlinks (realpath) so an in-pack symlink can't escape. Mirrors the
+  // local-dependency refusal in build/host-install.ts.
+  const realPackDir = await realpathUnderExisting(packDir);
+  const realOutDir = await realpathUnderExisting(outDir);
+  const outRel = relative(realPackDir, realOutDir);
+  if (outRel === '..' || outRel.startsWith(`..${sep}`) || isAbsolute(outRel)) {
+    return failure(
+      `--out ${outDirRaw} resolves to ${realOutDir}, outside the pack root ${realPackDir}: the build output must live under the pack root so the pack image includes it and the local indexer resolves dependencies from the pack. Use a path inside the pack (default: ${DEFAULT_OUT_DIR}).\n`,
+    );
+  }
 
   // --artifact-version and --published-at: pinned, else the build time.
   const defaults = buildTimeDefaults(new Date());

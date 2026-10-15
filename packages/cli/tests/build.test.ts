@@ -24,7 +24,7 @@
  *   - `signEnvelope` — returns a canned signature.
  */
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -453,6 +453,43 @@ describe('kindgi build — argument resolution', () => {
       await readFile(join(packDir, '.kindgi/build/deploy-envelope.json'), 'utf8'),
     ) as { tenantId: string };
     expect(envelope.tenantId).toBe('via-env-var');
+  });
+
+  test('--out inside the pack root is accepted', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', '--out=inside-out', `--path=${packDir}`],
+    });
+    expect(out.stderr).not.toContain('outside the pack root');
+    expect(out.exitCode).toBe(0);
+  });
+
+  test('--out outside the pack root is refused', async () => {
+    const fixtures = makeFixtures();
+    const outside = join(cwd, 'outside-out');
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', `--out=${outside}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('outside the pack root');
+  });
+
+  test('--out via an in-pack symlink that escapes the pack root is refused', async () => {
+    const fixtures = makeFixtures();
+    const target = join(cwd, 'symlink-target');
+    await mkdir(target, { recursive: true });
+    const link = join(packDir, 'escape');
+    await symlink(target, link);
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      // `escape` is lexically inside packDir; only resolving the symlink
+      // reveals it points outside — a lexical-only check would accept it.
+      argv: ['build', '--env=staging', `--out=${link}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('outside the pack root');
   });
 });
 
