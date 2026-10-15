@@ -3,7 +3,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { sameAddress } from '../src/api-address.js';
+import { isLocalAddress, sameAddress } from '../src/api-address.js';
 
 describe('sameAddress: one address, however it is written', () => {
   test.each([
@@ -34,5 +34,26 @@ describe('sameAddress: one address, however it is written', () => {
   test('text that is no URL is only the same as itself', () => {
     expect(sameAddress('not a url', 'not a url/')).toBe(true);
     expect(sameAddress('not a url', 'https://platform.example.com')).toBe(false);
+  });
+});
+
+describe('isLocalAddress: an address on this machine', () => {
+  test.each([
+    'http://localhost:4000',
+    'http://127.0.0.1:4000/',
+    'http://[::1]:4000',
+    ' http://LOCALHOST ',
+  ])('%s is', (url) => {
+    expect(isLocalAddress(url)).toBe(true);
+  });
+
+  test.each([
+    'https://platform.example.com',
+    'http://kindgi.localhost:4000',
+    'http://10.0.0.5:4000',
+    'localhost:4000',
+    'not an address',
+  ])('%s is not', (url) => {
+    expect(isLocalAddress(url)).toBe(false);
   });
 });

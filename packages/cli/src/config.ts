@@ -4,6 +4,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { isLocalAddress } from './api-address.js';
 
 /**
  * Resolved configuration used by every command. Precedence at load
@@ -18,9 +19,40 @@ export interface ResolvedConfig {
     readonly apiUrl: ConfigSource;
     readonly token: ConfigSource;
   };
+  /** The file each value came from, when its source is `file`. */
+  readonly files?: {
+    readonly apiUrl?: ConfigFile;
+    readonly token?: ConfigFile;
+  };
+  /**
+   * The API address stored beside the key, in the key's own file: the
+   * address the key is for. Set when the key came from a file that has one.
+   */
+  readonly keyAddress?: string;
+  /**
+   * This folder's `.kindgirc.json` when it points at a local runtime (a
+   * loopback `apiUrl`, as `kindgi dev` writes it), with the config resolved
+   * without that file. `--hosted` goes on `without`: a local runtime is
+   * never a hosted target. Flag and env values stay in it.
+   */
+  readonly localRuntime?: {
+    readonly file: string;
+    readonly apiUrl: string;
+    readonly without: ResolvedConfig;
+  };
 }
 
 export type ConfigSource = 'flag' | 'env' | 'file' | 'unset';
+
+/**
+ * A config file: `~/.kindgi/config.json` (`home`, which `kindgi auth
+ * login` writes) or this folder's `.kindgirc.json` (`folder`, which
+ * `kindgi dev` writes).
+ */
+export interface ConfigFile {
+  readonly path: string;
+  readonly kind: 'home' | 'folder';
+}
 
 export interface ConfigInputs {
   readonly flagUrl?: string | undefined;
@@ -42,6 +74,11 @@ interface FileConfig {
   readonly token?: string;
 }
 
+/** A config file that was there, and what it holds. */
+interface ReadConfigFile extends ConfigFile {
+  readonly values: FileConfig;
+}
+
 async function defaultReadFile(path: string): Promise<string | null> {
   try {
     return await readFile(path, 'utf8');
@@ -57,19 +94,57 @@ export async function loadConfig(inputs: ConfigInputs = {}): Promise<ResolvedCon
   const home = inputs.home ?? homedir();
   const read = inputs.readFile ?? defaultReadFile;
 
-  const fileConfig = await loadFileConfig(cwd, home, read);
+  const homeFile = await readConfigFile(join(home, '.kindgi', 'config.json'), 'home', read);
+  const folderFile = await readConfigFile(join(cwd, '.kindgirc.json'), 'folder', read);
+  const resolve = (files: readonly (ReadConfigFile | undefined)[]) =>
+    resolveConfig(inputs.flagUrl, inputs.flagToken, env, files);
 
-  const envUrl = env.KINDGI_API_URL;
-  const envToken = env.KINDGI_API_TOKEN;
+  const config = resolve([homeFile, folderFile]);
+  const local = folderFile?.values.apiUrl;
+  if (folderFile === undefined || local === undefined || !isLocalAddress(local)) return config;
+  return {
+    ...config,
+    localRuntime: { file: folderFile.path, apiUrl: local, without: resolve([homeFile]) },
+  };
+}
 
-  const apiUrl = pickWithSource(inputs.flagUrl, envUrl, fileConfig.apiUrl);
-  const token = pickWithSource(inputs.flagToken, envToken, fileConfig.token);
-
+/**
+ * Each value: the flag, else the env var, else the last of `files` that
+ * holds it (this folder's file over the home one, field by field).
+ */
+function resolveConfig(
+  flagUrl: string | undefined,
+  flagToken: string | undefined,
+  env: Readonly<Record<string, string | undefined>>,
+  files: readonly (ReadConfigFile | undefined)[],
+): ResolvedConfig {
+  const urlFile = lastHolding(files, 'apiUrl');
+  const tokenFile = lastHolding(files, 'token');
+  const apiUrl = pickWithSource(flagUrl, env.KINDGI_API_URL, urlFile?.values.apiUrl);
+  const token = pickWithSource(flagToken, env.KINDGI_API_TOKEN, tokenFile?.values.token);
+  const keyAddress = token.source === 'file' ? tokenFile?.values.apiUrl : undefined;
+  const from = {
+    ...(apiUrl.source === 'file' && urlFile !== undefined && { apiUrl: fileRef(urlFile) }),
+    ...(token.source === 'file' && tokenFile !== undefined && { token: fileRef(tokenFile) }),
+  };
   return {
     apiUrl: apiUrl.value,
     token: token.value,
     source: { apiUrl: apiUrl.source, token: token.source },
+    ...(Object.keys(from).length > 0 && { files: from }),
+    ...(keyAddress !== undefined && keyAddress !== '' && { keyAddress }),
   };
+}
+
+function lastHolding(
+  files: readonly (ReadConfigFile | undefined)[],
+  field: keyof FileConfig,
+): ReadConfigFile | undefined {
+  return files.findLast((f) => typeof f?.values[field] === 'string');
+}
+
+function fileRef(file: ReadConfigFile): ConfigFile {
+  return { path: file.path, kind: file.kind };
 }
 
 function pickWithSource(
@@ -83,22 +158,22 @@ function pickWithSource(
   return { value: undefined, source: 'unset' };
 }
 
-async function loadFileConfig(
-  cwd: string,
-  home: string,
+async function readConfigFile(
+  path: string,
+  kind: ConfigFile['kind'],
   read: (path: string) => Promise<string | null>,
-): Promise<FileConfig> {
-  const cwdPath = join(cwd, '.kindgirc.json');
-  const homePath = join(home, '.kindgi', 'config.json');
-  const merged: { apiUrl?: string; token?: string } = {};
-  for (const path of [homePath, cwdPath]) {
-    const raw = await read(path);
-    if (raw === null) continue;
-    const parsed = parseJson(raw, path);
-    if (typeof parsed.apiUrl === 'string') merged.apiUrl = parsed.apiUrl;
-    if (typeof parsed.token === 'string') merged.token = parsed.token;
-  }
-  return merged;
+): Promise<ReadConfigFile | undefined> {
+  const raw = await read(path);
+  if (raw === null) return undefined;
+  const parsed = parseJson(raw, path);
+  return {
+    path,
+    kind,
+    values: {
+      ...(typeof parsed.apiUrl === 'string' && { apiUrl: parsed.apiUrl }),
+      ...(typeof parsed.token === 'string' && { token: parsed.token }),
+    },
+  };
 }
 
 function parseJson(raw: string, path: string): FileConfig {

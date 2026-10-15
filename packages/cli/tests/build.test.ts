@@ -584,6 +584,89 @@ describe('kindgi build --hosted', () => {
     expect(fixtures.state.postCalls).toBe(0);
   });
 
+  test.each([
+    [
+      [],
+      'prod',
+      'pass --signing-key ~/.kindgi/keys/<id>.pem, or set signingKey in an env block of kindgi.config.ts and pick that block with --env=<name> (with no --env, the block is `staging`)',
+    ],
+    [
+      ['--env=prod'],
+      'prod',
+      'set environments.prod.signingKey to ~/.kindgi/keys/<id>.pem in kindgi.config.ts, or pass --signing-key ~/.kindgi/keys/<id>.pem',
+    ],
+    [
+      [],
+      'staging',
+      'set environments.staging.signingKey to ~/.kindgi/keys/<id>.pem in kindgi.config.ts, or pass --signing-key ~/.kindgi/keys/<id>.pem',
+    ],
+  ])(
+    "no key, flags %j, and only a `%s` block: the hint names the block picked, never one that isn't there",
+    async (flags, block, hint) => {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(
+          fixtures,
+          { env: { ...loggedIn, KINDGI_TENANT_ID: 'env-tenant' } },
+          { environments: { [block]: { build: 'hosted', tenantId: 't-1' } } },
+        ),
+        argv: ['build', '--hosted', ...flags, `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(`(once). Then ${hint}. (--skip-sign`);
+      expect(fixtures.state.postCalls).toBe(0);
+    },
+  );
+
+  describe('with a stored key', () => {
+    const STORED = 'kgi_tk_stored';
+    const OTHER = 'https://other.example.com';
+    const homeFile = () => join(home, '.kindgi/config.json');
+    const folderFile = () => join(cwd, '.kindgirc.json');
+    async function store(path: string, saved: Record<string, string>) {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, JSON.stringify(saved), 'utf8');
+    }
+    const hostedBuild = (fixtures: Fixtures, env: Record<string, string>, ...flags: string[]) =>
+      runCli({
+        ...baseInputs(fixtures, { env: { KINDGI_TENANT_ID: 'env-tenant', ...env } }, cloud()),
+        argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`, ...flags],
+      });
+
+    test.each([
+      [{ KINDGI_API_URL: OTHER }, [], 'KINDGI_API_URL', undefined],
+      [{}, [`--url=${OTHER}`], '--url', undefined],
+      [{}, [], 'the apiUrl in <folder>', { apiUrl: OTHER }],
+    ] as const)(
+      "the CLI address elsewhere than the key's (%j %j) is refused, naming both; nothing is built",
+      async (env, flags, named, folder) => {
+        await store(homeFile(), { apiUrl: API, token: STORED });
+        if (folder !== undefined) await store(folderFile(), folder);
+        const where = named.replace('<folder>', folderFile());
+        const fixtures = makeFixtures();
+        const out = await hostedBuild(fixtures, env, ...flags);
+        expect(out.exitCode).toBe(1);
+        expect(out.stderr).toContain(
+          `kindgi build --hosted would send the API key stored in ${homeFile()}, which is for ${API}, to ${OTHER}, which ${where} names. The key goes only to its own address: point ${where} at ${API}, or sign in to ${OTHER} with \`kindgi auth login --url ${OTHER}\`.`,
+        );
+        expect(fixtures.state.esbuildCalls).toBe(0);
+        expect(fixtures.state.postCalls).toBe(0);
+      },
+    );
+
+    test("a local runtime's .kindgirc.json isn't read: built at the signed-in address, with its key", async () => {
+      await store(homeFile(), { apiUrl: API, token: STORED });
+      await store(folderFile(), { apiUrl: 'http://127.0.0.1:4000', token: 'kgi_tk_dev' });
+      const fixtures = makeFixtures();
+      const out = await hostedBuild(fixtures, {});
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(fixtures.state.capturedPostBody).toMatchObject({
+        endpoint: `${API}/cloud`,
+        authorization: `Bearer ${STORED}`,
+      });
+    });
+  });
+
   test("with no tenant set, the signature names the key's own tenant (whoami)", async () => {
     const fixtures = makeFixtures();
     const calls: { url: string; token: string }[] = [];
@@ -882,7 +965,7 @@ describe('kindgi build — signing surface', () => {
     });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain(
-      "No signing key is set. Make a key with `kindgi key create <id>`, and add it to the runtime's trust list with `kindgi key trust <id>` (once). Then set environments.staging.signingKey to ~/.kindgi/keys/<id>.pem in kindgi.config.ts, or pass --signing-key.",
+      "No signing key is set. Make a key with `kindgi key create <id>`, and add it to the runtime's trust list with `kindgi key trust <id>` (once). Then set environments.staging.signingKey to ~/.kindgi/keys/<id>.pem in kindgi.config.ts, or pass --signing-key ~/.kindgi/keys/<id>.pem.",
     );
     expect(fixtures.state.esbuildCalls).toBe(0);
     expect(fixtures.state.postCalls).toBe(0);
@@ -921,6 +1004,22 @@ describe('kindgi build — signing surface', () => {
       expect(fixtures.state.dockerBuilds).toHaveLength(0);
     },
   );
+
+  test("a key path that isn't a file is refused before anything is built, naming it", async () => {
+    const dir = join(home, '.kindgi/keys');
+    await mkdir(dir, { recursive: true });
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', `--signing-key=${dir}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      `The signing key ${dir} (--signing-key) isn't a file. Name the key's .pem file, as \`kindgi key create <id>\` writes it: ~/.kindgi/keys/<id>.pem.`,
+    );
+    expect(fixtures.state.esbuildCalls).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+  });
 
   test("--local without --push signs nothing, so a missing key file doesn't stop it", async () => {
     await rm(join(home, 'signing-key.pem'));

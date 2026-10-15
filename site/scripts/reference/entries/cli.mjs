@@ -67,7 +67,7 @@ export const CLI_DEFAULTS = {
     'artifact-version': 'for an inline build: the build time, as `YYYYMMDD.HHMMSS` (UTC)',
     'build-endpoint': "for an inline build: the env block's `build`",
     endpoint:
-      "the env block's `endpoint`, else the CLI's API URL (`--url`, `KINDGI_API_URL`, config files); required when none. The stored API key goes only to the CLI's API URL (`--token` or `KINDGI_API_TOKEN` gives another server's key); with `--hosted`, only that URL",
+      "the env block's `endpoint`, else the CLI's API URL (`--url`, `KINDGI_API_URL`, config files); required when none. A stored API key goes only to the address stored with it (`--token` or `KINDGI_API_TOKEN` gives another server's key); with `--hosted`, the endpoint can only be the CLI's API URL, and a folder's `.kindgirc.json` that points at a local runtime isn't read",
     env: '`staging`',
     'from-envelope': '`deploy-envelope.json` in `--out`; an inline build runs when it is missing',
     'idempotency-key': 'a hash of the request body',

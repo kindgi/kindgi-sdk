@@ -683,18 +683,9 @@ async function runInlineBuild(
   | { readonly kind: 'error'; readonly stderr: string; readonly exitCode: number }
 > {
   const buildOptions = buildInlineOptions(ctx, args, projectId);
-  // A hosted build runs at the API this deploy goes to.
-  const buildCtx: CommandContext = {
-    ...ctx,
-    options: buildOptions,
-    ...(args.hosted && {
-      config: {
-        ...ctx.config,
-        apiUrl: args.endpoint,
-        source: { ...ctx.config.source, apiUrl: 'flag' as const },
-      },
-    }),
-  };
+  // A hosted build runs at the API this deploy goes to: the build resolves
+  // the same address, with the same key, from the same config.
+  const buildCtx: CommandContext = { ...ctx, options: buildOptions };
   const result = await runBuild(buildCtx);
   if (result.kind === 'error') {
     return {
@@ -1034,8 +1025,9 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
 
   // The API (api-address.ts): --endpoint > the env block's `endpoint` >
   // the CLI's own address (`--url`, KINDGI_API_URL or the stored one).
-  // The stored key goes only to its own address; a hosted deploy goes
-  // to the CLI's own address alone.
+  // A stored key goes only to the address stored with it; a hosted
+  // deploy goes to the CLI's own address alone, and doesn't read a
+  // folder's .kindgirc.json that points at a local runtime.
   const endpointFlag = ctx.options.endpoint;
   const named = [
     { url: typeof endpointFlag === 'string' ? endpointFlag : undefined, where: '--endpoint' },
@@ -1056,8 +1048,9 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   }
   const endpoint = address.url;
 
-  // --token — bearer token; standard config precedence.
-  const token = ctx.config.token;
+  // --token — bearer token; standard config precedence (for --hosted,
+  // without a local runtime's .kindgirc.json).
+  const token = address.config.token;
   if (token === undefined || token === '') {
     return {
       kind: 'error',
