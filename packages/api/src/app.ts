@@ -222,6 +222,13 @@ export interface CreateAppInput {
    * Where the app's records go (`@kindgi/log`): the access line, logged
    * 500s, and what routes log, each with the request's ids. Default:
    * `noopLogger`, so an embedding app stays quiet unless it passes one.
+   *
+   * An audit record whose append fails, where the request goes on
+   * without it, is logged here at `warn`: a secret or env write's, and a
+   * secret read refused for its scope, under subsystem `audit`; a
+   * sign-in's or sign-out's under `http`. An app without a logger won't
+   * see that a record was dropped. A check the authorization model can't
+   * answer, a bug in a route, is logged at `error` (subsystem `authz`).
    */
   readonly logger?: Logger;
   readonly resolveToken: TokenResolver;

@@ -16,6 +16,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import type { Action, AuthzCheckBinding, Decision, Principal, ResourceRef } from '@kindgi/authz';
+import { createLogger } from '@kindgi/log';
 import type { Scope } from '@kindgi/platform';
 import type { EnvName, TenantId, UserId } from '@kindgi/types';
 
@@ -95,6 +96,8 @@ function setup(
     readonly legacy?: boolean;
     /** A store that writes only names like these (the dev store's env-file keys): `nameRefusal`, and `set` refusing the rest. */
     readonly writes?: RegExp;
+    /** An audit store that refuses `secret-resolved` records. */
+    readonly refusesResolved?: boolean;
   } = {},
 ) {
   // The store, each scope apart.
@@ -103,10 +106,17 @@ function setup(
   const audited: AuditEvent[] = [];
   const auditEvents = {
     append: async (events: readonly AuditEvent[]) => {
+      if (options.refusesResolved === true && events.some((e) => e.kind === 'secret-resolved')) {
+        return {
+          kind: 'err',
+          error: { code: 'persistence-error', message: 'the audit store is down' },
+        };
+      }
       audited.push(...events);
       return { kind: 'ok', value: undefined };
     },
   } as unknown as AuditEventBinding;
+  const logLines: string[] = [];
   const put = (scope: Scope, value: string, env: string = ENV) =>
     stored.set(keyOf(scope, env, NAME), value);
   // The names `nameRefusal` was asked about.
@@ -201,6 +211,7 @@ function setup(
       runHandler: {} as RunHandlerBinding,
       ...(options.receiver !== false && { webhookReceiver: { envName: ENV } }),
       authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: check },
+      logger: createLogger({ write: (line) => logLines.push(line) }),
     });
   let app = appFor();
   const call = async (token: string, method: string, path: string, body?: unknown) => {
@@ -237,6 +248,8 @@ function setup(
     stored,
     reads,
     audited,
+    /** The app's log records, parsed. */
+    logged: () => logLines.map((line) => JSON.parse(line) as Record<string, unknown>),
     asked,
     /** How many times the registry was asked to register a trigger. */
     registers: () => registers,
@@ -359,6 +372,22 @@ describe('the same name in the tenant and in P', () => {
     expect(refused[0]).toMatchObject({ outcome: 'failed', projectId: P });
     expect(JSON.stringify(refused[0])).toContain('secret-scope-mismatch');
     expect(JSON.stringify(h.audited)).not.toContain('tenant-value');
+  });
+
+  test('a refusal whose audit append fails is still refused, and logged at warn (subsystem audit)', async () => {
+    const h = setup({ ignoresExact: true, refusesResolved: true });
+    h.put(tenant, 'tenant-value');
+    const t = await h.register('p-admin');
+    expect(await h.deliver(t.body.webhookId, 'tenant-value')).toBe(401);
+    expect(h.logged().filter((r) => r.subsystem === 'audit')).toEqual([
+      expect.objectContaining({
+        level: 'warn',
+        message: 'secret-resolved audit event failed: the audit store is down',
+        kind: 'secret-resolved',
+        code: 'persistence-error',
+      }),
+    ]);
+    expect(JSON.stringify(h.logged())).not.toContain('tenant-value');
   });
 
   test("a store that doesn't report the scope it read: refused even at the right scope, and audited", async () => {

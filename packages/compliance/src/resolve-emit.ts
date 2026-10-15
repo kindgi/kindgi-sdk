@@ -15,8 +15,10 @@
  *   - Framework NEVER copies a secret plaintext `value` into a payload.
  *     Payloads carry only metadata (name, version, scope,
  *     caller, errorCode).
- *   - Emission is fire-and-forget: failures inside the binding are
- *     logged (via `console.warn`) but never poison the caller's op.
+ *   - Emission is fire-and-forget: an append that fails or throws
+ *     never poisons the caller's op. It's logged at `warn` through the
+ *     caller's `log`, when the caller passes one; without one it isn't
+ *     logged anywhere.
  *   - The `resolveContext.caller` discriminant maps to a distinct
  *     `actor` string.
  */
@@ -24,6 +26,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
+import type { Logger } from '@kindgi/log';
 import type { Scope } from '@kindgi/platform';
 import type { EnvName, ProjectId, TenantId, Timestamp } from '@kindgi/types';
 
@@ -54,6 +57,8 @@ export interface EmitResolveEventInput {
   readonly tenantId: TenantId;
   /** The project the event belongs to; absent for one that's the tenant's or an org's. */
   readonly projectId?: ProjectId;
+  /** Where an append that fails or throws is logged, at `warn`. Absent: it isn't logged. */
+  readonly log?: Logger;
 }
 
 /**
@@ -63,8 +68,9 @@ export interface EmitResolveEventInput {
  * outcome carries the plaintext to the caller; the audit event carries
  * only the fact-of-resolution + version + scope + caller attribution.
  *
- * Fire-and-forget: any error is logged but swallowed. The resolve path
- * must not fail because the audit sink is unreachable.
+ * Fire-and-forget: an append that fails or throws is logged through
+ * `log` (when given) and swallowed. The resolve path must not fail
+ * because the audit sink is unreachable.
  */
 export async function emitResolveEvent(input: EmitResolveEventInput): Promise<void> {
   const kind = input.kind === 'env' ? 'env-resolved' : 'secret-resolved';
@@ -79,7 +85,7 @@ export async function emitResolveEvent(input: EmitResolveEventInput): Promise<vo
     runId: input.resolveContext.runId,
     payload,
   });
-  await safeEmit(input.auditEvents, event);
+  await safeEmit(input.auditEvents, event, input.log);
 }
 
 /**
@@ -127,6 +133,8 @@ export interface EmitLifecycleEventInput {
   readonly tenantId: TenantId;
   /** The project, for a project-scoped value; absent for a tenant- or org-scoped one. */
   readonly projectId?: ProjectId;
+  /** Where an append that fails or throws is logged, at `warn`. Absent: it isn't logged. */
+  readonly log?: Logger;
 }
 
 /**
@@ -152,7 +160,7 @@ export async function emitLifecycleEvent(input: EmitLifecycleEventInput): Promis
     ...(input.correlationId !== undefined && { correlationId: input.correlationId }),
     payload,
   });
-  await safeEmit(input.auditEvents, event);
+  await safeEmit(input.auditEvents, event, input.log);
 }
 
 // -----------------------------------------------------------------------------
@@ -185,19 +193,25 @@ function buildEvent(input: BuildEventInput): AuditEvent {
   };
 }
 
-async function safeEmit(binding: AuditEventBinding, event: AuditEvent): Promise<void> {
+async function safeEmit(
+  binding: AuditEventBinding,
+  event: AuditEvent,
+  log: Logger | undefined,
+): Promise<void> {
   try {
     const result = await binding.append([event]);
     if (result.kind === 'err') {
-      // eslint-disable-next-line no-console -- no injected logger here
-      console.warn(`[compliance] emit ${event.kind} audit event failed: ${result.error.message}`);
+      log?.warn(
+        `${event.kind} audit event failed: ${result.error.message}`,
+        { kind: event.kind, code: result.error.code },
+        { inMessage: ['kind'] },
+      );
     }
   } catch (cause) {
-    // eslint-disable-next-line no-console -- no injected logger here
-    console.warn(
-      `[compliance] emit ${event.kind} audit event threw: ${
-        cause instanceof Error ? cause.message : String(cause)
-      }`,
+    log?.warn(
+      `${event.kind} audit event failed`,
+      { kind: event.kind, err: cause },
+      { inMessage: ['kind'] },
     );
   }
 }

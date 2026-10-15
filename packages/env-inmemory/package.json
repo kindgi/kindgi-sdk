@@ -33,6 +33,7 @@
     "@kindgi/api": "workspace:*",
     "@kindgi/audit-events": "workspace:*",
     "@kindgi/compliance": "workspace:*",
+    "@kindgi/log": "workspace:*",
     "@kindgi/platform": "workspace:*",
     "@kindgi/types": "workspace:*"
   },
