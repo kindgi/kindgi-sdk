@@ -53,7 +53,7 @@ same version, and the CLI's own changes are in
 
   Every other name keeps its model, numbered ones (`Config1`, `Datum2`)
   included, and the client's generation now fails before a name could move
-  to another model or vanish.
+  to another model or vanish. (#916)
 
 - `kindgi`: **a sign-in session carries the capabilities its person holds.**
   `identity.me.permissions()`'s `token_capabilities` for a sign-in session
