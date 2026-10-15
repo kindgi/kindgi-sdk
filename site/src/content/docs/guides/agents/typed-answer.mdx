@@ -193,7 +193,10 @@ give the schema yourself with `.set("output", Map("schema" -> …, "name" ->
 </TabItem>
 </Tabs>
 
-- **`schema`** is what the answer must match.
+- **`schema`** is what the answer must match. One that doesn't compile
+  (strict JSON Schema, draft 2020-12) is refused where the agent arrives:
+  by `defineAgent`, when it's registered, or by a deploy
+  (`400 deployment-validation-failed`, at `/output/schema`), not at each turn.
 - **`name`** names the answer in what the model is told when it gets it wrong,
   and in errors. It's `output` by default.
 - **`maxRepairs`** is how many times a wrong answer goes back to the model, 1
