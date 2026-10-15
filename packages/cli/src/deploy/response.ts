@@ -89,7 +89,7 @@ function hintFor(error: {
     const byCause = byLimit ?? own(IMAGE_CAUSE_HINTS, error.cause);
     if (byCause !== undefined) return byCause;
   }
-  return WIRE_ERROR_HINTS[error.code];
+  return own(WIRE_ERROR_HINTS, error.code);
 }
 
 /**

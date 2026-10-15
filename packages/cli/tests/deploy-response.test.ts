@@ -60,6 +60,10 @@ describe('renderResponse: a refused deploy', () => {
     }
   });
 
+  test('a code like `constructor` has no hint', () => {
+    expect(banner(refused({ code: 'constructor', message: 'x' }))).not.toContain('Hint:');
+  });
+
   test("another code's hint doesn't follow a cause", () => {
     const text = banner(refused({ code: 'bad-input', message: 'x', cause: 'image-unreadable' }));
     expect(text.replaceAll(/\s+/g, ' ')).toContain('The wire body was malformed');
