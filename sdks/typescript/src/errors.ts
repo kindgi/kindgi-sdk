@@ -147,6 +147,12 @@ export interface ServerError {
   readonly serverCode: string;
   readonly message: string;
   readonly fields?: Readonly<Record<string, unknown>>;
+  /**
+   * On a 503 (such as `database-busy` or `tenant-state-unavailable`): the
+   * seconds the server asked to wait before a retry, from its `Retry-After`.
+   * The client doesn't retry on its own.
+   */
+  readonly retryAfterSeconds?: number;
 }
 
 /**

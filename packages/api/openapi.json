@@ -291,6 +291,7 @@
           "approvals-pending-limit": 429,
           "turn-memory-limit-reached": 429,
           "internal-server-error": 500,
+          "database-busy": 503,
           "journal-error": 500,
           "stuck": 500,
           "waitpoint-error": 409,
