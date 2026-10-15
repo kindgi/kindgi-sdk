@@ -59,7 +59,8 @@ export interface EnvBinding {
    * tenant: the `envName` of each entry `list` returns. Each name once, in
    * byte order, after `input.after`, at most `input.limit`.
    * `GET /v1/environments` reads it; with a store that leaves it unset,
-   * that route answers `501 environments-unsupported`.
+   * that route answers `501 environments-unsupported`. A store that can't
+   * read throws, and the route answers `500`.
    */
   listEnvNames?(input: EnvNamesInput): Promise<readonly EnvName[]>;
 }
