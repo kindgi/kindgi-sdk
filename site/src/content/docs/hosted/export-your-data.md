@@ -29,8 +29,11 @@ names and metadata are.
 
   ```sh
   export KINDGI_API_URL=https://platform.kindgi.com
-  export KINDGI_API_TOKEN=<the API key>
+  read -rs KINDGI_API_TOKEN && export KINDGI_API_TOKEN
   ```
+
+  Paste the key at the prompt, which doesn't echo it, so it stays out of
+  your shell's history.
 
 ## Export everything with the Python client
 
