@@ -6,10 +6,13 @@
 from __future__ import annotations
 
 import ast
+import copy
 import importlib.util
 import json
+import re
 import shutil
 import sys
+from functools import reduce
 from pathlib import Path
 from typing import Any
 
@@ -172,7 +175,7 @@ def test_each_model_is_written_down_where_it_sits(tmp_path: Path) -> None:
     written = json.loads((tmp_path / "out" / "model_names.json").read_text("utf-8"))
     assert written["Flow"] == ["Flow"]
     assert written["JudgedFlow"] == ["JudgedFlow"]
-    assert written["Item"] == ["Holder.items#0"]
+    assert written["Item"] == ["Holder.items"]
 
 
 def test_a_model_not_generated_from_its_component_fails_generation(
@@ -189,7 +192,7 @@ def test_a_model_name_that_would_move_fails_generation(tmp_path: Path) -> None:
     names = tmp_path / "pinned.json"
     shutil.copy(tmp_path / "out" / "model_names.json", names)
     # An inline object of the same name, ahead of it, takes `Item`; Holder's would be `Item1`.
-    with pytest.raises(SystemExit, match=r"Item: was at Holder\.items#0, now at Earlier\.items#0"):
+    with pytest.raises(SystemExit, match=r"Item: was at Holder\.items, now at Earlier\.items"):
         generate(tmp_path, {"Earlier": holder("code"), "Holder": holder("sku")}, names)
 
 
@@ -197,13 +200,108 @@ def test_a_model_name_that_would_vanish_fails_generation(tmp_path: Path) -> None
     generate(tmp_path, {**SCHEMAS, "Holder": holder("sku")})
     names = tmp_path / "pinned.json"
     shutil.copy(tmp_path / "out" / "model_names.json", names)
-    with pytest.raises(SystemExit, match=r"Item: gone, was at Holder\.items#0"):
+    with pytest.raises(SystemExit, match=r"Item: gone, was at Holder\.items"):
         generate(tmp_path, SCHEMAS, names)
 
 
 def test_a_component_name_that_changes_meaning_fails_generation(tmp_path: Path) -> None:
     # As `Flow` was pinned if it had been then: the judged run's inline `flow`.
     names = tmp_path / "pinned.json"
-    names.write_text(json.dumps({"Flow": ["Judged.flow#0"]}), "utf-8")
-    with pytest.raises(SystemExit, match=r"Flow: was at Judged\.flow#0, now at Flow"):
+    names.write_text(json.dumps({"Flow": ["Judged.flow"]}), "utf-8")
+    with pytest.raises(SystemExit, match=r"Flow: was at Judged\.flow, now at Flow"):
         generate(tmp_path, SCHEMAS, names)
+
+
+def test_two_members_nothing_tells_apart_fail_generation_naming_the_field(tmp_path: Path) -> None:
+    either = {
+        "type": "object",
+        "properties": {
+            "pick": {
+                "oneOf": [
+                    {"type": "object", "properties": {"sku": {"type": "string"}}},
+                    {"type": "object", "properties": {"sku": {"type": "integer"}}},
+                ]
+            }
+        },
+    }
+    with pytest.raises(SystemExit, match=r"Holder\.pick: Pick, Pick1 have the same properties"):
+        generate(tmp_path, {**SCHEMAS, "Holder": either})
+
+
+# The API's own document, and the names generated from it.
+API: dict[str, Any] = json.loads(gen.DEFAULT_OPENAPI.read_text("utf-8"))
+PINNED: dict[str, list[str]] = json.loads(gen.MODEL_NAMES.read_text("utf-8"))
+
+# An inline object no member of these unions has, put first in one.
+QUEUED = {"type": "object", "properties": {"queued": {"type": "boolean"}}}
+
+# The API's unions whose members are numbered names, and those names in order.
+UNIONS: dict[str, tuple[tuple[str, ...], list[str]]] = {
+    "Resume": (("CompleteApprovalResult", "properties", "resume"), ["Resume", "Resume1"]),
+    "Config": (("MCPEndpoint", "properties", "config"), ["Config", "Config1", "Config2"]),
+    "Content": (("MCPPromptMessage", "properties", "content"), ["Content2", "Content3"]),
+    "EvalBaseline": (("EvalBaseline",), ["EvalBaseline1", "EvalBaseline2"]),
+    "IdentityProviderSignIn": (
+        ("IdentityProviderSignIn",),
+        ["IdentityProviderSignIn1", "IdentityProviderSignIn2"],
+    ),
+    "NetworkPolicy": (("NetworkPolicy",), ["NetworkPolicy1", "NetworkPolicy2"]),
+    "Secrets": (
+        ("DeploymentSecretsSyncRequest", "properties", "secrets", "items"),
+        ["Secrets", "Secrets1"],
+    ),
+    "StartRunBody": (("StartRunBody",), ["StartRunBody1", "StartRunBody2"]),
+}
+
+
+def generate_api(tmp_path: Path, doc: dict[str, Any]) -> dict[str, list[str]]:
+    """Generate from `doc`, checked against the committed names; the names it writes."""
+    openapi = tmp_path / "openapi.json"
+    openapi.write_text(json.dumps(doc), "utf-8")
+    gen.generate_into(openapi, tmp_path / "out", gen.MODEL_NAMES)
+    return json.loads((tmp_path / "out" / "model_names.json").read_text("utf-8"))
+
+
+def first_in(union: str) -> dict[str, Any]:
+    """The API's document, `QUEUED` put first in one of its unions."""
+    doc = copy.deepcopy(API)
+    path, _ = UNIONS[union]
+    reduce(lambda node, key: node[key], path, doc["components"]["schemas"])["oneOf"].insert(
+        0, QUEUED
+    )
+    return doc
+
+
+def test_the_api_as_it_is_generates_with_the_committed_names(tmp_path: Path) -> None:
+    assert generate_api(tmp_path, API) == PINNED
+
+
+def test_a_member_put_first_fails_generation_naming_each_model_and_its_places(
+    tmp_path: Path,
+) -> None:
+    # Each name now names the member before it; the new one, without `kind`, leaves the
+    # union no discriminator, so each sits at its properties.
+    with pytest.raises(SystemExit) as failed:
+        generate_api(tmp_path, first_in("Resume"))
+    lines = str(failed.value).splitlines()
+    assert (
+        "  Resume: was at CompleteApprovalResult.resume[kind=ok],"
+        " now at CompleteApprovalResult.resume{queued}"
+    ) in lines
+    assert (
+        "  Resume1: was at CompleteApprovalResult.resume[kind=failed],"
+        " now at CompleteApprovalResult.resume{kind}"
+    ) in lines
+    assert "edit its line in scripts/model_names.json" in str(failed.value)
+
+
+@pytest.mark.parametrize("union", list(UNIONS))
+def test_a_member_put_first_in_any_numbered_union_fails_generation_naming_its_names(
+    tmp_path: Path, union: str
+) -> None:
+    _, names = UNIONS[union]
+    assert all(name in PINNED for name in names)
+    with pytest.raises(SystemExit) as failed:
+        generate_api(tmp_path, first_in(union))
+    for name in names:
+        assert re.search(rf"^  {name}: was at ", str(failed.value), re.M), name

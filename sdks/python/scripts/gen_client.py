@@ -702,6 +702,62 @@ def model_fields(tree: ast.Module) -> dict[str, list[tuple[str, ast.expr]]]:
     return models
 
 
+def literal_value(annotation: ast.expr) -> str | None:
+    """The one string a field's type allows (`Literal["ok"]`), if it allows only one."""
+    node = annotation
+    if (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "Annotated"
+        and isinstance(node.slice, ast.Tuple)
+    ):
+        node = node.slice.elts[0]
+    if (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "Literal"
+        and isinstance(node.slice, ast.Constant)
+        and isinstance(node.slice.value, str)
+    ):
+        return node.slice.value
+    return None
+
+
+def member_keys(
+    field: str, names: list[str], models: dict[str, list[tuple[str, ast.expr]]]
+) -> dict[str, str]:
+    """How a field tells apart the models its type names: alone, by nothing; in a union, by
+    the value of its discriminator (`[kind=ok]`), else by their properties (`{code,kind}`)."""
+    if len(names) == 1:
+        return {names[0]: ""}
+    # Each as the schema it was generated from: its properties, a `Literal` one's value.
+    members = {
+        name: {
+            "properties": {
+                wire: {"const": value} if (value := literal_value(annotation)) else {}
+                for wire, annotation in models[name]
+            }
+        }
+        for name in names
+    }
+    prop = discriminator(list(members.values()))
+    keys = {}
+    for name, member in members.items():
+        value = member["properties"].get(prop, {}).get("const") if prop else None
+        keys[name] = (
+            f"[{prop}={value}]"
+            if value is not None
+            else "{" + ",".join(sorted(member["properties"])) + "}"
+        )
+    alike = sorted(name for name in names if list(keys.values()).count(keys[name]) > 1)
+    if alike:
+        raise SystemExit(
+            f"gen_client: {field}: {', '.join(alike)} have the same properties and no"
+            " discriminator, so nothing tells their places apart. Name them in the API."
+        )
+    return keys
+
+
 def generated_from(schema: dict[str, Any], fields: list[tuple[str, ast.expr]]) -> bool:
     """Whether a model named after a component was generated from it."""
     # Its own properties: an `allOf`'s inline members' too (the `$ref`s are its bases).
@@ -718,8 +774,9 @@ def generated_from(schema: dict[str, Any], fields: list[tuple[str, ast.expr]]) -
 
 def model_locations(doc: dict[str, Any], tree: ast.Module) -> dict[str, list[str]]:
     """Where each model sits. A component's own model sits at its name; any other at each chain
-    of fields from one, a field by its wire name and the slot among the models its type names:
-    `JudgedComparisonResult.cases#0.tool#0`."""
+    of fields from one, a field by its wire name and, in a union, by its member
+    (`member_keys`): `JudgedComparisonResult.cases.tool`, `CompleteApprovalResult.resume[kind=ok]`.
+    """
     models = model_fields(tree)
     components = doc["components"]["schemas"]
     wrong = sorted(
@@ -736,11 +793,13 @@ def model_locations(doc: dict[str, Any], tree: ast.Module) -> dict[str, list[str
     for owner, fields in models.items():
         for wire, annotation in fields:
             named = sorted(
-                (n for n in ast.walk(annotation) if isinstance(n, ast.Name) and n.id in models),
-                key=lambda n: (n.lineno, n.col_offset),
+                {n.id for n in ast.walk(annotation) if isinstance(n, ast.Name) and n.id in models}
             )
-            for slot, node in enumerate(named):
-                parents.setdefault(node.id, []).append((owner, f"{wire}#{slot}"))
+            if not named:
+                continue
+            keys = member_keys(f"{owner}.{wire}", named, models)
+            for name in named:
+                parents.setdefault(name, []).append((owner, f"{wire}{keys[name]}"))
 
     found: dict[str, set[str]] = {}
 
@@ -781,9 +840,12 @@ def check_model_names(locations: dict[str, list[str]], pinned: dict[str, list[st
     raise SystemExit(
         "gen_client: these model names would change meaning:\n"
         + "\n".join(lines)
-        + f"\nA name moves when a new inline object takes it, or its number, first. Name the new"
-        f" object, or, when the change is meant, delete the name's line in"
-        f" {MODEL_NAMES.relative_to(ROOT)} and list the change in CHANGELOG.md."
+        + "\nA name moves when a new inline object takes it, or its number, first. A union's member"
+        " moves when its discriminator's value changes or, in a union without one, when it gains"
+        " or loses a property. Check what each name names now. Where it's still the same model,"
+        f" edit its line in {MODEL_NAMES.relative_to(ROOT)}. Where it's another, name the new"
+        " object in the API, or, when the rename is meant, list it in CHANGELOG.md and edit the"
+        " line."
     )
 
 

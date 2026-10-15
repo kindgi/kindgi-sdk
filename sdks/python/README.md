@@ -394,8 +394,10 @@ The vendored schemas in `src/kindgi/_specs` are copies of `@kindgi/specs`;
 `tests/test_client.py` fails while they are out of step. `scripts/model_names.json`
 holds where each model sits, and generation fails when a model's name would
 move to another schema or vanish: such a change is an edit to that file, and
-an entry in `CHANGELOG.md`. `@kindgi/pack-conformance` runs its suite against
-this package's `.venv`.
+an entry in `CHANGELOG.md`. A union's member sits at its discriminator's
+value, or in a union without one at its properties, so a member that gains a
+property reads as moved too: check it, then edit its line.
+`@kindgi/pack-conformance` runs its suite against this package's `.venv`.
 
 The version is the npm packages' (`scripts/sync-python-version.mjs`
 moves it); changes go in [`CHANGELOG.md`](./CHANGELOG.md).
