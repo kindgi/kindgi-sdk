@@ -12,6 +12,7 @@ import type { ResolvedConfig } from './config.js';
 import type { DeployRunners } from './deploy/runners.js';
 import type { DevRunners } from './dev/runners.js';
 import type { EnvRunners } from './env/runners.js';
+import type { FeedbackSeam } from './feedback/run.js';
 import type { KeyRunners } from './key/runners.js';
 import type { LicenseCommandDeps } from './license/renew.js';
 import type { OpenUrl } from './open-url.js';
@@ -125,6 +126,8 @@ export interface CommandContext {
   readonly keyRunners: KeyRunners | undefined;
   /** Injectable seams for `kindgi license renew` (its clock, its fetch): tests only. */
   readonly licenseDeps?: LicenseCommandDeps;
+  /** Injectable seams for `kindgi feedback` (its clock, the doctor, the platform, the prompt): tests only. */
+  readonly feedbackSeam?: FeedbackSeam;
   /**
    * Injectable value-input seams for `kindgi secrets set` /
    * `rotate`. Tests pass fixtures so the TTY prompt / stdin reader /
@@ -194,6 +197,7 @@ export interface BuildContextInputs {
   readonly envRunners?: EnvRunners;
   readonly keyRunners?: KeyRunners;
   readonly licenseDeps?: LicenseCommandDeps;
+  readonly feedbackSeam?: FeedbackSeam;
   readonly secretsInputSeam?: SecretsValueInputSeam;
   readonly envInitInputSeam?: EnvInitInputSeam;
   readonly registryAuthSeam?: RegistryAuthSeam;
@@ -246,6 +250,7 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     envRunners: inputs.envRunners,
     keyRunners: inputs.keyRunners,
     ...(inputs.licenseDeps !== undefined && { licenseDeps: inputs.licenseDeps }),
+    ...(inputs.feedbackSeam !== undefined && { feedbackSeam: inputs.feedbackSeam }),
     secretsInputSeam: inputs.secretsInputSeam,
     envInitInputSeam: inputs.envInitInputSeam,
     registryAuthSeam: inputs.registryAuthSeam,

@@ -49,7 +49,16 @@ import { parseEnvFile } from '../env/parser.js';
 export const REDACTED_PATH = '[path]';
 export const REDACTED_EMAIL = '[email]';
 
-export type RedactionRule = 'private-keys' | 'env-values' | 'tokens' | 'urls' | 'emails' | 'paths';
+/** The rules, in the order they run. */
+export const REDACTION_RULES = [
+  'private-keys',
+  'env-values',
+  'tokens',
+  'urls',
+  'emails',
+  'paths',
+] as const;
+export type RedactionRule = (typeof REDACTION_RULES)[number];
 
 export interface EnvEntry {
   readonly key: string;

@@ -38,7 +38,7 @@ Desktop, or a Docker engine on Linux). A Python pack needs Python and the
 | [`kindgi key`](#kindgi-key) | Ed25519 signing keys: local pairs under `~/.kindgi/keys/`, and the runtime's trust list. |
 | [`kindgi skills`](#kindgi-skills) | Refresh the Claude Code skills in `.claude/skills/`. |
 | [`kindgi mcp`](#kindgi-mcp) | MCP servers for your coding agent, in `.mcp.json`. |
-| [`kindgi feedback`](#kindgi-feedback) | Note framework friction in the pack's `FEEDBACK.md`. |
+| [`kindgi feedback`](#kindgi-feedback) | Note framework friction in the pack's `FEEDBACK.md`, and send it to Kindgi once the person says yes to the preview. |
 
 The rest of the commands talk to a running Kindgi API: see
 [API commands](#api-commands).
@@ -759,6 +759,18 @@ pack's env files in its environment, so the secret is never written into
 `kindgi feedback write --kind=bug --title="…"` appends a note about framework
 friction to `FEEDBACK.md` at the pack root, where a coding agent can leave
 what it diagnosed for the maintainers.
+
+- `kindgi feedback submit --preview` prints exactly what would be sent to
+  Kindgi's intake (access.kindgi.com), after redaction, with its digest.
+  `--yes=<digest>` then sends exactly that; at a terminal it asks instead.
+  Home directories, paths outside the pack, the pack's env values, keys,
+  tokens, URL query values and email addresses are taken out first.
+  `KINDGI_FEEDBACK_SUBMIT=off` turns sending off.
+- `kindgi feedback status` says what became of the reports sent: received,
+  known, fixed (and in which version), won't fix, or withdrawn.
+- `kindgi feedback withdraw <id>` takes a report back: the intake clears its
+  text at once. The key it needs stays in `~/.kindgi/feedback/keys.json` on
+  the machine that sent it; `FEEDBACK.md` holds only the report id.
 
 ## API commands
 

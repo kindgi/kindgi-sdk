@@ -839,6 +839,19 @@ export const CLI_DEFAULTS = {
     severity: '`medium`',
     title: 'required',
   },
+  'feedback submit': {
+    'access-url': '`https://access.kindgi.com`',
+    path: 'the current directory',
+    yes: 'none: at a terminal it asks; with no terminal, nothing is sent',
+  },
+  'feedback status': {
+    'access-url': '`https://access.kindgi.com`',
+    path: 'the current directory',
+  },
+  'feedback withdraw': {
+    'access-url': '`https://access.kindgi.com`',
+    path: 'the current directory',
+  },
   doctor: {
     path: 'the current directory',
   },
@@ -1635,8 +1648,32 @@ export const CLI_EXAMPLES = {
   'feedback submit': [
     {
       purpose:
-        'It exits with status `1` and says where the entries are kept: `FEEDBACK.md` at the pack root, to commit or send.',
-      line: 'kindgi feedback submit',
+        'Print exactly what would be sent, after redaction, with its digest. Nothing is sent.',
+      line: 'kindgi feedback submit --preview',
+    },
+    {
+      purpose: 'After the person says yes to that preview, send exactly it.',
+      line: 'kindgi feedback submit --yes=<digest>',
+    },
+    {
+      purpose: 'Preview one entry by its id, to send it (again) on its own.',
+      line: 'kindgi feedback submit 2026-10-15.1 --preview',
+    },
+  ],
+  'feedback status': [
+    {
+      purpose: 'Ask what became of the reports sent: at most once a day each.',
+      line: 'kindgi feedback status',
+    },
+    {
+      purpose: "Ask about one now, by its entry's id or its report id.",
+      line: 'kindgi feedback status 2026-10-15.1',
+    },
+  ],
+  'feedback withdraw': [
+    {
+      purpose: 'Take a report back: the intake clears its text at once.',
+      line: 'kindgi feedback withdraw 2026-10-15.1',
     },
   ],
   health: [
