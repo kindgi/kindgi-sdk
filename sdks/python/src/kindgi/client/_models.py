@@ -827,6 +827,10 @@ class RunJournalPage(BaseModel):
     )
     data: list[Datum1]
     has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page, with `limit`. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5.
+    """
 
 
 class RunEvent(BaseModel):

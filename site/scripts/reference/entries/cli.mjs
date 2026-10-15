@@ -48,7 +48,7 @@ export const CLI_DEFAULTS = {
   build: {
     'artifact-version': 'the build time, as `YYYYMMDD.HHMMSS` (UTC)',
     endpoint:
-      "the env block's `build`; required when there is none (not used with `--local` or `--hosted`, which builds at the API's address under `/cloud`)",
+      "the env block's `build`; required when there is none (not used with `--local` or `--hosted`, which builds at the CLI's API URL under `/cloud`)",
     env: '`staging`',
     out: '`.kindgi/build` under the pack root',
     path: 'the current directory (the pack root is resolved from it)',
@@ -57,7 +57,7 @@ export const CLI_DEFAULTS = {
     'published-at': 'the build time',
     push: "none; a bare `--push` uses the env block's `registry` + `/<packId>`",
     'registry-push-creds': 'none',
-    'signer-key-id': "the env block's `signerKeyId`, else the key file's name, else `<env>-signer`",
+    'signer-key-id': "the env block's `signerKeyId`, else the key file's name",
     'signing-key': "the env block's `signingKey`; required to sign (unless `--skip-sign`)",
     target: "the env block's `buildTarget`, else the env name",
     tenant:
@@ -67,7 +67,7 @@ export const CLI_DEFAULTS = {
     'artifact-version': 'for an inline build: the build time, as `YYYYMMDD.HHMMSS` (UTC)',
     'build-endpoint': "for an inline build: the env block's `build`",
     endpoint:
-      "the env block's `endpoint`, else the CLI's API URL (`--url`, `KINDGI_API_URL`, config files); required when none",
+      "the env block's `endpoint`, else the CLI's API URL (`--url`, `KINDGI_API_URL`, config files); required when none. A stored API key goes only to the address stored with it (`--token` or `KINDGI_API_TOKEN` gives another server's key); with `--hosted`, the endpoint can only be the CLI's API URL, and the `.kindgirc.json` that `kindgi dev` writes isn't read",
     env: '`staging`',
     'from-envelope': '`deploy-envelope.json` in `--out`; an inline build runs when it is missing',
     'idempotency-key': 'a hash of the request body',
@@ -76,8 +76,7 @@ export const CLI_DEFAULTS = {
     project: "none: a tenant-wide deploy, into the tenant's Default project",
     'published-at': 'for an inline build: the build time',
     'registry-push-creds': 'none',
-    'signer-key-id':
-      "for an inline build: the env block's `signerKeyId`, else the key file's name, else `<env>-signer`",
+    'signer-key-id': "for an inline build: the env block's `signerKeyId`, else the key file's name",
     'signing-key': "for an inline build: the env block's `signingKey`",
     target: "for an inline build: the env block's `buildTarget`, else the env name",
     tenant:
@@ -161,7 +160,7 @@ export const CLI_DEFAULTS = {
   },
   'sso providers start': {
     idp: 'none',
-    kind: 'none (taken from the `--idp` preset if given, else the API decides)',
+    kind: "none: the `--idp` preset's kind if given, else the registered provider's own (required before it's registered)",
   },
   'sso providers finish': {
     'client-id': 'none',
@@ -947,6 +946,10 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Page through the secrets whose names start with ACME_.',
       line: 'kindgi secrets list --env=production --scope=tenant --name-prefix=ACME_ --limit=10',
+    },
+    {
+      purpose: 'List revoked secrets too, with when and why each was revoked.',
+      line: 'kindgi secrets list --env=production --scope=tenant --include-revoked',
     },
   ],
   'secrets rotate': [

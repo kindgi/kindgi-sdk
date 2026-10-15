@@ -1233,16 +1233,23 @@ class RunsResource:
         )
 
     def journal(
-        self, run_id: str | UUID, /, *, since: int | None = None, timeout: float | None = None
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        since: int | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
     ) -> _models.RunJournalPage:
         """Read the durable journal for a run. `GET /v1/runs/{runId}/journal`
 
-        Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`). Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6.
+        Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`), in sequence order. Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6. Paging is opt-in: with `limit`, at most that many entries and a `nextCursor` while more remain; without it, the whole journal in one answer.
         """
         return self._client._request(
             _OPERATIONS["runs.journal"],
             path={"runId": run_id},
-            query={"since": since},
+            query={"since": since, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.RunJournalPage,
             timeout=timeout,
@@ -7830,7 +7837,7 @@ class EnvironmentsResource:
     ) -> _models.EnvironmentPage:
         """List the tenant's env names. `GET /v1/environments`
 
-        The env names the tenant holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A revoked secret doesn't count, as `GET /v1/secrets` doesn't show it. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.
+        The env names the tenant holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A revoked secret doesn't count. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.
         """
         return self._client._request(
             _OPERATIONS["environments.list"],
@@ -7976,11 +7983,12 @@ class SecretsResource:
         limit: int | None = None,
         cursor: str | None = None,
         name_prefix: str | None = None,
+        include_revoked: Literal["true", "false"] | None = None,
         timeout: float | None = None,
     ) -> _models.SecretCollectionPage:
         """List secret metadata. `GET /v1/secrets`
 
-        Cursor-paginated list of secret metadata at the given `(scope, envName)`. `value` is ALWAYS absent (structural redaction).
+        Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. `value` is ALWAYS absent (structural redaction).
         """
         return self._client._request(
             _OPERATIONS["secrets.list"],
@@ -7993,6 +8001,7 @@ class SecretsResource:
                 "limit": limit,
                 "cursor": cursor,
                 "namePrefix": name_prefix,
+                "includeRevoked": include_revoked,
             },
             headers={},
             response=_models.SecretCollectionPage,
@@ -9014,16 +9023,23 @@ class AsyncRunsResource:
         )
 
     async def journal(
-        self, run_id: str | UUID, /, *, since: int | None = None, timeout: float | None = None
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        since: int | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
     ) -> _models.RunJournalPage:
         """Read the durable journal for a run. `GET /v1/runs/{runId}/journal`
 
-        Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`). Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6.
+        Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`), in sequence order. Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6. Paging is opt-in: with `limit`, at most that many entries and a `nextCursor` while more remain; without it, the whole journal in one answer.
         """
         return await self._client._request(
             _OPERATIONS["runs.journal"],
             path={"runId": run_id},
-            query={"since": since},
+            query={"since": since, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.RunJournalPage,
             timeout=timeout,
@@ -15637,7 +15653,7 @@ class AsyncEnvironmentsResource:
     ) -> _models.EnvironmentPage:
         """List the tenant's env names. `GET /v1/environments`
 
-        The env names the tenant holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A revoked secret doesn't count, as `GET /v1/secrets` doesn't show it. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.
+        The env names the tenant holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A revoked secret doesn't count. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.
         """
         return await self._client._request(
             _OPERATIONS["environments.list"],
@@ -15783,11 +15799,12 @@ class AsyncSecretsResource:
         limit: int | None = None,
         cursor: str | None = None,
         name_prefix: str | None = None,
+        include_revoked: Literal["true", "false"] | None = None,
         timeout: float | None = None,
     ) -> _models.SecretCollectionPage:
         """List secret metadata. `GET /v1/secrets`
 
-        Cursor-paginated list of secret metadata at the given `(scope, envName)`. `value` is ALWAYS absent (structural redaction).
+        Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. `value` is ALWAYS absent (structural redaction).
         """
         return await self._client._request(
             _OPERATIONS["secrets.list"],
@@ -15800,6 +15817,7 @@ class AsyncSecretsResource:
                 "limit": limit,
                 "cursor": cursor,
                 "namePrefix": name_prefix,
+                "includeRevoked": include_revoked,
             },
             headers={},
             response=_models.SecretCollectionPage,

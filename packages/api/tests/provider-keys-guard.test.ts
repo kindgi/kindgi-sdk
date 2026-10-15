@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
-import type { EnvName, TenantId } from '@kindgi/types';
+import type { Cursor, EnvName, TenantId } from '@kindgi/types';
 
 import { guardProviderKeys } from '../src/index.js';
 import type { EnvNamesInput, ProviderKeys, SecretBinding } from '../src/index.js';
@@ -109,6 +109,8 @@ describe('guardProviderKeys', () => {
         asked.push(input);
         return ['local'] as EnvName[];
       },
+      issuedCursor: (list: 'secrets' | 'versions', cursor: Cursor) =>
+        list === 'secrets' && (cursor as unknown as string) === 'issued',
     } as SecretBinding;
     const guarded = guardProviderKeys(dev, keys, 'a tool');
     expect(guarded.writesAppEnvFiles).toBe(true);
@@ -117,9 +119,12 @@ describe('guardProviderKeys', () => {
     const input: EnvNamesInput = { tenantId: 'tenant-test' as TenantId, limit: 2 };
     expect(await guarded.listEnvNames?.(input)).toEqual(['local']);
     expect(asked).toEqual([input]);
+    expect(guarded.issuedCursor?.('secrets', 'issued' as Cursor)).toBe(true);
+    expect(guarded.issuedCursor?.('versions', 'issued' as Cursor)).toBe(false);
     expect(guardProviderKeys(binding, keys, 'a tool')).not.toHaveProperty('writesAppEnvFiles');
     expect(guardProviderKeys(binding, keys, 'a tool')).not.toHaveProperty('nameRefusal');
     expect(guardProviderKeys(binding, keys, 'a tool')).not.toHaveProperty('listEnvNames');
+    expect(guardProviderKeys(binding, keys, 'a tool')).not.toHaveProperty('issuedCursor');
   });
 
   test('the words name what asked', async () => {

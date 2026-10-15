@@ -862,7 +862,7 @@ export const ERROR_ENTRIES = {
   },
   'capability-routing-failed': {
     description:
-      "No model provider could take the agent's call: the agent declares no capabilities, or no provider meets them under your policy, or the pinned route is no longer allowed.",
+      "No model provider could take the agent's call: the agent declares no capabilities, or no provider meets them under your policy, or the pinned route is no longer allowed, or a provider registered for the tenant can't be set up on this runtime (the message says why; `GET /v1/providers/{providerId}/check` gives the adapter's words).",
     details: [
       {
         key: 'runId',
@@ -2758,6 +2758,12 @@ export const ERROR_ENTRIES = {
   },
   'secret-value-too-large': {
     description: 'The secret value is larger than the size limit the secrets store accepts.',
+    details: [],
+    seeAlso: ['guides/secrets/store-a-secret'],
+  },
+  'secret-value-invalid': {
+    description:
+      "The secrets store can't hold this value as given. Under `kindgi dev`, a secret is a key in your env files, and no env-file quoting holds a value that has a double quote, or a backslash followed by `n` or `r`, together with a carriage return or with both a single quote and a backtick. Store the value encoded (base64, say), or without one of those characters. The message says why, and never repeats the value.",
     details: [],
     seeAlso: ['guides/secrets/store-a-secret'],
   },
