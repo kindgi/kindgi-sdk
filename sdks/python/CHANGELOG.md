@@ -10,6 +10,51 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **`flows.get` and `flows.get_version` answer the flow, and
+  `tools.get` and `tools.get_version` the tool.** They read each answer as
+  another object that had taken the name `Flow` or `Tool` (a judged run's
+  `flow`, an approval's `tool`), so a real flow or tool failed validation.
+  Some model names in `kindgi.client.models` change with it, and no old name
+  is kept:
+  - **Same name, another model:** `Flow` is the flow (it was `Flow1`; the
+    judged run's `flow` is `JudgedRunContextFlow`). `Tool` is the tool (it
+    was `Tool1`; the approval's `tool` is `RunWaitingApprovalTool`).
+  - **Gone, and their new names:**
+    - `Scope2`, `Scope3`, `Scope4` (a secret's or an env var's scope: tenant,
+      org, project): `ScopeTenant`, `ScopeOrg`, `ScopeProject`. An
+      `isinstance` or `match` on the old names needs the new ones.
+    - `Scope`: `JudgedComparisonSummaryScope`.
+    - `Flow1`, `Tool1`: `Flow`, `Tool`.
+    - `Flow2`, `Tool3`, `Agent1`, `Guardrail1`: `DeploymentContentsFlow`,
+      `DeploymentContentsTool`, `DeploymentContentsAgent`,
+      `DeploymentContentsGuardrail`.
+    - `Tool2`: `ComparisonCaseResultTool`.
+    - `CodeArtifactRef1`, `CodeArtifactRef2`: `CodeArtifactRefOci`,
+      `CodeArtifactRefFilesystem`.
+    - `ComparisonCandidate1`, `ComparisonCandidate2`:
+      `ComparisonCandidateAgent`, `ComparisonCandidateFlow`.
+    - `EnvSetOutcome1` to `3`: `EnvSetOutcomeOk`,
+      `EnvSetOutcomeRevisionConflict`, `EnvSetOutcomeError`.
+    - `HttpAuthSpec1`, `HttpAuthSpec2`: `HttpAuthSpecBearer`,
+      `HttpAuthSpecHeader`.
+    - `HttpRequestBodySpec1` to `3`: `HttpRequestBodySpecJsonInput`,
+      `HttpRequestBodySpecInputPassthrough`, `HttpRequestBodySpecText`.
+    - `JudgeClassScope1` to `3`: `JudgeClassScopeTenant`,
+      `JudgeClassScopeProject`, `JudgeClassScopeAgent`.
+    - `RecordedSecretScope1` to `3`: `RecordedSecretScopeTenant`,
+      `RecordedSecretScopeOrg`, `RecordedSecretScopeProject`.
+    - `SecretRotateOutcome1`, `SecretRotateOutcome2`: `SecretRotateOutcomeOk`,
+      `SecretRotateOutcomeRotationPending`.
+    - `SecretSetOutcome1` to `4`: `SecretSetOutcomeOk`,
+      `SecretSetOutcomeAlreadyExists`, `SecretSetOutcomeVersionConflict`,
+      `SecretSetOutcomeError`.
+    - `WebhookSignature1`, `WebhookSignature2`: `WebhookSignatureHmacSha256`,
+      `WebhookSignatureStandardWebhooks`.
+
+  Every other name keeps its model, numbered ones (`Config1`, `Datum2`)
+  included, and the client's generation now fails before a name could move
+  to another model or vanish.
+
 - `kindgi`: **a sign-in session carries the capabilities its person holds.**
   `identity.me.permissions()`'s `token_capabilities` for a sign-in session
   were always empty. Now they're its person's: none, unless the runtime gives
