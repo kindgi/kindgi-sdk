@@ -181,6 +181,7 @@ export type {
 export type {
   PoliciesClient,
   PolicyListFilter,
+  PolicyVersionRow,
   PolicyVersionsFilter,
 } from './resources/policies.js';
 export type {
