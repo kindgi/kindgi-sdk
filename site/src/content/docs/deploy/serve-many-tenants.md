@@ -285,7 +285,8 @@ Once the window has passed, purge it. Its keys and sessions go with its
 rows. Until then, nothing of the tenant runs, and it writes only deletes,
 revokes, erasures, exports and sign-ins. One of those during the purge can
 leave a row: the purge exits `1` and names it, and running it again
-finishes it.
+finishes it. Within about 5 seconds of the tenant being marked purged,
+nothing of it signs in or is served.
 
 ```sh
 kindgi-runtime tenants purge <tenant id> --confirm <tenant slug> --record <where>
@@ -320,11 +321,18 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
   again every tenant a record names.
 
 :::caution
-A tenant whose people sign in with its own SSO doesn't finish purging:
-every run exits `1`, naming `auth_users` and `auth_sso_providers`, and the
-tenant isn't marked purged. Nothing is deleted that shouldn't be. A tenant
-whose people sign in only with Google, Microsoft, GitHub or an emailed link
-isn't affected.
+In two cases, rows of a tenant stay after its purge:
+
+- A tenant whose people sign in with its own SSO doesn't finish purging:
+  every run exits `1`, naming `auth_users` and `auth_sso_providers`, and the
+  tenant isn't marked purged. Nothing is deleted that shouldn't be. A tenant
+  whose people sign in only with Google, Microsoft, GitHub or an emailed
+  link isn't affected.
+- The purge marks a tenant purged once its count finds nothing left. Work of
+  the tenant still under way then, such as a request that started before it
+  or a background pass that listed the tenant before it, can still write a
+  row. That row stays: running the purge again only says the tenant is
+  already purged.
 :::
 
 ## After each upgrade: tenants repair
