@@ -686,7 +686,8 @@ describe('kindgi build — pipeline stages fire in order', () => {
     expect(parsed.$schema).toBe('kindgi-deploy-envelope/v1');
     expect(parsed.imageRef).toContain('ghcr.io/acme/');
     expect(parsed.signature).toBeTruthy();
-    expect(parsed.signerKeyId).toBeTruthy();
+    // No --signer-key-id and no `signerKeyId` in the env block: the key file's name.
+    expect(parsed.signerKeyId).toBe('signing-key');
     expect(parsed.tenantId).toBe('tenant-acme-staging');
   });
 
