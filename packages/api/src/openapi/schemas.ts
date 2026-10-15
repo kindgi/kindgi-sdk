@@ -1519,8 +1519,7 @@ const SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES: Record<string, JsonSchema> = {
   packId: {
     type: 'string',
     minLength: 1,
-    description:
-      "The pack it deploys (the image index's `packId`): keep the newest few superseded deployments per tenant and pack.",
+    description: "The pack it deploys (the image index's `packId`).",
   },
   projectId: {
     type: 'string',
@@ -1555,7 +1554,7 @@ export const SystemDeploymentEntrySchema: JsonSchema = {
       type: 'string',
       enum: [...SYSTEM_DEPLOYMENT_RETIRE_REASONS],
       description:
-        'In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.',
+        'In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does, so no new call reaches it. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.',
     },
   },
 };
