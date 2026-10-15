@@ -40,7 +40,8 @@ Only `y` or `yes` sends. With no terminal and no `--yes`, nothing is sent.
 
 Your coding agent works the same way: the `kindgi-framework-feedback` skill
 has it preview the report, show it to you, and send it only after you say
-yes.
+yes. If Kindgi may have received a report, it tells you, and leaves sending
+it again to you.
 
 Once a report is sent, each of its entries in `FEEDBACK.md` gains a line with
 the report's id:
@@ -57,7 +58,20 @@ A report holds at most 20 entries and 64 KiB. An entry's title can be at
 most 200 characters, and its body at most 16 KiB after redaction. With no
 entry named, the oldest entries that fit are sent, and the rest wait for the
 next run. `kindgi feedback submit` exits `0` when it sent the report, or had
-nothing to send, and `1` when nothing was sent.
+nothing to send, and `1` otherwise.
+
+When a send fails, it says whether the report may have arrived, and
+`FEEDBACK.md` is left as it was:
+
+- **`Nothing reached Kindgi: …`** It never connected. Send it again when you
+  can.
+- **`Nothing was sent: the intake is taking no more reports for now`**, with
+  how long to wait when the intake says.
+- **`The intake refused the report (…)`**, with why. Nothing was stored.
+- **`Kindgi may have received it: …`** The answer was lost, came too late,
+  or couldn't be read. Sending it again makes a second report. If the first
+  one arrived, it can't be withdrawn from this machine, since its key never
+  came back. Kindgi deletes it after 90 days.
 
 ## What's sent
 
@@ -74,7 +88,10 @@ The report goes to Kindgi's private intake, at
 
 Nothing else is sent: no file, no env value, no key or token, no path
 outside the pack, and not the pack's name, unless an entry's text carries
-it past redaction. The preview is the report, byte for byte.
+it past redaction. The preview is the report, byte for byte. The intake
+refuses a report with any other field, at any level: it answers
+`400 invalid-request`, naming the field but never its value
+(`client.hostname is not a field here.`), and stores nothing.
 
 ## What redaction changes
 
@@ -95,10 +112,10 @@ entry:
 - In a URL, the user and password become `[redacted]`, and so does each
   query value. The host and the path stay.
 - An email address becomes `[email]`.
-- A path inside the pack becomes relative (`./src/tool.ts`), and your home
-  folder becomes `~`. A path under a system or user folder (`/Users`,
-  `/home`, `/tmp`, `C:\`, …) becomes `[path]`. An API route like
-  `/v1/secrets` stays.
+- A path inside the pack becomes relative (`./src/tool.ts`). Your home
+  folder on its own becomes `~`. A path under your home folder, or under a
+  system or user folder (`/Users`, `/home`, `/tmp`, `C:\`, …), becomes
+  `[path]`. An API route like `/v1/secrets` stays.
 
 Redaction can't catch everything in free text, a customer's or a host's
 name for one. The preview is the check.
@@ -126,7 +143,7 @@ state:
 
 | State | What it means |
 | --- | --- |
-| `received` | It arrived, and no one has triaged it yet. |
+| `received` | It arrived, and no one has triaged it yet. A report about an issue that's already fixed, or won't be, reads `received` until it's triaged again. |
 | `known` | It's a known issue. The answer links the issue when it's public. |
 | `fixed` | It's fixed, in the version the answer names. `FEEDBACK.md` marks the entry fixed. |
 | `wont-fix` | It won't be fixed. The answer says why, in a line. |
@@ -134,8 +151,9 @@ state:
 | `unknown` | The intake doesn't have it: it never arrived, or its 90 days are over. |
 
 It sends only the report ids. Unless you name a report, it asks about each
-at most once a day. It doesn't ask again about a report that's fixed, won't
-be fixed or was withdrawn. Your coding agent runs it at the start of a
+at most once a day. It never asks again about a report that's fixed, won't
+be fixed or was withdrawn, and asks about one the intake doesn't have only
+when you name it. Your coding agent runs it at the start of a
 session when `FEEDBACK.md` has entries that were sent.
 
 ## Take a report back
