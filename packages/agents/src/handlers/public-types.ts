@@ -197,7 +197,9 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    * `policyRegistry.evaluate('model-routing', {tenantId})` and merges
    * the result with `tenantPolicy` before routing. Without a registry
    * (or without an executor for that kind), `tenantPolicy` applies
-   * alone.
+   * alone. The turn reads `hitl` and `tool-errors` through it too; an
+   * evaluation of any of the three that throws fails the turn with
+   * `tenant-policy-unavailable`.
    */
   readonly policyRegistry?: PolicyRegistry;
   readonly embeddingRegistry?: EmbeddingProviderRegistry;
