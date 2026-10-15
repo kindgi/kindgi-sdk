@@ -1053,6 +1053,11 @@ export const RunJournalPageSchema: JsonSchema = {
   properties: {
     data: { type: 'array', items: JournalEntrySchema },
     hasMore: { type: 'boolean' },
+    nextCursor: {
+      type: 'string',
+      description:
+        'Opaque cursor for the next page, with `limit`. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5.',
+    },
   },
 };
 
