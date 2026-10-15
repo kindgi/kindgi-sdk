@@ -124,7 +124,7 @@ export const deployCommand: LeafCommand = {
     'sync-secrets': {
       type: 'boolean',
       description:
-        "After the deploy lands, also send the values in `.env.<env>` to the deployment's secrets. Off by default.",
+        "After the deploy lands, also send the values in `.env.<env>` to the deployment's secrets. Off by default. A hosted deploy needs --env with it.",
     },
     // Deploy although a name the pack's env.required declares has no
     // value for --env (the pack service won't be ready until it has).
@@ -1002,7 +1002,8 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
 
   // --env — default staging (matches build's default).
   const envFlag = ctx.options.env;
-  const envName = typeof envFlag === 'string' && envFlag !== '' ? envFlag : 'staging';
+  const envGiven = typeof envFlag === 'string' && envFlag !== '';
+  const envName = envGiven ? envFlag : 'staging';
   const envBlock =
     cfg.environments?.[envName] !== undefined
       ? ((cfg.environments as Record<string, EnvironmentConfig>)[envName] as EnvironmentConfig)
@@ -1019,6 +1020,17 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       kind: 'error',
       stderr:
         '--hosted builds on the hosted build service, and --build-endpoint names another build server: leave one out.\n',
+      exitCode: 1,
+    };
+  }
+  // A hosted runtime reads a deployment's secrets in the env it serves.
+  // Without --env the sync would send `.env.staging` under `staging`,
+  // which it may never read: the env is named, not defaulted.
+  if (hosted && ctx.options['sync-secrets'] === true && !envGiven) {
+    return {
+      kind: 'error',
+      stderr:
+        "--sync-secrets on a hosted deploy needs --env. A hosted runtime reads a deployment's secrets in the env it serves; without --env, the values in .env.staging would go up under staging. Pass --env=<the env it serves>.\n",
       exitCode: 1,
     };
   }
