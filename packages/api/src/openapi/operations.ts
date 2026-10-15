@@ -5579,7 +5579,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Policy published.', schema: ref('PublishPolicyResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'Validation failed (see `details.issues`); `kind-not-applied`: no runtime consumer applies that kind yet; or `retention-over-limit`: the retention policy keeps its domain\'s rows longer than this server\'s limit, or holds them (`details.limitSeconds`).',
+        "Validation failed (see `details.issues`); `kind-not-applied`: no runtime consumer applies that kind yet; or `retention-over-limit`: the retention policy keeps its domain's rows longer than this server's limit, or holds them (`details.limitSeconds`).",
       ),
       '409': ErrorResponse(
         '`policy-already-registered`: that (id, version) exists. `policy-scope-taken`: another policy covers the retention domain (`details.heldBy`). `policy-scope-changed`: the version would move the policy to another domain.',
@@ -5608,7 +5608,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'policies.reinstateVersion',
     summary: 'Reinstate a specific tombstoned policy version',
     description:
-      'Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (and refreshes `policyKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Reactivates a fully-retired policy identity when applicable. Publish is always allowed regardless of retirement state. A version whose retention policy keeps its domain\'s rows longer than this server\'s limit, or holds them, stays retired (`400 retention-over-limit`).',
+      "Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (and refreshes `policyKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Reactivates a fully-retired policy identity when applicable. Publish is always allowed regardless of retirement state. A version whose retention policy keeps its domain's rows longer than this server's limit, or holds them, stays retired (`400 retention-over-limit`).",
     tags: ['policies'],
     security: 'bearer',
     parameters: [PolicyIdPathParam, PolicyVersionPathParam, IdempotencyKeyParam],

@@ -7216,14 +7216,7 @@ export const RetentionPolicyConflictSchema: JsonSchema = {
 export const RetentionScheduledItemSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: [
-    'domain',
-    'id',
-    'unregisteredAt',
-    'purgeAt',
-    'pastGrace',
-    'graceSeconds',
-  ],
+  required: ['domain', 'id', 'unregisteredAt', 'purgeAt', 'pastGrace', 'graceSeconds'],
   properties: {
     domain: { $ref: '#/components/schemas/RetentionDomain' },
     id: { type: 'string', description: "The tombstoned row's id in its domain." },
@@ -7286,7 +7279,7 @@ export const RetentionScheduledPageSchema: JsonSchema = {
       type: 'array',
       items: { $ref: '#/components/schemas/RetentionDomain' },
       description:
-        "Domains no retention policy covers and this server sets no retention limit for: their tombstones are kept.",
+        'Domains no retention policy covers and this server sets no retention limit for: their tombstones are kept.',
     },
     conflicts: {
       type: 'array',

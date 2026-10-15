@@ -408,9 +408,7 @@ async function storedVersion(
 function overRetentionLimit(
   policy: { readonly kind: PolicyKind; readonly spec: unknown },
   limits: RetentionLimits,
-):
-  | ({ code: 'retention-over-limit'; message: string } & Record<string, unknown>)
-  | undefined {
+): ({ code: 'retention-over-limit'; message: string } & Record<string, unknown>) | undefined {
   if (policy.kind !== 'retention') return undefined;
   const checked = validateRetentionSpec(retentionSpecDoc(policy.spec));
   if (checked.kind !== 'ok' || checked.value.domain === '*') return undefined;
@@ -420,7 +418,10 @@ function overRetentionLimit(
     return undefined;
   }
   const words = inWords(graceSeconds);
-  const kept = graceSeconds === -1 ? '-1 (a hold)' : `${graceSeconds}${words === undefined ? '' : ` (${words})`}`;
+  const kept =
+    graceSeconds === -1
+      ? '-1 (a hold)'
+      : `${graceSeconds}${words === undefined ? '' : ` (${words})`}`;
   return {
     code: 'retention-over-limit',
     message: `\`graceSeconds\` ${kept} is over the retention limit for \`${domain}\` rows, ${inWords(limit.seconds) ?? `${limit.seconds} seconds`}.`,

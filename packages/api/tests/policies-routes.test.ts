@@ -911,8 +911,18 @@ describe('API — policies: retention specs, one policy per domain (T236)', () =
 describe('API — policies: a retention limit (`retentionLimits`)', () => {
   const DAY = 86_400;
   const LIMIT = 90 * DAY;
-  const retention = (graceSeconds: number, domain = 'run', id = 'acme.keep-runs', version = '1.0.0') =>
-    policySpec({ id, version, kind: 'retention', spec: { v: 1, doc: { domain, graceSeconds, mode: 'purge' } } });
+  const retention = (
+    graceSeconds: number,
+    domain = 'run',
+    id = 'acme.keep-runs',
+    version = '1.0.0',
+  ) =>
+    policySpec({
+      id,
+      version,
+      kind: 'retention',
+      spec: { v: 1, doc: { domain, graceSeconds, mode: 'purge' } },
+    });
 
   function limitedApp(retentionLimits: RetentionLimits = { run: { seconds: LIMIT } }) {
     const binding = makeInMemoryBinding();
@@ -1013,10 +1023,22 @@ describe('API — policies: a retention limit (`retentionLimits`)', () => {
 
   test('the limit is in days or hours when it is whole ones, else in seconds; the grace too, else bare', async () => {
     const cases: [number, number, string][] = [
-      [36 * 3_600, 2 * DAY, '`graceSeconds` 172800 (2 days) is over the retention limit for `run` rows, 36 hours.'],
-      [DAY, DAY + 3_600, '`graceSeconds` 90000 (25 hours) is over the retention limit for `run` rows, 1 day.'],
+      [
+        36 * 3_600,
+        2 * DAY,
+        '`graceSeconds` 172800 (2 days) is over the retention limit for `run` rows, 36 hours.',
+      ],
+      [
+        DAY,
+        DAY + 3_600,
+        '`graceSeconds` 90000 (25 hours) is over the retention limit for `run` rows, 1 day.',
+      ],
       [100, 1_000, '`graceSeconds` 1000 is over the retention limit for `run` rows, 100 seconds.'],
-      [3_600, 7_200, '`graceSeconds` 7200 (2 hours) is over the retention limit for `run` rows, 1 hour.'],
+      [
+        3_600,
+        7_200,
+        '`graceSeconds` 7200 (2 hours) is over the retention limit for `run` rows, 1 hour.',
+      ],
     ];
     for (const [limit, grace, message] of cases) {
       const { app } = limitedApp({ run: { seconds: limit } });
@@ -1082,7 +1104,9 @@ describe('createApp: retentionLimits', () => {
   const base = () => ({ ...createStubAppBindings(), resolveToken, runHandler });
 
   test('a limit for `*`, or for no domain, is refused, naming it', () => {
-    expect(() => createApp({ ...base(), retentionLimits: { '*': { seconds: 60 } } as never })).toThrow(
+    expect(() =>
+      createApp({ ...base(), retentionLimits: { '*': { seconds: 60 } } as never }),
+    ).toThrow(
       /^createApp: retentionLimits names "\*", which isn't a retention domain \(one of org, agent, /,
     );
     expect(() =>
@@ -1102,7 +1126,10 @@ describe('createApp: retentionLimits', () => {
 
   test('a whole number of seconds is accepted', () => {
     expect(() =>
-      createApp({ ...base(), retentionLimits: { run: { seconds: 1 }, memory: { seconds: 7_776_000 } } }),
+      createApp({
+        ...base(),
+        retentionLimits: { run: { seconds: 1 }, memory: { seconds: 7_776_000 } },
+      }),
     ).not.toThrow();
   });
 });
