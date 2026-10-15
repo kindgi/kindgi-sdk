@@ -43,8 +43,8 @@ admit yours, we email you as soon as its workspace is ready.
    and the list of who processes data for us. Then select **Create the
    workspace**.
 
-The page then says "Your sign-up is saved", and an email with the same
-subject says so too.
+The page then says "Your sign-up is saved", and an email, "Your Kindgi
+sign-up is saved", says so too.
 
 ## While we look at your sign-up
 
@@ -67,6 +67,9 @@ you signed up with.
   the preview: "Your workspace is in the preview: hosting one live app is free
   until Kindgi 1.0, within the hosted limits. We give 60 days' notice before
   any charge. For more than one live app, contact us."
+- **An address that's in another workspace already,** such as a client's,
+  signs up like any other. When you [sign in](../../guides/sso/sign-in/),
+  you choose which workspace.
 
 If we admit you while no workspace is free, you first get an email, "You're
 on the list for Kindgi": we're adding capacity. The email above follows as
