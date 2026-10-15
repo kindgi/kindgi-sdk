@@ -248,7 +248,12 @@ export type RejectionReason =
       readonly observed: CapabilityKind;
       readonly wanted: CapabilityKind;
     }
-  | { readonly code: 'unknown-requirement'; readonly message: string };
+  | { readonly code: 'unknown-requirement'; readonly message: string }
+  | {
+      readonly code: 'provider-setup-failed';
+      readonly message: string;
+      readonly providerId: string;
+    };
 
 /**
  * Per-model metadata. A provider row exposes one or more models (e.g.
@@ -657,6 +662,28 @@ export interface ProviderRegistry {
    * implementations leave it undefined — no cache to invalidate.
    */
   invalidate?(tenantId: TenantId): void;
+  /**
+   * Optional: the tenant's registered providers that its last `hydrate`
+   * couldn't set up, each with why (its adapter refused its settings on
+   * this runtime, or the runtime has no such adapter). `list` leaves them
+   * out, so the router can't name them unless it's given them
+   * (`RouteInput.setupFailures`). Absent, or empty: none.
+   */
+  setupFailures?(tenantId: TenantId): readonly ProviderSetupFailure[];
+}
+
+/**
+ * A provider registered for a tenant that its registry couldn't set up
+ * (`ProviderRegistry.setupFailures`).
+ */
+export interface ProviderSetupFailure {
+  /** The registered provider's id. */
+  readonly providerId: string;
+  /**
+   * Why, in a sentence for whoever made the call: written by the registry,
+   * never with a setting's value or a thrown error's text.
+   */
+  readonly message: string;
 }
 
 /**

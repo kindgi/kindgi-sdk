@@ -862,7 +862,7 @@ export const ERROR_ENTRIES = {
   },
   'capability-routing-failed': {
     description:
-      "No model provider could take the agent's call: the agent declares no capabilities, or no provider meets them under your policy, or the pinned route is no longer allowed.",
+      "No model provider could take the agent's call: the agent declares no capabilities, or no provider meets them under your policy, or the pinned route is no longer allowed, or a provider registered for the tenant can't be set up on this runtime (the message says why; `GET /v1/providers/{providerId}/check` gives the adapter's words).",
     details: [
       {
         key: 'runId',
