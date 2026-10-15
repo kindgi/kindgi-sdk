@@ -159,10 +159,10 @@ a role.
 - **`key`:** when you call with an API key, its role and the project it's
   limited to.
 - **`tokenCapabilities`:** what your token itself carries for secret, env and
-  signing-key writes. A sign-in session carries what you hold as a person:
-  none, unless you're the first admin a tenant was created with, who holds
-  every one except `secrets:reveal`. An API key carries those it was minted
-  with, none by default, and only ones its minter holds.
+  signing-key writes. A sign-in session carries the ones you hold as a person.
+  A tenant's first admin, the person it was created with, holds every one but
+  `secrets:reveal`; no one else holds any. An API key carries those it was
+  minted with, none by default, and only ones its minter holds.
 - **`projects`:** each project you may read, with your highest role in it and
   every way you hold one (`via`):
   - `direct`, or through a `team`, with `since` when the runtime keeps it;

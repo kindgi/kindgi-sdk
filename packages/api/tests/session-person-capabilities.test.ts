@@ -140,7 +140,9 @@ function makeApp(held?: Map<UserId, readonly string[]>) {
       bob: { userId: BOB },
       'alice-revoked': { userId: ALICE, revokedAt: PAST },
       'alice-expired': { userId: ALICE, expiresAt: PAST },
+      'alice-idle': { userId: ALICE, lastActiveAt: PAST },
     }),
+    session: { inactivityTimeout: 60 * 60 * 1000 },
     signingKeyRegistry: trustList(),
     tokenAdmin: tokenAdmin(),
     myAccess,
@@ -217,10 +219,13 @@ describe('a sign-in session carries what its person holds', () => {
     expect(reads).toEqual([]);
   });
 
-  test('a revoked or expired session is refused before anything is read', async () => {
+  test('a revoked, expired or idle session is refused before anything is read', async () => {
     const { app, reads } = makeApp(new Map([[ALICE, ['signing-keys:write']]]));
     expect((await trust(app, session('alice-revoked'))).status).toBe(401);
     expect((await trust(app, session('alice-expired'))).status).toBe(401);
+    const idle = await trust(app, session('alice-idle'));
+    expect(idle.status).toBe(401);
+    expect(errorCode(idle.body)).toBe('session-inactive');
     expect(reads).toEqual([]);
   });
 

@@ -484,6 +484,24 @@ export function bearerAuthMiddleware(
 }
 
 /**
+ * A valid session's capabilities: its person's, without any system one.
+ * A person's are never the operator's powers, whatever the store holds.
+ * A read that fails fails the request, as a failed session lookup does:
+ * answering as if they held none would blame them for the store.
+ */
+async function sessionCapabilities(
+  personCapabilities: PersonCapabilitiesBinding | undefined,
+  resolution: TokenResolution,
+): Promise<readonly string[] | undefined> {
+  if (personCapabilities === undefined || resolution.userId === undefined) return undefined;
+  const held = await personCapabilities.held({
+    tenantId: resolution.tenantId,
+    userId: resolution.userId,
+  });
+  return held.filter((cap) => !isSystemCapability(cap));
+}
+
+/**
  * Session-token verification path. Distinct from `TokenResolver` because
  * a session carries structured OAuth context (userId + providerId +
  * scopes + expiration + revocation) that the store returns natively —
@@ -498,22 +516,6 @@ export function bearerAuthMiddleware(
  * session id, read with `get({ tenantId: MULTI_TENANT_LOOKUP, sessionId })`,
  * which such stores must honor by skipping the tenant filter.
  */
-/**
- * A valid session's capabilities: its person's, without any system one.
- * A person's are never the operator's powers, whatever the store holds.
- */
-async function sessionCapabilities(
-  personCapabilities: PersonCapabilitiesBinding | undefined,
-  resolution: TokenResolution,
-): Promise<readonly string[] | undefined> {
-  if (personCapabilities === undefined || resolution.userId === undefined) return undefined;
-  const held = await personCapabilities.held({
-    tenantId: resolution.tenantId,
-    userId: resolution.userId,
-  });
-  return held.filter((cap) => !isSystemCapability(cap));
-}
-
 async function resolveSessionToken(
   sessionStore: SessionStoreBinding,
   token: string,
