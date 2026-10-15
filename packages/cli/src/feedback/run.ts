@@ -11,7 +11,8 @@
  *   request changed since. `KINDGI_FEEDBACK_SUBMIT=off` turns it off.
  * - **status** asks about the reports sent, at most once a day each unless
  *   named, and never again once a report is fixed, won't be fixed, or was
- *   withdrawn. A fixed one gets its `> **Fixed:**` line.
+ *   withdrawn, or, unless named, once the intake doesn't have it. A fixed
+ *   one gets its `> **Fixed:**` line.
  * - **withdraw** takes reports back with the keys this machine kept. The
  *   intake clears their text at once.
  */
@@ -234,7 +235,7 @@ async function askConsent(
     if (yes === report.digest) return undefined;
     return {
       kind: 'error',
-      stderr: `Nothing was sent: the report changed since that preview (its digest is now ${report.digest}). Preview it again (--preview) and ask again.\n`,
+      stderr: `Nothing was sent: the report changed since that preview, in an entry or in a check kindgi doctor runs (its digest is now ${report.digest}). Preview it again (--preview) and ask again.\n`,
       exitCode: 1,
     };
   }
@@ -253,7 +254,11 @@ async function askConsent(
   return ok ? undefined : { kind: 'error', stderr: 'Nothing was sent.\n', exitCode: 1 };
 }
 
-/** Send it; keep the keys, then mark each entry submitted. */
+/**
+ * Send it; keep the keys, then mark each entry submitted. Once the intake
+ * has the reports, a failure to keep a key or mark an entry is said beside
+ * that they arrived, never in place of it.
+ */
 async function deliver(ctx: CommandContext, report: Prepared): Promise<CommandResult> {
   const { to, digest, payload, held, heldNote } = report;
   // The keys must have somewhere to go before anything is sent.
@@ -261,37 +266,67 @@ async function deliver(ctx: CommandContext, report: Prepared): Promise<CommandRe
   await updateKeys(files, () => undefined);
   const asked = await sendReports(report.origin, report.bytes, report.sent, { fetch: ctx.fetch });
   if (asked.kind !== 'ok') {
+    const maybe = asked.kind === 'failed' && asked.maybeReceived;
     return result(
       ctx,
-      { to, digest, sent: false, payload },
-      `${submitFailure(asked)} ${FEEDBACK_FILENAME} is unchanged; what would have been sent is on stdout.\n`,
+      { to, digest, received: maybe ? 'maybe' : 'no', payload },
+      `${submitFailure(asked)}\n`,
       1,
     );
   }
   const now = isoNow(ctx);
   const reports = asked.value;
-  await updateKeys(files, (keys) => {
-    for (const r of reports) {
-      keys[r.reportId] = { withdrawKey: r.withdrawKey, entry: r.entry, submittedAt: now };
-    }
-  });
+  const keysLost = await whyFailed(() =>
+    updateKeys(files, (keys) => {
+      for (const r of reports) {
+        keys[r.reportId] = { withdrawKey: r.withdrawKey, entry: r.entry, submittedAt: now };
+      }
+    }),
+  );
   const path = join(report.packDir, FEEDBACK_FILENAME);
-  const marked = addSubmissions(await readFile(path, 'utf8'), reports, now);
-  await writeFile(path, marked.text, 'utf8');
-  const missing =
-    marked.missing.length > 0
-      ? `\n  ${marked.missing.join(', ')} left ${FEEDBACK_FILENAME} while it was sent, so ${marked.missing.length === 1 ? 'it has' : 'they have'} no submitted line; ${files.keys} has the report ids.`
-      : '';
+  let missing: readonly string[] = [];
+  const unmarked = await whyFailed(async () => {
+    const marked = addSubmissions(await readFile(path, 'utf8'), reports, now);
+    await writeFile(path, marked.text, 'utf8');
+    missing = marked.missing;
+  });
+  const n = reports.length;
+  const notes = [
+    keysLost === undefined && unmarked === undefined
+      ? ` ${FEEDBACK_FILENAME} records each report id; the keys that withdraw them are in ${files.keys}, on this machine only.`
+      : '',
+    heldNote,
+    missing.length > 0
+      ? `\n  ${missing.join(', ')} left ${FEEDBACK_FILENAME} while it was sent, so ${missing.length === 1 ? 'it has' : 'they have'} no submitted line; the report ids are on stdout${keysLost === undefined ? ` and in ${files.keys}` : ''}.`
+      : '',
+    keysLost !== undefined
+      ? `\n  ${n === 1 ? 'Its key' : 'Their keys'} couldn't be kept in ${files.keys} (${keysLost}), so ${n === 1 ? 'it' : 'they'} can't be withdrawn from this machine; Kindgi deletes ${n === 1 ? 'it' : 'them'} after 90 days.`
+      : '',
+    unmarked !== undefined
+      ? `\n  ${FEEDBACK_FILENAME} couldn't be marked (${unmarked}): the report ids are on stdout. Sending those entries again makes a second report.`
+      : '',
+  ].join('');
   return result(
     ctx,
     {
       to,
       reports: reports.map((r) => ({ entry: r.entry, reportId: r.reportId })),
-      keys: files.keys,
+      ...(keysLost === undefined && { keys: files.keys }),
       ...(held > 0 && { held }),
     },
-    `✓ sent ${reports.length} ${reports.length === 1 ? 'report' : 'reports'} to Kindgi. ${FEEDBACK_FILENAME} records each report id; the keys that withdraw them are in ${files.keys}, on this machine only.${heldNote}${missing}\n  Hear back with kindgi feedback status; take one back with kindgi feedback withdraw <id>.\n`,
+    `✓ sent ${n} ${n === 1 ? 'report' : 'reports'} to Kindgi.${notes}\n  Hear back with kindgi feedback status; take one back with kindgi feedback withdraw <id>.\n`,
+    keysLost === undefined && unmarked === undefined ? 0 : 1,
   );
+}
+
+/** What stopped `step`, or `undefined` when it worked. */
+async function whyFailed(step: () => Promise<void>): Promise<string | undefined> {
+  try {
+    await step();
+    return undefined;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
 }
 
 export async function runStatus(ctx: CommandContext): Promise<CommandResult> {
@@ -308,9 +343,10 @@ export async function runStatus(ctx: CommandContext): Promise<CommandResult> {
     const toAsk = targets.reports.filter((t) => {
       const last = statuses[t.reportId];
       if (t.withdrawn || (last !== undefined && FINAL_STATES.has(last.state))) return false;
-      return (
-        named.length > 0 || last === undefined || nowMs - Date.parse(last.askedAt) >= ASK_EVERY_MS
-      );
+      if (named.length > 0 || last === undefined) return true;
+      // The intake doesn't have it (never stored, or past its 90 days), and
+      // won't: it's asked about again only when named.
+      return last.state !== 'unknown' && nowMs - Date.parse(last.askedAt) >= ASK_EVERY_MS;
     });
 
     const answers = new Map<string, ReportStatus>();
@@ -565,13 +601,18 @@ function pickDetails(
   };
 }
 
-/** Why submit stopped, and that nothing was stored. */
+/** Why submit stopped, and whether Kindgi may have the reports all the same. */
 function submitFailure(asked: Exclude<Asked<unknown>, { kind: 'ok' }>): string {
-  if (asked.kind === 'failed') return `Nothing was sent: ${asked.message}.`;
-  if (asked.error === 'rate-limited') {
-    return `Nothing was sent: the intake is taking no more reports for now${asked.retryAfter !== undefined ? `; try again in ${asked.retryAfter} s` : '; try again later'}.`;
+  if (asked.kind === 'failed' && asked.maybeReceived) {
+    return `Kindgi may have received it: ${asked.message}. ${FEEDBACK_FILENAME} is unchanged, so sending it again makes a second report. One that arrived can't be withdrawn from this machine, since its key never came back; Kindgi deletes it after 90 days. What was sent is on stdout.`;
   }
-  return `The intake refused the report (${asked.status} ${asked.error}): ${asked.message} Nothing was stored.`;
+  const why =
+    asked.kind === 'failed'
+      ? `Nothing reached Kindgi: ${asked.message}.`
+      : asked.error === 'rate-limited'
+        ? `Nothing was sent: the intake is taking no more reports for now${asked.retryAfter !== undefined ? `; try again in ${asked.retryAfter} s` : '; try again later'}.`
+        : `The intake refused the report (${asked.status} ${asked.error}): ${asked.message} Nothing was stored.`;
+  return `${why} ${FEEDBACK_FILENAME} is unchanged; what would have been sent is on stdout.`;
 }
 
 function intakeFailure(
@@ -579,6 +620,9 @@ function intakeFailure(
   what: 'asked' | 'withdrawn',
 ): string {
   const rest = what === 'asked' ? 'The rest were not asked about.' : 'The rest were not withdrawn.';
+  if (asked.kind === 'failed' && asked.maybeReceived && what === 'withdrawn') {
+    return `${asked.message}. Some of the rest may have been withdrawn: run it again to know (withdrawing twice is safe).`;
+  }
   if (asked.kind === 'failed') return `${asked.message}. ${rest}`;
   if (asked.error === 'rate-limited') {
     return `The intake is busy${asked.retryAfter !== undefined ? `; try again in ${asked.retryAfter} s` : '; try again later'}. ${rest}`;

@@ -129,9 +129,14 @@ kept 90 days, and the person can take one back at any time.
    run the same command with `--yes=<digest>` in place of `--preview`. If
    anything changed since the preview, it refuses: preview and ask again.
 
+If `submit` says "Kindgi may have received it" (the answer was lost, came
+too late, or couldn't be read), tell the person, and don't send again on
+your own: a second send makes a second report, and one that arrived can't
+be withdrawn from this machine. Let them decide.
+
 What redaction takes out before the preview:
-- the home directory becomes `~`, and paths in the pack become `./…`;
-- other absolute paths become `[path]`;
+- the home directory alone becomes `~`, and paths in the pack become `./…`;
+- other absolute paths become `[path]`, a path under `~` too;
 - values from the pack's `.env*` files and `.kindgi/secrets.env` become
   `[redacted]`;
 - private keys and token shapes become `[redacted]` (a Kindgi token keeps
@@ -155,7 +160,8 @@ person's or their team's choice, so don't work around it. `write`,
 
 At the start of a session, when `FEEDBACK.md` has submitted entries, run
 `kindgi feedback status`. It asks about each report at most once a day,
-and never again once it's fixed, won't be fixed, or was withdrawn. A fixed
+and never again once it's fixed, won't be fixed, or was withdrawn, or once
+the intake doesn't have it (past its 90 days) unless it's named. A fixed
 entry gets `> **Fixed:** in <version> (report fbr_…)` under its heading.
 Tell the person what changed:
 - **fixed**, with the version: suggest upgrading to it;

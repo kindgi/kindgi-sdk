@@ -4,7 +4,8 @@
 /**
  * One request to the feedback intake, and what came of it. A network
  * failure, or an answer that isn't the intake's, is said, never thrown,
- * so the command can say what was and wasn't sent.
+ * so the command can say what was and wasn't sent, and what may have
+ * arrived anyway.
  */
 
 import { networkReason } from '../license/renew.js';
@@ -28,7 +29,7 @@ export interface IntakeDeps {
 
 export type Asked<T> =
   | { readonly kind: 'ok'; readonly value: T }
-  /** The intake said no, in its own words (`invalid-request`, `rate-limited`, …). */
+  /** The intake said no, in its own words (`invalid-request`, `rate-limited`, …): it did nothing. */
   | {
       readonly kind: 'refused';
       readonly status: number;
@@ -37,8 +38,14 @@ export type Asked<T> =
       /** With a 429: how long to wait, in seconds. */
       readonly retryAfter?: number;
     }
-  /** Not reached, or an answer that isn't the intake's: nothing is known to have happened. */
-  | { readonly kind: 'failed'; readonly message: string };
+  /**
+   * No answer this CLI can use. `maybeReceived` is false only when the
+   * request surely never reached the intake: no connection was made, or
+   * something in front of it answered 4xx. A timeout, a dropped connection,
+   * a 5xx, or a success this CLI can't read may follow a request that did
+   * its work.
+   */
+  | { readonly kind: 'failed'; readonly message: string; readonly maybeReceived: boolean };
 
 export function sendReports(
   origin: string,
@@ -109,18 +116,30 @@ async function ask<T>(
     });
     body = await res.json().catch(() => undefined);
   } catch (cause) {
-    return { kind: 'failed', message: `${origin} couldn't be reached (${networkReason(cause)})` };
+    return {
+      kind: 'failed',
+      message: `${origin} couldn't be reached (${networkReason(cause)})`,
+      maybeReceived: !neverConnected(cause),
+    };
   }
   if (res.status === expected) {
     const value = read(body);
     return value === undefined
-      ? { kind: 'failed', message: `${origin}'s answer wasn't one this CLI can read` }
+      ? {
+          kind: 'failed',
+          message: `${origin}'s answer wasn't one this CLI can read`,
+          maybeReceived: true,
+        }
       : { kind: 'ok', value };
   }
   const said = typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
-  if (res.ok || typeof said.error !== 'string') {
+  if (res.status >= 500 || res.ok || typeof said.error !== 'string') {
     // A 5xx, a proxy's page, or a success that isn't this route's: the next try may work.
-    return { kind: 'failed', message: `${origin} answered ${res.status}` };
+    return {
+      kind: 'failed',
+      message: `${origin} answered ${res.status}${res.status >= 500 && typeof said.error === 'string' ? ` (${said.error})` : ''}`,
+      maybeReceived: res.status < 400 || res.status >= 500,
+    };
   }
   const retryAfter =
     res.status === 429 ? retryAfterSeconds(res.headers.get('retry-after')) : undefined;
@@ -131,6 +150,33 @@ async function ask<T>(
     message: typeof said.message === 'string' ? said.message : `${origin} answered ${res.status}`,
     ...(retryAfter !== undefined && { retryAfter }),
   };
+}
+
+/**
+ * The error codes that mean no connection was made, so no byte of the
+ * request left: the name didn't resolve, nothing listened, no route, or the
+ * TLS handshake failed on the certificate. Anything else (a timeout, a
+ * reset) may have come after the request went.
+ */
+const NOT_CONNECTED = new Set([
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ECONNREFUSED',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'UND_ERR_CONNECT_TIMEOUT',
+]);
+const CERTIFICATE_CODE = /^(?:CERT_|ERR_TLS_CERT_|UNABLE_TO_|DEPTH_ZERO_|SELF_SIGNED_)/;
+
+function neverConnected(err: unknown): boolean {
+  let at: unknown = err;
+  for (let depth = 0; at instanceof Error && depth < 4; depth++) {
+    const code = (at as { code?: unknown }).code;
+    if (typeof code === 'string' && (NOT_CONNECTED.has(code) || CERTIFICATE_CODE.test(code)))
+      return true;
+    at = at.cause;
+  }
+  return false;
 }
 
 /** `Retry-After` as whole seconds: a number of seconds, or an HTTP date. */

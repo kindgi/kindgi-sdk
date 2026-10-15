@@ -10,6 +10,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
+import { mkdirSync, rmSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -410,7 +411,7 @@ describe('kindgi feedback submit', () => {
           status: 429,
           headers: { 'retry-after': '42' },
         }),
-      'try again in 42 s',
+      'Nothing was sent: the intake is taking no more reports for now; try again in 42 s',
     ],
     [
       'refused',
@@ -422,21 +423,57 @@ describe('kindgi feedback submit', () => {
       'The intake refused the report (400 invalid-request): entries[0].body is too long.',
     ],
     [
-      'a 5xx',
+      'a 4xx page from in front of the intake',
+      () => new Response('<html>not found</html>', { status: 404 }),
+      `Nothing reached Kindgi: ${ORIGIN} answered 404.`,
+    ],
+  ])(
+    '%s: nothing reached Kindgi, FEEDBACK.md and the keys are unchanged, and stdout has what would have been sent',
+    async (_name, answer, says) => {
+      const t = await setup();
+      await t.write('A bug', 'Body.');
+      const { digest } = json((await t.cli(['feedback', 'submit', '--preview'])).stdout);
+      const before = await t.feedback();
+      t.service.answerWith(answer);
+      const out = await t.cli(['feedback', 'submit', `--yes=${digest}`]);
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(says);
+      expect(out.stderr).toContain(
+        'FEEDBACK.md is unchanged; what would have been sent is on stdout',
+      );
+      expect(out.stderr).not.toContain('may have received');
+      expect(json(out.stdout)).toMatchObject({ digest, received: 'no' });
+      expect(await t.feedback()).toBe(before);
+      expect(await t.keys()).toEqual({});
+    },
+  );
+
+  test.each([
+    [
+      'a 5xx page',
       () => new Response('<html>bad gateway</html>', { status: 502 }),
       `${ORIGIN} answered 502`,
     ],
     [
-      'an answer it can’t read',
+      "the intake's 503",
+      () =>
+        Response.json(
+          { error: 'unavailable', message: "Kindgi's intake can't answer just now." },
+          { status: 503 },
+        ),
+      `${ORIGIN} answered 503 (unavailable)`,
+    ],
+    [
+      'a 201 it can’t read',
       () =>
         Response.json(
           { reports: [{ entry: 'x', reportId: 'nope', withdrawKey: 'nope' }] },
           { status: 201 },
         ),
-      "answer wasn't one this CLI can read",
+      `${ORIGIN}'s answer wasn't one this CLI can read`,
     ],
     [
-      'an answer whose key isn’t a withdraw key',
+      'a 201 whose key isn’t a withdraw key',
       (_path: string, body: string) =>
         Response.json(
           {
@@ -448,10 +485,10 @@ describe('kindgi feedback submit', () => {
           },
           { status: 201 },
         ),
-      "answer wasn't one this CLI can read",
+      `${ORIGIN}'s answer wasn't one this CLI can read`,
     ],
   ])(
-    '%s: FEEDBACK.md and the keys are unchanged, and stdout has what would have been sent',
+    '%s: Kindgi may have it, so it never says nothing was sent, and says a resend makes a second report',
     async (_name, answer, says) => {
       const t = await setup();
       await t.write('A bug', 'Body.');
@@ -460,29 +497,122 @@ describe('kindgi feedback submit', () => {
       t.service.answerWith(answer);
       const out = await t.cli(['feedback', 'submit', `--yes=${digest}`]);
       expect(out.exitCode).toBe(1);
-      expect(out.stderr).toContain(says);
-      expect(out.stderr).toContain('FEEDBACK.md is unchanged');
-      expect(json(out.stdout)).toMatchObject({ digest, sent: false });
+      expect(out.stderr).toContain(`Kindgi may have received it: ${says}`);
+      expect(out.stderr).toContain('sending it again makes a second report');
+      expect(out.stderr).toContain("can't be withdrawn from this machine");
+      expect(out.stderr).not.toMatch(/Nothing (was sent|was stored|reached)/);
+      expect(json(out.stdout)).toMatchObject({ digest, received: 'maybe' });
       expect(await t.feedback()).toBe(before);
       expect(await t.keys()).toEqual({});
     },
   );
 
-  test('the intake out of reach: said as the network says it, and nothing changes', async () => {
+  test.each([
+    [
+      'a name that never resolved',
+      'ENOTFOUND',
+      'getaddrinfo ENOTFOUND access.kindgi.com',
+      'no',
+      "Nothing reached Kindgi: https://access.kindgi.com couldn't be reached (getaddrinfo ENOTFOUND access.kindgi.com)",
+    ],
+    [
+      'nothing listening',
+      'ECONNREFUSED',
+      'connect ECONNREFUSED 127.0.0.1:443',
+      'no',
+      'Nothing reached Kindgi',
+    ],
+    [
+      'a certificate refused',
+      'CERT_HAS_EXPIRED',
+      'certificate has expired',
+      'no',
+      'Nothing reached Kindgi',
+    ],
+    [
+      'a connection dropped',
+      'ECONNRESET',
+      'read ECONNRESET',
+      'maybe',
+      "Kindgi may have received it: https://access.kindgi.com couldn't be reached (read ECONNRESET)",
+    ],
+  ])(
+    'the intake out of reach, %s: said as the network says it',
+    async (_name, code, message, received, says) => {
+      const t = await setup();
+      await t.write('A bug', 'Body.');
+      const { digest } = json((await t.cli(['feedback', 'submit', '--preview'])).stdout);
+      const failing = (async () => {
+        throw new TypeError('fetch failed', { cause: Object.assign(new Error(message), { code }) });
+      }) as typeof fetch;
+      const out = await t.cli(['feedback', 'submit', `--yes=${digest}`], { fetchImpl: failing });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(says);
+      expect(json(out.stdout)).toMatchObject({ received });
+      expect((await t.feedback()).includes('submitted')).toBe(false);
+    },
+  );
+
+  test('no answer in time: Kindgi may have received it', async () => {
     const t = await setup();
     await t.write('A bug', 'Body.');
     const { digest } = json((await t.cli(['feedback', 'submit', '--preview'])).stdout);
-    const failing = (async () => {
-      throw new TypeError('fetch failed', {
-        cause: Object.assign(new Error('getaddrinfo ENOTFOUND access.kindgi.com'), {
-          code: 'ENOTFOUND',
-        }),
-      });
+    const slow = (async () => {
+      throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
     }) as typeof fetch;
-    const out = await t.cli(['feedback', 'submit', `--yes=${digest}`], { fetchImpl: failing });
+    const out = await t.cli(['feedback', 'submit', `--yes=${digest}`], { fetchImpl: slow });
     expect(out.exitCode).toBe(1);
-    expect(out.stderr).toContain("couldn't be reached (getaddrinfo ENOTFOUND access.kindgi.com)");
-    expect((await t.feedback()).includes('submitted')).toBe(false);
+    expect(out.stderr).toContain(
+      "Kindgi may have received it: https://access.kindgi.com couldn't be reached (no answer in time)",
+    );
+    expect(json(out.stdout)).toMatchObject({ received: 'maybe' });
+  });
+
+  test("keys that can't be kept once the intake has the reports: the submitted lines still go in, and it says so", async () => {
+    const t = await setup();
+    const id = await t.write('A bug', 'Body.');
+    const { digest } = json((await t.cli(['feedback', 'submit', '--preview'])).stdout);
+    t.service.answerWith((path) => {
+      if (path === '/feedback/reports') {
+        rmSync(t.keysFile);
+        mkdirSync(t.keysFile);
+      }
+      return undefined;
+    });
+    const out = await t.cli(['feedback', 'submit', `--yes=${digest}`]);
+    expect(out.exitCode).toBe(1);
+    const value = json(out.stdout);
+    expect(value.reports).toEqual([{ entry: id, reportId: expect.stringMatching(/^fbr_/) }]);
+    expect(value.keys).toBeUndefined();
+    expect(out.stderr).toContain('✓ sent 1 report to Kindgi.');
+    expect(out.stderr).toContain(`Its key couldn't be kept in ${t.keysFile} (`);
+    expect(out.stderr).toContain("so it can't be withdrawn from this machine");
+    expect(out.stderr).not.toContain('records each report id');
+    expect(await t.feedback()).toContain(`**report:** ${value.reports[0].reportId}`);
+    const again = await t.cli(['feedback', 'submit', '--preview']);
+    expect(json(again.stdout).reports).toEqual([]);
+  });
+
+  test("a FEEDBACK.md that can't be marked once the intake has the reports: the keys are kept, and it says so", async () => {
+    const t = await setup();
+    await t.write('A bug', 'Body.');
+    const { digest } = json((await t.cli(['feedback', 'submit', '--preview'])).stdout);
+    const file = join(t.pack, 'FEEDBACK.md');
+    t.service.answerWith((path) => {
+      if (path === '/feedback/reports') {
+        rmSync(file);
+        mkdirSync(file);
+      }
+      return undefined;
+    });
+    const out = await t.cli(['feedback', 'submit', `--yes=${digest}`]);
+    expect(out.exitCode).toBe(1);
+    const value = json(out.stdout);
+    expect(value.keys).toBe(t.keysFile);
+    expect(Object.keys(await t.keys())).toEqual([value.reports[0].reportId]);
+    expect(out.stderr).toContain('✓ sent 1 report to Kindgi.');
+    expect(out.stderr).toContain("FEEDBACK.md couldn't be marked (");
+    expect(out.stderr).toContain('Sending those entries again makes a second report.');
   });
 
   test("a keys.json this CLI didn't write stops the send before anything goes", async () => {
@@ -595,6 +725,22 @@ describe('kindgi feedback status', () => {
     expect(asked()).toHaveLength(3);
   });
 
+  test("one the intake doesn't have is asked about once, then again only when named", async () => {
+    const t = await setup();
+    const { ids, reportIds } = await sent(t, 1);
+    t.service.reports.delete(reportIds[0] as string);
+    const asked = () =>
+      t.service.requests.filter((r) => r.path === '/feedback/reports/status').length;
+    const first = json((await t.cli(['feedback', 'status'])).stdout);
+    expect(first.reports[0]).toMatchObject({ state: 'unknown', asked: true });
+    t.later(48 * HOUR);
+    const later = json((await t.cli(['feedback', 'status'])).stdout);
+    expect(asked()).toBe(1);
+    expect(later.reports[0]).toMatchObject({ state: 'unknown', asked: false });
+    await t.cli(['feedback', 'status', ids[0] as string]);
+    expect(asked()).toBe(2);
+  });
+
   test("a teammate's report id works without FEEDBACK.md or a key, and an unknown one says unknown", async () => {
     const t = await setup();
     const { reportIds } = await sent(t, 1);
@@ -682,6 +828,28 @@ describe('kindgi feedback withdraw', () => {
     const none = await t.cli(['feedback', 'withdraw']);
     expect(none.exitCode).not.toBe(0);
     expect(none.stderr).toContain('Name the reports to withdraw');
+  });
+
+  test('an answer lost on the way back may follow a withdraw that worked: it says so, and withdrawing again is safe', async () => {
+    const t = await setup();
+    const { reportIds } = await sent(t, 1);
+    const [id] = reportIds as [string];
+    t.service.answerWith((path) => {
+      if (path !== '/feedback/reports/withdraw') return undefined;
+      (t.service.reports.get(id) as Stored).withdrawn = true;
+      return new Response('<html>bad gateway</html>', { status: 502 });
+    });
+    const out = await t.cli(['feedback', 'withdraw', id]);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('Some of the rest may have been withdrawn: run it again to know');
+    expect(out.stderr).not.toContain('The rest were not withdrawn');
+    expect(Object.keys(await t.keys())).toEqual([id]);
+
+    t.service.answerWith(() => undefined);
+    const again = await t.cli(['feedback', 'withdraw', id]);
+    expect(again.exitCode).toBe(0);
+    expect(json(again.stdout)).toEqual({ withdrawn: [id] });
+    expect(await t.keys()).toEqual({});
   });
 });
 
