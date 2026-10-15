@@ -13,8 +13,9 @@ flows call its tools like your own.
 An MCP server you run, or one a vendor runs, can give your agents its tools.
 Register its endpoint with the runtime. Kindgi lists the server's tools and
 registers each one as a tool of your tenant, named
-`<endpoint id>.<tool name>`. Agents and flow steps then call it like a tool
-of your pack.
+`<endpoint id>.<tool name>`. An endpoint id can't contain `.`, so that
+name splits one way only; a tool name can. Agents and flow steps then call
+it like a tool of your pack.
 
 :::note
 `kindgi mcp` is a different thing: it adds MCP servers to your coding
