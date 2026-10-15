@@ -145,6 +145,33 @@ describe('a stop while kindgi dev waits for its runtime (T176)', () => {
   });
 });
 
+/** A boot crash record whose error has 10 frames and a cause with 10 of its own: 22 lines of text. */
+function crashRecord(): string {
+  const frames = (fn: string) =>
+    Array.from(
+      { length: 10 },
+      (_, i) => `    at ${fn}${i + 1} (file:///app/dist/boot.js:${i + 1}:1)`,
+    );
+  return JSON.stringify({
+    time: '2026-10-15T01:00:00.000Z',
+    level: 'error',
+    subsystem: 'boot',
+    message: 'the runtime stopped while starting',
+    err: {
+      name: 'Error',
+      message: "OpenFGA at http://openfga.acme.example refused the server's call (401)",
+      stack: ['Error: OpenFGA refused', ...frames('outer')].join('\n'),
+      cause: {
+        name: 'TypeError',
+        message: 'fetch failed',
+        stack: ['TypeError: fetch failed', ...frames('inner')].join('\n'),
+      },
+    },
+  });
+}
+
+const CRASH_FIRST_LINE = `01:00:00.000 ERROR [boot] the runtime stopped while starting err="Error: OpenFGA at http://openfga.acme.example refused the server's call (401)"`;
+
 describe('describeStartupStop', () => {
   test('a container that stopped before printing anything says so, with how it exited', () => {
     expect(describeStartupStop([], { code: 139, oomKilled: false })).toBe(
@@ -180,32 +207,11 @@ describe('describeStartupStop', () => {
   });
 
   test('a crash record past 15 lines of text keeps its first line, the one that says why', async () => {
-    const frames = (fn: string) =>
-      Array.from(
-        { length: 10 },
-        (_, i) => `    at ${fn}${i + 1} (file:///app/dist/boot.js:${i + 1}:1)`,
-      );
-    const record = JSON.stringify({
-      time: '2026-10-15T01:00:00.000Z',
-      level: 'error',
-      subsystem: 'boot',
-      message: 'the runtime stopped while starting',
-      err: {
-        name: 'Error',
-        message: "OpenFGA at http://openfga.acme.example refused the server's call (401)",
-        stack: ['Error: OpenFGA refused', ...frames('outer')].join('\n'),
-        cause: {
-          name: 'TypeError',
-          message: 'fetch failed',
-          stack: ['TypeError: fetch failed', ...frames('inner')].join('\n'),
-        },
-      },
-    });
     const stdout = new PassThrough();
     const stderr = new PassThrough();
     const read = readStoppedLog(stdout, stderr);
     stderr.end('kindgi-runtime: starting\n');
-    stdout.end(`${record}\n`);
+    stdout.end(`${crashRecord()}\n`);
     const log = await read;
     // The record's text alone is 22 lines: kept whole, and the line
     // before it, which would pass 15, isn't.
@@ -213,12 +219,43 @@ describe('describeStartupStop', () => {
     const text = describeStartupStop(log, { code: 1, oomKilled: false });
     const [how, first, ...rest] = text.split('\n');
     expect(how).toBe('the Kindgi runtime container stopped while starting (exit code 1):');
-    expect(first).toBe(
-      `01:00:00.000 ERROR [boot] the runtime stopped while starting err="Error: OpenFGA at http://openfga.acme.example refused the server's call (401)"`,
-    );
+    expect(first).toBe(CRASH_FIRST_LINE);
     expect(rest[0]).toBe('    at outer1 (file:///app/dist/boot.js:1:1)');
     expect(rest).toContain('  caused by: TypeError: fetch failed');
     expect(rest.at(-1)).toBe('      at inner10 (file:///app/dist/boot.js:10:1)');
+  });
+
+  test('a crash record with a line after it (the other stream, or the runtime) still shows its first line', async () => {
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    const read = readStoppedLog(stdout, stderr);
+    stdout.end(`kindgi-runtime: starting\n${crashRecord()}\n`);
+    stderr.end('kindgi-runtime: exiting\n');
+    const log = await read;
+    expect(log.map((text) => text.length)).toEqual([1, 22, 1]);
+    const [how, ...lines] = describeStartupStop(log, { code: 1, oomKilled: false }).split('\n');
+    expect(how).toBe('the Kindgi runtime container stopped while starting (exit code 1):');
+    // 15 lines: the record's first 13, how many it has left, and the last line.
+    expect(lines).toHaveLength(15);
+    expect(lines[0]).toBe(CRASH_FIRST_LINE);
+    expect(lines.at(-2)).toBe('  … (9 more lines)');
+    expect(lines.at(-1)).toBe('kindgi-runtime: exiting');
+    expect(lines).not.toContain('kindgi-runtime: starting');
+  });
+
+  test('a boot record with no lines is nothing printed, never an empty reason', async () => {
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    const read = readStoppedLog(stdout, stderr);
+    stdout.end(
+      `${JSON.stringify({ time: '2026-10-15T01:00:00.000Z', level: 'info', subsystem: 'boot', message: 'banner', lines: [] })}\n`,
+    );
+    stderr.end();
+    const log = await read;
+    expect(log).toEqual([]);
+    expect(describeStartupStop(log, { code: 1, oomKilled: false })).toBe(
+      'the Kindgi runtime container stopped while starting, before it printed anything (exit code 1).',
+    );
   });
 });
 
@@ -234,16 +271,24 @@ describe('logTail: the end of the runtime log, its lines whole', () => {
     expect(tail).not.toContain('a frame 1');
   });
 
-  test("one that doesn't fit ends the tail: no gap, even when an earlier one would fit", () => {
+  test("one that doesn't fit shows its first lines and how many more it has, and the tail ends there", () => {
+    // 6 fit; b gets the 9 left: its first 8 and the count, and a, which
+    // would fit, isn't shown, so nothing is skipped over.
     const tail = logTail([line('a', 1), line('b', 10), line('c', 6)]).split('\n');
-    expect(tail[0]).toBe('c');
-    expect(tail).toHaveLength(6);
+    expect(tail).toHaveLength(15);
+    expect(tail.slice(0, 9)).toEqual([...line('b', 8), '  … (2 more lines)']);
+    expect(tail[9]).toBe('c');
+    expect(tail).not.toContain('a');
   });
 
-  test('the last line is kept whole even when its text alone passes 15', () => {
-    const tail = logTail([line('a', 1), line('b', 20)]).split('\n');
-    expect(tail).toHaveLength(20);
-    expect(tail[0]).toBe('b');
+  test('with room for one line, its first line alone, then the rest', () => {
+    const tail = logTail([line('a', 3), line('b', 14)]).split('\n');
+    expect(tail).toEqual(['a', ...line('b', 14)]);
+  });
+
+  test('with room for two or more: its first lines, then how many more it has', () => {
+    const tail = logTail([line('a', 4), line('b', 12)]).split('\n');
+    expect(tail).toEqual(['a', 'a frame 1', '  … (2 more lines)', ...line('b', 12)]);
   });
 
   test('nothing logged: no text', () => {
@@ -293,6 +338,10 @@ describe('readStoppedLog: a stopped container log, both streams, as text', () =>
       ['  Pack service: http://127.0.0.1:4101 — acme'],
       ['kindgi-runtime: exiting'],
     ]);
+  });
+
+  test('no streams at all: nothing read, at once', async () => {
+    expect(await readStoppedLog(null, null)).toEqual([]);
   });
 
   test('a stream that fails ends its part: what it wrote is kept', async () => {

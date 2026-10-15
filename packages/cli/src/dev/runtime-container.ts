@@ -555,7 +555,9 @@ export async function startRuntimeContainer(
       // container's stderr: a container that already exited gets "can not
       // get logs from container which is dead…". They aren't the runtime's.
       if (line.startsWith(DOCKER_DAEMON_ERROR)) return;
-      log.push(textLines(line));
+      const text = textLines(line);
+      // A record with no text (a boot record with no lines) is nothing to show.
+      if (text.length > 0) log.push(text);
       if (log.length > KEPT_LINES) log.splice(0, log.length - KEPT_LINES);
       // The runtime's migration records are the migrating phase's start and end.
       const stage = migrationStage(line);
@@ -694,21 +696,35 @@ export function describeStartupStop(log: readonly LogLineText[], exit: Container
 }
 
 /**
- * The end of the runtime's log as text, for an error: its last lines
- * whole, up to `TAIL_LINES` lines of text. A record is never cut from
- * its first line, the one that says what went wrong; the last line is
- * kept whole even when its text alone is longer.
+ * The end of the runtime's log as text, for an error: its last lines,
+ * up to `TAIL_LINES` lines of text, each from its first line, the one
+ * that says what went wrong (a record with an error is its line, then
+ * the frames and causes). The last line is kept whole even when its text
+ * alone is longer; an earlier one that doesn't fit shows its first lines
+ * and how many more it has, and the tail ends there.
  */
 export function logTail(log: readonly LogLineText[]): string {
-  let start = log.length;
-  let count = 0;
-  while (start > 0) {
-    const size = log[start - 1]?.length ?? 0;
-    if (start < log.length && count + size > TAIL_LINES) break;
-    start -= 1;
-    count += size;
+  const shown: (readonly string[])[] = [];
+  let left = TAIL_LINES;
+  for (let i = log.length - 1; i >= 0; i -= 1) {
+    const text = log[i] ?? [];
+    if (i === log.length - 1 || text.length <= left) {
+      shown.unshift(text);
+      left -= text.length;
+      if (left <= 0) break;
+      continue;
+    }
+    // Room for its first line at least; with more, a line saying what's
+    // cut (it never fit, so that's always two lines or more).
+    const head = Math.max(1, left - 1);
+    shown.unshift(
+      left > 1
+        ? [...text.slice(0, head), `  … (${text.length - head} more lines)`]
+        : text.slice(0, head),
+    );
+    break;
   }
-  return log.slice(start).flat().join('\n');
+  return shown.flat().join('\n');
 }
 
 function describeExit(exit: ContainerExit): string {
@@ -746,7 +762,9 @@ export function readStoppedLog(
     for (const stream of streams) {
       // A reader per stream: each has its own line in progress.
       const lines = lineReader((line) => {
-        if (!line.startsWith(DOCKER_DAEMON_ERROR)) log.push(textLines(line));
+        if (line.startsWith(DOCKER_DAEMON_ERROR)) return;
+        const text = textLines(line);
+        if (text.length > 0) log.push(text);
       });
       stream.setEncoding('utf8');
       stream.on('data', (chunk: string) => lines.push(chunk));
