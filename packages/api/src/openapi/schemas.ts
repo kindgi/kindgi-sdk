@@ -9111,7 +9111,7 @@ export const MyPermissionsSchema: JsonSchema = {
       type: 'array',
       items: { type: 'string' },
       description:
-        "The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries none; an API key carries those it was minted with (`POST /v1/tokens`, none by default).",
+        "The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries those its person holds: none unless the runtime gives them some, as it does a tenant's first admin. An API key carries those it was minted with (`POST /v1/tokens`, none by default).",
     },
     projects: {
       type: 'array',

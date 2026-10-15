@@ -95,6 +95,7 @@ import { tenantScopeMiddleware } from './middleware/tenant-scope.js';
 import { type TenantStateBinding, tenantStateGate } from './middleware/tenant-state.js';
 import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
+import type { PersonCapabilitiesBinding } from './person-capabilities-binding.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
 import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
@@ -383,6 +384,14 @@ export interface CreateAppInput {
    * `501 person-grants-unsupported`. Needs `identityDirectory`.
    */
   readonly personGrants?: PersonGrantsBinding;
+  /**
+   * Optional. The capabilities a person holds (`env:write`, `secrets:*`,
+   * `signing-keys:write`, …), which their sign-in sessions carry: for the
+   * writes that need one, and for the keys they mint (`POST /v1/tokens`
+   * grants only what the minter holds). Read on each session request.
+   * Without it a session carries none, and only API keys hold capabilities.
+   */
+  readonly personCapabilities?: PersonCapabilitiesBinding;
   /**
    * Optional. What the caller holds, for `GET /v1/identity/me/permissions`:
    * its projects with their roles, its orgs and teams, and what each
@@ -1333,6 +1342,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         },
       }),
       ...(input.sessionStore !== undefined && { sessionStore: input.sessionStore }),
+      ...(input.personCapabilities !== undefined && {
+        personCapabilities: input.personCapabilities,
+      }),
       ...(inactivityTimeoutMs !== undefined && { inactivityTimeoutMs }),
       ...(sessionCfg?.touchThrottle !== undefined && {
         touchThrottleMs: sessionCfg.touchThrottle,
