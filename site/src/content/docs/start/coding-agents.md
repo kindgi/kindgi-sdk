@@ -233,10 +233,11 @@ Tested with Claude Code 2.1.288:
 
 Codex has no ignore file, and nothing `kindgi init` writes binds it. Its
 sandbox can refuse to read a path, with a permission profile in the
-project's `.codex/config.toml`, which Codex loads only once you trust the
-project. This is Codex's documented setting
-([configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference));
-we haven't tested it:
+project's `.codex/config.toml`
+([configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)).
+With it, neither Codex's shell commands nor a program they run (`node -e …`,
+a copy, a link) can read the files the profile names. Tested with Codex
+0.162.1:
 
 ```toml
 default_permissions = "kindgi"
@@ -245,6 +246,10 @@ default_permissions = "kindgi"
 extends = ":workspace"
 
 [permissions.kindgi.filesystem.":workspace_roots"]
+".git" = "read"
+".codex" = "read"
+".agents" = "read"
+".aws" = "read"
 "**/.env*" = "deny"
 ".kindgi/secrets.env" = "deny"
 ".kindgi/dev/runtime.env" = "deny"
@@ -252,9 +257,35 @@ extends = ":workspace"
 "pack.env" = "deny"
 ```
 
+The four `"read"` lines keep read-only the folders that Codex's default
+sandbox protects. Without them, Codex could edit `.codex/config.toml` and
+drop these rules for its next session, or add a Git hook, which runs outside
+its sandbox.
+
+Codex loads the profile only once you trust the project, in your own Codex
+config (`~/.codex/config.toml`):
+
+```toml
+[projects."/path/to/your/project"]
+trust_level = "trusted"
+```
+
+A `-c` trust override on the command line doesn't count. `codex exec`
+doesn't ask: in a project you haven't trusted, it runs without the profile,
+and can read the files. In CI, give it the profile on the command line
+instead, which holds whether the project is trusted or not:
+
+```sh
+codex exec \
+  -c 'default_permissions="kindgi"' \
+  -c 'permissions.kindgi={extends=":workspace",filesystem={":workspace_roots"={".git"="read",".codex"="read",".agents"="read",".aws"="read","**/.env*"="deny",".kindgi/secrets.env"="deny",".kindgi/dev/runtime.env"="deny","kindgi.env"="deny","pack.env"="deny"}}}' \
+  "<your prompt>"
+```
+
 The reference says not to combine `default_permissions` with
 `sandbox_mode`, so for this project the profile takes the place of the
-sandbox mode you'd otherwise set.
+sandbox mode you'd otherwise set. Like Codex's default sandbox, the profile
+turns the network off.
 
 ### Gemini CLI
 
@@ -325,7 +356,8 @@ in a sandbox may be blocked from others: starting `kindgi dev`
 (`spawn EPERM`), reaching Docker's socket, or connecting to `localhost`. Codex's
 default sandbox, for one, turns the network off and keeps `.agents/`
 read-only ([its docs](https://learn.chatgpt.com/docs/agent-approvals-security)),
-so `kindgi skills sync` is yours to run there.
+so `kindgi skills sync` is yours to run there. The
+[profile above](#codex) keeps `.agents/` read-only too.
 
 The skills and a new pack's `AGENTS.md` tell the agent not to work around a
 block: no turning its sandbox off, no starting the command in the

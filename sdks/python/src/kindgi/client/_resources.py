@@ -1232,16 +1232,23 @@ class RunsResource:
         )
 
     def journal(
-        self, run_id: str | UUID, /, *, since: int | None = None, timeout: float | None = None
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        since: int | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
     ) -> _models.RunJournalPage:
         """Read the durable journal for a run. `GET /v1/runs/{runId}/journal`
 
-        Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`). Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6.
+        Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`), in sequence order. Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6. Paging is opt-in: with `limit`, at most that many entries and a `nextCursor` while more remain; without it, the whole journal in one answer.
         """
         return self._client._request(
             _OPERATIONS["runs.journal"],
             path={"runId": run_id},
-            query={"since": since},
+            query={"since": since, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.RunJournalPage,
             timeout=timeout,
@@ -1673,7 +1680,7 @@ class SystemTenantsResource:
     ) -> _models.CreateSystemTenantResult:
         """Create a tenant. `POST /v1/system/tenants`
 
-        Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store). Safe to retry with the same slug: if the setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have; another request naming that slug is `tenant-slug-taken`. A repeat of a create that finished is `tenant-slug-taken` too, unless it carries the first request's Idempotency-Key: then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice (send an Idempotency-Key with every create, so a lost answer can be told from another tenant's slug). With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant, with the admin key withheld.
+        Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store). Safe to retry with the same slug: if the setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have; another request naming that slug is `tenant-slug-taken`. A repeat of a create that finished is `tenant-slug-taken` too, unless it carries the first request's Idempotency-Key: then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice (send an Idempotency-Key with every create, so a lost answer can be told from another tenant's slug). With `firstAdmin`, that person becomes its admin and member by email, with every capability but `secrets:reveal`, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant, with the admin key withheld.
         """
         return self._client._request(
             _OPERATIONS["systemTenants.create"],
@@ -1823,7 +1830,7 @@ class SystemTenantsResource:
     ) -> _models.TenantProductionAllowed:
         """Allow a tenant production, or stop it. `PUT /v1/system/tenants/{tenantId}/production-allowed`
 
-        The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant is allowed until it's switched off. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.
+        The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant made by `POST /v1/system/tenants` starts with it off, unless the create says `productionAllowed: true`; the tenant a server makes for itself, and one from before the switch, start with it on. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.
         """
         return self._client._request(
             _OPERATIONS["systemTenants.setProductionAllowed"],
@@ -1989,7 +1996,7 @@ class SystemDeploymentsResource:
     ) -> _models.PackSuspension:
         """Suspend a deployment's pack, or restore it. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`
 
-        Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it lists as needing a pack service again. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.
+        Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it serves again from the endpoint recorded for it; if that endpoint is pending or was cleared meanwhile, it lists as needing a pack service. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.
         """
         return self._client._request(
             _OPERATIONS["systemDeployments.setSuspended"],
@@ -7947,11 +7954,12 @@ class SecretsResource:
         limit: int | None = None,
         cursor: str | None = None,
         name_prefix: str | None = None,
+        include_revoked: Literal["true", "false"] | None = None,
         timeout: float | None = None,
     ) -> _models.SecretCollectionPage:
         """List secret metadata. `GET /v1/secrets`
 
-        Cursor-paginated list of secret metadata at the given `(scope, envName)`. `value` is ALWAYS absent (structural redaction).
+        Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. `value` is ALWAYS absent (structural redaction).
         """
         return self._client._request(
             _OPERATIONS["secrets.list"],
@@ -7964,6 +7972,7 @@ class SecretsResource:
                 "limit": limit,
                 "cursor": cursor,
                 "namePrefix": name_prefix,
+                "includeRevoked": include_revoked,
             },
             headers={},
             response=_models.SecretCollectionPage,
@@ -8985,16 +8994,23 @@ class AsyncRunsResource:
         )
 
     async def journal(
-        self, run_id: str | UUID, /, *, since: int | None = None, timeout: float | None = None
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        since: int | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
     ) -> _models.RunJournalPage:
         """Read the durable journal for a run. `GET /v1/runs/{runId}/journal`
 
-        Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`). Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6.
+        Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`), in sequence order. Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6. Paging is opt-in: with `limit`, at most that many entries and a `nextCursor` while more remain; without it, the whole journal in one answer.
         """
         return await self._client._request(
             _OPERATIONS["runs.journal"],
             path={"runId": run_id},
-            query={"since": since},
+            query={"since": since, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.RunJournalPage,
             timeout=timeout,
@@ -9428,7 +9444,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.CreateSystemTenantResult:
         """Create a tenant. `POST /v1/system/tenants`
 
-        Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store). Safe to retry with the same slug: if the setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have; another request naming that slug is `tenant-slug-taken`. A repeat of a create that finished is `tenant-slug-taken` too, unless it carries the first request's Idempotency-Key: then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice (send an Idempotency-Key with every create, so a lost answer can be told from another tenant's slug). With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant, with the admin key withheld.
+        Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store). Safe to retry with the same slug: if the setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have; another request naming that slug is `tenant-slug-taken`. A repeat of a create that finished is `tenant-slug-taken` too, unless it carries the first request's Idempotency-Key: then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice (send an Idempotency-Key with every create, so a lost answer can be told from another tenant's slug). With `firstAdmin`, that person becomes its admin and member by email, with every capability but `secrets:reveal`, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant, with the admin key withheld.
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.create"],
@@ -9578,7 +9594,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.TenantProductionAllowed:
         """Allow a tenant production, or stop it. `PUT /v1/system/tenants/{tenantId}/production-allowed`
 
-        The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant is allowed until it's switched off. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.
+        The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant made by `POST /v1/system/tenants` starts with it off, unless the create says `productionAllowed: true`; the tenant a server makes for itself, and one from before the switch, start with it on. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.setProductionAllowed"],
@@ -9744,7 +9760,7 @@ class AsyncSystemDeploymentsResource:
     ) -> _models.PackSuspension:
         """Suspend a deployment's pack, or restore it. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`
 
-        Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it lists as needing a pack service again. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.
+        Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it serves again from the endpoint recorded for it; if that endpoint is pending or was cleared meanwhile, it lists as needing a pack service. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.
         """
         return await self._client._request(
             _OPERATIONS["systemDeployments.setSuspended"],
@@ -15726,11 +15742,12 @@ class AsyncSecretsResource:
         limit: int | None = None,
         cursor: str | None = None,
         name_prefix: str | None = None,
+        include_revoked: Literal["true", "false"] | None = None,
         timeout: float | None = None,
     ) -> _models.SecretCollectionPage:
         """List secret metadata. `GET /v1/secrets`
 
-        Cursor-paginated list of secret metadata at the given `(scope, envName)`. `value` is ALWAYS absent (structural redaction).
+        Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. `value` is ALWAYS absent (structural redaction).
         """
         return await self._client._request(
             _OPERATIONS["secrets.list"],
@@ -15743,6 +15760,7 @@ class AsyncSecretsResource:
                 "limit": limit,
                 "cursor": cursor,
                 "namePrefix": name_prefix,
+                "includeRevoked": include_revoked,
             },
             headers={},
             response=_models.SecretCollectionPage,

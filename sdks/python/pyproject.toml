@@ -36,6 +36,7 @@ verify = ["cryptography>=50.0.0"]
 Homepage = "https://github.com/kindgi/kindgi-sdk/tree/main/sdks/python#readme"
 Repository = "https://github.com/kindgi/kindgi-sdk"
 Issues = "https://github.com/kindgi/kindgi-sdk/issues"
+Changelog = "https://github.com/kindgi/kindgi-sdk/blob/main/sdks/python/CHANGELOG.md"
 
 [dependency-groups]
 dev = [

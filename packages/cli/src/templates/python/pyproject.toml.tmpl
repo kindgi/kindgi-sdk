@@ -30,12 +30,16 @@ description = "A sample Kindgi pack in Python — two tools, one guardrail, one 
 # python = ["uv", "run", "python"]   # default: .venv/bin/python, else python3
 # envFiles = [".env", ".env.local"]
 
-# One block per deploy target; `kindgi build --env=<name>` reads it.
-# [tool.kindgi.environments.staging]
-# endpoint = "https://api.staging.example.com"
-# build = "http://localhost:4001"
-# tenantId = "tenant-your-org-staging"
-# signingKey = "~/.kindgi/keys/staging.pem"
+# One block per place you deploy to; `kindgi build --env=<name>` reads it.
+# Your API key goes only to the address you signed in to
+# (`kindgi auth login --url <url>`), so an `endpoint` must be that address.
+# Builds are signed with a key of yours: make it with `kindgi key create <id>`,
+# and let the runtime trust it with `kindgi key trust <id>` (once).
+# [tool.kindgi.environments.production]
+# endpoint = "https://kindgi.your-company.example"   # the address you signed in to
+# build = "https://build.your-company.example"       # your Kindgi build server
+# tenantId = "<your tenant id>"
+# signingKey = "~/.kindgi/keys/<id>.pem"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
