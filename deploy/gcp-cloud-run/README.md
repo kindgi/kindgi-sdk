@@ -26,7 +26,7 @@ The `connector` shape is the same resources wired to an existing connector.
 
 ## Before you start
 
-- Terraform ≥ 1.6, `gcloud`, Docker, `openssl`, and your pack's `kindgi` CLI (0.1.2 or later, for `kindgi key trust`).
+- Terraform ≥ 1.6, `gcloud`, Docker, `openssl`, `curl`, `jq`, and your pack's `kindgi` CLI (0.1.2 or later, for `kindgi key trust`).
 - **Permission to create the resources:** an Owner, or Editor plus Security Admin and Secret Manager Admin.
 - **Pull access to the runtime image** `quay.io/kindgi/runtime` (`kindgi auth registry`).
 - **A license key** from Kindgi (`KINDGI_LICENSE_KEY`; a non-production key for a pilot).
@@ -89,15 +89,25 @@ With `tenancy = "multi"` (see "Many tenants") there's no `pack_image` and no pac
 
 ## 3. Secret values
 
-Each value is piped straight into Secret Manager. None goes on disk or into Terraform's state. `N` is your `name_prefix`.
+Each value is piped straight into Secret Manager. None goes on disk, into Terraform's state or into a command's arguments, which other processes can read and gcloud writes to its log file. `N` is your `name_prefix`. The commands are for bash or zsh.
 
 ```sh
 CONN=$(terraform output -raw sql_connection_name)
+P=$(gcloud config get-value project)
 
 # Kindgi's database user: a built-in user (it gets CREATEROLE; not an IAM user).
+# Made through the Cloud SQL Admin API rather than `gcloud sql users create --password`:
+# the body goes in on stdin and the token in a header from a pipe.
+# Each step runs only if the one before it worked, so the secret never holds
+# a password the user wasn't given.
 DBPW=$(openssl rand -hex 24)
-gcloud sql users create kindgi --instance=$N --password="$DBPW"
-printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
+OP=$(printf '{"name":"kindgi","password":"%s"}' "$DBPW" \
+  | curl -sS -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud auth print-access-token)") \
+      -H 'Content-Type: application/json' --data-binary @- \
+      "https://sqladmin.googleapis.com/v1/projects/$P/instances/$N/users" \
+  | jq -r '.name // error(.error.message)') && [ -n "$OP" ] \
+  && gcloud sql operations wait "$OP" --project=$P \
+  && printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
   | gcloud secrets versions add $N-database-url --data-file=-
 unset DBPW
 
@@ -282,11 +292,12 @@ server_secret_env = {
 
 ## Testing the module
 
-`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, the server's own settings (sign-in), and the tenancy: `single` with its pack service, `multi` with each setting it needs, and what each refuses.
+`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, the server's own settings (sign-in), the tenancy: `single` with its pack service, `multi` with each setting it needs, and what each refuses; and `database_instance`: the server's volume, URL secret and grants on another instance, the module's own instance and grant kept, and each refusal.
 
 ## Upgrading
 
 - **To runtime 0.1.5: add `KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"` to `server_env` first, or nobody can sign in to the console.** Up to 0.1.4 the console's sign-in page took the API token on its own. From 0.1.5 that's off by default outside `kindgi dev`. The API keeps taking tokens either way, and "7. Turn on sign-in" has the other ways in.
+- **The module turns Cloud Resource Manager on** (`cloudresourcemanager.googleapis.com`). Its own calls to it are billed to the caller's project, but another root on the same project that reads the project with its calls billed there (the provider's `user_project_override`) needs it on, and couldn't turn it on before that read. A deployment made with an earlier copy of the module gets it at its next apply: one `google_project_service` to add.
 - **Upgrades roll forward:** migrations only go forward, so an older runtime can break on a database a newer one migrated. Deploy a new runtime revision at 100% traffic, keep a database backup from before, and roll back by restoring it.
 
 ## Operating it
@@ -297,6 +308,71 @@ server_secret_env = {
 - **The AAD key is pinned, never rotated this way.** The server reads the version `secrets_aad_key_version` names, not `latest`. Every secret stored in Postgres is bound to it: a new version is a key change that needs every stored secret re-encrypted, and a version added by mistake must not reach the server.
   - **Upgrading from a module copy before this variable:** set it to the version your server reads now. `gcloud secrets versions list $N-secrets-aad-key` shows it; normally `1`.
 - **Slow tools:** the runtime waits `KINDGI_PACK_CALL_TIMEOUT_MS` (default 120 s, `pack_call_timeout_ms`) for a tool call. Keep the pack service's `pack_timeout` above it.
+
+## Serving from a restored instance
+
+A point-in-time recovery always makes a new instance ([Google: point-in-time recovery](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/pitr)). A backup can go into a new one too ([Google: restoring](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/restoring)); restored into the instance that serves, it overwrites everything on it. `database_instance` moves the server onto the new instance and leaves the module's own as it is. Public-IP mode only: the server reaches whichever instance it serves from through its `/cloudsql` volume.
+
+1. **Restore into a new instance in this project.** `S` is the instance the server serves from: `$N`, or `database_instance.name` after an earlier restore, since writes made since that switch are only there. `R` is the new one's name, such as `$N-r20261023`:
+
+   ```sh
+   S=$N
+   R=$N-r<yyyymmdd>
+   gcloud sql instances clone $S $R --point-in-time='<yyyy-mm-ddThh:mm:ss.000Z>'
+   ```
+
+   It needs a public IP, as the module's own has. The plan refuses an instance without one.
+2. **Its URL, in a secret of its own,** with a new password for the database user. The restored user has the old one. The password goes through the Cloud SQL Admin API (`users.update`), as in "3. Secret values": the body on stdin and the token in a header from a pipe, never in a command's arguments. Each step runs only if the one before it worked.
+
+   ```sh
+   gcloud secrets create $R-database-url --replication-policy=user-managed --locations=<region>
+   CONN=$(gcloud sql instances describe $R --format='value(connectionName)')
+   P=$(gcloud config get-value project)
+   DBPW=$(openssl rand -hex 24)
+   OP=$(printf '{"password":"%s"}' "$DBPW" \
+     | curl -sS -X PUT -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud auth print-access-token)") \
+         -H 'Content-Type: application/json' --data-binary @- \
+         "https://sqladmin.googleapis.com/v1/projects/$P/instances/$R/users?name=kindgi" \
+     | jq -r '.name // error(.error.message)') && [ -n "$OP" ] \
+     && gcloud sql operations wait "$OP" --project=$P \
+     && printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
+     | gcloud secrets versions add $R-database-url --data-file=-
+   unset DBPW
+   ```
+
+3. **Let the server read it:**
+
+   ```sh
+   gcloud secrets add-iam-policy-binding $R-database-url --role=roles/secretmanager.secretAccessor \
+     --member="serviceAccount:$(terraform output -json service_accounts | jq -r .server)"
+   ```
+
+   The module doesn't grant this one, since the secret isn't the module's. If a Terraform root of yours makes the secret, that root makes the grant too. When two roots hold the same grant, the first to remove it takes it away from the other.
+4. **Replay the erasure ledger on it before it serves.** A restore brings back what an erasure cleared. The runtime image's `erasures replay` does it, with the server's settings, `KINDGI_DATABASE_URL` from `$R-database-url`, and this instance at `/cloudsql`: a Cloud Run job, say. The docs' "Back up and restore" page has the command, under Erasures and backups.
+5. **Switch,** in your tfvars, then `terraform apply`:
+
+   ```hcl
+   database_instance = {
+     name       = "kindgi-prod-r20261023"
+     url_secret = "kindgi-prod-r20261023-database-url"
+   }
+   ```
+
+   - **What the apply changes:**
+     - the server's `/cloudsql` volume names the new instance alone;
+     - `KINDGI_DATABASE_URL` reads `url_secret`;
+     - the server's account gets `roles/cloudsql.client`, conditioned on the new instance, before the new revision starts.
+   - **The new revision applies the image's migrations** at boot, as on any start, and takes the traffic once it's ready. The old revision keeps its grant on the module's instance for the requests it still has.
+   - **The plan refuses:**
+     - private-IP mode;
+     - the module's own instance or its `$N-database-url`;
+     - an instance without a public IP;
+     - a connection name for `name`, or a path for `url_secret`.
+6. **The module's own instance stays,** with its deletion protection. The `sql_connection_name` output still names it. Writes made since the restore point are on it alone.
+
+**Anything else on the instance** comes back with it: another database there, an OpenFGA store's, say. That moves on your side, in the same window.
+
+**Going back:** set `database_instance` to null and apply. The server's revision changes first, and only then does the grant on the restored instance go: the module removes it only after the server's new revision is in. Writes made since the switch stay on the restored instance.
 
 ## Taking it down
 

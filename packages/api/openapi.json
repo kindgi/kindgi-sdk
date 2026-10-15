@@ -484,6 +484,7 @@
           "reserved-name-prefix": 400,
           "secret-name-invalid": 400,
           "secret-value-too-large": 400,
+          "secret-value-invalid": 400,
           "secret-write-conflict": 409,
           "env-write-conflict": 409,
           "secret-encryption-failed": 500,
@@ -44414,7 +44415,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
             "content": {
               "application/json": {
                 "schema": {
@@ -44473,8 +44474,38 @@
               }
             }
           },
+          "429": {
+            "description": "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49271,7 +49302,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
+            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
             "content": {
               "application/json": {
                 "schema": {
@@ -49988,7 +50019,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
+            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
             "content": {
               "application/json": {
                 "schema": {
@@ -50590,7 +50621,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "A body that fails validation (`bad-input`), or a rotation the store refuses as it would the write: `secret-value-too-large` for a new value over its size limit, or `reserved-name-prefix` for a `kindgi.` name.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50649,6 +50680,16 @@
               }
             }
           },
+          "429": {
+            "description": "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
             "content": {
@@ -50661,6 +50702,26 @@
           },
           "501": {
             "description": "The store doesn't rotate (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files and have no versions; the message says what to do instead.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
             "content": {
               "application/json": {
                 "schema": {

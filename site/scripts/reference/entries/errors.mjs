@@ -2756,6 +2756,12 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/secrets/store-a-secret'],
   },
+  'secret-value-invalid': {
+    description:
+      "The secrets store can't hold this value as given. Under `kindgi dev`, a secret is a key in your env files, and no env-file quoting holds a value that has a double quote, or a backslash followed by `n` or `r`, together with a carriage return or with both a single quote and a backtick. Store the value encoded (base64, say), or without one of those characters. The message says why, and never repeats the value.",
+    details: [],
+    seeAlso: ['guides/secrets/store-a-secret'],
+  },
   'secret-write-conflict': {
     description:
       'The secret write collides with what is stored: you used `create-new` for a name that already exists, or the version you based a write on is no longer current.',
