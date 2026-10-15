@@ -48,7 +48,10 @@ export interface CapabilityUnsatisfiableError {
    * and which didn't. Each rejection carries a structured
    * `RejectionReason` — callers can `switch (r.reason.code)` to route
    * on specific failure modes (e.g. surface an "add region" tip when
-   * every failure is `region-mismatch`).
+   * every failure is `region-mismatch`). A rejection's `id` is the
+   * candidate's `<provider id>/<model name>`; under `provider set up`, a
+   * registered provider that couldn't be set up, and so was never a
+   * candidate, is named by its provider id alone (`RouteInput.setupFailures`).
    */
   readonly reasons: readonly {
     readonly requirement: string;

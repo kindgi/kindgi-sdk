@@ -189,12 +189,20 @@ export function guardProviderKeys(
     list: (input) => binding.list(input),
     get: (input) => binding.get(input),
     listVersions: (input) => binding.listVersions(input),
+    // Says which cursors the lists issued, and the lists pass through: so does it.
+    ...(binding.issuedCursor !== undefined && {
+      issuedCursor: binding.issuedCursor.bind(binding),
+    }),
     set: (input) => binding.set(input),
     rotate: (input) => binding.rotate(input),
     revoke: (input) => binding.revoke(input),
     // Says how `set` writes, and `set` passes through: so does it.
     ...(binding.writesAppEnvFiles !== undefined && {
       writesAppEnvFiles: binding.writesAppEnvFiles,
+    }),
+    // Says which names `set` refuses, and `set` passes through: so does it.
+    ...(binding.nameRefusal !== undefined && {
+      nameRefusal: (name: string) => binding.nameRefusal?.(name),
     }),
     async resolve(input) {
       const refused = await refusal(input.scope.tenantId, input.name);
@@ -227,12 +235,14 @@ const GUARDED_MEMBERS = [
   'list',
   'get',
   'listVersions',
+  'issuedCursor',
   'set',
   'rotate',
   'revoke',
   'resolve',
   'getVersion',
   'writesAppEnvFiles',
+  'nameRefusal',
 ] as const satisfies readonly (keyof SecretBinding)[];
 type Unguarded = Exclude<keyof SecretBinding, (typeof GUARDED_MEMBERS)[number]>;
 // `true` while every member is listed; an unlisted one makes it its name, and this fails.
