@@ -766,9 +766,26 @@ describe('kindgi feedback status', () => {
     expect(t.service.requests.map((r) => JSON.parse(r.body).reportIds.length)).toEqual([50, 1]);
   });
 
-  test('an intake that is busy keeps the answers had, and says the rest were not asked', async () => {
+  test('a later 50 the intake is too busy for: only those are named as not asked', async () => {
     const t = await setup();
-    await sent(t, 1);
+    const ids = Array.from({ length: 51 }, (_, i) => `fbr_${String(i).padStart(16, 'A')}`);
+    let asks = 0;
+    t.service.answerWith((path) =>
+      path === '/feedback/reports/status' && ++asks === 2
+        ? new Response(JSON.stringify({ error: 'rate-limited', message: 'Busy.' }), {
+            status: 429,
+            headers: { 'retry-after': '30' },
+          })
+        : undefined,
+    );
+    const out = await t.cli(['feedback', 'status', ...ids]);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(`Not asked about: ${ids[50]}.`);
+  });
+
+  test('an intake that is busy keeps the answers had, and names the reports not asked', async () => {
+    const t = await setup();
+    const { reportIds } = await sent(t, 1);
     t.service.answerWith(
       () =>
         new Response(JSON.stringify({ error: 'rate-limited', message: 'Busy.' }), {
@@ -778,7 +795,7 @@ describe('kindgi feedback status', () => {
     );
     const out = await t.cli(['feedback', 'status']);
     expect(out.exitCode).toBe(1);
-    expect(out.stderr).toContain('try again in 30 s');
+    expect(out.stderr).toContain(`try again in 30 s. Not asked about: ${reportIds[0]}.`);
     expect(json(out.stdout).reports[0]).toMatchObject({ state: 'not-asked', asked: false });
   });
 });
@@ -841,8 +858,10 @@ describe('kindgi feedback withdraw', () => {
     });
     const out = await t.cli(['feedback', 'withdraw', id]);
     expect(out.exitCode).toBe(1);
-    expect(out.stderr).toContain('Some of the rest may have been withdrawn: run it again to know');
-    expect(out.stderr).not.toContain('The rest were not withdrawn');
+    // One report: it's named, with no "some of".
+    expect(out.stderr).toContain(`${id} may have been withdrawn: run it again to know`);
+    expect(out.stderr).not.toContain('Some of');
+    expect(out.stderr).not.toContain('Not withdrawn');
     expect(Object.keys(await t.keys())).toEqual([id]);
 
     t.service.answerWith(() => undefined);
@@ -850,6 +869,51 @@ describe('kindgi feedback withdraw', () => {
     expect(again.exitCode).toBe(0);
     expect(json(again.stdout)).toEqual({ withdrawn: [id] });
     expect(await t.keys()).toEqual({});
+  });
+
+  test('a withdraw the intake answered none of names each report left: maybe withdrawn when it may have arrived, not withdrawn when it did not', async () => {
+    const t = await setup();
+    const { reportIds } = await sent(t, 2);
+    const [a, b] = reportIds as [string, string];
+    t.service.answerWith((path) =>
+      path === '/feedback/reports/withdraw'
+        ? new Response('<html>bad gateway</html>', { status: 502 })
+        : undefined,
+    );
+    const maybe = await t.cli(['feedback', 'withdraw', a, b]);
+    expect(maybe.exitCode).toBe(1);
+    expect(maybe.stderr).toContain(`Some of ${a}, ${b} may have been withdrawn: run it again`);
+
+    // A 404 that isn't the intake's: nothing reached it.
+    t.service.answerWith((path) =>
+      path === '/feedback/reports/withdraw'
+        ? new Response('<html>not found</html>', { status: 404 })
+        : undefined,
+    );
+    const no = await t.cli(['feedback', 'withdraw', a, b]);
+    expect(no.exitCode).toBe(1);
+    expect(no.stderr).toContain(`Not withdrawn: ${a}, ${b}.`);
+    expect(no.stderr).not.toContain('may have been withdrawn');
+    expect(Object.keys(await t.keys()).sort()).toEqual([a, b].sort());
+  });
+
+  test('a later 50 whose answer is lost: only those are named as maybe withdrawn', async () => {
+    const t = await setup();
+    const { reportIds } = await sent(t, 1);
+    const keys = await t.keys();
+    const more = Array.from({ length: 50 }, (_, i) => `fbr_${String(i).padStart(16, 'B')}`);
+    for (const id of more) keys[id] = { ...keys[reportIds[0] as string] };
+    await writeFile(t.keysFile, JSON.stringify({ reports: keys }));
+    let asks = 0;
+    t.service.answerWith((path) =>
+      path === '/feedback/reports/withdraw' && ++asks === 2
+        ? new Response('<html>bad gateway</html>', { status: 502 })
+        : undefined,
+    );
+    const out = await t.cli(['feedback', 'withdraw', reportIds[0] as string, ...more]);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(`${more[49]} may have been withdrawn: run it again`);
+    expect(out.stderr).not.toContain('Some of');
   });
 });
 

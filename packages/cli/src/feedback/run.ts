@@ -351,10 +351,11 @@ export async function runStatus(ctx: CommandContext): Promise<CommandResult> {
 
     const answers = new Map<string, ReportStatus>();
     let failure: string | undefined;
-    for (const chunk of chunks(toAsk.map((t) => t.reportId))) {
+    const toAskIds = toAsk.map((t) => t.reportId);
+    for (const [i, chunk] of chunks(toAskIds).entries()) {
       const asked = await askStatus(origin, chunk, { fetch: ctx.fetch });
       if (asked.kind !== 'ok') {
-        failure = intakeFailure(asked, 'asked');
+        failure = intakeFailure(asked, 'asked', toAskIds.slice(i * MAX_REPORT_IDS));
         break;
       }
       for (const s of asked.value) answers.set(s.reportId, s);
@@ -438,10 +439,11 @@ export async function runWithdraw(ctx: CommandContext): Promise<CommandResult> {
     const withdrawn: string[] = [];
     const refused: string[] = [];
     let failure: string | undefined;
-    for (const chunk of chunks(sendable)) {
+    for (const [i, chunk] of chunks(sendable).entries()) {
       const asked = await withdrawReports(origin, chunk, { fetch: ctx.fetch });
       if (asked.kind !== 'ok') {
-        failure = intakeFailure(asked, 'withdrawn');
+        const left = sendable.slice(i * MAX_REPORT_IDS).map((r) => r.reportId);
+        failure = intakeFailure(asked, 'withdrawn', left);
         break;
       }
       withdrawn.push(...asked.value.withdrawn);
@@ -615,13 +617,17 @@ function submitFailure(asked: Exclude<Asked<unknown>, { kind: 'ok' }>): string {
   return `${why} ${FEEDBACK_FILENAME} is unchanged; what would have been sent is on stdout.`;
 }
 
+/** Why the intake answered none of `left` (the reports not yet answered), naming them. */
 function intakeFailure(
   asked: Exclude<Asked<unknown>, { kind: 'ok' }>,
   what: 'asked' | 'withdrawn',
+  left: readonly string[],
 ): string {
-  const rest = what === 'asked' ? 'The rest were not asked about.' : 'The rest were not withdrawn.';
+  const ids = left.join(', ');
+  const rest = what === 'asked' ? `Not asked about: ${ids}.` : `Not withdrawn: ${ids}.`;
   if (asked.kind === 'failed' && asked.maybeReceived && what === 'withdrawn') {
-    return `${asked.message}. Some of the rest may have been withdrawn: run it again to know (withdrawing twice is safe).`;
+    const which = left.length === 1 ? ids : `Some of ${ids}`;
+    return `${asked.message}. ${which} may have been withdrawn: run it again to know (withdrawing twice is safe).`;
   }
   if (asked.kind === 'failed') return `${asked.message}. ${rest}`;
   if (asked.error === 'rate-limited') {
