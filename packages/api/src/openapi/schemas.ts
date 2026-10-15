@@ -1374,7 +1374,7 @@ export const CreateSystemTenantBodySchema: JsonSchema = {
       additionalProperties: false,
       required: ['email', 'name'],
       description:
-        "The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.",
+        "The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. The runtime gives them every capability but `secrets:reveal`, to put on the keys they make. Absent: the answer carries an admin key instead, which takes the full system capability.",
       properties: {
         email: { type: 'string', maxLength: 254, description: 'An email address.' },
         name: { type: 'string', minLength: 1, maxLength: 100 },
@@ -1519,8 +1519,7 @@ const SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES: Record<string, JsonSchema> = {
   packId: {
     type: 'string',
     minLength: 1,
-    description:
-      "The pack it deploys (the image index's `packId`): keep the newest few superseded deployments per tenant and pack.",
+    description: "The pack it deploys (the image index's `packId`).",
   },
   projectId: {
     type: 'string',
@@ -1555,7 +1554,7 @@ export const SystemDeploymentEntrySchema: JsonSchema = {
       type: 'string',
       enum: [...SYSTEM_DEPLOYMENT_RETIRE_REASONS],
       description:
-        'In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.',
+        'In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does, so no new call reaches it. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.',
     },
   },
 };
@@ -9111,7 +9110,7 @@ export const MyPermissionsSchema: JsonSchema = {
       type: 'array',
       items: { type: 'string' },
       description:
-        "The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries none; an API key carries those it was minted with (`POST /v1/tokens`, none by default).",
+        "The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries those its person holds: none unless the runtime gives them some, as it does a tenant's first admin. An API key carries those it was minted with (`POST /v1/tokens`, none by default).",
     },
     projects: {
       type: 'array',

@@ -238,6 +238,7 @@ export type {
   PersonGrantsBinding,
   PersonRef,
 } from './person-grants-binding.js';
+export type { PersonCapabilitiesBinding } from './person-capabilities-binding.js';
 export type {
   AccessPrincipal,
   ProjectAccessBinding,

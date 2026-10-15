@@ -135,7 +135,7 @@ export const ERROR_ENTRIES = {
   },
   'permission-denied': {
     description:
-      "Your key or session isn't allowed to do this on this resource, or lacks a capability the route needs. Ask an admin for the permission or use a key that has it.",
+      "Your key or session isn't allowed to do this on this resource, or lacks a capability the route needs, which the message names. For a permission, ask an admin for it. A key carries only the capabilities it was made with, and only ones the person who made it holds: use a key made with that capability.",
     details: [
       {
         key: 'action',
