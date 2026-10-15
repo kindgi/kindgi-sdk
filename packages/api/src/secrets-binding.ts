@@ -42,7 +42,10 @@ export const RESERVED_SECRET_NAME_PREFIX = 'kindgi.';
 export interface SecretBinding {
   // -------------------- read --------------------
 
-  /** Cursor-paginated list of secret metadata. Never returns `value`. */
+  /**
+   * Cursor-paginated list of secret metadata, in name order. Never returns
+   * `value`. At most `limit` records, with a `nextCursor` while more remain.
+   */
   list(input: SecretListInput): Promise<SecretListPage>;
 
   /** Fetch metadata for a single secret. `null` when unknown. */
@@ -61,8 +64,21 @@ export interface SecretBinding {
   /** Metadata for a specific version. */
   getVersion(input: SecretGetVersionInput): Promise<SecretVersionRecord | null>;
 
-  /** List all versions for a secret. Metadata only. */
+  /**
+   * Cursor-paginated list of a secret's versions, oldest first. Metadata
+   * only. At most `limit` versions, with a `nextCursor` while more remain.
+   */
   listVersions(input: SecretListVersionsInput): Promise<SecretVersionPage>;
+
+  /**
+   * Whether `cursor` is one this binding issued for `list` (`'secrets'`: a
+   * `list` page's `nextCursor`; `'versions'`: a `listVersions` page's).
+   * Optional: without it, the routes pass any cursor to the store, as
+   * before. With it, a cursor the binding didn't issue answers `400
+   * bad-input` before the list is read, so a client paging until done is
+   * never sent back to the first page.
+   */
+  issuedCursor?(list: 'secrets' | 'versions', cursor: Cursor): boolean;
 
   // -------------------- write --------------------
 
@@ -148,6 +164,7 @@ export const SECRET_BINDING_MEMBERS: Readonly<
   resolve: 'read',
   getVersion: 'read',
   listVersions: 'read',
+  issuedCursor: 'read',
   set: 'write',
   rotate: 'write',
   revoke: 'write',
@@ -187,6 +204,9 @@ export function observeSecretWrites(binding: SecretBinding): {
       resolve: (input) => binding.resolve(input),
       getVersion: (input) => binding.getVersion(input),
       listVersions: (input) => binding.listVersions(input),
+      ...(binding.issuedCursor !== undefined && {
+        issuedCursor: binding.issuedCursor.bind(binding),
+      }),
       set: (input) => told(input, () => binding.set(input)),
       rotate: (input) => told(input, () => binding.rotate(input)),
       revoke: (input) => told(input, () => binding.revoke(input)),
@@ -242,15 +262,19 @@ export interface SecretVersionRecord {
 export interface SecretListInput {
   readonly scope: Scope;
   readonly envName: EnvName;
+  /** The most records in the page. */
   readonly limit: number;
+  /** Where the previous page ended: its `nextCursor`, as the store gave it. */
   readonly cursor?: Cursor;
   readonly namePrefix?: string;
   readonly tagFilter?: Readonly<Record<string, string>>;
+  /** Revoked secrets too, with `revokedAt` and `revokeReason`: metadata only, never a value. */
   readonly includeRevoked?: boolean;
 }
 
 export interface SecretListPage {
   readonly data: readonly SecretRecord[];
+  /** Set while more records remain after this page; absent on the last. */
   readonly nextCursor?: Cursor;
 }
 
@@ -475,6 +499,20 @@ export type SecretError =
       readonly code: 'secret-write-conflict';
       readonly message: string;
       readonly currentVersion: number;
+    }
+  /**
+   * A write the store refuses for its name or its value, with the code `set`
+   * gives it: the caller's `400`, the message saying the store's rule. A
+   * store that rotates by setting a new version answers a rotation's new
+   * value the same way.
+   */
+  | {
+      readonly code:
+        | 'reserved-name-prefix'
+        | 'secret-name-invalid'
+        | 'secret-value-too-large'
+        | 'secret-value-invalid';
+      readonly message: string;
     }
   /**
    * The store doesn't do this by design (the dev store keeps no versions to

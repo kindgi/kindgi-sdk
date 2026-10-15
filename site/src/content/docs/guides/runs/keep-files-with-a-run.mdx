@@ -45,7 +45,7 @@ It prints the artifact's record, with its `blobId`.
   names no project goes to the key's project. One whose project, named or its
   run's, is another is refused with `403 key-project-mismatch`.
 - **Its name** is the file's, unless `--name` gives another.
-- **Its size:** the runtime refuses a bigger upload than its cap, 100 MB by
+- **Its size:** the runtime refuses a bigger upload than its cap, 100 MiB by
   default. It answers `413 artifact-too-large`, with the cap in
   `details.maxBytes`.
 

@@ -441,6 +441,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   /** A name the secrets store can't write (the dev store's env-file keys); the message says its rule. */
   'secret-name-invalid': 400,
   'secret-value-too-large': 400,
+  /** A value the secrets store can't hold as given (the dev store's env files); the message says why. */
+  'secret-value-invalid': 400,
   'secret-write-conflict': 409,
   'env-write-conflict': 409,
   'secret-encryption-failed': 500,

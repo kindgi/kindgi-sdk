@@ -354,6 +354,16 @@ const JournalSinceQueryParam: ParameterSpec = {
   schema: { type: 'integer', minimum: 0 },
 };
 
+/** `GET /v1/runs/{runId}/journal`'s: paging is opt-in, so there's no default. */
+const JournalLimitQueryParam: ParameterSpec = {
+  name: 'limit',
+  in: 'query',
+  required: false,
+  description:
+    'The most entries in a page, 1..100: then `nextCursor` while more remain. Without it, the whole journal (after `since` or `cursor`) in one answer.',
+  schema: { type: 'integer', minimum: 1, maximum: 100 },
+};
+
 const LastEventIdParam: ParameterSpec = {
   name: 'Last-Event-Id',
   in: 'header',
@@ -1390,6 +1400,27 @@ const CommonMutationErrors: Readonly<Record<string, ResponseSpec>> = {
   '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
 };
 
+/** A secrets store's external provider (the router's), answering a read or a write: each at its own status. */
+const SecretProviderErrors: Readonly<Record<string, ResponseSpec>> = {
+  '429': ErrorResponse(
+    "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+  ),
+  '502': ErrorResponse(
+    "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+  ),
+  '503': ErrorResponse(
+    "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
+  ),
+};
+
+/** A secret's value written: a body that fails validation, a name or value the store refuses (the caller's), or its provider's answer. */
+const SecretWriteErrors: Readonly<Record<string, ResponseSpec>> = {
+  '400': ErrorResponse(
+    "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
+  ),
+  ...SecretProviderErrors,
+};
+
 /** A change to the tenant's identity providers: not a tenant admin, or the operator manages sign-in. */
 const ProviderChangeRefused: ResponseSpec = ErrorResponse(
   "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
@@ -1635,12 +1666,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'runs.journal',
     summary: 'Read the durable journal for a run',
     description:
-      'Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`). Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6.',
+      'Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`), in sequence order. Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6. Paging is opt-in: with `limit`, at most that many entries and a `nextCursor` while more remain; without it, the whole journal in one answer.',
     tags: ['runs'],
     security: 'bearer',
-    parameters: [RunIdPathParam, JournalSinceQueryParam],
+    parameters: [RunIdPathParam, JournalSinceQueryParam, JournalLimitQueryParam, CursorQueryParam],
     responses: {
-      '400': ErrorResponse('`runId` is not a run id (a UUID).'),
+      '400': ErrorResponse(
+        '`runId` is not a run id (a UUID), `limit` is not a whole number of 1 or more, or `cursor` is malformed.',
+      ),
       '200': { description: 'Journal page.', schema: ref('RunJournalPage') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No run with that id under this tenant.'),
@@ -2358,7 +2391,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemDeployments.list',
     summary: 'List deployments that need a pack service, or should lose theirs',
     description:
-      "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (a live or promoted version resolves to it), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
+      "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
     tags: ['system-deployments'],
     security: 'bearer',
     parameters: [
@@ -4655,7 +4688,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.upload',
     summary: 'Upload an artifact',
     description:
-      "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the tenant's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MB) is `413 artifact-too-large`.",
+      "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the tenant's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6755,6 +6788,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('DeploymentSecretsSyncResponse'),
       },
       ...CommonMutationErrors,
+      ...SecretWriteErrors,
       '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
       '404': ErrorResponse('No deployment with that id, or referenced secret does not exist.'),
     },
@@ -8381,19 +8415,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('UpsertTenantConfigResult'),
       },
       ...CommonMutationErrors,
-      '400': ErrorResponse(
-        "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
-      ),
+      ...SecretWriteErrors,
       '409': ErrorResponse('`ifRevision` was set and did not match the stored revision.'),
-      '429': ErrorResponse(
-        "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
-      ),
-      '502': ErrorResponse(
-        "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
-      ),
-      '503': ErrorResponse(
-        "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
-      ),
     },
   },
 
@@ -8502,7 +8525,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'secrets.list',
     summary: 'List secret metadata',
     description:
-      'Cursor-paginated list of secret metadata at the given `(scope, envName)`. `value` is ALWAYS absent (structural redaction).',
+      'Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. `value` is ALWAYS absent (structural redaction).',
     tags: ['secrets'],
     security: 'bearer',
     parameters: [
@@ -8513,6 +8536,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
       LimitQueryParam,
       CursorQueryParam,
       NamePrefixQueryParam,
+      {
+        name: 'includeRevoked',
+        in: 'query',
+        required: false,
+        description:
+          '`true` lists revoked secrets too, with their `revokedAt` and `revokeReason`. Metadata only, never a value.',
+        schema: { type: 'string', enum: ['true', 'false'] },
+      },
     ],
     responses: {
       '200': {
@@ -8520,7 +8551,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretCollectionPage'),
       },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '400': ErrorResponse(
+        "Missing or malformed scope / envName, or a `cursor` this list didn't issue.",
+      ),
     },
   },
   {
@@ -8569,7 +8602,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretVersionCollectionPage'),
       },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '400': ErrorResponse(
+        "Missing or malformed scope / envName, or a `cursor` this list didn't issue.",
+      ),
     },
   },
   {
@@ -8625,19 +8660,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretSetResponse'),
       },
       ...CommonMutationErrors,
-      '400': ErrorResponse(
-        "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
-      ),
+      ...SecretWriteErrors,
       '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
-      '429': ErrorResponse(
-        "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
-      ),
-      '502': ErrorResponse(
-        "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
-      ),
-      '503': ErrorResponse(
-        "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
-      ),
     },
   },
   {
@@ -8668,6 +8692,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretRotateResponseAsync'),
       },
       ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'A body that fails validation (`bad-input`), or a rotation the store refuses as it would the write: `secret-value-too-large` for a new value over its size limit, or `reserved-name-prefix` for a `kindgi.` name.',
+      ),
+      ...SecretProviderErrors,
       '403': ErrorResponse('Bearer token missing `secrets:rotate` capability.'),
       '404': ErrorResponse('Unknown secret.'),
       '501': ErrorResponse(
