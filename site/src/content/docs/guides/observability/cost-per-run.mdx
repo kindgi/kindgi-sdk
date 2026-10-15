@@ -445,6 +445,10 @@ The sum covers only that customer's runs:
   `projectId`, `agentId`, `flowId`, `runId`, `rootRunId`, `conversationId`,
   `providerId`, `servedModel`, `category` and `tenant`. With no `groupBy`,
   you get the totals only.
+- **Filters** narrow what's summed, as they narrow `cost.usage.query`.
+  `flowId` keeps one flow's spend: every record of the run trees that a run
+  of that flow started, whatever its version. With `groupBy` `day`, that's
+  the flow's spend by day. In Python, it's `flow_id`.
 
 A tool can check that a run belongs to the right customer, as
 [Check the run's org](../../tools/write-a-tool/#check-the-runs-org) shows.

@@ -905,6 +905,15 @@ const CostRootRunIdQueryParam: ParameterSpec = {
   schema: { type: 'string', format: 'uuid' },
 };
 
+const CostFlowIdQueryParam: ParameterSpec = {
+  name: 'flowId',
+  in: 'query',
+  required: false,
+  description:
+    "Every record of the run trees whose root is a run of this flow (the record's `flowId`, exact match): the flow's spend across its runs, any version.",
+  schema: { type: 'string' },
+};
+
 const CostIncludeDescendantsQueryParam: ParameterSpec = {
   name: 'includeDescendants',
   in: 'query',
@@ -5338,7 +5347,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'cost.records.list',
     summary: 'List cost records',
     description:
-      "Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.",
+      "Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `flowId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.",
     tags: ['cost'],
     security: 'bearer',
     parameters: [
@@ -5352,6 +5361,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CostModelQueryParam,
       CostServedModelQueryParam,
       CostRootRunIdQueryParam,
+      CostFlowIdQueryParam,
       CostIncludeDescendantsQueryParam,
       CostFromQueryParam,
       CostToQueryParam,
@@ -5404,6 +5414,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CostModelQueryParam,
       CostServedModelQueryParam,
       CostRootRunIdQueryParam,
+      CostFlowIdQueryParam,
       CostIncludeDescendantsQueryParam,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
