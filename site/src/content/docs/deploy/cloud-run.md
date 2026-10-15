@@ -493,8 +493,11 @@ server_secret_env = {
   `pack_call_timeout_ms` still caps each call.
 - **The API token** is the operator's: it reaches only `/v1/system/*`, in no
   tenant. So step 5 and everything after it use a tenant's key instead:
-  - **A tenant:** `POST /v1/system/tenants` with the API token. Without
-    `firstAdmin`, the answer carries the first admin's key, sent once.
+  - **A tenant:** `POST /v1/system/tenants` with the API token. With
+    `firstAdmin`, that person is its admin and holds every capability but
+    `secrets:reveal`, to put on the keys they make
+    ([Who can do what](../people-and-keys/#who-can-do-what)). Without it,
+    the answer carries the first admin's key, sent once.
   - **Its image repository:** the create's `imagePrefix`, or
     `PUT /v1/system/tenants/{tenantId}/image-prefix`, before its first
     deploy. Without it, a deploy is refused with `409 image-prefix-unset`.
