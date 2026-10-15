@@ -276,13 +276,16 @@ restoring clears both. A closing tenant can't be suspended (`409 tenant-closing`
 
 `POST /v1/system/tenants/{tenantId}/close` starts the end of the tenant's
 contract, and there's no way back. The tenant is `closing`. For its 30-day
-export window, its own keys and sessions still read and export it. Nothing
-runs (its running runs are cancelled), and writes are refused as for a
-suspended tenant, with `409 tenant-closing`. Its deployments list to retire.
+export window, its own keys and sessions still read and export it, and its
+people can still sign in. Nothing runs (its running runs are cancelled),
+and writes are refused as for a suspended tenant, with `409 tenant-closing`.
+Its deployments list to retire.
 
-Once the window has passed, purge it. Run it when nothing of the tenant
-writes: its keys and sessions revoked, and no run active. The purge doesn't
-check for either.
+Once the window has passed, purge it. Its keys and sessions go with its
+rows. Until then, nothing of the tenant runs, and it writes only deletes,
+revokes, erasures, exports and sign-ins. One of those during the purge can
+leave a row: the purge exits `1` and names it, and running it again
+finishes it.
 
 ```sh
 kindgi-runtime tenants purge <tenant id> --confirm <tenant slug> --record <where>
@@ -315,6 +318,14 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
   of each purge. After a [restore](../back-up-and-restore/), and before the
   runtime serves, `kindgi-runtime tenants repurge --from <where>` purges
   again every tenant a record names.
+
+:::caution
+A tenant whose people sign in with its own SSO doesn't finish purging:
+every run exits `1`, naming `auth_users` and `auth_sso_providers`, and the
+tenant isn't marked purged. Nothing is deleted that shouldn't be. A tenant
+whose people sign in only with Google, Microsoft, GitHub or an emailed link
+isn't affected.
+:::
 
 ## After each upgrade: tenants repair
 
