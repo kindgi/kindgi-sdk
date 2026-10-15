@@ -389,6 +389,9 @@ The vendored schemas in `src/kindgi/_specs` are copies of `@kindgi/specs`;
 `tests/test_client.py` fails while they are out of step. `@kindgi/pack-conformance`
 runs its suite against this package's `.venv`.
 
+The version is the npm packages' (`scripts/sync-python-version.mjs`
+moves it); changes go in [`CHANGELOG.md`](./CHANGELOG.md).
+
 ## License
 
 Apache-2.0 — see [LICENSE](./LICENSE).
