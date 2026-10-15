@@ -341,14 +341,14 @@ describe('refusals deeper in a route, which an empty body never reaches, are rec
   test('a stdio MCP endpoint where the deployment runs no commands (host-access-denied)', async () => {
     const r = await refusal(NO_CAPS_KEY, 'POST', '/v1/mcp/endpoints', {
       scopeKind: 'tenant',
-      endpointId: 'acme.docs',
+      endpointId: 'acme-docs',
       name: 'Docs',
       transport: 'stdio',
       config: { transport: 'stdio', command: '/usr/local/bin/docs-mcp', args: ['--stdio'] },
     });
     expect([r.status, r.error.code]).toEqual([403, 'host-access-denied']);
     expect(r.recorded.map((x) => [x.action, x.resource, x.decision.failing])).toEqual([
-      ['admin', 'mcp_endpoint:acme.docs', 'scope'],
+      ['admin', 'mcp_endpoint:acme-docs', 'scope'],
     ]);
   });
 

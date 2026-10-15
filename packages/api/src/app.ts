@@ -223,6 +223,13 @@ export interface CreateAppInput {
    * Where the app's records go (`@kindgi/log`): the access line, logged
    * 500s, and what routes log, each with the request's ids. Default:
    * `noopLogger`, so an embedding app stays quiet unless it passes one.
+   *
+   * An audit record whose append fails, where the request goes on
+   * without it, is logged here at `warn`: a secret or env write's, and a
+   * secret read refused for its scope, under subsystem `audit`; a
+   * sign-in's or sign-out's under `http`. An app without a logger won't
+   * see that a record was dropped. A check the authorization model can't
+   * answer, a bug in a route, is logged at `error` (subsystem `authz`).
    */
   readonly logger?: Logger;
   readonly resolveToken: TokenResolver;
@@ -626,7 +633,8 @@ export interface CreateAppInput {
   /**
    * Whether a project is suspended (`PUT
    * /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`): a
-   * deploy into it is refused `409 project-suspended`, and a webhook
+   * deploy into it, an eval run started in it and an improvement pass for
+   * one of its agents are refused `409 project-suspended`, and a webhook
    * delivery to one of its triggers is skipped. Absent: no check.
    */
   readonly projectSuspended?: (
@@ -1622,6 +1630,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       blocks: input.blockRegistry,
       releases: input.agentReleases,
       ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+      ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
     };
     v1.route(
       '/proposals',
@@ -2068,6 +2077,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         : undefined,
       authorizer,
       input.referenceScope,
+      input.projectSuspended,
     );
     v1.route('/eval-suites', evalRuns.start);
     v1.route('/eval-runs', evalRuns.readback);
