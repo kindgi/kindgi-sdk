@@ -170,7 +170,7 @@ export const buildCommand: LeafCommand = {
     out: {
       type: 'string',
       description:
-        'Where the build output and `deploy-envelope.json` go (default: `.kindgi/build`). It cannot be the pack root itself; for a TypeScript pack it must stay under the pack root.',
+        'Where the build output and `deploy-envelope.json` go (default: `.kindgi/build`). It cannot be the pack root or a directory containing it; for a TypeScript pack it must stay under the pack root.',
     },
     'artifact-version': {
       type: 'string',
@@ -1347,9 +1347,9 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   const outDir = isAbsolute(outDirRaw) ? outDirRaw : resolve(packDir, outDirRaw);
 
   // The build writes its output — `dist/`, the Containerfile, `context/`
-  // (and `<language>/` for a JVM pack) — under --out. Two rules constrain
-  // it, both following symlinks (realpath) so an in-pack symlink can't slip
-  // past. Mirrors the local-dependency refusal in build/host-install.ts.
+  // (and `<language>/` for a JVM pack) — under --out. Rules constrain it,
+  // all following symlinks (realpath) so an in-pack symlink can't slip past.
+  // Mirrors the local-dependency refusal in build/host-install.ts.
   const realPackDir = await realpathUnderExisting(packDir);
   const realOutDir = await realpathUnderExisting(outDir);
   // 1. In any language, --out must not BE the pack root: the build would
@@ -1357,6 +1357,18 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   if (realOutDir === realPackDir) {
     return failure(
       `--out ${outDirRaw} is the pack root ${realPackDir}: the build writes dist/, the Containerfile and context/ there, over the pack's own files. Use a subdirectory (default: ${DEFAULT_OUT_DIR}).\n`,
+    );
+  }
+  // 1b. Nor may --out CONTAIN the pack root (an ancestor directory): the
+  //     build would write dist/, the Containerfile and context/ beside the
+  //     pack, over a sibling of the same name — or, when the pack is itself
+  //     named like one of them, over the pack. Same hazard as (1), any
+  //     language. (A TypeScript pack with such an --out is also outside-root,
+  //     caught by (2); this gives every language the clearer reason.)
+  const packRel = relative(realOutDir, realPackDir);
+  if (packRel !== '..' && !packRel.startsWith(`..${sep}`) && !isAbsolute(packRel)) {
+    return failure(
+      `--out ${outDirRaw} resolves to ${realOutDir}, which contains the pack root ${realPackDir}: the build writes dist/, the Containerfile and context/ there, beside the pack — over a sibling of the same name, or the pack itself. Use a path inside the pack (default: ${DEFAULT_OUT_DIR}).\n`,
     );
   }
   // 2. A TypeScript pack's --out must stay UNDER the pack root. Its local
@@ -1367,7 +1379,9 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   //    takes the pack dir and an explicit output path and never walks up from
   //    <out>, so its output may sit anywhere; only this walk-up is bound to
   //    the pack root.
-  const isTypeScriptPack = language !== 'python' && language !== 'java' && language !== 'scala';
+  // 'node' is the one pack language whose indexer walks up from <out>/dist;
+  // naming it positively stays correct if another language is added later.
+  const isTypeScriptPack = language === 'node';
   if (isTypeScriptPack) {
     const outRel = relative(realPackDir, realOutDir);
     if (outRel === '..' || outRel.startsWith(`..${sep}`) || isAbsolute(outRel)) {

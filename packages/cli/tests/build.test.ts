@@ -1271,6 +1271,21 @@ describe('kindgi build — a Python pack', () => {
     expect(out.exitCode).toBe(0);
   });
 
+  test('--out that contains the pack root is refused (a Python pack too, not only TypeScript)', async () => {
+    await pythonPack();
+    const fixtures = makeFixtures();
+    withPython(fixtures);
+    // cwd is the parent of packDir; building here would write dist/, the
+    // Containerfile and context/ beside the pack. A Python pack has no
+    // outside-root rule, so only the contains-the-pack-root guard refuses it.
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, { language: 'python', dev: { python: ['/opt/py/bin/python'] } }),
+      argv: ['build', '--env=staging', `--out=${cwd}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('contains the pack root');
+  });
+
   test('without uv.lock the build stops before uploading', async () => {
     await pythonPack(false);
     const fixtures = makeFixtures();
