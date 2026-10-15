@@ -484,6 +484,7 @@
           "reserved-name-prefix": 400,
           "secret-name-invalid": 400,
           "secret-value-too-large": 400,
+          "secret-value-invalid": 400,
           "secret-write-conflict": 409,
           "env-write-conflict": 409,
           "secret-encryption-failed": 500,
@@ -2173,6 +2174,10 @@
           },
           "hasMore": {
             "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "Opaque cursor for the next page, with `limit`. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5."
           }
         }
       },
@@ -2792,7 +2797,7 @@
               "project-suspended",
               "pack-suspended"
             ],
-            "description": "In the `retire` list only. `superseded`: no live or promoted version routes to it any more (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one."
+            "description": "In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one."
           }
         }
       },
@@ -22759,7 +22764,7 @@
             }
           },
           "400": {
-            "description": "`runId` is not a run id (a UUID).",
+            "description": "`runId` is not a run id (a UUID), `limit` is not a whole number of 1 or more, or `cursor` is malformed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -22789,7 +22794,7 @@
             }
           }
         },
-        "description": "Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`). Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6.",
+        "description": "Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`), in sequence order. Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6. Paging is opt-in: with `limit`, at most that many entries and a `nextCursor` while more remain; without it, the whole journal in one answer.",
         "parameters": [
           {
             "name": "runId",
@@ -22810,6 +22815,26 @@
             },
             "required": false,
             "description": "Only return journal entries with `sequence > since`."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "required": false,
+            "description": "The most entries in a page, 1..100: then `nextCursor` while more remain. Without it, the whole journal (after `since` or `cursor`) in one answer."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
@@ -25374,7 +25399,7 @@
             }
           }
         },
-        "description": "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (a live or promoted version resolves to it), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
+        "description": "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
         "parameters": [
           {
             "name": "endpoint",
@@ -35700,7 +35725,7 @@
             }
           }
         },
-        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the tenant's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MB) is `413 artifact-too-large`.",
+        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the tenant's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -44414,7 +44439,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
             "content": {
               "application/json": {
                 "schema": {
@@ -44473,8 +44498,38 @@
               }
             }
           },
+          "429": {
+            "description": "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49271,7 +49326,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
+            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
             "content": {
               "application/json": {
                 "schema": {
@@ -49988,7 +50043,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
+            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
             "content": {
               "application/json": {
                 "schema": {
@@ -50590,7 +50645,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "A body that fails validation (`bad-input`), or a rotation the store refuses as it would the write: `secret-value-too-large` for a new value over its size limit, or `reserved-name-prefix` for a `kindgi.` name.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50649,6 +50704,16 @@
               }
             }
           },
+          "429": {
+            "description": "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
             "content": {
@@ -50661,6 +50726,26 @@
           },
           "501": {
             "description": "The store doesn't rotate (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files and have no versions; the message says what to do instead.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
             "content": {
               "application/json": {
                 "schema": {

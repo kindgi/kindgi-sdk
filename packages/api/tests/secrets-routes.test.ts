@@ -720,3 +720,53 @@ describe('API — a store that does not rotate or revoke by design', () => {
     );
   });
 });
+
+describe("API — a write the store refuses for its name or its value is the caller's 400", () => {
+  const headers = { authorization: `Bearer ${TOKEN_ALL}`, 'content-type': 'application/json' };
+
+  test.each([
+    'reserved-name-prefix',
+    'secret-name-invalid',
+    'secret-value-too-large',
+    'secret-value-invalid',
+  ])("POST /v1/secrets answers %s at 400, with the store's message", async (code) => {
+    const secrets = makeInMemorySecretsBinding();
+    secrets.set = async () => ({ kind: 'error', code, message: 'the store says why' });
+    const res = await makeApp({ secrets }).request('/v1/secrets', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        scope: { kind: 'tenant', tenantId: tenantA },
+        envName: 'staging',
+        name: 'ACME_KEY',
+        value: 'v',
+        writeMode: 'create-new',
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: unknown }).error).toMatchObject({
+      code,
+      message: 'the store says why',
+    });
+  });
+
+  test.each(['reserved-name-prefix', 'secret-value-too-large'] as const)(
+    'rotate answers %s at 400, as a write of the new value would',
+    async (code) => {
+      const secrets = makeInMemorySecretsBinding();
+      secrets.rotateImpl = async () => ({
+        kind: 'err',
+        error: { code, message: 'the store says why' } satisfies SecretError,
+      });
+      const res = await makeApp({ secrets }).request(
+        '/v1/secrets/ACME_KEY/rotate?envName=staging&scopeKind=tenant',
+        { method: 'POST', headers, body: JSON.stringify({ newValue: 'v2' }) },
+      );
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: unknown }).error).toMatchObject({
+        code,
+        message: 'the store says why',
+      });
+    },
+  );
+});

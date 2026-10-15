@@ -57,7 +57,7 @@ export const CLI_DEFAULTS = {
     'published-at': 'the build time',
     push: "none; a bare `--push` uses the env block's `registry` + `/<packId>`",
     'registry-push-creds': 'none',
-    'signer-key-id': "the env block's `signerKeyId`, else the key file's name, else `<env>-signer`",
+    'signer-key-id': "the env block's `signerKeyId`, else the key file's name",
     'signing-key': "the env block's `signingKey`; required to sign (unless `--skip-sign`)",
     target: "the env block's `buildTarget`, else the env name",
     tenant:
@@ -76,8 +76,7 @@ export const CLI_DEFAULTS = {
     project: "none: a tenant-wide deploy, into the tenant's Default project",
     'published-at': 'for an inline build: the build time',
     'registry-push-creds': 'none',
-    'signer-key-id':
-      "for an inline build: the env block's `signerKeyId`, else the key file's name, else `<env>-signer`",
+    'signer-key-id': "for an inline build: the env block's `signerKeyId`, else the key file's name",
     'signing-key': "for an inline build: the env block's `signingKey`",
     target: "for an inline build: the env block's `buildTarget`, else the env name",
     tenant:
@@ -161,7 +160,7 @@ export const CLI_DEFAULTS = {
   },
   'sso providers start': {
     idp: 'none',
-    kind: 'none (taken from the `--idp` preset if given, else the API decides)',
+    kind: "none: the `--idp` preset's kind if given, else the registered provider's own (required before it's registered)",
   },
   'sso providers finish': {
     'client-id': 'none',

@@ -1053,6 +1053,11 @@ export const RunJournalPageSchema: JsonSchema = {
   properties: {
     data: { type: 'array', items: JournalEntrySchema },
     hasMore: { type: 'boolean' },
+    nextCursor: {
+      type: 'string',
+      description:
+        'Opaque cursor for the next page, with `limit`. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5.',
+    },
   },
 };
 
@@ -1550,7 +1555,7 @@ export const SystemDeploymentEntrySchema: JsonSchema = {
       type: 'string',
       enum: [...SYSTEM_DEPLOYMENT_RETIRE_REASONS],
       description:
-        'In the `retire` list only. `superseded`: no live or promoted version routes to it any more (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.',
+        'In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.',
     },
   },
 };
