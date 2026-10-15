@@ -320,6 +320,12 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
 - **Refused (exit 2)** for a tenant that isn't closing or is still in its
   window, or one with artifacts or an OpenFGA store when `KINDGI_ARTIFACTS`
   or `KINDGI_OPENFGA_API_URL` isn't set as the server has it. **Exit 1** when rows or bytes of it are left, named: run it again.
+- **With a key for OpenFGA**
+  ([Require a key for OpenFGA](../authorization/#require-a-key-for-openfga)),
+  purging a tenant with an OpenFGA store needs runtime 0.1.8.1 or later. An
+  earlier one doesn't send the key, so OpenFGA refuses to delete the store,
+  and the purge exits `2` with `OpenFGA answered 401 to deleting store <id>`.
+  By then the tenant's artifacts' bytes are deleted, but none of its rows.
 - **Exit 1, too, when work in flight at the mark wrote rows of it:** each
   is named (`written after its mark: …`) and deleted. One that needs a
   setting the run doesn't have is left, with why (`written after its mark,
