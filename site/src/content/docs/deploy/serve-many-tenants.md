@@ -269,8 +269,8 @@ restoring clears both. A closing tenant can't be suspended (`409 tenant-closing`
 - **A pack:** `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`.
   Its calls fail with `pack-suspended`, never going to an older deployment,
   and it lists to retire. Restored, it serves again from the endpoint
-  recorded for it. If its endpoint was cleared meanwhile, it lists as needing
-  a pack service.
+  recorded for it. If its endpoint is pending, or was cleared meanwhile, it
+  lists as needing a pack service.
 
 ## Close and purge a tenant
 
