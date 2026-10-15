@@ -753,6 +753,17 @@ A new grant can take a minute or two to apply.
   see the caller. Behind an external Application Load Balancer, set `"2"`:
   it adds the client and then its own address
   ([Google: X-Forwarded-For header](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
+- **Database timeouts** (they need runtime 0.1.8.1 or later): the server's
+  connections carry their own, 60 s a statement, 30 s waiting for a lock,
+  and 2 minutes idle in a transaction. `KINDGI_DB_STATEMENT_TIMEOUT_MS`,
+  `KINDGI_DB_LOCK_TIMEOUT_MS` and `KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS`
+  in `server_env` change them; `0` turns one off. A request one ends gets a
+  500, and the log a `db` warning naming the setting, its value and its
+  variable. The instance itself ends any other session left idle in a
+  transaction for 10 minutes (`database_idle_in_transaction_timeout_ms`, `0`
+  for off). An instance from before that variable gets the flag at the next
+  apply, in place: Cloud SQL lists it as needing no restart
+  ([Cloud SQL: configure database flags](https://docs.cloud.google.com/sql/docs/postgres/flags)).
 - **Erasures, after a restore:** a memory erasure keeps a keyed hash of whom
   it erased, so it can be replayed after you restore a backup. The key goes
   in Secret Manager, named in `server_secret_env`:
