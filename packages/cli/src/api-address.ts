@@ -2,12 +2,18 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Where `kindgi deploy` and `kindgi build --hosted` may send the CLI's API
- * key. A stored key (`kindgi auth login`'s ~/.kindgi/config.json, or
- * `kindgi dev`'s .kindgirc.json) is for the address stored beside it, and
- * goes only there: another address, wherever it's named (`--url`,
- * KINDGI_API_URL, a folder's .kindgirc.json, an env block's `endpoint`,
- * `--endpoint`), is refused, naming both, never picked silently.
+ * Where the CLI may send its API key. A stored key (`kindgi auth login`'s
+ * ~/.kindgi/config.json, or `kindgi dev`'s .kindgirc.json) is for the
+ * address stored beside it, and goes only there. The key for an address
+ * is the one stored with it (`storedKeyFor`); when none is,
+ * the command is refused before it sends anything, naming both addresses
+ * and the file, wherever the address is named (`--url`, KINDGI_API_URL, a
+ * folder's .kindgirc.json, an env block's `endpoint`, `--endpoint`). A
+ * key given for the command (`--token`, KINDGI_API_TOKEN) goes where the
+ * command says.
+ *
+ * - **Every command** that sends the key to the CLI's own address
+ *   (`ctx.client()`, `ctx.token()`): `ownAddressKeyRefusal`.
  *
  * - **Hosted** (`--hosted`, or the env block's `build: 'hosted'`): the API
  *   is the CLI's own address (`--url`, KINDGI_API_URL or the stored one),
@@ -22,7 +28,43 @@
  *   them; a stored key only to its own address.
  */
 
-import type { ResolvedConfig } from './config.js';
+import type { ResolvedConfig, StoredKey } from './config.js';
+
+/**
+ * The stored key for `url`: the one the files' order picks (this folder's
+ * over the home one) when it's for `url`, else the one stored for `url`
+ * in another file, else the picked one, which then can't go to `url`. A
+ * key with no address beside it is never passed over: nothing says which
+ * address it's for, so it's refused wherever it would go, never swapped.
+ */
+export function storedKeyFor(
+  keys: readonly StoredKey[],
+  url: string | undefined,
+): StoredKey | undefined {
+  const picked = keys.at(-1);
+  if (picked?.apiUrl === undefined || url === undefined || sameAddress(picked.apiUrl, url)) {
+    return picked;
+  }
+  return keys.findLast((k) => k.apiUrl !== undefined && sameAddress(k.apiUrl, url)) ?? picked;
+}
+
+/**
+ * `config` with the stored key for `url` (`storedKeyFor`) as its key: for
+ * a command that goes to another address than the CLI's own (`kindgi
+ * deploy --endpoint`). A key given for the command stays as it is.
+ */
+export function keyedFor(config: ResolvedConfig, url: string): ResolvedConfig {
+  if (config.source.token !== 'file' || config.storedKeys === undefined) return config;
+  const key = storedKeyFor(config.storedKeys, url);
+  if (key === undefined) return config;
+  const { keyAddress: _old, ...rest } = config;
+  return {
+    ...rest,
+    token: key.token,
+    files: { ...config.files, token: key.file },
+    ...(key.apiUrl !== undefined && { keyAddress: key.apiUrl }),
+  };
+}
 
 /** An address a command was given, and where (`--endpoint`, `environments.prod.endpoint`). */
 export interface NamedAddress {
@@ -55,7 +97,7 @@ export function hostedApiAddress(
         ? ''
         : ` ${dev.file} points this folder at a \`kindgi dev\` runtime${at}, which isn't a hosted target, so ${command} doesn't read it.`;
     return refused(
-      `${command} goes to the API your key is for, and no API address is set.${unread} Run \`kindgi auth login --url <url>\`, export KINDGI_API_URL, or pass --url <url>.`,
+      `${command} goes to the API your key is for, and no API address is set.${unread} Run \`kindgi auth login --url <url> --token <its key>\`, export KINDGI_API_URL, or pass --url <url>.`,
     );
   }
   const keyElsewhere = storedKeyRefusal(command, hosted, own, ownWhere(hosted), false);
@@ -65,8 +107,7 @@ export function hostedApiAddress(
     return refused(
       `${command} sends your API key to ${own}, the address it's for (${ownSource(hosted)}), ` +
         `and ${other.where} names another: ${other.url}. The key goes only to its own address: ` +
-        `remove ${other.where} (Kindgi Cloud needs none), or sign in to ${other.url} with ` +
-        `\`kindgi auth login --url ${other.url}\`.`,
+        `remove ${other.where} (Kindgi Cloud needs none), or ${signIn(other.url as string)}.`,
     );
   }
   return { kind: 'ok', url: own, config: hosted };
@@ -85,14 +126,43 @@ export function deployApiAddress(
   const chosen = named.find((n) => given(n.url));
   const url = chosen?.url ?? config.apiUrl;
   if (url === undefined || url === '') return undefined;
+  const keyed = keyedFor(config, url);
   const keyElsewhere = storedKeyRefusal(
     'kindgi deploy',
-    config,
+    keyed,
     url,
     chosen?.where ?? ownWhere(config),
     true,
   );
-  return keyElsewhere !== undefined ? refused(keyElsewhere) : { kind: 'ok', url, config };
+  return keyElsewhere !== undefined ? refused(keyElsewhere) : { kind: 'ok', url, config: keyed };
+}
+
+/**
+ * Why a command that sends the API key to the CLI's own address can't:
+ * the stored key isn't for it. `undefined` when it can, or when there's
+ * no address or no key (which the command says itself).
+ */
+export function ownAddressKeyRefusal(command: string, config: ResolvedConfig): string | undefined {
+  const url = config.apiUrl;
+  if (url === undefined || url === '') return undefined;
+  return storedKeyRefusal(command, config, url, ownWhere(config), true);
+}
+
+/** What `ownAddressKeyRefusal` finds, in parts: for `kindgi doctor`'s check. */
+export interface KeyElsewhere {
+  /** "the API key stored in …, which is for …, to …, which … names". */
+  readonly sends: string;
+  /** What else is stored, and that none is for the address: "" or a sentence and a space. */
+  readonly stored: string;
+  /** "The key goes only to its own address: …, or …." */
+  readonly fix: string;
+}
+
+/** The stored key can't go to the CLI's own address: why, in parts (`KeyElsewhere`). */
+export function ownAddressKeyElsewhere(config: ResolvedConfig): KeyElsewhere | undefined {
+  const url = config.apiUrl;
+  if (url === undefined || url === '') return undefined;
+  return keyElsewhere(config, url, ownWhere(config), true);
 }
 
 /**
@@ -109,26 +179,68 @@ function storedKeyRefusal(
   where: string,
   keyForCommand: boolean,
 ): string | undefined {
+  const found = keyElsewhere(config, url, where, keyForCommand);
+  if (found === undefined) return undefined;
+  return `${command} would send ${found.sends}. ${found.stored}${found.fix}`;
+}
+
+function keyElsewhere(
+  config: ResolvedConfig,
+  url: string,
+  where: string,
+  keyForCommand: boolean,
+): KeyElsewhere | undefined {
   if (config.source.token !== 'file') return undefined;
-  const keyFile = config.files?.token;
-  const stored = keyFile === undefined ? 'stored' : `stored in ${keyFile.path}`;
-  // `kindgi auth login` writes the home file; a folder's file stays over it.
-  const signIn = keyFile?.kind !== 'folder';
-  const giveKey = keyForCommand ? ["give that server's key with --token or KINDGI_API_TOKEN"] : [];
   const keyAddress = config.keyAddress;
+  if (keyAddress !== undefined && sameAddress(url, keyAddress)) return undefined;
+  const keyFile = config.files?.token;
+  const stored =
+    keyFile === undefined ? 'the API key stored' : `the API key stored in ${keyFile.path}`;
+  const giveKey = keyForCommand ? ["give that server's key with --token or KINDGI_API_TOKEN"] : [];
   if (keyAddress === undefined) {
-    const store = signIn
-      ? `sign in to ${url} with \`kindgi auth login --url ${url}\`, which stores the address with the key`
-      : `add the key's address to ${keyFile?.path} as its apiUrl`;
-    return `${command} would send the API key ${stored} to ${url}, and no address is stored with that key, so nothing shows it's for ${url}. The key goes only to its own address: ${oneOf([store, ...giveKey])}.`;
+    const addAddress = `add "apiUrl": "${url}" beside it in ${keyFile?.path ?? 'its file'}, if it's that server's key`;
+    return {
+      sends: `${stored} to ${url}, and no address is stored with that key, so nothing shows it's for ${url}`,
+      stored: '',
+      fix: ownAddressOnly([addAddress, signIn(url), ...giveKey]),
+    };
   }
-  if (sameAddress(url, keyAddress)) return undefined;
-  const fixes = [
-    `point ${where} at ${keyAddress}`,
-    ...(signIn ? [`sign in to ${url} with \`kindgi auth login --url ${url}\``] : []),
-    ...giveKey,
-  ];
-  return `${command} would send the API key ${stored}, which is for ${keyAddress}, to ${url}, which ${where} names. The key goes only to its own address: ${oneOf(fixes)}.`;
+  return {
+    sends: `${stored}, which is for ${keyAddress}, to ${url}, which ${where} names`,
+    stored: otherKeys(config, url),
+    fix: ownAddressOnly([`point ${where} at ${keyAddress}`, signIn(url), ...giveKey]),
+  };
+}
+
+/**
+ * How to sign in to `url`. `kindgi auth login` keeps the key with its
+ * address in the home file, where it's found by that address from any
+ * folder; it saves only a key it's given (auth.ts), never a stored one for
+ * another address, so the hint always gives one.
+ */
+function signIn(url: string): string {
+  return `sign in to ${url} with \`kindgi auth login --url ${url} --token <its key>\``;
+}
+
+function ownAddressOnly(fixes: readonly string[]): string {
+  return `The key goes only to its own address: ${oneOf(fixes)}.`;
+}
+
+/**
+ * The other stored keys, and that none is for `url`: "" when the key is
+ * the only one. In a folder where `kindgi dev` ran, its .kindgirc.json is
+ * read over the home sign-in, so this says where each key is for.
+ */
+function otherKeys(config: ResolvedConfig, url: string): string {
+  const keyFile = config.files?.token;
+  const others = (config.storedKeys ?? []).filter((k) => k.file.path !== keyFile?.path);
+  if (others.length === 0) return '';
+  const each = others.map((k) =>
+    k.apiUrl === undefined
+      ? `${k.file.path} has one with no address`
+      : `${k.file.path} has one for ${k.apiUrl}`,
+  );
+  return `${each.join(', and ')}, and none is stored for ${url}. `;
 }
 
 /**

@@ -822,6 +822,21 @@ The API URL and token come from, in order:
 pair once with `kindgi auth login --url=<url> --token=<token>`, and check it
 with `kindgi auth whoami`.
 
+**A stored key goes only to the address stored with it.** A key in
+`.kindgirc.json` or `~/.kindgi/config.json` is for the `apiUrl` beside it.
+When the two files hold keys for different addresses, the key used is the
+one stored with the API URL the command goes to, so in a `kindgi dev`
+folder `--url <the address you signed in to>` uses your sign-in's key.
+When no key is stored for that address (a `--url`, `KINDGI_API_URL` or
+folder `apiUrl` that names another one, or a key with no `apiUrl` beside
+it), a command that needs the key is refused before it sends anything,
+naming both addresses and the file. A command that sends no key isn't.
+`kindgi auth login --url=<url>` saves a stored key only for its own address:
+for another one, give that server's key with `--token` or `KINDGI_API_TOKEN`.
+A key given with `--token` or `KINDGI_API_TOKEN` goes to whatever address
+the command goes to. `kindgi doctor` says which key the CLI would use, and
+whether it's for the API URL.
+
 ### The runtime image's registry
 
 The Kindgi runtime image `kindgi dev` runs needs a pull credential (a robot
