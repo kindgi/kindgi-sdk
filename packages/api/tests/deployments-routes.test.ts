@@ -3151,6 +3151,77 @@ describe('POST /v1/deployments/:deploymentId/secrets — happy paths', () => {
   });
 });
 
+describe('POST /v1/deployments/:deploymentId/secrets — a new inline name is held to the shared grammar', () => {
+  test('refuses a new { name, value } whose name is out of grammar, writing nothing', async () => {
+    const { app, deploymentId, secretsFixture } = await makeSyncApp();
+    const res = await app.request(`/v1/deployments/${deploymentId}/secrets`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${SECRETS_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        envName: 'staging',
+        secrets: [{ name: 'acme/new-inline', value: 'v' }],
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'secret-name-invalid',
+    );
+    expect(secretsFixture.recordedSets).toHaveLength(0);
+  });
+
+  test('the refusal leaves nothing half-written when a valid entry comes before the bad one', async () => {
+    const { app, deploymentId, secretsFixture } = await makeSyncApp();
+    const res = await app.request(`/v1/deployments/${deploymentId}/secrets`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${SECRETS_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        envName: 'staging',
+        secrets: [
+          { name: 'fine.one', value: 'v1' },
+          { name: '.bad', value: 'v2' },
+        ],
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'secret-name-invalid',
+    );
+    expect(secretsFixture.recordedSets).toHaveLength(0);
+  });
+
+  test('an existing out-of-grammar name still takes a new inline value (add-version)', async () => {
+    const { app, deploymentId, secretsFixture } = await makeSyncApp({
+      seedSecrets: [
+        {
+          scope: { kind: 'tenant', tenantId } as Scope,
+          envName: 'staging',
+          name: 'acme/legacy',
+          currentVersion: 3,
+        },
+      ],
+    });
+    const res = await app.request(`/v1/deployments/${deploymentId}/secrets`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${SECRETS_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        envName: 'staging',
+        secrets: [{ name: 'acme/legacy', value: 'rotated' }],
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect(secretsFixture.recordedSets).toHaveLength(1);
+  });
+});
+
 describe('POST /v1/deployments/:deploymentId/secrets — scope determination', () => {
   test('tenant-scoped deployment → writes to { kind: "tenant", tenantId }', async () => {
     const { app, deploymentId, secretsFixture } = await makeSyncApp();

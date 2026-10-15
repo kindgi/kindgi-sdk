@@ -68,7 +68,7 @@ import {
 } from '../reference-scope.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
 import { secretScopesFor, toolSecretRefs } from '../secret-scope.js';
-import type { SecretBinding } from '../secrets-binding.js';
+import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
@@ -1175,6 +1175,29 @@ export function deploymentsRouter(
         parsed.push({ kind: 'ref', name: e.name, ref: e.ref as string });
       } else {
         parsed.push({ kind: 'value', name: e.name, value: e.value as string });
+      }
+    }
+
+    // A new inline secret's name is held to the shared grammar before any
+    // write, so a refusal leaves nothing half-written. An existing name
+    // reached by `add-version` is left as the store has it.
+    for (const entry of parsed) {
+      if (entry.kind !== 'value') continue;
+      const existing = await bindings.secretsBinding.get({ scope, envName, name: entry.name });
+      if (existing !== null) continue;
+      const nameRefusal = secretNameGrammarRefusal(entry.name);
+      if (nameRefusal !== undefined) {
+        c.status(statusFor(nameRefusal.code) as never);
+        return c.json(
+          toWireError(
+            {
+              code: nameRefusal.code,
+              message: `secrets[${entry.name}]: ${nameRefusal.message}`,
+              name: entry.name,
+            },
+            requestId,
+          ),
+        );
       }
     }
 

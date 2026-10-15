@@ -14,11 +14,12 @@ import type { Cursor, EnvName, Result } from '@kindgi/types';
 export const RESERVED_SECRET_NAME_PREFIX = 'kindgi.';
 
 /**
- * The characters a secret name may contain at the API border: ASCII letters,
- * digits, and `.`, `-`, `_`. {@link secretNameGrammarRefusal} holds a *fresh*
- * create to this set; a name already stored outside it still reads and rotates.
+ * The shape a secret name may take at the API border: ASCII letters, digits,
+ * and `.`, `-`, `_`, starting with a letter, digit or `_`.
+ * {@link secretNameGrammarRefusal} holds a *fresh* create to this shape; a name
+ * already stored outside it still reads, rotates and takes new versions.
  */
-export const SECRET_NAME_ALLOWED = /^[A-Za-z0-9._-]+$/;
+export const SECRET_NAME_ALLOWED = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
 
 /**
  * The longest a secret name may be at create. 255 is within every supported
@@ -47,7 +48,7 @@ export function secretNameGrammarRefusal(name: string): SecretNameRefusal | unde
     return {
       code: 'secret-name-invalid',
       message:
-        'A secret name uses ASCII letters, digits, and `.`, `-` or `_` only. Rename it using just those characters.',
+        'A secret name is 1 to 255 ASCII letters, digits, `.`, `-` and `_`, starting with a letter, digit or `_`. Rename it to that form.',
     };
   }
   return undefined;

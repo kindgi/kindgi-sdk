@@ -776,13 +776,22 @@ describe("API — a write the store refuses for its name or its value is the cal
 });
 
 describe('secretNameGrammarRefusal — the shared create-name grammar', () => {
-  test.each(['a', 'ACME_KEY', 'acme.woo-orders_v2', 'kindgi.webhook.1', 'A1', 'a'.repeat(255)])(
-    'allows %s',
-    (name) => {
-      expect(secretNameGrammarRefusal(name)).toBeUndefined();
-    },
-  );
-  test.each(['acme/woo', 'has space', 'pct%2e', 'hash#1', 'q?x', 'ключ', ''])(
+  test.each([
+    'a',
+    'ACME_KEY',
+    'acme.woo-orders_v2',
+    'kindgi.webhook.1',
+    'A1',
+    '_leads',
+    '9leads',
+    'a.b',
+    'a..b',
+    '__x--y.9',
+    'a'.repeat(255),
+  ])('allows %s', (name) => {
+    expect(secretNameGrammarRefusal(name)).toBeUndefined();
+  });
+  test.each(['acme/woo', 'has space', 'per%cent', 'hash#1', 'q?x', 'ключ', ''])(
     'refuses %s with secret-name-invalid',
     (name) => {
       expect(secretNameGrammarRefusal(name)?.code).toBe('secret-name-invalid');
@@ -791,14 +800,21 @@ describe('secretNameGrammarRefusal — the shared create-name grammar', () => {
   test('refuses a name longer than 255 characters', () => {
     expect(secretNameGrammarRefusal('a'.repeat(256))?.code).toBe('secret-name-invalid');
   });
-  test('allows names made of letters, digits, dots, dashes and underscores only', () => {
-    expect(secretNameGrammarRefusal('a.b')).toBeUndefined();
-    expect(secretNameGrammarRefusal('a..b')).toBeUndefined();
-    expect(secretNameGrammarRefusal('__x--y.9')).toBeUndefined();
+  // A new name starts with a letter, digit or `_`: a leading dot or dash, or
+  // an all-dots name, is refused. (A mutant that widened the first-character
+  // class to admit `.` or `-`, or dropped the anchor, is caught here.)
+  test.each(['.hidden', '.a', '-foo', '.', '..', '...', '-'])(
+    'refuses %s for its first character',
+    (name) => {
+      expect(secretNameGrammarRefusal(name)?.code).toBe('secret-name-invalid');
+    },
+  );
+  test.each(['_abc', '9abc', 'Zabc', 'abc'])('allows a name starting with %s', (name) => {
+    expect(secretNameGrammarRefusal(name)).toBeUndefined();
   });
 });
 
-describe('API — a new secret name is held to the shared grammar at the border (create-new only)', () => {
+describe('API — a new secret name is held to the shared grammar at the border (on create, incl. add-version that creates)', () => {
   const headers = { authorization: `Bearer ${TOKEN_ALL}`, 'content-type': 'application/json' };
   const writeBody = (name: string, writeMode: 'create-new' | 'add-version') =>
     JSON.stringify({
@@ -812,10 +828,13 @@ describe('API — a new secret name is held to the shared grammar at the border 
   test.each([
     ['a slash', 'acme/woo-orders'],
     ['a space', 'acme key'],
-    ['a percent', 'acme%2e'],
+    ['a percent', 'acme%pc'],
     ['a hash', 'acme#1'],
     ['a question mark', 'acme?x'],
     ['a non-ASCII letter', 'ключ'],
+    ['a leading dot', '.acme'],
+    ['a leading dash', '-acme'],
+    ['an all-dots name', '..'],
   ])(
     'POST /v1/secrets create-new refuses %s with secret-name-invalid, storing nothing',
     async (_why, name) => {
@@ -864,7 +883,27 @@ describe('API — a new secret name is held to the shared grammar at the border 
     expect(res.status).toBe(201);
   });
 
-  test('add-version is not held to the border grammar — an existing out-of-grammar name still takes a new value', async () => {
+  test('POST /v1/secrets add-version refuses a NEW out-of-grammar name, storing nothing', async () => {
+    const secrets = makeInMemorySecretsBinding();
+    let setCalls = 0;
+    const inner = secrets.set.bind(secrets);
+    secrets.set = async (input) => {
+      setCalls += 1;
+      return inner(input);
+    };
+    const res = await makeApp({ secrets }).request('/v1/secrets', {
+      method: 'POST',
+      headers,
+      body: writeBody('acme/new-via-add-version', 'add-version'),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'secret-name-invalid',
+    );
+    expect(setCalls).toBe(0);
+  });
+
+  test('add-version to an EXISTING out-of-grammar name still takes a new value', async () => {
     const secrets = makeInMemorySecretsBinding();
     await secrets.set({
       scope: { kind: 'tenant', tenantId: tenantA },
@@ -880,5 +919,33 @@ describe('API — a new secret name is held to the shared grammar at the border 
       body: writeBody('acme/legacy', 'add-version'),
     });
     expect(res.status).toBe(200);
+  });
+
+  test('a name already stored outside the grammar still reads, revokes and takes a new version', async () => {
+    const secrets = makeInMemorySecretsBinding();
+    await secrets.set({
+      scope: { kind: 'tenant', tenantId: tenantA },
+      envName: staging,
+      name: '.legacy',
+      value: 'v1',
+      writeMode: 'create-new',
+      enqueueTuples: () => [],
+    });
+    const app = makeApp({ secrets });
+    const read = await app.request('/v1/secrets/.legacy?envName=staging&scopeKind=tenant', {
+      headers: { authorization: `Bearer ${TOKEN_ALL}` },
+    });
+    expect(read.status).toBe(200);
+    const addV = await app.request('/v1/secrets', {
+      method: 'POST',
+      headers,
+      body: writeBody('.legacy', 'add-version'),
+    });
+    expect(addV.status).toBe(200);
+    const del = await app.request('/v1/secrets/.legacy?envName=staging&scopeKind=tenant', {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${TOKEN_ALL}` },
+    });
+    expect(del.status).toBe(200);
   });
 });
