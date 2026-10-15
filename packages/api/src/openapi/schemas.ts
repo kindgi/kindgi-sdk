@@ -1374,7 +1374,7 @@ export const CreateSystemTenantBodySchema: JsonSchema = {
       additionalProperties: false,
       required: ['email', 'name'],
       description:
-        "The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.",
+        "The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. The runtime gives them every capability but `secrets:reveal`, to put on the keys they make. Absent: the answer carries an admin key instead, which takes the full system capability.",
       properties: {
         email: { type: 'string', maxLength: 254, description: 'An email address.' },
         name: { type: 'string', minLength: 1, maxLength: 100 },

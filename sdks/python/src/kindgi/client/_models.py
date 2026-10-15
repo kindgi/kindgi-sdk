@@ -1282,7 +1282,7 @@ class SystemTenant(BaseModel):
 
 class FirstAdmin(BaseModel):
     """
-    The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.
+    The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. The runtime gives them every capability but `secrets:reveal`, to put on the keys they make. Absent: the answer carries an admin key instead, which takes the full system capability.
     """
 
     model_config = ConfigDict(
@@ -1320,7 +1320,7 @@ class CreateSystemTenantBody(BaseModel):
     """
     first_admin: Annotated[FirstAdmin | None, Field(alias="firstAdmin")] = None
     """
-    The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.
+    The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. The runtime gives them every capability but `secrets:reveal`, to put on the keys they make. Absent: the answer carries an admin key instead, which takes the full system capability.
     """
 
 

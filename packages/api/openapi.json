@@ -3011,7 +3011,7 @@
               "email",
               "name"
             ],
-            "description": "The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.",
+            "description": "The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. The runtime gives them every capability but `secrets:reveal`, to put on the keys they make. Absent: the answer carries an admin key instead, which takes the full system capability.",
             "properties": {
               "email": {
                 "type": "string",
