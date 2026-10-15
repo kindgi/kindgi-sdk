@@ -66,7 +66,8 @@ docker run --rm --network kindgi openfga/openfga:v1.22.0 migrate \
 docker run -d --name kindgi-openfga --network kindgi --restart unless-stopped \
   openfga/openfga:v1.22.0 run \
   --datastore-engine postgres \
-  --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db:5432/openfga?sslmode=disable"
+  --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db:5432/openfga?sslmode=disable" \
+  --playground-enabled=false
 ```
 
 ```text
@@ -83,7 +84,10 @@ migration done
   start it again after a restart.
 
 Keep OpenFGA on the private network, with no published port: the runtime
-calls it without credentials. Back up its `openfga` database with the
+calls it without credentials unless OpenFGA requires a key
+([Require a key for OpenFGA](#require-a-key-for-openfga), which needs runtime
+0.1.8 or later).
+The playground is off: it's for trying OpenFGA on your own machine. Back up its `openfga` database with the
 runtime's ([Back up Postgres](../back-up-and-restore/#back-up-postgres)).
 
 ### An OpenFGA you already run
@@ -161,6 +165,64 @@ already has.
   reaching OpenFGA. Fix what `error` names on the database side: the
   connection, a timeout, or the database user's permissions. The changes
   apply on the next pass, with no restart.
+
+### Require a key for OpenFGA
+
+OpenFGA answers whoever reaches it, so anything else on its network could read
+and write your permissions. OpenFGA can require a key, and the runtime sends
+it with every call (`Authorization: Bearer <key>`). This needs runtime 0.1.8 or
+later: an earlier runtime ignores the setting, and OpenFGA then refuses its
+calls.
+
+Use OpenFGA 1.14.0 or later with a key, with its playground off: before 1.14.0,
+the playground page shows the key to anyone who opens it
+([OpenFGA: Playground Preshared Key Exposure](https://github.com/openfga/openfga/security/advisories/GHSA-68m9-983m-f3v5),
+CVE-2026-40293). Make a key, run
+OpenFGA with it, and give the runtime the same key:
+
+```sh
+OPENFGA_KEY=$(openssl rand -hex 32)
+
+docker run -d --name kindgi-openfga --network kindgi --restart unless-stopped \
+  openfga/openfga:v1.22.0 run \
+  --datastore-engine postgres \
+  --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db:5432/openfga?sslmode=disable" \
+  --authn-method preshared --authn-preshared-keys "$OPENFGA_KEY" \
+  --playground-enabled=false
+```
+
+In `kindgi.env`, beside the address:
+
+```sh
+KINDGI_OPENFGA_PRESHARED_KEY=<the same key>
+```
+
+The key is printable ASCII, without spaces or commas: it travels in a header,
+and OpenFGA's list of keys is comma-separated. After a
+[restart](../restart-and-check-health/#restart-the-runtime), the startup lines say what the
+runtime's calls carry, never the key:
+
+```text
+  OpenFGA calls carry its preshared key (KINDGI_OPENFGA_PRESHARED_KEY)
+```
+
+A runtime whose key OpenFGA doesn't hold, or that has none, doesn't start:
+
+```text
+kindgi-runtime: fatal: Error: OpenFGA at http://127.0.0.1:63551 refused the server's call (401): set KINDGI_OPENFGA_PRESHARED_KEY to one of the keys OpenFGA runs with (its OPENFGA_AUTHN_PRESHARED_KEYS) and, for an OpenFGA behind Cloud Run IAM, KINDGI_OPENFGA_AUTH=google-id-token.
+```
+
+**To change the key** with no call refused, use OpenFGA's list of keys, and
+restart each in turn:
+
+1. Add the new key to OpenFGA's: `--authn-preshared-keys "$OLD_KEY,$NEW_KEY"`.
+   Restart OpenFGA.
+2. Set the runtime's `KINDGI_OPENFGA_PRESHARED_KEY` to the new key. Restart the
+   runtime.
+3. Drop the old key from OpenFGA's list. Restart OpenFGA.
+
+On Cloud Run, OpenFGA's IAM adds a second check:
+[OpenFGA behind Cloud Run IAM](../cloud-run/#openfga-behind-cloud-run-iam).
 
 ## A denied request
 
@@ -462,8 +524,10 @@ refused:
 - a caller who isn't a reviewer, on the approvals routes, or who may not
   judge as a restricted judge class (`judge-class-not-allowed`);
 - the operator's identity-provider lock (`identity-providers-operator-managed`);
-- reading the deployment's license (`GET /v1/license`) without its own token,
-  unless you're an admin of the one tenant it serves (`license-operator-only`);
+- reading the deployment's license (`GET /v1/license`) or its use
+  (`GET /v1/license/usage`) without its own token or a system key holding
+  `system:license`, unless you're an admin of the one tenant it serves
+  reading the license (`license-operator-only`);
 - console token sign-in's refusals (`token-sign-in-not-allowed`,
   `token-sign-in-off`);
 - a stdio MCP endpoint where the deployment runs no commands

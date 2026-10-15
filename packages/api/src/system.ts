@@ -92,4 +92,7 @@ export const SYSTEM_PRINCIPAL_ALLOWED_ROUTES: readonly {
   readonly method: string;
   readonly path: string;
   readonly scope: SystemScope;
-}[] = [{ method: 'GET', path: '/v1/license', scope: 'system:license' }];
+}[] = [
+  { method: 'GET', path: '/v1/license', scope: 'system:license' },
+  { method: 'GET', path: '/v1/license/usage', scope: 'system:license' },
+];

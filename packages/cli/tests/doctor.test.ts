@@ -28,37 +28,42 @@ afterEach(async () => {
 
 const IMAGE = 'quay.io/kindgi/runtime:1.0.0@sha256:abc';
 
+type DockerState = 'ok' | 'missing' | 'stopped' | 'not-started' | 'denied' | 'no-access' | 'helper';
+type Answer = Awaited<ReturnType<DockerRunner>>;
+const failing = (stderr: string, stdout = ''): Answer => ({ code: 1, stdout, stderr });
+
+/** Every `docker` command, for a Docker that won't run at all. */
+const UNSPAWNED: Partial<Record<DockerState, Answer>> = {
+  missing: { code: null, stdout: '', stderr: 'spawn docker ENOENT' },
+  // A sandbox that won't let this process start programs.
+  'not-started': { code: null, stdout: '', stderr: 'spawn docker EPERM', errorCode: 'EPERM' },
+};
+
+/** `docker version`, for a Docker whose engine doesn't answer. */
+const VERSION: Partial<Record<DockerState, Answer>> = {
+  stopped: failing('Cannot connect to the Docker daemon. Is the docker daemon running?'),
+  denied: failing(
+    'permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock: Get "http://%2Fvar%2Frun%2Fdocker.sock/v1.47/version": dial unix /var/run/docker.sock: connect: permission denied',
+    'Client:\n Version: 27.3.1\n',
+  ),
+};
+
+/** The pull's commands, for a registry or a credential helper that refuses. */
+const PULL: Partial<Record<DockerState, Answer>> = {
+  helper: failing(
+    'error getting credentials - err: exec: "docker-credential-desktop": executable file not found in $PATH, out: ``',
+  ),
+  'no-access': failing('unauthorized: access to the requested resource is not authorized'),
+};
+
 /** Docker that is running and can pull the image, unless told otherwise. */
 const dockerThat =
-  (state: 'ok' | 'missing' | 'stopped' | 'no-access' | 'helper'): DockerRunner =>
-  async (args) => {
-    if (state === 'missing') return { code: null, stdout: '', stderr: 'spawn docker ENOENT' };
-    if (args[0] === 'version') {
-      return state === 'stopped'
-        ? {
-            code: 1,
-            stdout: '',
-            stderr: 'Cannot connect to the Docker daemon. Is the docker daemon running?',
-          }
-        : { code: 0, stdout: '27.3.1\n', stderr: '' };
-    }
-    if (state === 'helper') {
-      return {
-        code: 1,
-        stdout: '',
-        stderr:
-          'error getting credentials - err: exec: "docker-credential-desktop": executable file not found in $PATH, out: ``',
-      };
-    }
-    if (state === 'no-access') {
-      return {
-        code: 1,
-        stdout: '',
-        stderr: 'unauthorized: access to the requested resource is not authorized',
-      };
-    }
-    return { code: 0, stdout: '', stderr: '' };
-  };
+  (state: DockerState): DockerRunner =>
+  async (args) =>
+    UNSPAWNED[state] ??
+    (args[0] === 'version'
+      ? (VERSION[state] ?? { code: 0, stdout: '27.3.1\n', stderr: '' })
+      : (PULL[state] ?? { code: 0, stdout: '', stderr: '' }));
 
 const TOOLS: Readonly<Record<string, string | null>> = {
   npm: '10.9.2',
@@ -295,9 +300,11 @@ describe('the machine', () => {
 
   test('Docker not running: the fix says to start it; the human report shows ✗ and Fix', async () => {
     const json = await doctor({ seam: seam({ docker: dockerThat('stopped') }) });
-    expect(json.check('docker')?.message).toContain("Docker isn't running");
+    expect(json.check('docker')?.message).toContain(
+      "Docker isn't running, or `kindgi doctor` can't reach it",
+    );
     expect(json.check('docker')?.fix).toBe(
-      'Start Docker Desktop (or the Docker engine), then run this again.',
+      "Start Docker Desktop (or the Docker engine), then run this again. If it's running, a coding agent's sandbox may be what keeps it out of reach: run `kindgi doctor` in your own terminal instead.",
     );
     const text = await doctor({ seam: seam({ docker: dockerThat('stopped') }), json: false });
     expect(text.out.exitCode).toBe(1);
@@ -306,17 +313,30 @@ describe('the machine', () => {
     expect(text.out.stdout).toContain('1 problem to fix.');
   });
 
+  test.each([
+    ['not-started', "`kindgi doctor` couldn't start `docker` (spawn docker EPERM)."],
+    [
+      'denied',
+      "Docker's socket refused `kindgi doctor`: permission denied while trying to connect to the Docker daemon socket",
+    ],
+  ] as const)("Docker %s: the fix is the person's own terminal", async (state, message) => {
+    const { check } = await doctor({ seam: seam({ docker: dockerThat(state) }) });
+    expect(check('docker')).toMatchObject({ status: 'fail' });
+    expect(check('docker')?.message).toContain(message);
+    expect(check('docker')?.fix).toContain(
+      'If a coding agent runs this, its sandbox is likely what stops it: run `kindgi doctor` in your own terminal instead.',
+    );
+  });
+
   test('no pull access: the fix is the registry login, the token piped in', async () => {
     const { check } = await doctor({ seam: seam({ docker: dockerThat('no-access') }) });
     expect(check('registry')).toMatchObject({ status: 'fail' });
     expect(check('registry')?.fix).toMatch(
-      /npx @kindgi\/cli@\S+ auth registry --username <robot name> --password-stdin/,
+      /npx @kindgi\/cli@\S+ auth registry --username <your robot name> --password-stdin/,
     );
-    // Where pull credentials come from, the same as `kindgi auth registry` and `kindgi dev` say.
     expect(check('registry')?.fix).toContain(
-      'request the robot name and token at contact@kindgi.com',
+      'the robot name and the token are on https://access.kindgi.com once you sign in with GitHub',
     );
-    expect(check('registry')?.fix).not.toContain('access.kindgi.com');
   });
 
   test("a credential helper Docker can't run: named, with the fix, not a network problem", async () => {
@@ -1210,7 +1230,7 @@ describe('the license key', () => {
       /^octo's non-production key expires in 12 days \(\d{4}-\d{2}-\d{2}\)\.$/,
     );
     expect(check?.fix).toBe(
-      'Renew it: from this deployment (kindgi license renew --env-file kindgi.env --renewer <its renewer key>), or sign in at https://access.kindgi.com',
+      "Renew it: from this deployment (kindgi license renew --env-file kindgi.env --renewer <its renewer key>), or sign in at https://access.kindgi.com, which shows its latest key and renews it unless a deployment renewed it this week and it hasn't expired",
     );
   });
 
@@ -1221,7 +1241,7 @@ describe('the license key', () => {
       KINDGI_LICENSE_RENEWER_REF: ' gcp:projects/acme/secrets/kindgi-license-renewer ',
     });
     expect(check?.fix).toBe(
-      'Renew it: from this deployment (kindgi license renew --key gcp:projects/acme/secrets/kindgi-license-key --renewer gcp:projects/acme/secrets/kindgi-license-renewer), or sign in at https://access.kindgi.com',
+      "Renew it: from this deployment (kindgi license renew --key gcp:projects/acme/secrets/kindgi-license-key --renewer gcp:projects/acme/secrets/kindgi-license-renewer), or sign in at https://access.kindgi.com, which shows its latest key and renews it unless a deployment renewed it this week and it hasn't expired",
     );
   });
 
@@ -1242,7 +1262,7 @@ describe('the license key', () => {
       `KINDGI_LICENSE_KEY=${key({ exp: NOW / 1000 + 12 * DAY })}\nKINDGI_LICENSE_RENEWER_REF=file:/etc/kindgi/renewer.key\n`,
     );
     expect((await licenseOf())?.fix).toBe(
-      'Renew it: from this deployment (kindgi license renew --env-file kindgi.env --renewer file:/etc/kindgi/renewer.key), or sign in at https://access.kindgi.com',
+      "Renew it: from this deployment (kindgi license renew --env-file kindgi.env --renewer file:/etc/kindgi/renewer.key), or sign in at https://access.kindgi.com, which shows its latest key and renews it unless a deployment renewed it this week and it hasn't expired",
     );
   });
 
@@ -1272,7 +1292,7 @@ describe('the license key', () => {
       seam: { ...seam(), now: () => NOW, licensePublicKeys },
     });
     expect(report?.checks.find((c) => c.id === 'license')?.fix).toBe(
-      `Renew it: from this deployment (kindgi license renew --env-file ${join('deploy', 'kindgi.env')} --renewer file:/etc/kindgi/renewer.key), or sign in at https://access.kindgi.com`,
+      `Renew it: from this deployment (kindgi license renew --env-file ${join('deploy', 'kindgi.env')} --renewer file:/etc/kindgi/renewer.key), or sign in at https://access.kindgi.com, which shows its latest key and renews it unless a deployment renewed it this week and it hasn't expired`,
     );
   });
 

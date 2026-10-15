@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
-import type { EnvName, TenantId } from '@kindgi/types';
+import type { Cursor, EnvName, TenantId } from '@kindgi/types';
 
 import { guardProviderKeys } from '../src/index.js';
 import type { ProviderKeys, SecretBinding } from '../src/index.js';
@@ -99,9 +99,23 @@ describe('guardProviderKeys', () => {
 
   test('what the store says about itself passes through', () => {
     const { binding } = store();
-    const dev = { ...binding, writesAppEnvFiles: true } as SecretBinding;
-    expect(guardProviderKeys(dev, keys, 'a tool').writesAppEnvFiles).toBe(true);
+    const refusal = { code: 'secret-name-invalid', message: 'not an env-file key' } as const;
+    const dev = {
+      ...binding,
+      writesAppEnvFiles: true,
+      nameRefusal: (name: string) => (name === 'acme-key' ? refusal : undefined),
+      issuedCursor: (list: 'secrets' | 'versions', cursor: Cursor) =>
+        list === 'secrets' && (cursor as unknown as string) === 'issued',
+    } as SecretBinding;
+    const guarded = guardProviderKeys(dev, keys, 'a tool');
+    expect(guarded.writesAppEnvFiles).toBe(true);
+    expect(guarded.nameRefusal?.('acme-key')).toEqual(refusal);
+    expect(guarded.nameRefusal?.('ACME_KEY')).toBeUndefined();
+    expect(guarded.issuedCursor?.('secrets', 'issued' as Cursor)).toBe(true);
+    expect(guarded.issuedCursor?.('versions', 'issued' as Cursor)).toBe(false);
     expect(guardProviderKeys(binding, keys, 'a tool')).not.toHaveProperty('writesAppEnvFiles');
+    expect(guardProviderKeys(binding, keys, 'a tool')).not.toHaveProperty('nameRefusal');
+    expect(guardProviderKeys(binding, keys, 'a tool')).not.toHaveProperty('issuedCursor');
   });
 
   test('the words name what asked', async () => {

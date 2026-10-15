@@ -95,6 +95,7 @@ import { tenantScopeMiddleware } from './middleware/tenant-scope.js';
 import { type TenantStateBinding, tenantStateGate } from './middleware/tenant-state.js';
 import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
+import type { PersonCapabilitiesBinding } from './person-capabilities-binding.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
 import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
@@ -384,6 +385,14 @@ export interface CreateAppInput {
    */
   readonly personGrants?: PersonGrantsBinding;
   /**
+   * Optional. The capabilities a person holds (`env:write`, `secrets:*`,
+   * `signing-keys:write`, …), which their sign-in sessions carry: for the
+   * writes that need one, and for the keys they mint (`POST /v1/tokens`
+   * grants only what the minter holds). Read on each session request.
+   * Without it a session carries none, and only API keys hold capabilities.
+   */
+  readonly personCapabilities?: PersonCapabilitiesBinding;
+  /**
    * Optional. What the caller holds, for `GET /v1/identity/me/permissions`:
    * its projects with their roles, its orgs and teams, and what each
    * project role allows, from the authorization model. Without it, that
@@ -609,13 +618,16 @@ export interface CreateAppInput {
   /**
    * Each tenant's state, for freezing a closing or suspended tenant's
    * writes (`tenantStateGate`), on every way in: keys, sessions, SigV4.
+   * A closing tenant's webhook deliveries are refused too, and a suspended
+   * one's are skipped.
    * Required with `tenancy: 'multi'`; a runtime serving one tenant has none.
    */
   readonly tenantStates?: TenantStateBinding;
   /**
    * Whether a project is suspended (`PUT
    * /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`): a
-   * deploy into it is refused `409 project-suspended`. Absent: no check.
+   * deploy into it is refused `409 project-suspended`, and a webhook
+   * delivery to one of its triggers is skipped. Absent: no check.
    */
   readonly projectSuspended?: (
     tenantId: import('@kindgi/types').TenantId,
@@ -664,7 +676,7 @@ export interface CreateAppInput {
    * The most bytes one artifact upload may carry (`POST /v1/artifacts`);
    * more is `413 artifact-too-large`. Also the most one request to the
    * S3-compatible routes may carry (`/s3/*`: an object, or a part of a
-   * multipart upload); more is S3's `400 EntityTooLarge`. Default 100 MB.
+   * multipart upload); more is S3's `400 EntityTooLarge`. Default 100 MiB.
    */
   readonly artifactMaxBytes?: number;
   /**
@@ -1330,6 +1342,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         },
       }),
       ...(input.sessionStore !== undefined && { sessionStore: input.sessionStore }),
+      ...(input.personCapabilities !== undefined && {
+        personCapabilities: input.personCapabilities,
+      }),
       ...(inactivityTimeoutMs !== undefined && { inactivityTimeoutMs }),
       ...(sessionCfg?.touchThrottle !== undefined && {
         touchThrottleMs: sessionCfg.touchThrottle,
@@ -2128,6 +2143,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         }),
         ...(input.webhookReceiver.rateLimitStore !== undefined && {
           rateLimitStore: input.webhookReceiver.rateLimitStore,
+        }),
+        ...(input.tenantStates !== undefined && { tenantStates: input.tenantStates }),
+        ...(input.projectSuspended !== undefined && {
+          projectSuspended: input.projectSuspended,
         }),
       }),
     );

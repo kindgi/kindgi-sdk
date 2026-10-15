@@ -110,6 +110,8 @@ export const ENV_DEFAULTS = {
   KINDGI_PAGINATION_PREVIOUS_KEY: 'none: no previous key',
   KINDGI_COMPLIANCE_CLASSIFIER: 'none: no compliance routes, and no audit event is purged',
   KINDGI_ARTIFACTS: 'none: artifacts are off (no `/v1/artifacts`)',
+  KINDGI_TURN_MEMORY_MIB: "none: no limit on every tenant's turns together",
+  KINDGI_TURN_MEMORY_PER_TENANT_MIB: 'none: no limit per tenant',
   KINDGI_ARTIFACT_MAX_BYTES: '`104857600` (100 MiB)',
   KINDGI_LOG_LEVEL: '`info`',
   KINDGI_LOG_LEVELS: 'none: no per-subsystem levels; `KINDGI_LOG_LEVEL` applies everywhere',
@@ -152,7 +154,7 @@ export const ENV_DEFAULTS = {
   KINDGI_PACK_TENANT_ID: "none: no check, the pack service answers any tenant's calls",
   KINDGI_PACK_ROUTING: '`single`: one pack service, `KINDGI_PACK_SERVICE_URL`, for every call',
   KINDGI_PACK_ENDPOINT_HOSTS:
-    'none: every endpoint is refused, so per-deployment routing is never open by default',
+    'none: with `KINDGI_PACK_ROUTING=per-deployment`, the server refuses to start',
   KINDGI_IMAGE_REGISTRY_HOST: 'none: every registry is read anonymously',
   KINDGI_IMAGE_REGISTRY_USERNAME: 'none: no credentials (anonymous reads)',
   KINDGI_IMAGE_REGISTRY_PASSWORD: 'none: no credentials (anonymous reads)',

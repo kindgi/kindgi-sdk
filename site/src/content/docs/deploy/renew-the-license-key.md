@@ -39,11 +39,16 @@ a new key instead, or write to contact@kindgi.com.
 
 ## Where the keys are kept
 
-`kindgi license` reads and writes two values, each named by a reference:
+`kindgi license` reads and writes these, each named by a reference:
 
 - **the license key** (`--key`), where the runtime reads it;
 - **the renewer's private key** (`--renewer`), which `enroll` makes. It
-  never leaves where you keep it, and it's never printed.
+  never leaves where you keep it, and it's never printed;
+- **the runtime's own token** (`--runtime-token`), read only, when a renewal
+  carries counts (`--runtime`).
+
+Give each flag where the value is kept, never the value itself. A flag that
+isn't a reference is refused without repeating it, in case it's the secret.
 
 | Reference | Where |
 | --- | --- |
@@ -71,8 +76,7 @@ The cloud stores sign in as the platform's own identity:
   - the instance's role, through IMDSv2;
   - the AWS CLI's, from `aws configure export-credentials`.
 
-Whatever runs `renew` needs to read both values, and to write the license
-key's.
+Whatever runs `renew` needs to read these, and to write the license key's.
 
 ## 1. Enroll the deployment, once
 
@@ -128,6 +132,17 @@ kindgi license renew --key gcp:projects/acme-prod/secrets/kindgi-license-key \
 - `--renewer` is where `enroll` kept the renewer's private key.
 - With a `kindgi.env`, `--env-file kindgi.env` stands for
   `--key env-file:kindgi.env#KINDGI_LICENSE_KEY`.
+- `--runtime <url>` with `--runtime-token <ref>`: this deployment's runtime,
+  and where its own token (`KINDGI_API_TOKEN`) is kept, as a reference from
+  [Where the keys are kept](#where-the-keys-are-kept). The renewal then
+  carries counts of the deployment's use since the current key was issued
+  ([What renewing sends](#what-renewing-sends)).
+  - `<url>` is the runtime's URL as `KINDGI_API_URL` gives it, path included,
+    over http or https, with no credentials in it.
+  - Counts are for a non-production key: a production key's renewal carries
+    none, and the runtime isn't asked.
+  - They need the CLI and the runtime at 0.1.8 or later. Without them, the
+    key still renews.
 
 `renew` checks the answer offline before it writes anything: Kindgi's
 signature, the same licensee and use, and no earlier end date. It writes
@@ -138,6 +153,19 @@ only a key that's new, and prints one line:
   on the key it started with.
 - `unchanged: …` when there's no newer key. A non-production key gets its
   next one in its last 30 days.
+
+With `--runtime`, a line says what the renewal carried:
+
+- `counts: sent (<runs> runs, <people> people, <n> in production since <date>, runtime <version>)`.
+  The `, <n> in production` part comes only from a runtime that can put
+  projects in production.
+- `counts: not sent (<why>); this renewal goes without them.` when there
+  are none to send: a production key's renewal, a token that can't be read
+  or sent, or a runtime that couldn't say (no answer, a 404 from a runtime
+  that doesn't report its use, a refusal, an error, or an answer that isn't
+  counts, as access.kindgi.com reads them). The key still renews.
+
+On a refusal, the line goes to stderr, before `refused (…)`.
 
 In the key's last 30 days, `renew` adds a line that starts
 `⚠ It expires in <N> days`. It says how to get a key if `renew` keeps
@@ -163,6 +191,7 @@ A refusal from access.kindgi.com names its code, `refused (<code>): …`:
 | `not-entitled` | A production key is renewed with your contract: write to contact@kindgi.com. |
 | `term-ended` | The contract's term has ended, and the key you have runs until its own date. Write to contact@kindgi.com to extend the term. |
 | `key-revoked`, `denied` | Write to contact@kindgi.com. |
+| `held-for-review` | This renewal's counts are above what a non-production key covers, so it got no new key: write to contact@kindgi.com about a production license. Kindgi can release the deployment after a review, and its renewals then aren't held until a date. The key you have runs until its own date. A renewal before the key is due gets the same key back. |
 
 ## On a schedule
 
@@ -186,9 +215,36 @@ The module's README has the details.
 
 ## What renewing sends
 
-Only the renewal request: the renewer's id, the time and a one-time value,
-signed with the renewer's private key. No license key, run or data leaves
-the deployment. Nothing is sent between runs of `renew`.
+The renewal request: the renewer's id, the time and a one-time value, signed
+with the renewer's private key. No license key, run or data leaves the
+deployment. Nothing is sent between runs of `renew`.
+
+With `--runtime`, the request also carries counts of the deployment's use
+since its current key was issued, signed with the rest. `renew` reads them
+from the runtime (`GET /v1/license/usage`, which only the deployment's own
+token, or a system key holding `system:license`, can read):
+
+- **runs:** the runs started, not counting dry runs, replays, evals or the
+  runs another run starts;
+- **people:** the distinct people who started runs or decided approvals,
+  counted in each tenant and summed, so a person in two tenants counts twice;
+- **projects in production,** from a runtime that can
+  [put projects in production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production);
+- **the runtime's version,** and the period they cover.
+
+A tenant the runtime can't count is left out, and its log names it (a
+warning under `license`), so the counts can be lower than the use. When it
+can't count any of its tenants, it answers an error instead, and the renewal
+goes without counts.
+
+They're counts only: no content, names or ids. Until the date on Kindgi's
+[privacy page](https://www.kindgi.com/privacy), access.kindgi.com
+keeps only whether a renewal carried counts. From that date, it keeps them
+with the renewal's record, kept 400 days, and the latest ones with the
+deployment's renewer, kept until the account is deleted. Kindgi reads them to
+see production-like use of non-production keys. Above levels Kindgi sets, a
+non-production key's renewal is held for review once a new key is due
+(`held-for-review`).
 
 ## The runtime's warnings
 

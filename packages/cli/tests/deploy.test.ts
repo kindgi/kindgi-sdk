@@ -25,7 +25,7 @@
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
@@ -33,7 +33,9 @@ import { DEPLOY_ENVELOPE_SCHEMA } from '../src/build/envelope.js';
 import { postDeploymentReal } from '../src/deploy/post.js';
 import type {
   DeployRunners,
+  DeploymentEndpointRecord,
   DeploymentRecord,
+  GetDeploymentResult,
   LoadEnvelopeResult,
   PostDeploymentOptions,
   PostDeploymentResult,
@@ -1173,13 +1175,16 @@ describe('kindgi deploy --project: one project per client', () => {
     expect(body(fixtures)?.projectId).toBeUndefined();
   });
 
-  test('a slug of no project is refused, naming how to make one; nothing is sent', async () => {
+  test('a slug of no project is refused, saying where to see them; nothing is sent', async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures({ projects });
     const out = await deploy(fixtures, '--project=initech-shop');
     expect(out.exitCode).not.toBe(0);
-    expect(out.stderr).toContain('--project initech-shop: no project of this tenant has that slug');
-    expect(out.stderr).toContain('kindgi projects create');
+    expect(out.stderr).toContain(
+      '--project initech-shop: no project of this tenant has that slug. `kindgi projects list` shows them.',
+    );
+    // No command makes one.
+    expect(out.stderr).not.toContain('kindgi projects create');
     expect(fixtures.state.postCalls).toBe(0);
   });
 
@@ -1214,4 +1219,535 @@ describe('kindgi deploy --project: one project per client', () => {
     const summary = JSON.parse(out.stdout) as { wouldPost?: Record<string, unknown> };
     expect(summary.wouldPost?.projectId).toBe(ACME);
   });
+});
+
+describe('kindgi deploy --hosted: build there, then wait for the pack service', () => {
+  const PROJECT = '3f2b8c1e-4a5d-4e6f-9a0b-1c2d3e4f5a6b';
+  const pending = (problem?: string): DeploymentEndpointRecord => ({
+    status: 'pending',
+    since: '2026-10-13T08:00:00.000Z',
+    ...(problem !== undefined && { problem: { code: problem, since: '2026-10-13T08:00:01.000Z' } }),
+  });
+  const ready: DeploymentEndpointRecord = { status: 'ready', since: '2026-10-13T08:00:30.000Z' };
+  const cleared: DeploymentEndpointRecord = {
+    status: 'cleared',
+    since: '2026-10-13T08:00:30.000Z',
+  };
+
+  /**
+   * Fixtures whose deploy answers with `first`, and whose reads of the
+   * deployment answer `reads` in turn (then the last again); the clock
+   * moves on by each sleep.
+   */
+  function hostedFixtures(
+    first: DeploymentEndpointRecord | undefined,
+    reads: readonly (DeploymentEndpointRecord | 'error')[],
+    opts: FixtureOptions = {},
+  ) {
+    const fixtures = makeFixtures({
+      ...opts,
+      postResult: {
+        kind: 'created',
+        status: 201,
+        record: makeDeploymentRecord(first !== undefined ? { endpoint: first } : {}),
+      },
+    });
+    let clock = 0;
+    const sleeps: number[] = [];
+    const readIds: string[] = [];
+    const runners: DeployRunners = {
+      ...fixtures.runners,
+      getDeployment: async (o): Promise<GetDeploymentResult> => {
+        readIds.push(o.deploymentId);
+        const next = reads[Math.min(readIds.length - 1, reads.length - 1)];
+        if (next === undefined || next === 'error') {
+          return { kind: 'error', message: 'GET … answered HTTP 503' };
+        }
+        return { kind: 'ok', record: makeDeploymentRecord({ endpoint: next }) };
+      },
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        clock += ms;
+      },
+      now: () => clock,
+    };
+    return { fixtures: { ...fixtures, runners }, sleeps, readIds };
+  }
+
+  const API = 'https://platform.example.com';
+  /** Signed in to Kindgi Cloud: the API's address and its key. */
+  const signedIn = { KINDGI_API_URL: API, KINDGI_API_TOKEN: 'test-bearer-token' };
+  /** A Kindgi Cloud env block: no `endpoint`, as the API is the CLI's own address. */
+  const cloud = (): Record<string, unknown> => ({
+    environments: {
+      staging: { signingKey: join(home, 'signing-key.pem'), tenantId: 'tenant-acme-staging' },
+    },
+  });
+  const deploy = (fixtures: Fixtures, ...flags: string[]) =>
+    runCli({
+      ...baseInputs(fixtures, { env: signedIn }, cloud()),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, ...flags],
+    });
+
+  test('the inline build runs hosted, with the project; then it waits, saying each new state once', async () => {
+    const auto = join(packDir, '.kindgi/build/deploy-envelope.json');
+    const run = hostedFixtures(
+      pending(),
+      [pending(), pending('capacity-unavailable'), pending('capacity-unavailable'), ready],
+      { writeEnvelopeAt: auto },
+    );
+    const out = await deploy(run.fixtures, '--hosted', `--project=${PROJECT}`);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(run.fixtures.state.capturedPost?.endpoint).toBe(API);
+    expect(run.fixtures.state.capturedBuild?.buildArgv).toEqual(
+      expect.arrayContaining(['--hosted', `--project=${PROJECT}`]),
+    );
+    expect(run.readIds).toEqual(['dep-01H8XM', 'dep-01H8XM', 'dep-01H8XM', 'dep-01H8XM']);
+    expect(run.sleeps).toEqual([2_000, 2_000, 2_000, 2_000]);
+    const waited = out.stderr.slice(out.stderr.indexOf('Waiting for the pack service'));
+    expect(waited.split('\n').slice(0, 4)).toEqual([
+      'Waiting for the pack service',
+      '    … pending',
+      '    … pending (capacity-unavailable): there is no room for another pack service just now',
+      '    ✓ ready',
+    ]);
+    const summary = JSON.parse(out.stdout) as { packService?: DeploymentEndpointRecord };
+    expect(summary.packService).toEqual(ready);
+  });
+
+  test("the env block's `build: 'hosted'` waits too; without either, nothing waits", async () => {
+    await writeAutoEnvelope();
+    const hosted = hostedFixtures(pending(), [ready]);
+    const viaConfig = await runCli({
+      ...baseInputs(
+        hosted.fixtures,
+        { env: signedIn },
+        {
+          environments: {
+            staging: {
+              endpoint: API,
+              build: 'hosted',
+              signingKey: join(home, 'signing-key.pem'),
+            },
+          },
+        },
+      ),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+    });
+    expect(viaConfig.exitCode, viaConfig.stderr).toBe(0);
+    expect(hosted.readIds).toHaveLength(1);
+
+    const plain = hostedFixtures(pending(), [ready]);
+    const out = await deploy(plain.fixtures);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(plain.readIds).toHaveLength(0);
+    expect(out.stderr).not.toContain('Waiting for the pack service');
+  });
+
+  test('a deployment with no pack service of its own has nothing to wait for', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(undefined, [ready]);
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(run.readIds).toHaveLength(0);
+  });
+
+  test('a pack service taken down before it was ready fails, naming the deployment', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [cleared]);
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "The deployment's pack service was taken down before it was ready (cleared). deploymentId dep-01H8XM.",
+    );
+  });
+
+  test('not ready after 5 minutes: it stops, with the last state and how to wait again', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [pending('tenant-not-provisioned')]);
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "The pack service isn't ready after 5 minutes: pending (tenant-not-provisioned): your workspace has nowhere to run pack services yet. deploymentId dep-01H8XM.",
+    );
+    expect(out.stderr).toContain('Run the same `kindgi deploy --hosted` again to keep waiting');
+    expect(run.sleeps.reduce((a, b) => a + b, 0)).toBe(5 * 60 * 1000);
+  });
+
+  test('three reads in a row that fail: it stops, saying why', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), ['error', 'error', 'error']);
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "Couldn't read the deployment while waiting for its pack service: GET … answered HTTP 503. deploymentId dep-01H8XM.",
+    );
+    expect(run.readIds).toHaveLength(3);
+  });
+
+  test('--hosted with --build-endpoint is refused before anything runs', async () => {
+    const run = hostedFixtures(pending(), [ready]);
+    const out = await deploy(
+      run.fixtures,
+      '--hosted',
+      '--build-endpoint=https://build.example.com',
+    );
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('--build-endpoint names another build server');
+    expect(run.fixtures.state.buildCalls).toBe(0);
+    expect(run.fixtures.state.postCalls).toBe(0);
+  });
+
+  test("a project that isn't there fails before any build", async () => {
+    const run = hostedFixtures(pending(), [ready], {
+      projects: [{ id: PROJECT, name: 'Acme shop', slug: 'acme-shop' }],
+    });
+    const out = await deploy(run.fixtures, '--hosted', '--project=initech-shop');
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('no project of this tenant has that slug');
+    expect(run.fixtures.state.buildCalls).toBe(0);
+  });
+
+  test.each([
+    [[], 'environments.staging.endpoint', 'https://api.staging.example.com'],
+    [['--endpoint=https://override.example.com'], '--endpoint', 'https://override.example.com'],
+  ])(
+    "an address other than the CLI's own (%s) is refused, naming both; nothing is built or sent",
+    async (flags, where, other) => {
+      const run = hostedFixtures(pending(), [ready]);
+      const out = await runCli({
+        ...baseInputs(run.fixtures, { env: signedIn }),
+        argv: ['deploy', '--hosted', '--env=staging', `--path=${packDir}`, ...flags],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `kindgi deploy --hosted sends your API key to ${API}, the address it's for (from KINDGI_API_URL), and ${where} names another: ${other}. The key goes only to its own address: remove ${where} (Kindgi Cloud needs none), or sign in to ${other} with \`kindgi auth login --url ${other}\`.`,
+      );
+      expect(run.fixtures.state.buildCalls).toBe(0);
+      expect(run.fixtures.state.postCalls).toBe(0);
+    },
+  );
+
+  test('the same address, however it is written, is the address: sent there', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [ready]);
+    const out = await deploy(
+      run.fixtures,
+      '--hosted',
+      '--endpoint=https://Platform.EXAMPLE.com:443/',
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(run.fixtures.state.capturedPost?.endpoint).toBe(API);
+  });
+
+  test('with no API address set it stops before building, saying how to set one', async () => {
+    const run = hostedFixtures(pending(), [ready]);
+    const out = await runCli({
+      ...baseInputs(run.fixtures, {}, cloud()),
+      argv: ['deploy', '--hosted', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      'kindgi deploy --hosted goes to the API your key is for, and no API address is set. Run `kindgi auth login --url <url>`, export KINDGI_API_URL, or pass --url <url>.',
+    );
+    expect(run.fixtures.state.buildCalls).toBe(0);
+    expect(run.fixtures.state.postCalls).toBe(0);
+  });
+
+  describe('with a stored key', () => {
+    const STORED = 'kgi_tk_stored';
+    const OTHER = 'https://other.example.com';
+    const homeFile = () => join(home, '.kindgi/config.json');
+    const folderFile = () => join(cwd, '.kindgirc.json');
+    async function store(path: string, saved: Record<string, unknown>) {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, JSON.stringify(saved), 'utf8');
+    }
+    const hostedDeploy = (fixtures: Fixtures, env: Record<string, string>, ...flags: string[]) =>
+      runCli({
+        ...baseInputs(fixtures, { env }, cloud()),
+        argv: ['deploy', '--hosted', '--env=staging', `--path=${packDir}`, ...flags],
+      });
+
+    test.each([
+      [{ KINDGI_API_URL: OTHER }, [], 'KINDGI_API_URL', undefined],
+      [{}, [`--url=${OTHER}`], '--url', undefined],
+      [{}, [], 'the apiUrl in <folder>', { apiUrl: OTHER }],
+    ] as const)(
+      "the CLI address elsewhere than the key's (%j %j) is refused, naming both; nothing is built or sent",
+      async (env, flags, named, folder) => {
+        await store(homeFile(), { apiUrl: API, token: STORED });
+        if (folder !== undefined) await store(folderFile(), folder);
+        const where = named.replace('<folder>', folderFile());
+        const run = hostedFixtures(pending(), [ready]);
+        const out = await hostedDeploy(run.fixtures, env, ...flags);
+        expect(out.exitCode).toBe(1);
+        expect(out.stderr).toContain(
+          `kindgi deploy --hosted would send the API key stored in ${homeFile()}, which is for ${API}, to ${OTHER}, which ${where} names. The key goes only to its own address: point ${where} at ${API}, or sign in to ${OTHER} with \`kindgi auth login --url ${OTHER}\`.`,
+        );
+        expect(run.fixtures.state.buildCalls).toBe(0);
+        expect(run.fixtures.state.postCalls).toBe(0);
+      },
+    );
+
+    test("an env block's `endpoint` elsewhere names the file the CLI's own address is from", async () => {
+      await store(homeFile(), { apiUrl: API, token: STORED });
+      const run = hostedFixtures(pending(), [ready]);
+      const out = await runCli({
+        ...baseInputs(run.fixtures, { env: {} }),
+        argv: ['deploy', '--hosted', '--env=staging', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `kindgi deploy --hosted sends your API key to ${API}, the address it's for (from ${homeFile()}), and environments.staging.endpoint names another: https://api.staging.example.com.`,
+      );
+      expect(run.fixtures.state.postCalls).toBe(0);
+    });
+
+    test('a stored key with no address stored beside it is refused; the fix is to sign in', async () => {
+      await store(homeFile(), { token: STORED });
+      const run = hostedFixtures(pending(), [ready]);
+      const out = await hostedDeploy(run.fixtures, { KINDGI_API_URL: API });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `kindgi deploy --hosted would send the API key stored in ${homeFile()} to ${API}, and no address is stored with that key, so nothing shows it's for ${API}. The key goes only to its own address: sign in to ${API} with \`kindgi auth login --url ${API}\`, which stores the address with the key.`,
+      );
+      expect(run.fixtures.state.buildCalls).toBe(0);
+      expect(run.fixtures.state.postCalls).toBe(0);
+    });
+
+    test.each(['http://localhost:4000', 'http://127.0.0.1:4000/', 'http://[::1]:4000'])(
+      "a folder's .kindgirc.json at a local runtime (%s) isn't read: sent to the signed-in address, with its key",
+      async (local) => {
+        await writeAutoEnvelope();
+        await store(homeFile(), { apiUrl: API, token: STORED });
+        await store(folderFile(), { apiUrl: local, token: 'kgi_tk_dev' });
+        const run = hostedFixtures(pending(), [ready]);
+        const out = await hostedDeploy(run.fixtures, {});
+        expect(out.exitCode, out.stderr).toBe(0);
+        expect(run.fixtures.state.capturedPost).toMatchObject({ endpoint: API, token: STORED });
+      },
+    );
+
+    test("with only a local runtime's .kindgirc.json, it stops, saying that file isn't read", async () => {
+      await store(folderFile(), { apiUrl: 'http://127.0.0.1:4000', token: 'kgi_tk_dev' });
+      const run = hostedFixtures(pending(), [ready]);
+      const out = await hostedDeploy(run.fixtures, {});
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `kindgi deploy --hosted goes to the API your key is for, and no API address is set. ${folderFile()} points this folder at a \`kindgi dev\` runtime (http://127.0.0.1:4000), which isn't a hosted target, so kindgi deploy --hosted doesn't read it. Run \`kindgi auth login --url <url>\`, export KINDGI_API_URL, or pass --url <url>.`,
+      );
+      expect(run.fixtures.state.buildCalls).toBe(0);
+      expect(run.fixtures.state.postCalls).toBe(0);
+    });
+
+    test('with only a .kindgirc.json `kindgi dev` wrote and no address in it, it stops, naming no address', async () => {
+      await store(folderFile(), { token: 'kgi_tk_dev', packServicePort: 4100 });
+      const run = hostedFixtures(pending(), [ready]);
+      const out = await hostedDeploy(run.fixtures, {});
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `kindgi deploy --hosted goes to the API your key is for, and no API address is set. ${folderFile()} points this folder at a \`kindgi dev\` runtime, which isn't a hosted target, so kindgi deploy --hosted doesn't read it. Run \`kindgi auth login --url <url>\`, export KINDGI_API_URL, or pass --url <url>.`,
+      );
+      expect(run.fixtures.state.buildCalls).toBe(0);
+      expect(run.fixtures.state.postCalls).toBe(0);
+    });
+
+    test("the .kindgirc.json `kindgi dev --runtime-url` wrote at another address isn't read either", async () => {
+      await writeAutoEnvelope();
+      await store(homeFile(), { apiUrl: API, token: STORED });
+      await store(folderFile(), {
+        apiUrl: 'http://192.168.1.20:4000',
+        token: 'kgi_tk_dev',
+        tenantId: 'tenant-acme-dev',
+        packServicePort: 4100,
+        packServiceToken: 'kgi_ps_dev',
+      });
+      const run = hostedFixtures(pending(), [ready]);
+      const out = await hostedDeploy(run.fixtures, {});
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(run.fixtures.state.capturedPost).toMatchObject({ endpoint: API, token: STORED });
+    });
+
+    test("a folder's .kindgirc.json at another address is read as it is: its address, its key", async () => {
+      await writeAutoEnvelope();
+      await store(homeFile(), { apiUrl: OTHER, token: STORED });
+      await store(folderFile(), { apiUrl: API, token: 'kgi_tk_folder' });
+      const run = hostedFixtures(pending(), [ready]);
+      const out = await hostedDeploy(run.fixtures, {});
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(run.fixtures.state.capturedPost).toMatchObject({
+        endpoint: API,
+        token: 'kgi_tk_folder',
+      });
+    });
+  });
+});
+
+describe("kindgi deploy: the stored API key goes only to the address it's for", () => {
+  const OWN = 'https://platform.example.com';
+  const STAGING = 'https://api.staging.example.com';
+  const STORED = 'kgi_tk_stored';
+  /** `kindgi auth login`'s file: an address and the key for it. */
+  async function signIn(saved: Record<string, string> = { apiUrl: OWN, token: STORED }) {
+    await mkdir(join(home, '.kindgi'), { recursive: true });
+    await writeFile(join(home, '.kindgi/config.json'), JSON.stringify(saved), 'utf8');
+  }
+  const deploy = (fixtures: Fixtures, env: Record<string, string>, ...flags: string[]) =>
+    runCli({
+      ...baseInputs(fixtures, { env }),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, ...flags],
+    });
+  const folderFile = async (saved: Record<string, string>) =>
+    writeFile(join(cwd, '.kindgirc.json'), JSON.stringify(saved), 'utf8');
+  /** An env block with no `endpoint`: the deploy goes to the CLI's own address. */
+  const noEndpoint = (): Record<string, unknown> => ({
+    environments: {
+      staging: { signingKey: join(home, 'signing-key.pem'), tenantId: 'tenant-acme-staging' },
+    },
+  });
+
+  test("the env block's `endpoint` elsewhere is refused, naming both and the fixes; nothing is sent", async () => {
+    await writeAutoEnvelope();
+    await signIn();
+    const fixtures = makeFixtures();
+    const out = await deploy(fixtures, {});
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      `kindgi deploy would send the API key stored in ${join(home, '.kindgi/config.json')}, which is for ${OWN}, to ${STAGING}, which environments.staging.endpoint names. The key goes only to its own address: point environments.staging.endpoint at ${OWN}, sign in to ${STAGING} with \`kindgi auth login --url ${STAGING}\`, or give that server's key with --token or KINDGI_API_TOKEN.`,
+    );
+    expect(fixtures.state.postCalls).toBe(0);
+    expect(fixtures.state.syncCalls).toBe(0);
+  });
+
+  test('--endpoint elsewhere is refused the same way, naming --endpoint', async () => {
+    await writeAutoEnvelope();
+    await signIn({ apiUrl: STAGING, token: STORED });
+    const fixtures = makeFixtures();
+    const out = await deploy(fixtures, {}, '--endpoint=https://override.example.com');
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      `to https://override.example.com, which --endpoint names. The key goes only to its own address: point --endpoint at ${STAGING},`,
+    );
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('a key given for the command goes where the command says: --token, or an exported KINDGI_API_TOKEN', async () => {
+    await writeAutoEnvelope();
+    await signIn();
+    for (const [env, flags] of [
+      [{}, ['--token=kgi_tk_staging']],
+      [{ KINDGI_API_TOKEN: 'kgi_tk_staging' }, []],
+    ] as const) {
+      const fixtures = makeFixtures();
+      const out = await deploy(fixtures, env, ...flags);
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(fixtures.state.capturedPost).toMatchObject({
+        endpoint: STAGING,
+        token: 'kgi_tk_staging',
+      });
+    }
+  });
+
+  test('its own address, however it is written: sent, with the stored key', async () => {
+    await writeAutoEnvelope();
+    await signIn({ apiUrl: 'HTTPS://API.Staging.Example.com:443/', token: STORED });
+    const fixtures = makeFixtures();
+    const out = await deploy(fixtures, {});
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.capturedPost).toMatchObject({ endpoint: STAGING, token: STORED });
+  });
+
+  test("`kindgi dev`'s .kindgirc.json: 127.0.0.1 and localhost are one address, another port isn't", async () => {
+    await writeAutoEnvelope();
+    await writeFile(
+      join(cwd, '.kindgirc.json'),
+      JSON.stringify({ apiUrl: 'http://127.0.0.1:4000', token: STORED }),
+      'utf8',
+    );
+    const local = (endpoint: string) => ({
+      environments: {
+        dev: {
+          endpoint,
+          signingKey: join(home, 'signing-key.pem'),
+          tenantId: 'tenant-acme-staging',
+        },
+      },
+    });
+    const same = makeFixtures();
+    const ok = await runCli({
+      ...baseInputs(same, { env: {} }, local('http://localhost:4000/')),
+      argv: ['deploy', '--env=dev', `--path=${packDir}`],
+    });
+    expect(ok.exitCode, ok.stderr).toBe(0);
+    expect(same.state.capturedPost?.endpoint).toBe('http://localhost:4000/');
+
+    const other = makeFixtures();
+    const refused = await runCli({
+      ...baseInputs(other, { env: {} }, local('http://localhost:4001')),
+      argv: ['deploy', '--env=dev', `--path=${packDir}`],
+    });
+    expect(refused.exitCode).toBe(1);
+    // `kindgi auth login` can't help: the folder's file stays over it.
+    expect(refused.stderr).toContain(
+      `kindgi deploy would send the API key stored in ${join(cwd, '.kindgirc.json')}, which is for http://127.0.0.1:4000, to http://localhost:4001, which environments.dev.endpoint names. The key goes only to its own address: point environments.dev.endpoint at http://127.0.0.1:4000, or give that server's key with --token or KINDGI_API_TOKEN.`,
+    );
+    expect(other.state.postCalls).toBe(0);
+  });
+
+  test.each([
+    [
+      'the home file',
+      () => signIn({ token: STORED }),
+      () => join(home, '.kindgi/config.json'),
+      () =>
+        `sign in to ${STAGING} with \`kindgi auth login --url ${STAGING}\`, which stores the address with the key`,
+    ],
+    [
+      "a folder's .kindgirc.json",
+      async () => {
+        await signIn();
+        await folderFile({ token: STORED });
+      },
+      () => join(cwd, '.kindgirc.json'),
+      () => `add the key's address to ${join(cwd, '.kindgirc.json')} as its apiUrl`,
+    ],
+  ])(
+    'a stored key with no address stored beside it (%s) is refused; nothing is sent',
+    async (_, store, file, fix) => {
+      await writeAutoEnvelope();
+      await store();
+      const fixtures = makeFixtures();
+      const out = await deploy(fixtures, {});
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `kindgi deploy would send the API key stored in ${file()} to ${STAGING}, and no address is stored with that key, so nothing shows it's for ${STAGING}. The key goes only to its own address: ${fix()}, or give that server's key with --token or KINDGI_API_TOKEN.`,
+      );
+      expect(fixtures.state.postCalls).toBe(0);
+    },
+  );
+
+  test.each([
+    [{ KINDGI_API_URL: STAGING }, [], 'KINDGI_API_URL', () => {}],
+    [{}, [`--url=${STAGING}`], '--url', () => {}],
+    [{}, [], 'the apiUrl in <folder>', () => folderFile({ apiUrl: STAGING })],
+  ] as const)(
+    'with no endpoint named, the CLI address elsewhere (%j %j) is refused the same way, naming it',
+    async (env, flags, named, setUp) => {
+      await writeAutoEnvelope();
+      await signIn();
+      await setUp();
+      const where = named.replace('<folder>', join(cwd, '.kindgirc.json'));
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures, { env }, noEndpoint()),
+        argv: ['deploy', '--env=staging', `--path=${packDir}`, ...flags],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `kindgi deploy would send the API key stored in ${join(home, '.kindgi/config.json')}, which is for ${OWN}, to ${STAGING}, which ${where} names. The key goes only to its own address: point ${where} at ${OWN}, sign in to ${STAGING} with \`kindgi auth login --url ${STAGING}\`, or give that server's key with --token or KINDGI_API_TOKEN.`,
+      );
+      expect(fixtures.state.postCalls).toBe(0);
+    },
+  );
 });

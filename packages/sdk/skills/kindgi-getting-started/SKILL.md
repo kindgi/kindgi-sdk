@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.11"
+version: "0.3.12"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -152,6 +152,8 @@ my-pack/
 ├── tsconfig.json
 ├── .claude/
 │   └── skills/                # auto-copied from @kindgi/sdk on init
+├── .agents/
+│   └── skills/                # the same skills, where Codex and Gemini CLI look
 ├── tools/                  # place `<name>/index.ts` per tool
 ├── agents/                    # place `<name>/index.ts` per agent
 ├── guardrails/                # place `<name>/index.ts` per guardrail
@@ -188,6 +190,27 @@ Most of the setup is automatable, but two require your knowledge:
   by hand: `kindgi providers register --preset=anthropic`. See
   `kindgi-authoring-providers`.
 
+## Commands for the person's own terminal
+
+Two commands are always the person's to run, in their own terminal, since
+they ask for a secret:
+
+- `kindgi secrets set`, which asks for the value without echoing it;
+- `kindgi auth registry`, which logs Docker in to the runtime image's registry.
+
+Others need what a coding agent's sandbox often blocks: `kindgi dev` and any dev
+server of the app (they keep running), and `kindgi build` or anything else that
+needs Docker. When your sandbox blocks a command (a process it can't start,
+`spawn EPERM`; Docker's socket denied; `localhost` refused; a folder it keeps
+read-only, as Codex's keeps `.agents/`, which `kindgi skills sync` writes),
+don't work around it: don't turn your sandbox off, and don't start the command
+in the background. Give the person the exact command, the folder to run it in
+and what they'll see, then wait for them. Once they say `kindgi dev` is running,
+starting it yourself exits 3 and says where theirs runs: use that one.
+
+A tool's own `EPERM` while it runs under `kindgi dev` is something else:
+Kindgi's dev sandbox (see the tools skill). Never turn that one off either.
+
 ## Keys and tokens: hands off
 
 Never open, read, grep, `cat`, copy or print the files that hold keys and
@@ -206,8 +229,11 @@ model provider. To see which secrets exist, run
 `kindgi secrets list --env=local --scope=tenant` (names only). To store one,
 ask the person to run `kindgi secrets set NAME --env=local --scope=tenant`
 themselves: it prompts without echoing. Never put a value on a command line.
-`kindgi init` adds these files to the deny rules in `.claude/settings.json`;
-in a monorepo, also to the repository root's, under the pack's path.
+`kindgi init` adds these files to the deny rules in `.claude/settings.json`
+(Claude Code); in a monorepo, also to the repository root's, under the pack's
+path. It adds them to `.cursorignore`, `.geminiignore` or `.aiderignore` too
+when the project has one. Nothing `kindgi init` writes binds Codex. Whichever
+agent you are, keep to the rule above yourself.
 
 ## Your app and Kindgi's data
 
@@ -290,13 +316,13 @@ own tables. Docs: https://docs.kindgi.com/v0.1/guides/runs/show-runs-in-your-app
 
 ## Keeping skills up to date
 
-Skills in `.claude/skills/` are copied at `kindgi init` time. When the
-framework SDK ships a new version of a skill (better docs, corrected
-example, new capabilities), the pack's local copy stays stale until
-you resync. `kindgi dev` boot prints a warning when it detects drift;
-run `kindgi skills sync` to pull the latest framework skills.
-Local edits are preserved by default (marked `skipped-modified`);
-pass `--force` to overwrite them.
+Skills in `.claude/skills/` and `.agents/skills/` are copied at `kindgi init`
+time, the same copy in each. When the framework SDK ships a new version of a
+skill (better docs, corrected example, new capabilities), the pack's local
+copies stay stale until you resync. `kindgi dev` boot prints a warning when
+it detects drift; run `kindgi skills sync` to pull the latest framework
+skills into both folders. Local edits are preserved by default (marked
+`skipped-modified`), in each folder; pass `--force` to overwrite them.
 
 ## When the framework itself is the problem
 

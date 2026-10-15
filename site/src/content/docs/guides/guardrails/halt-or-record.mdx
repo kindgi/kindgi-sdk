@@ -50,6 +50,22 @@ action: { 'on-violation': 'log-only' },
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/mypack/guardrails/AnswerLength.java
+      .onViolation("log-only")
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/mypack/guardrails/AnswerLength.scala
+    .onViolation("log-only")
+```
+
+</TabItem>
 </Tabs>
 
 ## A halted turn
@@ -188,12 +204,38 @@ scope={"when": "always", "agents": ["my-pack.echo-agent"]},
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/mypack/guardrails/AnswerLength.java
+      .set("scope", Map.of("when", "always", "agents", List.of("my-pack.echo-agent")))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/mypack/guardrails/AnswerLength.scala
+    .set("scope", Map("when" -> "always", "agents" -> Seq("my-pack.echo-agent")))
+```
+
+</TabItem>
 </Tabs>
 
 - `agents` lists the agents the guardrail applies to. An agent that lists
   the guardrail but isn't in its scope isn't checked.
+- `flows` lists flows, by id. The guardrail then checks only the turns a
+  step of one of those flows starts, and replays of those turns: an agent's
+  turn in another flow's step, or outside any flow, isn't checked. With
+  `agents` as well, a turn must match both. To find a turn's flow, the
+  runtime reads the turn's runs, and only for a turn with a guardrail that
+  lists `flows`. If it can't read them, or the run a replay replays is
+  gone, the turn fails with `persistence-error` rather than go unchecked.
 - `when` is `always`, `runtime-only` or `ci-only`. A `ci-only` guardrail
   doesn't run in an agent's turn.
+
+A turn the scope leaves out isn't counted in the guardrail's
+[outcomes](#how-a-guardrail-is-doing) either.
 
 ## How a guardrail is doing
 

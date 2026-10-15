@@ -649,7 +649,16 @@ export function fullAppInput(): CreateAppInput {
     secretsBinding: noopSecretsBinding,
     webhookReceiver: { envName: 'test' as EnvName },
     publicUrl: 'https://kindgi.acme.example',
-    license: { status: () => ({ mode: 'development' }) },
+    license: {
+      status: () => ({ mode: 'development' }),
+      usage: async ({ since, until }) => ({
+        since: since.toISOString(),
+        until: until.toISOString(),
+        runtimeVersion: '0.0.0',
+        runs: 0,
+        people: 0,
+      }),
+    },
     systemKeys: {
       mint: async () => {
         throw new Error('not used: no system principal in the sweeps');

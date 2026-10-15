@@ -43,6 +43,22 @@ calls tools:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
+```
+
+</TabItem>
 </Tabs>
 
 Each entry in `needs` is a hard requirement. A model qualifies only if it meets
@@ -119,6 +135,26 @@ A preference ranks a provider or a model first, without excluding the others.
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
+      .set("preferredProvider", "anthropic")
+      .set("preferredModel", "claude-sonnet-5-5")
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
+    .set("preferredProvider", "anthropic")
+    .set("preferredModel", "claude-sonnet-5-5")
+```
+
+</TabItem>
 </Tabs>
 
 A dry run shows the pick without calling the model:
@@ -176,6 +212,26 @@ To make sure a turn runs on one model, put it in the needs:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .capability(Map.of("needs", List.of(
+          Map.of("feature", "tool-use"),
+          Map.of("models", Map.of("allow", List.of("claude-sonnet-5-5"))))))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .capability(Map("needs" -> Seq(
+      Map("feature" -> "tool-use"),
+      Map("models" -> Map("allow" -> Seq("claude-sonnet-5-5"))))))
+```
+
+</TabItem>
 </Tabs>
 
 When no registered model qualifies, the turn fails instead of falling back to
@@ -207,6 +263,15 @@ JSON that `kindgi runs start` prints. For `models: { allow: ['gpt-5'] }`:
 }
 ```
 
+A provider registered for the tenant that the runtime couldn't set up, such as
+one whose
+[settings the deployment no longer allows](../../../concepts/security/#what-a-tenant-cant-make-the-server-do),
+is never a candidate. The reasons name it under `provider set up`, by its
+provider id alone, with the code `provider-setup-failed`. The error's message
+gives the first one's why, and counts the rest. A registration's settings can
+be checked at any time with
+[`GET /v1/providers/{providerId}/check`](../../models/#check-a-registration).
+
 ## Rank with weights
 
 `prefer` adds a weight for each match, against a model's features or a
@@ -229,6 +294,26 @@ shows:
 ```python excerpt
 # in agents/order_desk.py
     capabilities=[{"needs": [{"feature": "tool-use"}], "prefer": [{"feature": "local", "weight": 1}]}],
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .capability(Map.of(
+          "needs", List.of(Map.of("feature", "tool-use")),
+          "prefer", List.of(Map.of("feature", "local", "weight", 1))))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .capability(Map(
+      "needs" -> Seq(Map("feature" -> "tool-use")),
+      "prefer" -> Seq(Map("feature" -> "local", "weight" -> 1))))
 ```
 
 </TabItem>

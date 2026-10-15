@@ -18,7 +18,12 @@ export {
 } from './middleware/auth.js';
 export type { SessionCookieOptions, TokenResolution, TokenResolver } from './middleware/auth.js';
 export type { SignInOptionsRateLimit } from './routes/sign-in-options.js';
-export type { LicensePreview, LicenseStatus, LicenseStatusBinding } from './routes/license.js';
+export type {
+  LicensePreview,
+  LicenseStatus,
+  LicenseStatusBinding,
+  LicenseUsage,
+} from './routes/license.js';
 export { WRITE_AUDIT_KINDS } from './routes/write-audit.js';
 export type { ProductionGateOptions } from './routes/project-production.js';
 export { USAGE_CLASSES, USAGE_KINDS, type UsageClass, type UsageKind } from './usage.js';
@@ -233,6 +238,7 @@ export type {
   PersonGrantsBinding,
   PersonRef,
 } from './person-grants-binding.js';
+export type { PersonCapabilitiesBinding } from './person-capabilities-binding.js';
 export type {
   AccessPrincipal,
   ProjectAccessBinding,
@@ -957,6 +963,7 @@ export type {
   SecretListInput,
   SecretListPage,
   SecretListVersionsInput,
+  SecretNameRefusal,
   SecretRecord,
   SecretResolveInput,
   SecretResolveOutcome,

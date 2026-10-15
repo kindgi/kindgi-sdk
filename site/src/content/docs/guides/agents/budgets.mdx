@@ -21,8 +21,9 @@ limit it hit.
   [Write an agent](../write-an-agent/).
 - **A model registered with prices,** for the cost budget. A model with a
   price of zero never uses it.
-- **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
-  Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or Java
+  17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
 
 ## Set the budget
 
@@ -42,6 +43,22 @@ Add `budget` to the agent's definition:
 ```python excerpt
 # in agents/order_desk.py
     budget={"maxSteps": 6, "maxCostUsd": 0.05, "maxWallMs": 60_000},
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .set("budget", Map.of("maxSteps", 6, "maxCostUsd", 0.05, "maxWallMs", 60_000))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .set("budget", Map("maxSteps" -> 6, "maxCostUsd" -> 0.05, "maxWallMs" -> 60000))
 ```
 
 </TabItem>
@@ -158,6 +175,73 @@ except KindgiApiError as err:
 
 ```text
 steps 1 1 3deffc12-053e-43e3-b735-9a415d95645f
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/Budget.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.KindgiApiException;
+import com.kindgi.client.models.StartRunBody;
+import java.util.Map;
+
+public final class Budget {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    try {
+      kindgi.runs().start(StartRunBody.WithAgent.builder()
+          .agent("acme.order-desk")
+          .input(Map.of("userMessage", "Where is my order A-1001?"))
+          .build());
+    } catch (KindgiApiException e) {
+      if (!"budget-exceeded".equals(e.serverCode())) throw e;
+      Map<String, Object> d = e.details();
+      System.out.println(d.get("kind") + " " + d.get("limit") + " " + d.get("observed") + " " + d.get("runId"));
+    }
+  }
+}
+```
+
+```text
+steps 1 1 e95037bd-6df7-43c9-a706-743270a947b1
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/Budget.scala
+package acme.app
+
+import com.kindgi.client.{Kindgi, KindgiApiException}
+import com.kindgi.client.models.StartRunBody
+import scala.jdk.CollectionConverters._
+
+object Budget {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    try {
+      kindgi.runs().start(StartRunBody.WithAgent.builder()
+        .agent("acme.order-desk")
+        .input(Map("userMessage" -> "Where is my order A-1001?").asJava)
+        .build())
+    } catch {
+      case e: KindgiApiException if e.serverCode == "budget-exceeded" =>
+        val d = e.details.asScala
+        println(s"${d("kind")} ${d("limit")} ${d("observed")} ${d("runId")}")
+    }
+  }
+}
+```
+
+```text
+steps 1 1 4eb76089-0d4a-4256-8a2c-4df1c12c7f46
 ```
 
 </TabItem>

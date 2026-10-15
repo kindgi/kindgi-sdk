@@ -358,7 +358,7 @@ export type {
   ExportSigningKey,
   ExportSigningKeysClient,
 } from './resources/export-signing-keys.js';
-export type { LicenseClient, LicenseStatus } from './resources/license.js';
+export type { LicenseClient, LicenseStatus, LicenseUsage } from './resources/license.js';
 export type {
   MintedSystemKey,
   RevokedSystemKey,

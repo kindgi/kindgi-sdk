@@ -86,7 +86,7 @@ running and no model key yet:
 ```json
 {
   "ok": false,
-  "cliVersion": "0.1.6",
+  "cliVersion": "0.1.7",
   "project": {
     "dir": "…/my-agents",
     "language": "node"
@@ -127,27 +127,35 @@ running and no model key yet:
 
 The checks come in this order: `node`, `npm`, `python`, `uv`, `java`,
 `maven`, `sbt`, `docker`, `registry`, `dev-sandbox`, `console-sign-in`,
-`project`, `dependencies`, `model-key`, `runtime`, `provider`, `erasures`.
+`license`, `mcp-headers`, `project`, `dependencies`, `model-key`, `runtime`,
+`provider`, `erasures`.
 
 - **`fail`:** run its `fix`, as written: it names the CLI to use in that
   folder. When the fix needs the person (start Docker Desktop, sign in, copy
   a key), ask them, then run doctor again.
 - **`warn`:** it works now, but the person should know: tell them its
   `message` and `fix`, and go on. `ok` stays `true` and the exit code `0`.
-  In this release three checks warn. `dev-sandbox`: when `kindgi dev` can't
+  In this release six checks warn. `dev-sandbox`: when `kindgi dev` can't
   run the pack's code sandboxed on this machine (Linux without bubblewrap,
   a container, Windows, or inside another sandbox); the code would then run
-  with the person's own access. `provider`: when an agent that names no
-  model would get a model the preset no longer lists, or one other than the
-  preset's default; or when the runtime can't build a registered provider
-  (each problem is in the check's `details`). When it can build none,
-  `provider` fails instead. `console-sign-in`: when nobody can sign in to the
-  console of the runtime the CLI points at.
+  with the person's own access. `console-sign-in`: when nobody can sign in
+  to the console of the runtime the CLI points at. `license`: when the
+  license key here expires soon, or has expired but the runtime still starts
+  with it, or is signed with a key this CLI doesn't know yet. `mcp-headers`:
+  when an MCP endpoint on that runtime keeps a credential in plaintext
+  `config.headers`, from before that was refused; it still works.
+  `model-key`: when the key is in a file the app loads too, where the app's
+  routes can read it; the fix gives Kindgi its own copy. `provider`: when an
+  agent that names no model would get a model the preset no longer lists, or
+  one other than the preset's default; or when the runtime can't build a
+  registered provider (each problem is in the check's `details`). When it
+  can build none, `provider` fails instead.
 - **`skip`:** not applicable yet. Outside a project, `project` and every
   check after it skip; `runtime` skips while `kindgi dev` isn't running;
-  `dev-sandbox` skips when `KINDGI_DEV_SANDBOX=off`. `erasures` skips with a
-  note when the runtime has no erasure ledger key, as under `kindgi dev`: fine
-  for development.
+  `dev-sandbox` skips when `KINDGI_DEV_SANDBOX=off`. `license` skips when
+  there's no license key here: `kindgi dev` needs none. `erasures` skips
+  with a note when the runtime has no erasure ledger key, as under
+  `kindgi dev`: fine for development.
 
 Fix every `fail` up to and including `docker` before you go on. `registry` is
 step 1.
@@ -253,9 +261,10 @@ that uses it, as that page shows. Otherwise:
 3. Run doctor again from the project's folder; `project` and
    `dependencies` should pass.
 
-`init` also gives you Kindgi's skills, in `.claude/skills/`, for the
-project's language (a Java or Scala project gets its own). Read them: they
-are how you write tools and agents for this project.
+`init` also gives you Kindgi's skills, in `.claude/skills/` and
+`.agents/skills/` (the same copy in each), for the project's language (a
+Java or Scala project gets its own). Read them: they are how you write tools
+and agents for this project.
 
 ## Step 3: start Kindgi
 
@@ -364,7 +373,8 @@ register the provider again or to restart `kindgi dev`.
    don't know, suggest: "Read a customer message and say how urgent it is,
    and why."
 2. Write that agent in the project, following the skills in
-   `.claude/skills/`. `kindgi dev` picks up the file when you save it.
+   `.claude/skills/` or `.agents/skills/`. `kindgi dev` picks up the file
+   when you save it.
 3. Run it with an example the person would recognise, and show them the
    answer:
 

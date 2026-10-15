@@ -19,8 +19,9 @@ turn completes, and your code reads the fields.
 - **A pack on a runtime such as `kindgi dev`,** with Kindgi 0.1's CLI.
 - **A registered model,** as [Models](../../models/) shows. `dev-echo`
   only repeats the message, so it can't triage a ticket.
-- **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
-  Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or Java
+  17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
 
 ## Declare the answer
 
@@ -102,6 +103,94 @@ ticket_triage = Agent(
 `maxRepairs`.
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/agents/TicketTriage.java
+package acme.agents;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.kindgi.pack.Agent;
+import java.util.List;
+import java.util.Map;
+
+public final class TicketTriage {
+  public enum Category {
+    @JsonProperty("billing") BILLING,
+    @JsonProperty("shipping") SHIPPING,
+    @JsonProperty("returns") RETURNS,
+    @JsonProperty("other") OTHER
+  }
+
+  public enum Priority {
+    @JsonProperty("low") LOW,
+    @JsonProperty("normal") NORMAL,
+    @JsonProperty("urgent") URGENT
+  }
+
+  public record Triage(Category category, Priority priority, String summary) {}
+
+  public static final Agent AGENT = Agent.define("acme.ticket-triage")
+      .version("0.1.0")
+      .name("Ticket triage")
+      .instructions(String.join("\n",
+          "You triage support tickets for Acme. Reply with only a JSON object:",
+          "{\"category\": \"billing\" | \"shipping\" | \"returns\" | \"other\",",
+          " \"priority\": \"low\" | \"normal\" | \"urgent\",",
+          " \"summary\": \"<one sentence>\"}"))
+      .capability(Map.of("needs", List.of()))
+      .output(Triage.class)
+      .build();
+
+  private TicketTriage() {}
+}
+```
+
+`output(Triage.class)` derives the schema from the record. It sets no
+`name`, so repairs and errors call the answer `output`; for `name` or
+`maxRepairs`, give the schema yourself: `.set("output", Map.of("schema",
+<JSON Schema as a Map>, "name", "triage", "maxRepairs", 2))`.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/agents/TicketTriage.scala
+package acme.agents
+
+import com.kindgi.pack.scaladsl._
+
+object TicketTriage {
+  enum Category {
+    case billing, shipping, returns, other
+  }
+
+  enum Priority {
+    case low, normal, urgent
+  }
+
+  final case class Triage(category: Category, priority: Priority, summary: String)
+
+  val agent: Agent = Agent("acme.ticket-triage")
+    .version("0.1.0")
+    .name("Ticket triage")
+    .instructions(Seq(
+      "You triage support tickets for Acme. Reply with only a JSON object:",
+      """{"category": "billing" | "shipping" | "returns" | "other",""",
+      """ "priority": "low" | "normal" | "urgent",""",
+      """ "summary": "<one sentence>"}""").mkString("\n"))
+    .capability(Map("needs" -> Seq()))
+    .output[Triage]
+    .build()
+}
+```
+
+`output[Triage]` derives the schema from the case class. It sets no `name`,
+so repairs and errors call the answer `output`; for `name` or `maxRepairs`,
+give the schema yourself with `.set("output", Map("schema" -> …, "name" ->
+"triage", "maxRepairs" -> 2))`.
+
+</TabItem>
 </Tabs>
 
 - **`schema`** is what the answer must match.
@@ -118,6 +207,10 @@ with it, in the words a repair repeats, and tells the model to call the tools
 it needs first. So its first answer can already fit. Describing the JSON in
 the instructions, as this agent does, still helps the model fill the fields
 well.
+
+The schema goes with every model call, its descriptions included, so every
+call's prompt tokens count it. Keep it, and its descriptions, to what the
+answer needs.
 
 From a local model, Qwen 2.5 7B through Ollama, with instructions that don't
 describe the JSON, the first call's system message ends:
@@ -219,6 +312,63 @@ if run.output is None:
     raise SystemExit(f"The run has no output: it's {run.status}.")
 triage = Triage.model_validate(run.output["output"])
 print(triage.category, triage.priority)  # billing urgent
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/ReadTriage.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.Run;
+import com.kindgi.client.models.StartRunBody;
+import java.util.Map;
+
+public final class ReadTriage {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+    Run run = kindgi.runs().start(StartRunBody.WithAgent.builder()
+        .agent("acme.ticket-triage")
+        .input(Map.of("userMessage", "I was charged twice for order A-1001 and I need the money back today."))
+        .build());
+    Map<?, ?> triage = (Map<?, ?>) ((Map<?, ?>) run.output()).get("output");
+    System.out.println(triage.get("category") + " " + triage.get("priority")); // billing urgent
+  }
+}
+```
+
+The client's JSON reader doesn't see your types' Jackson annotations, so
+read the fields from the answer's map.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/ReadTriage.scala
+package acme.app
+
+import acme.agents.TicketTriage.Triage
+import com.kindgi.client.{Kindgi, KindgiJson}
+import com.kindgi.client.models.StartRunBody
+import scala.jdk.CollectionConverters._
+
+object ReadTriage {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
+
+    val run = kindgi.runs().start(StartRunBody.WithAgent.builder()
+      .agent("acme.ticket-triage")
+      .input(Map[String, AnyRef](
+        "userMessage" -> "I was charged twice for order A-1001 and I need the money back today.").asJava)
+      .build())
+    val answer = run.output.asInstanceOf[java.util.Map[String, AnyRef]].get("output")
+    val triage = KindgiJson.read(KindgiJson.write(answer), classOf[Triage])
+    println(s"${triage.category} ${triage.priority}") // billing urgent
+  }
+}
 ```
 
 </TabItem>
@@ -328,6 +478,65 @@ triage_ticket = Flow(
         },
     },
 )
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/flows/TriageTicket.java
+package acme.flows;
+
+import acme.agents.TicketTriage;
+import com.kindgi.pack.Flow;
+import java.util.Map;
+
+public final class TriageTicket {
+  public static final Flow FLOW = Flow.define("acme.triage-ticket")
+      .version("0.1.0")
+      .set("name", "Triage a ticket")
+      .node(Map.of(
+          "id", "triage",
+          "kind", "agent",
+          "ref", TicketTriage.AGENT,
+          "inputMapping", Map.of("ticket", Map.of("path", "runInput.ticket"))))
+      .edge("e-start", "$start", "triage")
+      .edge("e-end", "triage", "$end")
+      .set("output", Map.of("mapping", Map.of(
+          "category", Map.of("path", "nodeOutputs.triage.output.category"),
+          "priority", Map.of("path", "nodeOutputs.triage.output.priority"))))
+      .build();
+
+  private TriageTicket() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/flows/TriageTicket.scala
+package acme.flows
+
+import acme.agents.TicketTriage
+import com.kindgi.pack.scaladsl._
+
+object TriageTicket {
+  val flow: Flow = Flow("acme.triage-ticket")
+    .version("0.1.0")
+    .set("name", "Triage a ticket")
+    .node(Map(
+      "id" -> "triage",
+      "kind" -> "agent",
+      "ref" -> TicketTriage.agent,
+      "inputMapping" -> Map("ticket" -> Map("path" -> "runInput.ticket"))))
+    .edge("e-start", "$start", "triage")
+    .edge("e-end", "triage", "$end")
+    .set("output", Map("mapping" -> Map(
+      "category" -> Map("path" -> "nodeOutputs.triage.output.category"),
+      "priority" -> Map("path" -> "nodeOutputs.triage.output.priority"))))
+    .build()
+}
 ```
 
 </TabItem>

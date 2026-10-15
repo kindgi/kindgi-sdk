@@ -33,6 +33,7 @@ import {
 } from '@kindgi/handler-runtime';
 import { createPackServiceSupervisor } from '@kindgi/handler-runtime/pack-service';
 
+import { type DockerReach, dockerReach, dockerUnreachable } from './blocked.js';
 import { createDevPackBuilder } from './bundler.js';
 import { createJavaPackBuilder } from './java-builder.js';
 import { lineReader } from './lines.js';
@@ -1182,13 +1183,21 @@ async function detectDockerCompose(run: DockerRunner): Promise<string | undefine
 
 /**
  * Whether plain `docker` works: the CLI is installed and the engine
- * answers. Returns `undefined` when it does; why not otherwise.
+ * answers. Returns `undefined` when it does; why not otherwise, and how
+ * it failed to answer (`DockerReach`). Docker that's there but out of
+ * reach (a sandbox, a stopped engine) is said with its own fix.
  */
-async function detectDocker(run: DockerRunner): Promise<string | undefined> {
+async function detectDocker(
+  run: DockerRunner,
+): Promise<{ readonly reason: string; readonly reach: DockerReach } | undefined> {
   const version = await run(['version', '--format', '{{.Server.Version}}']);
   if (version.code === 0) return undefined;
+  const reach = dockerReach(version);
+  const unreachable =
+    reach === 'not-installed' ? undefined : dockerUnreachable(version, 'kindgi dev');
+  if (unreachable !== undefined) return { reason: unreachable, reach };
   const detail = version.stderr.trim().split('\n').at(-1) ?? '';
-  return `Docker isn't available${detail === '' ? '' : `: ${detail}`}`;
+  return { reason: `Docker isn't available${detail === '' ? '' : `: ${detail}`}`, reach };
 }
 
 /** The compose project every `kindgi dev` shares; its named volumes hold the dev data. */
@@ -1222,7 +1231,8 @@ function bundledDatabaseUrl(port: number): string {
  * Without compose (a Docker engine without the plugin), the same
  * Postgres starts with plain `docker` (`postgres-container.ts`): the
  * same names, so the data is shared whichever way it was started.
- * `unavailable` only when docker itself doesn't work.
+ * `unavailable` when docker itself doesn't work, or its engine is out of
+ * reach (asked first, compose or not).
  *
  * Not testcontainers: its reaper (Ryuk) is handed the compose project
  * and, when the process exits, deletes everything labelled with it —
@@ -1238,10 +1248,17 @@ export async function startServicesReal(
   options: { readonly recreate: boolean },
   run: DockerRunner = docker,
 ): Promise<StartServicesResult> {
+  // The engine first: `docker compose version` answers without it, so an
+  // engine out of reach would get as far as `compose up` and fail there
+  // unexplained. A failure of Docker's own (`failed`) leaves compose to
+  // try, as before.
+  const noDocker = await detectDocker(run);
+  if (noDocker !== undefined && noDocker.reach !== 'failed') {
+    return { kind: 'unavailable', ...noDocker };
+  }
   const reason = await detectDockerCompose(run);
   if (reason !== undefined) {
-    const noDocker = await detectDocker(run);
-    if (noDocker !== undefined) return { kind: 'unavailable', reason: noDocker };
+    if (noDocker !== undefined) return { kind: 'unavailable', ...noDocker };
     return startPostgresWithDocker(options, run);
   }
 
