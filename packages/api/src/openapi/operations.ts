@@ -354,6 +354,16 @@ const JournalSinceQueryParam: ParameterSpec = {
   schema: { type: 'integer', minimum: 0 },
 };
 
+/** `GET /v1/runs/{runId}/journal`'s: paging is opt-in, so there's no default. */
+const JournalLimitQueryParam: ParameterSpec = {
+  name: 'limit',
+  in: 'query',
+  required: false,
+  description:
+    'The most entries in a page, 1..100: then `nextCursor` while more remain. Without it, the whole journal (after `since` or `cursor`) in one answer.',
+  schema: { type: 'integer', minimum: 1, maximum: 100 },
+};
+
 const LastEventIdParam: ParameterSpec = {
   name: 'Last-Event-Id',
   in: 'header',
@@ -1656,12 +1666,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'runs.journal',
     summary: 'Read the durable journal for a run',
     description:
-      'Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`). Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6.',
+      'Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`), in sequence order. Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6. Paging is opt-in: with `limit`, at most that many entries and a `nextCursor` while more remain; without it, the whole journal in one answer.',
     tags: ['runs'],
     security: 'bearer',
-    parameters: [RunIdPathParam, JournalSinceQueryParam],
+    parameters: [RunIdPathParam, JournalSinceQueryParam, JournalLimitQueryParam, CursorQueryParam],
     responses: {
-      '400': ErrorResponse('`runId` is not a run id (a UUID).'),
+      '400': ErrorResponse(
+        '`runId` is not a run id (a UUID), `limit` is not a whole number of 1 or more, or `cursor` is malformed.',
+      ),
       '200': { description: 'Journal page.', schema: ref('RunJournalPage') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No run with that id under this tenant.'),

@@ -2174,6 +2174,10 @@
           },
           "hasMore": {
             "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "Opaque cursor for the next page, with `limit`. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5."
           }
         }
       },
@@ -22760,7 +22764,7 @@
             }
           },
           "400": {
-            "description": "`runId` is not a run id (a UUID).",
+            "description": "`runId` is not a run id (a UUID), `limit` is not a whole number of 1 or more, or `cursor` is malformed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -22790,7 +22794,7 @@
             }
           }
         },
-        "description": "Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`). Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6.",
+        "description": "Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`), in sequence order. Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6. Paging is opt-in: with `limit`, at most that many entries and a `nextCursor` while more remain; without it, the whole journal in one answer.",
         "parameters": [
           {
             "name": "runId",
@@ -22811,6 +22815,26 @@
             },
             "required": false,
             "description": "Only return journal entries with `sequence > since`."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "required": false,
+            "description": "The most entries in a page, 1..100: then `nextCursor` while more remain. Without it, the whole journal (after `since` or `cursor`) in one answer."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
