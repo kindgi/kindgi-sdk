@@ -11,7 +11,7 @@
  * signed exports are made for decided approvals and each run.
  */
 
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -60,7 +60,11 @@ function server(answers: Record<string, Answer> = {}, opts: { admin?: boolean } 
   const calls: string[] = [];
   const posts: { path: string; body: unknown }[] = [];
   const defaults: Record<string, Answer> = {
-    '/v1/identity/me/permissions': { tenantId: TENANT, tenant: { admin: opts.admin ?? true } },
+    '/v1/identity/whoami': {
+      tenantId: TENANT,
+      scopes: [opts.admin === false ? 'member' : 'tenant-admin'],
+      tenantAdmin: opts.admin ?? true,
+    },
     '/v1/tenant': { id: TENANT, name: 'Acme', state: 'active' },
     '/v1/export-signing-keys': [{ keyId: 'ex_acme' }],
   };
@@ -80,11 +84,14 @@ function server(answers: Record<string, Answer> = {}, opts: { admin?: boolean } 
   return { fetchImpl, calls, posts };
 }
 
+/** What the server answers a route it doesn't mount. */
+const notMounted = () => json(404, { error: { code: 'route-not-found', message: 'No route' } });
+
 /** A read's answer: a record, the whole list, or the page `limit` and `cursor` ask for. */
 function routeAnswer(url: URL, answer: Records | undefined): Response {
   const t = templates.find((x) => x.re.test(url.pathname));
   if (t === undefined && answer === undefined) {
-    return json(404, { error: { code: 'not-found', message: 'No route' } });
+    return notMounted();
   }
   if (t === undefined || t.paging === 'one') return json(200, answer ?? {});
   const records = (answer ?? []) as readonly unknown[];
@@ -312,10 +319,18 @@ describe('kindgi exports create', () => {
     expect(res.stdout).toContain('--resume');
   });
 
-  test('a route this server doesn’t serve is skipped; a record gone before its children are read is counted', async () => {
+  test('a route this server doesn’t serve is skipped, at the top or under a kind; a record gone before its children are read is counted', async () => {
     const fake = server({
-      '/v1/compliance/evidence': () =>
-        json(404, { error: { code: 'not-found', message: 'No route' } }),
+      '/v1/compliance/evidence': notMounted,
+      '/v1/environments': () =>
+        json(501, { error: { code: 'environments-unsupported', message: 'No env names here' } }),
+      '/v1/projects': [{ id: 'proj-1' }],
+      '/v1/projects/proj-1/judging-rules': notMounted,
+      '/v1/provenance': [{ runId: 'run-1' }],
+      '/v1/provenance/run-1': () =>
+        json(501, { error: { code: 'provenance-unsupported', message: 'No provenance here' } }),
+      '/v1/artifacts': [{ blobId: 'blob-1' }],
+      '/v1/artifacts/blob-1': notMounted,
       '/v1/conversations': [{ id: 'conv-1' }, { id: 'conv-2' }],
       '/v1/conversations/conv-1/messages': () =>
         json(404, { error: { code: 'not-found', message: 'Gone' } }),
@@ -332,6 +347,32 @@ describe('kindgi exports create', () => {
     expect(m.kinds['signed/compliance-evidence']).toEqual({
       status: 'skipped',
       reason: "it's made for each record of compliance-evidence, which wasn't exported",
+    });
+    expect(m.kinds['judging-rules']).toEqual({
+      status: 'skipped',
+      reason: "this server doesn't serve /v1/projects/{projectId}/judging-rules (404)",
+    });
+    expect(m.kinds['judging-rule-versions']).toEqual({
+      status: 'skipped',
+      reason: "it's read for each record of judging-rules, which wasn't exported",
+    });
+    expect(m.kinds.provenance).toEqual({
+      status: 'skipped',
+      reason: "this server doesn't serve /v1/provenance/{runId} (501)",
+    });
+    expect(m.kinds['judging-queue']).toMatchObject({ status: 'ok' });
+    expect(m.kinds.artifacts).toEqual({
+      status: 'skipped',
+      reason: "this server doesn't serve /v1/artifacts/{blobId} (404)",
+    });
+    await expect(readdir(join(out, 'artifacts'))).rejects.toThrow();
+    expect(m.kinds.environments).toEqual({
+      status: 'skipped',
+      reason: "this server doesn't serve /v1/environments (501)",
+    });
+    expect(m.kinds.secrets).toEqual({
+      status: 'skipped',
+      reason: "it's read for each record of environments, which wasn't exported",
     });
   });
 
@@ -353,6 +394,20 @@ describe('kindgi exports create', () => {
       error: 'An artifacts id "../escape" isn\'t a safe file name, so it can\'t be written.',
     });
     await expect(readFile(join(cwd, 'escape'))).rejects.toThrow();
+    await expect(readdir(join(out, 'artifacts'))).rejects.toThrow();
+
+    // What a run that died part way left goes when the kind is read again.
+    await mkdir(join(out, 'artifacts'));
+    await writeFile(join(out, 'artifacts/blob-stale'), 'acme');
+    const again = await cli(
+      server({
+        '/v1/artifacts': [{ blobId: 'blob-1' }],
+        '/v1/artifacts/blob-1': () => new Response('acme bytes'),
+      }),
+      ['--resume'],
+    );
+    expect(again.exitCode, again.stderr).toBe(0);
+    expect(await readdir(join(out, 'artifacts'))).toEqual(['blob-1']);
   });
 
   test('the signed exports: each decided approval, each run, and the evidence', async () => {
@@ -452,7 +507,7 @@ describe('kindgi exports create', () => {
     expect(res.stderr).toContain(
       `${out} isn't empty. Name a new or empty folder with --out, or pass --resume`,
     );
-    expect(fake.calls).toEqual(['GET /v1/identity/me/permissions']);
+    expect(fake.calls).toEqual(['GET /v1/identity/whoami']);
   });
 
   test('--resume keeps the kinds that are done, and reads again the rest and whatever is read from them', async () => {
@@ -500,6 +555,149 @@ describe('kindgi exports create', () => {
     const none = await cli(server(), ['--resume']);
     expect(none.exitCode).toBe(1);
     expect(none.stderr).toContain("has no manifest.json, so there's no export there to resume");
+  });
+
+  test('a signed export this server doesn’t serve is skipped; one that fails leaves none of its files', async () => {
+    const fake = server({
+      '/v1/approvals': [
+        { id: 'appr-1', status: 'approved' },
+        { id: 'appr-2', status: 'rejected' },
+      ],
+      '/v1/approvals/appr-2/audit-bundle': () =>
+        json(400, { error: { code: 'invalid-request', message: 'No bundle' } }),
+      '/v1/compliance/evidence/export': notMounted,
+    });
+    const res = await cli(fake);
+    expect(res.exitCode).toBe(1);
+    const m = await manifest();
+    expect(m.kinds['signed/approvals']).toMatchObject({ status: 'failed' });
+    await expect(readdir(join(out, 'signed/approvals'))).rejects.toThrow();
+    expect(m.kinds['signed/compliance-evidence']).toEqual({
+      status: 'skipped',
+      reason: "this server doesn't serve /v1/compliance/evidence/export (404)",
+    });
+    expect(m.kinds['signed/provenance']).toMatchObject({ status: 'ok' });
+
+    // What a run that died part way left goes when the kind is read again.
+    await mkdir(join(out, 'signed/approvals'), { recursive: true });
+    await writeFile(join(out, 'signed/approvals/appr-stale.json'), '{}');
+    const again = await cli(
+      server({
+        '/v1/approvals': [
+          { id: 'appr-1', status: 'approved' },
+          { id: 'appr-2', status: 'rejected' },
+        ],
+      }),
+      ['--resume'],
+    );
+    expect(again.exitCode, again.stderr).toBe(0);
+    expect((await readdir(join(out, 'signed/approvals'))).sort()).toEqual([
+      'appr-1.json',
+      'appr-2.json',
+    ]);
+
+    await rm(out, { recursive: true, force: true });
+    const unserved = await cli(
+      server({
+        '/v1/provenance': [{ runId: 'run-1' }],
+        '/v1/provenance/run-1': { runId: 'run-1' },
+        '/v1/provenance/run-1/export': notMounted,
+      }),
+    );
+    expect(unserved.exitCode, unserved.stderr).toBe(0);
+    expect((await manifest()).kinds['signed/provenance']).toEqual({
+      status: 'skipped',
+      reason: "this server doesn't serve /v1/provenance/{runId}/export (404)",
+    });
+    await expect(readdir(join(out, 'signed/provenance'))).rejects.toThrow();
+  });
+
+  test.skipIf(process.platform === 'win32')(
+    'only its owner may read the export: the folder, what’s in it, and an empty folder it was given',
+    async () => {
+      await mkdir(out);
+      await chmod(out, 0o755);
+      const fake = server({
+        '/v1/artifacts': [{ blobId: 'blob-1' }],
+        '/v1/artifacts/blob-1': () => new Response('acme bytes'),
+        '/v1/approvals': [{ id: 'appr-1', status: 'approved' }],
+      });
+      const res = await cli(fake);
+      expect(res.exitCode, res.stderr).toBe(0);
+      const modes: Record<string, string> = {};
+      for (const entry of await readdir(out, { recursive: true, withFileTypes: true })) {
+        const path = join(entry.parentPath, entry.name);
+        modes[path.slice(out.length + 1)] = ((await stat(path)).mode & 0o777).toString(8);
+      }
+      expect(((await stat(out)).mode & 0o777).toString(8)).toBe('700');
+      expect(modes).toMatchObject({
+        'manifest.json': '600',
+        'agents.jsonl': '600',
+        artifacts: '700',
+        'artifacts/blob-1': '600',
+        signed: '700',
+        'signed/approvals': '700',
+        'signed/approvals/appr-1.json': '600',
+        'signed/compliance-evidence.json': '600',
+      });
+      const open = Object.entries(modes).filter(([, mode]) => mode !== '600' && mode !== '700');
+      expect(open).toEqual([]);
+    },
+  );
+
+  test('whoami names the tenant and says whether the caller is its admin, or its key’s scopes do', async () => {
+    const scoped = server({
+      '/v1/identity/whoami': { tenantId: TENANT, scopes: ['tenant-admin'] },
+    });
+    const res = await cli(scoped);
+    expect(res.exitCode, res.stderr).toBe(0);
+    expect((await manifest()).kinds.users).toMatchObject({ status: 'ok' });
+
+    await rm(out, { recursive: true, force: true });
+    const member = await cli(server({ '/v1/identity/whoami': { tenantId: TENANT, scopes: [] } }));
+    expect(member.exitCode).toBe(1);
+    expect(member.stderr).toContain("You aren't a tenant admin here");
+    const decided = await cli(
+      server({
+        '/v1/identity/whoami': { tenantId: TENANT, scopes: ['tenant-admin'], tenantAdmin: false },
+      }),
+    );
+    expect(decided.exitCode).toBe(1);
+    expect(decided.stderr).toContain("You aren't a tenant admin here");
+
+    const nameless = await cli(server({ '/v1/identity/whoami': { scopes: ['tenant-admin'] } }));
+    expect(nameless.exitCode).toBe(1);
+    expect(nameless.stderr).toContain(
+      'GET /v1/identity/whoami answered no tenantId, so the export has no tenant to name.',
+    );
+    await expect(readdir(out)).rejects.toThrow();
+  });
+
+  test('the files agree only when the tenant was closing or suspended through every run', async () => {
+    let state = 'active';
+    let flowsDown = true;
+    const answers: Record<string, Answer> = {
+      '/v1/tenant': () => json(200, { id: TENANT, state }),
+      '/v1/flows': () =>
+        flowsDown
+          ? json(500, { error: { code: 'internal', message: 'Oops' } })
+          : json(200, { data: [], hasMore: false }),
+    };
+    expect((await cli(server(answers))).exitCode).toBe(1);
+    state = 'closing';
+    expect((await cli(server(answers), ['--resume'])).exitCode).toBe(1);
+    expect((await manifest()).consistency).toMatch(/^Records can change while the export reads/);
+    flowsDown = false;
+    expect((await cli(server(answers), ['--resume'])).exitCode).toBe(0);
+    const resumed = await manifest();
+    expect(resumed.tenant.state).toBe('closing');
+    expect(resumed.consistency).toMatch(/^Records can change while the export reads them/);
+
+    await rm(out, { recursive: true, force: true });
+    expect((await cli(server(answers))).exitCode).toBe(0);
+    expect((await manifest()).consistency).toBe(
+      'The tenant is closing: nothing in it changes but deletes and erasures, so the files agree with each other, but for a delete or an erasure made while the export ran.',
+    );
   });
 
   test('--json prints the manifest', async () => {

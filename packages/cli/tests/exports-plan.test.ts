@@ -21,7 +21,7 @@ import { PAGE_SIZE } from '../src/exports/reader.js';
 
 type Schema = {
   readonly $ref?: string;
-  readonly type?: string;
+  readonly type?: string | readonly string[];
   readonly properties?: Readonly<Record<string, Schema>>;
   readonly items?: Schema;
   readonly allOf?: readonly Schema[];
@@ -100,6 +100,63 @@ function listItem(route: string): Schema | undefined {
   const data = fields(answer(route)).get('data');
   return data === undefined ? undefined : deref(data).items;
 }
+
+/** The records a kind's file holds: each item's own record, the one answer, or the list's items. */
+function recordSchema(kind: ExportKind): Schema | undefined {
+  if (kind.item !== undefined) return answer(kind.item.route);
+  if (kind.paging === 'one') return answer(kind.route);
+  return listItem(kind.route);
+}
+
+/** The field at `path` in a record's schema, when the record carries it. */
+function fieldAt(schema: Schema | undefined, path: readonly string[]): Schema | undefined {
+  let at = schema;
+  for (const name of path) {
+    const field = fields(at).get(name);
+    if (field === undefined) return undefined;
+    at = deref(field);
+  }
+  return at;
+}
+
+/** The types a field can take, over `oneOf` and `anyOf`. */
+function typesOf(field: Schema | undefined): string[] {
+  if (field === undefined) return [];
+  const s = deref(field);
+  const own = s.type === undefined ? [] : typeof s.type === 'string' ? [s.type] : [...s.type];
+  return [...own, ...[...(s.oneOf ?? []), ...(s.anyOf ?? [])].flatMap(typesOf)];
+}
+
+/** Whether a record's field can fill a path: it's a string or an integer, never anything else. */
+function fillsAPath(field: Schema | undefined): boolean {
+  const types = typesOf(field).filter((t) => t !== 'null');
+  return types.length > 0 && types.every((t) => t === 'string' || t === 'integer');
+}
+
+const kindNamed = (name: string): ExportKind => {
+  const kind = EXPORT_PLAN.find((k) => k.name === name);
+  if (kind === undefined) throw new Error(`no kind ${name} in the plan`);
+  return kind;
+};
+
+/**
+ * What the export reads from records besides what fills a path
+ * (`create.ts`): the env names, a secret's env and scope to read its
+ * versions at, the orgs' and projects' ids to read each env at, an
+ * approval's id and status, and a run's id for its signed provenance.
+ */
+const READS: readonly (readonly [string, readonly string[]])[] = [
+  ['environments', ['envName']],
+  ['secrets', ['envName']],
+  ['secrets', ['scope', 'kind']],
+  ['secrets', ['scope', 'orgId']],
+  ['secrets', ['scope', 'projectId']],
+  ['orgs', ['id']],
+  ['projects', ['id']],
+  ['approvals', ['id']],
+  ['approvals', ['status']],
+  ['provenance', ['runId']],
+];
 
 const pathParams = (route: string): string[] =>
   [...route.matchAll(/\{([^}]+)\}/g)].map((m) => m[1] as string);
@@ -189,12 +246,38 @@ describe('each kind reads its route as the route takes it', () => {
     expect(shape.has('data'), `${kind.route} answers a list`).toBe(kind.paging !== 'one');
   });
 
+  test.each(kinds.filter(([, k]) => k.parent !== undefined))(
+    '%s: its parent’s records carry what fills its path',
+    (_name, kind: ExportKind) => {
+      const parent = recordSchema(kindNamed(kind.parent?.kind as string));
+      const fields = Object.values(kind.parent?.params ?? {});
+      expect(fields.filter((field) => !fillsAPath(fieldAt(parent, [field])))).toEqual([]);
+    },
+  );
+
   test.each(
     EXPORT_PLAN.flatMap((k) =>
-      [k.item, k.bytes].flatMap((read) => (read === undefined ? [] : [[k.name, read] as const])),
+      [k.item, k.bytes].flatMap((read) => (read === undefined ? [] : [[k.name, read, k] as const])),
     ),
-  )('%s: each item’s route takes the fields it names', (_name, read) => {
-    expect(pathParams(read.route).sort()).toEqual(Object.keys(read.params).sort());
+  )(
+    '%s: each item’s route takes the fields it names, and the list carries them',
+    (_name, read, kind) => {
+      expect(pathParams(read.route).sort()).toEqual(Object.keys(read.params).sort());
+      const listed = listItem(kind.route);
+      const fields = Object.values(read.params);
+      expect(fields.filter((field) => !fillsAPath(fieldAt(listed, [field])))).toEqual([]);
+    },
+  );
+
+  test.each(READS)('%s: its records carry %j, which the export reads', (name, path) => {
+    expect(fillsAPath(fieldAt(recordSchema(kindNamed(name)), path))).toBe(true);
+  });
+
+  test('whoami answers the tenant, whether the caller is its admin, and its key’s scopes', () => {
+    const me = answer('/v1/identity/whoami');
+    expect(typesOf(fieldAt(me, ['tenantId']))).toEqual(['string']);
+    expect(typesOf(fieldAt(me, ['tenantAdmin']))).toEqual(['boolean']);
+    expect(typesOf(fieldAt(me, ['scopes']))).toEqual(['array']);
   });
 
   test.each(

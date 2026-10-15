@@ -20,7 +20,7 @@
 import { randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import type { WriteStream } from 'node:fs';
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { pipeline } from 'node:stream/promises';
@@ -31,6 +31,10 @@ import { ReadError, fillRoute } from './reader.js';
 import type { Query, Reader } from './reader.js';
 
 export const MANIFEST_FILE = 'manifest.json';
+
+/** The export holds the whole workspace, so only its owner may read it. */
+const FOLDER_MODE = 0o700;
+const FILE_MODE = 0o600;
 
 /** What an export never holds, in the manifest's words. */
 export const NEVER_EXPORTED: readonly string[] = [
@@ -118,7 +122,7 @@ export async function createExport(input: CreateExportInput): Promise<Manifest> 
     tenant: { id: input.tenantId, ...(state !== undefined && { state }) },
     startedAt: earlier?.startedAt ?? started,
     ...(finishedAt !== undefined && { finishedAt }),
-    consistency: consistencyOf(state),
+    consistency: consistencyOf(state, earlier),
     kinds,
     neverExported: NEVER_EXPORTED,
   });
@@ -181,7 +185,9 @@ async function prepareFolder(input: CreateExportInput): Promise<Manifest | undef
         `${input.out} isn't empty. Name a new or empty folder with --out, or pass --resume to finish the export that's there.`,
       );
     }
-    await mkdir(input.out, { recursive: true });
+    await mkdir(input.out, { recursive: true, mode: FOLDER_MODE });
+    // A folder that was there keeps its mode through `mkdir`.
+    await chmod(input.out, FOLDER_MODE);
     return undefined;
   }
   let earlier: Manifest;
@@ -202,6 +208,7 @@ async function prepareFolder(input: CreateExportInput): Promise<Manifest | undef
       `${input.out} holds an export of tenant ${earlier.tenant?.id} from ${earlier.server}, not of tenant ${input.tenantId} from ${input.server}. Resume it against that server and tenant, or start a new export in a new or empty folder.`,
     );
   }
+  await chmod(input.out, FOLDER_MODE);
   return earlier;
 }
 
@@ -215,11 +222,23 @@ async function tenantState(reader: Reader): Promise<string | undefined> {
   }
 }
 
-function consistencyOf(state: string | undefined): string {
-  if (state === 'closing' || state === 'suspended') {
-    return `The tenant is ${state}: nothing in it changes but deletes and erasures, so the files agree with each other, but for a delete or an erasure made while it ran.`;
+const CHANGING =
+  "Records can change while the export reads them, so the files are each kind as it stood when it was read (its `at`), not one moment's snapshot.";
+
+/**
+ * How far the files agree. A closing or suspended tenant changes only by
+ * deletes and erasures, so its files agree, when it was closing or
+ * suspended through every run of the export (an earlier run's manifest
+ * says whether it was).
+ */
+function consistencyOf(state: string | undefined, earlier: Manifest | undefined): string {
+  const frozen = (s: string | undefined) => s === 'closing' || s === 'suspended';
+  const frozenBefore =
+    earlier === undefined || (frozen(earlier.tenant?.state) && earlier.consistency !== CHANGING);
+  if (frozen(state) && frozenBefore) {
+    return `The tenant is ${state}: nothing in it changes but deletes and erasures, so the files agree with each other, but for a delete or an erasure made while the export ran.`;
   }
-  return "Records can change while the export reads them, so the files are each kind as it stood when it was read (its `at`), not one moment's snapshot.";
+  return CHANGING;
 }
 
 function progressLine(name: string, outcome: KindOutcome): string {
@@ -255,19 +274,52 @@ async function exportKind(ctx: KindContext, kind: ExportKind): Promise<KindOutco
   } catch (err) {
     await sink.close().catch(() => undefined);
     await rm(partial, { force: true });
-    const notServed =
-      err instanceof ReadError &&
-      kind.parent === undefined &&
-      tally.records === 0 &&
-      (err.status === 404 || err.status === 501);
-    if (notServed)
-      return {
-        status: 'skipped',
-        reason: `this server doesn't serve ${kind.route} (${err.status})`,
-      };
+    if (kind.bytes !== undefined) await rmDir(ctx, kind.bytes.dir);
+    const notServed = notServedBy(err, kind, tally.records);
+    if (notServed !== undefined) return { status: 'skipped', reason: notServed.message };
     return { status: 'failed', error: (err as Error).message };
   }
   return ok(ctx, file, tally);
+}
+
+/** A route of a kind's (a child's, an item's, its bytes') that this server doesn't serve. */
+class NotServed extends Error {
+  constructor(route: string, status: number | undefined) {
+    super(`this server doesn't serve ${route} (${status})`);
+    this.name = 'NotServed';
+  }
+}
+
+/**
+ * Why a kind is skipped as not served, if it is: a route under it isn't
+ * served, or its own route isn't. A top-level route that answers `404`
+ * before any record isn't served either: what it lists can't be gone.
+ */
+function notServedBy(err: unknown, kind: ExportKind, records: number): NotServed | undefined {
+  if (err instanceof NotServed) return err;
+  if (!(err instanceof ReadError) || kind.parent !== undefined) return undefined;
+  if (isNotServed(err) || (records === 0 && err.status === 404)) {
+    return new NotServed(kind.route, err.status);
+  }
+  return undefined;
+}
+
+/** A route this server doesn't serve: one it doesn't mount (`404 route-not-found`), or `501`. */
+function isNotServed(err: unknown): boolean {
+  return (
+    err instanceof ReadError &&
+    (err.status === 501 || (err.status === 404 && err.code === 'route-not-found'))
+  );
+}
+
+/** Stops the kind as not served when `route` isn't. */
+function throwIfNotServed(err: unknown, route: string): void {
+  if (isNotServed(err)) throw new NotServed(route, (err as ReadError).status);
+}
+
+/** A folder of the export's, removed: a kind that writes one is whole or absent. */
+async function rmDir(ctx: KindContext, dir: string): Promise<void> {
+  await rm(join(ctx.out, dir), { recursive: true, force: true });
 }
 
 function ok(
@@ -322,6 +374,7 @@ async function* childLines(
         yield `${JSON.stringify({ parent: params, item })}\n`;
       }
     } catch (err) {
+      throwIfNotServed(err, kind.route);
       if (!isGone(err)) throw err;
       tally.gone++;
     }
@@ -362,12 +415,17 @@ async function fullRecord(
   try {
     return await ctx.reader.one(fillRoute(item.route, params));
   } catch (err) {
+    throwIfNotServed(err, item.route);
     if (!isGone(err)) throw err;
     return GONE;
   }
 }
 
-/** A `404` for a record that was listed: deleted between the two reads. */
+/**
+ * A `404` for a record that was listed: deleted between the two reads.
+ * Asked after `throwIfNotServed`, since a route the server doesn't mount
+ * answers `404` too.
+ */
 function isGone(err: unknown): boolean {
   return err instanceof ReadError && err.status === 404;
 }
@@ -470,7 +528,9 @@ async function writeBytes(
 ): Promise<void> {
   const bytes = kind.bytes as NonNullable<ExportKind['bytes']>;
   const dir = join(ctx.out, bytes.dir);
-  await mkdir(dir, { recursive: true });
+  // What an earlier run left of it goes, so the folder is this read's whole.
+  await rmDir(ctx, bytes.dir);
+  await mkdir(dir, { recursive: true, mode: FOLDER_MODE });
   const lines = createInterface({
     input: createReadStream(listed),
     crlfDelay: Number.POSITIVE_INFINITY,
@@ -483,10 +543,11 @@ async function writeBytes(
     try {
       await pipeline(
         await ctx.reader.bytes(fillRoute(bytes.route, params)),
-        createWriteStream(`${target}.partial`),
+        createWriteStream(`${target}.partial`, { mode: FILE_MODE }),
       );
     } catch (err) {
       await rm(`${target}.partial`, { force: true });
+      throwIfNotServed(err, bytes.route);
       if (!isGone(err)) throw err;
       tally.gone++;
       continue;
@@ -509,76 +570,114 @@ function signedUnmet(ctx: KindContext, from: string): string | undefined {
 }
 
 async function signApprovals(ctx: KindContext): Promise<KindOutcome> {
-  return signEach(ctx, 'approvals', SIGNED.approvals, (record) =>
-    typeof record.status === 'string' && DECIDED.has(record.status) && typeof record.id === 'string'
-      ? { id: record.id, path: `/v1/approvals/${encodeURIComponent(record.id)}/audit-bundle` }
-      : undefined,
-  );
+  return signEach(ctx, {
+    from: 'approvals',
+    dir: SIGNED.approvals,
+    route: '/v1/approvals/{approvalId}/audit-bundle',
+    param: 'approvalId',
+    idOf: (record) =>
+      typeof record.status === 'string' &&
+      DECIDED.has(record.status) &&
+      typeof record.id === 'string'
+        ? record.id
+        : undefined,
+  });
 }
 
 async function signProvenance(ctx: KindContext): Promise<KindOutcome> {
-  return signEach(ctx, 'provenance', SIGNED.provenance, (record) =>
-    typeof record.runId === 'string'
-      ? { id: record.runId, path: `/v1/provenance/${encodeURIComponent(record.runId)}/export` }
-      : undefined,
-  );
+  return signEach(ctx, {
+    from: 'provenance',
+    dir: SIGNED.provenance,
+    route: '/v1/provenance/{runId}/export',
+    param: 'runId',
+    idOf: (record) => (typeof record.runId === 'string' ? record.runId : undefined),
+  });
 }
 
-/** One signed export for each record of `from` that `target` picks, to `<dir>/<id>.json`. */
-async function signEach(
-  ctx: KindContext,
-  from: string,
-  dir: string,
-  target: (
-    record: Record<string, unknown>,
-  ) => { readonly id: string; readonly path: string } | undefined,
-): Promise<KindOutcome> {
-  const unmet = signedUnmet(ctx, from);
+/** A signed export made for each record of a kind. */
+interface SignedEach {
+  /** The kind whose records it's made for. */
+  readonly from: string;
+  /** Where each goes, as `<dir>/<id>.json`. */
+  readonly dir: string;
+  readonly route: string;
+  /** The route's path parameter the id fills. */
+  readonly param: string;
+  /** The id of the record it's made for, or `undefined` when it isn't made for this one. */
+  readonly idOf: (record: Record<string, unknown>) => string | undefined;
+}
+
+/** One signed export for each record `each.idOf` picks; the folder whole, or absent. */
+async function signEach(ctx: KindContext, each: SignedEach): Promise<KindOutcome> {
+  const unmet = signedUnmet(ctx, each.from);
   if (unmet !== undefined) return { status: 'skipped', reason: unmet };
   const tally = { records: 0, gone: 0, withoutMessages: 0 };
   try {
-    await mkdir(join(ctx.out, dir), { recursive: true });
-    for await (const record of recordsOf(ctx, from)) {
-      const to = target(record);
-      if (to === undefined) continue;
-      const file = join(ctx.out, dir, `${safeName(to.id, `A ${from} id`)}.json`);
-      let signed: unknown;
-      try {
-        signed = await ctx.reader.post(to.path, { includeMessages: true }, randomUUID());
-      } catch (err) {
-        if (isGone(err)) {
-          tally.gone++;
-          continue;
-        }
-        if (!(err instanceof ReadError && err.status === 413)) throw err;
-        signed = await ctx.reader.post(to.path, { includeMessages: false }, randomUUID());
-        tally.withoutMessages++;
+    await rmDir(ctx, each.dir);
+    await mkdir(join(ctx.out, each.dir), { recursive: true, mode: FOLDER_MODE });
+    for await (const record of recordsOf(ctx, each.from)) {
+      const id = each.idOf(record);
+      if (id === undefined) continue;
+      const file = join(ctx.out, each.dir, `${safeName(id, `A ${each.from} id`)}.json`);
+      const signed = await signOne(ctx, each, fillRoute(each.route, { [each.param]: id }), tally);
+      if (signed === GONE) {
+        tally.gone++;
+        continue;
       }
       await writeAtomically(file, `${JSON.stringify(signed, null, 2)}\n`);
       tally.records++;
     }
   } catch (err) {
+    await rmDir(ctx, each.dir);
+    if (err instanceof NotServed) return { status: 'skipped', reason: err.message };
     return { status: 'failed', error: (err as Error).message };
   }
-  return ok(ctx, dir, tally);
+  return ok(ctx, each.dir, tally);
+}
+
+/**
+ * One record's signed export, with its messages, or without them when the
+ * server says it's too large (`413`); `GONE` when the record was deleted
+ * since it was listed.
+ */
+async function signOne(
+  ctx: KindContext,
+  each: SignedEach,
+  path: string,
+  tally: { withoutMessages: number },
+): Promise<unknown> {
+  try {
+    return await ctx.reader.post(path, { includeMessages: true }, randomUUID());
+  } catch (err) {
+    throwIfNotServed(err, each.route);
+    if (isGone(err)) return GONE;
+    if (!(err instanceof ReadError && err.status === 413)) throw err;
+    const signed = await ctx.reader.post(path, { includeMessages: false }, randomUUID());
+    tally.withoutMessages++;
+    return signed;
+  }
 }
 
 async function signEvidence(ctx: KindContext): Promise<KindOutcome> {
   const unmet = signedUnmet(ctx, 'compliance-evidence');
   if (unmet !== undefined) return { status: 'skipped', reason: unmet };
   const file = `${SIGNED.evidence}.json`;
+  const route = '/v1/compliance/evidence/export';
   try {
-    const signed = await ctx.reader.post('/v1/compliance/evidence/export', {}, randomUUID());
-    await mkdir(join(ctx.out, 'signed'), { recursive: true });
+    const signed = await ctx.reader.post(route, {}, randomUUID());
+    await mkdir(join(ctx.out, 'signed'), { recursive: true, mode: FOLDER_MODE });
     await writeAtomically(join(ctx.out, file), `${JSON.stringify(signed, null, 2)}\n`);
   } catch (err) {
+    if (isNotServed(err)) {
+      return { status: 'skipped', reason: new NotServed(route, (err as ReadError).status).message };
+    }
     return { status: 'failed', error: (err as Error).message };
   }
   return ok(ctx, file, { records: 1, gone: 0 });
 }
 
 async function writeAtomically(file: string, text: string): Promise<void> {
-  await writeFile(`${file}.partial`, text);
+  await writeFile(`${file}.partial`, text, { mode: FILE_MODE });
   await rename(`${file}.partial`, file);
 }
 
@@ -586,7 +685,7 @@ async function writeAtomically(file: string, text: string): Promise<void> {
 async function openLines(
   file: string,
 ): Promise<{ write(line: string): Promise<void>; close(): Promise<void> }> {
-  const stream: WriteStream = createWriteStream(file);
+  const stream: WriteStream = createWriteStream(file, { mode: FILE_MODE });
   await new Promise<void>((resolve, reject) => {
     stream.once('open', () => resolve());
     stream.once('error', reject);

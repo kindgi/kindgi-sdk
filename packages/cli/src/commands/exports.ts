@@ -11,6 +11,7 @@ import { createExport } from '../exports/create.js';
 import type { Manifest } from '../exports/create.js';
 import { EXPORT_PLAN } from '../exports/plan.js';
 import { createReader } from '../exports/reader.js';
+import type { Reader } from '../exports/reader.js';
 import { renderJson } from '../output.js';
 import { CLI_VERSION } from '../version-info.js';
 import { commandResultFromThrown, listFlag, requiredPositional, stringFlag } from './helpers.js';
@@ -137,11 +138,7 @@ const create: LeafCommand = {
         rateLimitWaits: ctx.rateLimitWaits,
         ...(seam.pause !== undefined && { pause: seam.pause }),
       });
-      const me = (await reader.one('/v1/identity/me/permissions')) as {
-        tenantId?: unknown;
-        tenant?: { admin?: unknown };
-      };
-      const admin = me.tenant?.admin === true;
+      const { tenantId, admin } = await caller(reader);
       if (!admin && ctx.options.yes !== true) {
         const skipped = EXPORT_PLAN.filter((k) => k.admin === true).map((k) => k.name);
         throw new Error(
@@ -153,7 +150,7 @@ const create: LeafCommand = {
         resume: ctx.options.resume === true,
         signed: ctx.options['no-signed'] !== true,
         admin,
-        tenantId: String(me.tenantId),
+        tenantId,
         reader,
         server: ctx.apiUrl().replace(/\/+$/, ''),
         cliVersion: CLI_VERSION,
@@ -179,6 +176,32 @@ const create: LeafCommand = {
 };
 
 /** What the export holds, in a few lines. */
+/**
+ * The caller's tenant, and whether they're its admin, as whoami answers:
+ * it's always served, unlike `me/permissions`, which a runtime without an
+ * authorization store answers `501`.
+ */
+async function caller(
+  reader: Reader,
+): Promise<{ readonly tenantId: string; readonly admin: boolean }> {
+  const me = (await reader.one('/v1/identity/whoami')) as {
+    tenantId?: unknown;
+    tenantAdmin?: unknown;
+    scopes?: unknown;
+  };
+  if (typeof me.tenantId !== 'string' || me.tenantId === '') {
+    throw new Error(
+      'GET /v1/identity/whoami answered no tenantId, so the export has no tenant to name.',
+    );
+  }
+  // A server that answers no `tenantAdmin` says it by the key's scopes.
+  const admin =
+    typeof me.tenantAdmin === 'boolean'
+      ? me.tenantAdmin
+      : Array.isArray(me.scopes) && me.scopes.includes('tenant-admin');
+  return { tenantId: me.tenantId, admin };
+}
+
 function summary(manifest: Manifest, out: string): string {
   const outcomes = Object.entries(manifest.kinds);
   const count = (status: string) => outcomes.filter(([, k]) => k.status === status).length;
