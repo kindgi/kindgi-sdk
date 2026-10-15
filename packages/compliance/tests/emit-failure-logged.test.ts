@@ -3,8 +3,8 @@
 
 /**
  * An audit append that fails or throws never fails the caller's op: it's
- * logged at `warn` through the input's `log`, naming the record's kind and
- * why. Without a `log` it isn't logged anywhere, the console included.
+ * logged at `warn` through the input's `log`, naming the record's tenant
+ * and kind, and why. Without a `log` it isn't logged anywhere, the console included.
  */
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
@@ -78,6 +78,7 @@ describe('an audit append that fails is logged through the given log', () => {
       expect.objectContaining({
         level: 'warn',
         message: 'secret-resolved audit event failed: the audit store is down',
+        tenantId,
         kind: 'secret-resolved',
         code: 'persistence-error',
         inMessage: ['kind'],
@@ -92,6 +93,7 @@ describe('an audit append that fails is logged through the given log', () => {
       expect.objectContaining({
         level: 'warn',
         message: 'env-set audit event failed',
+        tenantId,
         kind: 'env-set',
         err: expect.objectContaining({ name: 'Error', message: 'connection reset' }),
         inMessage: ['kind'],

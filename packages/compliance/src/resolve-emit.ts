@@ -203,14 +203,14 @@ async function safeEmit(
     if (result.kind === 'err') {
       log?.warn(
         `${event.kind} audit event failed: ${result.error.message}`,
-        { kind: event.kind, code: result.error.code },
+        { tenantId: event.tenantId, kind: event.kind, code: result.error.code },
         { inMessage: ['kind'] },
       );
     }
   } catch (cause) {
     log?.warn(
       `${event.kind} audit event failed`,
-      { kind: event.kind, err: cause },
+      { tenantId: event.tenantId, kind: event.kind, err: cause },
       { inMessage: ['kind'] },
     );
   }
