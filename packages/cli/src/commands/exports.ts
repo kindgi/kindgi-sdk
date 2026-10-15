@@ -185,7 +185,7 @@ function summary(manifest: Manifest, out: string): string {
   const lines = [
     manifest.finishedAt === undefined
       ? `Stopped. The export in ${out} is unfinished: run it again with --resume to finish it.`
-      : `Exported to ${out}: ${count('ok')} kinds, ${count('skipped')} skipped, ${count('failed')} failed. manifest.json says what each file holds.`,
+      : `Exported to ${out}: ${count('ok')} kinds written, ${count('skipped')} skipped, ${count('failed')} failed. manifest.json says what each file holds.`,
   ];
   for (const [name, k] of outcomes) {
     if (k.status === 'failed') lines.push(`  ${name}: failed, ${k.error}`);
@@ -197,6 +197,6 @@ function summary(manifest: Manifest, out: string): string {
 export const exportsCommand: Command = {
   kind: 'group',
   name: 'exports',
-  description: 'Exports: create an export of the whole workspace as files, or verify a signed one',
+  description: 'Exports: create an export of the whole workspace as files, or verify a signed one.',
   subcommands: [create, verify],
 };

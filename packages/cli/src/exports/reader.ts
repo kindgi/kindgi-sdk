@@ -124,7 +124,7 @@ export function createReader(options: ReaderOptions): Reader {
       }
       if (page.hasMore === true) {
         throw new ReadError(
-          `GET ${target} says it has more than one answer holds, and the route takes no cursor`,
+          `GET ${target} says it has more, and the route takes no cursor to read it by`,
           200,
         );
       }

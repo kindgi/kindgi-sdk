@@ -35,7 +35,7 @@ export const MANIFEST_FILE = 'manifest.json';
 /** What an export never holds, in the manifest's words. */
 export const NEVER_EXPORTED: readonly string[] = [
   "Secret values: the API never answers them. secrets.jsonl and secret-versions.jsonl hold each secret's name, scope and versions.",
-  'Pack images: build them again from the packs’ sources.',
+  "Pack images: build them again from the packs' sources.",
   "Pack and run logs: the server's logging keeps them, not the workspace's API.",
 ];
 
@@ -217,7 +217,7 @@ async function tenantState(reader: Reader): Promise<string | undefined> {
 
 function consistencyOf(state: string | undefined): string {
   if (state === 'closing' || state === 'suspended') {
-    return `The tenant is ${state}: nothing in it changes but deletes and erasures, so the files agree with each other.`;
+    return `The tenant is ${state}: nothing in it changes but deletes and erasures, so the files agree with each other, but for a delete or an erasure made while it ran.`;
   }
   return "Records can change while the export reads them, so the files are each kind as it stood when it was read (its `at`), not one moment's snapshot.";
 }
