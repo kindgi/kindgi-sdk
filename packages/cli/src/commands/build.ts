@@ -251,7 +251,8 @@ interface ResolvedBuildArgs {
   readonly publishedAt: string;
   readonly tenantId: string;
   readonly signingKeyPath: string | undefined;
-  readonly signerKeyId: string;
+  /** `--signer-key-id`, else the env block's; signing falls back to the key file's name. */
+  readonly signerKeyId: string | undefined;
   readonly skipIntegrityGate: boolean;
   readonly skipImagePull: boolean;
   readonly skipSign: boolean;
@@ -685,12 +686,12 @@ async function signAndWriteEnvelope(
       publishedAt: args.publishedAt,
     });
     const signed = await runners.signEnvelope({ privateKeyPem, message });
-    signature = { ...signed, keyId: args.signerKeyId };
+    signature = { ...signed, keyId: args.signerKeyId ?? basenameNoExt(args.signingKeyPath) };
     lines('  Signing locally');
     lines(
       '    ✓ Ed25519 signature over (imageDigest, artifactVersion, indexHash, tenantId, publishedAt)',
     );
-    lines(`      key: ${args.signerKeyId}`);
+    lines(`      key: ${signature.keyId}`);
   }
 
   const envelope = buildEnvelope({
@@ -1364,14 +1365,11 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       ? expandHome(signingKeyRaw, ctx.home)
       : undefined;
 
-  // --signer-key-id — derive from key filename basename if not
-  // explicitly configured.
+  // --signer-key-id — flag > env block; signing falls back to the key
+  // file's name. With no key there's no signature to name a key.
   const keyIdFlag = ctx.options['signer-key-id'];
   const signerKeyId =
-    typeof keyIdFlag === 'string' && keyIdFlag !== ''
-      ? keyIdFlag
-      : (envBlock?.signerKeyId ??
-        (signingKeyPath !== undefined ? basenameNoExt(signingKeyPath) : `${envName}-signer`));
+    typeof keyIdFlag === 'string' && keyIdFlag !== '' ? keyIdFlag : envBlock?.signerKeyId;
 
   // --push — the repository: the flag's, else the env block's registry
   // plus the pack id.

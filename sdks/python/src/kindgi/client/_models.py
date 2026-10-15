@@ -827,6 +827,10 @@ class RunJournalPage(BaseModel):
     )
     data: list[Datum1]
     has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page, with `limit`. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5.
+    """
 
 
 class RunEvent(BaseModel):
@@ -1164,7 +1168,7 @@ class SystemDeploymentEntry(BaseModel):
         | None
     ) = None
     """
-    In the `retire` list only. `superseded`: no live or promoted version routes to it any more (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.
+    In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.
     """
 
 
@@ -1838,6 +1842,37 @@ class ExportSigningKeyList(BaseModel):
     data: list[ExportSigningKey]
     """
     Active first. Empty when the deployment doesn't sign exports.
+    """
+
+
+class LicenseUsage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    since: AwareDatetime
+    """
+    The period's start, as asked.
+    """
+    until: AwareDatetime
+    """
+    When they were counted.
+    """
+    runtime_version: Annotated[str, Field(alias="runtimeVersion")]
+    """
+    The runtime's version.
+    """
+    runs: Annotated[int, Field(ge=0)]
+    """
+    Runs started in the period: not dry runs, replays, evals or child runs.
+    """
+    people: Annotated[int, Field(ge=0)]
+    """
+    Distinct people who started runs or decided approvals in the period, counted in each tenant and summed.
+    """
+    projects_in_production: Annotated[int | None, Field(alias="projectsInProduction", ge=0)] = None
+    """
+    Projects in production at `until`; absent when the runtime has no such setting.
     """
 
 
@@ -10545,7 +10580,7 @@ class ScheduleFire(BaseModel):
         "pending", "started", "skipped-overlap", "skipped-erasure", "skipped", "refused", "failed"
     ]
     """
-    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or pass started; or its run or pass hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension (`project-suspended`, `tenant-suspended`) doesn't reset the auto-pause's count of fires in a row either.
+    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or pass started; its run or pass hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
     """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
@@ -10765,7 +10800,7 @@ class WebhookFire(BaseModel):
     fired_at: Annotated[AwareDatetime, Field(alias="firedAt")]
     outcome: Literal["pending", "started", "skipped", "refused", "failed"]
     """
-    `pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); or its run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`). `refused`: `detail` says why. `failed`: the run couldn't start.
+    `pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); its run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.
     """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
@@ -10773,7 +10808,7 @@ class WebhookFire(BaseModel):
     """
     detail: str | None = None
     """
-    Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension names `project-suspended` or `tenant-suspended` in it.
+    Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension or a close names `project-suspended`, `tenant-suspended` or `tenant-closing` in it.
     """
     counts_toward_pause: Annotated[bool | None, Field(alias="countsTowardPause")] = None
     """
@@ -10855,7 +10890,7 @@ class RegisterWebhookTriggerBody(BaseModel):
     config: Config8 | None = None
     hmac_secret_name: Annotated[str, Field(alias="hmacSecretName", min_length=1)]
     """
-    The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing).
+    The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing). Under `kindgi dev`, `generateSecret` writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`secret-name-invalid` otherwise).
     """
     generate_secret: Annotated[bool | None, Field(alias="generateSecret")] = None
     """

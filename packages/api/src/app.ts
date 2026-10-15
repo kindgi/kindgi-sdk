@@ -667,7 +667,7 @@ export interface CreateAppInput {
    * The most bytes one artifact upload may carry (`POST /v1/artifacts`);
    * more is `413 artifact-too-large`. Also the most one request to the
    * S3-compatible routes may carry (`/s3/*`: an object, or a part of a
-   * multipart upload); more is S3's `400 EntityTooLarge`. Default 100 MB.
+   * multipart upload); more is S3's `400 EntityTooLarge`. Default 100 MiB.
    */
   readonly artifactMaxBytes?: number;
   /**

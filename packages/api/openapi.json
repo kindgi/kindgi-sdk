@@ -482,7 +482,9 @@
           "env-name-mismatch": 400,
           "env-cross-scope": 400,
           "reserved-name-prefix": 400,
+          "secret-name-invalid": 400,
           "secret-value-too-large": 400,
+          "secret-value-invalid": 400,
           "secret-write-conflict": 409,
           "env-write-conflict": 409,
           "secret-encryption-failed": 500,
@@ -2172,6 +2174,10 @@
           },
           "hasMore": {
             "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "Opaque cursor for the next page, with `limit`. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5."
           }
         }
       },
@@ -2791,7 +2797,7 @@
               "project-suspended",
               "pack-suspended"
             ],
-            "description": "In the `retire` list only. `superseded`: no live or promoted version routes to it any more (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one."
+            "description": "In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one."
           }
         }
       },
@@ -4461,6 +4467,48 @@
           },
           "preview": {
             "$ref": "#/components/schemas/LicensePreview"
+          }
+        }
+      },
+      "LicenseUsage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "since",
+          "until",
+          "runtimeVersion",
+          "runs",
+          "people"
+        ],
+        "properties": {
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The period's start, as asked."
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When they were counted."
+          },
+          "runtimeVersion": {
+            "type": "string",
+            "description": "The runtime's version."
+          },
+          "runs": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Runs started in the period: not dry runs, replays, evals or child runs."
+          },
+          "people": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Distinct people who started runs or decided approvals in the period, counted in each tenant and summed."
+          },
+          "projectsInProduction": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Projects in production at `until`; absent when the runtime has no such setting."
           }
         }
       },
@@ -20348,7 +20396,7 @@
               "refused",
               "failed"
             ],
-            "description": "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or pass started; or its run or pass hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension (`project-suspended`, `tenant-suspended`) doesn't reset the auto-pause's count of fires in a row either."
+            "description": "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or pass started; its run or pass hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either."
           },
           "runId": {
             "type": "string",
@@ -20827,7 +20875,7 @@
               "refused",
               "failed"
             ],
-            "description": "`pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); or its run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`). `refused`: `detail` says why. `failed`: the run couldn't start."
+            "description": "`pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); its run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start."
           },
           "runId": {
             "type": "string",
@@ -20836,7 +20884,7 @@
           },
           "detail": {
             "type": "string",
-            "description": "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension names `project-suspended` or `tenant-suspended` in it."
+            "description": "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access. A skip for a suspension or a close names `project-suspended`, `tenant-suspended` or `tenant-closing` in it."
           },
           "countsTowardPause": {
             "type": "boolean",
@@ -20960,7 +21008,7 @@
           "hmacSecretName": {
             "type": "string",
             "minLength": 1,
-            "description": "The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing)."
+            "description": "The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing). Under `kindgi dev`, `generateSecret` writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`secret-name-invalid` otherwise)."
           },
           "generateSecret": {
             "type": "boolean",
@@ -22716,7 +22764,7 @@
             }
           },
           "400": {
-            "description": "`runId` is not a run id (a UUID).",
+            "description": "`runId` is not a run id (a UUID), `limit` is not a whole number of 1 or more, or `cursor` is malformed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -22746,7 +22794,7 @@
             }
           }
         },
-        "description": "Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`). Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6.",
+        "description": "Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`), in sequence order. Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6. Paging is opt-in: with `limit`, at most that many entries and a `nextCursor` while more remain; without it, the whole journal in one answer.",
         "parameters": [
           {
             "name": "runId",
@@ -22767,6 +22815,26 @@
             },
             "required": false,
             "description": "Only return journal entries with `sequence > since`."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "required": false,
+            "description": "The most entries in a page, 1..100: then `nextCursor` while more remain. Without it, the whole journal (after `since` or `cursor`) in one answer."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
@@ -24513,7 +24581,7 @@
             }
           }
         },
-        "description": "Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).",
+        "description": "Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).",
         "parameters": [
           {
             "name": "tenantId",
@@ -24791,7 +24859,7 @@
             }
           }
         },
-        "description": "Reversible: nothing new runs or deploys in the project, its running runs are cancelled and its deployments retired; reads and the rest of the tenant are untouched. Its schedules' fires are recorded `skipped` (`project-suspended`) and don't count toward the auto-pause, so a schedule stays on and fires again once the project is restored. A delivery to one of its webhook triggers is answered `skipped: project-suspended`, and nothing is recorded. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).",
+        "description": "Reversible: nothing new runs or deploys in the project, its running runs are cancelled and its deployments retired; reads and the rest of the tenant are untouched. Its schedules' fires are recorded `skipped` (`project-suspended`) and don't count toward the auto-pause, so a schedule stays on and fires again once the project is restored. A delivery to one of its webhook triggers is answered `skipped: project-suspended`, and nothing is recorded. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).",
         "parameters": [
           {
             "name": "tenantId",
@@ -25331,7 +25399,7 @@
             }
           }
         },
-        "description": "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (a live or promoted version resolves to it), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
+        "description": "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
         "parameters": [
           {
             "name": "endpoint",
@@ -35229,7 +35297,7 @@
             }
           },
           "403": {
-            "description": "Not the deployment's own token, nor an admin of the one tenant it serves (`license-operator-only`).",
+            "description": "Not the deployment's own token, a system key holding `system:license`, or an admin of the one tenant it serves (`license-operator-only`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -35240,6 +35308,75 @@
           }
         },
         "description": "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/license/usage": {
+      "get": {
+        "operationId": "license.usage",
+        "summary": "How much the deployment was used since a time",
+        "tags": [
+          "system"
+        ],
+        "responses": {
+          "200": {
+            "description": "The counts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LicenseUsage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`since` is missing, not a time with a zone, or more than five minutes ahead of the runtime's clock (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the deployment's own token or a system key holding `system:license` (`license-operator-only`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "What a free license key's renewal carries (`kindgi license renew --runtime`): the runs started since `since` (not dry runs, replays, evals or child runs), the distinct people who started runs or decided approvals (counted in each tenant and summed, so a person in two tenants counts twice), the projects in production when the runtime can put projects in production (`PUT /v1/projects/{projectId}/production`), and the runtime's version. Counts only: no content, names or ids. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, reads it; anyone else is refused (`license-operator-only`), and the refusal recorded, before `since` is read. A deployment that doesn't report it answers 404.",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": true,
+            "description": "The period's start (ISO 8601, with a zone): `kindgi license renew` sends when the current key was issued. Up to five minutes ahead of the runtime's clock is taken as now, since clocks differ; further ahead is refused."
+          }
+        ],
         "security": [
           {
             "bearerAuth": []
@@ -35588,7 +35725,7 @@
             }
           }
         },
-        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the tenant's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MB) is `413 artifact-too-large`.",
+        "description": "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the tenant's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -44302,7 +44439,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
             "content": {
               "application/json": {
                 "schema": {
@@ -44361,8 +44498,38 @@
               }
             }
           },
+          "429": {
+            "description": "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49159,7 +49326,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
             "content": {
               "application/json": {
                 "schema": {
@@ -49198,8 +49365,38 @@
               }
             }
           },
+          "429": {
+            "description": "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49721,7 +49918,7 @@
             }
           },
           "400": {
-            "description": "Missing or malformed scope / envName.",
+            "description": "Missing or malformed scope / envName, or a `cursor` this list didn't issue.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49741,7 +49938,7 @@
             }
           }
         },
-        "description": "Cursor-paginated list of secret metadata at the given `(scope, envName)`. `value` is ALWAYS absent (structural redaction).",
+        "description": "Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. `value` is ALWAYS absent (structural redaction).",
         "parameters": [
           {
             "name": "envName",
@@ -49810,6 +50007,19 @@
             },
             "required": false,
             "description": "Prefix match on entry name."
+          },
+          {
+            "name": "includeRevoked",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "required": false,
+            "description": "`true` lists revoked secrets too, with their `revokedAt` and `revokeReason`. Metadata only, never a value."
           }
         ],
         "security": [
@@ -49846,7 +50056,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
             "content": {
               "application/json": {
                 "schema": {
@@ -49895,8 +50105,38 @@
               }
             }
           },
+          "429": {
+            "description": "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50194,7 +50434,7 @@
             }
           },
           "400": {
-            "description": "Missing or malformed scope / envName.",
+            "description": "Missing or malformed scope / envName, or a `cursor` this list didn't issue.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50418,7 +50658,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "A body that fails validation (`bad-input`), or a rotation the store refuses as it would the write: `secret-value-too-large` for a new value over its size limit, or `reserved-name-prefix` for a `kindgi.` name.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50477,6 +50717,16 @@
               }
             }
           },
+          "429": {
+            "description": "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
             "content": {
@@ -50489,6 +50739,26 @@
           },
           "501": {
             "description": "The store doesn't rotate (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files and have no versions; the message says what to do instead.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
             "content": {
               "application/json": {
                 "schema": {
@@ -51748,7 +52018,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the tenant (`details.issues`).",
+            "description": "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the tenant (`details.issues`). Or, with `generateSecret`, a name the secrets store can't write, refused before anything is stored: `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `reserved-name-prefix`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -52414,7 +52684,7 @@
             }
           }
         },
-        "description": "Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused, or its project or tenant suspended) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals and skipped deliveries past 20 a minute only count (the trigger's `suppressedRefusals`).",
+        "description": "Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused, its project or tenant suspended, or its tenant closing) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals and skipped deliveries past 20 a minute only count (the trigger's `suppressedRefusals`).",
         "parameters": [
           {
             "name": "triggerId",

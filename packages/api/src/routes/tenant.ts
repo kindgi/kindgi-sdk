@@ -462,7 +462,8 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
           },
         });
       }
-      c.status(500);
+      // The store's code, at its status: a name it can't write is the caller's `400`.
+      c.status(statusFor(outcome.code) as never);
       return c.json(toWireError({ code: outcome.code, message: outcome.message }, requestId));
     }
 

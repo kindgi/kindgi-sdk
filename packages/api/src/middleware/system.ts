@@ -205,7 +205,7 @@ async function admitSystemRequest(
       c,
       authorizer,
       'system-key-on-tenant-route',
-      `A system key acts in no tenant: it reaches ${reaches.join(' and ')} only, not ${method} ${path}. Use a key of the tenant.`,
+      `A system key acts in no tenant: it reaches ${reaches.slice(0, -1).join(', ')} and ${reaches.at(-1)} only, not ${method} ${path}. Use a key of the tenant.`,
     );
   }
   const refusal = systemScopeRefusal(c, listed.scope, authorizer);

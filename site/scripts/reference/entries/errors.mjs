@@ -862,7 +862,7 @@ export const ERROR_ENTRIES = {
   },
   'capability-routing-failed': {
     description:
-      "No model provider could take the agent's call: the agent declares no capabilities, or no provider meets them under your policy, or the pinned route is no longer allowed.",
+      "No model provider could take the agent's call: the agent declares no capabilities, or no provider meets them under your policy, or the pinned route is no longer allowed, or a provider registered for the tenant can't be set up on this runtime (the message says why; `GET /v1/providers/{providerId}/check` gives the adapter's words).",
     details: [
       {
         key: 'runId',
@@ -1765,7 +1765,7 @@ export const ERROR_ENTRIES = {
   },
   'system-key-on-tenant-route': {
     description:
-      "A system key was sent to a route it can't use. A system key acts in no tenant, so it reaches `/v1/system/*` and `GET /v1/license` only: use one of the tenant's keys.",
+      "A system key was sent to a route it can't use. A system key acts in no tenant, so it reaches `/v1/system/*`, `GET /v1/license` and `GET /v1/license/usage` only: use one of the tenant's keys.",
     details: [
       {
         key: 'action',
@@ -1838,7 +1838,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-closing': {
     description:
-      "The tenant is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers that proves its sender is refused the same way, and nothing is recorded for it. The system routes that change its settings, limits, image prefix, a suspension or a deployment's endpoint refuse a closing tenant; clearing its deployments' endpoints, which retires its pack services, still works. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+      "The tenant is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers that proves its sender is refused the same way, and nothing is recorded for it. A schedule's or webhook trigger's fire whose run starts as the tenant starts closing is recorded `skipped`, with `tenant-closing` in its `detail`, and doesn't count toward a schedule's auto-pause. The system routes that change its settings, limits, image prefix, a suspension or a deployment's endpoint refuse a closing tenant; clearing its deployments' endpoints, which retires its pack services, still works. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
     details: [
       {
         key: 'state',
@@ -1852,7 +1852,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-suspended': {
     description:
-      "The tenant is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: tenant-suspended`, and nothing is recorded or kept for it. A sender that can redeliver by hand can resend it once the tenant is restored, and a restore is seen within 5 seconds. Its schedules don't fire while it's suspended, and nothing is caught up: at the restore, a schedule's or webhook trigger's fire whose run or pass hadn't started is recorded `skipped`, with `tenant-suspended` in its `detail`, and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. None of it counts toward a schedule's auto-pause. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+      "The tenant is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: tenant-suspended`, and nothing is recorded or kept for it. A sender that can redeliver by hand can resend it once the tenant is restored, and a restore is seen within 5 seconds. Its schedules don't fire while it's suspended, and nothing is caught up: at the restore, a schedule's or webhook trigger's fire whose run or pass hadn't started is recorded `skipped`, with `tenant-suspended` in its `detail`, and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A fire whose run was starting as the tenant was suspended is recorded `skipped` right away, with `tenant-suspended` in its `detail`. None of it counts toward a schedule's auto-pause. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
     details: [
       {
         key: 'state',
@@ -2241,7 +2241,7 @@ export const ERROR_ENTRIES = {
   },
   'license-operator-only': {
     description:
-      "`GET /v1/license` is for the deployment's own token, or for an admin of the tenant when the deployment serves a single tenant. Other callers are refused.",
+      "`GET /v1/license` and `GET /v1/license/usage` are for the deployment's own token, or a system key holding `system:license`. Where the deployment serves a single tenant, that tenant's admins also read the license's countdown, never its use. Other callers are refused, and the refusal recorded.",
     details: [],
   },
   'invalid-provider-config': {
@@ -2745,8 +2745,20 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/secrets/store-a-secret'],
   },
+  'secret-name-invalid': {
+    description:
+      "The secrets store can't write a secret under this name. Under `kindgi dev`, a secret is a key in your env files, so its name is capital letters, digits and underscores, not starting with a digit (`ACME_WOO_ORDERS`, not `acme-woo-orders`), and never `KINDGI_*`, the runtime's own configuration. The message says the rule and a name that works.",
+    details: [],
+    seeAlso: ['guides/secrets/store-a-secret'],
+  },
   'secret-value-too-large': {
     description: 'The secret value is larger than the size limit the secrets store accepts.',
+    details: [],
+    seeAlso: ['guides/secrets/store-a-secret'],
+  },
+  'secret-value-invalid': {
+    description:
+      "The secrets store can't hold this value as given. Under `kindgi dev`, a secret is a key in your env files, and no env-file quoting holds a value that has a double quote, or a backslash followed by `n` or `r`, together with a carriage return or with both a single quote and a backtick. Store the value encoded (base64, say), or without one of those characters. The message says why, and never repeats the value.",
     details: [],
     seeAlso: ['guides/secrets/store-a-secret'],
   },
@@ -3108,6 +3120,13 @@ export const ACCESS_ERRORS = {
       status: 403,
       description:
         "The license's contract term has ended, so it isn't renewed. The key you have runs until its own date. Write to contact@kindgi.com to extend the term.",
+      seeAlso: ['deploy/renew-the-license-key'],
+    },
+    {
+      error: 'held-for-review',
+      status: 403,
+      description:
+        "This renewal's counts (`kindgi license renew --runtime`) are above what a non-production key covers, so it got no new key: write to contact@kindgi.com about a production license. Kindgi can release the deployment after a review, and its renewals then aren't held until a date. The key you have runs until its own date. A renewal before the key is due gets the same key back.",
       seeAlso: ['deploy/renew-the-license-key'],
     },
     {

@@ -41,9 +41,16 @@ errors are temporary:
 - a rate limit: `429`;
 - an overloaded or failing server: `500`, `502`, `503` or `504`.
 
-Every adapter retries. The Gemini adapter sets its retries itself. The
-Anthropic and OpenAI-compatible adapters keep their SDKs' defaults. The waits
-count against the turn's time budget, `maxWallMs`.
+Every adapter retries. The Anthropic adapter keeps its SDK's defaults; the
+others set their retries themselves. The OpenAI-compatible, Azure OpenAI and
+Bedrock adapters also retry a conflict (`409`), any other `5xx`, and a
+connection dropped before an answer; a vendor that asks to wait more than a
+minute ends the call at once, naming the wait. They don't retry a connection
+the runtime itself refuses (an egress or body-size guard stops it, or it
+would follow a redirect): the turn fails at once, with the refusal's own
+words rather than a generic connection error. The Gemini adapter retries no
+failed connection, dropped or refused. The waits count against the turn's
+time budget, `maxWallMs`.
 
 ## Before you register one
 
@@ -414,10 +421,50 @@ models = ["gpt-6.1-sol"]
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```jsonc excerpt
+// in kindgi.config.json
+"providers": [
+  { "preset": "anthropic", "models": ["claude-sonnet-5-5"] },
+  { "preset": "gemini", "project": "acme-gcp", "models": ["gemini-3.8-flash"] },
+  {
+    "preset": "azure-openai",
+    "resourceName": "acme-openai",
+    "deployments": { "gpt-6.1-sol": "gpt-6-1-sol" },
+    "models": ["gpt-6.1-sol"]
+  }
+]
+```
+
+The `anthropic` entry reads its key, `ANTHROPIC_API_KEY`, from the env
+files, and `deployments` maps each model to the deployment serving it.
+
+</TabItem>
+<TabItem label="Scala">
+
+```jsonc excerpt
+// in kindgi.config.json
+"providers": [
+  { "preset": "anthropic", "models": ["claude-sonnet-5-5"] },
+  { "preset": "gemini", "project": "acme-gcp", "models": ["gemini-3.8-flash"] },
+  {
+    "preset": "azure-openai",
+    "resourceName": "acme-openai",
+    "deployments": { "gpt-6.1-sol": "gpt-6-1-sol" },
+    "models": ["gpt-6.1-sol"]
+  }
+]
+```
+
+The `anthropic` entry reads its key, `ANTHROPIC_API_KEY`, from the env
+files, and `deployments` maps each model to the deployment serving it.
+
+</TabItem>
 </Tabs>
 
-A preset entry takes these keys, spelled the same in `kindgi.config.ts` and
-`pyproject.toml`:
+A preset entry takes these keys, spelled the same in `kindgi.config.ts`,
+`pyproject.toml` and `kindgi.config.json`:
 
 - **`preset`** is the preset's name.
 - **`models`** names the models to register.
