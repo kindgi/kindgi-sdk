@@ -112,7 +112,7 @@ function makeBinding() {
     async recordProblem({ tenantId, deploymentId, code }) {
       const current = endpoints.get(key(tenantId, deploymentId));
       if (current === undefined) return { kind: 'not-found' };
-      // As the runtime's: pending, or cleared and listed as needing a pack service again.
+      // As the runtime's: pending, or cleared and `waiting`.
       const waiting =
         current.status === 'pending' ||
         (current.status === 'cleared' &&
@@ -607,7 +607,7 @@ describe('PUT …/endpoint/problem', () => {
     expect(code(r)).toBe('bad-input');
   });
 
-  test('a cleared deployment listed as needing a pack service again (a suspension lifted): its problem, as the tenant will see it', async () => {
+  test("a cleared deployment that's waiting (a suspension lifted): its problem, as the tenant will see it", async () => {
     const { call, deployments } = makeApp();
     deployments.add(live, 'dep-1');
     expect((await call(ORCHESTRATOR, 'DELETE', endpointPath(live, 'dep-1'))).status).toBe(200);

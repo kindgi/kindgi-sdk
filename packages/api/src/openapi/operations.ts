@@ -2509,7 +2509,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
       ),
       '409': ErrorResponse(
-        "The deployment's endpoint isn't waiting for a pack service: `ready`, or `cleared` and not listed as needing one (`endpoint-not-pending`, with `details.status`).",
+        "The deployment's endpoint isn't waiting for a pack service: `ready`, or `cleared` and not `waiting` (`endpoint-not-pending`, with `details.status`).",
       ),
       '503': ErrorResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",

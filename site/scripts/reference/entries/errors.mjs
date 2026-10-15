@@ -2415,8 +2415,7 @@ export const ERROR_ENTRIES = {
     details: [
       {
         key: 'status',
-        meaning:
-          "the deployment's endpoint status now: `ready`, or `cleared` and not listed as needing a pack service",
+        meaning: "the deployment's endpoint status now: `ready`, or `cleared` and not `waiting`",
       },
     ],
     seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem'],

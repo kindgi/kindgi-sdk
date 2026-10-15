@@ -1402,7 +1402,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     expect(out.exitCode).toBe(1);
     expect(run.readIds).toHaveLength(0);
     expect(out.stderr).toContain(
-      "The deployment's pack service was taken down (cleared, superseded): a later deploy ships every tool version and check this one does, so no call reaches it again. deploymentId dep-01H8XM.",
+      "The deployment's pack service was taken down (cleared, superseded): a later deploy ships every tool version and check this one does, so no new call reaches it. deploymentId dep-01H8XM.",
     );
   });
 

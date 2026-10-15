@@ -795,7 +795,7 @@ const PACK_SERVICE_PROBLEMS: Readonly<Record<string, string>> = {
 /** Why no pack service is wanted for a cleared deployment now, by its `retired` reason. */
 const PACK_SERVICE_RETIRED: Readonly<Record<string, string>> = {
   superseded:
-    'a later deploy ships every tool version and check this one does, so no call reaches it again',
+    'a later deploy ships every tool version and check this one does, so no new call reaches it',
   'tenant-closing': 'your workspace is closing',
   'tenant-suspended': "your workspace is suspended, until it's restored",
   'project-suspended': "its project is suspended, until it's restored",
