@@ -36,8 +36,13 @@ describe('renderResponse: a refused deploy', () => {
       ['image-unreadable', undefined, "isn't an archive the server can read"],
       ['image-limit-exceeded', 'unpack', 'The same image is refused again'],
       ['image-limit-exceeded', 'tenant-unpack-hour', 'Deploy again after the wait'],
+      // The bound on /app/index.json itself: a smaller image wouldn't help.
+      ['image-limit-exceeded', 'file', 'make the largest schemas smaller'],
+      // A limit beside another cause: that cause's hint.
+      ['image-registry-unreachable', 'file', "couldn't reach the image's registry"],
       // A cause without a hint of its own, or none at all: the code's hint.
       ['image-file-not-found', undefined, 'could not pull the image'],
+      ['constructor', undefined, 'could not pull the image'],
       [undefined, undefined, 'could not pull the image'],
     ];
     for (const [cause, limit, says] of cases) {

@@ -43,10 +43,7 @@ const WIRE_ERROR_HINTS: Readonly<Record<string, string>> = {
     'schemas smaller, or split the pack into two.',
 };
 
-/**
- * `image-unverifiable`'s hint by its `details.cause`, when the server
- * names one; `image-limit-exceeded` by its `details.limit` too.
- */
+/** `image-unverifiable`'s hint by its `details.cause`, when the server names one. */
 const IMAGE_CAUSE_HINTS: Readonly<Record<string, string>> = {
   'image-registry-unreachable':
     "The server couldn't reach the image's registry. Check that the registry is up " +
@@ -63,10 +60,22 @@ const IMAGE_CAUSE_HINTS: Readonly<Record<string, string>> = {
     '/app/index.json in its top layer, the only layer read: build with it, or make the ' +
     'image smaller.',
 };
-const TENANT_UNPACK_HOUR_HINT =
-  "This tenant's image reads unpacked as much as the server allows in an hour. " +
-  'Deploy again after the wait the message names; an image `kindgi build` made unpacks ' +
-  'only its small top layer.';
+
+/** `image-limit-exceeded`'s hint by its `details.limit`, where the cause's doesn't fit. */
+const IMAGE_LIMIT_HINTS: Readonly<Record<string, string>> = {
+  file:
+    "The pack's index, /app/index.json, is past the size the server reads. Every tool, " +
+    'agent, flow and guardrail in the pack is in it with its schemas: make the largest ' +
+    'schemas smaller, or split the pack into two.',
+  'tenant-unpack-hour':
+    "This tenant's image reads unpacked as much as the server allows in an hour. " +
+    'Deploy again after the wait the message names; an image `kindgi build` made unpacks ' +
+    'only its small top layer.',
+};
+
+/** A table's own entry: a key like `constructor` isn't one. */
+const own = (table: Readonly<Record<string, string>>, key: string | undefined) =>
+  key !== undefined && Object.hasOwn(table, key) ? table[key] : undefined;
 
 /** The hint for a refusal: by its code, or for `image-unverifiable` by its cause. */
 function hintFor(error: {
@@ -74,11 +83,10 @@ function hintFor(error: {
   readonly cause?: string;
   readonly limit?: string;
 }): string | undefined {
-  if (error.code === 'image-unverifiable' && error.cause !== undefined) {
-    if (error.cause === 'image-limit-exceeded' && error.limit === 'tenant-unpack-hour') {
-      return TENANT_UNPACK_HOUR_HINT;
-    }
-    const byCause = IMAGE_CAUSE_HINTS[error.cause];
+  if (error.code === 'image-unverifiable') {
+    const byLimit =
+      error.cause === 'image-limit-exceeded' ? own(IMAGE_LIMIT_HINTS, error.limit) : undefined;
+    const byCause = byLimit ?? own(IMAGE_CAUSE_HINTS, error.cause);
     if (byCause !== undefined) return byCause;
   }
   return WIRE_ERROR_HINTS[error.code];
