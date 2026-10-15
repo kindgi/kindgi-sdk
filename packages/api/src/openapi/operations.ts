@@ -8428,7 +8428,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'environments.list',
     summary: "List the tenant's env names",
     description:
-      "The env names the tenant holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A revoked secret doesn't count, as `GET /v1/secrets` doesn't show it. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.",
+      "The env names the tenant holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A revoked secret doesn't count. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.",
     tags: ['env'],
     security: 'bearer',
     parameters: [LimitQueryParam, CursorQueryParam],

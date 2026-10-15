@@ -13,9 +13,9 @@ import type { Transport } from '../transport.js';
 export interface EnvironmentsClient {
   /**
    * The env names the tenant holds an env value or a secret under, at any
-   * scope, each once, in byte order. A revoked secret doesn't count, as
-   * `secrets.list` doesn't show it. Throws on `501 environments-unsupported`
-   * from a runtime whose env or secret store can't list its env names.
+   * scope, each once, in byte order. A revoked secret doesn't count. Throws
+   * on `501 environments-unsupported` from a runtime whose env or secret
+   * store can't list its env names.
    *
    * @wire `GET /v1/environments` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1environments/get`.
