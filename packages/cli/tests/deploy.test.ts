@@ -1541,6 +1541,18 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       expect(run.fixtures.state.postCalls).toBe(0);
     });
 
+    test('with only a .kindgirc.json `kindgi dev` wrote and no address in it, it stops, naming no address', async () => {
+      await store(folderFile(), { token: 'kgi_tk_dev', packServicePort: 4100 });
+      const run = hostedFixtures(pending(), [ready]);
+      const out = await hostedDeploy(run.fixtures, {});
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `kindgi deploy --hosted goes to the API your key is for, and no API address is set. ${folderFile()} points this folder at a \`kindgi dev\` runtime, which isn't a hosted target, so kindgi deploy --hosted doesn't read it. Run \`kindgi auth login --url <url>\`, export KINDGI_API_URL, or pass --url <url>.`,
+      );
+      expect(run.fixtures.state.buildCalls).toBe(0);
+      expect(run.fixtures.state.postCalls).toBe(0);
+    });
+
     test("the .kindgirc.json `kindgi dev --runtime-url` wrote at another address isn't read either", async () => {
       await writeAutoEnvelope();
       await store(homeFile(), { apiUrl: API, token: STORED });
