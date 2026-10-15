@@ -741,6 +741,19 @@ export function runsRouter(
     const runId = c.req.param('runId') as RunId;
     const sinceRaw = c.req.query('since');
     const since = sinceRaw !== undefined ? Number.parseInt(sinceRaw, 10) : undefined;
+    // Paging is opt-in: with `limit`, at most that many entries after
+    // `cursor`; without it, the whole journal, as before paging.
+    const limitRaw = c.req.query('limit');
+    const limit = limitRaw !== undefined && limitRaw !== '' ? clampLimit(limitRaw) : undefined;
+    const cursorRaw = c.req.query('cursor');
+    const after =
+      cursorRaw !== undefined && cursorRaw !== '' ? decodeJournalCursor(cursorRaw) : undefined;
+    if (after === null) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError({ code: 'bad-input', message: '`cursor` is malformed' }, requestId),
+      );
+    }
 
     const journal = await runBinding.readJournal(tenantId, runId);
     if (journal.kind === 'err') {
@@ -749,13 +762,19 @@ export function runsRouter(
       return c.json(toWireError(err as never, requestId));
     }
 
-    const filtered =
-      since !== undefined && Number.isFinite(since)
-        ? journal.value.filter((e) => e.sequence > since)
-        : journal.value;
+    // `readJournal` gives the entries in sequence order.
+    const filtered = journal.value.filter(
+      (e) =>
+        (since === undefined || !Number.isFinite(since) || e.sequence > since) &&
+        (after === undefined || e.sequence > after),
+    );
+    const page = limit !== undefined ? filtered.slice(0, limit) : filtered;
+    // The page's last entry, when more remain after it.
+    const endsBefore = page.length < filtered.length ? page.at(-1) : undefined;
     return c.json({
-      data: filtered,
-      hasMore: false,
+      data: page,
+      hasMore: endsBefore !== undefined,
+      ...(endsBefore !== undefined && { nextCursor: encodeJournalCursor(endsBefore.sequence) }),
     });
   });
 
@@ -1283,4 +1302,25 @@ function parseStartRunBody(
       ...(wait !== undefined && { wait }),
     },
   };
+}
+
+/**
+ * A journal page's cursor: url-safe base64 of `{ sequence }`, the last
+ * entry the page gave. The next page starts after it.
+ */
+function encodeJournalCursor(sequence: number): string {
+  return Buffer.from(JSON.stringify({ sequence }), 'utf8').toString('base64url');
+}
+
+/** The sequence a journal cursor names, or `null` for one that isn't (answered `400 bad-input`). */
+function decodeJournalCursor(raw: string): number | null {
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown;
+    const sequence = (parsed as { sequence?: unknown } | null)?.sequence;
+    return typeof sequence === 'number' && Number.isSafeInteger(sequence) && sequence >= 0
+      ? sequence
+      : null;
+  } catch {
+    return null;
+  }
 }
