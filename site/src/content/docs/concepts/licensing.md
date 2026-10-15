@@ -99,7 +99,9 @@ stops because of its key. A platform that restarts instances on its own
 To renew a production key, which goes with your contract, write to
 contact@kindgi.com. A non-production key from access.kindgi.com renews when
 you sign in there again. When access.kindgi.com has it turned on, a
-deployment can also renew its key itself, by hand or on a schedule. See
+deployment can also renew its key itself, by hand or on a schedule. While a
+deployment is renewing the key, signing in shows it but leaves its renewal
+to the deployment. See
 [Renew the license key](../../deploy/renew-the-license-key/).
 
 ## Preview releases stop starting after 90 days
