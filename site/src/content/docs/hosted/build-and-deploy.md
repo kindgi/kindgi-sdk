@@ -12,8 +12,26 @@ to your workspace's own repository.
 
 ## Before you start
 
-- **The Kindgi CLI, signed in to your workspace:** `kindgi auth login`. The
-  CLI sends its key to the build service, and only there.
+- **The Kindgi CLI, signed in to your workspace.** In the console, open
+  **API keys** and **Create a key**. The secret shows once. In a terminal,
+  paste it at a prompt that doesn't echo it, then sign in:
+
+  ```sh
+  read -rs KINDGI_API_TOKEN && export KINDGI_API_TOKEN
+  kindgi auth login --url=https://platform.kindgi.com
+  kindgi auth whoami
+  ```
+
+  `kindgi auth login` saves the key and the address in
+  `~/.kindgi/config.json`. The CLI sends its key to the build service, and
+  only there.
+- **A signing key, trusted in your workspace.** The CLI signs what it
+  deploys with a key of yours. Make one and trust it, once:
+
+  ```sh
+  kindgi key create acme-agency
+  kindgi key trust acme-agency
+  ```
 - **A pack that builds,** at most 30 MiB packed. A larger one isn't sent:
   the CLI says so and links
   [what the pack's image needs](../../start/existing-app-typescript/#what-the-packs-image-needs).
@@ -34,8 +52,9 @@ CAPTURE: kindgi deploy --hosted, from the build to the pack service ready
 - **The build** runs on the build service, and its log streams as it goes.
   When the stream is cut before the build ends, the CLI opens it again and
   prints each line once.
-- **`--project <id>`** deploys to that project. It's checked before anything
-  is built, so a project that isn't there fails at once.
+- **`--project <id-or-slug>`** deploys to that project: its id, or its
+  slug. It's checked before anything is built, so a project that isn't there
+  fails at once.
 - **After the deploy,** the CLI waits up to 5 minutes for the deployment's
   pack service. It says each new state once (`pending`, and why), and ends
   when the pack service is ready. If the pack service is taken down before
@@ -96,7 +115,7 @@ has the rest: taking a project out, its status, and the SDKs.
 
 - **Right after your workspace is made,** going live can take a moment to
   turn on. Until it does, the card says "Going live isn't on for this
-  account yet. Building and testing work as they are.", and `on` is refused
+  tenant yet. Building and testing work as they are.", and `on` is refused
   with `403 production-not-allowed`. If that's still so after a few minutes,
   write to contact@kindgi.com.
 - **Your workspace's billing page** shows its plan, to its admins: "Your
