@@ -96,6 +96,14 @@ export interface EvalRunSubjectInvokeOutcome {
    * runtime that predates erasure never sets it.
    */
   readonly erased?: true;
+  /**
+   * The case couldn't start: its project or tenant takes no new runs
+   * (`project-suspended`, `tenant-suspended`, `tenant-closing`, as a run
+   * start is refused). Not the case's error: the dispatcher stops at it,
+   * counting it nowhere, and the eval run ends `cancelled` with `reason`
+   * as its `cancelReason`. A runtime that refuses no starts never sets it.
+   */
+  readonly halt?: { readonly reason: string; readonly message: string };
 }
 
 /**
@@ -149,6 +157,8 @@ export interface DispatchContext {
 export interface DispatchResult {
   readonly result: Readonly<Record<string, unknown>>;
   readonly error?: string;
+  /** With `error: 'cancelled'`: why it stopped when nobody cancelled it (a case's `halt`). */
+  readonly cancelReason?: string;
 }
 
 export interface EvalRunDispatcher {
@@ -214,19 +224,20 @@ export function createAccuracyDispatcher(options: AccuracyDispatcherOptions): Ev
       const perCase: Record<string, unknown>[] = [];
       let passCount = 0;
       let scoreSum = 0;
+      // Cancelled, or halted (`cancelReason`): the cases so far.
+      const cancelled = (cancelReason?: string): DispatchResult => ({
+        result: {
+          passCount,
+          totalCount: cases.length,
+          meanScore: perCase.length > 0 ? scoreSum / perCase.length : 0,
+          perCase,
+          cancelled: true,
+        },
+        error: 'cancelled',
+        ...(cancelReason !== undefined && { cancelReason }),
+      });
       for (let i = 0; i < cases.length; i++) {
-        if (ctx.abortSignal.aborted) {
-          return {
-            result: {
-              passCount,
-              totalCount: cases.length,
-              meanScore: perCase.length > 0 ? scoreSum / perCase.length : 0,
-              perCase,
-              cancelled: true,
-            },
-            error: 'cancelled',
-          };
-        }
+        if (ctx.abortSignal.aborted) return cancelled();
         const c = cases[i];
         if (c === undefined) continue;
         const expected = extractExpected(c);
@@ -237,6 +248,7 @@ export function createAccuracyDispatcher(options: AccuracyDispatcherOptions): Ev
           dryRun: ctx.dryRun,
           abortSignal: ctx.abortSignal,
         });
+        if (invocation.halt !== undefined) return cancelled(invocation.halt.reason);
         if (invocation.error !== undefined) {
           const entry = {
             caseIndex: i,
@@ -440,6 +452,8 @@ export function createInProcessEvalRunBinding(
             outcome.error !== 'cancelled' && {
               error: outcome.error,
             }),
+          ...(status === 'cancelled' &&
+            outcome.cancelReason !== undefined && { cancelReason: outcome.cancelReason }),
         });
       })();
 

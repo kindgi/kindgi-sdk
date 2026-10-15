@@ -9856,6 +9856,10 @@
           "outcome": {
             "$ref": "#/components/schemas/ImprovementPassOutcome"
           },
+          "cancelReason": {
+            "type": "string",
+            "description": "Why a `cancelled` pass stopped when nobody cancelled it: a comparison's eval run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no proposal. Absent when it was cancelled."
+          },
           "comparisons": {
             "type": "array",
             "description": "Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.",
@@ -14601,6 +14605,10 @@
           },
           "error": {
             "type": "string"
+          },
+          "cancelReason": {
+            "type": "string",
+            "description": "Why a `cancelled` run stopped when nobody cancelled it: its project or tenant took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client."
           },
           "correlationId": {
             "type": "string"
@@ -34101,7 +34109,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "`registry-read-only`, `proposal-needs-pin`, or `project-suspended`: the agent's project is suspended. Or Idempotency-Key was reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -34141,7 +34149,7 @@
             }
           }
         },
-        "description": "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+        "description": "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts for an agent whose project is suspended (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -41806,7 +41814,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "`project-suspended`: the project is suspended, so no eval run starts in it. Or Idempotency-Key was reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -41846,7 +41854,7 @@
             }
           }
         },
-        "description": "Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Idempotency-Key applies.",
+        "description": "Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.",
         "parameters": [
           {
             "name": "suiteId",

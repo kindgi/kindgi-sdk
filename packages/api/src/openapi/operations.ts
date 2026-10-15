@@ -4292,7 +4292,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'proposals.improve',
     summary: 'Start an improvement pass',
     description:
-      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts for an agent whose project is suspended (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
     tags: ['proposals'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -4305,6 +4305,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse(
         '`fromVersion` (or the version serving the scope) is not an active version.',
+      ),
+      '409': ErrorResponse(
+        "`registry-read-only`, `proposal-needs-pin`, or `project-suspended`: the agent's project is suspended. Or Idempotency-Key was reused with a different body.",
       ),
       '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
     },
@@ -6030,7 +6033,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'evalRuns.start',
     summary: 'Start an eval run against a suite',
     description:
-      'Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Idempotency-Key applies.',
+      'Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.',
     tags: ['eval-runs'],
     security: 'bearer',
     parameters: [EvalSuiteIdPathParam, IdempotencyKeyParam],
@@ -6043,6 +6046,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse(
         'No eval suite with that id under this tenant; or `projectId` names no project of this tenant (`project-not-found`).',
+      ),
+      '409': ErrorResponse(
+        '`project-suspended`: the project is suspended, so no eval run starts in it. Or Idempotency-Key was reused with a different body.',
       ),
       '422': ErrorResponse('No dispatcher registered for the suite kind.'),
     },

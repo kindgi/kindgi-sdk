@@ -456,6 +456,7 @@ async function harness(
     /** The agent takes its model settings from block `MODEL`. */
     modelSettings?: boolean;
     referenceScope?: ReferenceScopeBinding;
+    projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
   } = {},
 ) {
   const agents = agentBinding();
@@ -557,6 +558,7 @@ async function harness(
     supervisor: proposals,
     ...(opts.passes !== undefined && { improvementPasses: opts.passes }),
     ...(opts.referenceScope !== undefined && { referenceScope: opts.referenceScope }),
+    ...(opts.projectSuspended !== undefined && { projectSuspended: opts.projectSuspended }),
     ...(grants !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -1372,6 +1374,30 @@ describe('improvement passes', () => {
     const again = await h.call('POST', `/v1/improvement-passes/${res.body.id}/cancel`, {});
     expect(again.status).toBe(409);
     expect(again.body.error.code).toBe('improvement-pass-finished');
+  });
+
+  test('no pass starts for an agent whose project is suspended: 409 project-suspended; restored, it starts', async () => {
+    const passes = inMemoryPasses();
+    let suspended = true;
+    const asked: string[] = [];
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      projectSuspended: async (_tenantId, pid) => {
+        asked.push(pid as unknown as string);
+        return suspended;
+      },
+    });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const refused = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.code).toBe('project-suspended');
+    expect(asked).toEqual([projectId]);
+    expect(passes.started).toEqual([]);
+    suspended = false;
+    const started = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(started.status, JSON.stringify(started.body)).toBe(202);
+    expect(passes.started).toHaveLength(1);
   });
 
   test("a pass's comparisons show a refused template's issues and each drafted template's hypothesis", async () => {
