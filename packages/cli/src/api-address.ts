@@ -97,7 +97,7 @@ export function hostedApiAddress(
         ? ''
         : ` ${dev.file} points this folder at a \`kindgi dev\` runtime${at}, which isn't a hosted target, so ${command} doesn't read it.`;
     return refused(
-      `${command} goes to the API your key is for, and no API address is set.${unread} Run \`kindgi auth login --url <url>\`, export KINDGI_API_URL, or pass --url <url>.`,
+      `${command} goes to the API your key is for, and no API address is set.${unread} Run \`kindgi auth login --url <url> --token <its key>\`, export KINDGI_API_URL, or pass --url <url>.`,
     );
   }
   const keyElsewhere = storedKeyRefusal(command, hosted, own, ownWhere(hosted), false);
@@ -107,8 +107,7 @@ export function hostedApiAddress(
     return refused(
       `${command} sends your API key to ${own}, the address it's for (${ownSource(hosted)}), ` +
         `and ${other.where} names another: ${other.url}. The key goes only to its own address: ` +
-        `remove ${other.where} (Kindgi Cloud needs none), or sign in to ${other.url} with ` +
-        `\`kindgi auth login --url ${other.url}\`.`,
+        `remove ${other.where} (Kindgi Cloud needs none), or ${signIn(other.url as string)}.`,
     );
   }
   return { kind: 'ok', url: own, config: hosted };
@@ -197,24 +196,30 @@ function keyElsewhere(
   const keyFile = config.files?.token;
   const stored =
     keyFile === undefined ? 'the API key stored' : `the API key stored in ${keyFile.path}`;
-  // `kindgi auth login` keeps the key with its address in the home file,
-  // where it's found by that address from any folder; it saves only a key
-  // it's given (auth.ts), never a stored one for another address.
-  const signIn = `sign in to ${url} with \`kindgi auth login --url ${url} --token <its key>\``;
   const giveKey = keyForCommand ? ["give that server's key with --token or KINDGI_API_TOKEN"] : [];
   if (keyAddress === undefined) {
     const addAddress = `add "apiUrl": "${url}" beside it in ${keyFile?.path ?? 'its file'}, if it's that server's key`;
     return {
       sends: `${stored} to ${url}, and no address is stored with that key, so nothing shows it's for ${url}`,
       stored: '',
-      fix: ownAddressOnly([addAddress, signIn, ...giveKey]),
+      fix: ownAddressOnly([addAddress, signIn(url), ...giveKey]),
     };
   }
   return {
     sends: `${stored}, which is for ${keyAddress}, to ${url}, which ${where} names`,
     stored: otherKeys(config, url),
-    fix: ownAddressOnly([`point ${where} at ${keyAddress}`, signIn, ...giveKey]),
+    fix: ownAddressOnly([`point ${where} at ${keyAddress}`, signIn(url), ...giveKey]),
   };
+}
+
+/**
+ * How to sign in to `url`. `kindgi auth login` keeps the key with its
+ * address in the home file, where it's found by that address from any
+ * folder; it saves only a key it's given (auth.ts), never a stored one for
+ * another address, so the hint always gives one.
+ */
+function signIn(url: string): string {
+  return `sign in to ${url} with \`kindgi auth login --url ${url} --token <its key>\``;
 }
 
 function ownAddressOnly(fixes: readonly string[]): string {
