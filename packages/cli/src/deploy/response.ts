@@ -44,6 +44,47 @@ const WIRE_ERROR_HINTS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * `image-unverifiable`'s hint by its `details.cause`, when the server
+ * names one; `image-limit-exceeded` by its `details.limit` too.
+ */
+const IMAGE_CAUSE_HINTS: Readonly<Record<string, string>> = {
+  'image-registry-unreachable':
+    "The server couldn't reach the image's registry. Check that the registry is up " +
+    'and that the runtime can reach it, then deploy again.',
+  'image-registry-unauthorized':
+    "The image's registry refused the runtime's credentials. Give the runtime pull " +
+    "access to the image's repository, then deploy again.",
+  'image-unreadable':
+    "A layer of the image isn't an archive the server can read: not a tar, or compressed " +
+    'twice. Build the image again with `kindgi build`, push it, and deploy the new digest.',
+  'image-limit-exceeded':
+    "The image is past one of the server's bounds on reading an image; the message names " +
+    'it. The same image is refused again. An image `kindgi build` made keeps ' +
+    '/app/index.json in its top layer, the only layer read: build with it, or make the ' +
+    'image smaller.',
+};
+const TENANT_UNPACK_HOUR_HINT =
+  "This tenant's image reads unpacked as much as the server allows in an hour. " +
+  'Deploy again after the wait the message names; an image `kindgi build` made unpacks ' +
+  'only its small top layer.';
+
+/** The hint for a refusal: by its code, or for `image-unverifiable` by its cause. */
+function hintFor(error: {
+  readonly code: string;
+  readonly cause?: string;
+  readonly limit?: string;
+}): string | undefined {
+  if (error.code === 'image-unverifiable' && error.cause !== undefined) {
+    if (error.cause === 'image-limit-exceeded' && error.limit === 'tenant-unpack-hour') {
+      return TENANT_UNPACK_HOUR_HINT;
+    }
+    const byCause = IMAGE_CAUSE_HINTS[error.cause];
+    if (byCause !== undefined) return byCause;
+  }
+  return WIRE_ERROR_HINTS[error.code];
+}
+
+/**
  * The command a hint names, on a line of its own so it copies whole.
  * `{signerKeyId}` and `{endpoint}` are filled in from the deploy.
  */
@@ -133,9 +174,10 @@ export function renderResponse(
     banner.push(`    ✗ POST /v1/deployments  →  HTTP ${result.status}`);
     banner.push(`      code:    ${result.error.code}`);
     banner.push(`      message: ${result.error.message}`);
+    if (result.error.cause !== undefined) banner.push(`      cause:   ${result.error.cause}`);
     const fill = (text: string): string =>
       text.replaceAll('{signerKeyId}', ctx.signerKeyId).replaceAll('{endpoint}', ctx.endpoint);
-    const hint = WIRE_ERROR_HINTS[result.error.code];
+    const hint = hintFor(result.error);
     if (hint !== undefined) {
       banner.push('');
       banner.push('  Hint:');
