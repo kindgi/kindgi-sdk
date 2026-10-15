@@ -82,8 +82,8 @@ KINDGI_TENANCY=multi serves tenants who don't trust one another, so it starts on
 full.
 
 At every start, the server checks that OpenFGA takes its key. If OpenFGA
-refuses the server's call, the start stops and names the settings to fix. If
-OpenFGA doesn't answer, the start goes on and logs a warning: "OpenFGA at
+refuses the server's call, the start stops, exits 1 and names the settings to
+fix. If OpenFGA doesn't answer, the start goes on and logs a warning: "OpenFGA at
 <url> isn't answering (…). The server is up; requests that need authorization
 fail until it answers."
 
@@ -253,27 +253,36 @@ record a `reason`. A second suspend keeps the first one's time and reason, and
 restoring clears both. A closing tenant can't be suspended (`409 tenant-closing`).
 
 - **A tenant:** `PUT /v1/system/tenants/{tenantId}/suspended` with
-  `{"suspended": true, "reason": "…"}`. Its own keys and sessions still read
-  and export it. Nothing runs (its running runs are cancelled), and nothing is
-  written but deletes. Its schedules and triggers are skipped, not changed.
-  At the restore, nothing that came due meanwhile runs late: a schedule fires
+  `{"suspended": true, "reason": "…"}`. It takes hold within 5 seconds. Its
+  own keys and sessions still read and export it. Nothing runs (its running
+  runs are cancelled), and any other write is refused
+  (`409 tenant-suspended`), but for deletes, signing in and out, revoking,
+  and erasing or searching memory. Its schedules and triggers are skipped,
+  not changed, and a webhook whose signature checks is answered `202` and
+  skipped. At the restore, nothing that came due meanwhile runs late: a schedule fires
   next at its first time after the restore.
 - **A project:** `PUT /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`.
-  Nothing new runs or deploys in it, its running runs are cancelled, and its
-  deployments list to retire. The rest of the tenant is untouched.
+  Nothing new runs in it (`409 project-suspended`), and no pack service's
+  endpoint is recorded for it. Its running runs are cancelled, its schedules
+  and webhooks are skipped, and its deployments list to retire. The rest of
+  the tenant is untouched.
 - **A pack:** `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`.
   Its calls fail with `pack-suspended`, never going to an older deployment,
-  and it lists to retire. Restored, it lists as needing a pack service again.
+  and it lists to retire. Restored, it serves again from the endpoint
+  recorded for it. If its endpoint was cleared meanwhile, it lists as needing
+  a pack service.
 
 ## Close and purge a tenant
 
 `POST /v1/system/tenants/{tenantId}/close` starts the end of the tenant's
 contract, and there's no way back. The tenant is `closing`. For its 30-day
 export window, its own keys and sessions still read and export it. Nothing
-runs, and nothing is written but deletes. Its deployments list to retire.
+runs (its running runs are cancelled), and writes are refused as for a
+suspended tenant, with `409 tenant-closing`. Its deployments list to retire.
 
-Once the window has passed, purge it, with nothing of it writing: its keys
-and sessions revoked, and no run active.
+Once the window has passed, purge it. Run it when nothing of the tenant
+writes: its keys and sessions revoked, and no run active. The purge doesn't
+check for either.
 
 ```sh
 kindgi-runtime tenants purge <tenant id> --confirm <tenant slug> --record <where>
@@ -300,7 +309,8 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
   that signs in.
 - **`--dry-run`** says what would be deleted, and changes nothing.
 - **Refused (exit 2)** for a tenant that isn't closing or is still in its
-  window. **Exit 1** when rows or bytes of it are left, named: run it again.
+  window, or one with artifacts or an OpenFGA store when `KINDGI_ARTIFACTS`
+  or `KINDGI_OPENFGA_API_URL` isn't set as the server has it. **Exit 1** when rows or bytes of it are left, named: run it again.
 - **`--record`** (`local:<dir>` or `gcs:<bucket>[/<prefix>]`) keeps a record
   of each purge. After a [restore](../back-up-and-restore/), and before the
   runtime serves, `kindgi-runtime tenants repurge --from <where>` purges
