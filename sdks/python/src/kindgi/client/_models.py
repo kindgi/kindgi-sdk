@@ -1282,7 +1282,7 @@ class SystemTenant(BaseModel):
 
 class FirstAdmin(BaseModel):
     """
-    The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.
+    The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. The runtime gives them every capability but `secrets:reveal`, to put on the keys they make. Absent: the answer carries an admin key instead, which takes the full system capability.
     """
 
     model_config = ConfigDict(
@@ -1320,7 +1320,7 @@ class CreateSystemTenantBody(BaseModel):
     """
     first_admin: Annotated[FirstAdmin | None, Field(alias="firstAdmin")] = None
     """
-    The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.
+    The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. The runtime gives them every capability but `secrets:reveal`, to put on the keys they make. Absent: the answer carries an admin key instead, which takes the full system capability.
     """
 
 
@@ -12683,7 +12683,7 @@ class MyPermissions(BaseModel):
     key: MyKeyLimits | None = None
     token_capabilities: Annotated[list[str], Field(alias="tokenCapabilities")]
     """
-    The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries none; an API key carries those it was minted with (`POST /v1/tokens`, none by default).
+    The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries those its person holds: none unless the runtime gives them some, as it does a tenant's first admin. An API key carries those it was minted with (`POST /v1/tokens`, none by default).
     """
     projects: list[MyProjectAccess]
     """
