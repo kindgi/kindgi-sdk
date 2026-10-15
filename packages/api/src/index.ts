@@ -975,7 +975,12 @@ export type {
   SecretVersionPage,
   SecretVersionRecord,
 } from './secrets-binding.js';
-export { RESERVED_SECRET_NAME_PREFIX } from './secrets-binding.js';
+export {
+  RESERVED_SECRET_NAME_PREFIX,
+  SECRET_NAME_ALLOWED,
+  SECRET_NAME_MAX_LENGTH,
+  secretNameGrammarRefusal,
+} from './secrets-binding.js';
 export { resolveAtScope, scopeOfRecorded } from './secret-scope.js';
 // A model provider's key is used by its provider only.
 export {

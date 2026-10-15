@@ -12,6 +12,7 @@ import type { EnvBinding, EnvRecord } from '../env-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { SecretBinding, SecretRecord } from '../secrets-binding.js';
+import { secretNameGrammarRefusal } from '../secrets-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 
@@ -413,6 +414,17 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
       }
       const currentRecord = await secretsBinding.get({ scope, envName, name: key });
       const writeMode = currentRecord === null ? 'create-new' : 'add-version';
+      // A new sensitive key is held to the shared secret-name grammar before it
+      // is stored (fresh create only; an existing key keeps taking new values).
+      if (writeMode === 'create-new') {
+        const nameRefusal = secretNameGrammarRefusal(key);
+        if (nameRefusal !== undefined) {
+          c.status(statusFor(nameRefusal.code) as never);
+          return c.json(
+            toWireError({ code: nameRefusal.code, message: nameRefusal.message }, requestId),
+          );
+        }
+      }
       const outcome = await secretsBinding.set({
         scope,
         envName,

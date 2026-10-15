@@ -9,7 +9,11 @@ import { makeEnvName } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { createApp, createInMemoryRotationStatusStore } from '../src/index.js';
+import {
+  createApp,
+  createInMemoryRotationStatusStore,
+  secretNameGrammarRefusal,
+} from '../src/index.js';
 import type {
   RotationStatusStore,
   RunHandlerBinding,
@@ -769,4 +773,112 @@ describe("API — a write the store refuses for its name or its value is the cal
       });
     },
   );
+});
+
+describe('secretNameGrammarRefusal — the shared create-name grammar', () => {
+  test.each(['a', 'ACME_KEY', 'acme.woo-orders_v2', 'kindgi.webhook.1', 'A1', 'a'.repeat(255)])(
+    'allows %s',
+    (name) => {
+      expect(secretNameGrammarRefusal(name)).toBeUndefined();
+    },
+  );
+  test.each(['acme/woo', 'has space', 'pct%2e', 'hash#1', 'q?x', 'ключ', ''])(
+    'refuses %s with secret-name-invalid',
+    (name) => {
+      expect(secretNameGrammarRefusal(name)?.code).toBe('secret-name-invalid');
+    },
+  );
+  test('refuses a name longer than 255 characters', () => {
+    expect(secretNameGrammarRefusal('a'.repeat(256))?.code).toBe('secret-name-invalid');
+  });
+  test('allows names made of letters, digits, dots, dashes and underscores only', () => {
+    expect(secretNameGrammarRefusal('a.b')).toBeUndefined();
+    expect(secretNameGrammarRefusal('a..b')).toBeUndefined();
+    expect(secretNameGrammarRefusal('__x--y.9')).toBeUndefined();
+  });
+});
+
+describe('API — a new secret name is held to the shared grammar at the border (create-new only)', () => {
+  const headers = { authorization: `Bearer ${TOKEN_ALL}`, 'content-type': 'application/json' };
+  const writeBody = (name: string, writeMode: 'create-new' | 'add-version') =>
+    JSON.stringify({
+      scope: { kind: 'tenant', tenantId: tenantA },
+      envName: 'staging',
+      name,
+      value: 'v',
+      writeMode,
+    });
+
+  test.each([
+    ['a slash', 'acme/woo-orders'],
+    ['a space', 'acme key'],
+    ['a percent', 'acme%2e'],
+    ['a hash', 'acme#1'],
+    ['a question mark', 'acme?x'],
+    ['a non-ASCII letter', 'ключ'],
+  ])(
+    'POST /v1/secrets create-new refuses %s with secret-name-invalid, storing nothing',
+    async (_why, name) => {
+      const secrets = makeInMemorySecretsBinding();
+      let setCalls = 0;
+      const inner = secrets.set.bind(secrets);
+      secrets.set = async (input) => {
+        setCalls += 1;
+        return inner(input);
+      };
+      const res = await makeApp({ secrets }).request('/v1/secrets', {
+        method: 'POST',
+        headers,
+        body: writeBody(name, 'create-new'),
+      });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+        'secret-name-invalid',
+      );
+      expect(setCalls).toBe(0);
+    },
+  );
+
+  test('POST /v1/secrets create-new refuses a name longer than 255', async () => {
+    const secrets = makeInMemorySecretsBinding();
+    const res = await makeApp({ secrets }).request('/v1/secrets', {
+      method: 'POST',
+      headers,
+      body: writeBody('a'.repeat(256), 'create-new'),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'secret-name-invalid',
+    );
+  });
+
+  test('POST /v1/secrets create-new allows a 255-character name of the allowed characters', async () => {
+    const secrets = makeInMemorySecretsBinding();
+    const name = `a.b-c_D9${'x'.repeat(247)}`;
+    expect(name.length).toBe(255);
+    const res = await makeApp({ secrets }).request('/v1/secrets', {
+      method: 'POST',
+      headers,
+      body: writeBody(name, 'create-new'),
+    });
+    expect(res.status).toBe(201);
+  });
+
+  test('add-version is not held to the border grammar — an existing out-of-grammar name still takes a new value', async () => {
+    const secrets = makeInMemorySecretsBinding();
+    await secrets.set({
+      scope: { kind: 'tenant', tenantId: tenantA },
+      envName: staging,
+      name: 'acme/legacy',
+      value: 'v1',
+      writeMode: 'create-new',
+      enqueueTuples: () => [],
+    });
+    const res = await makeApp({ secrets }).request('/v1/secrets', {
+      method: 'POST',
+      headers,
+      body: writeBody('acme/legacy', 'add-version'),
+    });
+    expect(res.status).toBe(200);
+  });
 });

@@ -17,6 +17,7 @@ import type {
   SecretSetOutcome,
   SecretVersionRecord,
 } from '../secrets-binding.js';
+import { secretNameGrammarRefusal } from '../secrets-binding.js';
 import type { AppEnv } from '../types.js';
 import { capabilityRefusal } from './denied.js';
 import { requireEnvName, requireScope, scopesEqual } from './env.js';
@@ -375,6 +376,19 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
           requestId,
         ),
       );
+    }
+    // A fresh secret's name is held to the shared grammar before anything is
+    // stored (`create-new` only; an existing name reached by `add-version` or
+    // rotate is left as the store has it). A store may still refuse more of
+    // its own names when it writes (`SecretBinding.nameRefusal`).
+    if (b.writeMode === 'create-new') {
+      const nameRefusal = secretNameGrammarRefusal(b.name);
+      if (nameRefusal !== undefined) {
+        c.status(statusFor(nameRefusal.code) as never);
+        return c.json(
+          toWireError({ code: nameRefusal.code, message: nameRefusal.message }, requestId),
+        );
+      }
     }
     if (b.ifVersion !== undefined && typeof b.ifVersion !== 'number') {
       c.status(statusFor('bad-input') as never);
