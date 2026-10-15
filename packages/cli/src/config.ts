@@ -30,14 +30,15 @@ export interface ResolvedConfig {
    */
   readonly keyAddress?: string;
   /**
-   * This folder's `.kindgirc.json` when it points at a local runtime (a
-   * loopback `apiUrl`, as `kindgi dev` writes it), with the config resolved
-   * without that file. `--hosted` goes on `without`: a local runtime is
-   * never a hosted target. Flag and env values stay in it.
+   * This folder's `.kindgirc.json` when it points at a `kindgi dev`
+   * runtime (`kindgi dev` wrote it, or its `apiUrl` is a loopback one),
+   * with the config resolved without that file. `--hosted` goes on
+   * `without`: a dev runtime is never a hosted target. Flag and env
+   * values stay in it.
    */
-  readonly localRuntime?: {
+  readonly devRuntime?: {
     readonly file: string;
-    readonly apiUrl: string;
+    readonly apiUrl?: string;
     readonly without: ResolvedConfig;
   };
 }
@@ -72,11 +73,16 @@ export interface ConfigInputs {
 interface FileConfig {
   readonly apiUrl?: string;
   readonly token?: string;
+  /** `kindgi dev` writes these beside its runtime's address and key. */
+  readonly packServicePort?: unknown;
+  readonly packServiceToken?: unknown;
 }
 
 /** A config file that was there, and what it holds. */
 interface ReadConfigFile extends ConfigFile {
-  readonly values: FileConfig;
+  readonly values: Pick<FileConfig, 'apiUrl' | 'token'>;
+  /** `kindgi dev` wrote it: it has the pack service's port or token. */
+  readonly writtenByDev: boolean;
 }
 
 async function defaultReadFile(path: string): Promise<string | null> {
@@ -100,12 +106,22 @@ export async function loadConfig(inputs: ConfigInputs = {}): Promise<ResolvedCon
     resolveConfig(inputs.flagUrl, inputs.flagToken, env, files);
 
   const config = resolve([homeFile, folderFile]);
-  const local = folderFile?.values.apiUrl;
-  if (folderFile === undefined || local === undefined || !isLocalAddress(local)) return config;
+  if (folderFile === undefined || !pointsAtDevRuntime(folderFile)) return config;
+  const apiUrl = folderFile.values.apiUrl;
   return {
     ...config,
-    localRuntime: { file: folderFile.path, apiUrl: local, without: resolve([homeFile]) },
+    devRuntime: {
+      file: folderFile.path,
+      ...(apiUrl !== undefined && { apiUrl }),
+      without: resolve([homeFile]),
+    },
   };
+}
+
+/** A `.kindgirc.json` for a `kindgi dev` runtime: `kindgi dev` wrote it, or it's at a loopback address. */
+function pointsAtDevRuntime(file: ReadConfigFile): boolean {
+  const apiUrl = file.values.apiUrl;
+  return file.writtenByDev || (apiUrl !== undefined && isLocalAddress(apiUrl));
 }
 
 /**
@@ -138,7 +154,7 @@ function resolveConfig(
 
 function lastHolding(
   files: readonly (ReadConfigFile | undefined)[],
-  field: keyof FileConfig,
+  field: 'apiUrl' | 'token',
 ): ReadConfigFile | undefined {
   return files.findLast((f) => typeof f?.values[field] === 'string');
 }
@@ -173,6 +189,8 @@ async function readConfigFile(
       ...(typeof parsed.apiUrl === 'string' && { apiUrl: parsed.apiUrl }),
       ...(typeof parsed.token === 'string' && { token: parsed.token }),
     },
+    writtenByDev:
+      typeof parsed.packServicePort === 'number' || typeof parsed.packServiceToken === 'string',
   };
 }
 

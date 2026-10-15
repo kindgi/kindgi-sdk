@@ -13,8 +13,9 @@
  *   is the CLI's own address (`--url`, KINDGI_API_URL or the stored one),
  *   whatever key it goes with. An address named elsewhere may only repeat
  *   it, and with no own address there's nothing to build at. A folder's
- *   .kindgirc.json that points at a local runtime (`kindgi dev`'s) isn't
- *   read, address or key: a local runtime is never a hosted target.
+ *   .kindgirc.json for a `kindgi dev` runtime (`kindgi dev` wrote it, or
+ *   it's at a loopback address) isn't read, address or key: a dev
+ *   runtime is never a hosted target.
  * - **A deploy to a runtime of your own:** `--endpoint`, else the env
  *   block's `endpoint`, else the CLI's own address. A key given for the
  *   command (`--token`, or an exported KINDGI_API_TOKEN) may go to any of
@@ -36,7 +37,7 @@ export type ApiAddress =
 
 /**
  * A hosted build's or deploy's API: the CLI's own address, without a
- * folder's .kindgirc.json that points at a local runtime. `named` may only
+ * folder's .kindgirc.json for a `kindgi dev` runtime. `named` may only
  * repeat it. `command` names the command in the refusal.
  */
 export function hostedApiAddress(
@@ -44,14 +45,15 @@ export function hostedApiAddress(
   config: ResolvedConfig,
   named: readonly NamedAddress[],
 ): ApiAddress {
-  const hosted = config.localRuntime?.without ?? config;
+  const hosted = config.devRuntime?.without ?? config;
   const own = hosted.apiUrl;
   if (own === undefined || own === '') {
-    const local = config.localRuntime;
+    const dev = config.devRuntime;
+    const at = dev?.apiUrl === undefined ? '' : ` (${dev.apiUrl})`;
     const unread =
-      local === undefined
+      dev === undefined
         ? ''
-        : ` ${local.file} points at a local runtime (${local.apiUrl}), which isn't a hosted target, so ${command} doesn't read it.`;
+        : ` ${dev.file} points this folder at a \`kindgi dev\` runtime${at}, which isn't a hosted target, so ${command} doesn't read it.`;
     return refused(
       `${command} goes to the API your key is for, and no API address is set.${unread} Run \`kindgi auth login --url <url>\`, export KINDGI_API_URL, or pass --url <url>.`,
     );

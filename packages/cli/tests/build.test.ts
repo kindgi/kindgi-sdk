@@ -623,7 +623,7 @@ describe('kindgi build --hosted', () => {
     const OTHER = 'https://other.example.com';
     const homeFile = () => join(home, '.kindgi/config.json');
     const folderFile = () => join(cwd, '.kindgirc.json');
-    async function store(path: string, saved: Record<string, string>) {
+    async function store(path: string, saved: Record<string, unknown>) {
       await mkdir(dirname(path), { recursive: true });
       await writeFile(path, JSON.stringify(saved), 'utf8');
     }
@@ -654,17 +654,28 @@ describe('kindgi build --hosted', () => {
       },
     );
 
-    test("a local runtime's .kindgirc.json isn't read: built at the signed-in address, with its key", async () => {
-      await store(homeFile(), { apiUrl: API, token: STORED });
-      await store(folderFile(), { apiUrl: 'http://127.0.0.1:4000', token: 'kgi_tk_dev' });
-      const fixtures = makeFixtures();
-      const out = await hostedBuild(fixtures, {});
-      expect(out.exitCode, out.stderr).toBe(0);
-      expect(fixtures.state.capturedPostBody).toMatchObject({
-        endpoint: `${API}/cloud`,
-        authorization: `Bearer ${STORED}`,
-      });
-    });
+    test.each([
+      { apiUrl: 'http://127.0.0.1:4000', token: 'kgi_tk_dev' },
+      {
+        apiUrl: 'http://192.168.1.20:4000',
+        token: 'kgi_tk_dev',
+        packServicePort: 4100,
+        packServiceToken: 'kgi_ps_dev',
+      },
+    ])(
+      "a `kindgi dev` runtime's .kindgirc.json (%j) isn't read: built at the signed-in address, with its key",
+      async (devFile) => {
+        await store(homeFile(), { apiUrl: API, token: STORED });
+        await store(folderFile(), devFile);
+        const fixtures = makeFixtures();
+        const out = await hostedBuild(fixtures, {});
+        expect(out.exitCode, out.stderr).toBe(0);
+        expect(fixtures.state.capturedPostBody).toMatchObject({
+          endpoint: `${API}/cloud`,
+          authorization: `Bearer ${STORED}`,
+        });
+      },
+    );
   });
 
   test("with no tenant set, the signature names the key's own tenant (whoami)", async () => {

@@ -15,7 +15,7 @@ const OTHER = 'https://other.example.com';
 
 /** loadConfig over these files (path → contents); the others aren't there. */
 function load(
-  files: Record<string, Record<string, string>>,
+  files: Record<string, Record<string, unknown>>,
   extra: { env?: Record<string, string>; flagUrl?: string; flagToken?: string } = {},
 ) {
   return loadConfig({
@@ -79,7 +79,7 @@ describe('loadConfig: which file each value came from, and the address stored wi
   });
 });
 
-describe("loadConfig: a folder's .kindgirc.json that points at a local runtime", () => {
+describe("loadConfig: a folder's .kindgirc.json for a `kindgi dev` runtime", () => {
   test.each(['http://localhost:4000', 'http://127.0.0.1:4000', 'http://[::1]:4000'])(
     'at %s: it wins, and the config without it is there for --hosted',
     async (local) => {
@@ -88,7 +88,7 @@ describe("loadConfig: a folder's .kindgirc.json that points at a local runtime",
         [FOLDER_FILE]: { apiUrl: local, token: 'kgi_tk_dev' },
       });
       expect(config).toMatchObject({ apiUrl: local, token: 'kgi_tk_dev', keyAddress: local });
-      expect(config.localRuntime).toEqual({
+      expect(config.devRuntime).toEqual({
         file: FOLDER_FILE,
         apiUrl: local,
         without: {
@@ -110,19 +110,40 @@ describe("loadConfig: a folder's .kindgirc.json that points at a local runtime",
       { [FOLDER_FILE]: { apiUrl: 'http://127.0.0.1:4000', token: 'kgi_tk_dev' } },
       { env: { KINDGI_API_TOKEN: 'kgi_tk_env' }, flagUrl: OTHER },
     );
-    expect(config.localRuntime?.without).toEqual({
+    expect(config.devRuntime?.without).toEqual({
       apiUrl: OTHER,
       token: 'kgi_tk_env',
       source: { apiUrl: 'flag', token: 'env' },
     });
   });
 
-  test('a folder file at any other address is read as it is, with no config without it', async () => {
+  test.each([
+    { packServicePort: 4100, packServiceToken: 'kgi_ps_dev' },
+    { packServicePort: 4100 },
+    { packServiceToken: 'kgi_ps_dev' },
+  ])(
+    'one `kindgi dev` wrote (%j beside it), at another address (`--runtime-url`): the same',
+    async (devFields) => {
+      const devRuntime = 'http://192.168.1.20:4000';
+      const config = await load({
+        [HOME_FILE]: { apiUrl: SIGNED_IN, token: 'kgi_tk_home' },
+        [FOLDER_FILE]: { apiUrl: devRuntime, token: 'kgi_tk_dev', ...devFields },
+      });
+      expect(config).toMatchObject({ apiUrl: devRuntime, token: 'kgi_tk_dev' });
+      expect(config.devRuntime).toMatchObject({
+        file: FOLDER_FILE,
+        apiUrl: devRuntime,
+        without: { apiUrl: SIGNED_IN, token: 'kgi_tk_home', keyAddress: SIGNED_IN },
+      });
+    },
+  );
+
+  test("a folder file at any other address, with nothing of `kindgi dev`'s, is read as it is", async () => {
     const config = await load({
       [HOME_FILE]: { apiUrl: SIGNED_IN, token: 'kgi_tk_home' },
-      [FOLDER_FILE]: { apiUrl: OTHER, token: 'kgi_tk_folder' },
+      [FOLDER_FILE]: { apiUrl: OTHER, token: 'kgi_tk_folder', packServicePort: '4100' },
     });
     expect(config).toMatchObject({ apiUrl: OTHER, token: 'kgi_tk_folder', keyAddress: OTHER });
-    expect(config.localRuntime).toBeUndefined();
+    expect(config.devRuntime).toBeUndefined();
   });
 });

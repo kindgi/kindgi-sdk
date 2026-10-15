@@ -1459,7 +1459,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     const OTHER = 'https://other.example.com';
     const homeFile = () => join(home, '.kindgi/config.json');
     const folderFile = () => join(cwd, '.kindgirc.json');
-    async function store(path: string, saved: Record<string, string>) {
+    async function store(path: string, saved: Record<string, unknown>) {
       await mkdir(dirname(path), { recursive: true });
       await writeFile(path, JSON.stringify(saved), 'utf8');
     }
@@ -1535,10 +1535,26 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       const out = await hostedDeploy(run.fixtures, {});
       expect(out.exitCode).toBe(1);
       expect(out.stderr).toContain(
-        `kindgi deploy --hosted goes to the API your key is for, and no API address is set. ${folderFile()} points at a local runtime (http://127.0.0.1:4000), which isn't a hosted target, so kindgi deploy --hosted doesn't read it. Run \`kindgi auth login --url <url>\`, export KINDGI_API_URL, or pass --url <url>.`,
+        `kindgi deploy --hosted goes to the API your key is for, and no API address is set. ${folderFile()} points this folder at a \`kindgi dev\` runtime (http://127.0.0.1:4000), which isn't a hosted target, so kindgi deploy --hosted doesn't read it. Run \`kindgi auth login --url <url>\`, export KINDGI_API_URL, or pass --url <url>.`,
       );
       expect(run.fixtures.state.buildCalls).toBe(0);
       expect(run.fixtures.state.postCalls).toBe(0);
+    });
+
+    test("the .kindgirc.json `kindgi dev --runtime-url` wrote at another address isn't read either", async () => {
+      await writeAutoEnvelope();
+      await store(homeFile(), { apiUrl: API, token: STORED });
+      await store(folderFile(), {
+        apiUrl: 'http://192.168.1.20:4000',
+        token: 'kgi_tk_dev',
+        tenantId: 'tenant-acme-dev',
+        packServicePort: 4100,
+        packServiceToken: 'kgi_ps_dev',
+      });
+      const run = hostedFixtures(pending(), [ready]);
+      const out = await hostedDeploy(run.fixtures, {});
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(run.fixtures.state.capturedPost).toMatchObject({ endpoint: API, token: STORED });
     });
 
     test("a folder's .kindgirc.json at another address is read as it is: its address, its key", async () => {
