@@ -21,10 +21,13 @@ contact@kindgi.com.
 | Agent turns' memory | What your workspace's running agent turns hold, by the size of their conversations | 192 MiB |
 | Agent turns' memory, shared | The same for all workspaces together, so other workspaces' turns count toward it too | 384 MiB |
 
-`GET /v1/tenant` answers your workspace's own values, as `limits`:
+`GET /v1/tenant` answers your workspace's own values, as `limits`. It gives
+the limits, not how much of each is in use. `productionAllowed` says whether
+your workspace can put a project in production
+([Projects in production](#projects-in-production)).
 
 ```json
-{"id":"…","name":"Acme Store","slug":"acme-08432910","createdAt":"2026-10-13T11:18:47.133Z","updatedAt":"2026-10-13T11:18:47.141Z","productionAllowed":false,"limits":{"apiRequestsPerMinute":600,"webhookReceivesPerMinute":3000,"runsAtOnce":20,"runsPending":2000,"toolCallsInFlight":50,"approvalsPending":500}}
+{"id":"…","name":"Example Studio","slug":"ex-6bc9a070","createdAt":"2026-10-15T18:39:15.557Z","updatedAt":"2026-10-15T18:39:15.566Z","productionAllowed":true,"limits":{"apiRequestsPerMinute":600,"webhookReceivesPerMinute":3000,"runsAtOnce":20,"runsPending":2000,"toolCallsInFlight":50,"approvalsPending":500,"projectsInProduction":1}}
 ```
 
 Calls Kindgi's control plane makes to manage your workspace never count.
@@ -153,8 +156,19 @@ working as staging
 ([Put a project in production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production)):
 
 ```text
-CAPTURE: a second project put in production, as Kindgi Cloud refuses it
+HTTP 403
+{"error":{"code":"production-limit-reached","message":"This tenant's limit is 1 project in production, and it has 1. To put another in production: https://platform.kindgi.com/cloud/account/billing, or take one out of production first.","details":{"projectId":"…","limit":"projects-in-production","projectsInProduction":1,"inProduction":1,"next":"https://platform.kindgi.com/cloud/account/billing"},"requestId":"req-…"}}
 ```
+
+`details` gives the limit (`projectsInProduction`), how many are in
+production (`inProduction`) and the project you asked for (`projectId`).
+`next` is the link the message gives. Taking a project out of production is
+never refused.
+
+Production must also be allowed for your workspace, as `productionAllowed`
+in `GET /v1/tenant` shows. Until it is, putting a project in production is
+refused with `403 production-not-allowed` instead, and its `details.next`
+links to the same page.
 
 ### Agent turns' memory
 
