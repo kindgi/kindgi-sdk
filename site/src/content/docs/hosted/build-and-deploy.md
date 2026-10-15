@@ -32,6 +32,10 @@ to your workspace's own repository.
   kindgi key create acme-agency
   kindgi key trust acme-agency
   ```
+
+  `kindgi key create` writes the private key to
+  `~/.kindgi/keys/acme-agency.pem`, and `kindgi key trust` adds its public
+  half to your workspace's trust list.
 - **A pack that builds,** at most 30 MiB packed. A larger one isn't sent:
   the CLI says so and links
   [what the pack's image needs](../../start/existing-app-typescript/#what-the-packs-image-needs).
@@ -39,16 +43,37 @@ to your workspace's own repository.
 ## Deploy
 
 ```sh
-kindgi deploy --hosted
+kindgi deploy --hosted --env=prod --signing-key ~/.kindgi/keys/acme-agency.pem
 ```
 
-Or set `build: 'hosted'` on the environment in `kindgi.config.ts`, and
-`kindgi deploy` does the same.
+`--signing-key` names the key to sign with. The CLI doesn't look for one on
+its own: with no key, or a path that isn't there, the deploy stops before
+anything is built and says how to make one. `--env=prod` names your
+workspace's environment, as on `kindgi secrets set`, so `--sync-secrets`
+sends the values in `.env.prod`.
+
+To leave out `--hosted` and `--signing-key`, give `prod` a block in
+`kindgi.config.ts`. A pack made with `kindgi init` has it there, commented
+out. With your key, it reads:
+
+```ts
+environments: {
+  prod: {
+    build: 'hosted',
+    signingKey: '~/.kindgi/keys/acme-agency.pem',
+  },
+},
+```
+
+Then `kindgi deploy --env=prod` builds on Kindgi Cloud and deploys.
 
 ```text
 CAPTURE: kindgi deploy --hosted, from the build to the pack service ready
 ```
 
+- **No `endpoint`.** The deploy goes to the address you signed in to, and
+  only there. An `endpoint` in the environment, or `--endpoint`, that names
+  another address is refused, naming both.
 - **The build** runs on the build service, and its log streams as it goes.
   When the stream is cut before the build ends, the CLI opens it again and
   prints each line once.
@@ -70,8 +95,10 @@ CAPTURE: kindgi deploy --hosted, from the build to the pack service ready
 ## Build without deploying
 
 ```sh
-kindgi build --hosted
+kindgi build --hosted --env=prod --signing-key ~/.kindgi/keys/acme-agency.pem
 ```
+
+Or `kindgi build --env=prod`, with the `prod` block above.
 
 ```text
 CAPTURE: kindgi build --hosted

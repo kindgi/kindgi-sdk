@@ -221,6 +221,10 @@ cd acme-shop
 kindgi deploy --project acme-shop
 ```
 
+On Kindgi Cloud, the deploy builds there and signs with your key:
+`kindgi deploy --hosted --env=prod --project acme-shop --signing-key ~/.kindgi/keys/acme-agency.pem`
+([Build and deploy](../../../hosted/build-and-deploy/)).
+
 `--project` takes the project's id or its slug. A slug is unique within an
 org, so if two orgs each have a project with that slug, the CLI refuses it
 and names both ids: pass the id instead. Without `--project`, a deploy is
