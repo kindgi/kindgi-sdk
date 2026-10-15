@@ -1,5 +1,51 @@
 # @kindgi/tools
 
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- 57a7b2e: **An HTTP tool's response body is read under the call's deadline, its cancel, and a size cap.**
+  - **The deadline and the cancel cover the body:** `timeoutMs` (30 s by default) runs until the body is read, not just until the headers arrive, and so does the run's cancel. A server that answers at once and then trickles its body fails the call as timed out, and the body's connection is closed.
+  - **A size cap,** counted as fetch decodes the body (so a small gzip download that expands past the cap is refused too). Reading stops at the cap, and the call fails, naming it. The default is 10 MiB.
+  - **`ToolSpecSynthesizerOptions.maxResponseBytes?`** (optional) sets the cap for the handlers a host synthesizes (`defineTool(spec, { synthesizer: { maxResponseBytes } })`). A value that isn't a positive whole number is refused when the tool is built.
+  - **A failed call's message** still quotes the start of its body (512 characters), and reads at most 2 KiB of it.
+- ebf405d: **A deployment can keep what a project's flows, agents, triggers and runs name within that project's reach.**
+  - **`CreateAppInput.referenceScope?`** (a `ReferenceScopeBinding`, `reachable(tenantId, fromProjectId, ref)`) is asked before each write that makes a reference live:
+    - publishing a flow (its tool, agent and subflow steps) or an agent (its tools, guardrails and data blocks), and reinstating a retired version of either;
+    - registering a deployment (what its agents and flows name, besides what it brings itself);
+    - registering a guardrail with a pack check;
+    - registering a schedule or a webhook trigger, and changing a schedule's target;
+    - starting an eval run (its suite, and its agent or flow), and starting a run filed under a named `projectId`;
+    - opening a conversation (its agent);
+    - promoting an agent into a project or a segment, directly or through an improvement proposal;
+    - drafting an improvement proposal (its scope and block), evaluating one, and starting an improvement pass (its suite and scope).
+  - **The refusal:** an item the project doesn't reach is refused with `reference-out-of-scope` (400), naming each one at its path. An item that doesn't exist gets the same answer. Without the binding, nothing changes.
+  - **A conversation opened without `projectId` is filed under its agent's own project,** as a run is. Before, it went to the tenant's Default project; an agent filed under no project still goes there.
+  - **Tool metadata:** `POST /v1/tools` and deployments refuse a tool `metadata` key under `kindgi.`, which is the runtime's own.
+  - **`ToolRegistry.forProject?`** (`@kindgi/tools`): the tools a run in a project may reach. An agent's turn resolves its tools on it when it's there.
+  - **`BlockReader`'s reads take the turn's `projectId`** (`@kindgi/agents`).
+  - **`InvokeAgentBindings.authorizeToolCall?`** (`@kindgi/agents`) is asked before each of a turn's tool calls, before any approval.
+    - A denied call runs nothing. Its result tells the model (`{ status: 'denied', reason }`), and the turn goes on.
+    - A call approved by a reviewer is asked again right before it runs. Denied then, it runs nothing.
+    - Each decision is recorded with the call, so a resumed turn keeps it. An authorizer that throws fails the step.
+    - A built-in tool is asked only when what it touches reaches beyond the turn's project: `kindgi_remember` for a tenant-wide fact.
+  - **The docs of `NodeContext`'s `authorize`, `can` and `check`, `RunFlowInput.principal` and `authz`, and `InvokeAgentInput.principal` and `authz`** (with the agents and handler READMEs) describe runtime 0.1.8: these checks are decided for every run and turn a person or a key starts.
+- ebf405d: **`compileJsonSchema` and `compileInlineSchema` compile under the process's bounds (`@kindgi/bounds`),** and compile each schema once.
+  - A `$ref` is compiled once, where its target is, not copied into each place that uses it (Ajv's `inlineRefs: false`), so the code a schema compiles to grows with its JSON.
+  - A schema nested deeper than `schemaMaxDepth`, or larger than `schemaMaxBytes` as JSON, is refused before it's compiled, naming the limit: 64 levels and 1 MiB unless the server sets other bounds.
+  - Validators are kept by the schema's JSON as written and the options it was compiled with, the least recently used dropped once `schemaCacheEntries` are kept or their schemas' JSON passes `schemaCacheMaxBytes`. A schema that didn't compile throws the same error again. The cache is all that keeps a compiled schema: `compileInlineSchema`'s result keeps the schema's cache key, not its validator, and compiles it again on `validate` once the cache has dropped it. New `holdJsonSchema` does the same for `compileJsonSchema`, and a tool holds its validators through it. A schema JSON can't carry (a key whose value is `undefined`, say) is never cached, so it's held as compiled.
+  - Each tenant's compiles share a budget, `schemaCompileBudgetMs` in any 60 seconds (hosted 2 s, self-hosted none). `runAsTenant` (new in `@kindgi/bounds`) says whose compile it is and which count: by default only a schema compiled again after the cache dropped it; with `{ compiles: 'all' }`, every compile. Past the budget, a compile that counts throws `SchemaCompileBudgetError` with `retryAfterMs`, from `compileInlineSchema` too; `defineTool`, `validateToolManifest` and a guardrail's config check pass it on rather than report the schema as invalid, and `compileInlineSchema`'s `validate` throws it when it compiles again. A tenant that compiled nothing for an hour is forgotten: its next compiles are first ones again, as after a restart. `runOutsideTenant` (new) runs Kindgi's own work, started inside a tenant's scope, outside it.
+  - Under the hosted profile, every check a schema makes of the data runs in time linear in the data (`uniqueItems`: in its size times its depth). Patterns (`pattern`, `patternProperties`, `propertyNames`) run on RE2 through `compileTenantPattern`, and a schema with one RE2 can't run doesn't compile. Formats are ajv-formats' `fast` ones (looser in places: `date` accepts `2026-02-30`), with `regex` a pattern whose syntax `compileTenantPattern` accepts, checked without building RE2's program (`tenantPatternSyntaxProblem`, new in `@kindgi/bounds`; a pattern RE2 refuses only as it builds the program, for its size or a few escapes, passes), and `url` written without its backtracking. `uniqueItems` finds a repeat by a key for each item, with Ajv's verdict and error.
+  - `createSpecRegistry` and `loadSpecRegistry` run the patterns of Kindgi's own schemas on V8.
+  - A guardrail's config is checked against its check's schema through `compileJsonSchema`, so the same bounds apply.
+- Updated dependencies [d92706f]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+  - @kindgi/log@0.1.8-rc.0
+  - @kindgi/schema@0.1.8-rc.0
+  - @kindgi/types@0.1.8-rc.0
+
 ## 0.1.7
 
 ### Patch Changes

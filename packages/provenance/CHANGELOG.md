@@ -1,5 +1,15 @@
 # @kindgi/provenance
 
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+  - @kindgi/schema@0.1.8-rc.0
+  - @kindgi/types@0.1.8-rc.0
+
 ## 0.1.7
 
 ### Patch Changes
