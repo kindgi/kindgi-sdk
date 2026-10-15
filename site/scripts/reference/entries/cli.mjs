@@ -48,7 +48,7 @@ export const CLI_DEFAULTS = {
   build: {
     'artifact-version': 'the build time, as `YYYYMMDD.HHMMSS` (UTC)',
     endpoint:
-      "the env block's `build`; required when there is none (not used with `--local` or `--hosted`, which builds at the API's address under `/cloud`)",
+      "the env block's `build`; required when there is none (not used with `--local` or `--hosted`, which builds at the CLI's API URL under `/cloud`)",
     env: '`staging`',
     out: '`.kindgi/build` under the pack root',
     path: 'the current directory (the pack root is resolved from it)',
@@ -67,7 +67,7 @@ export const CLI_DEFAULTS = {
     'artifact-version': 'for an inline build: the build time, as `YYYYMMDD.HHMMSS` (UTC)',
     'build-endpoint': "for an inline build: the env block's `build`",
     endpoint:
-      "the env block's `endpoint`, else the CLI's API URL (`--url`, `KINDGI_API_URL`, config files); required when none",
+      "the env block's `endpoint`, else the CLI's API URL (`--url`, `KINDGI_API_URL`, config files); required when none. A stored API key goes only to the address stored with it (`--token` or `KINDGI_API_TOKEN` gives another server's key); with `--hosted`, the endpoint can only be the CLI's API URL, and the `.kindgirc.json` that `kindgi dev` writes isn't read",
     env: '`staging`',
     'from-envelope': '`deploy-envelope.json` in `--out`; an inline build runs when it is missing',
     'idempotency-key': 'a hash of the request body',
