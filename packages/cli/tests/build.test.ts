@@ -647,7 +647,7 @@ describe('kindgi build --hosted', () => {
         const out = await hostedBuild(fixtures, env, ...flags);
         expect(out.exitCode).toBe(1);
         expect(out.stderr).toContain(
-          `kindgi build --hosted would send the API key stored in ${homeFile()}, which is for ${API}, to ${OTHER}, which ${where} names. The key goes only to its own address: point ${where} at ${API}, or sign in to ${OTHER} with \`kindgi auth login --url ${OTHER}\`.`,
+          `kindgi build --hosted would send the API key stored in ${homeFile()}, which is for ${API}, to ${OTHER}, which ${where} names. The key goes only to its own address: point ${where} at ${API}, or sign in to ${OTHER} with \`kindgi auth login --url ${OTHER} --token <its key>\`.`,
         );
         expect(fixtures.state.esbuildCalls).toBe(0);
         expect(fixtures.state.postCalls).toBe(0);
