@@ -8,8 +8,14 @@ locals {
   # The KMS key exists only for KINDGI_SECRETS_BACKEND=postgres (var.secrets_backend).
   kms = var.secrets_backend == "postgres"
 
+  # The module's own Cloud Resource Manager calls (the project IAM members,
+  # the project read) are billed to the caller's project, so they don't need
+  # it on here. A root beside it that reads this project with calls billed to
+  # the project (the provider's user_project_override) does, and can't turn
+  # it on itself: a data source reads before any resource is made.
   apis = concat([
     "artifactregistry.googleapis.com",
+    "cloudresourcemanager.googleapis.com",
     "compute.googleapis.com",
     "iam.googleapis.com",
     "run.googleapis.com",

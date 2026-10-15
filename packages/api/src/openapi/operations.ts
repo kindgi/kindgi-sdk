@@ -354,6 +354,16 @@ const JournalSinceQueryParam: ParameterSpec = {
   schema: { type: 'integer', minimum: 0 },
 };
 
+/** `GET /v1/runs/{runId}/journal`'s: paging is opt-in, so there's no default. */
+const JournalLimitQueryParam: ParameterSpec = {
+  name: 'limit',
+  in: 'query',
+  required: false,
+  description:
+    'The most entries in a page, 1..100: then `nextCursor` while more remain. Without it, the whole journal (after `since` or `cursor`) in one answer.',
+  schema: { type: 'integer', minimum: 1, maximum: 100 },
+};
+
 const LastEventIdParam: ParameterSpec = {
   name: 'Last-Event-Id',
   in: 'header',
@@ -1390,6 +1400,27 @@ const CommonMutationErrors: Readonly<Record<string, ResponseSpec>> = {
   '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
 };
 
+/** A secrets store's external provider (the router's), answering a read or a write: each at its own status. */
+const SecretProviderErrors: Readonly<Record<string, ResponseSpec>> = {
+  '429': ErrorResponse(
+    "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+  ),
+  '502': ErrorResponse(
+    "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+  ),
+  '503': ErrorResponse(
+    "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
+  ),
+};
+
+/** A secret's value written: a body that fails validation, a name or value the store refuses (the caller's), or its provider's answer. */
+const SecretWriteErrors: Readonly<Record<string, ResponseSpec>> = {
+  '400': ErrorResponse(
+    "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
+  ),
+  ...SecretProviderErrors,
+};
+
 /** A change to the tenant's identity providers: not a tenant admin, or the operator manages sign-in. */
 const ProviderChangeRefused: ResponseSpec = ErrorResponse(
   "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
@@ -1635,12 +1666,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'runs.journal',
     summary: 'Read the durable journal for a run',
     description:
-      'Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`). Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6.',
+      'Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`), in sequence order. Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6. Paging is opt-in: with `limit`, at most that many entries and a `nextCursor` while more remain; without it, the whole journal in one answer.',
     tags: ['runs'],
     security: 'bearer',
-    parameters: [RunIdPathParam, JournalSinceQueryParam],
+    parameters: [RunIdPathParam, JournalSinceQueryParam, JournalLimitQueryParam, CursorQueryParam],
     responses: {
-      '400': ErrorResponse('`runId` is not a run id (a UUID).'),
+      '400': ErrorResponse(
+        '`runId` is not a run id (a UUID), `limit` is not a whole number of 1 or more, or `cursor` is malformed.',
+      ),
       '200': { description: 'Journal page.', schema: ref('RunJournalPage') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No run with that id under this tenant.'),
@@ -1988,7 +2021,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.create',
     summary: 'Create a tenant',
     description:
-      "Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store). Safe to retry with the same slug: if the setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have; another request naming that slug is `tenant-slug-taken`. A repeat of a create that finished is `tenant-slug-taken` too, unless it carries the first request's Idempotency-Key: then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice (send an Idempotency-Key with every create, so a lost answer can be told from another tenant's slug). With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant, with the admin key withheld.",
+      "Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store). Safe to retry with the same slug: if the setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have; another request naming that slug is `tenant-slug-taken`. A repeat of a create that finished is `tenant-slug-taken` too, unless it carries the first request's Idempotency-Key: then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice (send an Idempotency-Key with every create, so a lost answer can be told from another tenant's slug). With `firstAdmin`, that person becomes its admin and member by email, with every capability but `secrets:reveal`, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant, with the admin key withheld.",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -2263,7 +2296,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.setProductionAllowed',
     summary: 'Allow a tenant production, or stop it',
     description:
-      "The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant is allowed until it's switched off. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.",
+      "The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant made by `POST /v1/system/tenants` starts with it off, unless the create says `productionAllowed: true`; the tenant a server makes for itself, and one from before the switch, start with it on. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [
@@ -6755,6 +6788,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('DeploymentSecretsSyncResponse'),
       },
       ...CommonMutationErrors,
+      ...SecretWriteErrors,
       '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
       '404': ErrorResponse('No deployment with that id, or referenced secret does not exist.'),
     },
@@ -8381,19 +8415,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('UpsertTenantConfigResult'),
       },
       ...CommonMutationErrors,
-      '400': ErrorResponse(
-        "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
-      ),
+      ...SecretWriteErrors,
       '409': ErrorResponse('`ifRevision` was set and did not match the stored revision.'),
-      '429': ErrorResponse(
-        "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
-      ),
-      '502': ErrorResponse(
-        "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
-      ),
-      '503': ErrorResponse(
-        "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
-      ),
     },
   },
 
@@ -8502,7 +8525,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'secrets.list',
     summary: 'List secret metadata',
     description:
-      'Cursor-paginated list of secret metadata at the given `(scope, envName)`. `value` is ALWAYS absent (structural redaction).',
+      'Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. `value` is ALWAYS absent (structural redaction).',
     tags: ['secrets'],
     security: 'bearer',
     parameters: [
@@ -8513,6 +8536,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
       LimitQueryParam,
       CursorQueryParam,
       NamePrefixQueryParam,
+      {
+        name: 'includeRevoked',
+        in: 'query',
+        required: false,
+        description:
+          '`true` lists revoked secrets too, with their `revokedAt` and `revokeReason`. Metadata only, never a value.',
+        schema: { type: 'string', enum: ['true', 'false'] },
+      },
     ],
     responses: {
       '200': {
@@ -8520,7 +8551,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretCollectionPage'),
       },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '400': ErrorResponse(
+        "Missing or malformed scope / envName, or a `cursor` this list didn't issue.",
+      ),
     },
   },
   {
@@ -8569,7 +8602,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretVersionCollectionPage'),
       },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '400': ErrorResponse(
+        "Missing or malformed scope / envName, or a `cursor` this list didn't issue.",
+      ),
     },
   },
   {
@@ -8625,19 +8660,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretSetResponse'),
       },
       ...CommonMutationErrors,
-      '400': ErrorResponse(
-        "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
-      ),
+      ...SecretWriteErrors,
       '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
-      '429': ErrorResponse(
-        "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
-      ),
-      '502': ErrorResponse(
-        "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
-      ),
-      '503': ErrorResponse(
-        "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
-      ),
     },
   },
   {
@@ -8668,6 +8692,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretRotateResponseAsync'),
       },
       ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'A body that fails validation (`bad-input`), or a rotation the store refuses as it would the write: `secret-value-too-large` for a new value over its size limit, or `reserved-name-prefix` for a `kindgi.` name.',
+      ),
+      ...SecretProviderErrors,
       '403': ErrorResponse('Bearer token missing `secrets:rotate` capability.'),
       '404': ErrorResponse('Unknown secret.'),
       '501': ErrorResponse(

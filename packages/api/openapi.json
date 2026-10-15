@@ -484,6 +484,7 @@
           "reserved-name-prefix": 400,
           "secret-name-invalid": 400,
           "secret-value-too-large": 400,
+          "secret-value-invalid": 400,
           "secret-write-conflict": 409,
           "env-write-conflict": 409,
           "secret-encryption-failed": 500,
@@ -2173,6 +2174,10 @@
           },
           "hasMore": {
             "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "Opaque cursor for the next page, with `limit`. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5."
           }
         }
       },
@@ -2762,7 +2767,7 @@
           "packId": {
             "type": "string",
             "minLength": 1,
-            "description": "The pack it deploys (the image index's `packId`): keep the newest few superseded deployments per tenant and pack."
+            "description": "The pack it deploys (the image index's `packId`)."
           },
           "projectId": {
             "type": "string",
@@ -2792,7 +2797,7 @@
               "project-suspended",
               "pack-suspended"
             ],
-            "description": "In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one."
+            "description": "In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does, so no new call reaches it. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one."
           }
         }
       },
@@ -3006,7 +3011,7 @@
               "email",
               "name"
             ],
-            "description": "The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.",
+            "description": "The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. The runtime gives them every capability but `secrets:reveal`, to put on the keys they make. Absent: the answer carries an admin key instead, which takes the full system capability.",
             "properties": {
               "email": {
                 "type": "string",
@@ -16942,7 +16947,7 @@
             "items": {
               "type": "string"
             },
-            "description": "The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries none; an API key carries those it was minted with (`POST /v1/tokens`, none by default)."
+            "description": "The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries those its person holds: none unless the runtime gives them some, as it does a tenant's first admin. An API key carries those it was minted with (`POST /v1/tokens`, none by default)."
           },
           "projects": {
             "type": "array",
@@ -22768,7 +22773,7 @@
             }
           },
           "400": {
-            "description": "`runId` is not a run id (a UUID).",
+            "description": "`runId` is not a run id (a UUID), `limit` is not a whole number of 1 or more, or `cursor` is malformed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -22798,7 +22803,7 @@
             }
           }
         },
-        "description": "Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`). Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6.",
+        "description": "Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`), in sequence order. Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6. Paging is opt-in: with `limit`, at most that many entries and a `nextCursor` while more remain; without it, the whole journal in one answer.",
         "parameters": [
           {
             "name": "runId",
@@ -22819,6 +22824,26 @@
             },
             "required": false,
             "description": "Only return journal entries with `sequence > since`."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "required": false,
+            "description": "The most entries in a page, 1..100: then `nextCursor` while more remain. Without it, the whole journal (after `since` or `cursor`) in one answer."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
@@ -24170,7 +24195,7 @@
             }
           }
         },
-        "description": "Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store). Safe to retry with the same slug: if the setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have; another request naming that slug is `tenant-slug-taken`. A repeat of a create that finished is `tenant-slug-taken` too, unless it carries the first request's Idempotency-Key: then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice (send an Idempotency-Key with every create, so a lost answer can be told from another tenant's slug). With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant, with the admin key withheld.",
+        "description": "Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store). Safe to retry with the same slug: if the setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have; another request naming that slug is `tenant-slug-taken`. A repeat of a create that finished is `tenant-slug-taken` too, unless it carries the first request's Idempotency-Key: then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice (send an Idempotency-Key with every create, so a lost answer can be told from another tenant's slug). With `firstAdmin`, that person becomes its admin and member by email, with every capability but `secrets:reveal`, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant, with the admin key withheld.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -25098,7 +25123,7 @@
             }
           }
         },
-        "description": "The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant is allowed until it's switched off. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.",
+        "description": "The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant made by `POST /v1/system/tenants` starts with it off, unless the create says `productionAllowed: true`; the tenant a server makes for itself, and one from before the switch, start with it on. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.",
         "parameters": [
           {
             "name": "tenantId",
@@ -44423,7 +44448,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
             "content": {
               "application/json": {
                 "schema": {
@@ -44482,8 +44507,38 @@
               }
             }
           },
+          "429": {
+            "description": "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49280,7 +49335,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
+            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
             "content": {
               "application/json": {
                 "schema": {
@@ -49872,7 +49927,7 @@
             }
           },
           "400": {
-            "description": "Missing or malformed scope / envName.",
+            "description": "Missing or malformed scope / envName, or a `cursor` this list didn't issue.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49892,7 +49947,7 @@
             }
           }
         },
-        "description": "Cursor-paginated list of secret metadata at the given `(scope, envName)`. `value` is ALWAYS absent (structural redaction).",
+        "description": "Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. `value` is ALWAYS absent (structural redaction).",
         "parameters": [
           {
             "name": "envName",
@@ -49961,6 +50016,19 @@
             },
             "required": false,
             "description": "Prefix match on entry name."
+          },
+          {
+            "name": "includeRevoked",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "required": false,
+            "description": "`true` lists revoked secrets too, with their `revokedAt` and `revokeReason`. Metadata only, never a value."
           }
         ],
         "security": [
@@ -49997,7 +50065,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
+            "description": "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
             "content": {
               "application/json": {
                 "schema": {
@@ -50375,7 +50443,7 @@
             }
           },
           "400": {
-            "description": "Missing or malformed scope / envName.",
+            "description": "Missing or malformed scope / envName, or a `cursor` this list didn't issue.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50599,7 +50667,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "A body that fails validation (`bad-input`), or a rotation the store refuses as it would the write: `secret-value-too-large` for a new value over its size limit, or `reserved-name-prefix` for a `kindgi.` name.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50658,6 +50726,16 @@
               }
             }
           },
+          "429": {
+            "description": "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
             "content": {
@@ -50670,6 +50748,26 @@
           },
           "501": {
             "description": "The store doesn't rotate (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files and have no versions; the message says what to do instead.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
             "content": {
               "application/json": {
                 "schema": {

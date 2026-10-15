@@ -32,10 +32,7 @@ import type { AppEnv } from '../types.js';
 export interface SystemDeploymentEntry {
   readonly tenantId: TenantId;
   readonly deploymentId: string;
-  /**
-   * The pack it deploys (the image index's `packId`): retiring keeps the
-   * newest few superseded deployments per tenant and pack.
-   */
+  /** The pack it deploys (the image index's `packId`). */
   readonly packId: string;
   /** The project the deploy was scoped to; absent for a tenant-wide one. */
   readonly projectId?: string;

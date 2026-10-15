@@ -26,7 +26,7 @@ The `connector` shape is the same resources wired to an existing connector.
 
 ## Before you start
 
-- Terraform ≥ 1.6, `gcloud`, Docker, `openssl`, and your pack's `kindgi` CLI (0.1.2 or later, for `kindgi key trust`).
+- Terraform ≥ 1.6, `gcloud`, Docker, `openssl`, `curl`, `jq`, and your pack's `kindgi` CLI (0.1.2 or later, for `kindgi key trust`).
 - **Permission to create the resources:** an Owner, or Editor plus Security Admin and Secret Manager Admin.
 - **Pull access to the runtime image** `quay.io/kindgi/runtime` (`kindgi auth registry`).
 - **A license key** from Kindgi (`KINDGI_LICENSE_KEY`; a non-production key for a pilot).
@@ -89,15 +89,25 @@ With `tenancy = "multi"` (see "Many tenants") there's no `pack_image` and no pac
 
 ## 3. Secret values
 
-Each value is piped straight into Secret Manager. None goes on disk or into Terraform's state. `N` is your `name_prefix`.
+Each value is piped straight into Secret Manager. None goes on disk, into Terraform's state or into a command's arguments, which other processes can read and gcloud writes to its log file. `N` is your `name_prefix`. The commands are for bash or zsh.
 
 ```sh
 CONN=$(terraform output -raw sql_connection_name)
+P=$(gcloud config get-value project)
 
 # Kindgi's database user: a built-in user (it gets CREATEROLE; not an IAM user).
+# Made through the Cloud SQL Admin API rather than `gcloud sql users create --password`:
+# the body goes in on stdin and the token in a header from a pipe.
+# Each step runs only if the one before it worked, so the secret never holds
+# a password the user wasn't given.
 DBPW=$(openssl rand -hex 24)
-gcloud sql users create kindgi --instance=$N --password="$DBPW"
-printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
+OP=$(printf '{"name":"kindgi","password":"%s"}' "$DBPW" \
+  | curl -sS -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud auth print-access-token)") \
+      -H 'Content-Type: application/json' --data-binary @- \
+      "https://sqladmin.googleapis.com/v1/projects/$P/instances/$N/users" \
+  | jq -r '.name // error(.error.message)') && [ -n "$OP" ] \
+  && gcloud sql operations wait "$OP" --project=$P \
+  && printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
   | gcloud secrets versions add $N-database-url --data-file=-
 unset DBPW
 
@@ -287,6 +297,7 @@ server_secret_env = {
 ## Upgrading
 
 - **To runtime 0.1.5: add `KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"` to `server_env` first, or nobody can sign in to the console.** Up to 0.1.4 the console's sign-in page took the API token on its own. From 0.1.5 that's off by default outside `kindgi dev`. The API keeps taking tokens either way, and "7. Turn on sign-in" has the other ways in.
+- **The module turns Cloud Resource Manager on** (`cloudresourcemanager.googleapis.com`). Its own calls to it are billed to the caller's project, but another root on the same project that reads the project with its calls billed there (the provider's `user_project_override`) needs it on, and couldn't turn it on before that read. A deployment made with an earlier copy of the module gets it at its next apply: one `google_project_service` to add.
 - **Upgrades roll forward:** migrations only go forward, so an older runtime can break on a database a newer one migrated. Deploy a new runtime revision at 100% traffic, keep a database backup from before, and roll back by restoring it.
 
 ## Operating it
@@ -311,14 +322,20 @@ A point-in-time recovery always makes a new instance ([Google: point-in-time rec
    ```
 
    It needs a public IP, as the module's own has. The plan refuses an instance without one.
-2. **Its URL, in a secret of its own,** with a new password for the database user. The restored user has the old one.
+2. **Its URL, in a secret of its own,** with a new password for the database user. The restored user has the old one. The password goes through the Cloud SQL Admin API (`users.update`), as in "3. Secret values": the body on stdin and the token in a header from a pipe, never in a command's arguments. Each step runs only if the one before it worked.
 
    ```sh
    gcloud secrets create $R-database-url --replication-policy=user-managed --locations=<region>
    CONN=$(gcloud sql instances describe $R --format='value(connectionName)')
+   P=$(gcloud config get-value project)
    DBPW=$(openssl rand -hex 24)
-   gcloud sql users set-password kindgi --instance=$R --password="$DBPW"
-   printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
+   OP=$(printf '{"password":"%s"}' "$DBPW" \
+     | curl -sS -X PUT -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud auth print-access-token)") \
+         -H 'Content-Type: application/json' --data-binary @- \
+         "https://sqladmin.googleapis.com/v1/projects/$P/instances/$R/users?name=kindgi" \
+     | jq -r '.name // error(.error.message)') && [ -n "$OP" ] \
+     && gcloud sql operations wait "$OP" --project=$P \
+     && printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
      | gcloud secrets versions add $R-database-url --data-file=-
    unset DBPW
    ```
