@@ -116,6 +116,18 @@ describe('secrets-dotenv list pages by name', () => {
     }
   });
 
+  test("issuedCursor: a list page's cursor is one; anything else, and any versions cursor, is not", async () => {
+    await putEnv(names(3));
+    const b = createDotenvSecretBinding({ packDir: dir });
+    const { nextCursor } = await b.list({ scope: SCOPE, envName: LOCAL, limit: 2 });
+    if (nextCursor === undefined) throw new Error('no cursor after a page of 2 of 3');
+    expect(b.issuedCursor?.('secrets', nextCursor)).toBe(true);
+    expect(b.issuedCursor?.('versions', nextCursor)).toBe(false);
+    for (const made of ['not-a-cursor', Buffer.from('{"n":null}').toString('base64url')]) {
+      expect(b.issuedCursor?.('secrets', made as Cursor)).toBe(false);
+    }
+  });
+
   test('includeRevoked lists the same: nothing is revoked in env files', async () => {
     await putEnv(names(3));
     const b = createDotenvSecretBinding({ packDir: dir });

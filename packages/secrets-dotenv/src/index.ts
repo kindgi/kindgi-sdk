@@ -226,6 +226,11 @@ export function createDotenvSecretBinding(
       : { data: [] };
   }
 
+  /** A `list` page's cursor decodes; `listVersions` never issues one (a secret has one version here). */
+  function issuedCursor(list: 'secrets' | 'versions', cursor: Cursor): boolean {
+    return list === 'secrets' && decodeListCursor(cursor) !== null;
+  }
+
   async function set(input: SecretSetInput): Promise<SecretSetOutcome> {
     const refused = refusedWrite(input.name, input.value);
     if (refused !== undefined) return { kind: 'error', ...refused };
@@ -317,6 +322,7 @@ export function createDotenvSecretBinding(
     resolve,
     getVersion,
     listVersions,
+    issuedCursor,
     set,
     rotate,
     revoke,

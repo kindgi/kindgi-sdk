@@ -8539,7 +8539,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretCollectionPage'),
       },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '400': ErrorResponse(
+        "Missing or malformed scope / envName, or a `cursor` this list didn't issue.",
+      ),
     },
   },
   {
@@ -8588,7 +8590,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretVersionCollectionPage'),
       },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '400': ErrorResponse(
+        "Missing or malformed scope / envName, or a `cursor` this list didn't issue.",
+      ),
     },
   },
   {

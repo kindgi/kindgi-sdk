@@ -20,6 +20,7 @@ import type {
 import type { AppEnv } from '../types.js';
 import { capabilityRefusal } from './denied.js';
 import { requireEnvName, requireScope, scopesEqual } from './env.js';
+import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { queryScopeResourceRef, scopeResourceRef } from './scope-params.js';
 import { parseTimeInput } from './time-input.js';
@@ -160,6 +161,8 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
 
     const limit = clampLimit(c.req.query('limit'));
     const cursorRaw = c.req.query('cursor');
+    const refused = refuseUnissuedCursor(c, secretsBinding, 'secrets', cursorRaw);
+    if (refused !== undefined) return refused;
     const namePrefix = c.req.query('namePrefix');
 
     const page = await secretsBinding.list({
@@ -235,6 +238,8 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
 
     const limit = clampLimit(c.req.query('limit'));
     const cursorRaw = c.req.query('cursor');
+    const refused = refuseUnissuedCursor(c, secretsBinding, 'versions', cursorRaw);
+    if (refused !== undefined) return refused;
 
     const page = await secretsBinding.listVersions({
       scope: scopeResult.scope,

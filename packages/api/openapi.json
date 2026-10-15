@@ -49894,7 +49894,7 @@
             }
           },
           "400": {
-            "description": "Missing or malformed scope / envName.",
+            "description": "Missing or malformed scope / envName, or a `cursor` this list didn't issue.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50410,7 +50410,7 @@
             }
           },
           "400": {
-            "description": "Missing or malformed scope / envName.",
+            "description": "Missing or malformed scope / envName, or a `cursor` this list didn't issue.",
             "content": {
               "application/json": {
                 "schema": {

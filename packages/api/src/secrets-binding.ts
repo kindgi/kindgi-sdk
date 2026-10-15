@@ -64,8 +64,21 @@ export interface SecretBinding {
   /** Metadata for a specific version. */
   getVersion(input: SecretGetVersionInput): Promise<SecretVersionRecord | null>;
 
-  /** List all versions for a secret. Metadata only. */
+  /**
+   * Cursor-paginated list of a secret's versions, oldest first. Metadata
+   * only. At most `limit` versions, with a `nextCursor` while more remain.
+   */
   listVersions(input: SecretListVersionsInput): Promise<SecretVersionPage>;
+
+  /**
+   * Whether `cursor` is one this binding issued for `list` (`'secrets'`: a
+   * `list` page's `nextCursor`; `'versions'`: a `listVersions` page's).
+   * Optional: without it, the routes pass any cursor to the store, as
+   * before. With it, a cursor the binding didn't issue answers `400
+   * bad-input` before the list is read, so a client paging until done is
+   * never sent back to the first page.
+   */
+  issuedCursor?(list: 'secrets' | 'versions', cursor: Cursor): boolean;
 
   // -------------------- write --------------------
 
@@ -151,6 +164,7 @@ export const SECRET_BINDING_MEMBERS: Readonly<
   resolve: 'read',
   getVersion: 'read',
   listVersions: 'read',
+  issuedCursor: 'read',
   set: 'write',
   rotate: 'write',
   revoke: 'write',
@@ -190,6 +204,9 @@ export function observeSecretWrites(binding: SecretBinding): {
       resolve: (input) => binding.resolve(input),
       getVersion: (input) => binding.getVersion(input),
       listVersions: (input) => binding.listVersions(input),
+      ...(binding.issuedCursor !== undefined && {
+        issuedCursor: binding.issuedCursor.bind(binding),
+      }),
       set: (input) => told(input, () => binding.set(input)),
       rotate: (input) => told(input, () => binding.rotate(input)),
       revoke: (input) => told(input, () => binding.revoke(input)),

@@ -751,6 +751,78 @@ describe('API — GET /v1/secrets — what reaches the store, and its page', () 
   });
 });
 
+describe.each([
+  { list: 'secrets' as const, path: '/v1/secrets?envName=staging&scopeKind=tenant' },
+  { list: 'versions' as const, path: '/v1/secrets/k/versions?envName=staging&scopeKind=tenant' },
+])('API — GET $path: a cursor the store did not issue', ({ list, path }) => {
+  const ISSUED = `issued-for-${list}`;
+  /** A store that keeps each list read, and says which cursors it issued, or has no say. */
+  function store(say: boolean) {
+    const reads: (Cursor | undefined)[] = [];
+    const asked: string[] = [];
+    const secrets: SecretBinding = {
+      ...makeInMemorySecretsBinding(),
+      async list(input) {
+        reads.push(input.cursor);
+        return { data: [] };
+      },
+      async listVersions(input) {
+        reads.push(input.cursor);
+        return { data: [] };
+      },
+      ...(say && {
+        issuedCursor: (which: 'secrets' | 'versions', cursor: Cursor) => {
+          asked.push(which);
+          return (cursor as unknown as string) === `issued-for-${which}`;
+        },
+      }),
+    };
+    const app = makeApp({ secrets });
+    const get = async (query: string) => {
+      const res = await app.request(`${path}${query}`, {
+        headers: { authorization: `Bearer ${TOKEN_RO}` },
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+    };
+    return { get, reads, asked };
+  }
+
+  test('one it did not issue: 400 bad-input, before the list is read', async () => {
+    const { get, reads, asked } = store(true);
+    const { status, body } = await get('&cursor=made-up');
+    expect(status).toBe(400);
+    expect(body.error).toMatchObject({ code: 'bad-input', message: '`cursor` is malformed' });
+    expect(reads).toEqual([]);
+    expect(asked).toEqual([list]);
+  });
+
+  test("one it issued for the other list: 400, so the store is asked about this list's", async () => {
+    const other = list === 'secrets' ? 'versions' : 'secrets';
+    const { get, reads } = store(true);
+    expect((await get(`&cursor=issued-for-${other}`)).status).toBe(400);
+    expect(reads).toEqual([]);
+  });
+
+  test('one it issued: the store reads the next page', async () => {
+    const { get, reads } = store(true);
+    expect((await get(`&cursor=${ISSUED}`)).status).toBe(200);
+    expect(reads).toEqual([ISSUED]);
+  });
+
+  test('a store without issuedCursor: any cursor reaches it, as before', async () => {
+    const { get, reads } = store(false);
+    expect((await get('&cursor=made-up')).status).toBe(200);
+    expect(reads).toEqual(['made-up']);
+  });
+
+  test('no cursor: the first page, and the store is not asked', async () => {
+    const { get, reads, asked } = store(true);
+    expect((await get('')).status).toBe(200);
+    expect(reads).toEqual([undefined]);
+    expect(asked).toEqual([]);
+  });
+});
+
 // Silence unused-value warnings on staging/scopeKeyString if all fixtures
 // happen to bypass one code path.
 void staging;
