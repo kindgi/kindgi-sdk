@@ -263,6 +263,13 @@ JSON that `kindgi runs start` prints. For `models: { allow: ['gpt-5'] }`:
 }
 ```
 
+A provider registered for the tenant that the runtime couldn't set up, such as
+one whose settings the deployment no longer allows, is never a candidate. The
+reasons name it under `provider set up`, by its provider id alone, with the
+code `provider-setup-failed`, and the error's message ends with why. A
+registration's settings can be checked at any time with
+`GET /v1/providers/{providerId}/check`.
+
 ## Rank with weights
 
 `prefer` adds a weight for each match, against a model's features or a
