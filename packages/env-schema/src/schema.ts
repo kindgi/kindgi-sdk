@@ -882,6 +882,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_TEMPLATE_RENDER_WORKERS',
+    description:
+      "Used from runtime 0.1.8.1; earlier runtimes ignore it. How many worker processes the server renders a turn's instruction template in, off the thread that runs the turn. Default 1: one worker process, built on the first render and shared across turns; a higher count lets several templates render at once. 0 renders the template in the server process, as before, and starts no worker. Each worker's heap is capped by `KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MB`. A value that isn't a whole number of at least 0 stops the server at boot, naming this variable (exit code 2).",
+    example: '1',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MB',
+    description:
+      "Used from runtime 0.1.8.1; earlier runtimes ignore it. Each template-render worker process's old-space heap cap, in MiB (`--max-old-space-size`), when `KINDGI_TEMPLATE_RENDER_WORKERS` is 1 or more; unused when it is 0. Default 128. A value that isn't a whole number of at least 1 stops the server at boot, naming this variable (exit code 2).",
+    example: '128',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_LOG_LEVEL',
     description:
       'The lowest level written: `error`, `warn`, `info` (default), `debug` or `trace`. At `info` an idle runtime writes nothing after its boot record but background work that did something. An unknown level stops the server at boot, naming this variable (exit code 2).',
