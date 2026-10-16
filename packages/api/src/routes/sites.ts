@@ -85,11 +85,13 @@ export function sitesRouter(
     if (settings.kind === 'invalid') return invalid(c, settings.field, settings.message);
     // A change is checked as the site it makes: an approvals URL alone is
     // checked against the site's origin, a ceiling alone against its role
-    // map. The binding checks the merged settings again as it stores them.
+    // map, and allowed roles alone keep the map of the roles still allowed
+    // (`applySiteChange`). The binding applies and checks the change again
+    // as it stores it.
     const current = await binding.get({ ...where(c), siteId: c.req.param('siteId') });
     if (current === null) return notFound(c);
     const merged = checkSiteSettings(
-      { ...siteSettingsOf(current), ...(settings.value as Record<string, unknown>) },
+      applySiteChange(siteSettingsOf(current), settings.value as Record<string, unknown>),
       { partial: false },
     );
     if (merged.kind === 'invalid') return invalid(c, merged.field, merged.message);
@@ -223,11 +225,41 @@ type Checked<T> =
 type SiteSettings = Partial<Omit<SiteRegisterInput, 'tenantId' | 'projectId' | 'by'>>;
 
 /**
+ * A site's settings with a change over them, as one body to check: a new
+ * site's over the defaults (`SITE_DEFAULTS`), or an update over the site's
+ * current settings. A change with no `roleMap` keeps the entries of the
+ * map under it whose role is still allowed, so narrowing `allowedRoles`
+ * needs no map of its own, and only takes away. A `roleMap` the change
+ * gives stays as given: the check still refuses one that names a role
+ * that isn't allowed.
+ */
+export function applySiteChange(
+  base: Readonly<Record<string, unknown>>,
+  change: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...base, ...change };
+  const allowed = merged.allowedRoles;
+  const map = base.roleMap;
+  if (
+    change.roleMap === undefined &&
+    Array.isArray(allowed) &&
+    typeof map === 'object' &&
+    map !== null
+  ) {
+    merged.roleMap = Object.fromEntries(
+      Object.entries(map).filter(([role]) => allowed.includes(role)),
+    );
+  }
+  return merged;
+}
+
+/**
  * A site's settings, checked: the shape of each field, an approvals URL
  * on the site's own origin, a role map over allowed roles only, and no
  * reviewer role above the ceiling. A new site gets the defaults for what
- * it leaves out (`SITE_DEFAULTS`). The deployment's binding checks what it
- * stores too: for a change, against the site's current settings.
+ * it leaves out (`applySiteChange` over `SITE_DEFAULTS`). The deployment's
+ * binding checks what it stores too: for a change, applied to the site's
+ * current settings.
  */
 export function checkSiteSettings(
   body: Record<string, unknown>,
@@ -274,7 +306,7 @@ export function checkSiteSettings(
     if (origin === undefined) {
       return no(
         'origin',
-        '`origin` must be an https:// origin with no path (http:// only for localhost or 127.0.0.1)',
+        '`origin` must be an https:// origin with no path (http:// only for localhost, 127.0.0.1 or [::1])',
       );
     }
     out.origin = origin;
@@ -337,7 +369,7 @@ export function checkSiteSettings(
     out[field] = n;
   }
 
-  const settings = options.partial ? out : { ...SITE_DEFAULTS, ...out };
+  const settings = options.partial ? out : applySiteChange(SITE_DEFAULTS, out);
   // The map's roles must be allowed, and no reviewer role above the ceiling.
   if (!options.partial) {
     const allowed = new Set(settings.allowedRoles as readonly string[]);

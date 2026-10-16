@@ -9993,7 +9993,7 @@ class RegisterSiteBody(BaseModel):
     display_name: Annotated[str, Field(alias="displayName", max_length=100, min_length=1)]
     origin: str
     """
-    An https:// origin with no path; http:// only for localhost or 127.0.0.1.
+    An https:// origin with no path; http:// only for localhost, 127.0.0.1 or [::1].
     """
     approvals_url: Annotated[str, Field(alias="approvalsUrl")]
     """
@@ -10007,7 +10007,7 @@ class RegisterSiteBody(BaseModel):
     """
     role_map: Annotated[dict[str, SiteRoleGrant] | None, Field(alias="roleMap")] = None
     """
-    Default: both default roles may ask, and decide as `standard` reviewers.
+    Default: both default roles may ask, and decide as `standard` reviewers. Without a `roleMap`, the map keeps the entries of the roles in `allowedRoles` only: the default map's for a new site, the site's own for a change.
     """
     reviewer_ceiling: Annotated[
         Literal["standard", "senior"] | None, Field(alias="reviewerCeiling")
@@ -10043,7 +10043,7 @@ class UpdateSiteBody(BaseModel):
     ] = None
     origin: str | None = None
     """
-    An https:// origin with no path; http:// only for localhost or 127.0.0.1.
+    An https:// origin with no path; http:// only for localhost, 127.0.0.1 or [::1].
     """
     approvals_url: Annotated[str | None, Field(alias="approvalsUrl")] = None
     """
@@ -10057,7 +10057,7 @@ class UpdateSiteBody(BaseModel):
     """
     role_map: Annotated[dict[str, SiteRoleGrant] | None, Field(alias="roleMap")] = None
     """
-    Default: both default roles may ask, and decide as `standard` reviewers.
+    Default: both default roles may ask, and decide as `standard` reviewers. Without a `roleMap`, the map keeps the entries of the roles in `allowedRoles` only: the default map's for a new site, the site's own for a change.
     """
     reviewer_ceiling: Annotated[
         Literal["standard", "senior"] | None, Field(alias="reviewerCeiling")

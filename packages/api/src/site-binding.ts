@@ -33,10 +33,12 @@ export interface SiteBinding {
   list(input: SiteListInput): Promise<SitePage>;
   get(input: SiteGetInput): Promise<Site | null>;
   /**
-   * Change a site's settings. The route has checked the patch merged into
-   * the site as it read it; the binding checks the merged settings again
-   * as it stores them, in one transaction (`checkSiteSettings`), since the
-   * site may have changed in between.
+   * Change a site's settings. The route has checked the patch applied to
+   * the site as it read it; the binding applies it to the site as stored
+   * and checks the result, in one transaction (`applySiteChange`, then
+   * `checkSiteSettings`), since the site may have changed in between. A
+   * patch with no `roleMap` keeps the stored map's entries for allowed
+   * roles only.
    */
   update(input: SiteUpdateInput): Promise<SiteChangeOutcome>;
   /** Stop or start the site's sign-ins. Pausing ends its live sessions. */
