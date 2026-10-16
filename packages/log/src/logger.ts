@@ -3,7 +3,7 @@
 
 import { formatJson, formatPretty } from './format.js';
 import { type LogLevel, SEVERITY, levelEnabled, levelFor } from './levels.js';
-import { isError, redactValue, scrubText, serializeError } from './redact.js';
+import { isError, readFields, redactValue, scrubText, serializeError } from './redact.js';
 import type { LogFields, LogFormat, LogOptions, LogRecord, Logger } from './types.js';
 
 export interface CreateLoggerOptions {
@@ -92,7 +92,7 @@ function build(shared: Shared, bindings: LogFields): Logger {
     fields: LogFields | undefined,
     how: LogOptions | undefined,
   ): LogRecord {
-    const merged: Record<string, unknown> = { ...bindings, ...fields };
+    const merged: Record<string, unknown> = { ...bindings, ...readFields(fields) };
     const out: Record<string, unknown> = {
       time: shared.now().toISOString(),
       level,
@@ -141,7 +141,7 @@ function build(shared: Shared, bindings: LogFields): Logger {
     info: (message, fields, how) => write('info', message, fields, how),
     debug: (message, fields, how) => write('debug', message, fields, how),
     trace: (message, fields, how) => write('trace', message, fields, how),
-    child: (more) => build(shared, { ...bindings, ...more }),
+    child: (more) => build(shared, { ...bindings, ...readFields(more) }),
     isLevelEnabled: (level) => levelEnabled(level, threshold),
   };
 }

@@ -85,6 +85,24 @@ function read(value: object, key: string, unreadable?: string): unknown {
   }
 }
 
+/**
+ * A copy of a call's fields (or a child's bindings), key by key, with a
+ * field that throws when read as `[unreadable]`. When the keys can't be
+ * listed (a revoked proxy), the copy has none.
+ */
+export function readFields(fields: object | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (fields === undefined || fields === null) return out;
+  let keys: string[];
+  try {
+    keys = Object.keys(fields);
+  } catch {
+    return out;
+  }
+  for (const key of keys) out[key] = read(fields, key, UNREADABLE);
+  return out;
+}
+
 /** A string or numeric `code`, as a string. */
 function codeOf(err: object): { readonly code?: string } {
   const code = read(err, 'code');

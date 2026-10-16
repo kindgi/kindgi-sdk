@@ -263,8 +263,9 @@ describe('errors', () => {
   });
 
   test('an Error that resists being read never makes a log call throw', () => {
+    // A TypeError, so the name's fallback (`Error`) differs from its own.
     const resisting = (key: string): Error => {
-      const err = new Error('m');
+      const err = new TypeError('m');
       // V8 writes the stack's first line, from the name and message, when
       // the stack is first read: read it now, so only `key` resists.
       void err.stack;
@@ -289,10 +290,10 @@ describe('errors', () => {
     const shapes = errs.map(({ stack, ...rest }) => ({ ...rest, stack: typeof stack }));
     const expected = [
       { name: 'Error', message: 'm', stack: 'string' },
-      { name: 'Error', message: '', stack: 'string' },
+      { name: 'TypeError', message: '', stack: 'string' },
       { name: 'Error', message: '42', stack: 'string' },
-      { name: 'Error', message: 'm', stack: 'undefined' },
-      { name: 'Error', message: 'm', stack: 'string' },
+      { name: 'TypeError', message: 'm', stack: 'undefined' },
+      { name: 'TypeError', message: 'm', stack: 'string' },
     ];
     expect(shapes).toEqual(expected.flatMap((e) => [e, e]));
   });
@@ -353,6 +354,46 @@ describe('robustness', () => {
       date: '[unreadable]',
       inArray: ['[unreadable]'],
     });
+  });
+
+  test("a call's own field that resists being read is [unreadable], its siblings kept", () => {
+    const fields = {
+      a: 1,
+      get bad(): number {
+        throw new Error('not today');
+      },
+    };
+    const { log, records } = capture();
+    expect(() => log.info('x', fields)).not.toThrow();
+    expect(records()[0]).toMatchObject({ message: 'x', a: 1, bad: '[unreadable]' });
+  });
+
+  test("fields whose keys can't be listed still get a record written, without them", () => {
+    const revocable = Proxy.revocable({ a: 1 }, {});
+    revocable.revoke();
+    const { log, records } = capture();
+    expect(() => log.child({ runId: 'run-1' }).info('x', revocable.proxy)).not.toThrow();
+    const [rec] = records();
+    expect(rec).toMatchObject({ message: 'x', runId: 'run-1' });
+    expect(rec).not.toHaveProperty('a');
+  });
+
+  test("a child's binding that resists being read is [unreadable] on its records", () => {
+    const bindings = {
+      runId: 'run-1',
+      get bad(): number {
+        throw new Error('not today');
+      },
+    };
+    const revocable = Proxy.revocable({ a: 1 }, {});
+    revocable.revoke();
+    const { log, records } = capture();
+    expect(() => log.child(bindings).info('x')).not.toThrow();
+    expect(() => log.child(revocable.proxy).info('y')).not.toThrow();
+    const [x, y] = records();
+    expect(x).toMatchObject({ message: 'x', runId: 'run-1', bad: '[unreadable]' });
+    expect(y).toMatchObject({ message: 'y' });
+    expect(y).not.toHaveProperty('a');
   });
 
   test('noopLogger writes nothing, and its children are no-ops too', () => {
