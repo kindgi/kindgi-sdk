@@ -1188,17 +1188,20 @@ describe('kindgi deploy --project: one project per client', () => {
     expect(body(fixtures)?.projectId).toBeUndefined();
   });
 
-  test('a slug of no project is refused, saying where to see them; nothing is sent', async () => {
+  test('a slug of no project is refused, saying where to see them and how to make one; nothing is sent', async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures({ projects });
     const out = await deploy(fixtures, '--project=initech-shop');
     expect(out.exitCode).not.toBe(0);
     expect(out.stderr).toContain(
-      '--project initech-shop: no project of this tenant has that slug. `kindgi projects list` shows them.',
+      '--project initech-shop: no project of this tenant has that slug. `kindgi projects list` shows them; `kindgi projects create --name=<name> --slug=initech-shop` makes one.',
     );
-    // No command makes one.
-    expect(out.stderr).not.toContain('kindgi projects create');
     expect(fixtures.state.postCalls).toBe(0);
+    // A slug `projects create` wouldn't take isn't offered as one.
+    const upper = await deploy(makeFixtures({ projects }), '--project=Initech');
+    expect(upper.stderr).toContain(
+      '`kindgi projects create --name=<name> --slug=<slug>` makes one.',
+    );
   });
 
   test('a slug two orgs share is refused, naming both ids; nothing is sent', async () => {

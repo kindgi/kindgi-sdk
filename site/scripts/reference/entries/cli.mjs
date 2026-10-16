@@ -237,6 +237,16 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
+  'projects create': {
+    description: 'none',
+    name: 'required',
+    org: 'none (a project in no org)',
+    slug: 'the name as a slug: lowercase letters and digits, accents dropped, each run of anything else `-`, at most 63 characters (`Support bot` is `support-bot`, `Café` is `cafe`)',
+  },
+  'projects rename': {
+    name: 'unchanged',
+    slug: 'unchanged',
+  },
   'runs list': {
     agent: 'none',
     cursor: 'none',
@@ -1069,6 +1079,26 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Show one project by id.',
       line: 'kindgi projects get <project-id>',
+    },
+  ],
+  'projects create': [
+    {
+      purpose: 'Make a project, with the slug `support-bot`, and print it with its id.',
+      line: 'kindgi projects create --name="Support bot"',
+    },
+    {
+      purpose: 'Make a project in an org, with a slug of your own.',
+      line: 'kindgi projects create --name=Support --slug=support --org=<org-id> --description="Answers the support inbox"',
+    },
+  ],
+  'projects rename': [
+    {
+      purpose: "Change a project's name; its slug stays.",
+      line: 'kindgi projects rename <project-id> --name=Storefront',
+    },
+    {
+      purpose: 'Change its name and its slug.',
+      line: 'kindgi projects rename <project-id> --name=Storefront --slug=storefront',
     },
   ],
   'agents list': [
