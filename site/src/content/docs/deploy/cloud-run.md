@@ -760,9 +760,10 @@ A new grant can take a minute or two to apply.
   `KINDGI_DB_LOCK_TIMEOUT_MS`, `KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` and
   `KINDGI_DB_POOL_WAIT_TIMEOUT_MS` in `server_env` change them; `0` turns
   one off. A GET or HEAD the statement or lock timeout or the pool wait
-  ends answers 503 `database-busy` with `Retry-After: 5`, any other request
-  500, and the log has a `db` warning naming the setting, its value and its
-  variable. The instance itself ends any other session left idle in a
+  ends answers 503 `database-busy` with `Retry-After: 5` (under `/auth/`, a
+  browser signing in is sent back to the sign-in page instead), any other
+  request 500, and the log has a `db` warning naming the setting, its value
+  and its variable. The instance itself ends any other session left idle in a
   transaction for 10 minutes (`database_idle_in_transaction_timeout_ms`, `0`
   for off). An instance from before that variable gets the flag at the next
   apply, in place: Cloud SQL lists it as needing no restart
