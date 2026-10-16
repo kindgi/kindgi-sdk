@@ -272,7 +272,6 @@ export function deploymentsRouter(
 
   // ---------- GET / (list, cursor-paginated) ----------
   r.get('/', async (c) => {
-    const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const limit = clampLimit(c.req.query('limit'));
 
@@ -280,39 +279,30 @@ export function deploymentsRouter(
     const imageRefPrefixRaw = c.req.query('imageRefPrefix');
     const signerKeyIdRaw = c.req.query('signerKeyId');
 
-    try {
-      const page = await bindings.deploymentRegistry.list({
-        tenantId,
-        limit,
-        ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
-        ...(imageRefPrefixRaw !== undefined &&
-          imageRefPrefixRaw.length > 0 && {
-            imageRefPrefix: imageRefPrefixRaw,
-          }),
-        ...(signerKeyIdRaw !== undefined &&
-          signerKeyIdRaw.length > 0 && {
-            signerKeyId: signerKeyIdRaw as SigningKeyId,
-          }),
-      });
-      return c.json({
-        data: page.data.map(serializeDeployment),
-        hasMore: page.nextCursor !== undefined,
-        ...(page.nextCursor !== undefined && {
-          nextCursor: page.nextCursor as unknown as string,
+    // A throw from list() propagates to the app's central error handler
+    // (middleware/error-mapper.ts): a busy database answers this GET with a
+    // 503 + Retry-After, anything else a 500 whose body carries no raw error
+    // text (the whole error goes to the log).
+    const page = await bindings.deploymentRegistry.list({
+      tenantId,
+      limit,
+      ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
+      ...(imageRefPrefixRaw !== undefined &&
+        imageRefPrefixRaw.length > 0 && {
+          imageRefPrefix: imageRefPrefixRaw,
         }),
-      });
-    } catch (cause) {
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Deployment list failed: ${errMessage(cause)}`,
-          },
-          requestId,
-        ),
-      );
-    }
+      ...(signerKeyIdRaw !== undefined &&
+        signerKeyIdRaw.length > 0 && {
+          signerKeyId: signerKeyIdRaw as SigningKeyId,
+        }),
+    });
+    return c.json({
+      data: page.data.map(serializeDeployment),
+      hasMore: page.nextCursor !== undefined,
+      ...(page.nextCursor !== undefined && {
+        nextCursor: page.nextCursor as unknown as string,
+      }),
+    });
   });
 
   // ---------- GET /:deploymentId ----------
@@ -412,16 +402,9 @@ export function deploymentsRouter(
       publicKey: publicKeyBase64,
     });
     if (trusted.kind === 'err') {
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Trust check failed: ${trusted.error.message}`,
-          },
-          requestId,
-        ),
-      );
+      // To the central error handler: a 500 with no raw text; the trust-check
+      // error is logged via the cause, which keeps its code.
+      throw new Error('Trust check failed', { cause: trusted.error });
     }
     if (!trusted.value) {
       c.status(statusFor('signer-not-trusted') as never);
@@ -885,7 +868,8 @@ export function deploymentsRouter(
       // error handler answers. None runs past the first write here.
       if (cause instanceof SchemaCompileBudgetError) throw cause;
       // A primitive refused with a typed outcome is the caller's to fix:
-      // that outcome's own status and code. Anything thrown is a 500.
+      // that outcome's own status and code. Anything else propagates to the
+      // central error handler (a 500 for this write).
       if (cause instanceof PublishRefused) {
         if (cause.projectId !== undefined) {
           c.get('log').info(`${cause.message}: deploy refused`, {
@@ -920,16 +904,9 @@ export function deploymentsRouter(
           ),
         );
       }
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Registry upsert failed: ${errMessage(cause)}`,
-          },
-          requestId,
-        ),
-      );
+      // Not a mapped outcome: to the central error handler (a 500 for this
+      // write — the rollback above already ran; the whole error is logged).
+      throw cause;
     }
 
     // ---- Deployment record ----
@@ -975,31 +952,15 @@ export function deploymentsRouter(
       });
     } catch (cause) {
       await rollback(rolled);
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Deployment record failed: ${errMessage(cause)}`,
-          },
-          requestId,
-        ),
-      );
+      // To the central error handler: a 500 with no raw text; the error is logged.
+      throw cause;
     }
 
     if (outcome.kind === 'error') {
       await rollback(rolled);
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Deployment record failed: ${outcome.message}`,
-            cause: outcome.code,
-          },
-          requestId,
-        ),
-      );
+      // To the central error handler: a 500 with no raw text; the outcome's
+      // code and message go to the log.
+      throw new Error(`Deployment record failed (${outcome.code}): ${outcome.message}`);
     }
     if (outcome.kind === 'already-registered') {
       // Digest-based idempotency: same digest already recorded. Roll back
@@ -2361,10 +2322,6 @@ async function notifyWrites(
       // Advisory, as on `POST /v1/guardrails`.
     }
   }
-}
-
-function errMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }
 
 // Formats a sha256 digest in the canonical `sha256:<hex>` shape. Not used
