@@ -699,7 +699,8 @@ function makeApp(opts: {
   flowRegistry?: FlowRegistryBinding;
   /** More of the app's bindings, as given (e.g. `agentReleases`). */
   extra?: Partial<Parameters<typeof createApp>[0]>;
-  omit?: 'deployment' | 'signing' | 'image';
+  /** A binding the app goes without (`tools`: no tool registry, so agents and flows register unpinned). */
+  omit?: 'deployment' | 'signing' | 'image' | 'tools';
   omitProjectBinding?: boolean;
   extraTrust?: readonly TrustEntry[];
   extraImages?: readonly FakeImage[];
@@ -750,7 +751,7 @@ function makeApp(opts: {
     ...(opts.omit === 'deployment' ? {} : { deploymentRegistry }),
     ...(opts.omit === 'signing' ? {} : { signingKeyRegistry }),
     ...(opts.omit === 'image' ? {} : { imageRegistry }),
-    toolRegistry,
+    ...(opts.omit === 'tools' ? {} : { toolRegistry }),
     guardrailRegistry,
     agentRegistry,
     flowRegistry,
@@ -4725,13 +4726,341 @@ describe('POST /v1/deployments — a redeploy after a rolled-back deploy', () =>
         id: 'acme.score',
         path: '/secrets/ANTHROPIC_API_KEY',
         message: expect.stringMatching(
-          /^version 1\.0\.0 of this tool is unregistered, and the version stored under that number stays so: `ANTHROPIC_API_KEY` is the key of model provider "anthropic-main".*Publish the tool under a new version$/,
+          /^version 1\.0\.0 of this tool is unregistered and can't be reinstated: `ANTHROPIC_API_KEY` is the key of model provider "anthropic-main".*Publish the tool under a new version$/,
         ),
       },
     ]);
     expect(tools.reinstated).toEqual([]);
     expect(tools.states()).toEqual(['acme.score@1.0.0 unregistered']);
     expect(flows.versions()).toEqual([]);
+  });
+});
+
+/**
+ * Agent or flow versions keyed by (id, version), whose `unregister`
+ * retires a version as the runtime's does: its number stays taken
+ * (`publish` answers `already-registered`), `getVersion` reads it with
+ * `unregisteredAt`, and `reinstateVersion` makes it active again.
+ */
+function makeRetiringVersions() {
+  const rows = new Map<
+    string,
+    { readonly definition: Record<string, unknown>; unregisteredAt: string | undefined }
+  >();
+  const key = (id: unknown, version: unknown) => `${id as string}@${version as string}`;
+  const reinstated: string[] = [];
+  return {
+    /** Each version, as `id@version active|unregistered`. */
+    states: () =>
+      [...rows.entries()]
+        .map(([k, r]) => `${k} ${r.unregisteredAt === undefined ? 'active' : 'unregistered'}`)
+        .sort(),
+    /** Every reinstate asked, as `id@version`. */
+    reinstated,
+    /** Store `definition` as a version an earlier deploy published, since unregistered. */
+    seedRetired: (definition: Record<string, unknown>) =>
+      rows.set(key(definition.id, definition.version), {
+        definition: { ...definition, projectId: DEFAULT_PROJECT_ID },
+        unregisteredAt: '2026-10-01T00:00:00.000Z',
+      }),
+    read: (id: unknown, version: unknown) => {
+      const row = rows.get(key(id, version));
+      if (row === undefined) return null;
+      return {
+        ...row.definition,
+        ...(row.unregisteredAt !== undefined && { unregisteredAt: row.unregisteredAt }),
+      } as never;
+    },
+    /** Whether `definition` is newly stored: `false` when its number is taken. */
+    publish: (
+      definition: { readonly id: unknown; readonly version: unknown },
+      projectId: ProjectId,
+    ) => {
+      const k = key(definition.id, definition.version);
+      if (rows.has(k)) return false;
+      rows.set(k, { definition: { ...definition, projectId }, unregisteredAt: undefined });
+      return true;
+    },
+    unregister: (id: unknown, version: unknown) => {
+      const row = rows.get(key(id, version));
+      if (row === undefined || row.unregisteredAt !== undefined) return false;
+      row.unregisteredAt = new Date().toISOString();
+      return true;
+    },
+    /** `undefined` for a version never stored, else whether it was unregistered. */
+    reinstate: (id: unknown, version: unknown) => {
+      reinstated.push(key(id, version));
+      const row = rows.get(key(id, version));
+      if (row === undefined) return undefined;
+      const wasTombstoned = row.unregisteredAt !== undefined;
+      row.unregisteredAt = undefined;
+      return wasTombstoned;
+    },
+  };
+}
+
+type RetiringVersions = ReturnType<typeof makeRetiringVersions>;
+
+function makeRetiringAgentRegistry(versions: RetiringVersions): AgentRegistryBinding {
+  return {
+    async list() {
+      return { data: [] };
+    },
+    async get() {
+      return null;
+    },
+    async getVersion({ agentId, version }) {
+      return versions.read(agentId, version);
+    },
+    async headExists() {
+      return false;
+    },
+    async listVersions() {
+      return { data: [] };
+    },
+    async publish({ projectId, agent }) {
+      return versions.publish(agent, projectId)
+        ? { kind: 'ok', agentId: agent.id, version: agent.version }
+        : { kind: 'already-registered', agentId: agent.id, version: agent.version };
+    },
+    async unregister({ agentId, version }) {
+      return { unregistered: versions.unregister(agentId, version) };
+    },
+    async reinstateVersion({ agentId, version }) {
+      const wasTombstoned = versions.reinstate(agentId, version);
+      return wasTombstoned === undefined
+        ? { kind: 'not-found', agentId, version }
+        : { kind: 'ok', agentId, version, wasTombstoned };
+    },
+  };
+}
+
+function makeRetiringFlowRegistry(versions: RetiringVersions): FlowRegistryBinding {
+  return {
+    async list() {
+      return { data: [] };
+    },
+    async get() {
+      return null;
+    },
+    async getVersion({ flowId, version }) {
+      return versions.read(flowId, version);
+    },
+    async headExists() {
+      return false;
+    },
+    async listVersions() {
+      return { data: [] };
+    },
+    async publish({ projectId, flow }) {
+      return versions.publish(flow, projectId)
+        ? { kind: 'ok', flowId: flow.id, version: flow.version }
+        : { kind: 'already-registered', flowId: flow.id, version: flow.version };
+    },
+    async unregister({ flowId, version }) {
+      return { unregistered: versions.unregister(flowId, version) };
+    },
+    async reinstateVersion({ flowId, version }) {
+      const wasTombstoned = versions.reinstate(flowId, version);
+      return wasTombstoned === undefined
+        ? { kind: 'not-found', flowId, version }
+        : { kind: 'ok', flowId, version, wasTombstoned };
+    },
+  };
+}
+
+describe('POST /v1/deployments — a redeploy after a rolled-back deploy, its agents and flows unpinned', () => {
+  const pack = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.0.0', flowVersion: '1.0.0' });
+  /** `acme.matcher@1.0.0` and `acme.review@1.0.0` as their registries store them. */
+  const matcher = {
+    id: 'acme.matcher',
+    version: '1.0.0',
+    name: 'Matcher',
+    instructions: 'Match the request.',
+    capabilities: [{ feature: 'model.text.chat' }],
+    tools: [{ id: 'acme.score', version: '^1.0.0' }],
+  };
+  const review = {
+    id: 'acme.review',
+    version: '1.0.0',
+    nodes: [
+      { id: 'score', kind: 'tool', ref: 'acme.score' },
+      { id: 'match', kind: 'agent', ref: 'acme.matcher' },
+    ],
+    edges: [
+      { id: 'e0', from: '$start', to: 'score' },
+      { id: 'e1', from: 'score', to: 'match' },
+      { id: 'e2', from: 'match', to: '$end' },
+    ],
+  };
+  /** A reference scope that reaches all but `acme.elsewhere`. */
+  const scope: Partial<Parameters<typeof createApp>[0]> = {
+    referenceScope: { reachable: async ({ ref }) => ref.id !== 'acme.elsewhere' },
+  };
+
+  /**
+   * One app with no tool registry, so its agents and flows register
+   * unpinned; its deployment record throws for the first `failures`
+   * deploys.
+   */
+  function setup(
+    opts: {
+      failures?: number;
+      agents?: (registry: AgentRegistryBinding) => AgentRegistryBinding;
+      extra?: Partial<Parameters<typeof createApp>[0]>;
+    } = {},
+  ) {
+    let failures = opts.failures ?? 0;
+    const records = makeInMemoryDeploymentBinding();
+    const deploymentRegistry: DeploymentBinding = {
+      ...records,
+      register: async (input) => {
+        if (failures > 0) {
+          failures -= 1;
+          throw new Error('the deployment record failed');
+        }
+        return records.register(input);
+      },
+    };
+    const agents = makeRetiringVersions();
+    const flows = makeRetiringVersions();
+    const agentRegistry = makeRetiringAgentRegistry(agents);
+    const { app } = makeApp({
+      fixture: pack,
+      deploymentRegistry,
+      omit: 'tools',
+      agentRegistry: opts.agents?.(agentRegistry) ?? agentRegistry,
+      flowRegistry: makeRetiringFlowRegistry(flows),
+      ...(opts.extra !== undefined && { extra: opts.extra }),
+    });
+    const deploy = async () => {
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(pack.wire),
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, any> };
+    };
+    return { agents, flows, deploy };
+  }
+
+  test('a deploy that failed after its agent and flow publish unregistered them; the same image deploys again, each reinstated', async () => {
+    const { agents, flows, deploy } = setup({ failures: 1 });
+
+    expect((await deploy()).status).toBe(500);
+    expect(agents.states()).toEqual(['acme.matcher@1.0.0 unregistered']);
+    expect(flows.states()).toEqual(['acme.review@1.0.0 unregistered']);
+
+    expect((await deploy()).status).toBe(201);
+    expect(agents.reinstated).toEqual(['acme.matcher@1.0.0']);
+    expect(flows.reinstated).toEqual(['acme.review@1.0.0']);
+    expect(agents.states()).toEqual(['acme.matcher@1.0.0 active']);
+    expect(flows.states()).toEqual(['acme.review@1.0.0 active']);
+
+    // Deployed again, both are active: nothing to reinstate.
+    expect((await deploy()).status).toBe(200);
+    expect(agents.reinstated).toEqual(['acme.matcher@1.0.0']);
+    expect(flows.reinstated).toEqual(['acme.review@1.0.0']);
+  });
+
+  test('a redeploy that fails again unregisters the agent and flow versions it reinstated', async () => {
+    const { agents, flows, deploy } = setup({ failures: 2 });
+
+    expect((await deploy()).status).toBe(500);
+    expect((await deploy()).status).toBe(500);
+    expect(agents.reinstated).toEqual(['acme.matcher@1.0.0']);
+    expect(flows.reinstated).toEqual(['acme.review@1.0.0']);
+    expect(agents.states()).toEqual(['acme.matcher@1.0.0 unregistered']);
+    expect(flows.states()).toEqual(['acme.review@1.0.0 unregistered']);
+
+    expect((await deploy()).status).toBe(201);
+    expect(agents.states()).toEqual(['acme.matcher@1.0.0 active']);
+    expect(flows.states()).toEqual(['acme.review@1.0.0 active']);
+  });
+
+  test("an agent version reinstated since its registry read it isn't this deploy's to unregister rolling back", async () => {
+    const { agents, deploy } = setup({
+      failures: 1,
+      agents: (registry) => ({
+        ...registry,
+        // Another caller reinstates it first: this deploy's reinstate finds it active.
+        reinstateVersion: async (input) => {
+          await registry.reinstateVersion(input);
+          return registry.reinstateVersion(input);
+        },
+      }),
+    });
+    agents.seedRetired(matcher);
+
+    expect((await deploy()).status).toBe(500);
+    expect(agents.states()).toEqual(['acme.matcher@1.0.0 active']);
+  });
+
+  test('an agent reinstate its registry answers not-found is a 500, and no flow is written', async () => {
+    const { agents, flows, deploy } = setup({
+      agents: (registry) => ({
+        ...registry,
+        reinstateVersion: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
+      }),
+    });
+    agents.seedRetired(matcher);
+
+    const res = await deploy();
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe('internal-server-error');
+    expect(agents.states()).toEqual(['acme.matcher@1.0.0 unregistered']);
+    expect(flows.states()).toEqual([]);
+  });
+
+  test("an unregistered agent version naming what its project doesn't reach stays unregistered: the deploy is refused, as the same name in the pack's agent is", async () => {
+    const { agents, flows, deploy } = setup({ extra: scope });
+    // The stored version names a tool its project doesn't reach; the pack's agent, at the same version, doesn't.
+    agents.seedRetired({ ...matcher, tools: [{ id: 'acme.elsewhere', version: '^1.0.0' }] });
+
+    const res = await deploy();
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('reference-out-of-scope');
+    expect(res.body.error.message).toBe(
+      `This project can't reference tool "acme.elsewhere": it isn't registered in this project, its org or the tenant`,
+    );
+    expect(res.body.error.details.issues).toEqual([
+      {
+        path: '/agents/0',
+        kind: 'tool',
+        id: 'acme.elsewhere',
+        message: `version 1.0.0 of this agent is unregistered and can't be reinstated: tool "acme.elsewhere" isn't registered in this project, its org or the tenant. Publish the agent under a new version`,
+      },
+    ]);
+    expect(agents.reinstated).toEqual([]);
+    expect(agents.states()).toEqual(['acme.matcher@1.0.0 unregistered']);
+    expect(flows.states()).toEqual([]);
+  });
+
+  test("an unregistered flow version naming what its project doesn't reach stays unregistered, and the deploy is refused", async () => {
+    const { agents, flows, deploy } = setup({ extra: scope });
+    flows.seedRetired({
+      ...review,
+      nodes: [
+        { id: 'score', kind: 'tool', ref: 'acme.elsewhere' },
+        { id: 'match', kind: 'agent', ref: 'acme.matcher' },
+      ],
+    });
+
+    const res = await deploy();
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('reference-out-of-scope');
+    expect(res.body.error.details.issues).toEqual([
+      {
+        path: '/flows/0',
+        kind: 'tool',
+        id: 'acme.elsewhere',
+        message: `version 1.0.0 of this flow is unregistered and can't be reinstated: tool "acme.elsewhere" isn't registered in this project, its org or the tenant. Publish the flow under a new version`,
+      },
+    ]);
+    expect(flows.reinstated).toEqual([]);
+    expect(flows.states()).toEqual(['acme.review@1.0.0 unregistered']);
+    // The agent this deploy published is rolled back with it.
+    expect(agents.states()).toEqual(['acme.matcher@1.0.0 unregistered']);
   });
 });
 
