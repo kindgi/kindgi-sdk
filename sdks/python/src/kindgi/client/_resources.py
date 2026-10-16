@@ -1008,6 +1008,57 @@ OPERATIONS: dict[str, Operation] = {
     "webhookEndpoints.sendTest": Operation(
         "webhookEndpoints.sendTest", "POST", "/v1/webhook-endpoints/{endpointId}/test", "json", True
     ),
+    "projects.sites.list": Operation(
+        "projects.sites.list", "GET", "/v1/projects/{projectId}/sites", "json", False
+    ),
+    "projects.sites.register": Operation(
+        "projects.sites.register", "POST", "/v1/projects/{projectId}/sites", "json", True
+    ),
+    "projects.sites.get": Operation(
+        "projects.sites.get", "GET", "/v1/projects/{projectId}/sites/{siteId}", "json", False
+    ),
+    "projects.sites.update": Operation(
+        "projects.sites.update", "PATCH", "/v1/projects/{projectId}/sites/{siteId}", "json", True
+    ),
+    "projects.sites.pause": Operation(
+        "projects.sites.pause",
+        "POST",
+        "/v1/projects/{projectId}/sites/{siteId}/pause",
+        "json",
+        True,
+    ),
+    "projects.sites.resume": Operation(
+        "projects.sites.resume",
+        "POST",
+        "/v1/projects/{projectId}/sites/{siteId}/resume",
+        "json",
+        True,
+    ),
+    "projects.sites.unregister": Operation(
+        "projects.sites.unregister",
+        "POST",
+        "/v1/projects/{projectId}/sites/{siteId}/unregister",
+        "json",
+        True,
+    ),
+    "projects.sites.enrollmentCode": Operation(
+        "projects.sites.enrollmentCode",
+        "POST",
+        "/v1/projects/{projectId}/sites/{siteId}/enrollment-codes",
+        "json",
+        True,
+    ),
+    "projects.sites.revokeKey": Operation(
+        "projects.sites.revokeKey",
+        "POST",
+        "/v1/projects/{projectId}/sites/{siteId}/keys/{kid}/revoke",
+        "json",
+        True,
+    ),
+    "auth.sites.enroll": Operation(
+        "auth.sites.enroll", "POST", "/v1/auth/sites/enroll", "json", False
+    ),
+    "auth.siteSignIn": Operation("auth.siteSignIn", "POST", "/v1/auth/site-sign-in", "json", False),
     "evalSuites.unregister": Operation(
         "evalSuites.unregister",
         "POST",
@@ -6175,12 +6226,42 @@ class AuthProvidersResource:
         )
 
 
+class AuthSitesResource:
+    """`client.auth.sites` — the `auth.sites` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def enroll(
+        self,
+        body: _models.EnrollSiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.EnrollSiteResult:
+        """A site posts its public key with its enrollment code. `POST /v1/auth/sites/enroll`
+
+        Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.sites.enroll"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.EnrollSiteBody, body, fields),
+            response=_models.EnrollSiteResult,
+            timeout=timeout,
+        )
+
+
 class AuthResource:
     """`client.auth` — the `auth` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
         self.providers = AuthProvidersResource(client)
+        self.sites = AuthSitesResource(client)
 
     def sign_in_options(
         self, /, *, email: str | None = None, timeout: float | None = None
@@ -6241,6 +6322,28 @@ class AuthResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.LogoutResult,
+            timeout=timeout,
+        )
+
+    def site_sign_in(
+        self,
+        body: _models.SiteSignInBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SiteSignInResult:
+        """A site signs one of its people in. `POST /v1/auth/site-sign-in`
+
+        Public: the statement is the credential. A registered site's statement that a person is signed in there, exchanged for a session limited to the site's project: it reads nothing above the project, mints no keys, isn't refreshed, and ends early when the site is paused or unregistered, or one of its keys revoked. The person is the one the site created for that `sub` (a first statement creates them; never matched by email), with the grants the site's role map gives their roles. Every refusal is `401 site-sign-in-refused`, with `details.reason`. A statement whose signature wasn't verified gets `not-verified` alone, whatever was wrong (the site, the key, the signature, the format), since its sender has proved nothing; after a verified signature: `site-paused`, `site-not-vouching`, `wrong-audience`, `expired`, `issued-in-the-future`, `too-long-lived`, `replayed`, `role-not-allowed`, `person-removed` or `people-cap`. Rate-limited per client and per site (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.siteSignIn"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.SiteSignInBody, body, fields),
+            response=_models.SiteSignInResult,
             timeout=timeout,
         )
 
@@ -7628,6 +7731,212 @@ class ProjectsTeamGrantsResource:
         )
 
 
+class ProjectsSitesResource:
+    """`client.projects.sites` — the `projects.sites` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        include_unregistered: bool | None = None,
+        timeout: float | None = None,
+    ) -> _models.SiteCollectionPage:
+        """List the project's sites. `GET /v1/projects/{projectId}/sites`
+
+        The sites that sign their own people in to this project. Tenant admins only: a site creates people in the tenant. `includeUnregistered=true` lists unregistered ones too. Mounted when the deployment supplies a `SiteBinding`.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor, "includeUnregistered": include_unregistered},
+            headers={},
+            response=_models.SiteCollectionPage,
+            timeout=timeout,
+        )
+
+    def register(
+        self,
+        project_id: str | UUID,
+        body: _models.RegisterSiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.RegisterSiteResult:
+        """Register a site. `POST /v1/projects/{projectId}/sites`
+
+        A site that will sign its own people in to this project, and a one-time enrollment code for it, shown once: the site posts it with its public key (`POST /v1/auth/sites/enroll`). Until then it has no key and signs nobody in. A role map gives no reviewer role above `reviewerCeiling`, and names only `allowedRoles`; nothing it gives reaches above the project. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.register"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RegisterSiteBody, body, fields),
+            response=_models.RegisterSiteResult,
+            timeout=timeout,
+        )
+
+    def get(
+        self, project_id: str | UUID, site_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Site:
+        """Read a site. `GET /v1/projects/{projectId}/sites/{siteId}`
+
+        Its settings and its keys (ids and thumbprints only). Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.get"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        body: _models.UpdateSiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Site:
+        """Change a site's settings. `PATCH /v1/projects/{projectId}/sites/{siteId}`
+
+        The settings given; the rest stay. A person's grants follow the new settings the next time the site signs them in. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.update"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateSiteBody, body, fields),
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    def pause(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Site:
+        """Stop a site's sign-ins. `POST /v1/projects/{projectId}/sites/{siteId}/pause`
+
+        The site's statements are refused until it's resumed, and its live sessions end now. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.pause"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    def resume(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Site:
+        """Start a paused site's sign-ins again. `POST /v1/projects/{projectId}/sites/{siteId}/resume`
+
+        Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.resume"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Site:
+        """Unregister a site. `POST /v1/projects/{projectId}/sites/{siteId}/unregister`
+
+        Tombstoned: its sign-ins stop and its live sessions end. The people it signed in stay, with their records. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.unregister"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    def enrollment_code(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SiteEnrollmentCode:
+        """A new enrollment code for a site. `POST /v1/projects/{projectId}/sites/{siteId}/enrollment-codes`
+
+        How a site's key is replaced: the site posts a new key with this code, which replaces every key it had and ends its live sessions. An earlier unused code stops working. Shown once. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.enrollmentCode"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SiteEnrollmentCode,
+            timeout=timeout,
+        )
+
+    def revoke_key(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        kid: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Site:
+        """Revoke one of a site's keys. `POST /v1/projects/{projectId}/sites/{siteId}/keys/{kid}/revoke`
+
+        Statements signed with it are refused from now on, and the site's live sessions end. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.revokeKey"],
+            path={"projectId": project_id, "siteId": site_id, "kid": kid},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+
 class ProjectsResource:
     """`client.projects` — the `projects` operations."""
 
@@ -7639,6 +7948,7 @@ class ProjectsResource:
         self.access = ProjectsAccessResource(client)
         self.production = ProjectsProductionResource(client)
         self.team_grants = ProjectsTeamGrantsResource(client)
+        self.sites = ProjectsSitesResource(client)
 
     def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
         """Fetch the tenant's Default project. `GET /v1/projects/default`
@@ -13998,12 +14308,42 @@ class AsyncAuthProvidersResource:
         )
 
 
+class AsyncAuthSitesResource:
+    """`client.auth.sites` — the `auth.sites` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def enroll(
+        self,
+        body: _models.EnrollSiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.EnrollSiteResult:
+        """A site posts its public key with its enrollment code. `POST /v1/auth/sites/enroll`
+
+        Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.sites.enroll"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.EnrollSiteBody, body, fields),
+            response=_models.EnrollSiteResult,
+            timeout=timeout,
+        )
+
+
 class AsyncAuthResource:
     """`client.auth` — the `auth` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
         self.providers = AsyncAuthProvidersResource(client)
+        self.sites = AsyncAuthSitesResource(client)
 
     async def sign_in_options(
         self, /, *, email: str | None = None, timeout: float | None = None
@@ -14064,6 +14404,28 @@ class AsyncAuthResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.LogoutResult,
+            timeout=timeout,
+        )
+
+    async def site_sign_in(
+        self,
+        body: _models.SiteSignInBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SiteSignInResult:
+        """A site signs one of its people in. `POST /v1/auth/site-sign-in`
+
+        Public: the statement is the credential. A registered site's statement that a person is signed in there, exchanged for a session limited to the site's project: it reads nothing above the project, mints no keys, isn't refreshed, and ends early when the site is paused or unregistered, or one of its keys revoked. The person is the one the site created for that `sub` (a first statement creates them; never matched by email), with the grants the site's role map gives their roles. Every refusal is `401 site-sign-in-refused`, with `details.reason`. A statement whose signature wasn't verified gets `not-verified` alone, whatever was wrong (the site, the key, the signature, the format), since its sender has proved nothing; after a verified signature: `site-paused`, `site-not-vouching`, `wrong-audience`, `expired`, `issued-in-the-future`, `too-long-lived`, `replayed`, `role-not-allowed`, `person-removed` or `people-cap`. Rate-limited per client and per site (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.siteSignIn"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.SiteSignInBody, body, fields),
+            response=_models.SiteSignInResult,
             timeout=timeout,
         )
 
@@ -15453,6 +15815,212 @@ class AsyncProjectsTeamGrantsResource:
         )
 
 
+class AsyncProjectsSitesResource:
+    """`client.projects.sites` — the `projects.sites` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        include_unregistered: bool | None = None,
+        timeout: float | None = None,
+    ) -> _models.SiteCollectionPage:
+        """List the project's sites. `GET /v1/projects/{projectId}/sites`
+
+        The sites that sign their own people in to this project. Tenant admins only: a site creates people in the tenant. `includeUnregistered=true` lists unregistered ones too. Mounted when the deployment supplies a `SiteBinding`.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor, "includeUnregistered": include_unregistered},
+            headers={},
+            response=_models.SiteCollectionPage,
+            timeout=timeout,
+        )
+
+    async def register(
+        self,
+        project_id: str | UUID,
+        body: _models.RegisterSiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.RegisterSiteResult:
+        """Register a site. `POST /v1/projects/{projectId}/sites`
+
+        A site that will sign its own people in to this project, and a one-time enrollment code for it, shown once: the site posts it with its public key (`POST /v1/auth/sites/enroll`). Until then it has no key and signs nobody in. A role map gives no reviewer role above `reviewerCeiling`, and names only `allowedRoles`; nothing it gives reaches above the project. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.register"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RegisterSiteBody, body, fields),
+            response=_models.RegisterSiteResult,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, project_id: str | UUID, site_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Site:
+        """Read a site. `GET /v1/projects/{projectId}/sites/{siteId}`
+
+        Its settings and its keys (ids and thumbprints only). Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.get"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        body: _models.UpdateSiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Site:
+        """Change a site's settings. `PATCH /v1/projects/{projectId}/sites/{siteId}`
+
+        The settings given; the rest stay. A person's grants follow the new settings the next time the site signs them in. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.update"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateSiteBody, body, fields),
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    async def pause(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Site:
+        """Stop a site's sign-ins. `POST /v1/projects/{projectId}/sites/{siteId}/pause`
+
+        The site's statements are refused until it's resumed, and its live sessions end now. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.pause"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    async def resume(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Site:
+        """Start a paused site's sign-ins again. `POST /v1/projects/{projectId}/sites/{siteId}/resume`
+
+        Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.resume"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Site:
+        """Unregister a site. `POST /v1/projects/{projectId}/sites/{siteId}/unregister`
+
+        Tombstoned: its sign-ins stop and its live sessions end. The people it signed in stay, with their records. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.unregister"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    async def enrollment_code(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SiteEnrollmentCode:
+        """A new enrollment code for a site. `POST /v1/projects/{projectId}/sites/{siteId}/enrollment-codes`
+
+        How a site's key is replaced: the site posts a new key with this code, which replaces every key it had and ends its live sessions. An earlier unused code stops working. Shown once. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.enrollmentCode"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SiteEnrollmentCode,
+            timeout=timeout,
+        )
+
+    async def revoke_key(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        kid: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Site:
+        """Revoke one of a site's keys. `POST /v1/projects/{projectId}/sites/{siteId}/keys/{kid}/revoke`
+
+        Statements signed with it are refused from now on, and the site's live sessions end. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.revokeKey"],
+            path={"projectId": project_id, "siteId": site_id, "kid": kid},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+
 class AsyncProjectsResource:
     """`client.projects` — the `projects` operations."""
 
@@ -15464,6 +16032,7 @@ class AsyncProjectsResource:
         self.access = AsyncProjectsAccessResource(client)
         self.production = AsyncProjectsProductionResource(client)
         self.team_grants = AsyncProjectsTeamGrantsResource(client)
+        self.sites = AsyncProjectsSitesResource(client)
 
     async def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
         """Fetch the tenant's Default project. `GET /v1/projects/default`

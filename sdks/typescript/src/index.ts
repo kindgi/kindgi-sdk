@@ -256,6 +256,21 @@ export type {
   JudgingRuleWhen,
 } from './resources/judging.js';
 export type {
+  EnrollSiteBody,
+  EnrollSiteResult,
+  RegisterSiteBody,
+  RegisterSiteResult,
+  Site,
+  SiteCollectionPage,
+  SiteEnrollmentCode,
+  SiteKey,
+  SiteRoleGrant,
+  SiteSignInBody,
+  SiteSignInResult,
+  SitesClient,
+  UpdateSiteBody,
+} from './resources/sites.js';
+export type {
   CreateOrgInput,
   ListOrgsFilter,
   OrgPage,

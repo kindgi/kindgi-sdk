@@ -97,6 +97,15 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     parent: { kind: 'projects', params: { projectId: 'id' } },
   },
   {
+    name: 'sites',
+    route: '/v1/projects/{projectId}/sites',
+    paging: cursor,
+    parent: { kind: 'projects', params: { projectId: 'id' } },
+    query: { includeUnregistered: 'true' },
+    covers: ['/v1/projects/{projectId}/sites/{siteId}'],
+    admin: true,
+  },
+  {
     name: 'users',
     route: '/v1/identity/users',
     paging: cursor,
