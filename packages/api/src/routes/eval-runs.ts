@@ -81,9 +81,18 @@ export function evalRunsRouters(
   authorizer?: Authorizer,
   /** What an eval run's project may run (`reference-scope.ts`); absent → as named. */
   referenceScope?: ReferenceScopeBinding,
+  /** Whether a project is suspended: no eval run starts in one. Absent: no check. */
+  projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>,
 ): EvalRunsRouters {
   return {
-    start: startRouter(binding, versionsCheck, overridesCheck, authorizer, referenceScope),
+    start: startRouter(
+      binding,
+      versionsCheck,
+      overridesCheck,
+      authorizer,
+      referenceScope,
+      projectSuspended,
+    ),
     readback: readbackRouter(binding, authorizer),
   };
 }
@@ -151,6 +160,7 @@ function startRouter(
   overridesCheck?: SettingsOverridesCheck,
   authorizer?: Authorizer,
   referenceScope?: ReferenceScopeBinding,
+  projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -199,6 +209,19 @@ function startRouter(
         : { path: '/flowRef/flowId', kind: 'flow', id: flowRef?.flowId as unknown as string },
     ]);
     if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    if (projectSuspended !== undefined && (await projectSuspended(tenantId, projectId))) {
+      c.status(statusFor('project-suspended') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'project-suspended',
+            message:
+              "The project is suspended, so nothing new runs in it until it's restored; the eval run wasn't started",
+          },
+          requestId,
+        ),
+      );
+    }
     const refusal =
       (await versionsRefusal(versionsCheck, tenantId, parsed.value)) ??
       (await overridesRefusal(overridesCheck, tenantId, parsed.value));
@@ -666,6 +689,8 @@ function serializeEvalRun(run: EvalRun): Record<string, unknown> {
     ...(run.completedAt !== undefined && { completedAt: run.completedAt }),
     ...(run.result !== undefined && { result: run.result }),
     ...(run.error !== undefined && { error: run.error }),
+    ...(run.status === 'cancelled' &&
+      run.cancelReason !== undefined && { cancelReason: run.cancelReason }),
     ...(run.correlationId !== undefined && { correlationId: run.correlationId }),
     ...(run.comparison !== undefined && { comparison: run.comparison }),
   };

@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
-import type { Cursor, TenantId, UserId } from '@kindgi/types';
+import type { Cursor, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -18,6 +18,7 @@ import type {
   EvalRunBinding,
   EvalRunPage,
   EvalRunStatus,
+  EvalRunSubjectInvokeOutcome,
   EvalSubjectInvoker,
   EvalSuite,
   EvalSuiteRegistryBinding,
@@ -214,6 +215,7 @@ function makeApp(
     subject?: EvalSubjectInvoker;
     /** With authorization on: what the caller holds, as `<action> <type>:<id>`. */
     grants?: readonly string[];
+    projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
   } = {},
 ): AppSetup {
   const registry = makeInMemoryRegistry();
@@ -235,6 +237,7 @@ function makeApp(
     evalSuiteRegistry: registry,
     evalRunBinding: binding,
     ...(options.grants !== undefined && { authz: grantsAuthz(options.grants) }),
+    ...(options.projectSuspended !== undefined && { projectSuspended: options.projectSuspended }),
   });
   return { app, registry, binding };
 }
@@ -436,6 +439,95 @@ describe('API — eval-runs start (accuracy happy path)', () => {
     const result = final.result as { passCount: number; totalCount: number };
     expect(result.passCount).toBe(1);
     expect(result.totalCount).toBe(2);
+  });
+});
+
+describe('API — eval-runs and a suspended project', () => {
+  const threeCases: Readonly<Record<string, unknown>> = {
+    ...accuracySpec,
+    cases: [
+      ...(accuracySpec.cases as unknown[]),
+      { id: 'c3', input: { prompt: 'c', expected: 'C' }, expected: 'C' },
+    ],
+  };
+  const start = (app: AppSetup['app'], suiteId: string) =>
+    app.request(`/v1/eval-suites/${suiteId}/runs`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: TEST_PROJECT_ID,
+        agentRef: { agentId: 'acme.drafting', version: '1.0.0' },
+      }),
+    });
+  /** The second case's start is refused (`refused`), the others answer what they expect. */
+  const refusingSecond = (refused: EvalRunSubjectInvokeOutcome) => {
+    const calls = { n: 0 };
+    const subject: EvalSubjectInvoker = {
+      async invoke({ input }) {
+        calls.n += 1;
+        if (calls.n === 2) return refused;
+        return { output: (input as { expected: unknown }).expected };
+      },
+    };
+    return { calls, subject };
+  };
+
+  test('no run starts in it: 409 project-suspended, and nothing runs; restored, it starts', async () => {
+    let suspended = true;
+    const asked: string[] = [];
+    const { calls, subject } = refusingSecond({ output: 'unused' });
+    const { app, registry } = makeApp({
+      subject,
+      projectSuspended: async (_tenantId, projectId) => {
+        asked.push(projectId as unknown as string);
+        return suspended;
+      },
+    });
+    await seedSuite(registry, { id: 'acme.suspended', kind: 'accuracy', spec: accuracySpec });
+    const refused = await start(app, 'acme.suspended');
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe(
+      'project-suspended',
+    );
+    expect(asked).toEqual([TEST_PROJECT_ID]);
+    expect(calls.n).toBe(0);
+    suspended = false;
+    expect((await start(app, 'acme.suspended')).status).toBe(201);
+  });
+
+  test('a case it refuses to start stops the run there: cancelled, with the reason, and the cases before it', async () => {
+    const { calls, subject } = refusingSecond({
+      halt: { reason: 'project-suspended', message: 'The project is suspended' },
+    });
+    const { app, registry, binding } = makeApp({ subject });
+    await seedSuite(registry, { id: 'acme.halted', kind: 'accuracy', spec: threeCases });
+    const res = await start(app, 'acme.halted');
+    const { runId } = (await res.json()) as { runId: string };
+    const final = await waitForRun(binding, runId, (r) => r.status === 'cancelled');
+    expect(final.cancelReason).toBe('project-suspended');
+    expect(final.error).toBeUndefined();
+    expect(calls.n).toBe(2);
+    expect(final.result).toMatchObject({ passCount: 1, totalCount: 3, cancelled: true });
+    expect((final.result as { perCase: unknown[] }).perCase).toHaveLength(1);
+    const read = await app.request(`/v1/eval-runs/${runId}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(await read.json()).toMatchObject({
+      status: 'cancelled',
+      cancelReason: 'project-suspended',
+    });
+  });
+
+  test("a case's error isn't a halt: the run goes on to the end", async () => {
+    const { calls, subject } = refusingSecond({ error: 'pack-suspended: the pack is suspended' });
+    const { app, registry, binding } = makeApp({ subject });
+    await seedSuite(registry, { id: 'acme.errored', kind: 'accuracy', spec: threeCases });
+    const res = await start(app, 'acme.errored');
+    const { runId } = (await res.json()) as { runId: string };
+    const final = await waitForRun(binding, runId, (r) => r.status === 'completed');
+    expect(final.cancelReason).toBeUndefined();
+    expect(calls.n).toBe(3);
+    expect(final.result).toMatchObject({ passCount: 2, totalCount: 3 });
   });
 });
 

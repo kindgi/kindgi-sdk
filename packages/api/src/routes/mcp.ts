@@ -742,6 +742,18 @@ function validateMCPEndpoint(
       error: { message: 'endpointId required (non-empty string)', reason: 'empty-endpoint-id' },
     };
   }
+  // A tool's id is `<endpointId>.<tool name>`: with a `.` here, two
+  // endpoints' tools could share one id. An endpoint registered with one
+  // before keeps it.
+  if (b.endpointId.includes('.')) {
+    return {
+      kind: 'err',
+      error: {
+        message: `endpointId "${b.endpointId}" contains ".": an MCP tool's id is "<endpointId>.<tool name>", so an endpoint id can't. Use "-" or "_" instead.`,
+        reason: 'dot-in-endpoint-id',
+      },
+    };
+  }
   if (typeof b.name !== 'string' || b.name.length === 0) {
     return {
       kind: 'err',
