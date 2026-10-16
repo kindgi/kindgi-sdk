@@ -16,6 +16,7 @@ import {
   createCheckRegistry,
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
+import type { Logger } from '@kindgi/log';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
 import { SchemaCompileBudgetError, compileInlineSchema } from '@kindgi/schema';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
@@ -58,6 +59,8 @@ import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { PublishRefused } from '../publish-refused.js';
 import {
+  type ItemReference,
+  type ReferenceOutOfScopeError,
   type ReferenceScopeBinding,
   agentReferences,
   flowReferences,
@@ -70,7 +73,7 @@ import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js'
 import { secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import type { SecretBinding } from '../secrets-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
-import type { ToolRegistryBinding } from '../tool-binding.js';
+import type { ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { capabilityRefusal } from './denied.js';
 import { requireEnvName } from './env.js';
@@ -743,7 +746,7 @@ export function deploymentsRouter(
       // half-written.
       await runOutsideTenant(async () => {
         if (bindings.toolRegistry !== undefined && targetProjectId !== undefined) {
-          for (const tool of validated.tools) {
+          for (const [index, tool] of validated.tools.entries()) {
             const projectIdForTool = targetProjectId;
             // Where each secret it names is read: decided now, as the deployer
             // may read them, and kept with this version (`secret-scope.ts`).
@@ -773,10 +776,23 @@ export function deploymentsRouter(
             if (outcome.kind === 'ok') {
               const toolId = outcome.toolId;
               const version = outcome.version;
-              rolled.push(async () => {
-                await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
+              rolled.push({
+                primitive: 'tool',
+                id: `${toolId}@${version}`,
+                undo: 'unregister',
+                run: async () => {
+                  await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
+                },
               });
             } else if (outcome.kind === 'already-registered') {
+              await reinstateRetiredTool({
+                registry: bindings.toolRegistry,
+                providerKeys: bindings.providerKeys,
+                tenantId,
+                tool,
+                index,
+                rolled,
+              });
               await refreshToolCode(bindings.toolRegistry, tenantId, tool, rolled);
             } else {
               throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome);
@@ -800,8 +816,13 @@ export function deploymentsRouter(
             });
             if (outcome.kind === 'ok') {
               const guardrailId = outcome.guardrailId;
-              rolled.push(async () => {
-                await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
+              rolled.push({
+                primitive: 'guardrail',
+                id: guardrailId,
+                undo: 'unregister',
+                run: async () => {
+                  await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
+                },
               });
             } else if (outcome.kind === 'already-registered') {
               const kept = await keepRegisteredGuardrail(
@@ -813,8 +834,13 @@ export function deploymentsRouter(
               // Unregistered since the registry answered: registered afresh.
               if (kept.kind === 'registered') {
                 const guardrailId = guardrail.id;
-                rolled.push(async () => {
-                  await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
+                rolled.push({
+                  primitive: 'guardrail',
+                  id: guardrailId,
+                  undo: 'unregister',
+                  run: async () => {
+                    await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
+                  },
                 });
               } else {
                 await refreshGuardrailFields(
@@ -839,6 +865,7 @@ export function deploymentsRouter(
               tenantId,
               projectId: targetProjectId,
               defined: validated.agents,
+              referenceScope: bindings.referenceScope,
               rolled,
             })),
           );
@@ -855,6 +882,7 @@ export function deploymentsRouter(
               tenantId,
               projectId: targetProjectId,
               defined: validated.flows,
+              referenceScope: bindings.referenceScope,
               rolled,
             })),
           );
@@ -863,7 +891,7 @@ export function deploymentsRouter(
         }
       });
     } catch (cause) {
-      await rollback(rolled);
+      await rollback(rolled, c.get('log'));
       // A compile the tenant's budget refused is a limit, which the app's
       // error handler answers. None runs past the first write here.
       if (cause instanceof SchemaCompileBudgetError) throw cause;
@@ -903,6 +931,14 @@ export function deploymentsRouter(
             requestId,
           ),
         );
+      }
+      // An unregistered tool version the deploy can't reinstate: refused as
+      // the same name in the pack's own tools is, before any write.
+      if (cause instanceof RetiredToolKept) return validationFailed(c, [cause.issue]);
+      // An unregistered agent or flow version naming what its project doesn't
+      // reach: refused as the pack's own references are, before any write.
+      if (cause instanceof RetiredVersionOutOfScope) {
+        return outOfScopeResponse(c, requestId, cause.refusal);
       }
       // Not a mapped outcome: to the central error handler (a 500 for this
       // write — the rollback above already ran; the whole error is logged).
@@ -951,13 +987,13 @@ export function deploymentsRouter(
         },
       });
     } catch (cause) {
-      await rollback(rolled);
+      await rollback(rolled, c.get('log'));
       // To the central error handler: a 500 with no raw text; the error is logged.
       throw cause;
     }
 
     if (outcome.kind === 'error') {
-      await rollback(rolled);
+      await rollback(rolled, c.get('log'));
       // To the central error handler: a 500 with no raw text; the outcome's
       // code and message go to the log.
       throw new Error(`Deployment record failed (${outcome.code}): ${outcome.message}`);
@@ -969,7 +1005,7 @@ export function deploymentsRouter(
       // at the primitive layer too, so `ok` outcomes only happen when
       // the primitive was DIFFERENT this run, which is an inconsistent
       // wire body).
-      await rollback(rolled);
+      await rollback(rolled, c.get('log'));
       c.status(200);
       return c.json(serializeDeployment(outcome.deployment));
     }
@@ -1591,9 +1627,163 @@ async function refreshToolCode(
   const done = await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: now });
   if (!done.refreshed) return;
   // Only while it still points where this deploy put it.
-  rolled.push(async () => {
-    await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: was, expected: now });
+  rolled.push({
+    primitive: 'tool',
+    id: `${tool.id}@${tool.version}`,
+    undo: 'put back the code pointer of',
+    run: async () => {
+      await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: was, expected: now });
+    },
   });
+}
+
+/**
+ * A tool version a deploy finds already published but unregistered is
+ * reinstated. Version numbers are single-use (`publish`), so the registry
+ * won't take it again, and without it the agents and flows that use the
+ * tool find no published version: a deploy that failed after its tool
+ * publish unregistered it rolling back, and the same image was refused
+ * from then on, until its pack was rebuilt under a new version. Rolling
+ * this deploy back unregisters it again.
+ *
+ * Only a version its registry lists as unregistered (`unregisteredAt`) is
+ * reinstated, under the rule reinstating it by hand holds
+ * (`POST /v1/tools/{toolId}/versions/{version}/reinstate`): the stored
+ * version is what comes back, and one naming a model provider's key stays
+ * unregistered (`RetiredToolKept`).
+ */
+async function reinstateRetiredTool(input: {
+  readonly registry: ToolRegistryBinding;
+  readonly providerKeys: ProviderKeys | undefined;
+  readonly tenantId: TenantId;
+  readonly tool: import('@kindgi/tools').ToolManifest;
+  /** The tool's index in the pack, for the refusal's issue. */
+  readonly index: number;
+  readonly rolled: RollbackAction[];
+}): Promise<void> {
+  const { registry, tenantId, tool, rolled } = input;
+  const toolId = tool.id;
+  const version = tool.version as unknown as Semver;
+  const retired = await unregisteredVersion(registry, tenantId, toolId, version);
+  if (retired === undefined) return;
+  const refusal = await refuseProviderKeys(
+    input.providerKeys,
+    tenantId,
+    toolSecretNames(retired),
+    'a tool',
+  );
+  if (refusal !== undefined) {
+    throw new RetiredToolKept({
+      primitive: 'tool',
+      index: input.index,
+      id: toolId as unknown as string,
+      path: `/secrets/${refusal.secret}`,
+      message: `version ${tool.version} of this tool is unregistered and can't be reinstated: ${refusal.message}. Publish the tool under a new version`,
+    });
+  }
+  const outcome = await registry.reinstateVersion({ tenantId, toolId, version });
+  if (outcome.kind === 'not-found') {
+    throw new Error(
+      `tool ${toolId as unknown as string}@${tool.version}: its registry lists the version as unregistered, then answered not-found reinstating it`,
+    );
+  }
+  // Reinstated since the registry listed it: nothing of this deploy's to undo.
+  if (!outcome.wasTombstoned) return;
+  rolled.push({
+    primitive: 'tool',
+    id: `${toolId}@${version}`,
+    undo: 'unregister',
+    run: async () => {
+      await registry.unregister({ tenantId, toolId, version });
+    },
+  });
+}
+
+/** `toolId@version` as its registry lists it, when it's unregistered. */
+async function unregisteredVersion(
+  registry: ToolRegistryBinding,
+  tenantId: TenantId,
+  toolId: ToolId,
+  version: Semver,
+): Promise<ToolVersionRow | undefined> {
+  let cursor: Cursor | undefined;
+  do {
+    const page = await registry.listVersions({
+      tenantId,
+      toolId,
+      includeTombstoned: true,
+      limit: 100,
+      ...(cursor !== undefined && { cursor }),
+    });
+    const row = page.data.find((v) => v.version === version);
+    if (row !== undefined) return row.unregisteredAt !== undefined ? row : undefined;
+    cursor = page.nextCursor;
+  } while (cursor !== undefined);
+  return undefined;
+}
+
+/**
+ * An agent or flow version a deploy finds already published but
+ * unregistered is reinstated, where the deploy registers its agents and
+ * flows unpinned (without a tool registry), as `reinstateRetiredTool`
+ * reinstates a tool's: version numbers are single-use, so without it the
+ * deploy lands with that agent or flow still unregistered. Pinned, a
+ * deploy registers the next free version instead (`deployVersion`).
+ * Answers whether this deploy reinstated it, so that rolling the deploy
+ * back unregisters it again.
+ *
+ * Only a version its registry reads as unregistered (`unregisteredAt`) is
+ * reinstated, under the rule reinstating it by hand holds
+ * (`POST /v1/agents/{agentId}/versions/{version}/reinstate`, and flows'):
+ * the stored version is what comes back, and its references are asked as
+ * at publish, so one naming what its project doesn't reach stays
+ * unregistered (`RetiredVersionOutOfScope`).
+ */
+async function reinstateRetiredVersion<
+  Stored extends { readonly unregisteredAt?: string; readonly projectId?: ProjectId },
+>(input: {
+  readonly primitive: 'agent' | 'flow';
+  readonly id: string;
+  readonly version: string;
+  /** Where the pack names it (`/agents/0`), for the refusal's issues. */
+  readonly path: string;
+  readonly tenantId: TenantId;
+  readonly referenceScope: ReferenceScopeBinding | undefined;
+  readonly read: () => Promise<Stored | null>;
+  readonly referencesOf: (stored: Stored) => readonly (ItemReference & { readonly path: string })[];
+  readonly reinstate: () => Promise<
+    { readonly kind: 'ok'; readonly wasTombstoned: boolean } | { readonly kind: 'not-found' }
+  >;
+}): Promise<boolean> {
+  const { primitive, version } = input;
+  const retired = await input.read();
+  if (retired?.unregisteredAt === undefined) return false;
+  if (retired.projectId !== undefined) {
+    const outOfScope = await referencesOutOfScope(
+      input.referenceScope,
+      input.tenantId,
+      retired.projectId,
+      input.referencesOf(retired),
+    );
+    if (outOfScope !== undefined) {
+      throw new RetiredVersionOutOfScope({
+        ...outOfScope,
+        issues: outOfScope.issues.map((issue) => ({
+          ...issue,
+          path: input.path,
+          message: `version ${version} of this ${primitive} is unregistered and can't be reinstated: ${issue.message}. Publish the ${primitive} under a new version`,
+        })),
+      });
+    }
+  }
+  const outcome = await input.reinstate();
+  if (outcome.kind === 'not-found') {
+    throw new Error(
+      `${primitive} ${input.id}@${version}: its registry reads the version as unregistered, then answered not-found reinstating it`,
+    );
+  }
+  // Reinstated since the registry read it: nothing of this deploy's to undo.
+  return outcome.wasTombstoned;
 }
 
 /**
@@ -1625,8 +1815,13 @@ async function refreshGuardrailFields(
   const done = await refresh({ tenantId, guardrailId: guardrail.id, ...now });
   if (!done.refreshed) return;
   // Only while it still holds what this deploy gave it.
-  rolled.push(async () => {
-    await refresh({ tenantId, guardrailId: guardrail.id, ...was, expected: now });
+  rolled.push({
+    primitive: 'guardrail',
+    id: guardrail.id,
+    undo: 'put back the code pointer and config schema of',
+    run: async () => {
+      await refresh({ tenantId, guardrailId: guardrail.id, ...was, expected: now });
+    },
   });
 }
 
@@ -2016,12 +2211,37 @@ function validateFlowIndexShape(
 // Rollback / serialisation
 // ------------------------------------------------------------
 
-type RollbackAction = () => Promise<void>;
+/**
+ * A write a deploy made, and how to undo it should the deploy fail
+ * (`rollback`), named for the warn when the undo fails.
+ */
+interface RollbackAction {
+  readonly primitive: 'tool' | 'guardrail' | 'agent' | 'flow';
+  /** `id@version`, or a guardrail's id. */
+  readonly id: string;
+  /** What `run` does to it, as the warn says it: `unregister`, `put back the code pointer of`. */
+  readonly undo: string;
+  readonly run: () => Promise<void>;
+}
 
 /** A deploy whose agents or flows use a tool or agent with no published version in range. */
 class UnpinnableDeploy extends Error {
   constructor(readonly issues: readonly UnpinnableRef[]) {
     super('the deployment uses tools or agents that are not published');
+  }
+}
+
+/** A tool version a deploy found unregistered and may not reinstate (`reinstateRetiredTool`). */
+class RetiredToolKept extends Error {
+  constructor(readonly issue: ValidationDetail) {
+    super(issue.message);
+  }
+}
+
+/** An agent or flow version a deploy found unregistered and may not reinstate (`reinstateRetiredVersion`). */
+class RetiredVersionOutOfScope extends Error {
+  constructor(readonly refusal: ReferenceOutOfScopeError) {
+    super(refusal.message);
   }
 }
 
@@ -2070,6 +2290,8 @@ async function registerAgents(input: {
   readonly tenantId: TenantId;
   readonly projectId: ProjectId;
   readonly defined: readonly Agent[];
+  /** What a reinstated version's references are asked of (`reinstateRetiredVersion`). */
+  readonly referenceScope: ReferenceScopeBinding | undefined;
   readonly rolled: RollbackAction[];
 }): Promise<DeployedAgent[]> {
   const { agents, tools, blockPins, tenantId, projectId, rolled } = input;
@@ -2079,15 +2301,35 @@ async function registerAgents(input: {
   const enqueueTuples = (agentId: string) =>
     tuplesForCreate({ kind: 'agent', id: agentId as AgentId, tenantId, projectId });
   const written = (agentId: AgentId, version: Semver) =>
-    rolled.push(async () => {
-      await agents.unregister({ tenantId, agentId, version });
+    rolled.push({
+      primitive: 'agent',
+      id: `${agentId}@${version}`,
+      undo: 'unregister',
+      run: async () => {
+        await agents.unregister({ tenantId, agentId, version });
+      },
     });
 
   if (tools === undefined || blockPins === undefined) {
-    for (const agent of input.defined) {
+    for (const [index, agent] of input.defined.entries()) {
       const outcome = await agents.publish({ tenantId, projectId, agent, enqueueTuples });
       if (outcome.kind === 'ok') written(outcome.agentId, outcome.version);
-      else if (outcome.kind !== 'already-registered') {
+      else if (outcome.kind === 'already-registered') {
+        const agentId = agent.id;
+        const version = agent.version;
+        const reinstated = await reinstateRetiredVersion({
+          primitive: 'agent',
+          id: agentId as unknown as string,
+          version: version as unknown as string,
+          path: `/agents/${index}`,
+          tenantId,
+          referenceScope: input.referenceScope,
+          read: () => agents.getVersion({ tenantId, agentId, version }),
+          referencesOf: agentReferences,
+          reinstate: () => agents.reinstateVersion({ tenantId, agentId, version }),
+        });
+        if (reinstated) written(agentId, version);
+      } else {
         throw new PublishRefused('agent', `${agent.id}@${agent.version}`, outcome);
       }
     }
@@ -2137,21 +2379,43 @@ async function registerFlows(input: {
   readonly tenantId: TenantId;
   readonly projectId: ProjectId;
   readonly defined: readonly Flow[];
+  /** What a reinstated version's references are asked of (`reinstateRetiredVersion`). */
+  readonly referenceScope: ReferenceScopeBinding | undefined;
   readonly rolled: RollbackAction[];
 }): Promise<DeployedFlow[]> {
   const { flows, tools, agents, live, tenantId, projectId, rolled } = input;
   const enqueueTuples = (flowId: string) =>
     tuplesForCreate({ kind: 'flow', id: flowId as FlowId, tenantId, projectId });
   const written = (flowId: FlowId, version: string) =>
-    rolled.push(async () => {
-      await flows.unregister({ tenantId, flowId, version: version as never });
+    rolled.push({
+      primitive: 'flow',
+      id: `${flowId}@${version}`,
+      undo: 'unregister',
+      run: async () => {
+        await flows.unregister({ tenantId, flowId, version: version as never });
+      },
     });
 
   if (tools === undefined || agents === undefined) {
-    for (const flow of input.defined) {
+    for (const [index, flow] of input.defined.entries()) {
       const outcome = await flows.publish({ tenantId, projectId, flow, enqueueTuples });
       if (outcome.kind === 'ok') written(outcome.flowId, outcome.version as unknown as string);
-      else if (outcome.kind !== 'already-registered') {
+      else if (outcome.kind === 'already-registered') {
+        const flowId = flow.id;
+        const version = flow.version;
+        const reinstated = await reinstateRetiredVersion({
+          primitive: 'flow',
+          id: flowId as unknown as string,
+          version,
+          path: `/flows/${index}`,
+          tenantId,
+          referenceScope: input.referenceScope,
+          read: () => flows.getVersion({ tenantId, flowId, version }),
+          referencesOf: flowReferences,
+          reinstate: () => flows.reinstateVersion({ tenantId, flowId, version }),
+        });
+        if (reinstated) written(flowId, version);
+      } else {
         throw new PublishRefused('flow', `${flow.id}@${flow.version}`, outcome);
       }
     }
@@ -2253,17 +2517,23 @@ async function pinAgents(
   return pins;
 }
 
-async function rollback(actions: readonly RollbackAction[]): Promise<void> {
-  // Reverse order — last-in, first-out — so registrations are undone in
-  // the mirror sequence of their creation.
+/**
+ * Undo a deploy's writes, last first, so registrations are undone in the
+ * mirror sequence of their creation. An undo that fails doesn't stop the
+ * rest: it's warned, naming what it couldn't undo, which stays as the
+ * deploy left it for an operator to reconcile.
+ */
+async function rollback(actions: readonly RollbackAction[], log: Logger): Promise<void> {
   for (let i = actions.length - 1; i >= 0; i--) {
     const action = actions[i];
     if (action === undefined) continue;
     try {
-      await action();
-    } catch {
-      // Swallow: rollback is best-effort. Real production adapters
-      // record a rollback-failure event so operators can reconcile.
+      await action.run();
+    } catch (cause) {
+      log.warn(
+        `deploy rollback: couldn't ${action.undo} ${action.primitive} "${action.id}", so it stays as this deploy left it`,
+        { primitive: action.primitive, id: action.id, err: cause },
+      );
     }
   }
 }
