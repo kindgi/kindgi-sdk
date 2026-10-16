@@ -1,5 +1,12 @@
 # @kindgi/pack-conformance
 
+## 0.1.8
+
+### Patch Changes
+
+- Updated dependencies [ebf405d]
+  - @kindgi/specs@0.1.8
+
 ## 0.1.8-rc.0
 
 ### Patch Changes
