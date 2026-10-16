@@ -87,7 +87,7 @@ minutes, and prints it:
   `kindgi proposals request <proposal-id>`, then decide the approval. A pass's
   proposal always waits for a reviewer, because a pass, not a person, drafted
   it. When the scope's [gate policy](../release-an-agent-version/#gate-a-release)
-  has no `approvals`, that reviewer can be you, if you're one. When it has,
+  has no `approvals`, that reviewer can be you, if you're one of its reviewers. When it has,
   someone else must approve it, unless its `approvals` sets
   `"separateApprover": false`.
 - **`nothing-found`**, with why. No candidate beat the current version by more
@@ -95,7 +95,7 @@ minutes, and prints it:
   on the 30%, and the outcome's hold-out comparison gives both figures there.
   Or the best one is a change an existing proposal already holds. Or nothing
   could be measured: a pass scores only the items of an output that judgments
-  cover (a ranking's entries, say), so a changed free-text answer is a new
+  cover (a ranking's entries, say). So a changed free-text answer is a new
   answer no one has judged yet and has nothing to score, and then you
   [judge the new answers, then rescore](../propose-a-change/#judge-the-new-answers-then-rescore).
   The reason also says if the pass ran out of budget before comparing the
@@ -271,7 +271,7 @@ its verdict and the comparison figures, and a **Request promotion** button to
 send it for a decision. A schedule that starts passes is made with the CLI,
 the API or the clients, as
 [Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
-shows: the console lists schedules and can pause, resume or run them, but
+shows: the console lists schedules and can pause, resume, run or remove them, but
 doesn't make them.
 
 ## Next
