@@ -1444,12 +1444,30 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
 
   test('a hosted deploy with --env syncs under that env; with no --env and no --sync-secrets it deploys', async () => {
     await writeAutoEnvelope();
-    await writeFile(join(packDir, '.env.staging'), 'FOO=bar\n', 'utf8');
+    await writeFile(join(packDir, '.env.staging'), 'FOO=from-staging\n', 'utf8');
+    await writeFile(join(packDir, '.env.production'), 'FOO=from-production\n', 'utf8');
     const named = hostedFixtures(pending(), [ready]);
-    const synced = await deploy(named.fixtures, '--hosted', '--sync-secrets');
+    const synced = await runCli({
+      ...baseInputs(
+        named.fixtures,
+        { env: signedIn },
+        {
+          environments: {
+            production: {
+              signingKey: join(home, 'signing-key.pem'),
+              tenantId: 'tenant-acme-production',
+            },
+          },
+        },
+      ),
+      argv: ['deploy', '--env=production', '--hosted', '--sync-secrets', `--path=${packDir}`],
+    });
     expect(synced.exitCode, synced.stderr).toBe(0);
     expect(named.fixtures.state.syncCalls).toBe(1);
-    expect(named.fixtures.state.capturedSync?.body.envName).toBe('staging');
+    expect(named.fixtures.state.capturedSync?.body.envName).toBe('production');
+    expect(named.fixtures.state.capturedSync?.body.secrets).toEqual([
+      { name: 'FOO', value: 'from-production' },
+    ]);
 
     const plain = hostedFixtures(pending(), [ready]);
     const out = await runCli({
