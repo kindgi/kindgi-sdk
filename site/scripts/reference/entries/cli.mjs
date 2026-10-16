@@ -595,6 +595,53 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
+  'sites register': {
+    'allowed-role': '`administrator` and `shop_manager`',
+    'approvals-url': 'required',
+    name: 'required',
+    'new-people-per-day': '`20`',
+    origin: 'required',
+    'people-cap': '`50`',
+    project: "the tenant's Default project",
+    'reviewer-ceiling': '`standard`',
+    'role-map': 'both default roles may ask, and decide as `standard` reviewers',
+    vouching: '`on`',
+  },
+  'sites code': {
+    project: "the tenant's Default project",
+  },
+  'sites list': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+    project: "the tenant's Default project",
+  },
+  'sites get': {
+    project: "the tenant's Default project",
+  },
+  'sites update': {
+    'allowed-role': 'unchanged',
+    'approvals-url': 'unchanged',
+    name: 'unchanged',
+    'new-people-per-day': 'unchanged',
+    origin: 'unchanged',
+    'people-cap': 'unchanged',
+    project: "the tenant's Default project",
+    'reviewer-ceiling': 'unchanged',
+    'role-map': 'unchanged',
+    vouching: 'unchanged',
+  },
+  'sites pause': {
+    project: "the tenant's Default project",
+  },
+  'sites resume': {
+    project: "the tenant's Default project",
+  },
+  'sites revoke-key': {
+    project: "the tenant's Default project",
+  },
+  'sites unregister': {
+    project: "the tenant's Default project",
+  },
   'approvals list': {
     'assigned-to': 'none (all approvals your role can see)',
     cursor: 'none',
@@ -1338,6 +1385,65 @@ export const CLI_EXAMPLES = {
       line: 'kindgi webhooks unregister <trigger-id>',
     },
   ],
+  'sites register': [
+    {
+      purpose:
+        'Register a WordPress store on the Default project, with the origin and the approvals URL its Kindgi → Settings page shows; the one-time code is shown once.',
+      line: "kindgi sites register --name='Acme store' --origin=https://acme-store.example --approvals-url='https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}'",
+    },
+    {
+      purpose: 'Let only shop managers sign in, as senior reviewers.',
+      line: `kindgi sites register --name='Acme store' --origin=https://acme-store.example --approvals-url='https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}' --allowed-role=shop_manager --reviewer-ceiling=senior --role-map='{"shop_manager": {"ask": true, "reviewer": "senior"}}'`,
+    },
+  ],
+  'sites code': [
+    {
+      purpose: 'A new one-time code: to connect the site again, or to replace its key.',
+      line: 'kindgi sites code <site-id>',
+    },
+  ],
+  'sites list': [
+    {
+      purpose: "The Default project's sites, with their state and keys.",
+      line: 'kindgi sites list --table',
+    },
+  ],
+  'sites get': [
+    {
+      purpose: "A site's settings, and its keys' thumbprints to compare with the plugin's.",
+      line: 'kindgi sites get <site-id>',
+    },
+  ],
+  'sites update': [
+    {
+      purpose: 'Allow more people from the site.',
+      line: 'kindgi sites update <site-id> --people-cap=100 --new-people-per-day=40',
+    },
+  ],
+  'sites pause': [
+    {
+      purpose: "Stop a site's sign-ins and end its people's sessions now.",
+      line: 'kindgi sites pause <site-id>',
+    },
+  ],
+  'sites resume': [
+    {
+      purpose: "Let a paused site's people sign in again.",
+      line: 'kindgi sites resume <site-id>',
+    },
+  ],
+  'sites revoke-key': [
+    {
+      purpose: "Refuse what a site's key signs from now on.",
+      line: 'kindgi sites revoke-key <site-id> <kid>',
+    },
+  ],
+  'sites unregister': [
+    {
+      purpose: 'Remove a site; the people it signed in stay, with their records.',
+      line: 'kindgi sites unregister <site-id>',
+    },
+  ],
   'reviewers get': [
     {
       purpose: 'Show one reviewer.',
@@ -1658,6 +1764,7 @@ export const CLI_GROUP_SEE_ALSO = {
   auth: ['start/install', 'deploy/people-and-keys'],
   upgrade: ['start/quickstart-java', 'start/quickstart-scala'],
   console: ['deploy/sign-in', 'start/introduction'],
+  sites: ['deploy/sign-in'],
   'mcp-launch': ['guides/tools/mcp-servers'],
   projects: ['guides/projects/organize-by-org-and-project'],
   flows: ['guides/flows/write-a-flow', 'guides/flows/index'],
