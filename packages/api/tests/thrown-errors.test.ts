@@ -211,4 +211,19 @@ describe('a thrown exception on the wire', () => {
     expect(res.status).toBe(413);
     expect(text).toBe('Too big');
   });
+
+  test('one that carries its own response, with the busy mark down its cause: a read answers the 503, a write its own response', async () => {
+    const coded = () => new HTTPException(502, { message: 'Signing failed', cause: busyAt(1) });
+    const read = await get(appWhoseRunCallsThrow(coded()), '/v1/runs');
+    expect(read.res.status).toBe(503);
+    expect(read.res.headers.get('Retry-After')).toBe('5');
+    expect(JSON.parse(read.text).error.code).toBe('database-busy');
+    const write = await get(
+      appWhoseRunCallsThrow(coded()),
+      `/v1/runs/${randomUUID()}/cancel`,
+      'POST',
+    );
+    expect(write.res.status).toBe(502);
+    expect(write.text).toBe('Signing failed');
+  });
 });
