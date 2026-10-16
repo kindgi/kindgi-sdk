@@ -53,9 +53,10 @@ A subsystem no part of the runtime logs under only warns:
 
 `boot`, `http`, `auth`, `authz`, `runs`, `kernel`, `leases`, `approvals`,
 `retention`, `audit`, `compliance`, `webhooks`, `mcp`, `providers`,
-`promotions`, `tools`, `guardrails`, `pack`, `db`, `ready`, `shutdown` and
-`schedules`, with these nested ones: `kernel.waitpoints`, `kernel.sweeper`,
-`webhooks.worker`, `authz.outbox`, `providers.prune` and `audit.retention`.
+`promotions`, `tools`, `guardrails`, `pack`, `db`, `ready`, `shutdown`,
+`schedules` and `license`, with these nested ones: `kernel.waitpoints`,
+`kernel.sweeper`, `webhooks.worker`, `authz.outbox`, `providers.prune` and
+`audit.retention`.
 
 ## The two formats
 

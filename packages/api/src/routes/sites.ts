@@ -143,17 +143,22 @@ export function sitesRouter(
     return c.json(outcome.enrollment, 201);
   });
 
-  r.post('/:projectId/sites/:siteId/keys/:kid/revoke', async (c) =>
-    answer(
-      c,
-      await binding.revokeKey({
-        ...where(c),
-        siteId: c.req.param('siteId'),
-        kid: c.req.param('kid'),
-        by: callerIdentity(c),
-      }),
-    ),
-  );
+  r.post('/:projectId/sites/:siteId/keys/:kid/revoke', async (c) => {
+    const outcome = await binding.revokeKey({
+      ...where(c),
+      siteId: c.req.param('siteId'),
+      kid: c.req.param('kid'),
+      by: callerIdentity(c),
+    });
+    // The binding's `not-found` is either one: no such site, or no such key on it.
+    if (outcome.kind === 'not-found') {
+      return notFound(
+        c,
+        'No site with that id in this project, or no key with that id on the site',
+      );
+    }
+    return answer(c, outcome);
+  });
 
   return r;
 }
@@ -479,14 +484,9 @@ function answer(c: Context<AppEnv>, outcome: SiteChangeOutcome) {
   return c.json(siteToWire(outcome.site));
 }
 
-function notFound(c: Context<AppEnv>) {
+function notFound(c: Context<AppEnv>, message = 'No site with that id in this project') {
   c.status(statusFor('site-not-found') as never);
-  return c.json(
-    toWireError(
-      { code: 'site-not-found', message: 'No site with that id in this project' },
-      c.get('requestId'),
-    ),
-  );
+  return c.json(toWireError({ code: 'site-not-found', message }, c.get('requestId')));
 }
 
 function invalid(c: Context<AppEnv>, field: string, message: string) {

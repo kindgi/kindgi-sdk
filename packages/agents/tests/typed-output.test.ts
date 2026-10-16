@@ -387,6 +387,30 @@ describe('defineAgent output', () => {
     }
   });
 
+  test.each([
+    ['null', null],
+    ['a string', 'json'],
+    ['an array', [{ type: 'object' }]],
+  ])("an output that isn't an object (%s) is invalid at /output", (_what, output) => {
+    const r = defineAgent({
+      id: 'acme.bad',
+      version: '1.0.0',
+      name: 'Bad',
+      instructions: 'x',
+      capabilities: [{ needs: [{ feature: 'tool-use' }] }],
+      tools: [],
+      retrieval: [],
+      guardrails: [],
+      output: output as never,
+    });
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') {
+      expect(r.error.issues).toEqual([
+        { path: '/output', message: 'output must be an object { schema, name?, maxRepairs? }' },
+      ]);
+    }
+  });
+
   test('preferredModel is kept', () => {
     expect(agent({ preferredProvider: 'anthropic', preferredModel: 'claude-x' })).toMatchObject({
       preferredProvider: 'anthropic',

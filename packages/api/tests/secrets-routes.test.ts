@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'vitest';
 
 import type { Scope } from '@kindgi/platform';
-import type { EnvName, Result, TenantId } from '@kindgi/types';
+import type { Cursor, EnvName, Result, TenantId } from '@kindgi/types';
 import { makeEnvName } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
@@ -15,6 +15,8 @@ import type {
   RunHandlerBinding,
   SecretBinding,
   SecretError,
+  SecretListInput,
+  SecretListPage,
   SecretRecord,
   SecretResolveOutcome,
   SecretRotateOutcome,
@@ -682,6 +684,145 @@ describe('API — validation — envName + scope required', () => {
   });
 });
 
+describe('API — GET /v1/secrets — what reaches the store, and its page', () => {
+  /** An app whose store answers `page` and keeps each list input. */
+  function listing(page: SecretListPage) {
+    const inputs: SecretListInput[] = [];
+    const secrets: SecretBinding = {
+      ...makeInMemorySecretsBinding(),
+      async list(input) {
+        inputs.push(input);
+        return page;
+      },
+    };
+    const app = makeApp({ secrets });
+    const get = async (query: string) => {
+      const res = await app.request(`/v1/secrets?envName=staging&scopeKind=tenant${query}`, {
+        headers: { authorization: `Bearer ${TOKEN_RO}` },
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+    };
+    return { get, inputs };
+  }
+
+  test('includeRevoked=true asks the store for revoked secrets too; false or none does not', async () => {
+    const { get, inputs } = listing({ data: [] });
+    for (const query of ['&includeRevoked=true', '&includeRevoked=false', '']) {
+      expect((await get(query)).status).toBe(200);
+    }
+    expect(inputs.map((i) => i.includeRevoked)).toEqual([true, undefined, undefined]);
+  });
+
+  test('a revoked secret lists with revokedAt and revokeReason, and never a value', async () => {
+    const revoked: SecretRecord = {
+      scope: { kind: 'tenant', tenantId: tenantA },
+      envName: staging,
+      name: 'old.key',
+      currentVersion: 2,
+      createdAt: '2026-10-01T00:00:00.000Z',
+      updatedAt: '2026-10-14T12:00:00.000Z',
+      revokedAt: '2026-10-14T12:00:00.000Z',
+      revokeReason: 'erased',
+    };
+    const { get } = listing({ data: [revoked] });
+    const { body } = await get('&includeRevoked=true');
+    expect(body.data).toEqual([
+      {
+        scope: { kind: 'tenant', tenantId: tenantA },
+        envName: 'staging',
+        name: 'old.key',
+        currentVersion: 2,
+        createdAt: '2026-10-01T00:00:00.000Z',
+        updatedAt: '2026-10-14T12:00:00.000Z',
+        revokedAt: '2026-10-14T12:00:00.000Z',
+        revokeReason: 'erased',
+      },
+    ]);
+  });
+
+  test("the cursor and limit reach the store, and the store's nextCursor comes back with hasMore", async () => {
+    const { get, inputs } = listing({ data: [], nextCursor: 'next-1' as Cursor });
+    const { status, body } = await get('&cursor=prev-1&limit=26');
+    expect(status).toBe(200);
+    expect(inputs[0]).toMatchObject({ cursor: 'prev-1', limit: 26 });
+    expect(body).toEqual({ data: [], hasMore: true, nextCursor: 'next-1' });
+    const last = listing({ data: [] });
+    expect((await last.get('')).body).toEqual({ data: [], hasMore: false });
+  });
+});
+
+describe.each([
+  { list: 'secrets' as const, path: '/v1/secrets?envName=staging&scopeKind=tenant' },
+  { list: 'versions' as const, path: '/v1/secrets/k/versions?envName=staging&scopeKind=tenant' },
+])('API — GET $path: a cursor the store did not issue', ({ list, path }) => {
+  const ISSUED = `issued-for-${list}`;
+  /** A store that keeps each list read, and says which cursors it issued, or has no say. */
+  function store(say: boolean) {
+    const reads: (Cursor | undefined)[] = [];
+    const asked: string[] = [];
+    const secrets: SecretBinding = {
+      ...makeInMemorySecretsBinding(),
+      async list(input) {
+        reads.push(input.cursor);
+        return { data: [] };
+      },
+      async listVersions(input) {
+        reads.push(input.cursor);
+        return { data: [] };
+      },
+      ...(say && {
+        issuedCursor: (which: 'secrets' | 'versions', cursor: Cursor) => {
+          asked.push(which);
+          return (cursor as unknown as string) === `issued-for-${which}`;
+        },
+      }),
+    };
+    const app = makeApp({ secrets });
+    const get = async (query: string) => {
+      const res = await app.request(`${path}${query}`, {
+        headers: { authorization: `Bearer ${TOKEN_RO}` },
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+    };
+    return { get, reads, asked };
+  }
+
+  test('one it did not issue: 400 bad-input, before the list is read', async () => {
+    const { get, reads, asked } = store(true);
+    const { status, body } = await get('&cursor=made-up');
+    expect(status).toBe(400);
+    expect(body.error).toMatchObject({ code: 'bad-input', message: '`cursor` is malformed' });
+    expect(reads).toEqual([]);
+    expect(asked).toEqual([list]);
+  });
+
+  test("one it issued for the other list: 400, so the store is asked about this list's", async () => {
+    const other = list === 'secrets' ? 'versions' : 'secrets';
+    const { get, reads } = store(true);
+    expect((await get(`&cursor=issued-for-${other}`)).status).toBe(400);
+    expect(reads).toEqual([]);
+  });
+
+  test('one it issued: the store reads the next page', async () => {
+    const { get, reads } = store(true);
+    expect((await get(`&cursor=${ISSUED}`)).status).toBe(200);
+    expect(reads).toEqual([ISSUED]);
+  });
+
+  test('a store without issuedCursor: any cursor reaches it, as before', async () => {
+    const { get, reads } = store(false);
+    expect((await get('&cursor=made-up')).status).toBe(200);
+    expect(reads).toEqual(['made-up']);
+  });
+
+  test('no cursor: the first page, and the store is not asked', async () => {
+    const { get, reads, asked } = store(true);
+    expect((await get('')).status).toBe(200);
+    expect(reads).toEqual([undefined]);
+    expect(asked).toEqual([]);
+  });
+});
+
 // Silence unused-value warnings on staging/scopeKeyString if all fixtures
 // happen to bypass one code path.
 void staging;
@@ -719,4 +860,54 @@ describe('API — a store that does not rotate or revoke by design', () => {
       'secret-operation-unsupported',
     );
   });
+});
+
+describe("API — a write the store refuses for its name or its value is the caller's 400", () => {
+  const headers = { authorization: `Bearer ${TOKEN_ALL}`, 'content-type': 'application/json' };
+
+  test.each([
+    'reserved-name-prefix',
+    'secret-name-invalid',
+    'secret-value-too-large',
+    'secret-value-invalid',
+  ])("POST /v1/secrets answers %s at 400, with the store's message", async (code) => {
+    const secrets = makeInMemorySecretsBinding();
+    secrets.set = async () => ({ kind: 'error', code, message: 'the store says why' });
+    const res = await makeApp({ secrets }).request('/v1/secrets', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        scope: { kind: 'tenant', tenantId: tenantA },
+        envName: 'staging',
+        name: 'ACME_KEY',
+        value: 'v',
+        writeMode: 'create-new',
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: unknown }).error).toMatchObject({
+      code,
+      message: 'the store says why',
+    });
+  });
+
+  test.each(['reserved-name-prefix', 'secret-value-too-large'] as const)(
+    'rotate answers %s at 400, as a write of the new value would',
+    async (code) => {
+      const secrets = makeInMemorySecretsBinding();
+      secrets.rotateImpl = async () => ({
+        kind: 'err',
+        error: { code, message: 'the store says why' } satisfies SecretError,
+      });
+      const res = await makeApp({ secrets }).request(
+        '/v1/secrets/ACME_KEY/rotate?envName=staging&scopeKind=tenant',
+        { method: 'POST', headers, body: JSON.stringify({ newValue: 'v2' }) },
+      );
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: unknown }).error).toMatchObject({
+        code,
+        message: 'the store says why',
+      });
+    },
+  );
 });
