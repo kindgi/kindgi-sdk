@@ -8,13 +8,17 @@
  *
  * The contracts are what users build against: the HTTP API's spec, the
  * environment variables, the wire schemas, the CLI's commands, the SDKs'
- * public sources. The docs are the site's pages, the skills, a README, or
- * the contributor docs. A branch whose commits (since it left `main`)
- * touch a contract and none of the docs passes only with a commit message
- * line `No-docs: <reason>` (for example, a refactor with no visible change).
+ * public sources. The docs are the site's pages, the reference's
+ * hand-written entries, the skills, a README, or the contributor docs. A
+ * branch whose commits (since it left `main`) touch a contract and none of
+ * the docs passes only with a commit message line `No-docs: <reason>` (for
+ * example, a refactor with no visible change).
  *
  * The generated reference (CLI, env vars, schemas, SDK APIs) follows the
- * code by itself; this check is about the pages people write.
+ * code by itself; this check is about what people write. That includes the
+ * reference's entries (site/scripts/reference/entries/): what an error
+ * code, a command or a variable says is written there, and its page is
+ * built from them.
  *
  * Usage: `pnpm run check:docs-ship [<base ref>]` (default `origin/main`;
  * CI runs it on pull requests).
@@ -36,6 +40,7 @@ const CONTRACTS = [
 ];
 const DOCS = [
   /^site\/src\/content\/docs\//,
+  /^site\/scripts\/reference\/entries\//,
   /^packages\/sdk\/skills\//,
   /(^|\/)README\.md$/,
   /^docs\//,
@@ -85,7 +90,8 @@ console.error(
     'check-docs-ship: this branch changes a public contract but no docs:',
     ...contracts.map((path) => `  ${path}`),
     '',
-    'Update the pages that describe it (site/src/content/docs/, a skill, a README),',
+    'Update the pages that describe it (site/src/content/docs/, a reference entry in',
+    'site/scripts/reference/entries/, a skill, a README),',
     'or add a line `No-docs: <why>` to a commit message.',
   ].join('\n'),
 );
