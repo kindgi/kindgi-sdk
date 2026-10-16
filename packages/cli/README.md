@@ -626,7 +626,10 @@ deployment. The envelope is `--from-envelope`, else
   deployment's secrets after it lands. Off by default; without it, a deploy
   with such a file says what it didn't send. With it, secret-shaped names
   (`*_KEY`, `*_TOKEN`, `*_SECRET`, …) get a warning: those belong in
-  `kindgi secrets set`.
+  `kindgi secrets set`. A hosted deploy (`--hosted`, or an env block's
+  `build: 'hosted'`) needs `--env` with it, since a hosted runtime reads
+  a deployment's secrets in the env it serves. Without it the deploy is
+  refused before anything is built or sent.
 - **Errors** carry a hint for the common ones: `signature-invalid`,
   `signer-not-trusted`, `image-unverifiable`,
   `deployment-validation-failed`.
