@@ -279,10 +279,11 @@ $(terraform output -raw license_enroll_command)   # fill in --for first
 
   Then `license_usage_key_secret = "license-usage-key"`. The key is never printed, and the token reaches `curl` as a header file, never in the list of processes. A refused mint prints its error instead, and nothing goes in the vault. To list the keys or revoke one, see "A key for the counts" on that page. A server serving one tenant that refuses the mint with `system-principal-required` is older than runtime 0.1.8.2, which has these keys: until you upgrade it, the job renews without counts.
 
-  **Check the first run.** A renewal that can't send its counts still renews, with `counts: not sent (<why>)` in its log, and no alert fires. So after the apply, start a run and read its counts line:
+  **Check the first run.** A renewal that can't send its counts still renews, with `counts: not sent (<why>)` in its log, and no alert fires. So after the apply, start a run, wait for it to finish, and read its counts line. The log reaches Log Analytics a few minutes after the run ends, so an empty answer right after it means ask again a little later:
 
   ```sh
   az containerapp job start -n <name_prefix>-license-renew -g <rg>
+  az containerapp job execution list -n <name_prefix>-license-renew -g <rg> -o table   # until it shows Succeeded
   WS=$(az monitor log-analytics workspace list -g <rg> --query "[0].customerId" -o tsv)
   az monitor log-analytics query -w "$WS" --analytics-query \
     "ContainerAppConsoleLogs_CL | where column_ifexists('ContainerJobName_s', '') == '<name_prefix>-license-renew' | where Log_s has 'counts:' | order by TimeGenerated desc | take 5"
