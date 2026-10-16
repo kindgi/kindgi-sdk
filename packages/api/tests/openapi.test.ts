@@ -105,7 +105,10 @@ describe('OpenAPI — generated document', () => {
 
   test('every served read declares the 503 the database answers when busy', () => {
     const doc = generateOpenApiDocument() as {
-      paths: Record<string, Record<string, { responses: Record<string, unknown> }>>;
+      paths: Record<
+        string,
+        Record<string, { responses: Record<string, { description?: string }> }>
+      >;
     };
     const reads = OPERATIONS.filter((o) => o.unserved === undefined && answersDatabaseBusy(o));
     // Guard against a filter that selects nothing (which would pass vacuously):
@@ -114,10 +117,16 @@ describe('OpenAPI — generated document', () => {
     for (const op of reads) {
       const method = doc.paths[op.openapiPath]?.[op.method];
       expect(method, `${op.method} ${op.openapiPath} missing`).toBeTruthy();
+      const response = method?.responses['503'];
       expect(
-        method?.responses['503'],
+        response,
         `${op.operationId} (${op.method} ${op.openapiPath}) must declare a 503 (database-busy)`,
       ).toBeDefined();
+      // The 503 must name the busy answer, so a read that keeps its own 503
+      // can't quietly drop it (`identity.me.permissions` names both causes).
+      expect(response?.description, `${op.operationId} 503 must name database-busy`).toContain(
+        'database-busy',
+      );
     }
   });
 
