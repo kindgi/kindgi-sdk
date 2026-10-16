@@ -31,6 +31,7 @@
   },
   "dependencies": {
     "@kindgi/audit-events": "workspace:*",
+    "@kindgi/log": "workspace:*",
     "@kindgi/platform": "workspace:*",
     "@kindgi/types": "workspace:*"
   },

@@ -53,8 +53,9 @@ export interface WriteAuditInput {
  * the tenant, the scope's project, the request (`correlationId`), and what
  * the backend answered. Never the value, nor anything derived from one:
  * the record holds names, versions and the backend's answer. Best effort,
- * like every lifecycle event: a failed append is logged, never the answer.
- * Without an audit binding, nothing is recorded.
+ * like every lifecycle event: a failed append is logged at `warn` through
+ * the request's logger (subsystem `audit`), never the answer. Without an
+ * audit binding, nothing is recorded.
  */
 export async function auditWrite(
   c: Context<AppEnv>,
@@ -73,5 +74,6 @@ export async function auditWrite(
     auditEvents,
     tenantId: scope.tenantId,
     ...(scope.kind === 'project' && { projectId: scope.projectId }),
+    log: c.get('log').child({ subsystem: 'audit' }),
   });
 }

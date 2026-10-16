@@ -1721,6 +1721,138 @@ describe('POST /v1/deployments — manifest validation', () => {
     );
   });
 
+  const post = (app: ReturnType<typeof makeApp>['app'], body: unknown) =>
+    app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  /** An index of one agent with `output` (absent when undefined), and `flows`. */
+  function indexWith(output: unknown, flows: readonly unknown[] = []) {
+    return {
+      v: 1,
+      artifactVersion: '20260920.1',
+      publishedAt: '2026-09-20T14:32:07.104Z',
+      tools: [],
+      guardrails: [],
+      agents: [
+        {
+          id: 'acme.summary',
+          version: '1.0.0',
+          name: 'Summary',
+          instructions: 'Summarize the request.',
+          capabilities: [{ feature: 'model.text.chat' }],
+          tools: [],
+          ...(output !== undefined && { output }),
+        },
+      ],
+      flows,
+    };
+  }
+
+  /** A flow whose fanout's second branch and output carry `schema`; the first branch's compiles. */
+  function fanoutFlow(schema: unknown) {
+    return {
+      id: 'acme.intake',
+      version: '1.0.0',
+      nodes: [
+        {
+          id: 'fan',
+          kind: 'fanout',
+          convergence: 'settle-all',
+          branches: [
+            { branchId: 'a', handler: 'ha', outputSchema: { type: 'object' } },
+            { branchId: 'b', handler: 'hb', outputSchema: schema },
+          ],
+        },
+      ],
+      edges: [
+        { id: 'e0', from: '$start', to: 'fan' },
+        { id: 'e1', from: 'fan', to: '$end' },
+      ],
+      output: { mapping: { x: { literal: 1 } }, schema },
+    };
+  }
+
+  const uncompilable = { type: 'object', 'x-unknown': true };
+
+  test("an agent's output schema and a flow's schemas that wouldn't compile → 400, each named where it sits; nothing is deployed", async () => {
+    const fixture = buildSignedDeploy({
+      index: indexWith({ schema: uncompilable }, [fanoutFlow(uncompilable)]),
+    });
+    const { app, deploymentRegistry } = makeApp({ fixture });
+    const res = await post(app, fixture.wire);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; details?: { issues?: Array<Record<string, unknown>> } };
+    };
+    expect(body.error.code).toBe('deployment-validation-failed');
+    const why = expect.stringMatching(/^doesn't compile: .*unknown keyword: "x-unknown"/);
+    expect(body.error.details?.issues).toEqual([
+      { primitive: 'agent', index: 0, id: 'acme.summary', path: '/output/schema', message: why },
+      {
+        primitive: 'flow',
+        index: 0,
+        id: 'acme.intake',
+        path: '/nodes/0/branches/1/outputSchema',
+        message: why,
+      },
+      { primitive: 'flow', index: 0, id: 'acme.intake', path: '/output/schema', message: why },
+    ]);
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
+  test("an agent's output that isn't an object → 400 at /output", async () => {
+    for (const output of [null, 'json', [{ type: 'object' }]]) {
+      const fixture = buildSignedDeploy({ index: indexWith(output) });
+      const { app } = makeApp({ fixture });
+      const res = await post(app, fixture.wire);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as {
+        error: { details?: { issues?: Array<Record<string, unknown>> } };
+      };
+      expect(body.error.details?.issues).toEqual([
+        {
+          primitive: 'agent',
+          index: 0,
+          id: 'acme.summary',
+          path: '/output',
+          message: 'agent.output must be an object { schema, name?, maxRepairs? }',
+        },
+      ]);
+    }
+  });
+
+  test('an agent whose output schema compiles deploys', async () => {
+    const fixture = buildSignedDeploy({
+      index: indexWith({
+        schema: { type: 'object', properties: { summary: { type: 'string' } } },
+      }),
+    });
+    const { app, deploymentRegistry } = makeApp({ fixture });
+    const res = await post(app, fixture.wire);
+    expect(res.status, await res.clone().text()).toBe(201);
+    const body = (await res.json()) as { contents: { agents: unknown[] } };
+    expect(body.contents.agents).toEqual([{ id: 'acme.summary', version: '1.0.0' }]);
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(1);
+  });
+
+  test("its agents' and flows' schema compiles count against the tenant's budget: refused, nothing is deployed", async () => {
+    const compiles = { type: 'object' };
+    const fixture = buildSignedDeploy({
+      index: indexWith({ schema: compiles }, [fanoutFlow(compiles)]),
+    });
+    const { app, deploymentRegistry } = makeApp({ fixture });
+    const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
+    try {
+      await expectCompileBudgetRefused(await post(app, fixture.wire));
+      expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+    } finally {
+      restore();
+    }
+  });
+
   test('guardrail manifest invalid → 400 deployment-validation-failed', async () => {
     const fixture = buildSignedDeploy({
       index: {

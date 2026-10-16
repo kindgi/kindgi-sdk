@@ -5390,6 +5390,11 @@ export const ImprovementPassSchema: JsonSchema = {
     candidatesEvaluated: { type: 'integer', minimum: 0 },
     costUsd: { type: 'string', description: 'What its comparisons have cost so far (US dollars).' },
     outcome: { $ref: '#/components/schemas/ImprovementPassOutcome' },
+    cancelReason: {
+      type: 'string',
+      description:
+        "Why a `cancelled` pass stopped when nobody cancelled it: a comparison's eval run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no proposal. Absent when it was cancelled.",
+    },
     comparisons: {
       type: 'array',
       description:
@@ -6524,6 +6529,13 @@ export const RegisterMCPEndpointBodySchema: JsonSchema = {
   required: ['endpointId', 'name', 'transport', 'config', 'scopeKind'],
   properties: {
     ...mcpEndpointBodyProperties,
+    endpointId: {
+      type: 'string',
+      minLength: 1,
+      pattern: '^[^.]+$',
+      description:
+        "No `.`: an MCP tool's id is `<endpointId>.<tool name>`, so it splits at its first `.`. An endpoint registered with one before keeps it.",
+    },
     scopeKind: { $ref: '#/components/schemas/ScopeKind' },
     scopeId: {
       type: 'string',
@@ -7096,10 +7108,11 @@ export const PolicyCollectionPageSchema: JsonSchema = {
 };
 
 /**
- * Row shape returned by `GET /v1/policies/:policyId/versions`. Matches
+ * A version as `GET /v1/policies/:policyId/versions` and
+ * `GET /v1/policies/:policyId/versions/:version` return it. Matches
  * `Policy` plus an optional `unregisteredAt` timestamp that is present
  * iff the version has been soft-tombstoned. Kept as a dedicated schema
- * so the head routes (`get` / `getVersion`) keep their existing shape
+ * so the head route (`get`, the latest active version) keeps its shape
  * locked down under `additionalProperties: false`.
  */
 export const PolicyVersionRowSchema: JsonSchema = {
@@ -8209,6 +8222,11 @@ export const EvalRunSchema: JsonSchema = {
         'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
     },
     error: { type: 'string' },
+    cancelReason: {
+      type: 'string',
+      description:
+        "Why a `cancelled` run stopped when nobody cancelled it: its project or tenant took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.",
+    },
     correlationId: { type: 'string' },
     comparison: { $ref: '#/components/schemas/EvalComparison' },
   },
@@ -10875,6 +10893,27 @@ export const EnvListPageSchema: JsonSchema = {
   },
 };
 
+/** One of the tenant's env names (`GET /v1/environments`). */
+export const EnvironmentSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['envName'],
+  properties: {
+    envName: { $ref: '#/components/schemas/EnvName' },
+  },
+};
+
+export const EnvironmentPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/Environment' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
 export const EnvSetInputSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -13010,6 +13049,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['EnvName', EnvNameSchema],
   ['EnvRecord', EnvRecordSchema],
   ['EnvListPage', EnvListPageSchema],
+  ['Environment', EnvironmentSchema],
+  ['EnvironmentPage', EnvironmentPageSchema],
   ['EnvSetInput', EnvSetInputSchema],
   ['EnvSetOutcome', EnvSetOutcomeSchema],
   ['SecretRecord', SecretRecordSchema],

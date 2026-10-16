@@ -247,11 +247,13 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
   const keyRunners =
     inputs.keyRunners ?? (topLevel === 'key' ? await loadRealKeyRunners() : undefined);
 
+  const label = commandLabel(command, argv, consumed);
   const ctx = buildContext({
     globals: parsed.globals,
     positionals: parsed.positionals,
     options: parsed.options,
     config,
+    commandLabel: label,
     ...(inputs.fetchImpl !== undefined ? { fetchImpl: inputs.fetchImpl } : {}),
     ...(inputs.clientFactory !== undefined ? { clientFactory: inputs.clientFactory } : {}),
     ...(inputs.home !== undefined ? { home: inputs.home } : {}),
@@ -277,7 +279,6 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ...(inputs.rateLimitWaits !== undefined ? { rateLimitWaits: inputs.rateLimitWaits } : {}),
   });
 
-  const label = commandLabel(command, argv, consumed);
   // A Java pack pins the CLI it runs with (`cli-pin.ts`): say when this isn't it.
   // `kindgi dev` runs until stopped, so it hears it now, before it starts.
   const pinWarning = PIN_EXEMPT.has(topLevel ?? '')

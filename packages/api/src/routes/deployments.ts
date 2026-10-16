@@ -9,7 +9,7 @@ import { type Agent, type AgentId, type AgentPins, templateProblem } from '@kind
 import { ref, tuplesForCreate } from '@kindgi/authz';
 import { runOutsideTenant } from '@kindgi/bounds';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
-import type { Flow, FlowPins } from '@kindgi/flow';
+import { type Flow, type FlowPins, flowSchemaProblems } from '@kindgi/flow';
 import {
   GUARDRAIL_SPEC_KEYS,
   type Guardrail,
@@ -17,7 +17,7 @@ import {
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
-import { SchemaCompileBudgetError } from '@kindgi/schema';
+import { SchemaCompileBudgetError, compileInlineSchema } from '@kindgi/schema';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
 import type {
   Cursor,
@@ -1957,13 +1957,15 @@ const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 /**
  * Minimal shape check on an `IndexedAgent` after `modulePath` is
- * stripped. Deeper validation (RetrievalIntent shape, budget arithmetic,
- * conversation policy tri-state) is left to the runtime at dispatch —
- * the deploy route only validates that the wire is well-shaped enough to
- * persist. The alternative is running `defineAgent`, but that requires
- * promoting `capabilities`/`tools` to their branded shapes; the pattern
- * across the API package is to keep transport shape checks lightweight
- * and leave semantic checks to the runtime.
+ * stripped, plus what would fail every turn: the instructions' template
+ * and the output schema, checked as `defineAgent` checks them. Deeper
+ * validation (RetrievalIntent shape, budget arithmetic, conversation
+ * policy tri-state) is left to the runtime at dispatch — the deploy
+ * route only validates that the wire is well-shaped enough to persist.
+ * The alternative is running `defineAgent`, but that requires promoting
+ * `capabilities`/`tools` to their branded shapes; the pattern across the
+ * API package is to keep transport shape checks lightweight and leave
+ * semantic checks to the runtime.
  */
 function validateAgentIndexShape(
   spec: Record<string, unknown>,
@@ -2001,9 +2003,34 @@ function validateAgentIndexShape(
   if (!Array.isArray(spec.tools)) {
     out.push({ path: '/tools', message: 'agent.tools must be an array of tool ids' });
   }
+  out.push(...agentOutputProblems(spec.output));
   return out;
 }
 
+/** An agent's `output`, when it has one: an object whose schema compiles. */
+function agentOutputProblems(raw: unknown): readonly { path: string; message: string }[] {
+  if (raw === undefined) return [];
+  const output = raw as { schema?: unknown } | null;
+  if (typeof output !== 'object' || output === null || Array.isArray(output)) {
+    return [
+      { path: '/output', message: 'agent.output must be an object { schema, name?, maxRepairs? }' },
+    ];
+  }
+  // The compile `defineAgent` runs, and each structured turn after it:
+  // one that doesn't compile would fail every turn.
+  const compiled = compileInlineSchema(output.schema);
+  if (compiled.kind === 'ok') return [];
+  const why = compiled.error.message.replace(/^Inline schema failed to compile: /, '');
+  return [{ path: '/output/schema', message: `doesn't compile: ${why}` }];
+}
+
+/**
+ * Minimal shape check on an `IndexedFlow` after `modulePath` and
+ * `kernelPayloadVersion` are stripped, and every inline schema a run
+ * compiles (`flowSchemaProblems`): one that doesn't compile would fail
+ * every run. The rest of `loadFlow` isn't run: it refuses fields it
+ * doesn't know, and an index from a newer CLI may carry some.
+ */
 function validateFlowIndexShape(
   spec: Record<string, unknown>,
 ): readonly { path: string; message: string }[] {
@@ -2020,6 +2047,7 @@ function validateFlowIndexShape(
   if (!Array.isArray(spec.edges)) {
     out.push({ path: '/edges', message: 'flow.edges must be an array' });
   }
+  out.push(...flowSchemaProblems(spec));
   return out;
 }
 

@@ -888,6 +888,7 @@ OPERATIONS: dict[str, Operation] = {
     "tenant.config.upsert": Operation(
         "tenant.config.upsert", "PATCH", "/v1/tenant/config", "json", True
     ),
+    "environments.list": Operation("environments.list", "GET", "/v1/environments", "json", False),
     "env.list": Operation("env.list", "GET", "/v1/env", "json", False),
     "env.get": Operation("env.get", "GET", "/v1/env/{name}", "json", False),
     "env.put": Operation("env.put", "PUT", "/v1/env/{name}", "json", True),
@@ -1996,7 +1997,7 @@ class SystemDeploymentsResource:
     ) -> _models.PackSuspension:
         """Suspend a deployment's pack, or restore it. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`
 
-        Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it lists as needing a pack service again. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.
+        Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it serves again from the endpoint recorded for it; if that endpoint is pending or was cleared meanwhile, it lists as needing a pack service. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.
         """
         return self._client._request(
             _OPERATIONS["systemDeployments.setSuspended"],
@@ -2282,7 +2283,7 @@ class ApprovalsResource:
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
 
-        Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.
+        Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). With authorization on, a person who is the tenant's admin (through a session or an `admin` key not limited to a project) reads at every tier: with no roster entry, as an `admin` reviewer; with a lower role, their own tier, and any tier they ask for with `requiredRole`. The roster doesn't show such a reader, but the access audit records the tenant-admin check (`authz-decision`), made only where it changes what the roster gives. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). With authorization on, only approvals whose project the caller may read. `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return self._client._request(
             _OPERATIONS["approvals.list"],
@@ -2309,7 +2310,7 @@ class ApprovalsResource:
     def get(self, approval_id: str | UUID, /, *, timeout: float | None = None) -> _models.Approval:
         """Fetch a single approval. `GET /v1/approvals/{approvalId}`
 
-        Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4). A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).
+        Requires a reviewer, or (with authorization on) a person who is the tenant's admin, as the list does; the tenant's admin reads an approval of any tier. Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4), or that are in a project the caller may not read. A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).
         """
         return self._client._request(
             _OPERATIONS["approvals.get"],
@@ -3885,7 +3886,7 @@ class ProposalsResource:
     ) -> _models.ImprovementPass:
         """Start an improvement pass. `POST /v1/proposals/improve`
 
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts for an agent whose project is suspended (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.
         """
         return self._client._request(
             _OPERATIONS["proposals.improve"],
@@ -5010,6 +5011,7 @@ class CostRecordsResource:
         model: str | None = None,
         served_model: str | None = None,
         root_run_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         include_descendants: bool | None = None,
         from_: str | None = None,
         to: str | None = None,
@@ -5021,7 +5023,7 @@ class CostRecordsResource:
     ) -> _models.CostRecordCollectionPage:
         """List cost records. `GET /v1/cost/records`
 
-        Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.
+        Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `flowId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.
         """
         return self._client._request(
             _OPERATIONS["cost.records.list"],
@@ -5037,6 +5039,7 @@ class CostRecordsResource:
                 "model": model,
                 "servedModel": served_model,
                 "rootRunId": root_run_id,
+                "flowId": flow_id,
                 "includeDescendants": include_descendants,
                 "from": from_,
                 "to": to,
@@ -5092,6 +5095,7 @@ class CostResource:
         model: str | None = None,
         served_model: str | None = None,
         root_run_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         include_descendants: bool | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
@@ -5118,6 +5122,7 @@ class CostResource:
                 "model": model,
                 "servedModel": served_model,
                 "rootRunId": root_run_id,
+                "flowId": flow_id,
                 "includeDescendants": include_descendants,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
@@ -5253,14 +5258,17 @@ class PoliciesVersionsResource:
 
     def get(
         self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.Policy:
-        """Fetch a specific policy version. `GET /v1/policies/{policyId}/versions/{version}`"""
+    ) -> _models.PolicyVersionRow:
+        """Fetch a specific policy version. `GET /v1/policies/{policyId}/versions/{version}`
+
+        An unregistered version is returned too, with `unregisteredAt`.
+        """
         return self._client._request(
             _OPERATIONS["policies.versions.get"],
             path={"policyId": policy_id, "version": version},
             query={},
             headers={},
-            response=_models.Policy,
+            response=_models.PolicyVersionRow,
             timeout=timeout,
         )
 
@@ -5917,7 +5925,7 @@ class EvalRunsResource:
     ) -> _models.StartEvalRunResult:
         """Start an eval run against a suite. `POST /v1/eval-suites/{suiteId}/runs`
 
-        Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Idempotency-Key applies.
+        Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
         """
         return self._client._request(
             _OPERATIONS["evalRuns.start"],
@@ -7816,6 +7824,34 @@ class TenantResource:
             query={},
             headers={},
             response=_models.Tenant,
+            timeout=timeout,
+        )
+
+
+class EnvironmentsResource:
+    """`client.environments` — the `environments` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvironmentPage:
+        """List the tenant's env names. `GET /v1/environments`
+
+        The env names the tenant holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A revoked secret doesn't count. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.
+        """
+        return self._client._request(
+            _OPERATIONS["environments.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.EnvironmentPage,
             timeout=timeout,
         )
 
@@ -9760,7 +9796,7 @@ class AsyncSystemDeploymentsResource:
     ) -> _models.PackSuspension:
         """Suspend a deployment's pack, or restore it. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`
 
-        Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it lists as needing a pack service again. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.
+        Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it serves again from the endpoint recorded for it; if that endpoint is pending or was cleared meanwhile, it lists as needing a pack service. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.
         """
         return await self._client._request(
             _OPERATIONS["systemDeployments.setSuspended"],
@@ -10048,7 +10084,7 @@ class AsyncApprovalsResource:
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
 
-        Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.
+        Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). With authorization on, a person who is the tenant's admin (through a session or an `admin` key not limited to a project) reads at every tier: with no roster entry, as an `admin` reviewer; with a lower role, their own tier, and any tier they ask for with `requiredRole`. The roster doesn't show such a reader, but the access audit records the tenant-admin check (`authz-decision`), made only where it changes what the roster gives. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). With authorization on, only approvals whose project the caller may read. `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return await self._client._request(
             _OPERATIONS["approvals.list"],
@@ -10077,7 +10113,7 @@ class AsyncApprovalsResource:
     ) -> _models.Approval:
         """Fetch a single approval. `GET /v1/approvals/{approvalId}`
 
-        Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4). A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).
+        Requires a reviewer, or (with authorization on) a person who is the tenant's admin, as the list does; the tenant's admin reads an approval of any tier. Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4), or that are in a project the caller may not read. A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).
         """
         return await self._client._request(
             _OPERATIONS["approvals.get"],
@@ -11659,7 +11695,7 @@ class AsyncProposalsResource:
     ) -> _models.ImprovementPass:
         """Start an improvement pass. `POST /v1/proposals/improve`
 
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts for an agent whose project is suspended (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.
         """
         return await self._client._request(
             _OPERATIONS["proposals.improve"],
@@ -12784,6 +12820,7 @@ class AsyncCostRecordsResource:
         model: str | None = None,
         served_model: str | None = None,
         root_run_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         include_descendants: bool | None = None,
         from_: str | None = None,
         to: str | None = None,
@@ -12795,7 +12832,7 @@ class AsyncCostRecordsResource:
     ) -> _models.CostRecordCollectionPage:
         """List cost records. `GET /v1/cost/records`
 
-        Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.
+        Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `flowId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.
         """
         return await self._client._request(
             _OPERATIONS["cost.records.list"],
@@ -12811,6 +12848,7 @@ class AsyncCostRecordsResource:
                 "model": model,
                 "servedModel": served_model,
                 "rootRunId": root_run_id,
+                "flowId": flow_id,
                 "includeDescendants": include_descendants,
                 "from": from_,
                 "to": to,
@@ -12866,6 +12904,7 @@ class AsyncCostResource:
         model: str | None = None,
         served_model: str | None = None,
         root_run_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         include_descendants: bool | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
@@ -12892,6 +12931,7 @@ class AsyncCostResource:
                 "model": model,
                 "servedModel": served_model,
                 "rootRunId": root_run_id,
+                "flowId": flow_id,
                 "includeDescendants": include_descendants,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
@@ -13029,14 +13069,17 @@ class AsyncPoliciesVersionsResource:
 
     async def get(
         self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.Policy:
-        """Fetch a specific policy version. `GET /v1/policies/{policyId}/versions/{version}`"""
+    ) -> _models.PolicyVersionRow:
+        """Fetch a specific policy version. `GET /v1/policies/{policyId}/versions/{version}`
+
+        An unregistered version is returned too, with `unregisteredAt`.
+        """
         return await self._client._request(
             _OPERATIONS["policies.versions.get"],
             path={"policyId": policy_id, "version": version},
             query={},
             headers={},
-            response=_models.Policy,
+            response=_models.PolicyVersionRow,
             timeout=timeout,
         )
 
@@ -13697,7 +13740,7 @@ class AsyncEvalRunsResource:
     ) -> _models.StartEvalRunResult:
         """Start an eval run against a suite. `POST /v1/eval-suites/{suiteId}/runs`
 
-        Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Idempotency-Key applies.
+        Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
         """
         return await self._client._request(
             _OPERATIONS["evalRuns.start"],
@@ -15608,6 +15651,34 @@ class AsyncTenantResource:
         )
 
 
+class AsyncEnvironmentsResource:
+    """`client.environments` — the `environments` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvironmentPage:
+        """List the tenant's env names. `GET /v1/environments`
+
+        The env names the tenant holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A revoked secret doesn't count. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.
+        """
+        return await self._client._request(
+            _OPERATIONS["environments.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.EnvironmentPage,
+            timeout=timeout,
+        )
+
+
 class AsyncEnvResource:
     """`client.env` — the `env` operations."""
 
@@ -16621,6 +16692,7 @@ class Resources:
     teams: TeamsResource
     projects: ProjectsResource
     tenant: TenantResource
+    environments: EnvironmentsResource
     env: EnvResource
     secrets: SecretsResource
     schedules: SchedulesResource
@@ -16673,6 +16745,7 @@ class Resources:
         self.teams = TeamsResource(client)
         self.projects = ProjectsResource(client)
         self.tenant = TenantResource(client)
+        self.environments = EnvironmentsResource(client)
         self.env = EnvResource(client)
         self.secrets = SecretsResource(client)
         self.schedules = SchedulesResource(client)
@@ -16727,6 +16800,7 @@ class AsyncResources:
     teams: AsyncTeamsResource
     projects: AsyncProjectsResource
     tenant: AsyncTenantResource
+    environments: AsyncEnvironmentsResource
     env: AsyncEnvResource
     secrets: AsyncSecretsResource
     schedules: AsyncSchedulesResource
@@ -16779,6 +16853,7 @@ class AsyncResources:
         self.teams = AsyncTeamsResource(client)
         self.projects = AsyncProjectsResource(client)
         self.tenant = AsyncTenantResource(client)
+        self.environments = AsyncEnvironmentsResource(client)
         self.env = AsyncEnvResource(client)
         self.secrets = AsyncSecretsResource(client)
         self.schedules = AsyncSchedulesResource(client)
