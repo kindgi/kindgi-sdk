@@ -993,7 +993,7 @@ async function resolveProject(
   if (only === undefined) {
     return {
       kind: 'error',
-      message: `--project ${ref}: no project of this tenant has that slug. \`kindgi projects list\` shows them.\n`,
+      message: `--project ${ref}: no project of this tenant has that slug. \`kindgi projects list\` shows them; \`kindgi projects create --name=<name> --slug=${ref}\` makes one.\n`,
     };
   }
   if (more.length > 0) {

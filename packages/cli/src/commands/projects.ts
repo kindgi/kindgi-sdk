@@ -3,9 +3,10 @@
 
 /**
  * `kindgi projects`: find the project ids the `--project=<id>` flags take
- * (blocks, eval suites and runs, judge classes, agents derive), and put a
- * project in production. Mirrors the clients' `projects.list`,
- * `projects.getDefault`, `projects.get` and `projects.setProduction`.
+ * (blocks, eval suites and runs, judge classes, agents derive), make and
+ * rename projects, and put a project in production. Mirrors the clients'
+ * `projects.list`, `projects.getDefault`, `projects.get`,
+ * `projects.create`, `projects.update` and `projects.setProduction`.
  */
 
 import type { CommandContext } from '../context.js';
@@ -64,6 +65,123 @@ const get: LeafCommand = {
     }),
 };
 
+/**
+ * A name as a slug: lowercase letters and digits, each run of anything else
+ * one `-`, none at either end, at most 63 characters. An accent goes, not
+ * its letter (`Café` is `cafe`).
+ */
+function slugOf(name: string): string {
+  return name
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 63)
+    .replace(/-+$/, '');
+}
+
+/** A slug as the console takes one: what links and `deploy --project=<slug>` carry. */
+const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+function checkSlug(slug: string): string {
+  if (!SLUG.test(slug)) {
+    throw new UsageError(
+      `--slug=${slug}: lowercase letters, digits and hyphens, starting with a letter or digit, at most 63 characters`,
+    );
+  }
+  return slug;
+}
+
+const create: LeafCommand = {
+  kind: 'leaf',
+  name: 'create',
+  description:
+    'Make a project. Prints it, with its id for the `--project=<id>` flags. For tenant admins.',
+  usage:
+    'kindgi projects create --name=<name> [--slug=<slug>] [--description=<text>] [--org=<org-id>]',
+  optionSpec: {
+    name: { type: 'string', description: 'What people see, e.g. `Support bot`. Required.' },
+    slug: {
+      type: 'string',
+      description:
+        "The project's short name, unique in its org (or among projects in none); `kindgi deploy --project=<slug>` takes it. Defaults to the name as a slug: `Support bot` is `support-bot`.",
+    },
+    description: { type: 'string', description: 'What the project is for.' },
+    org: { type: 'string', description: 'The org it belongs to, by id. Without it, none.' },
+  },
+  run: async (ctx) => {
+    try {
+      const name = stringFlag(ctx, 'name')?.trim();
+      if (name === undefined || name === '') {
+        throw new UsageError('--name=<name> is required');
+      }
+      const given = stringFlag(ctx, 'slug')?.trim();
+      const slug = given !== undefined && given !== '' ? checkSlug(given) : slugOf(name);
+      if (slug === '') {
+        throw new UsageError(
+          `"${name}" has no letters or digits to make a slug of: give --slug=<slug>`,
+        );
+      }
+      const description = stringFlag(ctx, 'description');
+      const orgId = stringFlag(ctx, 'org');
+      const client = ctx.client();
+      const made = await client.projects.create({
+        name,
+        slug,
+        ...(description !== undefined && { description }),
+        ...(orgId !== undefined && { orgId }),
+      });
+      return {
+        kind: 'ok',
+        rendered: renderJson(await client.projects.get(made.id), ctx.globals.format),
+      };
+    } catch (err) {
+      return projectRefusal(err, ctx, 'kindgi projects create');
+    }
+  },
+};
+
+const rename: LeafCommand = {
+  kind: 'leaf',
+  name: 'rename',
+  description:
+    "Change a project's name, its slug, or both. Prints the project. A new slug changes what `kindgi deploy --project=<slug>` takes. For the project's admins and tenant admins.",
+  usage: 'kindgi projects rename <project-id> [--name=<name>] [--slug=<slug>]',
+  optionSpec: {
+    name: { type: 'string', description: 'The new name.' },
+    slug: {
+      type: 'string',
+      description: 'The new slug, unique in its org (or among projects in none).',
+    },
+  },
+  run: async (ctx) => {
+    try {
+      const projectId = requiredPositional(ctx, 0, 'project-id');
+      const name = stringFlag(ctx, 'name')?.trim();
+      const slug = stringFlag(ctx, 'slug')?.trim();
+      if (name === undefined && slug === undefined) {
+        throw new UsageError('Give --name, --slug, or both');
+      }
+      if (name === '' || slug === '') {
+        throw new UsageError('--name and --slug take a value');
+      }
+      if (slug !== undefined) checkSlug(slug);
+      const client = ctx.client();
+      await client.projects.update(projectId, {
+        ...(name !== undefined && { name }),
+        ...(slug !== undefined && { slug }),
+      });
+      return {
+        kind: 'ok',
+        rendered: renderJson(await client.projects.get(projectId), ctx.globals.format),
+      };
+    } catch (err) {
+      return projectRefusal(err, ctx, 'kindgi projects rename');
+    }
+  },
+};
+
 /** A project's production state, as `on`, `off` and `status` all print it. */
 interface ProductionState {
   readonly projectId: string;
@@ -91,7 +209,7 @@ const production: LeafCommand = {
           : { stdout: `${productionText(state)}\n`, stderr: '' },
       };
     } catch (err) {
-      return productionError(err, ctx);
+      return projectRefusal(err, ctx, 'kindgi projects production');
     }
   },
 };
@@ -124,29 +242,35 @@ function productionText(state: ProductionState): string {
 /**
  * The refusals named by the server's own code, since the client's families
  * would mislead: `production-not-allowed` and `permission-denied` (not a
- * tenant admin) are 403s, filed under `auth`, and `production-not-allowed`'s
- * message says what lets the tenant in (`details.next`, when the runtime
- * names it); `tenant-not-found` is a 404, filed under `not-found`.
+ * tenant admin, or not the project's admin) are 403s, filed under `auth`,
+ * and `production-not-allowed`'s message says what lets the tenant in
+ * (`details.next`, when the runtime names it); `tenant-not-found`,
+ * `project-not-found` and `org-not-found` are 404s, filed under
+ * `not-found`. The 409s (`slug-conflict`, the slug taken in that org;
+ * `project-default-already-exists`) need nothing here: a conflict's line
+ * already names its reason.
  */
-const PRODUCTION_REFUSALS = new Set([
+const PROJECT_REFUSALS = new Set([
   'production-not-allowed',
   'permission-denied',
   'tenant-not-found',
+  'project-not-found',
+  'org-not-found',
 ]);
 
-function productionError(err: unknown, ctx: CommandContext): CommandResult {
+function projectRefusal(err: unknown, ctx: CommandContext, commandLabel: string): CommandResult {
   const wire = extractKindgiError(err);
   const code = wire !== null && 'serverCode' in wire ? wire.serverCode : undefined;
-  if (wire !== null && code !== undefined && PRODUCTION_REFUSALS.has(code)) {
+  if (wire !== null && code !== undefined && PROJECT_REFUSALS.has(code)) {
     return { kind: 'error', stderr: `Error [${code}]: ${wire.message}\n`, exitCode: 1 };
   }
-  return commandResultFromThrown(err, ctx, 'kindgi projects production');
+  return commandResultFromThrown(err, ctx, commandLabel);
 }
 
 export const projectsCommand: Command = {
   kind: 'group',
   name: 'projects',
   description:
-    'Find projects, for the commands that take `--project=<id>` (list / get-default / get), and put one in production (production).',
-  subcommands: [list, getDefault, get, production],
+    'Find projects, for the commands that take `--project=<id>` (list / get-default / get), make and rename them (create / rename), and put one in production (production).',
+  subcommands: [list, getDefault, get, create, rename, production],
 };
