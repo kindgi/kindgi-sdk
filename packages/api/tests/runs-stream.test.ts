@@ -4,7 +4,7 @@
 /**
  * `GET /v1/runs/:runId/stream` falls back to polling the journal when
  * the event bus is wired but subscribing fails, and stops its work when
- * the reader cancels.
+ * the reader cancels or the request aborts.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -99,11 +99,27 @@ describe('GET /v1/runs/:runId/stream — a reader that cancels stops the work', 
     const runId = randomUUID() as RunId;
     const at = '2026-09-30T00:00:00.000Z' as Timestamp;
     const counts = { reads: 0, subscribed: 0, unsubscribed: 0, aborted: false };
+    let hold: { entered: () => void; released: Promise<void> } | undefined;
+    /** Holds the route's read of the run until `release`; `waiting` resolves once it waits. */
+    const holdRunRead = () => {
+      let release = (): void => undefined;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const waiting = new Promise<void>((entered) => {
+        hold = { entered, released };
+      });
+      return { waiting, release };
+    };
     const stubs = createStubAppBindings();
     const run = {
       ...stubs.kernelBinding.run,
-      getRun: async (_tenant: TenantId, id: RunId) =>
-        id !== runId
+      getRun: async (_tenant: TenantId, id: RunId) => {
+        if (hold !== undefined) {
+          hold.entered();
+          await hold.released;
+        }
+        return id !== runId
           ? null
           : ({
               runId,
@@ -116,7 +132,8 @@ describe('GET /v1/runs/:runId/stream — a reader that cancels stops the work', 
               dryRun: false,
               createdAt: at,
               updatedAt: at,
-            } satisfies KernelRunRecord),
+            } satisfies KernelRunRecord);
+      },
       readJournal: async () => {
         counts.reads += 1;
         return { kind: 'ok' as const, value: await journal() };
@@ -146,10 +163,15 @@ describe('GET /v1/runs/:runId/stream — a reader that cancels stops the work', 
       runHandler: {} as RunHandlerBinding,
       ...(bus && { eventBus }),
     });
-    const call = (path: 'stream' | 'progress/stream', method: 'GET' | 'HEAD', id = runId) =>
+    const call = (
+      path: 'stream' | 'progress/stream',
+      method: 'GET' | 'HEAD',
+      { id = runId, signal }: { id?: RunId; signal?: AbortSignal } = {},
+    ) =>
       app.request(`/v1/runs/${id}/${path}`, {
         method,
         headers: { authorization: `Bearer ${TOKEN}`, 'x-request-id': 'req-stream' },
+        ...(signal !== undefined && { signal }),
       });
     const request = async (path: 'stream' | 'progress/stream') => {
       const res = await call(path, 'GET');
@@ -163,7 +185,7 @@ describe('GET /v1/runs/:runId/stream — a reader that cancels stops the work', 
       expect(new TextDecoder().decode(first.value)).toContain('event: run.started');
       return reader;
     };
-    return { call, request, open, counts };
+    return { call, request, open, counts, holdRunRead };
   }
 
   test.each(['stream', 'progress/stream'] as const)(
@@ -244,14 +266,58 @@ describe('GET /v1/runs/:runId/stream — a reader that cancels stops the work', 
       // A run it can't read: the GET's 404.
       const absent = randomUUID() as RunId;
       const [headMissing, getMissing] = [
-        await call(path, 'HEAD', absent),
-        await call(path, 'GET', absent),
+        await call(path, 'HEAD', { id: absent }),
+        await call(path, 'GET', { id: absent }),
       ];
       expect([headMissing.status, getMissing.status, headMissing.body]).toEqual([404, 404, null]);
       expect(Object.fromEntries(headMissing.headers)).toEqual({
         ...Object.fromEntries(getMissing.headers),
         traceresponse: expect.any(String),
       });
+    },
+  );
+
+  test.each(['polling', 'subscribed'] as const)(
+    'a client that leaves during the read check (%s): the stream never starts',
+    async (mode) => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+      const { call, counts, holdRunRead } = streamApp(mode === 'subscribed');
+      const { waiting, release } = holdRunRead();
+      const client = new AbortController();
+      const answered = call('stream', 'GET', { signal: client.signal });
+      await waiting;
+      client.abort();
+      release();
+      const res = await answered;
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      // No journal read, no subscription and no timer. The body is never touched.
+      expect(counts).toEqual({ reads: 0, subscribed: 0, unsubscribed: 0, aborted: false });
+      expect(vi.getTimerCount()).toBe(0);
+      expect([res.status, res.body]).toEqual([200, null]);
+    },
+  );
+
+  test.each(['polling', 'subscribed'] as const)(
+    'a client that leaves after the answer (%s), its body never read: the work stops',
+    async (mode) => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+      const { call, counts } = streamApp(mode === 'subscribed');
+      const client = new AbortController();
+      const res = await call('stream', 'GET', { signal: client.signal });
+      expect(res.status).toBe(200);
+      await vi.advanceTimersByTimeAsync(1_000);
+      const working = { ...counts };
+      // It works while the client is there: it polls, or it's subscribed.
+      if (mode === 'polling') expect(working.reads).toBeGreaterThan(1);
+      else expect(working).toEqual({ reads: 1, subscribed: 1, unsubscribed: 0, aborted: false });
+      client.abort();
+      await vi.advanceTimersByTimeAsync(0);
+      // It stops at once, inside the five-minute wait: no timer left, and the
+      // subscription ended.
+      const stopped = mode === 'polling' ? working : { ...working, unsubscribed: 1, aborted: true };
+      expect([counts, vi.getTimerCount()]).toEqual([stopped, 0]);
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(counts).toEqual(stopped);
     },
   );
 });

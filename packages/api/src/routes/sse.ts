@@ -163,6 +163,21 @@ export function pause(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+/**
+ * An event stream's reading signal. The stream's `cancel()` aborts it, and
+ * so does the request's own signal: a client that leaves before the route
+ * answers is never a cancel, because the server cancels only a body it is
+ * writing, but its request aborts. A request already aborted aborts it at
+ * once.
+ */
+export function readingOf(request: Request): AbortController {
+  const reading = new AbortController();
+  const gone = request.signal;
+  if (gone.aborted) reading.abort();
+  else gone.addEventListener('abort', () => reading.abort(), { once: true });
+  return reading;
+}
+
 /** Small unique-id helper used by tests that want a deterministic event id shape. */
 export function newSseCorrelationId(): string {
   return `sse-${randomUUID()}`;

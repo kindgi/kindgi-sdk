@@ -639,9 +639,27 @@ describe('API — POST /v1/secrets/:name/rotate — async (202)', () => {
     });
     const inner = createInMemoryRotationStatusStore();
     const counts = { subscribed: 0, unsubscribed: 0 };
+    let hold: { entered: () => void; released: Promise<void> } | undefined;
+    /** Holds each read of a rotation until `release`; `waiting` resolves once one waits. */
+    const holdReads = () => {
+      let release = (): void => undefined;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const waiting = new Promise<void>((entered) => {
+        hold = { entered, released };
+      });
+      return { waiting, release };
+    };
     const store: RotationStatusStore = {
       create: (input) => inner.create(input),
-      get: (input) => inner.get(input),
+      get: async (input) => {
+        if (hold !== undefined) {
+          hold.entered();
+          await hold.released;
+        }
+        return inner.get(input);
+      },
       update: (input) => inner.update(input),
       subscribe: (input) => {
         counts.subscribed += 1;
@@ -660,10 +678,14 @@ describe('API — POST /v1/secrets/:name/rotate — async (202)', () => {
     });
     expect(rot.status).toBe(202);
     const { eventsUrl } = (await rot.json()) as { eventsUrl: string };
-    const call = (method: 'GET' | 'HEAD', url = eventsUrl) =>
+    const call = (
+      method: 'GET' | 'HEAD',
+      { url = eventsUrl, signal }: { url?: string; signal?: AbortSignal } = {},
+    ) =>
       app.request(url, {
         method,
         headers: { authorization: `Bearer ${TOKEN_ALL}`, 'x-request-id': 'req-events' },
+        ...(signal !== undefined && { signal }),
       });
     // The same events URL for a rotation that isn't there.
     const absentUrl = eventsUrl.replace(
@@ -671,7 +693,7 @@ describe('API — POST /v1/secrets/:name/rotate — async (202)', () => {
       '/rotations/00000000-0000-0000-0000-000000000000/',
     );
     expect(absentUrl).not.toBe(eventsUrl);
-    return { call, counts, absentUrl };
+    return { call, counts, absentUrl, holdReads };
   }
 
   test("a reader that cancels a pending rotation's events: unsubscribed, and no heartbeat after", async () => {
@@ -720,14 +742,56 @@ describe('API — POST /v1/secrets/:name/rotate — async (202)', () => {
       expect(headHeaders['content-type']).toBe('text/event-stream; charset=utf-8');
       // A rotation that isn't there: the GET's 404.
       const [headMissing, getMissing] = [
-        await call('HEAD', absentUrl),
-        await call('GET', absentUrl),
+        await call('HEAD', { url: absentUrl }),
+        await call('GET', { url: absentUrl }),
       ];
       expect([headMissing.status, getMissing.status, headMissing.body]).toEqual([404, 404, null]);
       expect(Object.fromEntries(headMissing.headers)).toEqual({
         ...Object.fromEntries(getMissing.headers),
         traceresponse: expect.any(String),
       });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a client that leaves during the read of a pending rotation: its events never start', async () => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
+    try {
+      const { call, counts, holdReads } = await pendingRotation();
+      const { waiting, release } = holdReads();
+      const client = new AbortController();
+      const answered = call('GET', { signal: client.signal });
+      await waiting;
+      client.abort();
+      release();
+      const res = await answered;
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      // No subscription and no heartbeat. The body is never touched.
+      expect([counts, vi.getTimerCount()]).toEqual([{ subscribed: 0, unsubscribed: 0 }, 0]);
+      expect([res.status, res.body]).toEqual([200, null]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a client that leaves a pending rotation's events, its body never read: unsubscribed, and no heartbeat after", async () => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
+    try {
+      const { call, counts } = await pendingRotation();
+      const client = new AbortController();
+      const res = await call('GET', { signal: client.signal });
+      expect(res.status).toBe(200);
+      await vi.advanceTimersByTimeAsync(15_000);
+      // Subscribed, with the heartbeat, while the client is there.
+      expect([counts, vi.getTimerCount()]).toEqual([{ subscribed: 1, unsubscribed: 0 }, 1]);
+      client.abort();
+      await vi.advanceTimersByTimeAsync(0);
+      expect([counts, vi.getTimerCount()]).toEqual([{ subscribed: 1, unsubscribed: 1 }, 0]);
     } finally {
       vi.useRealTimers();
     }

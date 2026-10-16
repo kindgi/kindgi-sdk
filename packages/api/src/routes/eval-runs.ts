@@ -35,7 +35,7 @@ import { type SettingsOverridesCheck, checkSettingsOverrides } from './eval-over
 import { type FlowVersionsCheck, checkFlowVersions } from './eval-versions.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
-import { formatSseFrame, pause } from './sse.js';
+import { formatSseFrame, pause, readingOf } from './sse.js';
 import { parseTimeInput } from './time-input.js';
 
 /**
@@ -553,17 +553,22 @@ function readbackRouter(binding: EvalRunBinding, authorizer?: Authorizer): Hono<
       Connection: 'keep-alive',
       'X-Request-Id': requestId,
     };
-    // Hono answers a HEAD with this GET route and drops the body unread, and
-    // nothing cancels it. So a HEAD answers the stream's status and headers
-    // here, before the stream exists, and starts none of its work.
-    if (c.req.method === 'HEAD') return new Response(null, { status: 200, headers });
+    // Nobody will read this stream when the request is a HEAD (Hono answers a
+    // HEAD with this GET route and drops the body unread, and nothing cancels
+    // it) or when the client left during the read above (its request aborts,
+    // but the server cancels only a body it's writing). Then the route
+    // answers the stream's status and headers, before the stream exists, and
+    // starts none of its work.
+    if (c.req.method === 'HEAD' || c.req.raw.signal.aborted) {
+      return new Response(null, { status: 200, headers });
+    }
 
     const encoder = new TextEncoder();
     const POLL_MS = 100;
     const MAX_WAIT_MS = 5 * 60_000;
-    // Aborted when the reader cancels the stream (the client went away). The
-    // poll below ends on it at once.
-    const reading = new AbortController();
+    // Aborted when the client goes away: the reader cancels the stream, or
+    // the request aborts. The poll below ends on it at once.
+    const reading = readingOf(c.req.raw);
 
     // Track which per-case events we've already emitted (index within
     // result.perCase). Kept intentionally small — only the accuracy

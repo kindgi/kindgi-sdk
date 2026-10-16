@@ -53,6 +53,7 @@ import {
   parseLastEventId,
   pause,
   projectJournalEntry,
+  readingOf,
   toRunProgressEvent,
 } from './sse.js';
 import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
@@ -511,18 +512,24 @@ export function runsRouter(
       Connection: 'keep-alive',
       'X-Request-Id': requestId,
     };
-    // Hono answers a HEAD with this GET route and drops the body unread, and
-    // nothing cancels it. So a HEAD answers the stream's status and headers
-    // here, before the stream exists, and starts none of its work.
-    if (c.req.method === 'HEAD') return new Response(null, { status: 200, headers });
+    // Nobody will read this stream when the request is a HEAD (Hono answers a
+    // HEAD with this GET route and drops the body unread, and nothing cancels
+    // it) or when the client left during the read above (its request aborts,
+    // but the server cancels only a body it's writing). Then the route
+    // answers the stream's status and headers, before the stream exists, and
+    // starts none of its work.
+    if (c.req.method === 'HEAD' || c.req.raw.signal.aborted) {
+      return new Response(null, { status: 200, headers });
+    }
 
     const encoder = new TextEncoder();
     let lastEmittedSeq = since ?? -1;
     const POLL_MS = 200;
     const MAX_WAIT_MS = 5 * 60_000;
-    // Aborted when the reader cancels the stream (the client went away). The
-    // poll, the wait and the subscription below end on it at once.
-    const reading = new AbortController();
+    // Aborted when the client goes away: the reader cancels the stream, or
+    // the request aborts. The poll, the wait and the subscription below end
+    // on it at once.
+    const reading = readingOf(c.req.raw);
 
     const body = new ReadableStream<Uint8Array>({
       cancel() {
@@ -584,6 +591,10 @@ export function runsRouter(
         if (eventBus !== undefined) {
           const abortCtrl = new AbortController();
           const stop = (): void => abortCtrl.abort();
+          // `reading` can't have aborted yet: the route answers an aborted
+          // request without a stream, and `start()` runs inside the stream's
+          // constructor up to its first await, so no cancel or abort comes
+          // before this listener.
           reading.signal.addEventListener('abort', stop, { once: true });
           let subscription: Subscription | null = null;
           let fallBackToPoll = false;
