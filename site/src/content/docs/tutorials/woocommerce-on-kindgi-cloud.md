@@ -93,16 +93,12 @@ recorded under its own name.
 **Make the user.** In wp-admin, go to **Users → Add New User**. Name it
 `shop-agent`, give it the **Shop Manager** role, and add it.
 
-**Make its Application Password.** Open **Users → All Users → shop-agent**,
-find **Application Passwords**, name it `kindgi`, and choose **Add New
-Application Password**. WordPress shows it once. Copy it: in chapter 3 your
-agent takes it from your clipboard, never through the chat.
+Its Application Password comes in chapter 3, when your agent asks for it.
 :::
 
 ### See it in your store
 
-**Users** lists `shop-agent`, a Shop Manager, with one Application Password,
-`kindgi`.
+**Users** lists `shop-agent`, a Shop Manager.
 
 ## 3. The store's agents, on Kindgi Cloud
 
@@ -132,6 +128,22 @@ Tell me whenever you need something from me, and wait for me. At the end, tell m
 
 Use your store's own address for `https://shop.acme.example`.
 
+:::note[What only you do]
+**Hand over two keys, without pasting them into the chat.** The agent asks
+for each in turn and moves it from your clipboard straight into Kindgi:
+
+- **The store's Application Password,** made when the agent asks for it. In
+  wp-admin, open **Users → All Users → shop-agent**, find **Application
+  Passwords**, name it `kindgi`, and choose **Add New Application
+  Password**. WordPress shows it once: copy it, and say "copied".
+- **Your model key:** with your AI provider, create an API key for this
+  tutorial and copy it. When the agent asks which provider, answer with its
+  name and "copied": "Anthropic, copied", say.
+
+Kindgi Cloud keeps both in your workspace's secrets, and hands the store's
+password only to the tools that declare they need it.
+:::
+
 ### What your agent should say
 
 `kindgi deploy --hosted` builds the pack on Kindgi Cloud, streams the build,
@@ -152,21 +164,11 @@ CAPTURE: kindgi deploy --hosted for acme-shop, from the build to the pack servic
 CAPTURE: the console's Tools for acme-shop on Kindgi Cloud
 ```
 
-:::note[What only you do]
-**Hand over two keys, without pasting them into the chat.** The agent asks
-for each in turn and moves it from your clipboard straight into Kindgi:
-
-- **The store's Application Password** from chapter 2: say "copied".
-- **Your model key:** with your AI provider, create an API key for this
-  tutorial and copy it. When the agent asks which provider, answer with its
-  name and "copied": "Anthropic, copied", say.
-
-Kindgi Cloud keeps both in your workspace's secrets, and hands the store's
-password only to the tools that declare they need it.
-:::
-
 <details>
 <summary>Under the hood: what the template made</summary>
+
+Abridged: the tests, and the store in memory they run against
+(`lib/fake-store.ts`), are left out.
 
 ```text
 acme-shop/
@@ -248,7 +250,7 @@ CAPTURE: Kindgi → Settings, connected
 <details>
 <summary>Under the hood: the site and its people</summary>
 
-The site is registered with the client's `projects.sites.register`, which
+The site is registered through the SDK client's `projects.sites.register`, which
 returns the one-time code. With the defaults, an administrator or a shop
 manager may sign in, ask the project's agents, and review at the `standard`
 role. An editor who sees the page is refused.
@@ -298,7 +300,7 @@ CAPTURE: the order's refund in WooCommerce
 
 **Dashboard → Runs:** the run at the top, `completed`. It looked the order
 up, then made one call to `acme-shop.woo.refund`. The conversation it
-belongs to was opened by you, shown with your name and "via Acme Shop".
+belongs to is yours, opened from your store.
 
 ```text
 CAPTURE: the run in the console, from a conversation opened via Acme Shop
@@ -342,8 +344,8 @@ The order's page lists a refund of 150, by Shop agent.
 
 ### See it in Kindgi's console
 
-The approval says who asked and who decided: "approved by <your name>, via
-Acme Shop".
+The approval names who asked (Jane), who decided (you), and the store it
+came through.
 
 ```text
 CAPTURE: the decided approval in the console, Jane asking and you approving
@@ -352,9 +354,9 @@ CAPTURE: the decided approval in the console, Jane asking and you approving
 :::note[When two people must really decide]
 A site vouches for its own staff, so whoever controls the site (its
 administrators, its plugins, its host) could sign in as Jane and as you.
-For money, give the refund tools a reviewer role above the site's
-ceiling: then someone signed in to Kindgi directly decides, never the store
-alone. [Four eyes](../../guides/approvals/ask-and-approve-in-wordpress/#four-eyes)
+If a refund must never be decided through the store alone, give the refund
+tools a reviewer role above the site's ceiling: then only someone signed in
+to Kindgi directly can decide. [Four eyes](../../guides/approvals/ask-and-approve-in-wordpress/#four-eyes)
 shows how.
 :::
 
@@ -410,7 +412,7 @@ CAPTURE: the webhook-started review in the console
 
 ### The goal
 
-The project in production, so its runs are your client's real work, not
+The project in production, so its runs are the store's real work, not
 tests.
 
 :::note[What only you do]
@@ -428,14 +430,14 @@ then on are production runs.
 
 - **The store agent can't sign in to the store.** Some hosts strip the
   `Authorization` header that the Application Password travels in. In
-  wp-admin, **Tools → Site Health** shows it as a failed "Authorization
-  header" check, and your host can turn it back on.
+  wp-admin, **Tools → Site Health** then says "The authorization header is
+  missing", and your host can pass it through again.
 - **The store agent's calls never reach the store.** A host firewall, a WAF
-  or a security plugin may refuse requests from cloud addresses. Allow
-  Kindgi Cloud's outgoing addresses:
+  or a security plugin may refuse requests from cloud addresses. Allow the
+  addresses that the store's tools call from on Kindgi Cloud:
 
   ```text
-  CAPTURE: where Kindgi Cloud's outgoing addresses are listed
+  CAPTURE: where the addresses that Kindgi Cloud's packs call out from are listed
   ```
 
   Kindgi Cloud reaches stores over IPv4, so a store reachable only over IPv6
