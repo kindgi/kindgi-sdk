@@ -22,6 +22,7 @@ import {
   type SandboxPolicy,
   classpathEntries,
   linkedPackages,
+  pnpmStoreNodeModules,
   sandboxPolicy,
   symlinksOf,
 } from '../src/dev/sandbox/policy.js';
@@ -393,6 +394,49 @@ describe('the policy', () => {
     });
     expect(policy.readRoots).toEqual([uvPython]);
     expect(policy.skipped).toEqual([home]);
+  });
+
+  test('a pnpm store package: its deps are siblings, so the walk opens each reached slot — and only those', async () => {
+    const app = join(root, 'app');
+    const store = join(root, 'store', 'node_modules', '.pnpm');
+    const pkgNm = join(store, 'pkg@1.0.0', 'node_modules');
+    const depNm = join(store, 'dep@2.0.0', 'node_modules');
+    const scopedNm = join(store, '@acme+util@3.0.0', 'node_modules');
+    const otherNm = join(store, 'other@9.0.0', 'node_modules');
+    for (const [dir, deps] of [
+      [join(pkgNm, 'pkg'), { dep: '^2', '@acme/util': '^3' }],
+      [join(depNm, 'dep'), {}],
+      [join(scopedNm, '@acme', 'util'), {}],
+      [join(otherNm, 'other'), {}],
+      [app, { pkg: 'link:../store/node_modules/.pnpm/pkg@1.0.0/node_modules/pkg' }],
+    ] as const) {
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, 'package.json'), JSON.stringify({ dependencies: deps }));
+    }
+    // the app links to the store package; that package's own deps live as its
+    // siblings in the enclosing node_modules, where pnpm puts them.
+    await mkdir(join(app, 'node_modules'), { recursive: true });
+    await mkdir(join(pkgNm, '@acme'), { recursive: true });
+    await symlink(join(pkgNm, 'pkg'), join(app, 'node_modules', 'pkg'));
+    await symlink(join(depNm, 'dep'), join(pkgNm, 'dep'));
+    await symlink(join(scopedNm, '@acme', 'util'), join(pkgNm, '@acme', 'util'));
+
+    const open = linkedPackages([app], [app, join(app, 'node_modules')]).sort();
+    // each reached slot's enclosing node_modules, scoped dep included
+    expect(open).toEqual([depNm, pkgNm, scopedNm].sort());
+    // the slot nothing reaches stays closed
+    expect(open).not.toContain(otherNm);
+  });
+
+  test('a store package is recognised by its slot, a workspace or link: package is not', () => {
+    const store = join(root, 'node_modules', '.pnpm');
+    const slot = join(store, 'pkg@1.2.3', 'node_modules');
+    const scoped = join(store, '@acme+util@3.0.0', 'node_modules');
+    expect(pnpmStoreNodeModules(join(slot, 'pkg'))).toBe(slot);
+    expect(pnpmStoreNodeModules(join(scoped, '@acme', 'util'))).toBe(scoped);
+    // a workspace package and an app's own node_modules are not store slots
+    expect(pnpmStoreNodeModules(join(root, 'checkout', 'packages', 'sdk'))).toBeUndefined();
+    expect(pnpmStoreNodeModules(join(root, 'app', 'node_modules', 'zod'))).toBeUndefined();
   });
 
   test("a checkout's linked packages: each one's own folder, theirs in turn; never a parent, never a covered link", async () => {
