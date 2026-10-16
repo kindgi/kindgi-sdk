@@ -741,6 +741,14 @@ export function runsRouter(
     const runId = c.req.param('runId') as RunId;
     const sinceRaw = c.req.query('since');
     const since = sinceRaw !== undefined ? Number.parseInt(sinceRaw, 10) : undefined;
+    // Paging is opt-in: with `limit`, at most that many entries after
+    // `cursor`; without it, the whole journal, as before paging.
+    const paging = parseJournalPaging(c.req.query('limit'), c.req.query('cursor'));
+    if (paging.kind === 'err') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: paging.message }, requestId));
+    }
+    const { limit, after } = paging;
 
     const journal = await runBinding.readJournal(tenantId, runId);
     if (journal.kind === 'err') {
@@ -749,13 +757,19 @@ export function runsRouter(
       return c.json(toWireError(err as never, requestId));
     }
 
-    const filtered =
-      since !== undefined && Number.isFinite(since)
-        ? journal.value.filter((e) => e.sequence > since)
-        : journal.value;
+    // `readJournal` gives the entries in sequence order.
+    const filtered = journal.value.filter(
+      (e) =>
+        (since === undefined || !Number.isFinite(since) || e.sequence > since) &&
+        (after === undefined || e.sequence > after),
+    );
+    const page = limit !== undefined ? filtered.slice(0, limit) : filtered;
+    // The page's last entry, when more remain after it.
+    const endsBefore = page.length < filtered.length ? page.at(-1) : undefined;
     return c.json({
-      data: filtered,
-      hasMore: false,
+      data: page,
+      hasMore: endsBefore !== undefined,
+      ...(endsBefore !== undefined && { nextCursor: encodeJournalCursor(endsBefore.sequence) }),
     });
   });
 
@@ -1283,4 +1297,55 @@ function parseStartRunBody(
       ...(wait !== undefined && { wait }),
     },
   };
+}
+
+/**
+ * A journal read's paging: at most `limit` entries (a whole number from 1;
+ * more than 100 gives 100), after the sequence `cursor` names. An empty
+ * one is none. One that isn't one is refused, never read as a default.
+ */
+function parseJournalPaging(
+  limitRaw: string | undefined,
+  cursorRaw: string | undefined,
+):
+  | { readonly kind: 'ok'; readonly limit: number | undefined; readonly after: number | undefined }
+  | { readonly kind: 'err'; readonly message: string } {
+  let limit: number | undefined;
+  if (limitRaw !== undefined && limitRaw !== '') {
+    if (!/^[1-9][0-9]*$/.test(limitRaw)) {
+      return {
+        kind: 'err',
+        message: '`limit` must be a whole number, 1 or more (a page holds at most 100)',
+      };
+    }
+    limit = clampLimit(limitRaw);
+  }
+  let after: number | undefined;
+  if (cursorRaw !== undefined && cursorRaw !== '') {
+    const decoded = decodeJournalCursor(cursorRaw);
+    if (decoded === null) return { kind: 'err', message: '`cursor` is malformed' };
+    after = decoded;
+  }
+  return { kind: 'ok', limit, after };
+}
+
+/**
+ * A journal page's cursor: url-safe base64 of `{ sequence }`, the last
+ * entry the page gave. The next page starts after it.
+ */
+function encodeJournalCursor(sequence: number): string {
+  return Buffer.from(JSON.stringify({ sequence }), 'utf8').toString('base64url');
+}
+
+/** The sequence a journal cursor names, or `null` for one that isn't (answered `400 bad-input`). */
+function decodeJournalCursor(raw: string): number | null {
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown;
+    const sequence = (parsed as { sequence?: unknown } | null)?.sequence;
+    return typeof sequence === 'number' && Number.isSafeInteger(sequence) && sequence >= 0
+      ? sequence
+      : null;
+  } catch {
+    return null;
+  }
 }

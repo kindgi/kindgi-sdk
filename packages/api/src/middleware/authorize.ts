@@ -130,7 +130,7 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
     resource: ResourceRef,
   ): Promise<Decision | undefined> {
     const refused =
-      undefinedRelation(action, resource) ??
+      undefinedRelation(c, action, resource) ??
       keyCeilingDeny(c, action, resource) ??
       ((await inKeyProject(c, principal, resource))
         ? undefined
@@ -276,13 +276,24 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
  * resource's type (`OBJECT_ACTIONS`, kept equal to the runtime's model by
  * its tests). Any other pair is a bug in the route: the PDP rejects it
  * for everyone, the seed admin included, and only with authorization on,
- * so it's refused here, naming the pair, and logged.
+ * so it's refused here, naming the pair, and logged at `error` through the
+ * request's logger (subsystem `authz`).
  */
-function undefinedRelation(action: Action, resource: ResourceRef): Decision | undefined {
+function undefinedRelation(
+  c: Context<AppEnv>,
+  action: Action,
+  resource: ResourceRef,
+): Decision | undefined {
   const defined = OBJECT_ACTIONS[resource.type as ObjectType] as readonly Action[] | undefined;
   if (defined?.includes(action) === true) return undefined;
   const reason = `the authorization model has no \`${action}\` on \`${resource.type}\` (a check that can never pass: a bug in the route)`;
-  console.error(`[authz] ${reason}`);
+  c.get('log')
+    .child({ subsystem: 'authz' })
+    .error(
+      reason,
+      { action, resource: `${resource.type}:${resource.id}` },
+      { inMessage: ['action'] },
+    );
   return {
     allowed: false,
     failing: 'invalid-action',

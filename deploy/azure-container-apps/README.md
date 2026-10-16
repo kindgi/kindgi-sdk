@@ -83,17 +83,20 @@ The mirrored runtime keeps the release's digest. Set `server_image` and `pack_im
 
 ## 3. Secret values
 
-A Key Vault secret can't exist without a value, so you create each one. Every value is piped straight into Key Vault: none goes on disk, into Terraform, or onto a command line, except the database password, which `az postgres flexible-server update` takes as an argument (as `gcloud sql users create` does on GCP).
+A Key Vault secret can't exist without a value, so you create each one. Every value is piped straight into Key Vault, or into az for the database password: none goes on disk, into Terraform, or onto a command line. Don't run these commands with `--debug`: it prints each request's body, values included.
 
 ```sh
+# Off in this shell: az's log file, if it's on, records each request's body.
+export AZURE_LOGGING_ENABLE_LOG_FILE=no
+
 V=$(terraform output -raw key_vault_name)
 PG=$(terraform output -raw database_server_name)
 FQDN=$(terraform output -raw database_fqdn)
 put() { az keyvault secret set --vault-name "$V" -n "$1" --file /dev/stdin --query id -o tsv; }
 
-# Kindgi's database login: set its password, then the URL with it.
+# Kindgi's database login: set its password (`@-` reads it from the input), then the URL with it.
 DBPW=$(openssl rand -hex 24)
-az postgres flexible-server update -g <rg> -n "$PG" --admin-password "$DBPW" -o none
+printf '%s' "$DBPW" | az postgres flexible-server update -g <rg> -n "$PG" --admin-password @- -o none
 printf 'postgres://kindgiadmin:%s@%s:5432/kindgi?sslmode=require' "$DBPW" "$FQDN" | put database-url
 unset DBPW
 
@@ -198,6 +201,7 @@ server_env = {
 **With an emailed link.** It needs the server's sign-in secret, an SMTP server and `public_url`:
 
 ```sh
+# In the shell from step 3: it defines `put` and keeps az's log file off. No `--debug`.
 # The sign-in secret: 32 bytes, base64.
 openssl rand 32 | base64 | tr -d '\n' | put auth-secret
 # The SMTP URL, password included: paste it; it never goes in a file.

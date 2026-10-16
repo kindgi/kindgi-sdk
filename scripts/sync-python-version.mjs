@@ -26,29 +26,42 @@
  *
  * Writing runs `uv version <version> --no-sync` in each project that
  * differs: uv sets `[project] version` in place (nothing else in the file
- * changes) and re-locks, so writing needs uv. `pnpm run version-packages`
- * runs it after `changeset version`, so the "Version Packages" pull request
- * moves the Python projects too. `--check` only reads (no uv): CI runs it,
- * and so does the PyPI publish job before it builds, so PyPI never gets a
- * version that differs from npm's.
+ * changes) and re-locks, so writing needs uv.
+ *
+ * `--release` also stamps `sdks/python/CHANGELOG.md`: its `## Unreleased`
+ * section becomes `## <v>`, spelled for PEP 440
+ * (scripts/lib/stamp-unreleased.mjs). `pnpm run version-packages` runs it
+ * that way after `changeset version`, so the "Version Packages" pull
+ * request moves and stamps the Python projects too. A plain run only moves
+ * the versions: a branch catching up with main's version releases nothing.
+ * `--check` only reads (no uv): CI runs it, and so does the PyPI publish
+ * job before it builds, so PyPI never gets a version that differs from
+ * npm's.
  *
  * Usage:
- *   node scripts/sync-python-version.mjs          write the version
- *   node scripts/sync-python-version.mjs --check  fail if a project differs (CI)
+ *   node scripts/sync-python-version.mjs            write the version
+ *   node scripts/sync-python-version.mjs --release  write it and stamp the changelog
+ *   node scripts/sync-python-version.mjs --check    fail if anything differs (CI)
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { StampError, stampUnreleased, unreleasedProblems } from './lib/stamp-unreleased.mjs';
+
 /** The Python projects (repository-relative directories) that version with the npm packages. */
 export const PYTHON_PROJECTS = ['sdks/python', 'sdks/python-cli'];
+/** The Python projects' changelog, stamped by `--release`. */
+export const CHANGELOG = 'sdks/python/CHANGELOG.md';
+/** A stamped section with no entries says so. */
+export const NO_CHANGES = 'No Python changes; the version moves with the npm packages.';
 
 /** The package whose fixed group sets the version. */
 const CANONICAL = '@kindgi/sdk';
 const NAME = 'sync-python-version';
-const USAGE = 'usage: node scripts/sync-python-version.mjs [--check]';
+const USAGE = 'usage: node scripts/sync-python-version.mjs [--release | --check]';
 
 /** A refusal: its message says what's wrong and what to do; no stack trace. */
 export class SyncError extends Error {}
@@ -278,8 +291,10 @@ function writeProject(root, dir, version) {
 
 function main(args) {
   const check = args.includes('--check');
-  const unknown = args.filter((arg) => arg !== '--check');
+  const release = args.includes('--release');
+  const unknown = args.filter((arg) => arg !== '--check' && arg !== '--release');
   if (unknown.length > 0) throw new SyncError(`unknown argument ${unknown[0]}; ${USAGE}`);
+  if (check && release) throw new SyncError(`--check only reads; --release writes. ${USAGE}`);
   if (!check) requireUv();
 
   const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
@@ -289,18 +304,31 @@ function main(args) {
   );
   const npm = fixedGroupVersion(config, workspace);
   const version = toPep440(npm.version);
+  if (!existsSync(join(root, CHANGELOG))) throw new SyncError(`${CHANGELOG} is missing`);
+  const changelog = readFileSync(join(root, CHANGELOG), 'utf8');
 
   if (!check) {
+    // Stamp before writing anything: a changelog that can't be stamped stops the run whole.
+    const stamped = release
+      ? stampUnreleased(changelog, version, NO_CHANGES, CHANGELOG)
+      : changelog;
     for (const dir of PYTHON_PROJECTS) writeProject(root, dir, version);
+    if (stamped !== changelog) {
+      writeFileSync(join(root, CHANGELOG), stamped);
+      console.log(`${NAME}: ${CHANGELOG}: "## Unreleased" → "## ${version}"`);
+    }
     return;
   }
-  const problems = PYTHON_PROJECTS.flatMap((dir) => differences(readProject(root, dir), version));
+  const problems = [
+    ...PYTHON_PROJECTS.flatMap((dir) => differences(readProject(root, dir), version)),
+    ...unreleasedProblems(changelog, CHANGELOG),
+  ];
   if (problems.length > 0) {
     throw new SyncError(
       [
         `the Python projects must have the npm packages' version, ${npm.version} (${version} for Python):`,
         ...problems.map((problem) => `  - ${problem}`),
-        'Run `node scripts/sync-python-version.mjs` (needs uv); `pnpm run version-packages` runs it after `changeset version`.',
+        'Run `node scripts/sync-python-version.mjs` (needs uv); `pnpm run version-packages` runs it (with --release) after `changeset version`.',
       ].join('\n'),
     );
   }
@@ -318,7 +346,7 @@ if (
   try {
     main(process.argv.slice(2));
   } catch (err) {
-    if (!(err instanceof SyncError)) throw err;
+    if (!(err instanceof SyncError || err instanceof StampError)) throw err;
     console.error(`${NAME}: ${err.message}`);
     process.exit(1);
   }

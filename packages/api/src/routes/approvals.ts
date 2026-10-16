@@ -120,7 +120,13 @@ export interface ApprovalsRouterOptions {
  * (`TokenResolution.reviewerRole`), or its user's in the reviewer roster
  * (`ReviewerBinding.resolveReviewerRole`). A caller with neither gets
  * `403 permission-denied` on every approvals route — this surface is
- * reviewer-only.
+ * reviewer-only — with one exception: with an authorizer, a person who
+ * is the tenant's admin reads (the list and one approval) at every tier.
+ * With no roster entry, they read as an `admin` reviewer. A reviewer below
+ * `admin` who is one reads their own tier, and any tier they ask for
+ * (`requiredRole`, or one approval). It's the set that may register itself
+ * as an `admin` reviewer (`reviewersRouter`). Deciding stays the roster's,
+ * and an API key with no user reads nothing it couldn't before.
  *
  * Visibility filter: a caller with role `R` sees approvals whose
  * `requiredRole` rank ≤ their rank (standard < senior < admin). The
@@ -161,12 +167,31 @@ export function approvalsRouter(
   const mayRead = async (c: Context<AppEnv>, approval: Approval): Promise<boolean> =>
     authorizer === undefined ||
     authorizer.can(c, 'read', await approvalRef(c.get('tenantId') as TenantId, approval));
+  /**
+   * Whether the caller reads at every tier as the tenant's admin: a person
+   * (a key with no user never) who is one. Asked only where it changes what
+   * the roster gives, since the authorizer records each check it makes: a
+   * reviewer reading their own tier makes none.
+   */
+  const readsAsTenantAdmin = async (c: Context<AppEnv>): Promise<boolean> =>
+    authorizer !== undefined &&
+    c.get('userId') !== undefined &&
+    authorizer.can(c, 'admin', ref('tenant', c.get('tenantId') as unknown as string));
 
   // ---------- role gate for the whole resource ----------
   // A reviewer: a token that carries a role, or whose user the roster
-  // names (a session or API key of a registered reviewer).
+  // names (a session or API key of a registered reviewer). A read (the
+  // only GETs here are the list and one approval) by someone the roster
+  // doesn't name, who is a person and the tenant's admin, goes on as an
+  // `admin` reviewer: the tier checks then pass, and the project filter
+  // still applies. The roster shows no entry; the authorizer records the
+  // check, as it records every one.
   r.use('*', async (c, next) => {
-    const role = await callerReviewerRole(c, reviewerBinding);
+    let role = await callerReviewerRole(c, reviewerBinding);
+    if (role === undefined && c.req.method === 'GET' && (await readsAsTenantAdmin(c))) {
+      role = 'admin';
+      c.set('reviewerRole', role);
+    }
     if (role === undefined) {
       return refused(c, authorizer, {
         action: c.req.method === 'GET' ? 'read' : 'admin',
@@ -184,7 +209,7 @@ export function approvalsRouter(
   r.get('/', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-    const role = c.get('reviewerRole') as ReviewerRole;
+    let role = c.get('reviewerRole') as ReviewerRole;
     const limit = clampLimit(c.req.query('limit'));
 
     const scopeParsed = parseListScope(c.req.query(), { tenantId });
@@ -246,14 +271,19 @@ export function approvalsRouter(
       requiredRoleFilter = requiredRoleRaw as ReviewerRole;
       // Refuse a filter that asks for a tier the caller cannot decide —
       // preserves the "reviewer never sees above their tier" guardrail
-      // regardless of what the caller passes.
+      // regardless of what the caller passes — unless the caller reads at
+      // every tier as the tenant's admin.
       if (REVIEWER_ROLE_RANK[requiredRoleFilter] > REVIEWER_ROLE_RANK[role]) {
-        return refused(c, authorizer, {
-          action: 'read',
-          resource: ref('tenant', c.get('tenantId') as unknown as string),
-          message: `Role ${role} cannot query approvals scoped to ${requiredRoleFilter}.`,
-          failing: 'actor',
-        });
+        if (!(await readsAsTenantAdmin(c))) {
+          return refused(c, authorizer, {
+            action: 'read',
+            resource: ref('tenant', c.get('tenantId') as unknown as string),
+            message: `Role ${role} cannot query approvals scoped to ${requiredRoleFilter}.`,
+            failing: 'actor',
+          });
+        }
+        role = 'admin';
+        c.set('reviewerRole', role);
       }
     }
 
@@ -456,11 +486,13 @@ export function approvalsRouter(
     }
     const approval = got.value;
     // Out-of-scope reads are 404 (per API-ROUTE-CONVENTIONS.md §2.4 —
-    // avoid leaking existence across role tiers).
-    if (
-      REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] ||
-      !(await mayRead(c, approval))
-    ) {
+    // avoid leaking existence across role tiers). One above the caller's
+    // tier is in scope for a caller who reads at every tier as the
+    // tenant's admin.
+    const aboveTier =
+      REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] &&
+      !(await readsAsTenantAdmin(c));
+    if (aboveTier || !(await mayRead(c, approval))) {
       c.status(statusFor('approval-not-found') as never);
       return c.json(
         toWireError(
