@@ -4,6 +4,7 @@
 import { Hono } from 'hono';
 import { describe, expect, test, vi } from 'vitest';
 
+import type { Logger } from '@kindgi/log';
 import type { TenantId } from '@kindgi/types';
 
 import {
@@ -263,5 +264,228 @@ describe('idempotencyMiddleware: a key is held while its request runs (T349)', (
       kind: 'stored',
       entry: entry('first'),
     });
+  });
+});
+
+type StoreCall = 'get' | 'set' | 'hold' | 'renew' | 'release';
+
+/**
+ * The in-memory store, each call in `failing` throwing `failure` while it's
+ * there: a store whose backend fails for a moment.
+ */
+function failingStore() {
+  const memory = createInMemoryIdempotencyStore();
+  const holds = memory.holds;
+  if (holds === undefined) throw new Error('the in-memory store holds keys');
+  const failing = new Set<StoreCall>();
+  const failure = new Error('connection reset');
+  const or =
+    <A extends unknown[], R>(call: StoreCall, fn: (...args: A) => Promise<R>) =>
+    async (...args: A): Promise<R> => {
+      if (failing.has(call)) throw failure;
+      return fn(...args);
+    };
+  const store: IdempotencyStore = {
+    get: or('get', memory.get),
+    set: or('set', memory.set),
+    holds: {
+      hold: or('hold', holds.hold),
+      renew: or('renew', holds.renew),
+      release: or('release', holds.release),
+    },
+  };
+  return { store, failing, failure };
+}
+
+/**
+ * A route behind the middleware over `store`, with the request's log kept:
+ * its handler answers `status` (201 by default), once `gate` lets it.
+ */
+function loggedApp(store: IdempotencyStore, opts: { holdMs?: number } = {}) {
+  const lines: { level: string; message: string; err: unknown }[] = [];
+  const at = (level: string) => (message: string, fields?: { readonly err?: unknown }) =>
+    void lines.push({ level, message, err: fields?.err });
+  const log = { error: at('error'), warn: at('warn'), info: at('info'), debug: at('debug') };
+  let ran = 0;
+  let status = 201;
+  let gate: Promise<void> | undefined;
+  const hono = new Hono<AppEnv>();
+  hono.use('*', async (c, next) => {
+    c.set('requestId', 'req-test');
+    c.set('tenantId', '00000000-0000-4000-8000-000000000001' as TenantId);
+    c.set('log', log as unknown as Logger);
+    await next();
+  });
+  hono.use(
+    '*',
+    idempotencyMiddleware(store, opts.holdMs === undefined ? {} : { holdMs: opts.holdMs }),
+  );
+  hono.post('/v1/things', async (c) => {
+    ran += 1;
+    const run = ran;
+    await gate;
+    return c.json({ id: `thing-${run}` }, status as never);
+  });
+  const post = (key: string) =>
+    hono.request('/v1/things', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': key },
+      body: JSON.stringify({ name: 'acme' }),
+    });
+  return {
+    post,
+    ran: () => ran,
+    lines,
+    answer: (next: number) => {
+      status = next;
+    },
+    /** Hold the handler until the returned function is called. */
+    hold: () => {
+      let open = () => {};
+      gate = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      return open;
+    },
+  };
+}
+
+const STORE_UNAVAILABLE_MESSAGE =
+  "The Idempotency-Key store can't be read just now, so nothing was changed: try again with the same key.";
+
+describe('idempotencyMiddleware: a store that fails', () => {
+  test.each(['get', 'hold'] as const)(
+    'a %s that fails before the write runs: 503 idempotency-store-unavailable with Retry-After, logged as an error, and the handler never runs; a retry once the store reads runs once',
+    async (call) => {
+      const { store, failing, failure } = failingStore();
+      const a = loggedApp(store);
+      failing.add(call);
+      const refused = await a.post('k1');
+      expect(refused.status).toBe(503);
+      expect(refused.headers.get('Retry-After')).toBe('5');
+      const body = (await refused.json()) as {
+        error: { code: string; message: string; requestId: string };
+      };
+      expect(body.error).toEqual({
+        code: 'idempotency-store-unavailable',
+        message: STORE_UNAVAILABLE_MESSAGE,
+        requestId: 'req-test',
+      });
+      expect(a.ran()).toBe(0);
+      expect(a.lines).toEqual([
+        {
+          level: 'error',
+          message: "could not read the Idempotency-Key store; the request didn't run",
+          err: failure,
+        },
+      ]);
+
+      failing.clear();
+      const retried = await a.post('k1');
+      expect(retried.status).toBe(201);
+      expect(await retried.json()).toEqual({ id: 'thing-1' });
+      expect((await a.post('k1')).headers.get('X-Idempotent-Replay')).toBe('true');
+      expect(a.ran()).toBe(1);
+    },
+  );
+
+  test("a store's query that fails is logged without its text or values: the query error is logged as the central handler logs one", async () => {
+    const { store, failing } = failingStore();
+    const driver = new Error('connection reset');
+    const query = Object.assign(
+      new Error(
+        'Failed query: select "body_sha256" from "api_idempotency_records" where "key" = $1\nparams: acme-key-canary',
+      ),
+      { name: 'DrizzleQueryError', cause: driver },
+    );
+    const a = loggedApp({
+      ...store,
+      get: async (key) => {
+        if (failing.has('get')) throw query;
+        return store.get(key);
+      },
+    });
+    failing.add('get');
+    expect((await a.post('k1')).status).toBe(503);
+    expect(a.lines).toHaveLength(1);
+    const logged = a.lines[0]?.err as Error;
+    expect(logged.message).toBe('A database query failed.');
+    expect(logged.name).toBe('DrizzleQueryError');
+    expect(logged.cause).toBe(driver);
+    expect(JSON.stringify(a.lines)).not.toContain('acme-key-canary');
+    expect(String(logged.stack)).not.toContain('acme-key-canary');
+  });
+
+  test("an answer that can't be stored stands, logged as an error; the hold isn't released, so an immediate repeat is in flight, not a second run, until the hold lapses", async () => {
+    const { store, failing, failure } = failingStore();
+    const a = loggedApp(store, { holdMs: 60 });
+    failing.add('set');
+    const first = await a.post('k1');
+    expect(first.status).toBe(201);
+    expect(await first.json()).toEqual({ id: 'thing-1' });
+    expect(first.headers.get('X-Idempotent-Replay')).toBeNull();
+    expect(a.lines).toEqual([
+      {
+        level: 'error',
+        message: "could not store the request's answer for its Idempotency-Key",
+        err: failure,
+      },
+    ]);
+
+    failing.clear();
+    const repeat = await a.post('k1');
+    expect(repeat.status).toBe(409);
+    expect(((await repeat.json()) as { error: { code: string } }).error.code).toBe(
+      'idempotency-key-in-flight',
+    );
+    expect(a.ran()).toBe(1);
+
+    // Nothing was stored to replay: once the hold lapses, as a crashed
+    // request's does, a repeat runs.
+    await new Promise((resolve) => setTimeout(resolve, 90));
+    expect((await a.post('k1')).status).toBe(201);
+    expect(a.ran()).toBe(2);
+  });
+
+  test("a hold that can't be renewed is logged as a warning, and the answer doesn't change", async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+    try {
+      const { store, failing, failure } = failingStore();
+      const a = loggedApp(store, { holdMs: 60 });
+      const open = a.hold();
+      const first = a.post('k1');
+      failing.add('renew');
+      await vi.advanceTimersByTimeAsync(30);
+      open();
+      const answer = await first;
+      expect(answer.status).toBe(201);
+      expect(await answer.json()).toEqual({ id: 'thing-1' });
+      expect(a.lines.length).toBeGreaterThan(0);
+      for (const line of a.lines) {
+        expect(line).toEqual({
+          level: 'warn',
+          message: 'could not renew the Idempotency-Key hold; it lapses unless renewed',
+          err: failure,
+        });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a hold that can't be released is logged as a warning, and the refusal stands", async () => {
+    const { store, failing, failure } = failingStore();
+    const a = loggedApp(store);
+    a.answer(403);
+    failing.add('release');
+    const refused = await a.post('k1');
+    expect(refused.status).toBe(403);
+    expect(a.lines).toEqual([
+      {
+        level: 'warn',
+        message: 'could not release the Idempotency-Key hold; it lapses within its hold time',
+        err: failure,
+      },
+    ]);
   });
 });
