@@ -257,6 +257,27 @@ $(terraform output -raw license_enroll_command)   # fill in --for first
   - The server gets no access to the renewer key.
   - Its runs: `az containerapp job execution list -n <name_prefix>-license-renew -g <rg> -o table`.
   - **Two alerts come with it:** a failed run, and a key within 7 days of expiring (the run's own line, `⚠ It expires in N days`). They go to the action groups in `alert_action_groups`; with none, they fire in Azure Monitor only.
+- **Counts of the deployment's use,** for a non-production key (the docs' Renew the license key page says what they are, under "What renewing sends"): mint a system key holding `system:license` alone with the deployment's own token, put it in the vault, then set `license_usage_key_secret` to its secret's name and apply. The job then reads that secret too, and renews with `--runtime` (the server) and `--runtime-token` (that secret), as `license_renew_command` does. Terraform never holds the key, and the server gets no access to it.
+
+  ```sh
+  # Off in this shell: az's log file, if it's on, records each request's body.
+  export AZURE_LOGGING_ENABLE_LOG_FILE=no
+  V=$(terraform output -raw key_vault_name)
+  put() { az keyvault secret set --vault-name "$V" -n "$1" --file /dev/stdin --query id -o tsv; }
+
+  # The deployment's own token, read from the vault into this shell only.
+  KINDGI_API_TOKEN=$(az keyvault secret show --vault-name "$V" -n api-token --query value -o tsv)
+  KEY=$(curl -sS -X POST "$(terraform output -raw server_url)/v1/system/keys" \
+    -H "Authorization: Bearer $KINDGI_API_TOKEN" \
+    -H 'Content-Type: application/json' \
+    -H "Idempotency-Key: $(uuidgen)" \
+    -d '{"scopes": ["system:license"], "label": "license renewal"}' \
+    | jq -r '.token // error(.error.message)') && [ -n "$KEY" ] \
+    && printf '%s' "$KEY" | put license-usage-key
+  unset KEY KINDGI_API_TOKEN
+  ```
+
+  Then `license_usage_key_secret = "license-usage-key"`. The key is never printed: a refused mint prints its error instead, and nothing goes in the vault. To list the keys or revoke one, see "A key for the counts" on that page. A server serving one tenant that refuses the mint with `system-principal-required` predates these keys: until you upgrade it, the job renews without counts.
 - **When a new key is used:** the server reads `license-key` without a version, so it gets the new key as for any rotated secret (see "Rotating a secret" above, and [Microsoft: Key Vault secret URI and secret rotation](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)). Until then it runs on the key it started with. A running server never stops over its key.
 - **Stopping:** unset `license_renewal_schedule`, or stop the renewer on access.kindgi.com.
 

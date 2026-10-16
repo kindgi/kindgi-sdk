@@ -1964,7 +1964,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemKeys.mint',
     summary: 'Mint a system key',
     description:
-      "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. A runtime serving one tenant has no system keys: there, the deployment's own token is that tenant's, and this route isn't mounted.",
+      "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, for the license renewal, and every other route refuses it.",
     tags: ['system-keys'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -1973,10 +1973,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'System key minted.', schema: ref('MintSystemKeyResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'Malformed request body: no scopes, one that is not a system scope, a scope twice, `kindgi:system` beside another, a past `expiresAt`, or an empty label.',
+        'Malformed request body: no scopes, one that is not a system scope, a scope twice, `kindgi:system` beside another, a past `expiresAt`, or an empty label; on a runtime serving one tenant, any scope but `system:license`.',
       ),
       '403': ErrorResponse(
-        "A tenant's key or session (`system-principal-required`); a scoped system key (`system-scope-missing`, `details.scope` `kindgi:system`); a key that would outlive the key minting it (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a full key minted by another system key without `expiresAt` (`system-key-expiry-required`: only the deployment's own token mints one that never expires).",
+        "A tenant's key or session (`system-principal-required`); a scoped system key (`system-scope-missing`, `details.scope` `kindgi:system`; on a runtime serving one tenant, `system-key-scope-not-served` for one holding anything but `system:license`); a key that would outlive the key minting it (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a full key minted by another system key without `expiresAt` (`system-key-expiry-required`: only the deployment's own token mints one that never expires).",
       ),
       '409': ErrorResponse(
         "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`).",
@@ -1993,14 +1993,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemKeys.list',
     summary: 'List system keys',
     description:
-      "The operator's system keys (`kgi_sy_…`) on a runtime serving many tenants: each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them.",
+      "The operator's system keys (`kgi_sy_…`): each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them; on a runtime serving one tenant, the deployment's own token alone.",
     tags: ['system-keys'],
     security: 'bearer',
     responses: {
       '200': { description: 'The system keys.', schema: ref('SystemKeyList') },
       ...CommonAuthErrors,
       '403': ErrorResponse(
-        "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`).",
+        "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`; on a runtime serving one tenant, `system-key-scope-not-served` for one holding anything but `system:license`).",
       ),
     },
   },
@@ -2011,7 +2011,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemKeys.revoke',
     summary: 'Revoke a system key',
     description:
-      "Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.",
+      "Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them; on a runtime serving one tenant, the deployment's own token alone.",
     tags: ['system-keys'],
     security: 'bearer',
     parameters: [
@@ -2031,7 +2031,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`).",
+        "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`; on a runtime serving one tenant, `system-key-scope-not-served` for one holding anything but `system:license`).",
       ),
       '400': ErrorResponse('`keyId` is not a system key id (a UUID).'),
       '404': ErrorResponse('No system key with that id (`system-key-not-found`).'),
@@ -2306,13 +2306,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemKeys.whoami',
     summary: 'Which system key this is',
     description:
-      "A system key's own id, scopes and expiry, for a service checking its key. Any system principal; a tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key.",
+      "A system key's own id, scopes and expiry, for a service checking its key: any system principal, on a runtime serving many tenants. A tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key. A runtime serving one tenant answers no one here: its own token is that tenant's outside `/v1/system/keys`, and a system key reads the license routes alone.",
     tags: ['system-keys'],
     security: 'bearer',
     responses: {
       '200': { description: 'The key.', schema: ref('SystemWhoami') },
       ...CommonAuthErrors,
-      '403': ErrorResponse("A tenant's key or session (`system-principal-required`)."),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`). On a runtime serving one tenant, the deployment's own token too (`system-principal-required`), a system key (`system-scope-missing`), and one holding anything but `system:license` (`system-key-scope-not-served`).",
+      ),
     },
   },
   // ---------- system: tenant settings and usage ----------
@@ -4611,7 +4613,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The license status.', schema: ref('LicenseStatus') },
       ...CommonAuthErrors,
       '403': ErrorResponse(
-        "Not the deployment's own token, a system key holding `system:license`, or an admin of the one tenant it serves (`license-operator-only`).",
+        "Not the deployment's own token, a system key holding `system:license`, or an admin of the one tenant it serves (`license-operator-only`). On a runtime serving one tenant, a system key holding anything but `system:license` (`system-key-scope-not-served`).",
       ),
     },
   },
@@ -4633,7 +4635,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       ...CommonAuthErrors,
       '403': ErrorResponse(
-        "Not the deployment's own token or a system key holding `system:license` (`license-operator-only`).",
+        "Not the deployment's own token or a system key holding `system:license` (`license-operator-only`). On a runtime serving one tenant, a system key holding anything but `system:license` (`system-key-scope-not-served`).",
       ),
     },
   },

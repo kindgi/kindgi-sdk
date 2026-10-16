@@ -316,6 +316,10 @@ resource "azurerm_container_app" "server" {
       error_message = "license_renewer_secret: ${local.license_renewer_secret} is one of the module's own secrets. The renewer key needs a secret of its own (the default, license-renewer)."
     }
     precondition {
+      condition     = !contains(concat(values(merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets)), [local.license_renewer_secret], [for ref in values(var.pack_secret_env) : ref.secret]), var.license_usage_key_secret)
+      error_message = "license_usage_key_secret: ${var.license_usage_key_secret} is a secret the module or the pack uses already, which the renewal job would then read. The usage key needs a secret of its own, such as license-usage-key."
+    }
+    precondition {
       condition     = length(setintersection(local.server_module_env, local.server_extra_env)) == 0
       error_message = "server_env and server_secret_env can't set a name this module sets itself (its variables do: public_url for KINDGI_PUBLIC_URL, trusted_proxies, cors_origins, ...), nor KINDGI_DEV, which is for `kindgi dev` only."
     }

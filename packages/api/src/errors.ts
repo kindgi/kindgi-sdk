@@ -270,6 +270,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'system-principal-required': 403,
   /** A system key without the scope the system route takes (`details.scope`). */
   'system-scope-missing': 403,
+  /** Serving one tenant: a system key holding more than `system:license` (`details.scopes`), refused on every route. */
+  'system-key-scope-not-served': 403,
   /** No system key with that id. */
   'system-key-not-found': 404,
   /** A full system key minted by another system key, with no `expiresAt`: only the deployment's own token mints one that never expires. */

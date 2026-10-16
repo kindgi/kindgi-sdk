@@ -515,6 +515,68 @@ run "license_renewal_on_a_schedule" {
   }
 }
 
+# With a usage key: the job reads the counts from the server with the
+# system key in that secret, which it may read. Its value is the operator's:
+# Terraform names the secret and nothing else.
+run "license_renewal_with_counts" {
+  command = plan
+  variables {
+    license_renewal_schedule = "17 6 * * *"
+    license_usage_key_secret = "license-usage-key"
+  }
+  # The server's address, which Azure gives it.
+  override_resource {
+    target          = azurerm_container_app.server
+    override_during = plan
+    values = {
+      ingress = { fqdn = "kindgi-server.acme-env.canadacentral.azurecontainerapps.io" }
+    }
+  }
+  assert {
+    condition     = slice(azurerm_container_app_job.license_renewal[0].template[0].container[0].args, 0, 6) == tolist(["license", "renew", "--key", "azure:https://kindgi-ab12.vault.azure.net/secrets/license-key", "--renewer", "azure:https://kindgi-ab12.vault.azure.net/secrets/license-renewer"]) && length(azurerm_container_app_job.license_renewal[0].template[0].container[0].args) == 10
+    error_message = "It renews with the two refs, and four arguments more."
+  }
+  assert {
+    condition     = azurerm_container_app_job.license_renewal[0].template[0].container[0].args[6] == "--runtime" && azurerm_container_app_job.license_renewal[0].template[0].container[0].args[7] == "https://kindgi-server.acme-env.canadacentral.azurecontainerapps.io" && azurerm_container_app_job.license_renewal[0].template[0].container[0].args[8] == "--runtime-token" && azurerm_container_app_job.license_renewal[0].template[0].container[0].args[9] == "azure:https://kindgi-ab12.vault.azure.net/secrets/license-usage-key"
+    error_message = "It reads the counts from the server, with the usage key's reference."
+  }
+  assert {
+    condition     = [for e in azurerm_container_app_job.license_renewal[0].template[0].container[0].env : e.name] == ["KINDGI_AZURE_CLIENT_ID"]
+    error_message = "The job's env holds its identity only: the usage key stays in the vault."
+  }
+  assert {
+    condition     = toset([for k, a in azurerm_role_assignment.license_renewer_reads : a.scope]) == toset(["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/license-key", "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/license-renewer", "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/license-usage-key"]) && azurerm_role_assignment.license_renewer_reads["usage_key"].role_definition_name == "Key Vault Secrets User"
+    error_message = "It reads the usage key too, on that secret only."
+  }
+  assert {
+    condition     = !contains([for k, a in azurerm_role_assignment.server_reads : a.scope], "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/license-usage-key")
+    error_message = "The server never reads the usage key."
+  }
+  assert {
+    condition     = output.license_renew_command == "kindgi license renew --key azure:https://kindgi-ab12.vault.azure.net/secrets/license-key --renewer azure:https://kindgi-ab12.vault.azure.net/secrets/license-renewer --runtime https://kindgi-server.acme-env.canadacentral.azurecontainerapps.io --runtime-token azure:https://kindgi-ab12.vault.azure.net/secrets/license-usage-key"
+    error_message = "license_renew_command carries the counts too."
+  }
+}
+
+# Without the schedule, the usage key still goes in the command you run.
+run "license_usage_key_without_a_schedule" {
+  command = plan
+  variables {
+    license_usage_key_secret = "license-usage-key"
+  }
+  override_resource {
+    target          = azurerm_container_app.server
+    override_during = plan
+    values = {
+      ingress = { fqdn = "kindgi-server.acme-env.canadacentral.azurecontainerapps.io" }
+    }
+  }
+  assert {
+    condition     = length(azurerm_container_app_job.license_renewal) == 0 && length(azurerm_role_assignment.license_renewer_reads) == 0 && endswith(output.license_renew_command, "--runtime https://kindgi-server.acme-env.canadacentral.azurecontainerapps.io --runtime-token azure:https://kindgi-ab12.vault.azure.net/secrets/license-usage-key")
+    error_message = "No job and no grant, and the command carries the counts."
+  }
+}
+
 run "license_renewer_secret_of_your_own_name" {
   command = plan
   variables {
@@ -541,6 +603,39 @@ run "refuses_a_renewer_secret_the_module_uses" {
     license_renewer_secret = "license-key"
   }
   expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_a_usage_key_secret_the_module_uses" {
+  command = plan
+  variables {
+    license_usage_key_secret = "api-token"
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_the_renewer_secret_as_the_usage_key" {
+  command = plan
+  variables {
+    license_usage_key_secret = "license-renewer"
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_a_pack_secret_as_the_usage_key" {
+  command = plan
+  variables {
+    pack_secret_env          = { ACME_API_KEY = { secret = "acme-api-key", version = "latest" } }
+    license_usage_key_secret = "acme-api-key"
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_a_usage_key_secret_that_isnt_a_name" {
+  command = plan
+  variables {
+    license_usage_key_secret = "license usage key"
+  }
+  expect_failures = [var.license_usage_key_secret]
 }
 
 run "refuses_the_license_refs_in_server_env" {
