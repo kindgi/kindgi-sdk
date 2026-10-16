@@ -7,6 +7,10 @@ heading into its version.
 
 ## Unreleased
 
+## 0.1.8
+
+No JVM changes; the version moves with the npm packages.
+
 ## 0.1.8-rc.0
 
 - `kindgi-client`: **`runs().journal` pages when asked.** `RunsJournalParams` gains `limit` (1 to 100) and `cursor`, `RunJournalPage` gains `nextCursor`, and `journalAll` streams every entry, page after page. Without `limit`, the whole journal is one page, as before; a runtime before 0.1.8 answers it whole either way.

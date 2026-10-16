@@ -1,5 +1,12 @@
 # @kindgi/sandbox
 
+## 0.1.8
+
+### Patch Changes
+
+- Updated dependencies [ebf405d]
+  - @kindgi/types@0.1.8
+
 ## 0.1.8-rc.0
 
 ### Patch Changes

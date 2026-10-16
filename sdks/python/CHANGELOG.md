@@ -10,6 +10,10 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+## 0.1.8
+
+No Python changes; the version moves with the npm packages.
+
 ## 0.1.8rc0
 
 - `kindgi`: **a sign-in session carries the capabilities its person holds.**
