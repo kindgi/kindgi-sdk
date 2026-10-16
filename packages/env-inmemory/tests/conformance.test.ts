@@ -11,7 +11,9 @@
 import { describe, expect, test } from 'vitest';
 
 import type { ResolveContext } from '@kindgi/api';
+import type { AuditEventBinding } from '@kindgi/audit-events';
 import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
+import { createLogger } from '@kindgi/log';
 import type { Scope } from '@kindgi/platform';
 import type { OrgId, ProjectId, TenantId } from '@kindgi/types';
 import { makeEnvName } from '@kindgi/types';
@@ -383,6 +385,42 @@ describe('createInMemoryEnvBinding — compliance evidence emission', () => {
     if (list.kind !== 'ok') throw new Error('query failed');
     const serialized = JSON.stringify(list.value.data);
     expect(serialized).not.toContain(sentinel);
+  });
+
+  test('an append that fails never fails the op, and each is logged through `log`', async () => {
+    const auditEvents = {
+      append: async () => {
+        throw new Error('the audit store is down');
+      },
+    } as unknown as AuditEventBinding;
+    const lines: string[] = [];
+    const b = createInMemoryEnvBinding({
+      auditEvents,
+      tenantId: t,
+      projectId: p,
+      log: createLogger({ write: (line) => lines.push(line) }),
+    });
+    const sentinel = 'super-secret-plaintext-abc123';
+    const set = { scope: tenantScope, envName: staging, name: 'K', value: sentinel };
+    expect((await b.set({ ...set, enqueueTuples: () => [] })).kind).toBe('ok');
+    expect((await b.set({ ...set, ifRevision: 7, enqueueTuples: () => [] })).kind).toBe(
+      'revision-conflict',
+    );
+    const read = { scope: tenantScope, envName: staging, resolveContext: ctx };
+    expect((await b.resolve({ ...read, name: 'K' })).kind).toBe('ok');
+    expect((await b.resolve({ ...read, name: 'MISSING' })).kind).toBe('err');
+    expect(await b.delete({ scope: tenantScope, envName: staging, name: 'K' })).toEqual({
+      deleted: true,
+    });
+    const records = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(records.map((r) => [r.level, r.kind])).toEqual([
+      ['warn', 'env-set'],
+      ['warn', 'env-set'],
+      ['warn', 'env-resolved'],
+      ['warn', 'env-resolved'],
+      ['warn', 'env-deleted'],
+    ]);
+    expect(lines.join('\n')).not.toContain(sentinel);
   });
 });
 

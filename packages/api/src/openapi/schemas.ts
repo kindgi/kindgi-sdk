@@ -1374,7 +1374,7 @@ export const CreateSystemTenantBodySchema: JsonSchema = {
       additionalProperties: false,
       required: ['email', 'name'],
       description:
-        "The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.",
+        "The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. The runtime gives them every capability but `secrets:reveal`, to put on the keys they make. Absent: the answer carries an admin key instead, which takes the full system capability.",
       properties: {
         email: { type: 'string', maxLength: 254, description: 'An email address.' },
         name: { type: 'string', minLength: 1, maxLength: 100 },
@@ -1519,8 +1519,7 @@ const SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES: Record<string, JsonSchema> = {
   packId: {
     type: 'string',
     minLength: 1,
-    description:
-      "The pack it deploys (the image index's `packId`): keep the newest few superseded deployments per tenant and pack.",
+    description: "The pack it deploys (the image index's `packId`).",
   },
   projectId: {
     type: 'string',
@@ -1555,7 +1554,7 @@ export const SystemDeploymentEntrySchema: JsonSchema = {
       type: 'string',
       enum: [...SYSTEM_DEPLOYMENT_RETIRE_REASONS],
       description:
-        'In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.',
+        'In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does, so no new call reaches it. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.',
     },
   },
 };
@@ -5391,6 +5390,11 @@ export const ImprovementPassSchema: JsonSchema = {
     candidatesEvaluated: { type: 'integer', minimum: 0 },
     costUsd: { type: 'string', description: 'What its comparisons have cost so far (US dollars).' },
     outcome: { $ref: '#/components/schemas/ImprovementPassOutcome' },
+    cancelReason: {
+      type: 'string',
+      description:
+        "Why a `cancelled` pass stopped when nobody cancelled it: a comparison's eval run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no proposal. Absent when it was cancelled.",
+    },
     comparisons: {
       type: 'array',
       description:
@@ -6525,6 +6529,13 @@ export const RegisterMCPEndpointBodySchema: JsonSchema = {
   required: ['endpointId', 'name', 'transport', 'config', 'scopeKind'],
   properties: {
     ...mcpEndpointBodyProperties,
+    endpointId: {
+      type: 'string',
+      minLength: 1,
+      pattern: '^[^.]+$',
+      description:
+        "No `.`: an MCP tool's id is `<endpointId>.<tool name>`, so it splits at its first `.`. An endpoint registered with one before keeps it.",
+    },
     scopeKind: { $ref: '#/components/schemas/ScopeKind' },
     scopeId: {
       type: 'string',
@@ -8210,6 +8221,11 @@ export const EvalRunSchema: JsonSchema = {
         'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
     },
     error: { type: 'string' },
+    cancelReason: {
+      type: 'string',
+      description:
+        "Why a `cancelled` run stopped when nobody cancelled it: its project or tenant took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.",
+    },
     correlationId: { type: 'string' },
     comparison: { $ref: '#/components/schemas/EvalComparison' },
   },
@@ -9111,7 +9127,7 @@ export const MyPermissionsSchema: JsonSchema = {
       type: 'array',
       items: { type: 'string' },
       description:
-        "The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries none; an API key carries those it was minted with (`POST /v1/tokens`, none by default).",
+        "The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries those its person holds: none unless the runtime gives them some, as it does a tenant's first admin. An API key carries those it was minted with (`POST /v1/tokens`, none by default).",
     },
     projects: {
       type: 'array',

@@ -162,8 +162,8 @@ With `--runtime`, a line says what the renewal carried:
 - `counts: not sent (<why>); this renewal goes without them.` when there
   are none to send: a production key's renewal, a token that can't be read
   or sent, or a runtime that couldn't say (no answer, a 404 from a runtime
-  that doesn't report its use, a refusal, or an answer that isn't counts, as
-  access.kindgi.com reads them). The key still renews.
+  that doesn't report its use, a refusal, an error, or an answer that isn't
+  counts, as access.kindgi.com reads them). The key still renews.
 
 On a refusal, the line goes to stderr, before `refused (…)`.
 
@@ -231,6 +231,11 @@ token, or a system key holding `system:license`, can read):
 - **projects in production,** from a runtime that can
   [put projects in production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production);
 - **the runtime's version,** and the period they cover.
+
+A tenant the runtime can't count is left out, and its log names it (a
+warning under `license`), so the counts can be lower than the use. When it
+can't count any of its tenants, it answers an error instead, and the renewal
+goes without counts.
 
 They're counts only: no content, names or ids. Until the date on Kindgi's
 [privacy page](https://www.kindgi.com/privacy), access.kindgi.com

@@ -39,6 +39,8 @@ import {
 import type { KindgiClient, McpEndpoint } from '@kindgi/client';
 import type { Cursor } from '@kindgi/types';
 
+import { ownAddressKeyElsewhere } from '../api-address.js';
+import type { ResolvedConfig } from '../config.js';
 import type { CommandContext } from '../context.js';
 import {
   DEV_GOOGLE_CREDENTIALS_VAR,
@@ -114,6 +116,7 @@ export type DoctorCheckId =
   | 'model-key'
   | 'runtime'
   | 'provider'
+  | 'api-key'
   | 'console-sign-in'
   | 'license'
   | 'mcp-headers'
@@ -188,6 +191,7 @@ const TITLES: Readonly<Record<DoctorCheckId, string>> = {
   'model-key': 'Model key',
   runtime: 'Runtime',
   provider: 'Provider',
+  'api-key': 'API key',
   'console-sign-in': 'Console sign-in',
   license: 'License key',
   'mcp-headers': 'MCP endpoint headers',
@@ -252,9 +256,13 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
       seam.sandbox ?? (() => detectDevSandbox(process.platform, probeReal)),
     ),
   );
-  checks.push(await consoleSignInCheck(ctx));
+  const apiKey = apiKeyCheck(ctx.config);
+  checks.push(apiKey);
+  // A stored key that isn't for the CLI's address isn't sent (api-key above).
+  const keyElsewhere = apiKey.status === 'fail';
+  checks.push(await consoleSignInCheck(ctx, keyElsewhere));
   checks.push(await licenseKeyCheck(ctx.env, dir, ctx.cwd, seam));
-  checks.push(await mcpHeadersCheck(ctx));
+  checks.push(await mcpHeadersCheck(ctx, keyElsewhere));
 
   if (config === undefined || language === undefined) {
     checks.push({
@@ -1117,7 +1125,48 @@ async function runtimeCheck(
  * signing in with an API token is off by default outside `kindgi dev`: a
  * deployment that relied on it, with no identity provider, has no way in.
  */
-async function consoleSignInCheck(ctx: CommandContext): Promise<DoctorCheck> {
+/**
+ * The CLI's API key and the address it goes to. A stored key goes only to
+ * the address stored with it (api-address.ts), so when it isn't for the
+ * CLI's address every command that needs the key refuses, and this fails.
+ */
+function apiKeyCheck(config: ResolvedConfig): DoctorCheck {
+  const url = config.apiUrl;
+  if (config.token === undefined || config.token === '') {
+    return skip(
+      'api-key',
+      'No API key is set: commands that call the API need one (kindgi auth login, KINDGI_API_TOKEN or --token).',
+    );
+  }
+  if (url === undefined || url === '') {
+    return skip(
+      'api-key',
+      'Not checked: no API address is set (kindgi auth login, KINDGI_API_URL or --url).',
+    );
+  }
+  if (config.source.token !== 'file') {
+    const given = config.source.token === 'flag' ? '--token' : 'KINDGI_API_TOKEN';
+    return pass('api-key', `The API key is given with ${given}, and goes to ${url}.`);
+  }
+  const elsewhere = ownAddressKeyElsewhere(config);
+  if (elsewhere === undefined) {
+    const file = config.files?.token;
+    return pass(
+      'api-key',
+      `The API key stored${file === undefined ? '' : ` in ${file.path}`} is for ${url}, the address commands go to.`,
+    );
+  }
+  return fail(
+    'api-key',
+    `Every command that needs the API key refuses: it would send ${elsewhere.sends}. ${elsewhere.stored}`.trimEnd(),
+    elsewhere.fix,
+  );
+}
+
+async function consoleSignInCheck(
+  ctx: CommandContext,
+  keyElsewhere: boolean,
+): Promise<DoctorCheck> {
   const apiUrl = ctx.config.apiUrl?.replace(/\/+$/, '');
   if (apiUrl === undefined) {
     return skip(
@@ -1164,6 +1213,12 @@ async function consoleSignInCheck(ctx: CommandContext): Promise<DoctorCheck> {
       `${TOKEN_ON}; or set up sign-in with your identity provider (KINDGI_AUTH_SECRET_PATH, then kindgi sso providers start).`,
     );
   }
+  if (keyElsewhere) {
+    return skip(
+      'console-sign-in',
+      `Sign-in with an identity provider is on at ${apiUrl}. Not checked whether one is registered: the API key isn't for ${apiUrl} (API key, above).`,
+    );
+  }
   const token = ctx.config.token;
   if (token === undefined) {
     return pass('console-sign-in', 'People sign in to the console with an identity provider.');
@@ -1204,9 +1259,12 @@ const REDACTED_HEADER_VALUE = '[redacted]';
  * secret. The API answers each such value as `[redacted]`, so its name is
  * all this reads (and a runtime that redacts never sends them on a redirect).
  */
-async function mcpHeadersCheck(ctx: CommandContext): Promise<DoctorCheck> {
+async function mcpHeadersCheck(ctx: CommandContext, keyElsewhere: boolean): Promise<DoctorCheck> {
   const apiUrl = ctx.config.apiUrl?.replace(/\/+$/, '');
   const token = ctx.config.token;
+  if (keyElsewhere && apiUrl !== undefined) {
+    return skip('mcp-headers', `Not checked: the API key isn't for ${apiUrl} (API key, above).`);
+  }
   if (apiUrl === undefined || token === undefined) {
     return skip(
       'mcp-headers',
