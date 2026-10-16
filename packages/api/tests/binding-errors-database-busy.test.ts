@@ -232,7 +232,7 @@ describe("a binding's Result error the database was too busy for", () => {
     // The storage failure and the driver error under it each carry text of
     // their own: a query's values can be a person's (`params: …`).
     const driver = Object.assign(
-      new Error('canceling statement due to lock timeout; params: owner@acme.test'),
+      new Error('canceling statement due to lock timeout; params: owner@example.test'),
       { code: '55P03' },
     );
     const error = recoded('persistence-error', 1, {
@@ -257,6 +257,6 @@ describe("a binding's Result error the database was too busy for", () => {
     });
     const logged = lines.join('\n');
     expect(logged).not.toContain('the storage failure itself');
-    expect(logged).not.toContain('owner@acme.test');
+    expect(logged).not.toContain('owner@example.test');
   });
 });
