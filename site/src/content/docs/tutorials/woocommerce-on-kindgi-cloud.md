@@ -90,8 +90,9 @@ in to the store as this user, never as you, so everything it does there is
 recorded under its own name.
 
 :::note[What only you do]
-**Make the user.** In wp-admin, go to **Users → Add New User**. Name it
-`shop-agent`, give it the **Shop Manager** role, and add it.
+**Make the user.** In wp-admin, go to **Users → Add User** (**Add New User**
+before WordPress 6.8). Name it `shop-agent`, give it the **Shop Manager** role,
+and add it.
 
 Its Application Password comes in chapter 3, when your agent asks for it.
 :::
@@ -134,8 +135,9 @@ for each in turn and moves it from your clipboard straight into Kindgi:
 
 - **The store's Application Password,** made when the agent asks for it. In
   wp-admin, open **Users → All Users → shop-agent**, find **Application
-  Passwords**, name it `kindgi`, and choose **Add New Application
-  Password**. WordPress shows it once: copy it, and say "copied".
+  Passwords**, name it `kindgi`, and choose **Add Application Password**
+  (**Add New Application Password** before WordPress 6.8). WordPress shows it
+  once: copy it, and say "copied".
 - **Your model key:** with your AI provider, create an API key for this
   tutorial and copy it. When the agent asks which provider, answer with its
   name and "copied": "Anthropic, copied", say.
@@ -205,9 +207,9 @@ session on the store's project.
 :::note[What only you do]
 **Install the plugin.** On the
 [Kindgi SDK's releases page](https://github.com/kindgi/kindgi-sdk/releases),
-download the plugin's zip. In wp-admin, go to **Plugins → Add New Plugin →
-Upload Plugin**, choose the zip, then **Install Now** and **Activate
-Plugin**.
+download the plugin's zip. In wp-admin, go to **Plugins → Add Plugin → Upload
+Plugin** (**Add New Plugin** before WordPress 6.8), choose the zip, then
+**Install Now** and **Activate Plugin**.
 
 **If you can edit the store's `wp-config.php`,** give the plugin its signing
 key there before you connect, as
@@ -315,8 +317,9 @@ asked. Jane, on the staff, asks for it. You approve it. The record names
 both of you.
 
 :::note[What only you do]
-**Add Jane to the staff.** In wp-admin, go to **Users → Add New User**, and
-make a user for her with the **Shop Manager** role and her email address.
+**Add Jane to the staff.** In wp-admin, go to **Users → Add User** (**Add New
+User** before WordPress 6.8), and make a user for her with the **Shop Manager**
+role and her email address.
 :::
 
 ### Ask in wp-admin, as Jane
