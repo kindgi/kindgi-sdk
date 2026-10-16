@@ -8,7 +8,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
 import { requireFullSystem } from '../middleware/system.js';
-import { FULL_SYSTEM_CAPABILITY, isSystemScope } from '../system.js';
+import { FULL_SYSTEM_CAPABILITY, type SystemScope, isSystemScope } from '../system.js';
 import type { AppEnv } from '../types.js';
 import { parseTimeInput } from './time-input.js';
 import { refuseMalformedUuidParam } from './uuid-param.js';
@@ -95,13 +95,18 @@ type WireError = { readonly code: string; readonly message: string } & Readonly<
  * (sign-up, the orchestrator, billing, the license renewal), each with the
  * least scope it needs. Only the full system capability (`kindgi:system`:
  * the deployment's own token, or a full system key) mints, lists or revokes
- * them; a scoped key never mints any key. A runtime serving one tenant has
- * no system principal, so there they can't be reached: its own token is
- * that tenant's.
+ * them; a scoped key never mints any key. On a runtime serving one tenant
+ * only the deployment's own token reaches them, and they mint the scopes
+ * `options.mintable` names alone (`system:license`, for the license
+ * renewal).
  */
 export function systemKeysRouter(
   binding: SystemKeysBinding,
   authorizer?: Authorizer,
+  options: {
+    /** The scopes a key may be minted with; absent, every system scope and `kindgi:system`. */
+    readonly mintable?: readonly SystemScope[];
+  } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   r.use('/*', requireFullSystem(authorizer));
@@ -112,6 +117,8 @@ export function systemKeysRouter(
     if (body.kind === 'err') return fail(c, body.error);
     const parsed = parseMintBody(body.value);
     if (parsed.kind === 'err') return fail(c, parsed.error);
+    const unservedScope = unserved(parsed.value.scopes, options.mintable);
+    if (unservedScope !== undefined) return fail(c, unservedScope);
     const refused =
       expiryRefusal(c, parsed.value.expiresAt) ?? fullKeyExpiryRefusal(c, parsed.value);
     if (refused !== undefined) return fail(c, refused);
@@ -216,6 +223,19 @@ function parseMintBody(body: unknown): Parsed<ParsedMintBody> {
       ...(expiresAt.value !== undefined && { expiresAt: expiresAt.value }),
     },
   };
+}
+
+/** A mint asking for a scope this runtime doesn't mint keys with, if it does. */
+function unserved(
+  scopes: readonly string[],
+  mintable: readonly SystemScope[] | undefined,
+): WireError | undefined {
+  if (mintable === undefined) return undefined;
+  const other = scopes.filter((scope) => !mintable.includes(scope as SystemScope));
+  if (other.length === 0) return undefined;
+  return badInput(
+    `\`scopes\`: this runtime serves one tenant, where a system key holds ${mintable.join(', ')} alone, not ${other.join(', ')}`,
+  ).error;
 }
 
 /** `scopes`: distinct system scopes, or `kindgi:system` alone. */
