@@ -96,7 +96,7 @@ later:
 | Setting | Default | What it decides |
 | --- | --- | --- |
 | `allowedRoles` | `administrator`, `shop_manager` | The WordPress roles that may sign in at all. Any other role is refused. |
-| `roleMap` | Both roles: `{ ask: true, reviewer: 'standard' }` | For each allowed role: whether it may ask the project's agents (`ask`), and the reviewer role it decides approvals with (`reviewer`; none when absent). A person with several allowed roles gets the most any of them gives. `allowedRoles` without a `roleMap` keeps the map's entries for the allowed roles only: the default map's for a new site, the site's own on an update. |
+| `roleMap` | Both roles: `{ ask: true, reviewer: 'standard' }` | For each allowed role: whether it may ask the project's agents (`ask`), and the reviewer role it decides approvals with (`reviewer`; none when absent). A person with several allowed roles gets the most any of them gives. `allowedRoles` without a `roleMap` keeps only the map's entries for the allowed roles: the default map's for a new site, the site's own on an update. An allowed role with no entry signs in to read the project only. |
 | `reviewerCeiling` | `standard` | The highest reviewer role the site's people can have: `standard` or `senior`. |
 | `peopleCap` | `50` | At most this many people from the site (1 to 10,000). |
 | `newPeoplePerDay` | `20` | At most this many new people a day (1 to 1,000). |
