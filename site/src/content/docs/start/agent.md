@@ -86,7 +86,7 @@ running and no model key yet:
 ```json
 {
   "ok": false,
-  "cliVersion": "0.1.7",
+  "cliVersion": "0.1.8",
   "project": {
     "dir": "…/my-agents",
     "language": "node"
@@ -102,8 +102,8 @@ running and no model key yet:
     {
       "id": "model-key",
       "status": "fail",
-      "message": "No model key in .env or .env.local or .kindgi/secrets.env (looked for ANTHROPIC_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY).",
-      "fix": "With kindgi dev running, set one LLM provider's key: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant, or the same with GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY or OPENROUTER_API_KEY (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat."
+      "message": "No model key in .env or .env.local or .kindgi/secrets.env (looked for ANTHROPIC_API_KEY, AZURE_OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY).",
+      "fix": "With kindgi dev running, set one LLM provider's key: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant, or the same with AZURE_OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY or OPENROUTER_API_KEY (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat."
     },
     {
       "id": "runtime",
@@ -114,7 +114,7 @@ running and no model key yet:
       "id": "provider",
       "status": "fail",
       "message": "Only dev-echo is registered: agents get its canned replies, not a model's.",
-      "fix": "Register the provider whose key you set: pnpm exec kindgi providers register --preset=<preset>, where <preset> is anthropic, gemini-api, groq, openai or openrouter (see Model key)."
+      "fix": "Register the provider whose key you set: pnpm exec kindgi providers register --preset=<preset>, where <preset> is anthropic, azure-openai (with --resource-name=<resourceName> --deployments=<deployments>), gemini-api, groq, openai or openrouter (see Model key)."
     },
     {
       "id": "erasures",

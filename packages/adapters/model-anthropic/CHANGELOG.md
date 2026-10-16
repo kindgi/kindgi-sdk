@@ -1,5 +1,25 @@
 # @kindgi/adapter-model-anthropic
 
+## 0.1.8
+
+### Patch Changes
+
+- Updated dependencies [76532eb]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+  - @kindgi/capabilities@0.1.8
+  - @kindgi/types@0.1.8
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- Updated dependencies [76532eb]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+  - @kindgi/capabilities@0.1.8-rc.0
+  - @kindgi/types@0.1.8-rc.0
+
 ## 0.1.7
 
 ### Patch Changes

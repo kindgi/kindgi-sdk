@@ -328,6 +328,7 @@ export const CLI_DEFAULTS = {
   'conversations list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
+    'opened-by': 'none (whoever opened them)',
     replays: '`exclude`',
     status: 'none',
   },
@@ -649,6 +650,7 @@ export const CLI_DEFAULTS = {
   'approvals list': {
     'assigned-to': 'none (all approvals your role can see)',
     cursor: 'none',
+    'decided-by': 'none (whoever decided them)',
     limit: '`25` (at most `100`)',
     order: '`desc` (newest first)',
     status: 'none (every status)',
