@@ -948,6 +948,7 @@ export type {
   EnvGetInput,
   EnvListInput,
   EnvListPage,
+  EnvNamesInput,
   EnvRecord,
   EnvResolveInput,
   EnvResolveOutcome,

@@ -116,6 +116,12 @@ export type {
   EnvSetOutcome,
 } from './resources/env.js';
 export type {
+  Environment,
+  EnvironmentsClient,
+  EnvironmentsListInput,
+  EnvironmentsPage,
+} from './resources/environments.js';
+export type {
   PollingOverrides,
   RawRotationResponse,
   RotationOutcome,

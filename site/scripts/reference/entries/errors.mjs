@@ -2579,6 +2579,11 @@ export const ERROR_ENTRIES = {
       "The runtime has no authorization store, so it can't say who has access to the project.",
     details: [],
   },
+  'environments-unsupported': {
+    description:
+      "The runtime's env store or secrets store can't list the env names it holds, so the tenant's environments can't be listed whole. The message names the store.",
+    details: [],
+  },
   'provider-key-refused': {
     description:
       "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint or a webhook endpoint. Store the key under its own name and use that name.",
