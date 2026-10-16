@@ -2,7 +2,7 @@
 "@kindgi/api": patch
 ---
 
-**A 500 whose cause carries a database error says `A database query failed.`** An unhandled exception's 500 used to say it only when the thrown error was itself Drizzle's wrapper around a failed query. It now says it when a database error is the thrown error or anywhere down its `cause` chain, as far as a busy mark is looked for (16 deep). A database error is any of these:
+**A 500 whose cause carries a database error says `A database query failed.`** An unhandled exception's 500 used to say it only when the thrown error was itself Drizzle's wrapper around a failed query. It now says it when a database error is the thrown error or anywhere down its `cause` chain, up to 16 errors deep counting the thrown error. A database error is any of these:
 
 - Drizzle's wrapper around a failed query.
 - A Postgres server error: a SQLSTATE `code` with a `severity`, as postgres.js's `PostgresError` carries.

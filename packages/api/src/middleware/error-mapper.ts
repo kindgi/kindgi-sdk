@@ -132,7 +132,7 @@ const DATABASE_BUSY_RETRY_AFTER_S = 5;
 /** How far down an error's `cause` chain the busy mark, or a database error, is looked for (a cycle ends there too). */
 const MAX_CAUSE_DEPTH = 16;
 
-/** Whether `test` holds for `err` or an error down its `cause` chain, `MAX_CAUSE_DEPTH` links at most. */
+/** Whether `test` holds for `err` or an error down its `cause` chain: `MAX_CAUSE_DEPTH` errors at most, `err` itself first. */
 function onCauseChain(err: unknown, test: (node: object) => boolean): boolean {
   let node: unknown = err;
   for (let depth = 0; depth < MAX_CAUSE_DEPTH; depth++) {
