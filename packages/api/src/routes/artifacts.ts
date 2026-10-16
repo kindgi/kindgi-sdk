@@ -11,6 +11,7 @@ import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import { takeBody } from '../middleware/request-body.js';
 import type { AppEnv } from '../types.js';
 import { refused } from './denied.js';
@@ -116,6 +117,8 @@ export function artifactsRouter(
       limit,
     );
     if (page.kind === 'err') {
+      const busy = databaseBusyAnswer(page.error, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(page.error.code) as never);
       return c.json(toWireError(page.error as never, requestId));
     }
