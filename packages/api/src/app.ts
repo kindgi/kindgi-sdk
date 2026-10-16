@@ -131,6 +131,7 @@ import { conversationsRouter } from './routes/conversations.js';
 import { costRouter } from './routes/cost.js';
 import { deploymentsRouter } from './routes/deployments.js';
 import { envRouter } from './routes/env.js';
+import { environmentsRouter } from './routes/environments.js';
 import { evalRunsRouters } from './routes/eval-runs.js';
 import { evalSuitesRouter } from './routes/eval-suites.js';
 import { eventTriggersRouter } from './routes/event-triggers.js';
@@ -1109,6 +1110,8 @@ export interface CreateAppInput {
    *
    * When present, ALSO mounts `/v1/secrets/*` — the dedicated
    * secrets HTTP surface. Same for `envBinding` and `/v1/env/*`.
+   * Either one mounts `GET /v1/environments`, the env names the two
+   * hold (`listEnvNames`).
    */
   readonly secretsBinding?: SecretBinding;
   /**
@@ -1984,6 +1987,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         rotationStatusStore: input.rotationStatusStore ?? createInMemoryRotationStatusStore(),
         ...(authorizer !== undefined && { authorizer }),
         ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+      }),
+    );
+  }
+  if (input.envBinding !== undefined || secretsBinding !== undefined) {
+    v1.route(
+      '/environments',
+      environmentsRouter({
+        ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
+        ...(secretsBinding !== undefined && { secretsBinding }),
+        ...(authorizer !== undefined && { authorizer }),
       }),
     );
   }

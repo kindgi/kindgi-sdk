@@ -1935,6 +1935,105 @@ describe('POST /v1/deployments — manifest validation', () => {
   });
 });
 
+// ------- 500 bodies route through the central handler -------
+
+describe('POST /v1/deployments — 500s route through the central handler', () => {
+  test('a trust-check error is a fixed-message 500 that leaks no raw detail', async () => {
+    const fixture = buildSignedDeploy();
+    const signingKeyRegistry: SigningKeyRegistryBinding = {
+      ...makeMockSigningKeyRegistry([]),
+      isTrusted: async () => ({
+        kind: 'err',
+        error: {
+          code: 'signing-key-store-error',
+          message: 'trust store query failed: SELECT 1 FROM trust_keys WHERE tenant = $1',
+        },
+      }),
+    };
+    const { app, toolRegistry, guardrailRegistry } = makeApp({ fixture, signingKeyRegistry });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(500);
+    const raw = JSON.stringify(await res.json());
+    // A mutant restoring the interpolated `Trust check failed: ${...}` body is killed.
+    expect(JSON.parse(raw).error.code).toBe('internal-server-error');
+    expect(raw).not.toContain('trust store query failed');
+    expect(raw).not.toContain('SELECT 1 FROM trust_keys');
+    // The trust check precedes any write: nothing landed.
+    expect(
+      await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+    ).toBeNull();
+    expect(
+      await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
+    ).toBeNull();
+  });
+
+  test('a deployment-record throw is a fixed-message 500, leaks nothing, and rolls back', async () => {
+    const fixture = buildSignedDeploy();
+    const deploymentRegistry: DeploymentBinding = {
+      ...makeInMemoryDeploymentBinding(),
+      register: async () => {
+        throw new Error(
+          'insert into deployments failed: duplicate key value violates "deployments_pkey"',
+        );
+      },
+    };
+    const { app, toolRegistry, guardrailRegistry } = makeApp({ fixture, deploymentRegistry });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(500);
+    const raw = JSON.stringify(await res.json());
+    // A mutant that restores a route-built 500 body here is killed.
+    expect(JSON.parse(raw).error.code).toBe('internal-server-error');
+    expect(raw).not.toContain('insert into deployments failed');
+    expect(raw).not.toContain('deployments_pkey');
+    // The tool + guardrail written before the record step are rolled back.
+    expect(
+      await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+    ).toBeNull();
+    expect(
+      await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
+    ).toBeNull();
+  });
+
+  test('a deployment-record error outcome is a fixed-message 500, leaks nothing, and rolls back', async () => {
+    const fixture = buildSignedDeploy();
+    const deploymentRegistry: DeploymentBinding = {
+      ...makeInMemoryDeploymentBinding(),
+      register: async () => ({
+        kind: 'error',
+        code: 'constraint-violation',
+        message: 'row rejected: CHECK (artifact_version ~ ...) on table deployments',
+      }),
+    };
+    const { app, toolRegistry, guardrailRegistry } = makeApp({ fixture, deploymentRegistry });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(500);
+    const raw = JSON.stringify(await res.json());
+    // A mutant that restores the interpolated `Deployment record failed (...)` body is killed.
+    expect(JSON.parse(raw).error.code).toBe('internal-server-error');
+    expect(raw).not.toContain('row rejected');
+    expect(raw).not.toContain('artifact_version');
+    // Rolled back.
+    expect(
+      await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+    ).toBeNull();
+    expect(
+      await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
+    ).toBeNull();
+  });
+});
+
 // ---------------- rollback ----------------
 
 describe('POST /v1/deployments — rollback', () => {
@@ -1984,6 +2083,11 @@ describe('POST /v1/deployments — rollback', () => {
       body: JSON.stringify(fixture.wire),
     });
     expect(res.status).toBe(500);
+    // The fixed 500 body carries no raw detail of the thrown cause. A mutant
+    // that restores a route-built body at the upsert fall-through is killed.
+    const raw = JSON.stringify(await res.json());
+    expect(JSON.parse(raw).error.code).toBe('internal-server-error');
+    expect(raw).not.toContain('forced failure');
     // Tool + guardrail should have been rolled back.
     const tool = await toolRegistry.get({
       tenantId,
@@ -2328,6 +2432,66 @@ describe('GET /v1/deployments', () => {
     expect(app.request).toBeTypeOf('function');
   });
 
+  // The list handler lets a throw from the registry propagate to the central
+  // error handler instead of catching it and building its own 500. A mutant
+  // that restores the inline `catch (cause)` 500 is killed by both tests:
+  // the busy case stops being a 503, and the generic case starts leaking
+  // `Deployment list failed: <cause>`.
+  test('a database-busy registry answers 503 + Retry-After, not a 500', async () => {
+    const busy: DeploymentBinding = {
+      ...makeInMemoryDeploymentBinding(),
+      list: async () => {
+        const cause = new Error('connect ECONNREFUSED 10.0.0.5:5432') as Error & { code?: string };
+        cause.code = 'database-busy';
+        throw cause;
+      },
+    };
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      deploymentRegistry: busy,
+      signingKeyRegistry: makeMockSigningKeyRegistry([]),
+      imageRegistry: makeMockImageRegistry([]),
+    });
+    const res = await app.request('/v1/deployments', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('retry-after')).toBe('5');
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe('database-busy');
+  });
+
+  test('a generic registry throw is a 500 whose body carries no raw error text', async () => {
+    const leak =
+      'Failed query: SELECT * FROM deployments WHERE tenant = $1; params: alice@example.com';
+    const throwing: DeploymentBinding = {
+      ...makeInMemoryDeploymentBinding(),
+      list: async () => {
+        throw new Error(leak);
+      },
+    };
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      deploymentRegistry: throwing,
+      signingKeyRegistry: makeMockSigningKeyRegistry([]),
+      imageRegistry: makeMockImageRegistry([]),
+    });
+    const res = await app.request('/v1/deployments', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(500);
+    const raw = await res.text();
+    expect(raw).not.toContain('alice@example.com');
+    expect(raw).not.toContain('Deployment list failed');
+    const body = JSON.parse(raw) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('internal-server-error');
+    expect(['Unhandled server error', 'A database query failed.']).toContain(body.error.message);
+  });
+
   test('imageRefPrefix filter narrows results', async () => {
     const binding = makeInMemoryDeploymentBinding();
     await binding.register({
@@ -2511,7 +2675,63 @@ describe('GET /v1/deployments — the endpoint, under per-deployment routing', (
     expect(page.data[0]?.endpoint).toEqual(expected);
   });
 
-  test('a problem goes with pending only: a ready deployment shows none', async () => {
+  async function endpointOf(endpoint: Deployment['endpoint']) {
+    const { app, deploymentId } = await seeded(endpoint);
+    const one = await app.request(`/v1/deployments/${deploymentId}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    return ((await one.json()) as Record<string, unknown>).endpoint;
+  }
+
+  const CLEARED = { status: 'cleared', since: '2026-10-11T12:00:00.000Z' } as const;
+  const PROBLEM = { code: 'service-start-failed', since: '2026-10-11T12:03:00.000Z' } as const;
+
+  test('a cleared deployment waiting for its pack service again (a suspension lifted) says so, with its problem', async () => {
+    expect(await endpointOf({ ...CLEARED, waiting: true, problem: PROBLEM })).toEqual({
+      ...CLEARED,
+      problem: PROBLEM,
+      waiting: true,
+    });
+  });
+
+  test('a retired cleared deployment says why, and shows no problem, whatever the binding holds', async () => {
+    expect(await endpointOf({ ...CLEARED, retired: 'superseded', problem: PROBLEM })).toEqual({
+      ...CLEARED,
+      retired: 'superseded',
+    });
+  });
+
+  test('a cleared deployment from a binding that says neither (an older server) shows neither, and no problem', async () => {
+    expect(await endpointOf({ ...CLEARED, problem: PROBLEM })).toEqual(CLEARED);
+  });
+
+  test('a cleared deployment carries one of the two: waiting, should a binding give both', async () => {
+    expect(await endpointOf({ ...CLEARED, waiting: true, retired: 'pack-suspended' })).toEqual({
+      ...CLEARED,
+      waiting: true,
+    });
+  });
+
+  test('only a cleared deployment carries waiting or retired', async () => {
+    const since = '2026-10-11T12:00:00.000Z';
+    expect(
+      await endpointOf({
+        status: 'pending',
+        since,
+        waiting: true,
+        retired: 'superseded',
+        problem: PROBLEM,
+      }),
+    ).toEqual({ status: 'pending', since, problem: PROBLEM });
+    expect(
+      await endpointOf({ status: 'ready', since, waiting: true, retired: 'superseded' }),
+    ).toEqual({
+      status: 'ready',
+      since,
+    });
+  });
+
+  test('a ready deployment shows no problem, whatever the binding holds', async () => {
     const { app, deploymentId } = await seeded({
       status: 'ready',
       since: '2026-10-11T12:05:00.000Z',
