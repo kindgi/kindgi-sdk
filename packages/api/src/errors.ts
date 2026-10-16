@@ -272,7 +272,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   /** A system route naming a tenant in a state it refuses. */
   'tenant-closing': 409,
   'tenant-suspended': 409,
-  /** A system route naming a deployment whose project, or pack, is suspended. */
+  /** A deployment, eval run or improvement pass whose project, or pack, is suspended. */
   'project-suspended': 409,
   'pack-suspended': 409,
   /** A deployment's endpoint refused: its URL isn't `https://<host>`, with no user info or path. */
@@ -447,6 +447,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   /** A name the secrets store can't write (the dev store's env-file keys); the message says its rule. */
   'secret-name-invalid': 400,
   'secret-value-too-large': 400,
+  /** A value the secrets store can't hold as given (the dev store's env files); the message says why. */
+  'secret-value-invalid': 400,
   'secret-write-conflict': 409,
   'env-write-conflict': 409,
   'secret-encryption-failed': 500,

@@ -290,7 +290,7 @@ const listCmd: LeafCommand = {
     'include-revoked': {
       type: 'boolean' as const,
       description:
-        'Include revoked secrets. Not applied yet: the API ignores it, so revoked secrets stay hidden.',
+        'Include revoked secrets, with their `revokedAt` and `revokeReason`. Never a value.',
     },
     'name-prefix': {
       type: 'string' as const,

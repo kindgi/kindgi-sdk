@@ -189,6 +189,10 @@ export function guardProviderKeys(
     list: (input) => binding.list(input),
     get: (input) => binding.get(input),
     listVersions: (input) => binding.listVersions(input),
+    // Says which cursors the lists issued, and the lists pass through: so does it.
+    ...(binding.issuedCursor !== undefined && {
+      issuedCursor: binding.issuedCursor.bind(binding),
+    }),
     set: (input) => binding.set(input),
     rotate: (input) => binding.rotate(input),
     revoke: (input) => binding.revoke(input),
@@ -231,6 +235,7 @@ const GUARDED_MEMBERS = [
   'list',
   'get',
   'listVersions',
+  'issuedCursor',
   'set',
   'rotate',
   'revoke',

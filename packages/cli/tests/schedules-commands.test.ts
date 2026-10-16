@@ -263,6 +263,17 @@ describe('kindgi schedules', () => {
     }
   });
 
+  test("update's help gives no defaults: a flag left out keeps the schedule's value", async () => {
+    const update = (await schedules(['update', '--help'])).out;
+    expect(update.exitCode, update.stderr).toBe(0);
+    expect(update.stdout).toContain("A flag left out keeps the schedule's value.");
+    expect(update.stdout).toContain('--timezone');
+    expect(update.stdout).not.toContain('default');
+    const create = (await schedules(['create', '--help'])).out;
+    expect(create.stdout).toContain('(default UTC)');
+    expect(create.stdout).toContain('(default 600)');
+  });
+
   test('fires as a table: when, for which time, outcome, run, and the missed count', async () => {
     const { out, calls } = await schedules(['fires', ID, '--limit=10', '--table']);
     expect(out.exitCode, out.stderr).toBe(0);

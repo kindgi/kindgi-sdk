@@ -100,7 +100,7 @@ const TARGET_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   },
 };
 
-const WHEN_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
+const WHEN_FLAGS = {
   cron: {
     type: 'string',
     description: 'A cron expression: `0 7 * * 1-5` (07:00 on weekdays), `@daily`, …',
@@ -128,6 +128,37 @@ const WHEN_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
     description: 'Seconds a run may start late and still count as on time (default 600).',
   },
   label: { type: 'string', description: 'A short label.' },
+} satisfies Readonly<Record<string, ParseArgsOption>>;
+
+/**
+ * `update`'s: the same flags (its type holds it to `WHEN_FLAGS`' keys), with
+ * no defaults. A flag left out keeps the schedule's value.
+ */
+const UPDATE_WHEN_FLAGS: Readonly<Record<keyof typeof WHEN_FLAGS, ParseArgsOption>> = {
+  cron: {
+    type: 'string',
+    description: 'A new cron expression: `0 7 * * 1-5` (07:00 on weekdays), `@daily`, …',
+  },
+  timezone: { type: 'string', description: 'A new IANA timezone, such as America/Toronto.' },
+  input: {
+    type: 'string',
+    description:
+      'The input each run gets from now on, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input; --improve takes its pass options.',
+  },
+  'catch-up': {
+    type: 'string',
+    description:
+      'After a gap (the runtime was down): `latest` runs once for the latest missed time; `skip` drops them.',
+  },
+  overlap: {
+    type: 'string',
+    description: 'While the previous run is still going: `skip` or `allow` another run.',
+  },
+  'starting-deadline': {
+    type: 'string',
+    description: 'Seconds a run may start late and still count as on time.',
+  },
+  label: { type: 'string', description: 'A new short label.' },
 };
 
 /**
@@ -278,12 +309,13 @@ const create: LeafCommand = {
 const update: LeafCommand = {
   kind: 'leaf',
   name: 'update',
-  description: 'Change a schedule: when it runs, what it runs, or its policies.',
+  description:
+    "Change a schedule: when it runs, what it runs, or its policies. A flag left out keeps the schedule's value.",
   usage:
     'kindgi schedules update <schedule-id> [--cron=<expr>] [--timezone=<tz>] [--input=<json-or-@file>] [--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…] [--catch-up=…] [--overlap=…] [--starting-deadline=<s>] [--label=<text>]',
   optionSpec: {
     ...TARGET_FLAGS,
-    ...WHEN_FLAGS,
+    ...UPDATE_WHEN_FLAGS,
     project: {
       type: 'string',
       description: "With --improve: the scope's project (the schedule's own).",
