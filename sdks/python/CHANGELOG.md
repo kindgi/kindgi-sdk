@@ -43,7 +43,7 @@ same version, and the CLI's own changes are in
   Code that imports an old name fails at the import, and an `isinstance` or
   `match` on one needs the new name. The client's generation now keeps a
   dropped name dropped, so no later model takes `Config` or `Baseline` with
-  another meaning.
+  another meaning. (#938)
 
 - `kindgi`: **`flows.get` and `flows.get_version` answer the flow, and
   `tools.get` and `tools.get_version` the tool.** They read each answer as
