@@ -478,6 +478,9 @@ export const CLI_DEFAULTS = {
   'provenance export': {
     'signing-key': "the deployment's active key",
   },
+  'exports create': {
+    out: 'required: a new or empty folder, or, with `--resume`, the folder an export stopped in',
+  },
   'exports verify': {
     trust: "none (checks against the export's own key only)",
   },
@@ -1238,6 +1241,16 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Unregister a guardrail.',
       line: 'kindgi guardrails unregister acme.no-refunds',
+    },
+  ],
+  'exports create': [
+    {
+      purpose: 'Export the whole workspace to a new folder, as a tenant admin.',
+      line: 'kindgi exports create --out ./acme-export',
+    },
+    {
+      purpose: 'Finish an export that stopped part way: the kinds already written are kept.',
+      line: 'kindgi exports create --out ./acme-export --resume',
     },
   ],
   'memory facts retrieve': [

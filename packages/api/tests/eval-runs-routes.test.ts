@@ -3,7 +3,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import type { Cursor, ProjectId, TenantId, UserId } from '@kindgi/types';
@@ -949,6 +949,159 @@ describe('API — eval-runs SSE events', () => {
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe('eval-run-not-found');
+  });
+
+  /** A run that stays running, one case in; each read of it counted. */
+  function runningRunApp() {
+    const counted = { reads: 0 };
+    const runId = randomUUID();
+    const running = {
+      runId,
+      tenantId,
+      suiteId: 'acme.sse',
+      suiteVersion: '1.0.0',
+      kind: 'accuracy',
+      status: 'running',
+      dryRun: false,
+      startedAt: '2026-10-16T00:00:00.000Z',
+      result: { perCase: [{ pass: true }] },
+    } as unknown as EvalRun;
+    let hold: { entered: () => void; released: Promise<void> } | undefined;
+    /** Holds each read of the run until `release`; `waiting` resolves once one waits. */
+    const holdReads = () => {
+      let release = (): void => undefined;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const waiting = new Promise<void>((entered) => {
+        hold = { entered, released };
+      });
+      return { waiting, release };
+    };
+    const evalRunBinding = {
+      get: async ({ runId: id }: { runId: string }) => {
+        counted.reads += 1;
+        if (hold !== undefined) {
+          hold.entered();
+          await hold.released;
+        }
+        return id === runId ? running : null;
+      },
+    } as unknown as EvalRunBinding;
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      evalRunBinding,
+    });
+    const call = (
+      method: 'GET' | 'HEAD',
+      { id = runId, signal }: { id?: string; signal?: AbortSignal } = {},
+    ) =>
+      app.request(`/v1/eval-runs/${id}/events`, {
+        method,
+        headers: { authorization: `Bearer ${TOKEN}`, 'x-request-id': 'req-events' },
+        ...(signal !== undefined && { signal }),
+      });
+    return { call, counted, holdReads };
+  }
+
+  test('a reader that cancels: no read of the run and no timer after the cancel', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const { call, counted } = runningRunApp();
+      const res = await call('GET');
+      expect(res.status).toBe(200);
+      const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+      const first = await reader.read();
+      expect(new TextDecoder().decode(first.value)).toContain('event: eval-run.case-completed');
+      await vi.advanceTimersByTimeAsync(1_000);
+      const polled = counted.reads;
+      // It polls while it's read: the route's read, the stream's first, then one every 100 ms.
+      expect(polled).toBeGreaterThan(2);
+      await reader.cancel();
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(counted.reads).toBe(polled);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a HEAD answers the stream's status and headers and starts none of its work", async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const { call, counted } = runningRunApp();
+      const head = await call('HEAD');
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      // The route's one read, to find the run; no poll and no timer: the stream never started.
+      expect(counted.reads).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(head.body).toBeNull();
+      const get = await call('GET');
+      await get.body?.cancel();
+      expect([head.status, get.status]).toEqual([200, 200]);
+      // Each request answers its own span; every other header is the same.
+      const { traceresponse: headSpan, ...headHeaders } = Object.fromEntries(head.headers);
+      const { traceresponse: getSpan, ...getHeaders } = Object.fromEntries(get.headers);
+      expect([headSpan, getSpan]).toEqual([expect.any(String), expect.any(String)]);
+      expect(headHeaders).toEqual(getHeaders);
+      expect(headHeaders['content-type']).toBe('text/event-stream; charset=utf-8');
+      // A run that isn't there: the GET's 404.
+      const absent = randomUUID();
+      const [headMissing, getMissing] = [
+        await call('HEAD', { id: absent }),
+        await call('GET', { id: absent }),
+      ];
+      expect([headMissing.status, getMissing.status, headMissing.body]).toEqual([404, 404, null]);
+      expect(Object.fromEntries(headMissing.headers)).toEqual({
+        ...Object.fromEntries(getMissing.headers),
+        traceresponse: expect.any(String),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a client that leaves during the read check: the stream never starts', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const { call, counted, holdReads } = runningRunApp();
+      const { waiting, release } = holdReads();
+      const client = new AbortController();
+      const answered = call('GET', { signal: client.signal });
+      await waiting;
+      client.abort();
+      release();
+      const res = await answered;
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      // The route's one read, to find the run; no poll and no timer. The body is never touched.
+      expect(counted.reads).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
+      expect([res.status, res.body]).toEqual([200, null]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a client that leaves after the answer, its body never read: the polls stop', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const { call, counted } = runningRunApp();
+      const client = new AbortController();
+      const res = await call('GET', { signal: client.signal });
+      expect(res.status).toBe(200);
+      await vi.advanceTimersByTimeAsync(1_000);
+      const polled = counted.reads;
+      // It polls while the client is there: the route's read, the stream's first, then one every 100 ms.
+      expect(polled).toBeGreaterThan(2);
+      client.abort();
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(counted.reads).toBe(polled);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

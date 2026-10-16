@@ -137,6 +137,98 @@ describe('errors', () => {
     expect(err.cause).toMatchObject({ name: 'TypeError', message: 'inner' });
   });
 
+  test("a storage error as a cause: its code and message, never its own cause's text", () => {
+    // A storage error is a plain object; its cause is the driver's error,
+    // whose text names the query and the values bound to it.
+    const driver = Object.assign(
+      new Error('Failed query: insert into "people" values ($1)\nparams: owner@acme.test'),
+      { detail: 'Key (email)=(owner@acme.test) already exists.' },
+    );
+    const storage = {
+      code: 'query-error',
+      message: 'Tenant-scoped query failed: a unique constraint',
+      step: 'insert people',
+      cause: driver,
+    };
+    const err = new Error('saving the person failed', { cause: storage });
+    const json = capture();
+    json.log.error('save failed', { err });
+    expect((json.records()[0]?.err as Record<string, unknown>).cause).toEqual({
+      name: 'Object',
+      code: 'query-error',
+      message: 'Tenant-scoped query failed: a unique constraint',
+    });
+    const pretty = capture({ format: 'pretty' });
+    pretty.log.error('save failed', { err });
+    expect(pretty.lines[0]).toContain(
+      'caused by: Object: Tenant-scoped query failed: a unique constraint (query-error)',
+    );
+    for (const line of [...json.lines, ...pretty.lines]) {
+      expect(line).not.toContain('owner@acme.test');
+      expect(line).not.toContain('Failed query');
+      expect(line).not.toContain('insert people');
+    }
+  });
+
+  test('a plain object as err: its own name, else Object; String(err) with neither code nor message', () => {
+    const { log, records } = capture();
+    log.warn('a', { err: { name: 'StorageError', code: 'database-busy', message: 'too busy' } });
+    log.warn('b', { err: { code: 404 } });
+    log.warn('c', { err: { reason: 'no code, no message' } });
+    log.warn('d', { err: { name: 7, code: 'query-error', message: 'm' } });
+    log.warn('e', { err: { name: '', code: 'query-error', message: 'm' } });
+    expect(records().map((r) => r.err)).toEqual([
+      { name: 'StorageError', code: 'database-busy', message: 'too busy' },
+      { name: 'Object', code: '404', message: '' },
+      '[object Object]',
+      { name: 'Object', code: 'query-error', message: 'm' },
+      { name: 'Object', code: 'query-error', message: 'm' },
+    ]);
+  });
+
+  test("a plain object's message is scrubbed like an Error's", () => {
+    const { log, records } = capture();
+    log.warn('x', {
+      err: {
+        code: 'connection-error',
+        message: 'postgres://app:s3cret@db.internal:5432/app refused; sent Bearer abc.def',
+      },
+    });
+    expect(records()[0]?.err).toEqual({
+      name: 'Object',
+      code: 'connection-error',
+      message: 'postgres://app:***@db.internal:5432/app refused; sent Bearer [redacted]',
+    });
+  });
+
+  test('a plain object that resists being read never makes a log call throw', () => {
+    const { log, records } = capture();
+    const bare = Object.assign(Object.create(null), { reason: 'no code, no message' });
+    const bareWithFields = Object.assign(Object.create(null), {
+      code: 'query-error',
+      message: 'm',
+    });
+    const throwingMessage = {
+      code: 'query-error',
+      get message(): string {
+        throw new Error('no message today');
+      },
+    };
+    const revocable = Proxy.revocable({ code: 'query-error' }, {});
+    revocable.revoke();
+    for (const err of [bare, bareWithFields, throwingMessage, revocable.proxy]) {
+      expect(() => log.warn('x', { err })).not.toThrow();
+    }
+    expect(() => log.warn('y', { err: new Error('outer', { cause: bare }) })).not.toThrow();
+    expect(records().map((r) => r.err)).toEqual([
+      '[object Object]',
+      { name: 'Object', code: 'query-error', message: 'm' },
+      { name: 'Object', code: 'query-error', message: '' },
+      '[unreadable]',
+      expect.objectContaining({ message: 'outer', cause: '[object Object]' }),
+    ]);
+  });
+
   test('an Error under another key is serialized as well', () => {
     const { log, records } = capture();
     log.info('x', { failure: new RangeError('out of range') });

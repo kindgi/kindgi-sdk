@@ -24,7 +24,7 @@
  *   - `signEnvelope` — returns a canned signature.
  */
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -453,6 +453,68 @@ describe('kindgi build — argument resolution', () => {
       await readFile(join(packDir, '.kindgi/build/deploy-envelope.json'), 'utf8'),
     ) as { tenantId: string };
     expect(envelope.tenantId).toBe('via-env-var');
+  });
+
+  test('--out inside the pack root is accepted', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', '--out=inside-out', `--path=${packDir}`],
+    });
+    expect(out.stderr).not.toContain('outside the pack root');
+    expect(out.exitCode).toBe(0);
+  });
+
+  test('--out outside the pack root is refused', async () => {
+    const fixtures = makeFixtures();
+    const outside = join(cwd, 'outside-out');
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', `--out=${outside}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('outside the pack root');
+  });
+
+  test('--out via an in-pack symlink that escapes the pack root is refused', async () => {
+    const fixtures = makeFixtures();
+    const target = join(cwd, 'symlink-target');
+    await mkdir(target, { recursive: true });
+    const link = join(packDir, 'escape');
+    await symlink(target, link);
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      // `escape` is lexically inside packDir; only resolving the symlink
+      // reveals it points outside — a lexical-only check would accept it.
+      argv: ['build', '--env=staging', `--out=${link}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('outside the pack root');
+  });
+
+  test('--out via a dangling in-pack symlink pointing outside the pack root is refused', async () => {
+    const fixtures = makeFixtures();
+    // A symlink inside the pack whose target does NOT exist and points
+    // outside: realpath can't resolve it, so only reading the link (not an
+    // opaque ENOENT, not a lexical in-pack check) reveals the escape.
+    const link = join(packDir, 'dangle');
+    await symlink(join(cwd, 'dangling-target'), link);
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', `--out=${link}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('outside the pack root');
+  });
+
+  test('--out equal to the pack root is refused', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', `--out=${packDir}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('is the pack root');
   });
 });
 
@@ -1196,6 +1258,34 @@ describe('kindgi build — a Python pack', () => {
     expect(fixtures.state.signCalls).toBe(1);
   });
 
+  test('--out outside the pack root is accepted (the Python indexer takes the pack dir, not <out>/dist)', async () => {
+    await pythonPack();
+    const fixtures = makeFixtures();
+    withPython(fixtures);
+    const outside = join(cwd, 'outside-py');
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, { language: 'python', dev: { python: ['/opt/py/bin/python'] } }),
+      argv: ['build', '--env=staging', `--out=${outside}`, `--path=${packDir}`],
+    });
+    expect(out.stderr).not.toContain('outside the pack root');
+    expect(out.exitCode).toBe(0);
+  });
+
+  test('--out that contains the pack root is refused (a Python pack too, not only TypeScript)', async () => {
+    await pythonPack();
+    const fixtures = makeFixtures();
+    withPython(fixtures);
+    // cwd is the parent of packDir; building here would write dist/, the
+    // Containerfile and context/ beside the pack. A Python pack has no
+    // outside-root rule, so only the contains-the-pack-root guard refuses it.
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, { language: 'python', dev: { python: ['/opt/py/bin/python'] } }),
+      argv: ['build', '--env=staging', `--out=${cwd}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('contains the pack root');
+  });
+
   test('without uv.lock the build stops before uploading', async () => {
     await pythonPack(false);
     const fixtures = makeFixtures();
@@ -1382,6 +1472,19 @@ describe('kindgi build — a Java pack', () => {
     expect(fixtures.state.tarCalls).toBe(1);
     expect(fixtures.state.postCalls).toBe(1);
     expect(fixtures.state.signCalls).toBe(1);
+  });
+
+  test('--out outside the pack root is accepted (the JVM indexer compiles into <out>/java with an explicit classpath)', async () => {
+    await javaPack();
+    const fixtures = makeFixtures();
+    withJava(fixtures);
+    const outside = join(cwd, 'outside-java');
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, JAVA_CONFIG),
+      argv: ['build', '--env=staging', `--out=${outside}`, `--path=${packDir}`],
+    });
+    expect(out.stderr).not.toContain('outside the pack root');
+    expect(out.exitCode, out.stderr).toBe(0);
   });
 
   test("the image's launcher keeps the names the index declares, required and optional", async () => {

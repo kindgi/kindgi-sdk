@@ -76,7 +76,7 @@ export function buildBuildInitialMessagesHandler(ctx: TurnContext): NodeHandler 
       // A typed agent's output, from the turn's start: the first answer can
       // fit, and a repair (`budget-check`) is the fallback, not every turn's
       // second model call.
-      ...(agent.output !== undefined ? [outputSection(agent.output)] : []),
+      ...(agent.output !== undefined ? [outputSection(agent.output, offersTools(ctx))] : []),
     ].join('\n\n');
     const modelMessages: ModelMessage[] = [
       { role: 'system', content: system },
@@ -87,6 +87,11 @@ export function buildBuildInitialMessagesHandler(ctx: TurnContext): NodeHandler 
 
     return { nextMessages: modelMessages };
   };
+}
+
+/** Whether the turn's model calls offer tools: setup's, `remember` included. */
+function offersTools(ctx: TurnContext): boolean {
+  return (ctx.tools?.definitions.length ?? 0) > 0;
 }
 
 function conversationToModelMessage(msg: ConversationMessage): ModelMessage {
