@@ -313,8 +313,8 @@ then says who approved, for example "approved by Jane, via Acme store", not
 1. **Install the plugin.** It's in the Kindgi SDK's repository, at
    [`integrations/wordpress/kindgi`](https://github.com/kindgi/kindgi-sdk/tree/main/integrations/wordpress/kindgi).
 2. **Register the store as a site** on this pack's project. A tenant admin
-   uses `projects.sites.register` in the client, with the store's origin and
-   the approvals URL the plugin's settings page shows.
+   runs `kindgi sites register` with `--project`, the store's origin and the
+   approvals URL the plugin's settings page shows.
 3. **Connect.** Paste the one-time code under Kindgi → Settings.
 
 **The runtime needs site sign-in on:**
