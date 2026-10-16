@@ -109,6 +109,33 @@ describe('rule 2: known shapes in strings', () => {
   });
 });
 
+describe('redactValue: errors and values that throw when read', () => {
+  test('an error is serialized as err is, without its stack; its other fields are left out', () => {
+    const unique = Object.assign(new Error('duplicate key at postgres://u:pw@h/db'), {
+      code: '23505',
+      detail: 'Key (email)=(owner@acme.test) already exists.',
+    });
+    expect(redactValue({ at: [unique] })).toEqual({
+      at: [{ name: 'Error', message: 'duplicate key at postgres://u:***@h/db', code: '23505' }],
+    });
+  });
+
+  test('a value, or a field of one, that throws when read is [unreadable]', () => {
+    const revocable = Proxy.revocable({}, {});
+    revocable.revoke();
+    const getter = {
+      ok: 1,
+      get bad(): number {
+        throw new Error('not today');
+      },
+    };
+    expect(redactValue({ revoked: revocable.proxy, getter })).toEqual({
+      revoked: '[unreadable]',
+      getter: { ok: 1, bad: '[unreadable]' },
+    });
+  });
+});
+
 describe('the logger applies both rules everywhere, at every level', () => {
   test("the message, fields, err.message and err.stack; the seeded token's tail stays", () => {
     const lines: string[] = [];
