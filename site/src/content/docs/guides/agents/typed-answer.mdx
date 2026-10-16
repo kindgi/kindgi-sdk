@@ -206,11 +206,11 @@ give the schema yourself with `.set("output", Map("schema" -> …, "name" ->
   agent calls no tools.
 
 The model is sent the schema from its first call. The system message ends
-with it, in the words a repair repeats, and then tells the model to give its
-final answer as that JSON alone. For an agent with tools, it says to call the
-tools it needs first. So its first answer can already fit. Describing the JSON
-in the instructions, as this agent does, still helps the model fill the fields
-well.
+with it, in the words a repair repeats, and a last line: give your final
+answer as that JSON alone. When the model is offered tools, the agent's own or
+memory's `remember`, that line first says to call the ones it needs. So its
+first answer can already fit. Describing the JSON in the instructions, as this
+agent does, still helps the model fill the fields well.
 
 The schema goes with every model call, its descriptions included, so every
 call's prompt tokens count it. Keep it, and its descriptions, to what the
