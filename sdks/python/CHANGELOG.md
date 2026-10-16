@@ -55,6 +55,11 @@ same version, and the CLI's own changes are in
   included, and the client's generation now fails before a name could move
   to another model or vanish. (#916)
 
+- `kindgi`: **`policies.versions.get` answers for a retired version too.** It
+  returns a `PolicyVersionRow`, whose `unregistered_at` says when the version
+  was retired; an active one has none. A retired version was
+  `404 policy-not-found`, a `NotFoundError`; a version the retention sweep has
+  purged still is. (#903)
 - `kindgi`: **a sign-in session carries the capabilities its person holds.**
   `identity.me.permissions()`'s `token_capabilities` for a sign-in session
   were always empty. Now they're its person's: none, unless the runtime gives
