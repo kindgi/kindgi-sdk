@@ -175,10 +175,57 @@ describe('errors', () => {
     log.warn('a', { err: { name: 'StorageError', code: 'database-busy', message: 'too busy' } });
     log.warn('b', { err: { code: 404 } });
     log.warn('c', { err: { reason: 'no code, no message' } });
+    log.warn('d', { err: { name: 7, code: 'query-error', message: 'm' } });
+    log.warn('e', { err: { name: '', code: 'query-error', message: 'm' } });
     expect(records().map((r) => r.err)).toEqual([
       { name: 'StorageError', code: 'database-busy', message: 'too busy' },
       { name: 'Object', code: '404', message: '' },
       '[object Object]',
+      { name: 'Object', code: 'query-error', message: 'm' },
+      { name: 'Object', code: 'query-error', message: 'm' },
+    ]);
+  });
+
+  test("a plain object's message is scrubbed like an Error's", () => {
+    const { log, records } = capture();
+    log.warn('x', {
+      err: {
+        code: 'connection-error',
+        message: 'postgres://app:s3cret@db.internal:5432/app refused; sent Bearer abc.def',
+      },
+    });
+    expect(records()[0]?.err).toEqual({
+      name: 'Object',
+      code: 'connection-error',
+      message: 'postgres://app:***@db.internal:5432/app refused; sent Bearer [redacted]',
+    });
+  });
+
+  test('a plain object that resists being read never makes a log call throw', () => {
+    const { log, records } = capture();
+    const bare = Object.assign(Object.create(null), { reason: 'no code, no message' });
+    const bareWithFields = Object.assign(Object.create(null), {
+      code: 'query-error',
+      message: 'm',
+    });
+    const throwingMessage = {
+      code: 'query-error',
+      get message(): string {
+        throw new Error('no message today');
+      },
+    };
+    const revocable = Proxy.revocable({ code: 'query-error' }, {});
+    revocable.revoke();
+    for (const err of [bare, bareWithFields, throwingMessage, revocable.proxy]) {
+      expect(() => log.warn('x', { err })).not.toThrow();
+    }
+    expect(() => log.warn('y', { err: new Error('outer', { cause: bare }) })).not.toThrow();
+    expect(records().map((r) => r.err)).toEqual([
+      '[object Object]',
+      { name: 'Object', code: 'query-error', message: 'm' },
+      { name: 'Object', code: 'query-error', message: '' },
+      '[unreadable]',
+      expect.objectContaining({ message: 'outer', cause: '[object Object]' }),
     ]);
   });
 
