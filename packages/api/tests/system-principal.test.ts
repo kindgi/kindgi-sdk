@@ -154,7 +154,8 @@ const SINGLE_BOOT = 'kgi_bt_single';
 /** The multi-mode boot token: a system principal with the full capability. */
 const MULTI_BOOT = 'kgi_bt_multi';
 
-function makeApp(tenancy: 'single' | 'multi' = 'multi') {
+/** `unset` passes no `tenancy`, as a runtime serving one tenant does. */
+function makeApp(tenancy: 'single' | 'multi' | 'unset' = 'multi') {
   const system = makeSystemKeys();
   const tenant = makeTenantKeys();
   const audit: SystemAccessRecord[] = [];
@@ -162,7 +163,7 @@ function makeApp(tenancy: 'single' | 'multi' = 'multi') {
   const failing = { begin: false, finish: false };
   const app = createApp({
     ...createStubAppBindings(),
-    tenancy,
+    ...(tenancy !== 'unset' && { tenancy }),
     tenantStates: { of: async () => undefined },
     resolveToken: async (token) => {
       if (token === SINGLE_BOOT) {
@@ -608,7 +609,7 @@ describe('withSystemTenantContext', () => {
 describe("the operator's powers stay fenced in both ways", () => {
   /** A bare app: a caller set by hand, then the fence, then two routes. */
   function bare(
-    caller: { system?: boolean; capabilities: string[] },
+    caller: { system?: boolean; keyId?: string; capabilities: string[] },
     tenancy?: 'single' | 'multi',
   ) {
     const app = new Hono<AppEnv>();
@@ -620,7 +621,7 @@ describe("the operator's powers stay fenced in both ways", () => {
         error: () => undefined,
       } as never);
       c.set('tokenId', 'key-legacy' as ApiTokenId);
-      if (caller.system === true) c.set('systemPrincipal', { keyId: 'k-1' });
+      if (caller.system === true) c.set('systemPrincipal', { keyId: caller.keyId ?? 'k-1' });
       c.set('capabilities', caller.capabilities);
       await next();
     });
@@ -632,6 +633,7 @@ describe("the operator's powers stay fenced in both ways", () => {
     // A system route someone forgot to gate: the fence alone keeps tenants out.
     app.get('/v1/system/ungated', (c) => c.json({ reached: true }));
     app.get('/v1/system/who', (c) => c.json({ identity: callerIdentity(c) }));
+    app.get('/v1/system/keys', (c) => c.json({ reached: true }));
     return { app, warnings };
   }
 
@@ -643,6 +645,21 @@ describe("the operator's powers stay fenced in both ways", () => {
       'system-key-scope-not-served',
     );
     expect((await bare(caller, 'multi').app.request('/v1/system/who')).status).toBe(200);
+  });
+
+  test("serving one tenant, the deployment's own token is a system principal on /v1/system/keys alone", async () => {
+    // As a runtime serving many resolves it: the fence holds the rule on
+    // its own, whatever the bearer makes of the token.
+    const boot = { system: true, keyId: 'boot', capabilities: ['kindgi:system'] };
+    expect((await bare(boot).app.request('/v1/system/keys')).status).toBe(200);
+    for (const path of ['/v1/system/who', '/v1/system/ungated', '/v1/caps']) {
+      const res = await bare(boot).app.request(path);
+      expect(res.status, path).toBe(403);
+      expect(((await res.json()) as { error: { code: string } }).error.code, path).toBe(
+        'system-principal-required',
+      );
+    }
+    expect((await bare(boot, 'multi').app.request('/v1/system/who')).status).toBe(200);
   });
 
   test("multi mode: a tenant's key loses kindgi:system and system:*, with a warning naming the key", async () => {
@@ -804,27 +821,30 @@ describe("serving one tenant: a system key is the license renewal's, minted by t
     expect(code(after)).not.toBe(undefined);
   });
 
-  test('it mints system:license alone: any other scope, or the full capability, is refused, and nothing is minted', async () => {
-    const { call, code, system } = makeApp('single');
-    const others = SYSTEM_SCOPES.filter((scope) => scope !== 'system:license');
-    expect(others.length).toBeGreaterThan(0);
-    for (const scopes of [
-      ...others.map((scope) => [scope]),
-      ['system:license', 'system:tenants'],
-      ['kindgi:system'],
-    ]) {
-      const r = await call(SINGLE_BOOT, 'POST', '/v1/system/keys', {
-        scopes,
-        expiresAt: new Date(Date.now() + HOUR).toISOString(),
-      });
-      expect(r.status, scopes.join(', ')).toBe(400);
-      expect(code(r), scopes.join(', ')).toBe('bad-input');
-      expect((r.body.error as { message: string }).message, scopes.join(', ')).toContain(
-        'a system key holds system:license alone',
-      );
-    }
-    expect(system.keys.size).toBe(0);
-  });
+  test.each(['single', 'unset'] as const)(
+    'it mints system:license alone (tenancy %s): any other scope, or the full capability, is refused, and nothing is minted',
+    async (tenancy) => {
+      const { call, code, system } = makeApp(tenancy);
+      const others = SYSTEM_SCOPES.filter((scope) => scope !== 'system:license');
+      expect(others.length).toBeGreaterThan(0);
+      for (const scopes of [
+        ...others.map((scope) => [scope]),
+        ['system:license', 'system:tenants'],
+        ['kindgi:system'],
+      ]) {
+        const r = await call(SINGLE_BOOT, 'POST', '/v1/system/keys', {
+          scopes,
+          expiresAt: new Date(Date.now() + HOUR).toISOString(),
+        });
+        expect(r.status, scopes.join(', ')).toBe(400);
+        expect(code(r), scopes.join(', ')).toBe('bad-input');
+        expect((r.body.error as { message: string }).message, scopes.join(', ')).toContain(
+          'a system key holds system:license alone',
+        );
+      }
+      expect(system.keys.size).toBe(0);
+    },
+  );
 
   test('a key holding system:license reads the license and the use, on the access record', async () => {
     const { call, audit } = makeApp('single');

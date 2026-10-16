@@ -268,7 +268,7 @@ $(terraform output -raw license_enroll_command)   # fill in --for first
   # The deployment's own token, read from the vault into this shell only.
   KINDGI_API_TOKEN=$(az keyvault secret show --vault-name "$V" -n api-token --query value -o tsv)
   KEY=$(curl -sS -X POST "$(terraform output -raw server_url)/v1/system/keys" \
-    -H "Authorization: Bearer $KINDGI_API_TOKEN" \
+    -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
     -H 'Content-Type: application/json' \
     -H "Idempotency-Key: $(uuidgen)" \
     -d '{"scopes": ["system:license"], "label": "license renewal"}' \
@@ -277,7 +277,18 @@ $(terraform output -raw license_enroll_command)   # fill in --for first
   unset KEY KINDGI_API_TOKEN
   ```
 
-  Then `license_usage_key_secret = "license-usage-key"`. The key is never printed: a refused mint prints its error instead, and nothing goes in the vault. To list the keys or revoke one, see "A key for the counts" on that page. A server serving one tenant that refuses the mint with `system-principal-required` predates these keys: until you upgrade it, the job renews without counts.
+  Then `license_usage_key_secret = "license-usage-key"`. The key is never printed, and the token reaches `curl` as a header file, never in the list of processes. A refused mint prints its error instead, and nothing goes in the vault. To list the keys or revoke one, see "A key for the counts" on that page. A server serving one tenant that refuses the mint with `system-principal-required` is older than runtime 0.1.8.2, which has these keys: until you upgrade it, the job renews without counts.
+
+  **Check the first run.** A renewal whose counts don't reach it still renews, with `counts: not sent (<why>)` in its log, and no alert fires. So after the apply, start a run and read its counts line:
+
+  ```sh
+  az containerapp job start -n <name_prefix>-license-renew -g <rg>
+  WS=$(az monitor log-analytics workspace list -g <rg> --query "[0].customerId" -o tsv)
+  az monitor log-analytics query -w "$WS" --analytics-query \
+    "ContainerAppConsoleLogs_CL | where column_ifexists('ContainerJobName_s', '') == '<name_prefix>-license-renew' | where Log_s has 'counts:' | order by TimeGenerated desc | take 5"
+  ```
+
+  `counts: sent (…)` is what you want. With `server_ip_allowlist` set, this check matters most: the job calls the server's URL, and the module doesn't check whether the list lets it in.
 - **When a new key is used:** the server reads `license-key` without a version, so it gets the new key as for any rotated secret (see "Rotating a secret" above, and [Microsoft: Key Vault secret URI and secret rotation](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)). Until then it runs on the key it started with. A running server never stops over its key.
 - **Stopping:** unset `license_renewal_schedule`, or stop the renewer on access.kindgi.com.
 

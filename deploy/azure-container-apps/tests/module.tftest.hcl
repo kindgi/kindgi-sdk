@@ -605,10 +605,29 @@ run "refuses_a_renewer_secret_the_module_uses" {
   expect_failures = [azurerm_container_app.server]
 }
 
+# Key Vault ignores case in a name: License-Key is the license-key secret.
+run "refuses_a_renewer_secret_the_module_uses_in_another_case" {
+  command = plan
+  variables {
+    license_renewer_secret = "License-Key"
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
 run "refuses_a_usage_key_secret_the_module_uses" {
   command = plan
   variables {
     license_usage_key_secret = "api-token"
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+# API-Token is the api-token secret, and the job would renew with the
+# deployment's own token.
+run "refuses_a_usage_key_secret_the_module_uses_in_another_case" {
+  command = plan
+  variables {
+    license_usage_key_secret = "API-Token"
   }
   expect_failures = [azurerm_container_app.server]
 }

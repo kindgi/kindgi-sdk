@@ -16,6 +16,7 @@ import {
   type SystemScope,
   holdsSystemScope,
   isSystemCapability,
+  isSystemKeysPath,
 } from '../system.js';
 import type { AppEnv } from '../types.js';
 import type { Authorizer } from './authorize.js';
@@ -194,14 +195,23 @@ export function systemPrincipalFence(
  * Serving one tenant: a system key holding anything but `system:license`
  * is refused outright, and one holding it is refused under `/v1/system/*`,
  * where the system keys take the deployment's own token. The deployment's
- * own token (`boot`) is a system principal on `/v1/system/keys` alone.
+ * own token (`boot`) is a system principal on `/v1/system/keys` alone, and
+ * is refused as one anywhere else.
  */
 function oneTenantRefusal(
   c: Context<AppEnv>,
   system: SystemPrincipal,
   authorizer: Authorizer | undefined,
 ): Response | undefined {
-  if (system.keyId === 'boot') return undefined;
+  if (system.keyId === 'boot') {
+    if (isSystemKeysPath(c.req.path)) return undefined;
+    return deny(
+      c,
+      authorizer,
+      'system-principal-required',
+      `This runtime serves one tenant, where the deployment's own token is a system principal on /v1/system/keys alone, not on ${c.req.path}.`,
+    );
+  }
   const held = c.get('capabilities') ?? [];
   const served =
     held.length > 0 && held.every((cap) => ONE_TENANT_SYSTEM_SCOPES.includes(cap as SystemScope));
