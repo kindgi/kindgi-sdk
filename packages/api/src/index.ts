@@ -66,10 +66,7 @@ export {
   type TenantLimitsInUse,
 } from './routes/system-tenant-settings.js';
 export { systemKeysMintedFrom } from './routes/system-keys.js';
-export {
-  PACK_ENDPOINT_AUTHS,
-  SYSTEM_DEPLOYMENT_RETIRE_REASONS,
-} from './routes/system-deployments.js';
+export { PACK_ENDPOINT_AUTHS } from './routes/system-deployments.js';
 export type {
   DeploymentRef,
   PackEndpointAuth,
@@ -77,7 +74,6 @@ export type {
   SetPackEndpointOutcome,
   SystemDeploymentEntry,
   SystemDeploymentPage,
-  SystemDeploymentRetireReason,
   SystemDeploymentsBinding,
   SystemDeploymentsOptions,
   SystemDeploymentToRetire,
@@ -891,7 +887,10 @@ export {
   hostNamesPackService,
   packServiceName,
 } from './pack-service-name.js';
-export { DEPLOYMENT_ENDPOINT_PROBLEM_CODES } from './deployment-binding.js';
+export {
+  DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
+  SYSTEM_DEPLOYMENT_RETIRE_REASONS,
+} from './deployment-binding.js';
 export type {
   Deployment,
   DeploymentBinding,
@@ -911,6 +910,7 @@ export type {
   DeploymentPrimitiveCounts,
   DeploymentRegisterInput,
   DeploymentRegisterOutcome,
+  SystemDeploymentRetireReason,
 } from './deployment-binding.js';
 export type {
   ImageBlobDescriptor,
@@ -948,6 +948,7 @@ export type {
   EnvGetInput,
   EnvListInput,
   EnvListPage,
+  EnvNamesInput,
   EnvRecord,
   EnvResolveInput,
   EnvResolveOutcome,

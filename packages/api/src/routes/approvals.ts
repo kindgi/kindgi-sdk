@@ -36,6 +36,7 @@ import type {
   ReviewDecisionRecord,
 } from '../hitl-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import {
@@ -444,6 +445,8 @@ export function approvalsRouter(
     };
     const listed = await hitlBinding.listApprovals(listInput);
     if (listed.kind === 'err') {
+      const busy = databaseBusyAnswer(listed.error, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(listed.error.code) as never);
       return c.json(toWireError(listed.error as never, requestId));
     }
@@ -510,6 +513,8 @@ export function approvalsRouter(
 
     const got = await hitlBinding.getApproval(tenantId, approvalId);
     if (got.kind === 'err') {
+      const busy = databaseBusyAnswer(got.error, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(got.error.code) as never);
       return c.json(toWireError(got.error as never, requestId));
     }

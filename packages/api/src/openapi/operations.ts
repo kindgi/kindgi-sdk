@@ -2517,7 +2517,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemDeployments.recordProblem',
     summary: 'Record why a deployment has no pack service yet',
     description:
-      "For whatever creates the pack services: records why a `pending` deployment has none yet, as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.",
+      "For whatever creates the pack services: records why a deployment waiting for one has none yet (`pending`, or `cleared` and `waiting`, as after a suspension is lifted), as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.",
     tags: ['system-deployments'],
     security: 'bearer',
     parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam, IdempotencyKeyParam],
@@ -2536,7 +2536,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
       ),
       '409': ErrorResponse(
-        "The deployment's endpoint isn't `pending` (`endpoint-not-pending`, with `details.status`).",
+        "The deployment's endpoint isn't waiting for a pack service: `ready`, or `cleared` and not `waiting` (`endpoint-not-pending`, with `details.status`).",
       ),
       '503': ErrorResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
@@ -5602,11 +5602,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/policies/{policyId}/versions/{version}',
     operationId: 'policies.versions.get',
     summary: 'Fetch a specific policy version',
+    description: 'An unregistered version is returned too, with `unregisteredAt`.',
     tags: ['policies'],
     security: 'bearer',
     parameters: [PolicyIdPathParam, PolicyVersionPathParam],
     responses: {
-      '200': { description: 'Policy at that version.', schema: ref('Policy') },
+      '200': { description: 'Policy at that version.', schema: ref('PolicyVersionRow') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No policy at that (id, version) under this tenant.'),
     },
@@ -8460,6 +8461,26 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
 
   // ---------- env ----------
+  {
+    method: 'get',
+    honoPath: '/v1/environments',
+    openapiPath: '/v1/environments',
+    operationId: 'environments.list',
+    summary: "List the tenant's env names",
+    description:
+      "The env names the tenant holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A revoked secret doesn't count. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.",
+    tags: ['env'],
+    security: 'bearer',
+    parameters: [LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of env names.', schema: ref('EnvironmentPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse("`cursor` isn't one this list gave (`bad-input`)."),
+      '501': ErrorResponse(
+        "The runtime's env or secret store can't list its env names (`environments-unsupported`).",
+      ),
+    },
+  },
   {
     method: 'get',
     honoPath: '/v1/env',
