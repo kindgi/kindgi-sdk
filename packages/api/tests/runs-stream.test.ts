@@ -4,14 +4,15 @@
 /**
  * `GET /v1/runs/:runId/stream` falls back to polling the journal when
  * the event bus is wired but subscribing fails, and stops its work when
- * the reader cancels or the request aborts.
+ * the reader cancels or the request aborts. Each journal read asks only
+ * for the entries after the last one the stream sent.
  */
 
 import { randomUUID } from 'node:crypto';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import type { JournalEntry, KernelRunRecord, RunBinding } from '@kindgi/runtime';
+import type { JournalEntry, JournalPage, KernelRunRecord, RunBinding } from '@kindgi/runtime';
 import type { ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
@@ -83,6 +84,83 @@ describe('GET /v1/runs/:runId/stream — event bus subscribe fails', () => {
     const text = await res.text();
     expect(text).toContain('event: run.started');
     expect(text).toContain('event: run.completed');
+  });
+});
+
+describe('GET /v1/runs/:runId/stream — each read asks only for what it has not sent', () => {
+  /** A run that completes after its first read; its binding reads only the page asked for. */
+  function pagedApp() {
+    const runId = randomUUID() as RunId;
+    const at = '2026-09-30T00:00:00.000Z' as Timestamp;
+    const pages: (JournalPage | undefined)[] = [];
+    const stubs = createStubAppBindings();
+    const run = {
+      ...stubs.kernelBinding.run,
+      getRun: async () =>
+        ({
+          runId,
+          tenantId,
+          projectId: randomUUID() as ProjectId,
+          flowId: 'pack.flow',
+          flowVersion: '1.0.0',
+          status: 'running',
+          input: {},
+          dryRun: false,
+          createdAt: at,
+          updatedAt: at,
+        }) satisfies KernelRunRecord,
+      readJournal: async (_tenant: TenantId, _id: RunId, page?: JournalPage) => {
+        pages.push(page);
+        const journal = [entry(1, 'run.started'), entry(2, 'step.started')];
+        if (pages.length > 1) journal.push(entry(3, 'run.completed'));
+        const after = page?.after;
+        return {
+          kind: 'ok' as const,
+          value: journal.filter((e) => after === undefined || e.sequence > after),
+        };
+      },
+    } as unknown as RunBinding;
+    // Wired, but subscribing fails: the backfill read, then the poll's.
+    const eventBus: EventBusBinding = {
+      publish: async () => ({ kind: 'ok', value: undefined }),
+      subscribe: async () => ({
+        kind: 'err',
+        error: { code: 'subscribe-failed', message: 'bus unavailable' },
+      }),
+    };
+    const app = createApp({
+      ...stubs,
+      kernelBinding: { ...stubs.kernelBinding, run },
+      resolveToken,
+      runHandler: {} as RunHandlerBinding,
+      eventBus,
+    });
+    const stream = async (lastEventId?: string) => {
+      const res = await app.request(`/v1/runs/${runId}/stream`, {
+        headers: {
+          authorization: `Bearer ${TOKEN}`,
+          ...(lastEventId !== undefined && { 'last-event-id': lastEventId }),
+        },
+      });
+      return res.text();
+    };
+    return { stream, pages };
+  }
+
+  test('the backfill reads the whole journal; the poll after it, only what came after', async () => {
+    const { stream, pages } = pagedApp();
+    const text = await stream();
+    expect(text).toContain('event: run.started');
+    expect(text).toContain('event: run.completed');
+    expect(pages).toEqual([{}, { after: 2 }]);
+  });
+
+  test('a reconnect with Last-Event-Id: the backfill reads only after it', async () => {
+    const { stream, pages } = pagedApp();
+    const text = await stream('1');
+    expect(text).not.toContain('event: run.started');
+    expect(text).toContain('event: run.completed');
+    expect(pages).toEqual([{ after: 1 }, { after: 2 }]);
   });
 });
 
