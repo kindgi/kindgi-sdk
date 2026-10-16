@@ -2341,7 +2341,7 @@ export const ERROR_ENTRIES = {
       {
         key: 'limit',
         meaning:
-          "with `image-limit-exceeded`, the bound: `manifest`, `file`, `layer`, `read` or `unpack`, the image's own, so the same image is refused again. The tenant's image reads in the last hour pass, so that bound answers `rate-limit-exceeded` with `limit` `tenant-unpack-hour` and `Retry-After`",
+          "with `image-limit-exceeded`, the bound: `manifest`, `file`, `layer`, `read` or `unpack`, the image's own, so the same image is refused again. The tenant's hour of image reads is never this code: reaching it answers `rate-limit-exceeded` with `limit` `tenant-unpack-hour` and `Retry-After`",
       },
     ],
     seeAlso: ['POST /v1/deployments'],
