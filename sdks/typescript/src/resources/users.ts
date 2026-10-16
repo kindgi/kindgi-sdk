@@ -220,7 +220,11 @@ export interface UserFilter extends Filter {
   readonly query?: string;
   /** People who were removed (`unregisteredAt`) too. Default: only the people still here. */
   readonly includeUnregistered?: boolean;
-  /** Only the people with an open invitation (`invite` set: pending or expired). */
+  /**
+   * Only the people with an open invitation (`invite` set: pending or
+   * expired). Against a runtime that doesn't filter, the page is kept to
+   * them here, so it may be short.
+   */
   readonly pending?: boolean;
   /**
    * Each person's `grants` too, in the same read (what `grants(id)`
@@ -278,7 +282,14 @@ export function makeUsersClient(transport: Transport): UsersClient {
           ...(filter?.includeGrants === true && { include: 'grants' }),
         },
       });
-      return listPage(page);
+      // A runtime from before invitations ignores `pending` and lists
+      // everyone: kept to the invited here, as the route keeps a directory's
+      // that doesn't filter (a page may then be short).
+      return listPage(
+        filter?.pending === true
+          ? { ...page, data: page.data.filter((u) => u.invite !== undefined) }
+          : page,
+      );
     },
 
     async grants(id) {

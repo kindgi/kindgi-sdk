@@ -4,7 +4,7 @@
 "@kindgi/cli": patch
 ---
 
-**Breaking:** `users.create` in the TypeScript client answers with the person it added, not their id. Before: `const id = await client.users.create(spec)`. After: `const { userId } = await client.users.create(spec)`.
+**Breaking:** `users.create` in the TypeScript client answers with the person it added, not their id. Before: `const id = await client.users.create(spec)`. After: `const { userId } = await client.users.create(spec)`. In the Python client it answers `UserCreated`, which isn't a `UserRecord`: a type annotation or `isinstance` check on its answer changes.
 
 **People added with an email are invited, on a runtime that invites them.** The invitation is open until their first sign-in; past its expiry, every way in refuses them until a tenant admin sends it again.
 

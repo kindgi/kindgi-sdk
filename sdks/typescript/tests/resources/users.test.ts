@@ -211,6 +211,26 @@ describe('users.unregister — POST /v1/identity/users/{userId}/unregister', () 
     expect(page.data[0]?.invite).toEqual(WIRE_INVITE);
   });
 
+  it('list keeps a pending page to the invited when the runtime lists everyone', async () => {
+    // A runtime from before invitations ignores `pending`.
+    const invited = { ...WIRE_USER, userId: 'carol', invite: WIRE_INVITE };
+    const everyone = JSON.stringify({ data: [WIRE_USER, invited], hasMore: false });
+    const stub = recordingFetch([
+      { status: 200, body: everyone },
+      { status: 200, body: everyone },
+    ]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const pending = await client.users.list({ pending: true });
+    const all = await client.users.list();
+    expect(pending.data.map((u) => u.userId)).toEqual(['carol']);
+    expect(pending.hasMore).toBe(false);
+    expect(all.data).toHaveLength(2);
+  });
+
   it("list carries each person's grants only when asked", async () => {
     const grants = { userId: WIRE_USER.userId, tenantAdmin: false, projects: [], teams: [] };
     const stub = recordingFetch([

@@ -345,7 +345,7 @@ describe('kindgi people', () => {
     ['no-email', 'No invitation: they have no email.\n'],
     [
       'not-configured',
-      'Invited, but this deployment sends no email: tell them to sign in with carol@acme.test before it expires (2026-10-13T12:00:00Z).\n',
+      'Invited, but this deployment sends no email: tell them to sign in through a provider with carol@acme.test before it expires (2026-10-13T12:00:00Z).\n',
     ],
     [
       'send-failed',

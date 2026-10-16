@@ -322,7 +322,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'identity-user-unregister-refused': 409,
   /** A grant or a key for a person who was unregistered. */
   'identity-user-unregistered': 409,
-  /** Renewing the invitation of a person who has joined, or has no email to send one to. */
+  /**
+   * Renewing the invitation of a person who has joined, was added before
+   * invitations, or has no email to send one to.
+   */
   'identity-user-not-invited': 409,
   /** A person's grants on a runtime without an authorization store. */
   'person-grants-unsupported': 501,

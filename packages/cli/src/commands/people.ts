@@ -68,7 +68,7 @@ function inviteLine(person: User, email: InviteEmail | undefined): string {
     case 'not-requested':
       return `Invited, not emailed (--no-invite): tell them to sign in with ${person.primaryEmail ?? 'their email'}${until}.\n`;
     case 'not-configured':
-      return `Invited, but this deployment sends no email: tell them to sign in with ${person.primaryEmail ?? 'their email'}${until}.\n`;
+      return `Invited, but this deployment sends no email: tell them to sign in through a provider with ${person.primaryEmail ?? 'their email'}${until}.\n`;
     case 'capped':
       return `Invited, but the tenant's invitations for today are used up: send it later (${resend}), or tell them to sign in${until}.\n`;
     default:

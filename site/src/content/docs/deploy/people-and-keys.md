@@ -115,14 +115,15 @@ In the TypeScript client, it's
 
 ### Their invitation
 
-On a runtime that invites people, a person added with an email is
-invited: the runtime emails them a link to sign in, through the
+Where people [sign in to the console](../sign-in/), a person added with an
+email is invited: the runtime emails them a link to sign in, through the
 [sign-in email](../sign-in/#sign-in-links-by-email) sender you set up.
 The invitation is open for 7 days from the add, or from the last time it
 was sent. It's `pending` until their first sign-in, then it's gone: they've
 joined. Once the 7 days pass with no sign-in it's `expired`, and every way
 in refuses them, an identity provider too, until a tenant admin sends it
-again. A key you made them still works.
+again. A key you made them still works. With sign-in off, nobody is
+invited: people work with the keys you make them.
 
 The person's record says it, while it's open:
 
@@ -131,8 +132,9 @@ The person's record says it, while it's open:
 ```
 
 `sentAt` is when it was last emailed; it's absent when it never was. People
-added before the runtime invited, the seed user, and people with no email
-aren't invited, so they have no `invite`.
+added before the runtime invited, the people the runtime adds itself (such
+as the seed user), and people with no email aren't invited, so they have no
+`invite`.
 
 `kindgi people add` says on stderr whether the invitation went out, and if
 not, why (`inviteEmail.reason` in the answer):
@@ -140,13 +142,14 @@ not, why (`inviteEmail.reason` in the answer):
 | Reason | Why it wasn't emailed |
 |---|---|
 | `not-requested` | `--no-invite` (`sendInvite: false`). |
-| `not-configured` | The runtime has no sign-in email sender. |
+| `not-configured` | The runtime has no sign-in email sender, so there's no emailed link: they sign in through Google, Microsoft, GitHub or the workspace's identity provider, with that email. |
 | `send-failed` | The mail server refused it or didn't answer. |
 | `capped` | The tenant's invitations for the day are used up. |
 | `no-email` | They have no email, so they aren't invited. |
 
 Unless it's `no-email`, they're invited all the same: tell them to sign in
-with their email, or send it again. To send it again, with 7 more days:
+with their email, or send it again. To send it again, open for 7 days from
+then:
 
 ```sh
 kindgi people invite <user-id>
