@@ -46,12 +46,12 @@ import {
   type DeploymentRegisterOutcome,
   endpointToWire,
 } from '../deployment-binding.js';
-import { statusFor, toWireError } from '../errors.js';
+import { type WireErrorBody, statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
 import { type FlowPinsLive, publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
 import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
 import { imageRefWithin, parseImagePrefix, parseImageRef } from '../image-ref.js';
-import type { ImageRegistryBinding } from '../image-registry-binding.js';
+import type { ImageRegistryBinding, ImageRegistryError } from '../image-registry-binding.js';
 import type { LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
@@ -492,15 +492,7 @@ export function deploymentsRouter(
     if (head.kind === 'err') {
       c.status(statusFor('image-unverifiable') as never);
       return c.json(
-        toWireError(
-          {
-            code: 'image-unverifiable',
-            message: `Image head probe failed: ${head.error.message}`,
-            imageRef: wire.imageRef,
-            cause: head.error.code,
-          },
-          requestId,
-        ),
+        registryRefusal('Image head probe failed', head.error, wire.imageRef, requestId),
       );
     }
     if (head.value.digest !== imageDigest) {
@@ -525,13 +517,10 @@ export function deploymentsRouter(
     if (indexFile.kind === 'err') {
       c.status(statusFor('image-unverifiable') as never);
       return c.json(
-        toWireError(
-          {
-            code: 'image-unverifiable',
-            message: `Extract /app/index.json failed: ${indexFile.error.message}`,
-            imageRef: wire.imageRef,
-            cause: indexFile.error.code,
-          },
+        registryRefusal(
+          'Extract /app/index.json failed',
+          indexFile.error,
+          wire.imageRef,
           requestId,
         ),
       );
@@ -2365,6 +2354,32 @@ async function notifyWrites(
 
 function errMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+/**
+ * A registry read that failed, as `image-unverifiable`: `details.cause`
+ * is the binding's code, and `details.limit` the bound that refused the
+ * image, when one did. Built here, not by `toWireError`, which keeps a
+ * domain error's `cause` off the wire.
+ */
+function registryRefusal(
+  step: string,
+  error: ImageRegistryError,
+  imageRef: string,
+  requestId: string,
+): WireErrorBody {
+  return {
+    error: {
+      code: 'image-unverifiable',
+      message: `${step}: ${error.message}`,
+      details: {
+        imageRef,
+        cause: error.code,
+        ...(error.code === 'image-limit-exceeded' && { limit: error.limit }),
+      },
+      requestId,
+    },
+  };
 }
 
 // Formats a sha256 digest in the canonical `sha256:<hex>` shape. Not used

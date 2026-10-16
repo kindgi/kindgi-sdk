@@ -152,13 +152,19 @@ export async function postDeploymentReal(
   }
 
   // 4xx / 5xx — the api-server wraps errors in `{ error: { code,
-  // message, ...details } }` via `toWireError` in
+  // message, details? } }` via `toWireError` in
   // `packages/api/src/errors.ts`.
   const wire = body as { error?: { code?: string; message?: string; details?: unknown } } | null;
   const code = wire?.error?.code ?? `http-${res.status}`;
   const message = wire?.error?.message ?? `HTTP ${res.status}`;
-  const details = extractDetails(wire?.error);
-  const limit = (wire?.error?.details as { readonly limit?: unknown } | undefined)?.limit;
+  const wireDetails = wire?.error?.details as
+    | { readonly issues?: unknown; readonly limit?: unknown; readonly cause?: unknown }
+    | undefined;
+  const details = Array.isArray(wireDetails?.issues)
+    ? (wireDetails.issues as readonly Record<string, unknown>[])
+    : undefined;
+  const limit = wireDetails?.limit;
+  const cause = wireDetails?.cause;
   const retryAfter = res.headers.get('retry-after')?.trim();
   return {
     kind: 'wire-error',
@@ -172,19 +178,9 @@ export async function postDeploymentReal(
       message,
       ...(details !== undefined && { details }),
       ...(typeof limit === 'string' && { limit }),
+      ...(typeof cause === 'string' && { cause }),
     },
   };
-}
-
-function extractDetails(
-  err: { [k: string]: unknown } | undefined,
-): readonly Record<string, unknown>[] | undefined {
-  if (err === undefined) return undefined;
-  const issues = (err as { issues?: unknown }).issues;
-  if (Array.isArray(issues)) {
-    return issues as readonly Record<string, unknown>[];
-  }
-  return undefined;
 }
 
 /**
