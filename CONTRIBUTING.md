@@ -95,7 +95,9 @@ version by hand: `pnpm run version-packages` runs
 `scripts/sync-python-version.mjs --release` after `changeset version`,
 which writes the new version to each `pyproject.toml`, re-locks each
 `uv.lock` (it needs uv), and turns `sdks/python/CHANGELOG.md`'s
-**Unreleased** heading into the version, as PyPI spells it. A branch
+**Unreleased** heading into the version, as PyPI spells it; a release's
+section lists its release candidates' entries too, as the npm packages'
+changelogs do. A branch
 whose Python projects lag main runs the script without `--release`: that
 moves the versions and stamps nothing. CI fails when they differ
 (`pnpm run check:python-version`), and so do both publish jobs. A
@@ -108,7 +110,8 @@ spells it (Maven orders it the same way; `VersionOrderTest` in
 `scripts/sync-jvm-version.mjs --release`, which sets the root pom's own
 version and each module's parent version (no other `<version>`), the
 Scala module's `version.sbt` once it exists, and turns
-`sdks/java/CHANGELOG.md`'s **Unreleased** heading into the version. A
+`sdks/java/CHANGELOG.md`'s **Unreleased** heading into the version, with
+its release candidates' entries in a release's section too. A
 branch whose poms lag main runs the script without `--release`: that
 moves the versions and stamps nothing. CI fails when they differ
 (`pnpm run check:jvm-version`).

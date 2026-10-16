@@ -16,7 +16,14 @@ import { dirname, join } from 'node:path';
 import { after, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { NO_CHANGES, SyncError, pomLeaves, sbtLine, toMaven } from './sync-jvm-version.mjs';
+import {
+  NO_CHANGES,
+  SyncError,
+  pomLeaves,
+  prereleasesOf,
+  sbtLine,
+  toMaven,
+} from './sync-jvm-version.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./sync-jvm-version.mjs', import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), 'kindgi-sync-jvm-version-'));
@@ -40,6 +47,27 @@ describe('toMaven', () => {
     ]) {
       assert.throws(() => toMaven(version), SyncError, version);
     }
+  });
+});
+
+describe('prereleasesOf', () => {
+  test("a release's are its own alpha, beta and rc versions; a prerelease has none", () => {
+    const of = prereleasesOf('1.2.0');
+    for (const section of ['1.2.0-rc.0', '1.2.0-rc.12', '1.2.0-alpha.1', '1.2.0-beta.3']) {
+      assert.ok(of(section), section);
+    }
+    for (const section of [
+      '1.2.0',
+      '1.1.0-rc.0',
+      '1.2.1-rc.0',
+      '11.2.0-rc.0',
+      '1x2.0-rc.0',
+      '1.2.0-rc.01',
+      '1.2.0rc0',
+    ]) {
+      assert.ok(!of(section), section);
+    }
+    assert.equal(prereleasesOf('1.2.0-rc.1'), undefined);
   });
 });
 
@@ -405,6 +433,17 @@ describe('sync-jvm-version (writing)', () => {
     assert.equal(
       read(root, 'sdks/java/CHANGELOG.md'),
       `# Acme JVM SDKs\n\n## Unreleased\n\n## 1.2.1\n\n${NO_CHANGES}\n\n## 1.2.0\n\n- the first release\n`,
+    );
+  });
+
+  test("--release of a release gathers its release candidates' entries", () => {
+    const candidate =
+      '# Acme JVM SDKs\n\n## Unreleased\n\n- a fix\n\n## 1.2.1-rc.0\n\n- a change\n\n## 1.2.0\n\n- the first release\n';
+    const root = workspace({ sdk: '1.2.1', files: { 'sdks/java/CHANGELOG.md': candidate } });
+    assert.equal(run(root, ['--release']).status, 0);
+    assert.equal(
+      read(root, 'sdks/java/CHANGELOG.md'),
+      '# Acme JVM SDKs\n\n## Unreleased\n\n## 1.2.1\n\n- a fix\n- a change\n\n## 1.2.1-rc.0\n\n- a change\n\n## 1.2.0\n\n- the first release\n',
     );
   });
 
