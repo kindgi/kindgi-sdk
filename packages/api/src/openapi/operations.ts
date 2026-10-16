@@ -905,6 +905,15 @@ const CostRootRunIdQueryParam: ParameterSpec = {
   schema: { type: 'string', format: 'uuid' },
 };
 
+const CostFlowIdQueryParam: ParameterSpec = {
+  name: 'flowId',
+  in: 'query',
+  required: false,
+  description:
+    "Every record of the run trees whose root is a run of this flow (the record's `flowId`, exact match): the flow's spend across its runs, any version.",
+  schema: { type: 'string' },
+};
+
 const CostIncludeDescendantsQueryParam: ParameterSpec = {
   name: 'includeDescendants',
   in: 'query',
@@ -2705,7 +2714,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.list',
     summary: 'List approvals visible to the caller',
     description:
-      "Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.",
+      "Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). With authorization on, a person who is the tenant's admin (through a session or an `admin` key not limited to a project) reads at every tier: with no roster entry, as an `admin` reviewer; with a lower role, their own tier, and any tier they ask for with `requiredRole`. The roster doesn't show such a reader, but the access audit records the tenant-admin check (`authz-decision`), made only where it changes what the roster gives. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). With authorization on, only approvals whose project the caller may read. `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.",
     tags: ['approvals'],
     security: 'bearer',
     parameters: [
@@ -2739,7 +2748,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Page of approvals.', schema: ref('ApprovalCollectionPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed query parameter or scope.'),
-      '403': ErrorResponse("The caller isn't a reviewer, or asked for a tier above its own."),
+      '403': ErrorResponse(
+        "The caller isn't a reviewer or the tenant's admin, or asked for a tier above its own and isn't the tenant's admin.",
+      ),
     },
   },
   {
@@ -2749,14 +2760,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.get',
     summary: 'Fetch a single approval',
     description:
-      'Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4). A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).',
+      "Requires a reviewer, or (with authorization on) a person who is the tenant's admin, as the list does; the tenant's admin reads an approval of any tier. Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4), or that are in a project the caller may not read. A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).",
     tags: ['approvals'],
     security: 'bearer',
     parameters: [ApprovalIdPathParam],
     responses: {
       '200': { description: 'Approval.', schema: ref('Approval') },
       ...CommonAuthErrors,
-      '403': ErrorResponse("The caller isn't a reviewer."),
+      '403': ErrorResponse("The caller isn't a reviewer or the tenant's admin."),
       '404': ErrorResponse('No approval with that id — or the caller cannot see it.'),
     },
   },
@@ -5341,7 +5352,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'cost.records.list',
     summary: 'List cost records',
     description:
-      "Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.",
+      "Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `flowId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.",
     tags: ['cost'],
     security: 'bearer',
     parameters: [
@@ -5355,6 +5366,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CostModelQueryParam,
       CostServedModelQueryParam,
       CostRootRunIdQueryParam,
+      CostFlowIdQueryParam,
       CostIncludeDescendantsQueryParam,
       CostFromQueryParam,
       CostToQueryParam,
@@ -5407,6 +5419,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CostModelQueryParam,
       CostServedModelQueryParam,
       CostRootRunIdQueryParam,
+      CostFlowIdQueryParam,
       CostIncludeDescendantsQueryParam,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
