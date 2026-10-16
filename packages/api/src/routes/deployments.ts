@@ -46,7 +46,7 @@ import {
   type DeploymentRegisterOutcome,
   endpointToWire,
 } from '../deployment-binding.js';
-import { type WireErrorBody, statusFor, toWireError } from '../errors.js';
+import { type WireErrorBody, retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
 import { type FlowPinsLive, publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
 import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
@@ -490,10 +490,7 @@ export function deploymentsRouter(
     // ---- Image pullability + index integrity ----
     const head = await bindings.imageRegistry.head({ tenantId, imageRef: wire.imageRef });
     if (head.kind === 'err') {
-      c.status(statusFor('image-unverifiable') as never);
-      return c.json(
-        registryRefusal('Image head probe failed', head.error, wire.imageRef, requestId),
-      );
+      return registryRefusal(c, 'Image head probe failed', head.error, wire.imageRef, requestId);
     }
     if (head.value.digest !== imageDigest) {
       c.status(statusFor('image-unverifiable') as never);
@@ -515,14 +512,12 @@ export function deploymentsRouter(
       path: '/app/index.json',
     });
     if (indexFile.kind === 'err') {
-      c.status(statusFor('image-unverifiable') as never);
-      return c.json(
-        registryRefusal(
-          'Extract /app/index.json failed',
-          indexFile.error,
-          wire.imageRef,
-          requestId,
-        ),
+      return registryRefusal(
+        c,
+        'Extract /app/index.json failed',
+        indexFile.error,
+        wire.imageRef,
+        requestId,
       );
     }
     const normalisedIndexHash = normaliseSha256Hex(indexFile.value.sha256);
@@ -2356,22 +2351,39 @@ function errMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
+/** The tenant's hour, when its binding gives no wait: the most the hour can take. */
+const UNPACK_HOUR_MS = 60 * 60 * 1000;
+
 /**
- * A registry read that failed, as `image-unverifiable`: `details.cause`
+ * A registry read that failed, as `400 image-unverifiable`: `details.cause`
  * is the binding's code, and `details.limit` the bound that refused the
  * image, when one did. Built here, not by `toWireError`, which keeps a
- * domain error's `cause` off the wire.
+ * domain error's `cause` off the wire. The tenant's hour
+ * (`tenant-unpack-hour`) passes, so it's answered as the rate limit it is:
+ * `429 rate-limit-exceeded` with `details.limit` and `Retry-After`, which
+ * clients wait out.
  */
 function registryRefusal(
+  c: Context<AppEnv>,
   step: string,
   error: ImageRegistryError,
   imageRef: string,
   requestId: string,
-): WireErrorBody {
-  return {
+): Response {
+  const message = `${step}: ${error.message}`;
+  if (error.code === 'image-limit-exceeded' && error.limit === 'tenant-unpack-hour') {
+    const wait = error.retryAfterMs;
+    const waitMs = wait !== undefined && Number.isFinite(wait) ? wait : UNPACK_HOUR_MS;
+    c.header('Retry-After', String(retryAfterSeconds(waitMs)));
+    c.status(statusFor('rate-limit-exceeded') as never);
+    return c.json(
+      toWireError({ code: 'rate-limit-exceeded', message, limit: error.limit }, requestId),
+    );
+  }
+  const body: WireErrorBody = {
     error: {
       code: 'image-unverifiable',
-      message: `${step}: ${error.message}`,
+      message,
       details: {
         imageRef,
         cause: error.code,
@@ -2380,6 +2392,8 @@ function registryRefusal(
       requestId,
     },
   };
+  c.status(statusFor('image-unverifiable') as never);
+  return c.json(body);
 }
 
 // Formats a sha256 digest in the canonical `sha256:<hex>` shape. Not used

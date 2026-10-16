@@ -191,7 +191,9 @@ export type ImageReadLimit =
  * Discriminated error union. The deploy route reports any of these as
  * `400 image-unverifiable` ("we could not verify this image"), with the
  * binding's `code` as `details.cause` and, for `image-limit-exceeded`,
- * its `limit` as `details.limit`.
+ * its `limit` as `details.limit`. The tenant's hour
+ * (`tenant-unpack-hour`) passes, so it's a rate limit: `429
+ * rate-limit-exceeded` with `details.limit` and `Retry-After`.
  */
 export type ImageRegistryError =
   | {
@@ -219,6 +221,12 @@ export type ImageRegistryError =
       readonly code: 'image-limit-exceeded';
       readonly message: string;
       readonly limit: ImageReadLimit;
+      /**
+       * For `tenant-unpack-hour`, how long until the tenant's hour has
+       * room again, in milliseconds: the deploy route's `Retry-After`.
+       * Without it, the route answers the whole hour.
+       */
+      readonly retryAfterMs?: number;
     }
   | {
       /** A layer isn't an archive the binding can read: not a tar, or compressed twice. */
