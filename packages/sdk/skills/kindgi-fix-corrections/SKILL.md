@@ -8,9 +8,10 @@ description: >
   expert marked wrong, read why, and sort each correction to where it belongs
   — a rule in code, a setting, an approval rule, or the agent's instructions —
   add a pack test per correction, then publish and ask a person to make the
-  new version live, naming the corrections it fixes. Making a version live,
-  approvals, and loosening a limit stay with the person; this never edits a
-  refund limit down or removes an approval rule.
+  new version live, naming the corrections it fixes. Making a version live
+  and approving it stay with the person, and a correction that would loosen
+  anything — raise a limit, widen a window, drop a check — goes to the owner,
+  not the agent.
 type: core
 library: "@kindgi/sdk"
 version: "0.1.0"
@@ -47,14 +48,17 @@ corrections and the tools to change each layer.
 
 ## What stays with the person
 
-1. **Never loosen a limit or a gate.** A refund limit and an approval rule
-   are the "never" layer: they live in code and in approvals, and this skill
-   never edits a limit down, removes a check, or removes an approval rule.
-   Corrections only ever make the agent *stricter* or change how it talks.
+1. **Never loosen — hand a loosening correction back.** Some corrections ask
+   for a *looser* agent: "should have refunded, it was within the window"
+   raises a limit or widens a window. This skill never raises a limit (in code
+   or in a setting), widens a window, drops a check, or stops a tool asking for
+   approval. A correction that would loosen anything goes to the owner with the
+   correction quoted — you don't make it. The corrections you do make tighten a
+   rule or change how the agent talks.
 2. **Making a version live is the person's.** You publish a new version and
-   *ask* for it with `kindgi agents promote … --reason`. If an approval rule
-   covers the scope, the promotion waits for a second person — don't try to
-   get around it.
+   *ask* for it with `kindgi agents promote … --reason`. When the release gate
+   policy has `approvals`, the promotion waits for a second person
+   (`pending-approval`) — don't try to get around it.
 3. **The pulled runs hold real conversations.** A run you pull is a real
    customer's. Keep it out of git. Write every pack test with invented data
    — made-up order ids, amounts and names — never a customer's words or
@@ -63,19 +67,32 @@ corrections and the tools to change each layer.
 
 ## Step 1 — Pull the corrections
 
-The corrections are the agent's "no" judgments. List them for the version
-the expert was correcting:
+The corrections are the agent's "no" judgments. Start from the version the
+agent is running now, so you don't re-fix something an earlier version already
+fixed:
+
+```sh
+kindgi agents live acme-store.refunds --project=<project-id>
+```
+
+`agents live` shows the version a run would use for the project (and
+`agents live-versions` lists every scope with a live version). List that
+version's "no" judgments — and, as you work through them, newer versions':
 
 ```sh
 kindgi judgments list --agent=acme-store.refunds --agent-version=1.0.3 --verdict=no
 ```
 
-- `--agent` and, optionally, `--agent-version` (it needs `--agent`). Without
-  a version you get every version's.
+- `--agent-version` (it needs `--agent`) scopes to one version — the live one,
+  to start. Older versions' corrections may already be fixed; without a version
+  you get every version's.
 - `--verdict=no` keeps only the corrections. (Leave it off to see what the
   experts confirmed as right, too.)
 - `--class=<judge-class-id>` keeps only one judge class — use it to take
   only the experts' corrections once the project names its experts.
+
+Kindgi doesn't hand out corrections: two people's coding agents can pull the
+same "no" judgments, so agree outside Kindgi who takes which before you start.
 
 Read each one in full for the reason the expert gave and the run it's on:
 
@@ -94,10 +111,10 @@ should have done.
 
 | The expert wrote | Where it belongs | How you change it |
 |---|---|---|
-| "Never refund shipping", "final sale: no refund" | a rule in **code** — the tool checks it every time | edit the tool and add a test (your language's `kindgi-authoring-tools`), then `kindgi deploy` |
+| "Never refund shipping", "final sale: no refund", "over 50 on a first order, ask a person" | a rule in **code** — the tool checks it every time; a cap sends the case to a tool that always asks | edit the tool and add a test (your language's `kindgi-authoring-tools`), then `kindgi deploy` |
 | "Our return window is 14 days, not 30" | a **setting** the owner can change | publish the settings block, derive a version that pins it (Step 4) |
-| "Over 50 on a first order: ask a person" | an **approval rule** | a person sets it (the owner or the approver) — never loosened in code; point them to it |
-| "Store credit before cash", "too stiff", "say when the money arrives" | the agent's **instructions** (a judgment, or the words) | leave it to Improve, tried on the test cases (`kindgi proposals improve`, the `kindgi-using` and the improve guide) |
+| "Always have a person approve a refund" | an **approval rule** — a tenant policy that makes a tool always ask; it keys on the tool, not its arguments | a person sets it (the owner or the approver); point them to it, don't change it in code |
+| "Store credit before cash", "too stiff", "say when the money arrives" | the agent's **instructions** | leave it to Improve, run on the test set (`kindgi proposals improve`, the improve guide) |
 
 If a correction fits none of these, treat it as a code rule when it must
 hold every time, and as instructions when it's a matter of judgment.
@@ -119,8 +136,9 @@ correction** so the mistake can't come back:
   acts on it.
 - **Instructions for Improve:** you don't write the prompt — you make sure the
   corrected cases are in a test set, then let a pass try wordings on them
-  (`kindgi proposals improve`). The pass keeps a wording only if it does
-  better on those cases.
+  (`kindgi proposals improve`). The pass writes a *suggested* change — a
+  proposal — only when a wording does better on those cases, and a person
+  decides whether to take it; nothing is applied on its own.
 
 Write tests with invented data (Step 1, rule 3). A correction that belongs
 to the owner (a setting they'd rather own) or an approver (an approval rule)
@@ -144,11 +162,19 @@ kindgi agents derive acme-store.refunds \
   required `--project`. `--settings` is the block's values; `--schema`
   constrains them. (`--prompt` publishes a prompt block instead; the two are
   mutually exclusive.)
-- `agents derive --setting=<block-id>=<version>` pins a block the version
-  already uses to its new version. Repeat `--setting`/`--prompt` for several.
+- `agents derive --setting=<block-id>=<version>` re-pins a block the version
+  *already* references to its new version (repeat `--setting`/`--prompt` for
+  several). It makes the first free patch after the agent's highest version and
+  prints it — read that version from its output rather than assuming one. If it
+  answers `reused`, an identical version already exists: use that, don't derive
+  again.
 
 For a **code** change, `kindgi deploy` publishes the new version with the
 changed tool.
+
+Deriving needs `publish` on the agent, `blocks publish` needs `write` on the
+project, and promoting needs `promote` — the permission that makes a version
+live, which an agent's admins hold.
 
 Either way, ask a person to make the new version live, naming the
 corrections it fixes. Check first what will happen, then promote:
@@ -165,9 +191,10 @@ kindgi agents promote acme-store.refunds 1.0.4 --project=<project-id> \
   approval, or fails a gate.
 - `--reason` is kept on the record — write what the corrections were, so the
   approver reads the change in plain words.
-- The outcome is `promoted` or `pending-approval`. `pending-approval` means
-  an approval rule covers the scope and a second person must approve — that's
-  the "a second person checks it" step, working as it should.
+- The outcome is `promoted`, or `pending-approval` when the release gate policy
+  has `approvals` and a second person must approve — the "a second person
+  checks it" step, working as it should. (Whoever asked can't approve their own
+  request, unless the policy sets `separateApprover: false`.)
 
 ## A worked example: the return window
 
@@ -177,17 +204,25 @@ policy, not a one-off.
 
 - **If the agent already reads a `returnWindowDays` setting:** publish the
   block with `returnWindowDays: 14` and derive a version that pins it
-  (Step 4). Tell the owner they can change this themselves in the console.
-- **If it doesn't:** add `returnWindowDays` to the store-policy settings
-  block's schema (0–365, whole days), make the refund tool refuse an order
-  delivered more than `returnWindowDays` ago and offer a person, and add a
-  test: an order delivered 20 days ago is refused
-  (`kindgi-authoring-tools`). Then `kindgi deploy`.
+  (Step 4). Tell the owner they can change this themselves in the console —
+  Edit as a new version, then Derive a version.
+- **If it doesn't read one yet:** this is a code change, in two parts. First
+  publish the settings block with the key — `returnWindowDays` in its schema
+  (0–365, whole days) and `14` in its values — because a deploy that references
+  a block with no published version is refused ("publish the block first").
+  Then, in code, make the refund tool read `returnWindowDays` and refuse an
+  order delivered more than that many days ago (offering a person), add the
+  block to what the agent references, and add a test: an order delivered 20
+  days ago is refused (`kindgi-authoring-tools`). `kindgi deploy` publishes the
+  version with the new reference. (`agents derive` only re-pins a block the
+  version already references, so it can't introduce this one — the deploy
+  does.) The schema and value live outside the pack and outside code review, so
+  show them to the person and name them in the promote reason.
 
 Then ask to make it live: `kindgi agents promote … --reason="Fixes 1
-correction: our return window is 14 days"`. The limit — the most a refund
-can be without a person — is never touched here: it stays in code and in the
-approval rule.
+correction: our return window is 14 days"`. The refund limit — the most a
+refund can be without a person — is never raised here: the cap stays in the
+tool's code, and the large-refund tool still always asks.
 
 ## References
 
