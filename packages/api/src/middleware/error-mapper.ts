@@ -9,8 +9,11 @@ import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 
 /**
  * The app's error handler (`app.onError`). Any exception a route or
- * middleware throws becomes a `500 internal-server-error` wire error, with
- * its message and the request id. Domain errors returned via
+ * middleware throws becomes a `500 internal-server-error` wire error with
+ * a fixed message and the request id — never the thrown error's own
+ * message, which would leak internal detail (an upstream address, a
+ * database driver's string) to the client, across tenants on a shared
+ * deployment. The whole error stays in the log. Domain errors returned via
  * `Result<T, E>` are handled per-route; this catches thrown exceptions
  * (framework bugs, DB failures without a Result wrap, etc.).
  *
@@ -31,10 +34,12 @@ import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
  * The requestId embedded in the response body matches
  * `middleware/request-id.ts`, so a caller can correlate.
  *
- * A failed database query's message carries its SQL and its parameters
- * (Drizzle's `Failed query: … params: …`), which can be a person's email or
- * address: the body says only that a query failed, and the log keeps the
- * whole error.
+ * No thrown error's message reaches the client. A failed database query's
+ * carries its SQL and parameters (Drizzle's `Failed query: … params: …`, a
+ * person's email or address); an infrastructure error's carries an internal
+ * address (`connect ECONNREFUSED …`). The body says only a fixed message —
+ * `A database query failed.` for a query, `Unhandled server error`
+ * otherwise — and the log keeps the whole error under `err`.
  */
 export function mapThrownError(cause: Error, c: Context): Response {
   if ('getResponse' in cause && typeof cause.getResponse === 'function') {
@@ -62,11 +67,7 @@ export function mapThrownError(cause: Error, c: Context): Response {
   const body = toWireError(
     {
       code: 'internal-server-error',
-      message: isQueryError(cause)
-        ? 'A database query failed.'
-        : cause.message.length > 0
-          ? cause.message
-          : 'Unhandled server error',
+      message: isQueryError(cause) ? 'A database query failed.' : 'Unhandled server error',
     },
     requestId,
   );

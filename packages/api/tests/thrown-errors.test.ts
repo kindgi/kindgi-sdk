@@ -3,8 +3,9 @@
 
 /**
  * An exception a route throws reaches the client as a `500
- * internal-server-error` wire error, as JSON with its message and the
- * request id, not as Hono's plain-text "Internal Server Error".
+ * internal-server-error` wire error, as JSON with a fixed message and the
+ * request id — never the thrown error's own text — not as Hono's
+ * plain-text "Internal Server Error". The full error stays in the log.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -13,6 +14,7 @@ import { HTTPException } from 'hono/http-exception';
 import { describe, expect, test } from 'vitest';
 
 import { TenantBudgetError } from '@kindgi/bounds';
+import { type Logger, createLogger } from '@kindgi/log';
 import type { RunBinding } from '@kindgi/runtime';
 import type { TenantId } from '@kindgi/types';
 
@@ -25,8 +27,8 @@ const tenantId = randomUUID() as TenantId;
 const TOKEN = 'thrown-errors-token';
 const resolveToken: TokenResolver = async (token) => (token === TOKEN ? { tenantId } : null);
 
-/** The app with the run binding's reads throwing `thrown`. */
-function appWhoseRunReadsThrow(thrown: Error) {
+/** The app with the run binding's reads throwing `thrown`, optionally logging to `logger`. */
+function appWhoseRunReadsThrow(thrown: Error, logger?: Logger) {
   const stubs = createStubAppBindings();
   const run = {
     ...stubs.kernelBinding.run,
@@ -42,6 +44,7 @@ function appWhoseRunReadsThrow(thrown: Error) {
     kernelBinding: { ...stubs.kernelBinding, run },
     resolveToken,
     runHandler: {} as RunHandlerBinding,
+    ...(logger !== undefined && { logger }),
   });
 }
 
@@ -53,20 +56,37 @@ async function get(app: ReturnType<typeof appWhoseRunReadsThrow>, path: string) 
 }
 
 describe('a thrown exception on the wire', () => {
-  test('a 500 internal-server-error, as JSON, with its message and the request id', async () => {
-    const app = appWhoseRunReadsThrow(new Error('Listing runs failed: the database is gone'));
+  test("a 500: a fixed message and the request id, never the thrown error's own text", async () => {
+    // The cause carries an internal address (an unreachable upstream): the
+    // kind of detail that must not cross the border to a tenant.
+    const logLines: string[] = [];
+    const app = appWhoseRunReadsThrow(
+      new Error('connect ECONNREFUSED 10.1.2.3:8080'),
+      createLogger({ write: (line) => logLines.push(line) }),
+    );
     for (const path of ['/v1/runs', `/v1/runs/${randomUUID()}`]) {
       const { res, text } = await get(app, path);
       expect(res.status, path).toBe(500);
       expect(res.headers.get('content-type'), path).toMatch(/^application\/json/);
-      expect(JSON.parse(text), path).toEqual({
+      const body = JSON.parse(text) as { error: Record<string, unknown> };
+      expect(body, path).toEqual({
         error: {
           code: 'internal-server-error',
-          message: 'Listing runs failed: the database is gone',
-          requestId: expect.any(String),
+          message: 'Unhandled server error',
+          requestId: 'req-thrown-errors',
         },
       });
+      // Neither the thrown error's text nor the address it carried reaches the client.
+      expect(text, path).not.toContain('ECONNREFUSED');
+      expect(text, path).not.toContain('10.1.2.3');
+      // The 500 is logged, under the same requestId the body carries.
+      const unhandled = logLines
+        .map((line) => JSON.parse(line) as { message?: string; requestId?: string })
+        .find((r) => r.message === 'unhandled error' && r.requestId === body.error.requestId);
+      expect(unhandled, path).toBeDefined();
     }
+    // The detail an operator needs is kept — in the log, not the answer.
+    expect(logLines.join('\n')).toContain('10.1.2.3');
   });
 
   test('an exception without a message still says something', async () => {
