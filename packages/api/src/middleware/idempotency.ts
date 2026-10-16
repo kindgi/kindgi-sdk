@@ -165,8 +165,9 @@ const STORE_UNAVAILABLE_RETRY_AFTER_S = 5;
  *   nothing ran, so the write answers 503 `idempotency-store-unavailable`
  *   with `Retry-After`, and a retry with the same key is safe. Logged as an
  *   error.
- * - A store that fails after (`set` throws): the operation took effect, so
- *   its answer stands, though it can't be replayed. Logged as an error. The
+ * - An answer that can't be stored after (`set` throws, or its body can't
+ *   be read to store): the operation took effect, so its answer stands,
+ *   though it can't be replayed. Logged as an error. The
  *   hold isn't released: a repeat sent meanwhile gets 409
  *   `idempotency-key-in-flight`, never a second run straight away, and the
  *   hold lapses within `holdMs`, as a crashed request's does. A hold that
@@ -271,10 +272,10 @@ export function idempotencyMiddleware(
       if (res.status >= 400) return;
       tookEffect = true;
       const withheld = (c as Context<AppEnv>).get('idempotencyWithhold') === true;
-      const savedBody = withheld ? '' : await res.clone().text();
       const contentType = res.headers.get('Content-Type') ?? 'application/octet-stream';
-      const now = Date.now();
       try {
+        const savedBody = withheld ? '' : await res.clone().text();
+        const now = Date.now();
         await store.set(cacheKey, {
           bodyHash,
           status: res.status,

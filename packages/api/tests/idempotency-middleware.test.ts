@@ -220,24 +220,31 @@ describe('idempotencyMiddleware: a key is held while its request runs (T349)', (
   });
 
   test("a crashed request's hold lapses: the next request runs", async () => {
-    const store = createInMemoryIdempotencyStore();
-    const a = loggedApp(store);
-    // A hold whose request died: nothing renews it. Its key is the one the
-    // middleware holds for this caller: the tenant, the caller (a request
-    // with no credential is `token:` and the hash of an empty one), the
-    // route and the key.
-    const caller = `token:${createHash('sha256').update('').digest('hex').slice(0, 16)}`;
-    await store.holds?.hold(`00000000-0000-4000-8000-000000000001|${caller}|POST:/v1/things|k1`, {
-      holder: 'gone',
-      bodyHash: 'whatever',
-      expiresAt: Date.now() + 100,
-    });
-    // Until it lapses, the hold is the request's: a request is refused.
-    expect((await a.post('k1')).status).toBe(409);
-    expect(a.ran()).toBe(0);
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    expect((await a.post('k1')).status).toBe(201);
-    expect(a.ran()).toBe(1);
+    // The clock is the test's: no real-time margins.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const store = createInMemoryIdempotencyStore();
+      const a = loggedApp(store);
+      // A hold whose request died: nothing renews it. Its key is the one the
+      // middleware holds for this caller: the tenant, the caller (a request
+      // with no credential is `token:` and the hash of an empty one), the
+      // route and the key.
+      const caller = `token:${createHash('sha256').update('').digest('hex').slice(0, 16)}`;
+      await store.holds?.hold(`00000000-0000-4000-8000-000000000001|${caller}|POST:/v1/things|k1`, {
+        holder: 'gone',
+        bodyHash: 'whatever',
+        expiresAt: Date.now() + 100,
+      });
+      // Until it lapses, the hold is the request's: a request is refused.
+      vi.setSystemTime(Date.now() + 99);
+      expect((await a.post('k1')).status).toBe(409);
+      expect(a.ran()).toBe(0);
+      vi.setSystemTime(Date.now() + 1);
+      expect((await a.post('k1')).status).toBe(201);
+      expect(a.ran()).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test('a store without holds holds nothing: a repeat in flight runs again (before 0.1.5)', async () => {
@@ -307,9 +314,13 @@ function failingStore() {
 
 /**
  * A route behind the middleware over `store`, with the request's log kept:
- * its handler answers `status` (201 by default), once `gate` lets it.
+ * its handler answers `status` (201 by default), once `gate` lets it. With
+ * `unreadableBody`, the answer's body fails with it when read.
  */
-function loggedApp(store: IdempotencyStore, opts: { holdMs?: number } = {}) {
+function loggedApp(
+  store: IdempotencyStore,
+  opts: { holdMs?: number; unreadableBody?: Error } = {},
+) {
   const lines: { level: string; message: string; err: unknown }[] = [];
   const at = (level: string) => (message: string, fields?: { readonly err?: unknown }) =>
     void lines.push({ level, message, err: fields?.err });
@@ -332,6 +343,11 @@ function loggedApp(store: IdempotencyStore, opts: { holdMs?: number } = {}) {
     ran += 1;
     const run = ran;
     await gate;
+    const failure = opts.unreadableBody;
+    if (failure !== undefined) {
+      const body = new ReadableStream({ pull: (controller) => controller.error(failure) });
+      return new Response(body, { status, headers: { 'content-type': 'application/json' } });
+    }
     return c.json({ id: `thing-${run}` }, status as never);
   });
   const post = (key: string) =>
@@ -425,6 +441,15 @@ describe('idempotencyMiddleware: a store that fails', () => {
   });
 
   test("an answer that can't be stored stands, logged as an error; the hold isn't released, so an immediate repeat is in flight, not a second run, until the hold lapses", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      await answerThatCantBeStored();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  async function answerThatCantBeStored() {
     const { store, failing, failure } = failingStore();
     const a = loggedApp(store, { holdMs: 60 });
     failing.add('set');
@@ -450,9 +475,29 @@ describe('idempotencyMiddleware: a store that fails', () => {
 
     // Nothing was stored to replay: once the hold lapses, as a crashed
     // request's does, a repeat runs.
-    await new Promise((resolve) => setTimeout(resolve, 90));
+    vi.setSystemTime(Date.now() + 60);
     expect((await a.post('k1')).status).toBe(201);
     expect(a.ran()).toBe(2);
+  }
+
+  test("an answer whose body can't be read to store it stands too, logged as an error, and its hold isn't released", async () => {
+    const unreadable = new Error('the body stream failed');
+    const a = loggedApp(createInMemoryIdempotencyStore(), { unreadableBody: unreadable });
+    const first = await a.post('k1');
+    expect(first.status).toBe(201);
+    expect(a.lines).toEqual([
+      {
+        level: 'error',
+        message: "could not store the request's answer for its Idempotency-Key",
+        err: unreadable,
+      },
+    ]);
+    const repeat = await a.post('k1');
+    expect(repeat.status).toBe(409);
+    expect(((await repeat.json()) as { error: { code: string } }).error.code).toBe(
+      'idempotency-key-in-flight',
+    );
+    expect(a.ran()).toBe(1);
   });
 
   test("a hold that can't be renewed is logged as a warning, and the answer doesn't change", async () => {
