@@ -12,7 +12,10 @@ on its answers and a flow, running on your machine.
 **Before you start**, set up what the [Install page](../install/) describes:
 Node 22.12, Docker, and access to the runtime image: sign in at
 [access.kindgi.com](https://access.kindgi.com) with GitHub for its pull
-credentials, then log in once with `kindgi auth registry`.
+credentials, then log in once with `kindgi auth registry`. On Kindgi Cloud,
+Node alone will do: create the pack in step 1, then
+[build and deploy it](../../hosted/build-and-deploy/) to your workspace
+instead of running it here.
 
 ## 1. Create the pack
 
@@ -258,3 +261,5 @@ declare it in `kindgi.config.ts`: [Declare them in your pack's config](../../gui
 - [Concepts](../../concepts/): packs, runs and the journal, security.
 - [Set up your coding agent](../coding-agents/): it already has Kindgi's
   skills.
+- [Build and deploy on Kindgi Cloud](../../hosted/build-and-deploy/): your
+  workspace builds the pack's image and runs it.

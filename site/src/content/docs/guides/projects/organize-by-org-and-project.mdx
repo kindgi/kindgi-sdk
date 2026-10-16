@@ -34,7 +34,8 @@ it's in: its `projectId`, with the runtime 0.1.6 or later. A pack
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.1's client and CLI.
+- **A runtime,** such as `kindgi dev` or your Kindgi Cloud workspace, with
+  Kindgi 0.1's client and CLI.
 - **Node 22.12 or later, Python 3.11 or later, or Java 17 or later,** for the
   client.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set, or a running
@@ -219,6 +220,10 @@ kindgi init acme-shop --template=woocommerce
 cd acme-shop
 kindgi deploy --project acme-shop
 ```
+
+On Kindgi Cloud, the deploy builds there and signs with your key:
+`kindgi deploy --hosted --env=prod --project acme-shop --signing-key ~/.kindgi/keys/acme-agency.pem`
+([Build and deploy](../../../hosted/build-and-deploy/)).
 
 `--project` takes the project's id or its slug. A slug is unique within an
 org, so if two orgs each have a project with that slug, the CLI refuses it

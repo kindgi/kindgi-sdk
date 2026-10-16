@@ -9,6 +9,9 @@ This page shows how you sign in to the console, and what each message on its
 sign-in page means. Signing in starts with your email. The console then
 offers the ways in that this deployment has for it. Whoever runs the
 deployment chooses which ones ([Turn on sign-in](../../../deploy/sign-in/)).
+On Kindgi Cloud, the console offers Google, GitHub and an emailed link, but
+not Microsoft, and you can sign in with an API token of your own
+([With an API token](#with-an-api-token)).
 
 ## Your email first
 

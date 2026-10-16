@@ -62,6 +62,9 @@ a real model, then with what the tool returned.
 agent. A provider you register takes over at the next turn. You switch nothing
 off, and nothing restarts.
 
+On Kindgi Cloud there's no `dev-echo`: your workspace has no model until you
+register one.
+
 ## Presets
 
 A preset is a ready-made registration for a vendor's API. To list the presets
@@ -95,7 +98,7 @@ flags go with it:
 - **`--secret=<NAME>`** names the secret that holds the API key, in place of
   the preset's own key name.
 - **`--env=<name>`** is the environment of that secret. It's `local` unless
-  you say otherwise.
+  you say otherwise. On Kindgi Cloud, it's `prod`.
 - **`--project=<gcp-project>`**, for `gemini`, is the Google Cloud project
   Vertex AI runs and bills in. In `kindgi dev`, also set
   `KINDGI_DEV_GOOGLE_CREDENTIALS=adc`.
@@ -536,7 +539,9 @@ kindgi secrets set <KEY_NAME> --env=local --scope=tenant
 - `<KEY_NAME>` is the secret's name: the key name the provider reads, such as
   `OPENAI_API_KEY`. The [presets](#presets) table names each preset's key.
 - `--env=local` is the environment the secret belongs to. Under
-  `kindgi dev`, `local` is the pack's env files.
+  `kindgi dev`, `local` is the pack's env files. On Kindgi Cloud, use
+  `--env=prod` here and on `kindgi providers register`: it's the environment
+  your workspace serves.
 - `--scope=tenant` is where the secret lives: the tenant, rather than one org
   (`org:<orgId>`) or project (`project:<projectId>`). A provider reads its key
   from the tenant.

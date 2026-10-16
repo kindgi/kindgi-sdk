@@ -85,3 +85,5 @@ The port is `4000`, or the next free one. On the sign-in page, click
   hand. Also in [Python](../quickstart-python/), [Java](../quickstart-java/)
   and [Scala](../quickstart-scala/).
 - [Add Kindgi to an existing app](../existing-app/).
+- [Build and deploy on Kindgi Cloud](../../hosted/build-and-deploy/): your
+  workspace builds the pack's image and runs it.
