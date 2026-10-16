@@ -177,6 +177,14 @@ const TeamIdPathParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
+const SiteIdPathParam: ParameterSpec = {
+  name: 'siteId',
+  in: 'path',
+  required: true,
+  description: 'The site id (a UUID).',
+  schema: { type: 'string' },
+};
+
 const LimitQueryParam: ParameterSpec = {
   name: 'limit',
   in: 'query',
@@ -501,6 +509,24 @@ const ApprovalAssignedToQueryParam: ParameterSpec = {
   required: false,
   description:
     "`me`: only the approvals assigned to the caller's own reviewer row (none when the caller has no row).",
+  schema: { type: 'string', enum: ['me'] },
+};
+
+const ApprovalDecidedByQueryParam: ParameterSpec = {
+  name: 'decidedBy',
+  in: 'query',
+  required: false,
+  description:
+    "`me`: only the approvals the caller's own reviewer row decided (none when the caller has no row).",
+  schema: { type: 'string', enum: ['me'] },
+};
+
+const ConversationOpenedByQueryParam: ParameterSpec = {
+  name: 'openedBy',
+  in: 'query',
+  required: false,
+  description:
+    "`me`: only the conversations the caller opened (none for a caller with no principal). Conversations an older runtime opened record no opener and aren't listed by it.",
   schema: { type: 'string', enum: ['me'] },
 };
 
@@ -1863,7 +1889,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
       ),
       '403': ErrorResponse(
-        "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed).",
+        "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a session limited to a project or a role, which mints no keys (`limited-session-cannot-mint`); a key for a person a site signs in, whose access is only the sessions their site gives (`site-person-grants-managed`).",
       ),
       '400': ErrorResponse(
         "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
@@ -2724,6 +2750,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeIdQueryParam,
       ApprovalStatusQueryParam,
       ApprovalAssignedToQueryParam,
+      ApprovalDecidedByQueryParam,
       ApprovalOrderQueryParam,
       ApprovalRequiredRoleQueryParam,
       CreatedAfterQueryParam,
@@ -2845,7 +2872,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Reviewer registered.', schema: ref('Reviewer') },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        'With authorization enforced, the caller is not an admin of the tenant.',
+        "With authorization enforced, the caller is not an admin of the tenant; or the person is one a site signs in, whose reviewer role is their site's to give (`site-person-grants-managed`).",
       ),
     },
   },
@@ -2865,7 +2892,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '404': ErrorResponse('No reviewer with that id under this tenant.'),
       '403': ErrorResponse(
-        'With authorization enforced, the caller is not an admin of the tenant.',
+        'With authorization enforced, the caller is not an admin of the tenant; or the person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
       ),
     },
   },
@@ -3833,7 +3860,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'conversations.list',
     summary: 'List conversations',
     description:
-      "Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.",
+      "Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?openedBy=me` (the caller's own), `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.",
     tags: ['conversations'],
     security: 'bearer',
     parameters: [
@@ -3844,6 +3871,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       AgentIdQueryParam,
       ConversationStatusQueryParam,
       ConversationReplaysQueryParam,
+      ConversationOpenedByQueryParam,
     ],
     responses: {
       '200': {
@@ -6392,7 +6420,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.refresh',
     summary: 'Refresh the current session token',
     description:
-      'Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. The session token rotates: the new session keeps the person, scopes and expiry, and the provider is not called. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.',
+      'Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. The session token rotates: the new session keeps the person, scopes and expiry, and the provider is not called. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL. Nor is a session limited to a project or a role: `400 limited-session-not-refreshable`; get a new one where you got this one.',
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6403,7 +6431,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
       ),
       '400': ErrorResponse(
-        'Caller presented a bearer token (refresh is session-only), or a browser session (cookie).',
+        'Caller presented a bearer token (refresh is session-only), a browser session (cookie), or a session limited to a project or a role (`limited-session-not-refreshable`).',
       ),
       '404': ErrorResponse('Session no longer exists.'),
       '422': ErrorResponse('Refresh with the provider failed.'),
@@ -6636,7 +6664,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: "The person's grants, after.", schema: ref('PersonGrants') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('Not a tenant admin.'),
+      '403': ErrorResponse(
+        "Not a tenant admin; or the person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+      ),
       '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
       '409': ErrorResponse(
         'The person was removed from the tenant (`identity-user-unregistered`), or an idempotency conflict.',
@@ -7438,6 +7468,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Membership added.', schema: ref('AddTeamMembershipResult') },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+      ),
       '404': ErrorResponse(
         'No team with that id under this tenant (`team-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).',
       ),
@@ -7472,6 +7505,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       IdempotencyKeyParam,
     ],
     responses: {
+      '403': ErrorResponse(
+        'The person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
+      ),
       '204': { description: 'Removed (or already absent). No body.' },
       ...CommonAuthErrors,
       '501': ErrorResponse(
@@ -7508,6 +7544,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Role updated. No body.' },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+      ),
       '404': ErrorResponse(
         'No membership for that (team, user) pair, or no such team under this tenant.',
       ),
@@ -8136,6 +8175,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('AddProjectMembershipResult'),
       },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+      ),
       '404': ErrorResponse(
         'No project with that id under this tenant (`project-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).',
       ),
@@ -8318,6 +8360,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       IdempotencyKeyParam,
     ],
     responses: {
+      '403': ErrorResponse(
+        'The person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
+      ),
       '204': { description: 'Removed (or already absent). No body.' },
       ...CommonAuthErrors,
       '501': ErrorResponse(
@@ -8354,6 +8399,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Role updated. No body.' },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+      ),
       '404': ErrorResponse(
         'No membership for that (project, user) pair, or no such project under this tenant.',
       ),
@@ -9559,6 +9607,249 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '202': { description: 'Queued.', schema: ref('WebhookDelivery') },
       ...CommonMutationErrors,
       '404': ErrorResponse('No endpoint with that id.'),
+    },
+  },
+  // ---------- sites (a site signs its own people in to one project) ----------
+  {
+    method: 'get',
+    honoPath: '/v1/projects/:projectId/sites',
+    openapiPath: '/v1/projects/{projectId}/sites',
+    operationId: 'projects.sites.list',
+    summary: "List the project's sites",
+    description:
+      'The sites that sign their own people in to this project. Tenant admins only: a site creates people in the tenant. `includeUnregistered=true` lists unregistered ones too. Mounted when the deployment supplies a `SiteBinding`.',
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [
+      ProjectIdPathParam,
+      LimitQueryParam,
+      CursorQueryParam,
+      {
+        name: 'includeUnregistered',
+        in: 'query',
+        required: false,
+        description: 'With `true`, unregistered sites too.',
+        schema: { type: 'boolean' },
+      },
+    ],
+    responses: {
+      '200': { description: 'A page of sites.', schema: ref('SiteCollectionPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`projectId` is not a project id (a UUID), or a malformed query.'),
+      '403': ErrorResponse('Not a tenant admin.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/sites',
+    openapiPath: '/v1/projects/{projectId}/sites',
+    operationId: 'projects.sites.register',
+    summary: 'Register a site',
+    description:
+      'A site that will sign its own people in to this project, and a one-time enrollment code for it, shown once: the site posts it with its public key (`POST /v1/auth/sites/enroll`). Until then it has no key and signs nobody in. A role map gives no reviewer role above `reviewerCeiling`, and names only `allowedRoles`; nothing it gives reaches above the project. Tenant admins only.',
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('RegisterSiteBody') },
+    responses: {
+      '201': {
+        description: 'The site, and its enrollment code.',
+        schema: ref('RegisterSiteResult'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A setting the site can't have (`site-invalid`, `details.field`): an origin that isn't https, an approvals URL on another origin, a role map above the ceiling or over a role that isn't allowed.",
+      ),
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No project with that id (`project-not-found`).'),
+      '409': ErrorResponse(
+        "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/projects/:projectId/sites/:siteId',
+    openapiPath: '/v1/projects/{projectId}/sites/{siteId}',
+    operationId: 'projects.sites.get',
+    summary: 'Read a site',
+    description: 'Its settings and its keys (ids and thumbprints only). Tenant admins only.',
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, SiteIdPathParam],
+    responses: {
+      '200': { description: 'The site.', schema: ref('Site') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No site with that id in this project (`site-not-found`).'),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/projects/:projectId/sites/:siteId',
+    openapiPath: '/v1/projects/{projectId}/sites/{siteId}',
+    operationId: 'projects.sites.update',
+    summary: "Change a site's settings",
+    description:
+      "The settings given; the rest stay. A person's grants follow the new settings the next time the site signs them in. Tenant admins only.",
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, SiteIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('UpdateSiteBody') },
+    responses: {
+      '200': { description: 'The site.', schema: ref('Site') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse("A setting the site can't have (`site-invalid`, `details.field`)."),
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No site with that id in this project (`site-not-found`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/sites/:siteId/pause',
+    openapiPath: '/v1/projects/{projectId}/sites/{siteId}/pause',
+    operationId: 'projects.sites.pause',
+    summary: "Stop a site's sign-ins",
+    description:
+      "The site's statements are refused until it's resumed, and its live sessions end now. Tenant admins only.",
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, SiteIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'The site, paused.', schema: ref('Site') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No site with that id in this project (`site-not-found`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/sites/:siteId/resume',
+    openapiPath: '/v1/projects/{projectId}/sites/{siteId}/resume',
+    operationId: 'projects.sites.resume',
+    summary: "Start a paused site's sign-ins again",
+    description: 'Tenant admins only.',
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, SiteIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'The site.', schema: ref('Site') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No site with that id in this project (`site-not-found`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/sites/:siteId/unregister',
+    openapiPath: '/v1/projects/{projectId}/sites/{siteId}/unregister',
+    operationId: 'projects.sites.unregister',
+    summary: 'Unregister a site',
+    description:
+      'Tombstoned: its sign-ins stop and its live sessions end. The people it signed in stay, with their records. Tenant admins only.',
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, SiteIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'The site, unregistered.', schema: ref('Site') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No site with that id in this project (`site-not-found`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/sites/:siteId/enrollment-codes',
+    openapiPath: '/v1/projects/{projectId}/sites/{siteId}/enrollment-codes',
+    operationId: 'projects.sites.enrollmentCode',
+    summary: 'A new enrollment code for a site',
+    description:
+      "How a site's key is replaced: the site posts a new key with this code, which replaces every key it had and ends its live sessions. An earlier unused code stops working. Shown once. Tenant admins only.",
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, SiteIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '201': { description: 'The code.', schema: ref('SiteEnrollmentCode') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No site with that id in this project (`site-not-found`).'),
+      '409': ErrorResponse(
+        "A retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`).",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/sites/:siteId/keys/:kid/revoke',
+    openapiPath: '/v1/projects/{projectId}/sites/{siteId}/keys/{kid}/revoke',
+    operationId: 'projects.sites.revokeKey',
+    summary: "Revoke one of a site's keys",
+    description:
+      "Statements signed with it are refused from now on, and the site's live sessions end. Tenant admins only.",
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [
+      ProjectIdPathParam,
+      SiteIdPathParam,
+      {
+        name: 'kid',
+        in: 'path',
+        required: true,
+        description: "The key's id.",
+        schema: { type: 'string' },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': { description: 'The site, without the key.', schema: ref('Site') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse(
+        'No site with that id in this project, or no key with that id (`site-not-found`).',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/auth/sites/enroll',
+    openapiPath: '/v1/auth/sites/enroll',
+    operationId: 'auth.sites.enroll',
+    summary: 'A site posts its public key with its enrollment code',
+    description:
+      "Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.",
+    tags: ['sites'],
+    security: 'public',
+    requestBody: { required: true, schema: ref('EnrollSiteBody') },
+    responses: {
+      '200': {
+        description: "The site's id and its statements' audience.",
+        schema: ref('EnrollSiteResult'),
+      },
+      '400': ErrorResponse(
+        "A malformed body, or a public key that isn't an Ed25519 JWK with a `kid`, or has a private part (`site-key-invalid`); it's checked before the code.",
+      ),
+      '401': ErrorResponse('The code was refused (`site-enrollment-refused`).'),
+      '413': ErrorResponse('The body is over 4096 bytes (`site-request-too-large`).'),
+      '429': ErrorResponse('Too many failures from this client.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/auth/site-sign-in',
+    openapiPath: '/v1/auth/site-sign-in',
+    operationId: 'auth.siteSignIn',
+    summary: 'A site signs one of its people in',
+    description:
+      "Public: the statement is the credential. A registered site's statement that a person is signed in there, exchanged for a session limited to the site's project: it reads nothing above the project, mints no keys, isn't refreshed, and ends early when the site is paused or unregistered, or one of its keys revoked. The person is the one the site created for that `sub` (a first statement creates them; never matched by email), with the grants the site's role map gives their roles. Every refusal is `401 site-sign-in-refused`, with `details.reason`. A statement whose signature wasn't verified gets `not-verified` alone, whatever was wrong (the site, the key, the signature, the format), since its sender has proved nothing; after a verified signature: `site-paused`, `site-not-vouching`, `wrong-audience`, `expired`, `issued-in-the-future`, `too-long-lived`, `replayed`, `role-not-allowed`, `person-removed` or `people-cap`. Rate-limited per client and per site (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.",
+    tags: ['sites'],
+    security: 'public',
+    requestBody: { required: true, schema: ref('SiteSignInBody') },
+    responses: {
+      '200': { description: 'A session for the person.', schema: ref('SiteSignInResult') },
+      '400': ErrorResponse("A malformed body, or a statement that isn't a compact JWS."),
+      '401': ErrorResponse('The statement was refused (`site-sign-in-refused`, `details.reason`).'),
+      '413': ErrorResponse('The body is over 4096 bytes (`site-request-too-large`).'),
+      '429': ErrorResponse('Too many requests from this client or for this site.'),
     },
   },
 ] as const;

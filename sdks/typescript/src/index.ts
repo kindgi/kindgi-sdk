@@ -150,6 +150,7 @@ export type {
 } from './resources/guardrails.js';
 export type {
   ConversationFilter,
+  ConversationPage,
   ConversationsClient,
   MessageFilter,
 } from './resources/conversations.js';
@@ -254,6 +255,21 @@ export type {
   JudgingRulesClient,
   JudgingRuleWhen,
 } from './resources/judging.js';
+export type {
+  EnrollSiteBody,
+  EnrollSiteResult,
+  RegisterSiteBody,
+  RegisterSiteResult,
+  Site,
+  SiteCollectionPage,
+  SiteEnrollmentCode,
+  SiteKey,
+  SiteRoleGrant,
+  SiteSignInBody,
+  SiteSignInResult,
+  SitesClient,
+  UpdateSiteBody,
+} from './resources/sites.js';
 export type {
   CreateOrgInput,
   ListOrgsFilter,

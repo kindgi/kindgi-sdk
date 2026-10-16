@@ -66,6 +66,7 @@ export const ENV_DEFAULTS = {
     'none (with `KINDGI_AUTH_EMAIL_SMTP_URL_PATH` unset): the emailed sign-in link is off',
   KINDGI_AUTH_EMAIL_SMTP_URL_PATH: 'none: no SMTP URL file',
   KINDGI_REVIEWER_EMAIL: '`off`',
+  KINDGI_SITE_SIGN_IN: '`false`: no site signs anyone in',
   KINDGI_AUTH_EMAIL_FROM: 'none: the emailed sign-in link is off (required with the SMTP URL)',
   KINDGI_AUTH_EMAIL_LINK_DAILY_CAP: '`20` links a day (a whole number from 1 to 1000)',
   KINDGI_AUTH_TURNSTILE_SECRET:

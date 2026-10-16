@@ -712,6 +712,17 @@ export interface ApprovalDecisionRecord {
   readonly reviewerRoleAtDecision: ReviewerRole;
   readonly decidedAt: import('@kindgi/types').Timestamp;
   readonly rationale?: string;
+  /**
+   * The provider of the session the reviewer decided with: `site:<id>` for
+   * a site's sign-in, an identity provider's id for single sign-on. Absent
+   * for an API key, and on decisions an older runtime recorded.
+   */
+  readonly sessionProvider?: string;
+  /**
+   * The reviewer's display name when they decided. Absent on decisions an
+   * older runtime recorded.
+   */
+  readonly deciderName?: string;
 }
 
 /**
@@ -1027,6 +1038,13 @@ export interface Conversation {
    * none). Absent on conversations from before 0.1.3.
    */
   readonly projectId?: string;
+  /**
+   * Who opened it: the caller's principal (`user:<id>`,
+   * `service_account:<id>`), or, for one a turn opened, whoever the run
+   * acts for. Absent on conversations an older runtime opened, and in an
+   * older runtime's answers.
+   */
+  readonly openedBy?: string;
   /** Structural scope (project id, matter id, etc.). */
   readonly scope: Readonly<Record<string, unknown>>;
   readonly status: ConversationStatus;

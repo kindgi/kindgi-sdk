@@ -60,6 +60,7 @@ import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import type { OptionValue } from '../parse.js';
 import { type RateLimitRefusal, isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
+import { SLUG } from '../slug.js';
 import { runBuild } from './build.js';
 import type { EnvironmentConfig, PackConfig } from './build.js';
 import type { CommandResult, LeafCommand } from './types.js';
@@ -993,7 +994,7 @@ async function resolveProject(
   if (only === undefined) {
     return {
       kind: 'error',
-      message: `--project ${ref}: no project of this tenant has that slug. \`kindgi projects list\` shows them.\n`,
+      message: `--project ${ref}: no project of this tenant has that slug. \`kindgi projects list\` shows them; \`kindgi projects create --name=<name> --slug=${SLUG.test(ref) ? ref : '<slug>'}\` makes one.\n`,
     };
   }
   if (more.length > 0) {

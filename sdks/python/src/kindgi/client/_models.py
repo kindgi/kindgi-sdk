@@ -1629,6 +1629,14 @@ class ApprovalDecisionRecord(BaseModel):
     """
     decided_at: Annotated[AwareDatetime, Field(alias="decidedAt")]
     rationale: str | None = None
+    session_provider: Annotated[str | None, Field(alias="sessionProvider")] = None
+    """
+    The provider of the session the reviewer decided with: `site:<id>` for a site's sign-in, an identity provider's id for a single sign-on session. Absent for an API key, and on decisions an older runtime recorded.
+    """
+    decider_name: Annotated[str | None, Field(alias="deciderName")] = None
+    """
+    The reviewer's display name when they decided: a person renamed since still shows as they were. Absent on decisions an older runtime recorded.
+    """
 
 
 class ReviewDecision(BaseModel):
@@ -3337,6 +3345,10 @@ class Conversation(BaseModel):
     """
     The project the conversation is in: the project of the run that opened it, or `projectId` on open (when omitted, the agent's own project, or the tenant's Default project for an agent filed under none). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.
     """
+    opened_by: Annotated[str | None, Field(alias="openedBy")] = None
+    """
+    Who opened it: the caller's principal (`user:<id>`, `service_account:<id>`), or, for one a turn opened, whoever the run acts for. Set by the server, never from a request's body. Absent on conversations an older runtime opened, and when the caller had no principal; those aren't listed by `?openedBy=me`.
+    """
     scope: dict[str, Any]
     """
     Free-form scope object (currently `{ tenantId }` in tests; enterprises extend with `matterId`, `engagementId`, etc.).
@@ -3424,6 +3436,10 @@ class ConversationCollectionPage(BaseModel):
     Opaque cursor for the next page. Absent when `hasMore: false`.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
+    opened_by: Annotated[Literal["me"] | None, Field(alias="openedBy")] = None
+    """
+    `me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.
+    """
 
 
 class ConversationMessageCollectionPage(BaseModel):
@@ -9909,6 +9925,283 @@ class LicensePreview(BaseModel):
     """
 
 
+class SiteRoleGrant(BaseModel):
+    """
+    What a person with one of the site's roles gets in the site's project. Reading the project comes with every role; nothing above it ever does.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    ask: bool
+    """
+    Whether they may start turns with the project's agents.
+    """
+    reviewer: Literal["standard", "senior"] | None = None
+    """
+    The reviewer role they decide approvals with, at most the site's `reviewerCeiling`; absent: they decide none.
+    """
+
+
+class SiteKey(BaseModel):
+    """
+    One of the site's live public keys. Kindgi never has a private half.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kid: str
+    thumbprint: str
+    """
+    The key's RFC 7638 thumbprint, to compare with the one the site shows.
+    """
+    added_at: Annotated[AwareDatetime, Field(alias="addedAt")]
+
+
+class AllowedRole(RootModel[str]):
+    root: Annotated[str, Field(pattern="^[a-z0-9_-]{1,64}$")]
+    """
+    A role on the site, as the site names it (a WordPress role: `shop_manager`).
+    """
+
+
+class Site(BaseModel):
+    """
+    A site that signs its own people in to one project: it vouches for whoever is signed in there, so they ask the project's agents and decide its approvals as themselves. Each person it signs in is a person of the tenant, shown as "<name>, via <displayName>".
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    site_id: Annotated[UUID, Field(alias="siteId")]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    display_name: Annotated[str, Field(alias="displayName")]
+    """
+    Set by a tenant admin, never by the site: shown after every name the site signs in.
+    """
+    origin: str
+    """
+    The site's origin (`https://acme-store.example`).
+    """
+    approvals_url: Annotated[str, Field(alias="approvalsUrl")]
+    """
+    Where an approval opens on the site; `{approvalId}` is replaced. A site's people get it in their reviewer email.
+    """
+    allowed_roles: Annotated[list[AllowedRole], Field(alias="allowedRoles")]
+    role_map: Annotated[dict[str, SiteRoleGrant], Field(alias="roleMap")]
+    """
+    Role → grant. A person with several allowed roles gets the most any of them gives.
+    """
+    reviewer_ceiling: Annotated[Literal["standard", "senior"], Field(alias="reviewerCeiling")]
+    vouching: bool
+    """
+    Whether the site's statements are accepted.
+    """
+    people_cap: Annotated[int, Field(alias="peopleCap", ge=1)]
+    """
+    At most this many live people from the site.
+    """
+    new_people_per_day: Annotated[int, Field(alias="newPeoplePerDay", ge=1)]
+    """
+    At most this many new people from the site per day.
+    """
+    keys: list[SiteKey]
+    audience: str | None = None
+    """
+    What the site's statements carry as `aud`: this deployment's public URL, given at enrollment.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str | None, Field(alias="createdBy")] = None
+    paused_at: Annotated[AwareDatetime | None, Field(alias="pausedAt")] = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+
+
+class SiteCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Site]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class RegisterSiteBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    display_name: Annotated[str, Field(alias="displayName", max_length=100, min_length=1)]
+    origin: str
+    """
+    An https:// origin with no path; http:// only for localhost, 127.0.0.1 or [::1].
+    """
+    approvals_url: Annotated[str, Field(alias="approvalsUrl")]
+    """
+    A URL on the site's own origin with `{approvalId}` in it.
+    """
+    allowed_roles: Annotated[
+        list[AllowedRole] | None, Field(alias="allowedRoles", max_length=20, min_length=1)
+    ] = None
+    """
+    The roles that may sign in at all. Default `["administrator", "shop_manager"]`.
+    """
+    role_map: Annotated[dict[str, SiteRoleGrant] | None, Field(alias="roleMap")] = None
+    """
+    Default: both default roles may ask, and decide as `standard` reviewers. Without a `roleMap`, the map keeps only the entries of the roles in `allowedRoles`: the default map's for a new site, the site's own for a change. An allowed role with no entry signs in to read the project only.
+    """
+    reviewer_ceiling: Annotated[
+        Literal["standard", "senior"] | None, Field(alias="reviewerCeiling")
+    ] = None
+    """
+    Default `standard`.
+    """
+    vouching: bool | None = None
+    """
+    Default `true`.
+    """
+    people_cap: Annotated[int | None, Field(alias="peopleCap", ge=1, le=10000)] = None
+    """
+    Default 50.
+    """
+    new_people_per_day: Annotated[int | None, Field(alias="newPeoplePerDay", ge=1, le=1000)] = None
+    """
+    Default 20.
+    """
+
+
+class UpdateSiteBody(BaseModel):
+    """
+    The settings to change; the rest stay as they are.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    display_name: Annotated[
+        str | None, Field(alias="displayName", max_length=100, min_length=1)
+    ] = None
+    origin: str | None = None
+    """
+    An https:// origin with no path; http:// only for localhost, 127.0.0.1 or [::1].
+    """
+    approvals_url: Annotated[str | None, Field(alias="approvalsUrl")] = None
+    """
+    A URL on the site's own origin with `{approvalId}` in it.
+    """
+    allowed_roles: Annotated[
+        list[AllowedRole] | None, Field(alias="allowedRoles", max_length=20, min_length=1)
+    ] = None
+    """
+    The roles that may sign in at all. Default `["administrator", "shop_manager"]`.
+    """
+    role_map: Annotated[dict[str, SiteRoleGrant] | None, Field(alias="roleMap")] = None
+    """
+    Default: both default roles may ask, and decide as `standard` reviewers. Without a `roleMap`, the map keeps only the entries of the roles in `allowedRoles`: the default map's for a new site, the site's own for a change. An allowed role with no entry signs in to read the project only.
+    """
+    reviewer_ceiling: Annotated[
+        Literal["standard", "senior"] | None, Field(alias="reviewerCeiling")
+    ] = None
+    """
+    Default `standard`.
+    """
+    vouching: bool | None = None
+    """
+    Default `true`.
+    """
+    people_cap: Annotated[int | None, Field(alias="peopleCap", ge=1, le=10000)] = None
+    """
+    Default 50.
+    """
+    new_people_per_day: Annotated[int | None, Field(alias="newPeoplePerDay", ge=1, le=1000)] = None
+    """
+    Default 20.
+    """
+
+
+class SiteEnrollmentCode(BaseModel):
+    """
+    A one-time code the site posts with its public key (`POST /v1/auth/sites/enroll`). Shown once. Using it replaces the site's keys and ends its live sessions.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: str
+    expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
+
+
+class RegisterSiteResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    site: Site
+    enrollment: SiteEnrollmentCode
+
+
+class EnrollSiteBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: Annotated[str, Field(max_length=200, min_length=1)]
+    public_key: Annotated[dict[str, Any], Field(alias="publicKey")]
+    """
+    The site's Ed25519 public key, a JWK: `kty: OKP`, `crv: Ed25519`, `x` and `kid`.
+    """
+
+
+class EnrollSiteResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    site_id: Annotated[UUID, Field(alias="siteId")]
+    """
+    What the site's statements carry as `iss`.
+    """
+    audience: str
+    """
+    What the site's statements carry as `aud`.
+    """
+
+
+class SiteSignInBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    statement: str
+    """
+    The person's statement, signed by the site: a compact JWS, `alg: EdDSA`, `typ: kindgi-site+jwt`, with the site's `kid`. Claims: `iss` (the site id), `aud`, `sub` (the person's stable id on the site), `iat`, `exp` (at most 60 s after `iat`), `jti` (used once), `name`, `roles`, and an optional `email` for notifications.
+    """
+
+
+class SiteSignInResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    token: str
+    """
+    A session token (`kgi_sk_…`) limited to the site's project. Shown once; not refreshable.
+    """
+    expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
+    user_id: Annotated[str, Field(alias="userId")]
+    actor: str
+    """
+    The person as approvals name them: `user:<userId>`.
+    """
+    project_id: Annotated[UUID, Field(alias="projectId")]
+
+
 class SystemOpenapiResponse(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -10988,6 +11281,10 @@ class ApprovalCollectionPage(BaseModel):
     order: Literal["asc", "desc"] | None = None
     """
     The order the page is in: `asc` (oldest first) or `desc` (newest first). Absent from a runtime before Kindgi 0.1.6, which lists newest first and ignores `order`.
+    """
+    decided_by: Annotated[Literal["me"] | None, Field(alias="decidedBy")] = None
+    """
+    `me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.
     """
 
 
@@ -13347,11 +13644,11 @@ class WhoamiResult(BaseModel):
     """
     role: Literal["admin", "member"] | None = None
     """
-    The caller's API key role, when the key has one.
+    The caller's API key role, when the key has one, or its session's role ceiling.
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    The project the caller's API key is limited to, when it is.
+    The project the caller's API key or session is limited to, when it is.
     """
     tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
     """

@@ -17,7 +17,7 @@ import { REMEMBER_TOOL_ID, rememberStaysInProject } from '../remember.js';
 import { emitTurnEvent } from '../streaming.js';
 import type { ConversationMessage, ToolHitlMode, ToolHitlRule } from '../types.js';
 
-import type { EffectiveHitlPolicy } from '../hitl-policy.js';
+import { type EffectiveHitlPolicy, separateApproverFor } from '../hitl-policy.js';
 
 import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import {
@@ -29,6 +29,7 @@ import {
 import { TOOL_CALL_GATE_SUBJECT, readGateDecision, withdrawnGateFailure } from './gate-decision.js';
 import type { ToolCallAuthorization } from './public-types.js';
 import { decideReplayTool } from './replay.js';
+import { requestedBy } from './requested-by.js';
 import {
   effectiveToolErrorPolicy,
   toolErrorKindOf,
@@ -99,6 +100,8 @@ interface ToolGateRecord {
   readonly waitTokenId: string;
   readonly requiredRole: 'standard' | 'senior' | 'admin';
   readonly timeoutMs: number;
+  /** Four eyes for this call. Absent from a record made before it was kept: `false`. */
+  readonly separateApprover?: boolean;
 }
 
 /**
@@ -135,6 +138,7 @@ async function decideToolGate(
       }),
       requiredRole: resolved.requiredRole,
       timeoutMs: effectiveHitl.timeoutMs,
+      separateApprover: separateApproverFor(effectiveHitl, tool.id as unknown as string),
     };
   });
 }
@@ -313,6 +317,7 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
       let toolRejectionPayload: { readonly rationale?: string } | null = null;
       if (gate !== undefined) {
         const { argsHash, waitTokenId, timeoutMs } = gate;
+        const asker = requestedBy(ctx.input.principal);
         const expiresAt = new Date(Date.now() + timeoutMs).toISOString();
 
         if (ctx.bindings.hitl?.enqueue !== undefined) {
@@ -332,6 +337,9 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
                 arguments: call.arguments as never,
               },
               requiredRole: gate.requiredRole,
+              // Who asked: the person the turn runs for, whoever resumes it.
+              ...(asker !== undefined && { requestedBy: asker }),
+              separateApprover: gate.separateApprover === true,
               title: `HITL review: ${call.name}`,
               description: `Tool call ${call.name} awaiting reviewer approval before dispatch.`,
               waitTokenId,
