@@ -272,6 +272,18 @@ def test_a_dropped_name_names_no_model_again(tmp_path: Path) -> None:
         generate(tmp_path, {**SCHEMAS, "First": holder("code"), "Second": holder("sku")}, names)
 
 
+def test_a_component_that_takes_a_dropped_name_fails_generation_saying_how_out(
+    tmp_path: Path,
+) -> None:
+    # Naming an object in the API doesn't help here: the component is the object.
+    names = tmp_path / "pinned.json"
+    names.write_text(json.dumps({"Flow": []}), "utf-8")
+    with pytest.raises(SystemExit) as failed:
+        generate(tmp_path, SCHEMAS, names)
+    assert "Flow: dropped, now at Flow\n" in str(failed.value)
+    assert "Where a component takes it, rename the component" in str(failed.value)
+
+
 def test_an_inline_object_a_dropped_name_would_name_is_named_after_its_owner(
     tmp_path: Path,
 ) -> None:

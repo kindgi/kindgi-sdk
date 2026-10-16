@@ -924,7 +924,9 @@ def check_model_names(locations: dict[str, list[str]], pinned: dict[str, list[st
         f" edit its line in {MODEL_NAMES.relative_to(ROOT)}. Where it's another, name the new"
         " object in the API, or, when the rename is meant, list it in CHANGELOG.md and edit the"
         " line: a name that goes keeps its line with no places (`[]`), so it stays dropped. A"
-        " dropped name can't name a model again: name the object in the API."
+        " dropped name can't name a model again: name the object in the API. Where a component"
+        " takes it, rename the component or, when the name is meant, delete its `[]` line and"
+        " list it in CHANGELOG.md."
     )
 
 
