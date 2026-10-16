@@ -25,9 +25,11 @@ import type {
   ExportSigningBinding,
   ExportSigningError,
 } from '@kindgi/crypto';
+import type { Logger } from '@kindgi/log';
 import { canonicalize } from '@kindgi/schema';
 import type { ProjectId, TenantId, Timestamp } from '@kindgi/types';
 import type { Context } from 'hono';
+import { HTTPException } from 'hono/http-exception';
 
 import { statusFor, toWireError } from './errors.js';
 import type { AppEnv } from './types.js';
@@ -227,17 +229,35 @@ export function signExportFailure(
       ),
     );
   }
+  // The two 500s go through the central error handler
+  // (middleware/error-mapper.ts) instead of sending `error.message` to the
+  // client: a signing or persistence failure carries internal detail (a key
+  // id, a database error's SQL). The error is logged here — the handler's
+  // getResponse() path does not log — and we throw an exception whose own
+  // response keeps the public wire code and a fixed message.
   if (error.code === 'persistence-error') {
-    c.status(statusFor('persistence-error') as never);
-    return c.json(toWireError({ code: 'persistence-error', message: error.message }, requestId));
+    (c.get('log') as Logger | undefined)?.error('recording the signed export failed', {
+      err: Object.assign(new Error(error.message), { code: error.code }),
+    });
+    throw new HTTPException(statusFor('persistence-error') as never, {
+      res: c.json(
+        toWireError(
+          { code: 'persistence-error', message: 'Recording the signed export failed.' },
+          requestId,
+        ),
+      ),
+      cause: error,
+    });
   }
-  c.status(statusFor(failureCode) as never);
-  return c.json(
-    toWireError(
-      { code: failureCode, message: `Signing the export failed: ${error.message}` },
-      requestId,
+  (c.get('log') as Logger | undefined)?.error('signing the export failed', {
+    err: Object.assign(new Error(error.message), { code: error.code }),
+  });
+  throw new HTTPException(statusFor(failureCode) as never, {
+    res: c.json(
+      toWireError({ code: failureCode, message: 'Signing the export failed.' }, requestId),
     ),
-  );
+    cause: error,
+  });
 }
 
 /** The caller as an audit actor: `user:<id>`, `service_account:<tokenId>`, or `service_account:unknown`. */

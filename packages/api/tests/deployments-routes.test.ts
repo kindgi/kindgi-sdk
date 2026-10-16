@@ -2328,6 +2328,66 @@ describe('GET /v1/deployments', () => {
     expect(app.request).toBeTypeOf('function');
   });
 
+  // The list handler lets a throw from the registry propagate to the central
+  // error handler instead of catching it and building its own 500. A mutant
+  // that restores the inline `catch (cause)` 500 is killed by both tests:
+  // the busy case stops being a 503, and the generic case starts leaking
+  // `Deployment list failed: <cause>`.
+  test('a database-busy registry answers 503 + Retry-After, not a 500', async () => {
+    const busy: DeploymentBinding = {
+      ...makeInMemoryDeploymentBinding(),
+      list: async () => {
+        const cause = new Error('connect ECONNREFUSED 10.0.0.5:5432') as Error & { code?: string };
+        cause.code = 'database-busy';
+        throw cause;
+      },
+    };
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      deploymentRegistry: busy,
+      signingKeyRegistry: makeMockSigningKeyRegistry([]),
+      imageRegistry: makeMockImageRegistry([]),
+    });
+    const res = await app.request('/v1/deployments', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('retry-after')).toBe('5');
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe('database-busy');
+  });
+
+  test('a generic registry throw is a 500 whose body carries no raw error text', async () => {
+    const leak =
+      'Failed query: SELECT * FROM deployments WHERE tenant = $1; params: alice@example.com';
+    const throwing: DeploymentBinding = {
+      ...makeInMemoryDeploymentBinding(),
+      list: async () => {
+        throw new Error(leak);
+      },
+    };
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      deploymentRegistry: throwing,
+      signingKeyRegistry: makeMockSigningKeyRegistry([]),
+      imageRegistry: makeMockImageRegistry([]),
+    });
+    const res = await app.request('/v1/deployments', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(500);
+    const raw = await res.text();
+    expect(raw).not.toContain('alice@example.com');
+    expect(raw).not.toContain('Deployment list failed');
+    const body = JSON.parse(raw) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('internal-server-error');
+    expect(['Unhandled server error', 'A database query failed.']).toContain(body.error.message);
+  });
+
   test('imageRefPrefix filter narrows results', async () => {
     const binding = makeInMemoryDeploymentBinding();
     await binding.register({
