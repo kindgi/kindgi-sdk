@@ -72,12 +72,12 @@ import {
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
 
-import { DEPLOYMENT_ENDPOINT_PROBLEM_CODES } from '../deployment-binding.js';
-import { ERROR_CODE_TO_STATUS } from '../errors.js';
 import {
-  PACK_ENDPOINT_AUTHS,
+  DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
   SYSTEM_DEPLOYMENT_RETIRE_REASONS,
-} from '../routes/system-deployments.js';
+} from '../deployment-binding.js';
+import { ERROR_CODE_TO_STATUS } from '../errors.js';
+import { PACK_ENDPOINT_AUTHS } from '../routes/system-deployments.js';
 import { FULL_SYSTEM_CAPABILITY, SYSTEM_SCOPES } from '../system.js';
 
 export type JsonSchema = Record<string, unknown>;
@@ -7108,10 +7108,11 @@ export const PolicyCollectionPageSchema: JsonSchema = {
 };
 
 /**
- * Row shape returned by `GET /v1/policies/:policyId/versions`. Matches
+ * A version as `GET /v1/policies/:policyId/versions` and
+ * `GET /v1/policies/:policyId/versions/:version` return it. Matches
  * `Policy` plus an optional `unregisteredAt` timestamp that is present
  * iff the version has been soft-tombstoned. Kept as a dedicated schema
- * so the head routes (`get` / `getVersion`) keep their existing shape
+ * so the head route (`get`, the latest active version) keeps its shape
  * locked down under `additionalProperties: false`.
  */
 export const PolicyVersionRowSchema: JsonSchema = {
@@ -9751,7 +9752,7 @@ export const DeploymentEndpointSchema: JsonSchema = {
   additionalProperties: false,
   required: ['status', 'since'],
   description:
-    "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`). Carries no URL and no token.",
+    "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); it carries `waiting` or `retired` to say whether it comes back. Carries no URL and no token.",
   properties: {
     status: { type: 'string', enum: ['pending', 'ready', 'cleared'] },
     since: {
@@ -9760,16 +9761,27 @@ export const DeploymentEndpointSchema: JsonSchema = {
       description: 'When the status last changed.',
     },
     problem: { $ref: '#/components/schemas/DeploymentEndpointProblem' },
+    waiting: {
+      type: 'boolean',
+      const: true,
+      description:
+        "`cleared` only: a pack service is wanted for it again, as once a suspension that took its service down is lifted, and it lists as needing one; `problem` says why it isn't back yet. A `cleared` endpoint carries this or `retired`, never both. Absent from older servers, which send neither.",
+    },
+    retired: {
+      type: 'string',
+      description:
+        '`cleared` only: why no pack service is wanted for it now. `superseded` is for good: newer deployments ship every tool version and check it does, so no new call reaches it; a tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.',
+    },
   },
 };
 
-/** Why a `pending` deployment has no pack service yet: a fixed code, never free text. */
+/** Why a deployment waiting for its pack service has none yet: a fixed code, never free text. */
 export const DeploymentEndpointProblemSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['code', 'since'],
   description:
-    'With `pending` only: the last reason the deployment has no pack service yet, gone once the status changes. A fixed code, never free text.',
+    'While the deployment waits for a pack service (`pending`, or `cleared` and `waiting`): the last reason recorded while it waited. A `ready` endpoint has none, nor a `retired` one. A fixed code, never free text.',
   properties: {
     code: {
       type: 'string',
@@ -10878,6 +10890,27 @@ export const EnvListPageSchema: JsonSchema = {
   required: ['data'],
   properties: {
     data: { type: 'array', items: { $ref: '#/components/schemas/EnvRecord' } },
+    nextCursor: { type: 'string' },
+  },
+};
+
+/** One of the tenant's env names (`GET /v1/environments`). */
+export const EnvironmentSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['envName'],
+  properties: {
+    envName: { $ref: '#/components/schemas/EnvName' },
+  },
+};
+
+export const EnvironmentPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/Environment' } },
+    hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
   },
 };
@@ -13017,6 +13050,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['EnvName', EnvNameSchema],
   ['EnvRecord', EnvRecordSchema],
   ['EnvListPage', EnvListPageSchema],
+  ['Environment', EnvironmentSchema],
+  ['EnvironmentPage', EnvironmentPageSchema],
   ['EnvSetInput', EnvSetInputSchema],
   ['EnvSetOutcome', EnvSetOutcomeSchema],
   ['SecretRecord', SecretRecordSchema],

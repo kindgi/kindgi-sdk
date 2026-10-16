@@ -445,3 +445,32 @@ describe('createInMemoryEnvBinding — production gate', () => {
     }
   });
 });
+
+describe('createInMemoryEnvBinding — env names', () => {
+  const qa = makeEnvName('qa') as EnvName;
+  const write = (b: ReturnType<typeof createInMemoryEnvBinding>, scope: Scope, envName: EnvName) =>
+    b.set({ scope, envName, name: 'K', value: 'v', enqueueTuples: () => [] });
+
+  test("each of the tenant's env names once, at any scope, in order, after `after`, up to `limit`", async () => {
+    const b = createInMemoryEnvBinding();
+    await write(b, projectScope, staging);
+    await write(b, tenantScope, staging);
+    await write(b, orgScope, production);
+    await write(b, tenantScope, qa);
+    expect(await b.listEnvNames?.({ tenantId: t, limit: 10 })).toEqual([
+      'production',
+      'qa',
+      'staging',
+    ]);
+    expect(await b.listEnvNames?.({ tenantId: t, limit: 1, after: production })).toEqual(['qa']);
+  });
+
+  test("another tenant's names, a deleted entry's and one only read are not held", async () => {
+    const b = createInMemoryEnvBinding();
+    await write(b, { kind: 'tenant', tenantId: 't-2' as TenantId }, production);
+    await write(b, tenantScope, qa);
+    await b.delete({ scope: tenantScope, envName: qa, name: 'K' });
+    await b.list({ scope: tenantScope, envName: staging, limit: 10 });
+    expect(await b.listEnvNames?.({ tenantId: t, limit: 10 })).toEqual([]);
+  });
+});
