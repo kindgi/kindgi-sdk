@@ -147,6 +147,13 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'internal-server-error': 500,
   'journal-error': 500,
   stuck: 500,
+  // 503 — the database, on any GET or HEAD. With `Retry-After`.
+  /**
+   * A GET or HEAD the database was too busy to answer in time: a lock or
+   * statement timeout, or no free connection within the pool's wait. Any
+   * other method answers 500 (`mapThrownError`).
+   */
+  'database-busy': 503,
   // Waitpoint domain: "no pending token" or "already resolved" are
   // 409-shaped (a caller conflict with the run's current state).
   'waitpoint-error': 409,
@@ -272,7 +279,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   /** A system route naming a tenant in a state it refuses. */
   'tenant-closing': 409,
   'tenant-suspended': 409,
-  /** A system route naming a deployment whose project, or pack, is suspended. */
+  /** A deployment, eval run or improvement pass whose project, or pack, is suspended. */
   'project-suspended': 409,
   'pack-suspended': 409,
   /** A deployment's endpoint refused: its URL isn't `https://<host>`, with no user info or path. */
@@ -373,6 +380,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // `POST /v1/auth/refresh` with a browser session (cookie): refused, so a
   // fresh session token never reaches page scripts.
   'cookie-session-not-refreshable': 400,
+  // `POST /v1/auth/refresh` with a session limited to a project or a role:
+  // refused, so no copy of it can come back without its limits.
+  'limited-session-not-refreshable': 400,
+  // `POST /v1/tokens` by a session limited to a project or a role: a key
+  // would outlive whatever ends the session.
+  'limited-session-cannot-mint': 403,
   // `POST /v1/auth/token-sign-in` signed in by a session (a cookie or a
   // session token) rather than an API token: there's nothing to exchange.
   'token-sign-in-needs-an-api-token': 400,
@@ -411,6 +424,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'team-grant-exists': 409,
   // Who has access to a project: a runtime without an authorization store can't say.
   'project-access-unsupported': 501,
+  // The tenant's env names, from a runtime whose env or secret store can't list them.
+  'environments-unsupported': 501,
   // A model provider's key is used by its provider only: named by a tool or
   // an endpoint (400), or registered for a provider while one uses it (409).
   'provider-key-refused': 400,

@@ -42,9 +42,12 @@ export interface PolicyRegistryBinding {
   get(input: PolicyGetInput): Promise<Policy | null>;
   /**
    * Specific `(policyId, version)` lookup, or `null` if unknown.
-   * Returns tombstoned versions too (provenance paths).
+   * Returns tombstoned versions too, with `unregisteredAt` set, unlike
+   * `get` / `list`, which filter them: a version page and provenance
+   * read a retired version. A version the retention sweep has purged
+   * is unknown.
    */
-  getVersion(input: PolicyGetVersionInput): Promise<Policy | null>;
+  getVersion(input: PolicyGetVersionInput): Promise<PolicyVersionRow | null>;
   /**
    * Identity existence probe: `true` once the policy id has been
    * published, even when every version is tombstoned. Lets GET
@@ -236,10 +239,10 @@ export interface PolicyPage {
 }
 
 /**
- * A single row in a `listVersions` result. Policy fields plus an
- * optional `unregisteredAt` timestamp — present iff the version has
- * been soft-tombstoned via `unregister`. Callers that ignore the
- * extra field see the same shape as `Policy`.
+ * A policy version as `listVersions` and `getVersion` return it. Policy
+ * fields plus an optional `unregisteredAt` timestamp — present iff the
+ * version has been soft-tombstoned via `unregister`. Callers that
+ * ignore the extra field see the same shape as `Policy`.
  */
 export type PolicyVersionRow = Policy & {
   readonly unregisteredAt?: string;

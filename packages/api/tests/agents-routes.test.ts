@@ -312,6 +312,34 @@ describe('API — agents publish', () => {
     expect(stored.status).toBe(404);
   });
 
+  test.each([
+    ['null', null],
+    ['a string', 'json'],
+    ['an array', [{ type: 'object' }]],
+  ])(
+    "an output that isn't an object (%s) → 400 at /output, and nothing stored",
+    async (_what, output) => {
+      const { app } = makeApp();
+      const res = await app.request('/v1/agents', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ ...agentSpec(), output }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as {
+        error: { code: string; details?: { issues?: unknown[] } };
+      };
+      expect(body.error.code).toBe('validation-failed');
+      expect(body.error.details?.issues).toEqual([
+        { path: '/output', message: 'output must be an object { schema, name?, maxRepairs? }' },
+      ]);
+      const stored = await app.request('/v1/agents/acme.drafting', {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(stored.status).toBe(404);
+    },
+  );
+
   test('non-JSON body → 400 bad-input', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/agents', {

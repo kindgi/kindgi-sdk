@@ -72,12 +72,12 @@ import {
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
 
-import { DEPLOYMENT_ENDPOINT_PROBLEM_CODES } from '../deployment-binding.js';
-import { ERROR_CODE_TO_STATUS } from '../errors.js';
 import {
-  PACK_ENDPOINT_AUTHS,
+  DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
   SYSTEM_DEPLOYMENT_RETIRE_REASONS,
-} from '../routes/system-deployments.js';
+} from '../deployment-binding.js';
+import { ERROR_CODE_TO_STATUS } from '../errors.js';
+import { PACK_ENDPOINT_AUTHS } from '../routes/system-deployments.js';
 import { FULL_SYSTEM_CAPABILITY, SYSTEM_SCOPES } from '../system.js';
 
 export type JsonSchema = Record<string, unknown>;
@@ -1374,7 +1374,7 @@ export const CreateSystemTenantBodySchema: JsonSchema = {
       additionalProperties: false,
       required: ['email', 'name'],
       description:
-        "The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.",
+        "The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. The runtime gives them every capability but `secrets:reveal`, to put on the keys they make. Absent: the answer carries an admin key instead, which takes the full system capability.",
       properties: {
         email: { type: 'string', maxLength: 254, description: 'An email address.' },
         name: { type: 'string', minLength: 1, maxLength: 100 },
@@ -1519,8 +1519,7 @@ const SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES: Record<string, JsonSchema> = {
   packId: {
     type: 'string',
     minLength: 1,
-    description:
-      "The pack it deploys (the image index's `packId`): keep the newest few superseded deployments per tenant and pack.",
+    description: "The pack it deploys (the image index's `packId`).",
   },
   projectId: {
     type: 'string',
@@ -1555,7 +1554,7 @@ export const SystemDeploymentEntrySchema: JsonSchema = {
       type: 'string',
       enum: [...SYSTEM_DEPLOYMENT_RETIRE_REASONS],
       description:
-        'In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.',
+        'In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does, so no new call reaches it. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.',
     },
   },
 };
@@ -1896,6 +1895,16 @@ export const ApprovalDecisionRecordSchema: JsonSchema = {
     reviewerRoleAtDecision: ReviewerRoleSchema,
     decidedAt: { type: 'string', format: 'date-time' },
     rationale: { type: 'string' },
+    sessionProvider: {
+      type: 'string',
+      description:
+        "The provider of the session the reviewer decided with: `site:<id>` for a site's sign-in, an identity provider's id for a single sign-on session. Absent for an API key, and on decisions an older runtime recorded.",
+    },
+    deciderName: {
+      type: 'string',
+      description:
+        "The reviewer's display name when they decided: a person renamed since still shows as they were. Absent on decisions an older runtime recorded.",
+    },
   },
 };
 
@@ -1931,6 +1940,12 @@ export const ApprovalCollectionPageSchema: JsonSchema = {
       enum: ['asc', 'desc'],
       description:
         'The order the page is in: `asc` (oldest first) or `desc` (newest first). Absent from a runtime before Kindgi 0.1.6, which lists newest first and ignores `order`.',
+    },
+    decidedBy: {
+      type: 'string',
+      enum: ['me'],
+      description:
+        '`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.',
     },
   },
 };
@@ -3622,6 +3637,11 @@ export const ConversationSchema: JsonSchema = {
       description:
         "The project the conversation is in: the project of the run that opened it, or `projectId` on open (when omitted, the agent's own project, or the tenant's Default project for an agent filed under none). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.",
     },
+    openedBy: {
+      type: 'string',
+      description:
+        "Who opened it: the caller's principal (`user:<id>`, `service_account:<id>`), or, for one a turn opened, whoever the run acts for. Set by the server, never from a request's body. Absent on conversations an older runtime opened, and when the caller had no principal; those aren't listed by `?openedBy=me`.",
+    },
     scope: {
       type: 'object',
       additionalProperties: true,
@@ -3710,6 +3730,12 @@ export const ConversationCollectionPageSchema: JsonSchema = {
       description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
     },
     hasMore: { type: 'boolean' },
+    openedBy: {
+      type: 'string',
+      enum: ['me'],
+      description:
+        "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.",
+    },
   },
 };
 
@@ -5391,6 +5417,11 @@ export const ImprovementPassSchema: JsonSchema = {
     candidatesEvaluated: { type: 'integer', minimum: 0 },
     costUsd: { type: 'string', description: 'What its comparisons have cost so far (US dollars).' },
     outcome: { $ref: '#/components/schemas/ImprovementPassOutcome' },
+    cancelReason: {
+      type: 'string',
+      description:
+        "Why a `cancelled` pass stopped when nobody cancelled it: a comparison's eval run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no proposal. Absent when it was cancelled.",
+    },
     comparisons: {
       type: 'array',
       description:
@@ -6525,6 +6556,13 @@ export const RegisterMCPEndpointBodySchema: JsonSchema = {
   required: ['endpointId', 'name', 'transport', 'config', 'scopeKind'],
   properties: {
     ...mcpEndpointBodyProperties,
+    endpointId: {
+      type: 'string',
+      minLength: 1,
+      pattern: '^[^.]+$',
+      description:
+        "No `.`: an MCP tool's id is `<endpointId>.<tool name>`, so it splits at its first `.`. An endpoint registered with one before keeps it.",
+    },
     scopeKind: { $ref: '#/components/schemas/ScopeKind' },
     scopeId: {
       type: 'string',
@@ -7097,10 +7135,11 @@ export const PolicyCollectionPageSchema: JsonSchema = {
 };
 
 /**
- * Row shape returned by `GET /v1/policies/:policyId/versions`. Matches
+ * A version as `GET /v1/policies/:policyId/versions` and
+ * `GET /v1/policies/:policyId/versions/:version` return it. Matches
  * `Policy` plus an optional `unregisteredAt` timestamp that is present
  * iff the version has been soft-tombstoned. Kept as a dedicated schema
- * so the head routes (`get` / `getVersion`) keep their existing shape
+ * so the head route (`get`, the latest active version) keeps its shape
  * locked down under `additionalProperties: false`.
  */
 export const PolicyVersionRowSchema: JsonSchema = {
@@ -8210,6 +8249,11 @@ export const EvalRunSchema: JsonSchema = {
         'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
     },
     error: { type: 'string' },
+    cancelReason: {
+      type: 'string',
+      description:
+        "Why a `cancelled` run stopped when nobody cancelled it: its project or tenant took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.",
+    },
     correlationId: { type: 'string' },
     comparison: { $ref: '#/components/schemas/EvalComparison' },
   },
@@ -8779,11 +8823,12 @@ export const WhoamiResultSchema: JsonSchema = {
     tokenId: { type: 'string', description: "The caller's API key, when it is one." },
     role: {
       ...ApiTokenRoleSchema,
-      description: "The caller's API key role, when the key has one.",
+      description:
+        "The caller's API key role, when the key has one, or its session's role ceiling.",
     },
     projectId: {
       type: 'string',
-      description: "The project the caller's API key is limited to, when it is.",
+      description: "The project the caller's API key or session is limited to, when it is.",
     },
     tenantAdmin: {
       type: 'boolean',
@@ -9111,7 +9156,7 @@ export const MyPermissionsSchema: JsonSchema = {
       type: 'array',
       items: { type: 'string' },
       description:
-        "The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries none; an API key carries those it was minted with (`POST /v1/tokens`, none by default).",
+        "The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries those its person holds: none unless the runtime gives them some, as it does a tenant's first admin. An API key carries those it was minted with (`POST /v1/tokens`, none by default).",
     },
     projects: {
       type: 'array',
@@ -9734,7 +9779,7 @@ export const DeploymentEndpointSchema: JsonSchema = {
   additionalProperties: false,
   required: ['status', 'since'],
   description:
-    "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`). Carries no URL and no token.",
+    "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); it carries `waiting` or `retired` to say whether it comes back. Carries no URL and no token.",
   properties: {
     status: { type: 'string', enum: ['pending', 'ready', 'cleared'] },
     since: {
@@ -9743,16 +9788,27 @@ export const DeploymentEndpointSchema: JsonSchema = {
       description: 'When the status last changed.',
     },
     problem: { $ref: '#/components/schemas/DeploymentEndpointProblem' },
+    waiting: {
+      type: 'boolean',
+      const: true,
+      description:
+        "`cleared` only: a pack service is wanted for it again, as once a suspension that took its service down is lifted, and it lists as needing one; `problem` says why it isn't back yet. A `cleared` endpoint carries this or `retired`, never both. Absent from older servers, which send neither.",
+    },
+    retired: {
+      type: 'string',
+      description:
+        '`cleared` only: why no pack service is wanted for it now. `superseded` is for good: newer deployments ship every tool version and check it does, so no new call reaches it; a tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.',
+    },
   },
 };
 
-/** Why a `pending` deployment has no pack service yet: a fixed code, never free text. */
+/** Why a deployment waiting for its pack service has none yet: a fixed code, never free text. */
 export const DeploymentEndpointProblemSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['code', 'since'],
   description:
-    'With `pending` only: the last reason the deployment has no pack service yet, gone once the status changes. A fixed code, never free text.',
+    'While the deployment waits for a pack service (`pending`, or `cleared` and `waiting`): the last reason recorded while it waited. A `ready` endpoint has none, nor a `retired` one. A fixed code, never free text.',
   properties: {
     code: {
       type: 'string',
@@ -10861,6 +10917,27 @@ export const EnvListPageSchema: JsonSchema = {
   required: ['data'],
   properties: {
     data: { type: 'array', items: { $ref: '#/components/schemas/EnvRecord' } },
+    nextCursor: { type: 'string' },
+  },
+};
+
+/** One of the tenant's env names (`GET /v1/environments`). */
+export const EnvironmentSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['envName'],
+  properties: {
+    envName: { $ref: '#/components/schemas/EnvName' },
+  },
+};
+
+export const EnvironmentPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/Environment' } },
+    hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
   },
 };
@@ -13000,6 +13077,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['EnvName', EnvNameSchema],
   ['EnvRecord', EnvRecordSchema],
   ['EnvListPage', EnvListPageSchema],
+  ['Environment', EnvironmentSchema],
+  ['EnvironmentPage', EnvironmentPageSchema],
   ['EnvSetInput', EnvSetInputSchema],
   ['EnvSetOutcome', EnvSetOutcomeSchema],
   ['SecretRecord', SecretRecordSchema],

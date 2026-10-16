@@ -95,6 +95,7 @@ import { tenantScopeMiddleware } from './middleware/tenant-scope.js';
 import { type TenantStateBinding, tenantStateGate } from './middleware/tenant-state.js';
 import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
+import type { PersonCapabilitiesBinding } from './person-capabilities-binding.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
 import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
@@ -130,6 +131,7 @@ import { conversationsRouter } from './routes/conversations.js';
 import { costRouter } from './routes/cost.js';
 import { deploymentsRouter } from './routes/deployments.js';
 import { envRouter } from './routes/env.js';
+import { environmentsRouter } from './routes/environments.js';
 import { evalRunsRouters } from './routes/eval-runs.js';
 import { evalSuitesRouter } from './routes/eval-suites.js';
 import { eventTriggersRouter } from './routes/event-triggers.js';
@@ -222,6 +224,13 @@ export interface CreateAppInput {
    * Where the app's records go (`@kindgi/log`): the access line, logged
    * 500s, and what routes log, each with the request's ids. Default:
    * `noopLogger`, so an embedding app stays quiet unless it passes one.
+   *
+   * An audit record whose append fails, where the request goes on
+   * without it, is logged here at `warn`: a secret or env write's, and a
+   * secret read refused for its scope, under subsystem `audit`; a
+   * sign-in's or sign-out's under `http`. An app without a logger won't
+   * see that a record was dropped. A check the authorization model can't
+   * answer, a bug in a route, is logged at `error` (subsystem `authz`).
    */
   readonly logger?: Logger;
   readonly resolveToken: TokenResolver;
@@ -383,6 +392,14 @@ export interface CreateAppInput {
    * `501 person-grants-unsupported`. Needs `identityDirectory`.
    */
   readonly personGrants?: PersonGrantsBinding;
+  /**
+   * Optional. The capabilities a person holds (`env:write`, `secrets:*`,
+   * `signing-keys:write`, …), which their sign-in sessions carry: for the
+   * writes that need one, and for the keys they mint (`POST /v1/tokens`
+   * grants only what the minter holds). Read on each session request.
+   * Without it a session carries none, and only API keys hold capabilities.
+   */
+  readonly personCapabilities?: PersonCapabilitiesBinding;
   /**
    * Optional. What the caller holds, for `GET /v1/identity/me/permissions`:
    * its projects with their roles, its orgs and teams, and what each
@@ -617,7 +634,8 @@ export interface CreateAppInput {
   /**
    * Whether a project is suspended (`PUT
    * /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`): a
-   * deploy into it is refused `409 project-suspended`, and a webhook
+   * deploy into it, an eval run started in it and an improvement pass for
+   * one of its agents are refused `409 project-suspended`, and a webhook
    * delivery to one of its triggers is skipped. Absent: no check.
    */
   readonly projectSuspended?: (
@@ -1092,6 +1110,8 @@ export interface CreateAppInput {
    *
    * When present, ALSO mounts `/v1/secrets/*` — the dedicated
    * secrets HTTP surface. Same for `envBinding` and `/v1/env/*`.
+   * Either one mounts `GET /v1/environments`, the env names the two
+   * hold (`listEnvNames`).
    */
   readonly secretsBinding?: SecretBinding;
   /**
@@ -1333,6 +1353,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         },
       }),
       ...(input.sessionStore !== undefined && { sessionStore: input.sessionStore }),
+      ...(input.personCapabilities !== undefined && {
+        personCapabilities: input.personCapabilities,
+      }),
       ...(inactivityTimeoutMs !== undefined && { inactivityTimeoutMs }),
       ...(sessionCfg?.touchThrottle !== undefined && {
         touchThrottleMs: sessionCfg.touchThrottle,
@@ -1610,6 +1633,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       blocks: input.blockRegistry,
       releases: input.agentReleases,
       ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+      ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
     };
     v1.route(
       '/proposals',
@@ -1966,6 +1990,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       }),
     );
   }
+  if (input.envBinding !== undefined || secretsBinding !== undefined) {
+    v1.route(
+      '/environments',
+      environmentsRouter({
+        ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
+        ...(secretsBinding !== undefined && { secretsBinding }),
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
   // ---------- deployments ----------
   // Requires all three of: DeploymentBinding + SigningKeyRegistryBinding +
   // ImageRegistryBinding. Optional tool/guardrail/agent/flow registries
@@ -2056,6 +2090,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         : undefined,
       authorizer,
       input.referenceScope,
+      input.projectSuspended,
     );
     v1.route('/eval-suites', evalRuns.start);
     v1.route('/eval-runs', evalRuns.readback);

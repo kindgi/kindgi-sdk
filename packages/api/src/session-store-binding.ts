@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, SessionId, TenantId, Timestamp, UserId } from '@kindgi/types';
+import type { Cursor, ProjectId, SessionId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
 /**
  * Caller-plugged surface for OAuth/OIDC session persistence. Same
@@ -89,6 +89,17 @@ export interface SessionCreateInput {
   readonly scopes: readonly string[];
   /** Free-form provider claims (e.g. `email`, `name`, `sub`). */
   readonly metadata?: Record<string, unknown>;
+  /**
+   * The project the session is limited to, as an API key's `projectId`
+   * limits a key: a request naming another project is refused, and so is
+   * any action, reading included, on the tenant, an org or a team. Such a
+   * session is never refreshed and mints no keys. A store must keep it and
+   * return it from `get` and `resolveToken`: dropping it would give an
+   * unlimited session, so a caller that sets it checks it came back.
+   */
+  readonly projectId?: ProjectId;
+  /** The session's role ceiling, as an API key's `role`: `member` takes no admin action on the tenant. */
+  readonly role?: 'admin' | 'member';
 }
 
 export interface SessionCreateOutput {
@@ -143,6 +154,10 @@ export interface Session {
   readonly expiresAt: Timestamp;
   readonly scopes: readonly string[];
   readonly metadata?: Record<string, unknown>;
+  /** The project the session is limited to (`SessionCreateInput.projectId`). */
+  readonly projectId?: ProjectId;
+  /** The session's role ceiling (`SessionCreateInput.role`). */
+  readonly role?: 'admin' | 'member';
   readonly createdAt: Timestamp;
   /**
    * Last-observed activity timestamp. Populated by adapters that

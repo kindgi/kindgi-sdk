@@ -116,6 +116,12 @@ export type {
   EnvSetOutcome,
 } from './resources/env.js';
 export type {
+  Environment,
+  EnvironmentsClient,
+  EnvironmentsListInput,
+  EnvironmentsPage,
+} from './resources/environments.js';
+export type {
   PollingOverrides,
   RawRotationResponse,
   RotationOutcome,
@@ -144,6 +150,7 @@ export type {
 } from './resources/guardrails.js';
 export type {
   ConversationFilter,
+  ConversationPage,
   ConversationsClient,
   MessageFilter,
 } from './resources/conversations.js';
@@ -181,6 +188,7 @@ export type {
 export type {
   PoliciesClient,
   PolicyListFilter,
+  PolicyVersionRow,
   PolicyVersionsFilter,
 } from './resources/policies.js';
 export type {

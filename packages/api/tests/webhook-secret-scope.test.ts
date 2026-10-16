@@ -16,6 +16,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import type { Action, AuthzCheckBinding, Decision, Principal, ResourceRef } from '@kindgi/authz';
+import { createLogger } from '@kindgi/log';
 import type { Scope } from '@kindgi/platform';
 import type { EnvName, TenantId, UserId } from '@kindgi/types';
 
@@ -95,6 +96,8 @@ function setup(
     readonly legacy?: boolean;
     /** A store that writes only names like these (the dev store's env-file keys): `nameRefusal`, and `set` refusing the rest. */
     readonly writes?: RegExp;
+    /** An audit store that refuses `secret-resolved` records. */
+    readonly refusesResolved?: boolean;
   } = {},
 ) {
   // The store, each scope apart.
@@ -103,10 +106,17 @@ function setup(
   const audited: AuditEvent[] = [];
   const auditEvents = {
     append: async (events: readonly AuditEvent[]) => {
+      if (options.refusesResolved === true && events.some((e) => e.kind === 'secret-resolved')) {
+        return {
+          kind: 'err',
+          error: { code: 'persistence-error', message: 'the audit store is down' },
+        };
+      }
       audited.push(...events);
       return { kind: 'ok', value: undefined };
     },
   } as unknown as AuditEventBinding;
+  const logLines: string[] = [];
   const put = (scope: Scope, value: string, env: string = ENV) =>
     stored.set(keyOf(scope, env, NAME), value);
   // The names `nameRefusal` was asked about.
@@ -201,6 +211,7 @@ function setup(
       runHandler: {} as RunHandlerBinding,
       ...(options.receiver !== false && { webhookReceiver: { envName: ENV } }),
       authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: check },
+      logger: createLogger({ write: (line) => logLines.push(line) }),
     });
   let app = appFor();
   const call = async (token: string, method: string, path: string, body?: unknown) => {
@@ -237,6 +248,8 @@ function setup(
     stored,
     reads,
     audited,
+    /** The app's log records, parsed. */
+    logged: () => logLines.map((line) => JSON.parse(line) as Record<string, unknown>),
     asked,
     /** How many times the registry was asked to register a trigger. */
     registers: () => registers,
@@ -359,6 +372,22 @@ describe('the same name in the tenant and in P', () => {
     expect(refused[0]).toMatchObject({ outcome: 'failed', projectId: P });
     expect(JSON.stringify(refused[0])).toContain('secret-scope-mismatch');
     expect(JSON.stringify(h.audited)).not.toContain('tenant-value');
+  });
+
+  test('a refusal whose audit append fails is still refused, and logged at warn (subsystem audit)', async () => {
+    const h = setup({ ignoresExact: true, refusesResolved: true });
+    h.put(tenant, 'tenant-value');
+    const t = await h.register('p-admin');
+    expect(await h.deliver(t.body.webhookId, 'tenant-value')).toBe(401);
+    expect(h.logged().filter((r) => r.subsystem === 'audit')).toEqual([
+      expect.objectContaining({
+        level: 'warn',
+        message: 'secret-resolved audit event failed: the audit store is down',
+        kind: 'secret-resolved',
+        code: 'persistence-error',
+      }),
+    ]);
+    expect(JSON.stringify(h.logged())).not.toContain('tenant-value');
   });
 
   test("a store that doesn't report the scope it read: refused even at the right scope, and audited", async () => {
@@ -514,18 +543,18 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
       scopeId: P,
     });
     expect(
-      (await h.post('p-admin', '/v1/mcp/endpoints', endpoint('acme.own', 'P_TOKEN'))).status,
+      (await h.post('p-admin', '/v1/mcp/endpoints', endpoint('acme-own', 'P_TOKEN'))).status,
     ).toBe(201);
-    expect(h.endpoints.get('acme.own')?.secretScopes).toEqual({
+    expect(h.endpoints.get('acme-own')?.secretScopes).toEqual({
       P_TOKEN: { kind: 'project', projectId: P },
     });
-    await h.post('p-admin', '/v1/mcp/endpoints', endpoint('acme.borrows', 'TENANT_TOKEN'));
-    expect(h.endpoints.get('acme.borrows')?.secretScopes).toEqual({
+    await h.post('p-admin', '/v1/mcp/endpoints', endpoint('acme-borrows', 'TENANT_TOKEN'));
+    expect(h.endpoints.get('acme-borrows')?.secretScopes).toEqual({
       TENANT_TOKEN: { kind: 'project', projectId: P },
     });
     // A caller never sets it.
     const sent = await h.post('p-admin', '/v1/mcp/endpoints', {
-      ...endpoint('acme.sets', 'P_TOKEN'),
+      ...endpoint('acme-sets', 'P_TOKEN'),
       secretScopes: { P_TOKEN: { kind: 'tenant' } },
     });
     expect(sent.status).toBe(400);
@@ -536,7 +565,7 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
     h.stored.set(keyOf(tenant, ENV, 'TENANT_KEY'), 'x');
     h.stored.set(keyOf(project, ENV, 'P_SECRET'), 'y');
     const res = await h.post('p-admin', '/v1/mcp/endpoints', {
-      endpointId: 'acme.shop',
+      endpointId: 'acme-shop',
       name: 'Shop',
       transport: 'streamable-http',
       config: { transport: 'streamable-http', url: 'https://mcp.acme.test/mcp' },
@@ -555,7 +584,7 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
       scopeId: P,
     });
     expect(res.status).toBe(201);
-    expect(h.endpoints.get('acme.shop')?.secretScopes).toEqual({
+    expect(h.endpoints.get('acme-shop')?.secretScopes).toEqual({
       TENANT_KEY: { kind: 'project', projectId: P },
       P_SECRET: { kind: 'project', projectId: P },
     });

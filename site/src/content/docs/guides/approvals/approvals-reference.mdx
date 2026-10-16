@@ -23,7 +23,20 @@ nobody decides, and what the console shows. To decide one, follow
 - **The list names people.** With authorization on, only a tenant admin or a
   reviewer reads it. Anyone else, such as a project's viewer, gets
   `permission-denied`.
-- **A user who isn't a reviewer is refused:**
+- **A tenant admin reads approvals at every tier,** with authorization on,
+  through a session or an `admin` key not limited to a project, in the
+  projects they may read:
+  - not on the roster, they list and fetch approvals as an `admin` reviewer
+    would;
+  - on it with a lower role, they list their own tier, and any tier they ask
+    for (`requiredRole`), and fetch an approval of any tier.
+
+  Deciding still takes the roster. A key with no user, a `member` key and a
+  key limited to a project read nothing this way. The roster doesn't show
+  such a reader; the [access
+  audit](../../../deploy/authorization/#the-access-audit) records the
+  tenant-admin check each such read makes.
+- **Anyone else who isn't a reviewer is refused:**
 
   ```text
   Error [auth]: The caller isn't a reviewer: its token carries no reviewer role, and its user isn't registered as one (`kindgi reviewers register`). The approvals surface is reviewer-only.
@@ -73,6 +86,12 @@ first email goes at once, then a digest every five minutes at most.
   `user:<id>`, and their `reviewerId`. There's no `decision` while the
   approval is open, nor when it ended without one: it expired, or a timeout
   escalated it.
+  - **`deciderName`** is the reviewer's name as it was when they decided, so
+    a person renamed since still shows as they were. An older runtime's
+    decisions don't have it.
+  - **`sessionProvider`** is the provider of the session they decided with:
+    `site:<id>` for a site's sign-in, or an identity provider's id. It's
+    absent for an API key, and on an older runtime's decisions.
 
   ```json excerpt
   "decision": {
@@ -104,11 +123,16 @@ first email goes at once, then a digest every five minutes at most.
   approvals too.
 - **`--assigned-to=me`**, the approvals assigned to you. Assigning one moves
   it to `assigned`.
+- **`--decided-by=me`**, the approvals you decided (`?decidedBy=me` in the
+  API, `decided_by="me"` in Python). An older runtime ignores it and lists
+  them all; the CLI stops instead, and names the release the runtime needs.
 - **`--order=asc`**, the oldest first. The list is newest first otherwise.
 
 In the API, these are query parameters:
 `GET /v1/approvals?status=assigned,in_review&assignedTo=me&order=asc`. The
-page says which order it's in, as `order`.
+page says which order it's in, as `order`. With `?decidedBy=me`, every page
+says it holds only yours, as `decidedBy: "me"`; a page from an older runtime
+doesn't.
 
 The clients' `list` also takes:
 

@@ -7,6 +7,12 @@ heading into its version.
 
 ## Unreleased
 
+## 0.1.8
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.8-rc.0
+
 - `kindgi-client`: **`runs().journal` pages when asked.** `RunsJournalParams` gains `limit` (1 to 100) and `cursor`, `RunJournalPage` gains `nextCursor`, and `journalAll` streams every entry, page after page. Without `limit`, the whole journal is one page, as before; a runtime before 0.1.8 answers it whole either way.
 - `kindgi-client`: **`secrets().list` takes `includeRevoked`.** `SecretsListParams.includeRevoked("true")` lists revoked secrets too, with `revokedAt` and `revokeReason` (metadata only, never a value). A runtime before 0.1.8 ignores it.
 - `kindgi-models`: **where a secret an item names is read**, as the server recorded it when the item was registered: `secretScopes` on a `Tool` and an `MCPEndpoint` (by secret name) and `hmacSecretScope` on a webhook trigger, each a `RecordedSecretScope` (`Tenant`, `Org` or `Project`), `null` when none is usable. `SecretResolveOutcome` gains `scope`. The generator now takes a nullable reference to a tagged union, alone or as a map's values.
