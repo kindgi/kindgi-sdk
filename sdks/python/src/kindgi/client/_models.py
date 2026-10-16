@@ -10007,7 +10007,7 @@ class RegisterSiteBody(BaseModel):
     """
     role_map: Annotated[dict[str, SiteRoleGrant] | None, Field(alias="roleMap")] = None
     """
-    Default: both default roles may ask, and decide as `standard` reviewers. Without a `roleMap`, the map keeps the entries of the roles in `allowedRoles` only: the default map's for a new site, the site's own for a change.
+    Default: both default roles may ask, and decide as `standard` reviewers. Without a `roleMap`, the map keeps only the entries of the roles in `allowedRoles`: the default map's for a new site, the site's own for a change. An allowed role with no entry signs in to read the project only.
     """
     reviewer_ceiling: Annotated[
         Literal["standard", "senior"] | None, Field(alias="reviewerCeiling")
@@ -10057,7 +10057,7 @@ class UpdateSiteBody(BaseModel):
     """
     role_map: Annotated[dict[str, SiteRoleGrant] | None, Field(alias="roleMap")] = None
     """
-    Default: both default roles may ask, and decide as `standard` reviewers. Without a `roleMap`, the map keeps the entries of the roles in `allowedRoles` only: the default map's for a new site, the site's own for a change.
+    Default: both default roles may ask, and decide as `standard` reviewers. Without a `roleMap`, the map keeps only the entries of the roles in `allowedRoles`: the default map's for a new site, the site's own for a change. An allowed role with no entry signs in to read the project only.
     """
     reviewer_ceiling: Annotated[
         Literal["standard", "senior"] | None, Field(alias="reviewerCeiling")
