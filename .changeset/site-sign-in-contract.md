@@ -1,6 +1,7 @@
 ---
 '@kindgi/api': patch
 '@kindgi/client': patch
+'@kindgi/cli': patch
 ---
 
 Sites that sign their own people in to one project. A site, such as a store's WordPress admin, vouches for whoever is signed in there, so the store's staff ask the project's agents and decide its approvals as themselves, without a Kindgi account. A decision's record names the person.
@@ -18,3 +19,5 @@ Sites that sign their own people in to one project. A site, such as a store's Wo
 - **`createApp` refuses `sites`** without authorization (`authz`) or without a session store with `revokeByProvider`.
 
 **The clients:** the TypeScript client gains `client.projects.sites`, `client.auth.enrollSite` and `client.auth.siteSignIn`; the Python and JVM clients gain the same operations.
+
+**The CLI:** `kindgi exports create` writes each project's sites to `sites.jsonl`, unregistered ones included. It skips them when the server doesn't serve sites.
