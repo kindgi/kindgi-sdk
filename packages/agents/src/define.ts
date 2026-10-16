@@ -792,9 +792,8 @@ type OutputOutcome =
   | { readonly kind: 'ok'; readonly value: AgentOutputSpec }
   | { readonly kind: 'err'; readonly issues: readonly Issue[] };
 
-/** The output spec in its wire form: JSON Schema that compiles, and a valid repair count. */
-function resolveOutput(output: DefineAgentSpec['output']): OutputOutcome {
-  if (output === undefined) return { kind: 'none' };
+/** An output spec's `maxRepairs` and `name`, when it sets them. */
+function outputFieldIssues(output: NonNullable<DefineAgentSpec['output']>): Issue[] {
   const issues: Issue[] = [];
   if (
     output.maxRepairs !== undefined &&
@@ -808,6 +807,22 @@ function resolveOutput(output: DefineAgentSpec['output']): OutputOutcome {
   if (output.name !== undefined && (typeof output.name !== 'string' || output.name.length === 0)) {
     issues.push({ path: '/output/name', message: 'name must be a non-empty string' });
   }
+  return issues;
+}
+
+/** The output spec in its wire form: JSON Schema that compiles, and a valid repair count. */
+function resolveOutput(output: DefineAgentSpec['output']): OutputOutcome {
+  if (output === undefined) return { kind: 'none' };
+  // A spec off the wire (`POST /v1/agents`) can carry anything here.
+  if (typeof output !== 'object' || output === null || Array.isArray(output)) {
+    return {
+      kind: 'err',
+      issues: [
+        { path: '/output', message: 'output must be an object { schema, name?, maxRepairs? }' },
+      ],
+    };
+  }
+  const issues = outputFieldIssues(output);
   let schema: Readonly<Record<string, unknown>>;
   if (isZodSchema(output.schema)) {
     // The output side: downstream steps read every field, defaulted ones included.

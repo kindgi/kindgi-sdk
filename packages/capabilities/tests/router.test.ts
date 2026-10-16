@@ -420,6 +420,84 @@ describe('route — capability-unsatisfiable', () => {
     const cap: Capability = { needs: [{ feature: 'tool-use' }] };
     const r = route({ capability: cap, providers: [] });
     expect(r.kind).toBe('err');
+    if (r.kind === 'err') {
+      expect(r.error.message).toBe('No registered provider satisfies the capability declaration');
+    }
+  });
+});
+
+describe('route — registered providers that could not be set up', () => {
+  const cap: Capability = { needs: [{ feature: 'tool-use' }] };
+  const notSetUp = (providerId: string) => ({
+    providerId,
+    message: `Provider "${providerId}" can't be set up on this runtime.`,
+  });
+
+  test("when it was the tenant's only provider, the error names it and its message says why", () => {
+    const r = route({ capability: cap, providers: [], setupFailures: [notSetUp('bedrock')] });
+    if (r.kind === 'ok' || r.error.code !== 'capability-unsatisfiable') {
+      throw new Error(JSON.stringify(r));
+    }
+    expect(r.error.message).toBe(
+      `No registered provider satisfies the capability declaration. Provider "bedrock" can't be set up on this runtime.`,
+    );
+    expect(r.error.reasons).toEqual([
+      {
+        requirement: 'provider set up',
+        satisfyingProviders: [],
+        rejectingProviders: [
+          {
+            id: 'bedrock',
+            reason: {
+              code: 'provider-setup-failed',
+              message: `Provider "bedrock" can't be set up on this runtime.`,
+              providerId: 'bedrock',
+            },
+          },
+        ],
+      },
+    ]);
+  });
+
+  test('beside the candidates a requirement rejected, the rest are counted in the message', () => {
+    const providers = providersOf(meta('only-us', { provider: { region: 'us-east-1' } }));
+    const r = route({
+      capability: { needs: [{ region: 'eu-west-1' }] },
+      providers,
+      setupFailures: [notSetUp('a'), notSetUp('b'), notSetUp('c')],
+    });
+    if (r.kind === 'ok' || r.error.code !== 'capability-unsatisfiable') {
+      throw new Error(JSON.stringify(r));
+    }
+    expect(r.error.message).toBe(
+      `No registered provider satisfies the capability declaration. Provider "a" can't be set up on this runtime. 2 more registered providers couldn't be set up either.`,
+    );
+    expect(r.error.reasons.map((x) => x.requirement)).toEqual([
+      'region=eu-west-1',
+      'provider set up',
+    ]);
+    // The providers that were set up satisfy it; the others are named by their id alone.
+    expect(r.error.reasons[1]?.satisfyingProviders).toEqual(['only-us/only-us/model-v1']);
+    expect(r.error.reasons[1]?.rejectingProviders.map((x) => x.id)).toEqual(['a', 'b', 'c']);
+
+    const two = route({
+      capability: cap,
+      providers: [],
+      setupFailures: [notSetUp('a'), notSetUp('b')],
+    });
+    expect(two.kind === 'err' && two.error.message).toBe(
+      `No registered provider satisfies the capability declaration. Provider "a" can't be set up on this runtime. One more registered provider couldn't be set up either.`,
+    );
+  });
+
+  test("they don't stop a route another provider satisfies", () => {
+    const r = route({
+      capability: cap,
+      providers: providersOf(meta('anthropic')),
+      setupFailures: [notSetUp('bedrock')],
+    });
+    if (r.kind === 'err') throw new Error(JSON.stringify(r.error));
+    expect(r.value.provider.metadata.id).toBe('anthropic');
   });
 });
 

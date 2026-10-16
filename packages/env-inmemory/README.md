@@ -16,7 +16,8 @@ Give every consumer of `EnvBinding` a store that needs no database but keeps the
 - **`InMemoryEnvBindingOptions`**:
   - `productionSafe?: boolean` — default `false`. Allows construction under `NODE_ENV=production`, for example in a parity-test container.
   - `now?: () => number` — clock used for `createdAt` / `updatedAt`; defaults to `Date.now`.
-  - `auditEvents?: AuditEventBinding`, `tenantId?: TenantId`, `projectId?: ProjectId` — audit emission is enabled only when all three are set. `set` emits `env-set` (outcome `failed` with `env-write-conflict` on a revision conflict), `resolve` emits `env-resolved`, and a `delete` that removed something emits `env-deleted`. Every event is recorded under the configured `tenantId` / `projectId`, and payloads never contain the value. Emission is awaited, but a failing audit sink is logged with `console.warn` and does not fail the operation.
+  - `auditEvents?: AuditEventBinding`, `tenantId?: TenantId`, `projectId?: ProjectId` — audit emission is enabled only when all three are set. `set` emits `env-set` (outcome `failed` with `env-write-conflict` on a revision conflict), `resolve` emits `env-resolved`, and a `delete` that removed something emits `env-deleted`. Every event is recorded under the configured `tenantId` / `projectId`, and payloads never contain the value. Emission is awaited, but a failing audit sink does not fail the operation.
+  - `log?: Logger` (`@kindgi/log`) — where an audit append that fails or throws is logged, at `warn`. Without one, a failed append isn't logged anywhere.
 
 ## Example
 

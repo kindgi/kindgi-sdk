@@ -327,7 +327,8 @@ object CheckOrderStock {
 - **`concurrency`** runs that many passes at a time, 1 by default and at most
   32.
 - **`maxIterations`** caps the passes, and **`outputSchema`** is what each pass
-  must return. Both are required.
+  must return. Both are required. An `outputSchema` that doesn't compile is
+  refused when the flow is loaded or deployed, not at each run.
 
 Run it:
 

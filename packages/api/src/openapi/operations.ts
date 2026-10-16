@@ -354,6 +354,16 @@ const JournalSinceQueryParam: ParameterSpec = {
   schema: { type: 'integer', minimum: 0 },
 };
 
+/** `GET /v1/runs/{runId}/journal`'s: paging is opt-in, so there's no default. */
+const JournalLimitQueryParam: ParameterSpec = {
+  name: 'limit',
+  in: 'query',
+  required: false,
+  description:
+    'The most entries in a page, 1..100: then `nextCursor` while more remain. Without it, the whole journal (after `since` or `cursor`) in one answer.',
+  schema: { type: 'integer', minimum: 1, maximum: 100 },
+};
+
 const LastEventIdParam: ParameterSpec = {
   name: 'Last-Event-Id',
   in: 'header',
@@ -895,6 +905,15 @@ const CostRootRunIdQueryParam: ParameterSpec = {
   schema: { type: 'string', format: 'uuid' },
 };
 
+const CostFlowIdQueryParam: ParameterSpec = {
+  name: 'flowId',
+  in: 'query',
+  required: false,
+  description:
+    "Every record of the run trees whose root is a run of this flow (the record's `flowId`, exact match): the flow's spend across its runs, any version.",
+  schema: { type: 'string' },
+};
+
 const CostIncludeDescendantsQueryParam: ParameterSpec = {
   name: 'includeDescendants',
   in: 'query',
@@ -1390,6 +1409,27 @@ const CommonMutationErrors: Readonly<Record<string, ResponseSpec>> = {
   '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
 };
 
+/** A secrets store's external provider (the router's), answering a read or a write: each at its own status. */
+const SecretProviderErrors: Readonly<Record<string, ResponseSpec>> = {
+  '429': ErrorResponse(
+    "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
+  ),
+  '502': ErrorResponse(
+    "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
+  ),
+  '503': ErrorResponse(
+    "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
+  ),
+};
+
+/** A secret's value written: a body that fails validation, a name or value the store refuses (the caller's), or its provider's answer. */
+const SecretWriteErrors: Readonly<Record<string, ResponseSpec>> = {
+  '400': ErrorResponse(
+    "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its value: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule), `secret-value-too-large`, or `secret-value-invalid` (under `kindgi dev`, a value no env-file quoting can hold so that it reads back unchanged; the message says why).",
+  ),
+  ...SecretProviderErrors,
+};
+
 /** A change to the tenant's identity providers: not a tenant admin, or the operator manages sign-in. */
 const ProviderChangeRefused: ResponseSpec = ErrorResponse(
   "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
@@ -1635,12 +1675,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'runs.journal',
     summary: 'Read the durable journal for a run',
     description:
-      'Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`). Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6.',
+      'Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`), in sequence order. Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6. Paging is opt-in: with `limit`, at most that many entries and a `nextCursor` while more remain; without it, the whole journal in one answer.',
     tags: ['runs'],
     security: 'bearer',
-    parameters: [RunIdPathParam, JournalSinceQueryParam],
+    parameters: [RunIdPathParam, JournalSinceQueryParam, JournalLimitQueryParam, CursorQueryParam],
     responses: {
-      '400': ErrorResponse('`runId` is not a run id (a UUID).'),
+      '400': ErrorResponse(
+        '`runId` is not a run id (a UUID), `limit` is not a whole number of 1 or more, or `cursor` is malformed.',
+      ),
       '200': { description: 'Journal page.', schema: ref('RunJournalPage') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No run with that id under this tenant.'),
@@ -1988,7 +2030,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.create',
     summary: 'Create a tenant',
     description:
-      "Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store). Safe to retry with the same slug: if the setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have; another request naming that slug is `tenant-slug-taken`. A repeat of a create that finished is `tenant-slug-taken` too, unless it carries the first request's Idempotency-Key: then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice (send an Idempotency-Key with every create, so a lost answer can be told from another tenant's slug). With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant, with the admin key withheld.",
+      "Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store). Safe to retry with the same slug: if the setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have; another request naming that slug is `tenant-slug-taken`. A repeat of a create that finished is `tenant-slug-taken` too, unless it carries the first request's Idempotency-Key: then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice (send an Idempotency-Key with every create, so a lost answer can be told from another tenant's slug). With `firstAdmin`, that person becomes its admin and member by email, with every capability but `secrets:reveal`, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant, with the admin key withheld.",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -2263,7 +2305,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.setProductionAllowed',
     summary: 'Allow a tenant production, or stop it',
     description:
-      "The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant is allowed until it's switched off. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.",
+      "The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant made by `POST /v1/system/tenants` starts with it off, unless the create says `productionAllowed: true`; the tenant a server makes for itself, and one from before the switch, start with it on. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [
@@ -2358,7 +2400,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemDeployments.list',
     summary: 'List deployments that need a pack service, or should lose theirs',
     description:
-      "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (a live or promoted version resolves to it), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
+      "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
     tags: ['system-deployments'],
     security: 'bearer',
     parameters: [
@@ -2490,7 +2532,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemDeployments.setSuspended',
     summary: "Suspend a deployment's pack, or restore it",
     description:
-      "Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it lists as needing a pack service again. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.",
+      "Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it serves again from the endpoint recorded for it; if that endpoint is pending or was cleared meanwhile, it lists as needing a pack service. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.",
     tags: ['system-deployments'],
     security: 'bearer',
     parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam, IdempotencyKeyParam],
@@ -2672,7 +2714,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.list',
     summary: 'List approvals visible to the caller',
     description:
-      "Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.",
+      "Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). With authorization on, a person who is the tenant's admin (through a session or an `admin` key not limited to a project) reads at every tier: with no roster entry, as an `admin` reviewer; with a lower role, their own tier, and any tier they ask for with `requiredRole`. The roster doesn't show such a reader, but the access audit records the tenant-admin check (`authz-decision`), made only where it changes what the roster gives. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). With authorization on, only approvals whose project the caller may read. `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.",
     tags: ['approvals'],
     security: 'bearer',
     parameters: [
@@ -2706,7 +2748,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Page of approvals.', schema: ref('ApprovalCollectionPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed query parameter or scope.'),
-      '403': ErrorResponse("The caller isn't a reviewer, or asked for a tier above its own."),
+      '403': ErrorResponse(
+        "The caller isn't a reviewer or the tenant's admin, or asked for a tier above its own and isn't the tenant's admin.",
+      ),
     },
   },
   {
@@ -2716,14 +2760,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.get',
     summary: 'Fetch a single approval',
     description:
-      'Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4). A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).',
+      "Requires a reviewer, or (with authorization on) a person who is the tenant's admin, as the list does; the tenant's admin reads an approval of any tier. Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4), or that are in a project the caller may not read. A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).",
     tags: ['approvals'],
     security: 'bearer',
     parameters: [ApprovalIdPathParam],
     responses: {
       '200': { description: 'Approval.', schema: ref('Approval') },
       ...CommonAuthErrors,
-      '403': ErrorResponse("The caller isn't a reviewer."),
+      '403': ErrorResponse("The caller isn't a reviewer or the tenant's admin."),
       '404': ErrorResponse('No approval with that id — or the caller cannot see it.'),
     },
   },
@@ -4259,7 +4303,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'proposals.improve',
     summary: 'Start an improvement pass',
     description:
-      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts for an agent whose project is suspended (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
     tags: ['proposals'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -4272,6 +4316,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse(
         '`fromVersion` (or the version serving the scope) is not an active version.',
+      ),
+      '409': ErrorResponse(
+        "`registry-read-only`, `proposal-needs-pin`, or `project-suspended`: the agent's project is suspended. Or Idempotency-Key was reused with a different body.",
       ),
       '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
     },
@@ -4655,7 +4702,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.upload',
     summary: 'Upload an artifact',
     description:
-      "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the tenant's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MB) is `413 artifact-too-large`.",
+      "Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the tenant's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.",
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5305,7 +5352,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'cost.records.list',
     summary: 'List cost records',
     description:
-      "Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.",
+      "Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `flowId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.",
     tags: ['cost'],
     security: 'bearer',
     parameters: [
@@ -5319,6 +5366,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CostModelQueryParam,
       CostServedModelQueryParam,
       CostRootRunIdQueryParam,
+      CostFlowIdQueryParam,
       CostIncludeDescendantsQueryParam,
       CostFromQueryParam,
       CostToQueryParam,
@@ -5371,6 +5419,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CostModelQueryParam,
       CostServedModelQueryParam,
       CostRootRunIdQueryParam,
+      CostFlowIdQueryParam,
       CostIncludeDescendantsQueryParam,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
@@ -5997,7 +6046,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'evalRuns.start',
     summary: 'Start an eval run against a suite',
     description:
-      'Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Idempotency-Key applies.',
+      'Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.',
     tags: ['eval-runs'],
     security: 'bearer',
     parameters: [EvalSuiteIdPathParam, IdempotencyKeyParam],
@@ -6010,6 +6059,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse(
         'No eval suite with that id under this tenant; or `projectId` names no project of this tenant (`project-not-found`).',
+      ),
+      '409': ErrorResponse(
+        '`project-suspended`: the project is suspended, so no eval run starts in it. Or Idempotency-Key was reused with a different body.',
       ),
       '422': ErrorResponse('No dispatcher registered for the suite kind.'),
     },
@@ -6657,7 +6709,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many tenants (`KINDGI_TENANCY=multi`), where each tenant deploys only its own images: `image-not-allowed`, the image is outside the tenant's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the tenant has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch` or `flow-project-mismatch`: one of the image's tools, agents or flows belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `project-suspended`: the project the deploy goes into (the named one, or the Default for a tenant-wide deploy) is suspended, and nothing deploys into it until it's restored. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '400': ErrorResponse(
-        "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. A tool that declares or sends a model provider's key is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered.",
+        "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. A tool that declares or sends a model provider's key is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered.",
       ),
       '403': ErrorResponse(
         "Signer key not on the tenant's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the tenant.",
@@ -6755,6 +6807,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('DeploymentSecretsSyncResponse'),
       },
       ...CommonMutationErrors,
+      ...SecretWriteErrors,
       '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
       '404': ErrorResponse('No deployment with that id, or referenced secret does not exist.'),
     },
@@ -8381,19 +8434,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('UpsertTenantConfigResult'),
       },
       ...CommonMutationErrors,
-      '400': ErrorResponse(
-        "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
-      ),
+      ...SecretWriteErrors,
       '409': ErrorResponse('`ifRevision` was set and did not match the stored revision.'),
-      '429': ErrorResponse(
-        "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
-      ),
-      '502': ErrorResponse(
-        "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
-      ),
-      '503': ErrorResponse(
-        "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
-      ),
     },
   },
 
@@ -8502,7 +8544,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'secrets.list',
     summary: 'List secret metadata',
     description:
-      'Cursor-paginated list of secret metadata at the given `(scope, envName)`. `value` is ALWAYS absent (structural redaction).',
+      'Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. `value` is ALWAYS absent (structural redaction).',
     tags: ['secrets'],
     security: 'bearer',
     parameters: [
@@ -8513,6 +8555,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
       LimitQueryParam,
       CursorQueryParam,
       NamePrefixQueryParam,
+      {
+        name: 'includeRevoked',
+        in: 'query',
+        required: false,
+        description:
+          '`true` lists revoked secrets too, with their `revokedAt` and `revokeReason`. Metadata only, never a value.',
+        schema: { type: 'string', enum: ['true', 'false'] },
+      },
     ],
     responses: {
       '200': {
@@ -8520,7 +8570,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretCollectionPage'),
       },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '400': ErrorResponse(
+        "Missing or malformed scope / envName, or a `cursor` this list didn't issue.",
+      ),
     },
   },
   {
@@ -8569,7 +8621,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretVersionCollectionPage'),
       },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '400': ErrorResponse(
+        "Missing or malformed scope / envName, or a `cursor` this list didn't issue.",
+      ),
     },
   },
   {
@@ -8625,19 +8679,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretSetResponse'),
       },
       ...CommonMutationErrors,
-      '400': ErrorResponse(
-        "A body that fails validation (`bad-input`), or a secret the store refuses for its name or its size: `reserved-name-prefix`, `secret-name-invalid` (under `kindgi dev`, a name that isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `secret-value-too-large`.",
-      ),
+      ...SecretWriteErrors,
       '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
-      '429': ErrorResponse(
-        "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
-      ),
-      '502': ErrorResponse(
-        "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
-      ),
-      '503': ErrorResponse(
-        "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
-      ),
     },
   },
   {
@@ -8668,6 +8711,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretRotateResponseAsync'),
       },
       ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'A body that fails validation (`bad-input`), or a rotation the store refuses as it would the write: `secret-value-too-large` for a new value over its size limit, or `reserved-name-prefix` for a `kindgi.` name.',
+      ),
+      ...SecretProviderErrors,
       '403': ErrorResponse('Bearer token missing `secrets:rotate` capability.'),
       '404': ErrorResponse('Unknown secret.'),
       '501': ErrorResponse(
