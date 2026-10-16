@@ -150,6 +150,7 @@ export type {
 } from './resources/guardrails.js';
 export type {
   ConversationFilter,
+  ConversationPage,
   ConversationsClient,
   MessageFilter,
 } from './resources/conversations.js';

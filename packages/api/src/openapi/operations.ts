@@ -512,6 +512,24 @@ const ApprovalAssignedToQueryParam: ParameterSpec = {
   schema: { type: 'string', enum: ['me'] },
 };
 
+const ApprovalDecidedByQueryParam: ParameterSpec = {
+  name: 'decidedBy',
+  in: 'query',
+  required: false,
+  description:
+    "`me`: only the approvals the caller's own reviewer row decided (none when the caller has no row).",
+  schema: { type: 'string', enum: ['me'] },
+};
+
+const ConversationOpenedByQueryParam: ParameterSpec = {
+  name: 'openedBy',
+  in: 'query',
+  required: false,
+  description:
+    "`me`: only the conversations the caller opened (none for a caller with no principal). Conversations an older runtime opened record no opener and aren't listed by it.",
+  schema: { type: 'string', enum: ['me'] },
+};
+
 const ApprovalOrderQueryParam: ParameterSpec = {
   name: 'order',
   in: 'query',
@@ -2732,6 +2750,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeIdQueryParam,
       ApprovalStatusQueryParam,
       ApprovalAssignedToQueryParam,
+      ApprovalDecidedByQueryParam,
       ApprovalOrderQueryParam,
       ApprovalRequiredRoleQueryParam,
       CreatedAfterQueryParam,
@@ -3841,7 +3860,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'conversations.list',
     summary: 'List conversations',
     description:
-      "Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.",
+      "Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?openedBy=me` (the caller's own), `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.",
     tags: ['conversations'],
     security: 'bearer',
     parameters: [
@@ -3852,6 +3871,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       AgentIdQueryParam,
       ConversationStatusQueryParam,
       ConversationReplaysQueryParam,
+      ConversationOpenedByQueryParam,
     ],
     responses: {
       '200': {
