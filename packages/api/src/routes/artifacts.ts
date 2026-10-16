@@ -223,7 +223,7 @@ export function artifactsRouter(
     return c.json(serializeMeta(outcome.value));
   });
 
-  // ---------- GET /:blobId (stream download) ----------
+  // ---------- GET /:blobId (stream download), and HEAD /:blobId ----------
   r.get('/:blobId', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -231,6 +231,12 @@ export function artifactsRouter(
 
     const found = await binding.head(tenantId, blobId);
     if (found === null || !(await may(c, 'read', found))) return notFound(c, blobId);
+    // Hono answers a HEAD with this GET route and drops the body. So a HEAD
+    // answers the GET's headers from the metadata and never opens the blob:
+    // a blob opened and never read stays open (a file handle, a connection).
+    if (c.req.method === 'HEAD') {
+      return new Response(null, { status: 200, headers: downloadHeaders(found, requestId) });
+    }
     const outcome = await binding.get(tenantId, blobId);
     if (outcome.kind === 'err') {
       c.status(statusFor(outcome.error.code) as never);
@@ -238,25 +244,6 @@ export function artifactsRouter(
     }
     const { meta, stream } = outcome.value;
     return new Response(stream, {
-      status: 200,
-      headers: downloadHeaders(meta, requestId),
-    });
-  });
-
-  // ---------- HEAD /:blobId (metadata-only) ----------
-  r.on('HEAD', '/:blobId', async (c) => {
-    const requestId = c.get('requestId');
-    const tenantId = c.get('tenantId') as TenantId;
-    const blobId = c.req.param('blobId') as ArtifactId;
-
-    const meta = await binding.head(tenantId, blobId);
-    if (meta === null || !(await may(c, 'read', meta))) {
-      return new Response(null, {
-        status: 404,
-        headers: { 'X-Request-Id': requestId },
-      });
-    }
-    return new Response(null, {
       status: 200,
       headers: downloadHeaders(meta, requestId),
     });
