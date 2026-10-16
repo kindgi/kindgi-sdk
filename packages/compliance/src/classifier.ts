@@ -10,8 +10,8 @@ export interface Classification {
   readonly retention: {
     /**
      * Baseline retention in days. Rows older than this are eligible
-     * for deletion UNLESS `legalHold` is set OR `onDenyDays` is set
-     * and applies.
+     * for deletion UNLESS `legalHold` or `kept` is set OR `onDenyDays`
+     * is set and applies.
      */
     readonly days: number;
     /**
@@ -28,6 +28,19 @@ export interface Classification {
      * this classifier. Overrides `days`.
      */
     readonly legalHold?: boolean;
+    /**
+     * When true, rows of this kind are kept as long as their tenant exists:
+     * retention cleanup never deletes them by age, and they go when the
+     * tenant is purged. Overrides `days` and `onDenyDays`. Unlike
+     * `legalHold`, an erasure still erases them.
+     *
+     * A file gives `kept` in place of `days` (`ClassificationSource`), and
+     * a loader fills `days` in, so a reader that predates `kept` still
+     * finds a number. That number isn't this kind's retention: whatever
+     * applies or shows a kind's retention checks `kept` first, and shows
+     * "kept".
+     */
+    readonly kept?: true;
   };
   /**
    * Kinds that get Ed25519-signed at export time when a regulator
@@ -41,6 +54,31 @@ export interface Classification {
    * Non-exportable kinds stay out of the bundle regardless of
    * signature policy.
    */
+  readonly exportable: boolean;
+}
+
+/**
+ * A kind's classification as a classifier file writes it: `retention`
+ * gives `days` (and optionally `onDenyDays`), or `kept: true` with neither
+ * `days` nor `onDenyDays`. A loader refuses a retention that gives both,
+ * or neither, and makes a `Classification` of it. A `Classification`
+ * without `kept` is already a `ClassificationSource`, so existing files
+ * and sources still load unchanged.
+ */
+export interface ClassificationSource {
+  readonly retention:
+    | {
+        readonly days: number;
+        readonly onDenyDays?: number;
+        readonly legalHold?: boolean;
+      }
+    | {
+        readonly kept: true;
+        readonly legalHold?: boolean;
+        readonly days?: never;
+        readonly onDenyDays?: never;
+      };
+  readonly signed: boolean;
   readonly exportable: boolean;
 }
 
@@ -67,8 +105,8 @@ export interface ComplianceClassifierFile {
  */
 export interface ComplianceClassifierSource {
   readonly version: 1;
-  readonly default: Classification;
-  readonly byKind: Readonly<Record<string, Classification | string>>;
+  readonly default: ClassificationSource;
+  readonly byKind: Readonly<Record<string, ClassificationSource | string>>;
 }
 
 /**
