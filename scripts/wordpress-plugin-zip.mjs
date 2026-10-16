@@ -3,7 +3,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * The WordPress plugin as the zip WordPress installs (Plugins → Add New →
+ * The WordPress plugin as the zip WordPress installs (Plugins → Add Plugin →
  * Upload Plugin): `kindgi-<version>.zip`, holding one folder, `kindgi/`,
  * with the plugin's tracked files less its tests, and the repository's
  * LICENSE and NOTICE (Apache-2.0 asks for both with every copy).

@@ -51,7 +51,7 @@ export function releaseNotes({ version, plugin }) {
     `\`${zip}\` is the Kindgi plugin for WordPress: a Kindgi page in wp-admin, where a site's staff ask a project's agents and decide its approvals, each as themselves.`,
     '',
     `- **Check the download:** \`sha256sum -c ${zip}.sha256\`, or on macOS \`shasum -a 256 -c ${zip}.sha256\`.`,
-    `- **Install it** under **Plugins → Add New → Upload Plugin**, then activate it. It needs WordPress ${plugin.wordpress} or later and PHP ${plugin.php} or later.`,
+    `- **Install it** under **Plugins → Add Plugin → Upload Plugin** (**Add New Plugin** before WordPress 6.8), then activate it. It needs WordPress ${plugin.wordpress} or later and PHP ${plugin.php} or later.`,
     `- **Connect it** as the guide says: ${docsBase(version)}/guides/approvals/ask-and-approve-in-wordpress/`,
     '',
   ].join('\n');

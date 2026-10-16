@@ -32,6 +32,11 @@ describe('releaseNotes', () => {
     assert.match(notes, /`sha256sum -c kindgi-0\.1\.0\.zip\.sha256`/);
     assert.match(notes, /`shasum -a 256 -c kindgi-0\.1\.0\.zip\.sha256`/);
     assert.match(notes, /WordPress 6\.4 or later and PHP 7\.4 or later/);
+    // WordPress 6.8's menu, and the one before it back to 6.4, the least the plugin needs.
+    assert.match(
+      notes,
+      /\*\*Plugins → Add Plugin → Upload Plugin\*\* \(\*\*Add New Plugin\*\* before WordPress 6\.8\)/,
+    );
     assert.match(
       notes,
       /https:\/\/docs\.kindgi\.com\/v0\.1\/guides\/approvals\/ask-and-approve-in-wordpress\//,

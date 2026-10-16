@@ -114,12 +114,13 @@ The tools sign in to your store as a WordPress user made for the agent,
 with an Application Password. WordPress has had these since 5.6. Never use
 your own account.
 
-1. **Make the user.** In WordPress, go to Users → Add New User. Use a
-   username like `shop-agent` and the **Shop Manager** role, which can
+1. **Make the user.** In WordPress, go to Users → Add User (Add New User
+   before WordPress 6.8). Use a username like `shop-agent` and the **Shop Manager** role, which can
    manage orders and products but not the site.
 2. **Make its Application Password.** Edit that user (Users → All Users →
    `shop-agent`), find **Application Passwords**, name it `kindgi`, and
-   choose **Add New Application Password**. WordPress shows it once.
+   choose **Add Application Password** (**Add New Application Password**
+   before WordPress 6.8). WordPress shows it once.
    WordPress offers Application Passwords only over HTTPS, except on a
    site whose `WP_ENVIRONMENT_TYPE` is `local`.
 3. **Give them to Kindgi.** With `{{KINDGI}} dev` running, from another
