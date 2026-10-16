@@ -938,6 +938,19 @@ describe('kindgi deploy — secrets sync', () => {
     expect(out.stderr).toContain('resolved=0 added=2');
   });
 
+  test('--sync-secrets with no --env, not hosted: the env is staging, as before', async () => {
+    await writeAutoEnvelope();
+    await writeFile(join(packDir, '.env.staging'), 'FOO=bar\n', 'utf8');
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--sync-secrets', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.syncCalls).toBe(1);
+    expect(fixtures.state.capturedSync?.body.envName).toBe('staging');
+  });
+
   test('--sync-secrets passed + secret-shaped keys → loud warning to switch to `kindgi secrets set`', async () => {
     await writeAutoEnvelope();
     await writeFile(
@@ -1396,6 +1409,74 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     expect(out.stderr).toContain('--build-endpoint names another build server');
     expect(run.fixtures.state.buildCalls).toBe(0);
     expect(run.fixtures.state.postCalls).toBe(0);
+  });
+
+  test.each([
+    ['--hosted', ['--hosted'], cloud],
+    [
+      "the env block's `build: 'hosted'`",
+      [],
+      () => ({
+        environments: {
+          staging: { endpoint: API, build: 'hosted', signingKey: join(home, 'signing-key.pem') },
+        },
+      }),
+    ],
+  ])(
+    '--sync-secrets on a hosted deploy (%s) with no --env is refused, naming --env; nothing is built or sent',
+    async (_, flags, config) => {
+      await writeAutoEnvelope();
+      await writeFile(join(packDir, '.env.staging'), 'FOO=bar\n', 'utf8');
+      const run = hostedFixtures(pending(), [ready]);
+      const out = await runCli({
+        ...baseInputs(run.fixtures, { env: signedIn }, config()),
+        argv: ['deploy', ...flags, '--sync-secrets', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        "--sync-secrets on a hosted deploy needs --env. A hosted runtime reads a deployment's secrets in the env it serves; without --env, the values in .env.staging would go up under staging.",
+      );
+      expect(run.fixtures.state.buildCalls).toBe(0);
+      expect(run.fixtures.state.postCalls).toBe(0);
+      expect(run.fixtures.state.syncCalls).toBe(0);
+    },
+  );
+
+  test('a hosted deploy with --env syncs under that env; with no --env and no --sync-secrets it deploys', async () => {
+    await writeAutoEnvelope();
+    await writeFile(join(packDir, '.env.staging'), 'FOO=from-staging\n', 'utf8');
+    await writeFile(join(packDir, '.env.production'), 'FOO=from-production\n', 'utf8');
+    const named = hostedFixtures(pending(), [ready]);
+    const synced = await runCli({
+      ...baseInputs(
+        named.fixtures,
+        { env: signedIn },
+        {
+          environments: {
+            production: {
+              signingKey: join(home, 'signing-key.pem'),
+              tenantId: 'tenant-acme-production',
+            },
+          },
+        },
+      ),
+      argv: ['deploy', '--env=production', '--hosted', '--sync-secrets', `--path=${packDir}`],
+    });
+    expect(synced.exitCode, synced.stderr).toBe(0);
+    expect(named.fixtures.state.syncCalls).toBe(1);
+    expect(named.fixtures.state.capturedSync?.body.envName).toBe('production');
+    expect(named.fixtures.state.capturedSync?.body.secrets).toEqual([
+      { name: 'FOO', value: 'from-production' },
+    ]);
+
+    const plain = hostedFixtures(pending(), [ready]);
+    const out = await runCli({
+      ...baseInputs(plain.fixtures, { env: signedIn }, cloud()),
+      argv: ['deploy', '--hosted', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(plain.fixtures.state.postCalls).toBe(1);
+    expect(plain.fixtures.state.syncCalls).toBe(0);
   });
 
   test("a project that isn't there fails before any build", async () => {
