@@ -94,6 +94,38 @@ describe('root-level flags and help', () => {
     expect(far.stderr.split('\n')[0]).toBe('Unknown subcommand "zzzzzz" for kindgi runs.');
   });
 
+  test('a near-miss top-level command points to the real one', async () => {
+    const improve = await runCli(baseInputs({ argv: ['improve', '--agent=acme.x', '--tenant'] }));
+    expect(improve.exitCode).toBe(2);
+    expect(improve.stdout).toBe('');
+    expect(improve.stderr).toMatch(
+      /^Unknown command: improve --agent=acme\.x --tenant\. Did you mean "kindgi proposals improve"\?\n\n/,
+    );
+    expect(improve.stderr).toContain('Usage: kindgi <command>');
+
+    const evalCmd = await runCli(baseInputs({ argv: ['eval'] }));
+    expect(evalCmd.exitCode).toBe(2);
+    expect(evalCmd.stderr).toContain(
+      'Unknown command: eval. Did you mean "kindgi eval-runs" or "kindgi eval-suites"?',
+    );
+
+    // A word that is no near-miss keeps the plain message, with no hint.
+    const plain = await runCli(baseInputs({ argv: ['bogus'] }));
+    expect(plain.stderr).toContain('Unknown command: bogus.');
+    expect(plain.stderr).not.toContain('Did you mean');
+  });
+
+  test('the commands a near-miss points to are real', async () => {
+    for (const argv of [
+      ['proposals', 'improve', '--help'],
+      ['eval-runs', '--help'],
+      ['eval-suites', '--help'],
+    ]) {
+      const out = await runCli(baseInputs({ argv }));
+      expect(out.exitCode, argv.join(' ')).toBe(0);
+    }
+  });
+
   test('a group with only a flag still prints its help', async () => {
     const out = await runCli(baseInputs({ argv: ['runs', '--help'] }));
     expect(out.exitCode).toBe(0);
