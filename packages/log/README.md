@@ -28,12 +28,12 @@ leases.warn('could not expire the lease of run r-1', { runId: 'r-1', err });
   - `severity` is Cloud Logging's name for the level (`ERROR`, `WARNING`, `INFO`, `DEBUG`), so Cloud Run and GKE show levels with no agent configuration.
   - Records without a subsystem are `root`.
 - **Correlation ids come next,** when known: `traceId`, `spanId`, `requestId`, `tenantId`, `projectId`, `runId`, `agentId`, `toolId`, and others. Then the event's own fields.
-- **Pass an error as `{ err: error }`:** it's written as `name`, `message` and `code`. The `stack` is added at `error` level, or when the logger is at `debug` or below.
+- **Pass an error as `{ err: error }`:** it's written as `name`, `message` and `code`. The `stack` is added at `error` level, or when the logger is at `debug` or below. An error deeper in a field is written the same way, without its stack.
 - **`child(bindings)`** returns a logger whose records all carry the bindings. A child's `subsystem` replaces its parent's, so name it in full (`kernel.sweeper`).
 - **`isLevelEnabled(level)`** says whether a record would be written, so you can skip building costly fields.
 - **`{ inMessage: [...] }`, a third argument,** names the fields the message already states: `log.info('GET /v1/runs 200 12ms', { method, route, status, durationMs }, { inMessage: ['method', 'route', 'status', 'durationMs'] })`. The pretty format leaves them out; JSON keeps every field.
 - **`noopLogger`** writes nothing. It's the default where a logger isn't given.
-- **Logging never throws.** A sink that fails is ignored.
+- **Logging never throws.** A sink that fails is ignored. A field that throws when read is written as `[unreadable]`, at any depth, in a call's fields or a child's bindings. Fields whose keys can't be listed (a revoked proxy) are left out, and the record is still written.
 
 ## Configuration: `loggerFromEnv`
 

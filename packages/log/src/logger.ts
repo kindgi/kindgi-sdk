@@ -3,15 +3,8 @@
 
 import { formatJson, formatPretty } from './format.js';
 import { type LogLevel, SEVERITY, levelEnabled, levelFor } from './levels.js';
-import { redactValue, scrubText } from './redact.js';
-import type {
-  LogFields,
-  LogFormat,
-  LogOptions,
-  LogRecord,
-  Logger,
-  SerializedError,
-} from './types.js';
+import { isError, readFields, redactValue, scrubText, serializeError } from './redact.js';
+import type { LogFields, LogFormat, LogOptions, LogRecord, Logger } from './types.js';
 
 export interface CreateLoggerOptions {
   /** Records below this level aren't written (`KINDGI_LOG_LEVEL`). Default `info`. */
@@ -56,83 +49,6 @@ const FIXED: ReadonlySet<string> = new Set(['time', 'level', 'severity', 'subsys
 /** Names a field can't take: the fixed five and `inMessage`, the record's own. */
 const RESERVED: ReadonlySet<string> = new Set([...FIXED, 'inMessage']);
 
-/** `err[key]`, or undefined when reading it throws (a getter, a revoked proxy). */
-function fieldOf(err: object, key: 'name' | 'message' | 'code'): unknown {
-  try {
-    return (err as Readonly<Record<string, unknown>>)[key];
-  } catch {
-    return undefined;
-  }
-}
-
-/** A string or numeric `code`, as a string. */
-function codeOf(err: object): { readonly code?: string } {
-  const code = fieldOf(err, 'code');
-  return typeof code === 'string' || typeof code === 'number' ? { code: String(code) } : {};
-}
-
-/** `err instanceof Error`, and false where asking throws (a revoked proxy). */
-function isError(err: unknown): err is Error {
-  try {
-    return err instanceof Error;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * `String(value)`, for a value that isn't an error. One that can't be made
- * a string (no prototype, a throwing `toString`) is its
- * `Object.prototype.toString` tag, and a revoked proxy `[unreadable]`:
- * logging it never throws.
- */
-function textOf(value: unknown): string {
-  try {
-    return String(value);
-  } catch {
-    try {
-      return Object.prototype.toString.call(value);
-    } catch {
-      return '[unreadable]';
-    }
-  }
-}
-
-/**
- * A plain object in an error's place (a storage error is
- * `{ code, message, cause }`): its name when that's a non-empty string
- * (else `Object`), its code and its message, and nothing else. Its own
- * cause isn't walked: a storage error's is the database driver's, whose
- * text can carry the query and the values it was bound to. With neither a
- * code nor a message, it's `String(err)`. A field that throws when read
- * counts as missing.
- */
-function serializePlain(err: object): SerializedError | string {
-  const name = fieldOf(err, 'name');
-  const message = fieldOf(err, 'message');
-  const code = codeOf(err);
-  if (typeof message !== 'string' && code.code === undefined) return scrubText(textOf(err));
-  return {
-    name: typeof name === 'string' && name !== '' ? name : 'Object',
-    message: typeof message === 'string' ? scrubText(message) : '',
-    ...code,
-  };
-}
-
-function serializeError(err: unknown, withStack: boolean, depth = 0): SerializedError | string {
-  if (!isError(err)) {
-    return typeof err === 'object' && err !== null ? serializePlain(err) : scrubText(textOf(err));
-  }
-  const cause = (err as { readonly cause?: unknown }).cause;
-  return {
-    name: err.name,
-    message: scrubText(err.message),
-    ...codeOf(err),
-    ...(withStack && err.stack !== undefined && { stack: scrubText(err.stack) }),
-    ...(cause !== undefined && depth < 3 && { cause: serializeError(cause, withStack, depth + 1) }),
-  };
-}
-
 /**
  * Copy a record's own fields into `out`, after the fixed five and the
  * correlation ones; an `Error` among them is serialized. A field named
@@ -149,7 +65,7 @@ function copyFields(
     if (value === undefined || key === 'subsystem' || key === 'err') continue;
     if ((CORRELATION as readonly string[]).includes(key)) continue;
     if (RESERVED.has(key)) reserved[key] = value;
-    else out[key] = value instanceof Error ? serializeError(value, level === 'error') : value;
+    else out[key] = isError(value) ? serializeError(value, level === 'error') : value;
   }
   return reserved;
 }
@@ -176,7 +92,7 @@ function build(shared: Shared, bindings: LogFields): Logger {
     fields: LogFields | undefined,
     how: LogOptions | undefined,
   ): LogRecord {
-    const merged: Record<string, unknown> = { ...bindings, ...fields };
+    const merged: Record<string, unknown> = { ...bindings, ...readFields(fields) };
     const out: Record<string, unknown> = {
       time: shared.now().toISOString(),
       level,
@@ -225,7 +141,7 @@ function build(shared: Shared, bindings: LogFields): Logger {
     info: (message, fields, how) => write('info', message, fields, how),
     debug: (message, fields, how) => write('debug', message, fields, how),
     trace: (message, fields, how) => write('trace', message, fields, how),
-    child: (more) => build(shared, { ...bindings, ...more }),
+    child: (more) => build(shared, { ...bindings, ...readFields(more) }),
     isLevelEnabled: (level) => levelEnabled(level, threshold),
   };
 }
