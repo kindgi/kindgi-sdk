@@ -20,6 +20,18 @@ after(() => rmSync(scratch, { recursive: true, force: true }));
 
 const CONTRACT = 'packages/cli/src/commands/acme.ts';
 
+/**
+ * The environment without git's repository variables (`GIT_DIR` and the
+ * rest, as `git rev-parse --local-env-vars` lists them), so a shell that
+ * points at another repository leaves it alone.
+ */
+const env = { ...process.env };
+for (const name of execFileSync('git', ['rev-parse', '--local-env-vars'], { encoding: 'utf8' })
+  .split('\n')
+  .filter(Boolean)) {
+  delete env[name];
+}
+
 function write(root, files) {
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
@@ -33,7 +45,11 @@ function branch(files, message = 'a change') {
   const root = join(scratch, `repo-${repos++}`);
   mkdirSync(root);
   const git = (...args) =>
-    execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8' });
+    execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], {
+      cwd: root,
+      env,
+      encoding: 'utf8',
+    });
   git('init', '-q', '-b', 'main');
   git('config', 'user.name', 'Acme Dev');
   git('config', 'user.email', 'dev@acme.example');
@@ -48,7 +64,7 @@ function branch(files, message = 'a change') {
 }
 
 const run = (root) =>
-  spawnSync(process.execPath, [SCRIPT, 'main'], { cwd: root, encoding: 'utf8' });
+  spawnSync(process.execPath, [SCRIPT, 'main'], { cwd: root, env, encoding: 'utf8' });
 
 describe('check-docs-ship', () => {
   test('a branch that changes no contract passes', () => {
