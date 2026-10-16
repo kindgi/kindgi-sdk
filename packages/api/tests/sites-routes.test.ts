@@ -591,6 +591,12 @@ test('without a site binding, none of the routes is there', async () => {
   expect((await post('/v1/auth/site-sign-in')).status).toBe(404);
   expect((await post('/v1/auth/sites/enroll')).status).toBe(404);
   expect((await post(`/v1/projects/${P1}/sites`)).status).toBe(404);
+  // `kindgi exports create` skips the sites on this answer, as a route the server doesn't serve.
+  const list = await app.request(`/v1/projects/${P1}/sites`, {
+    headers: { authorization: `Bearer ${ADMIN}` },
+  });
+  expect(list.status).toBe(404);
+  expect(((await list.json()) as { error: { code: string } }).error.code).toBe('route-not-found');
 });
 
 describe("a person's name, as a site sends it", () => {
