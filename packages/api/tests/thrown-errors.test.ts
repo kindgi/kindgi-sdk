@@ -458,3 +458,183 @@ describe("a failed query in the thrown error's log line", () => {
     expect(line).not.toContain('alice@acme.example');
   });
 });
+
+describe('a 500 whose cause carries a database error', () => {
+  /** postgres.js's `PostgresError`: the server's fields on it, its message the server's text. */
+  class PostgresError extends Error {
+    constructor(fields: {
+      readonly message: string;
+      readonly code: string;
+      readonly severity: string;
+    }) {
+      super(fields.message);
+      this.name = 'PostgresError';
+      Object.assign(this, fields);
+    }
+  }
+
+  function serverError(code: string, text: string): Error {
+    return new PostgresError({ message: text, code, severity: 'ERROR' });
+  }
+
+  /** An error postgres.js makes when a connection fails or ends: its code, also as `errno`, and the database's address. */
+  function connectionError(code: string): Error {
+    return Object.assign(new Error(`write ${code} db.internal:5432`), {
+      code,
+      errno: code,
+      address: 'db.internal',
+      port: 5432,
+    });
+  }
+
+  /** A storage failure on a tenant's connection: its own message, the driver's error its cause. */
+  function tenantScoped(cause: Error): Error {
+    return new Error('Tenant-scoped query failed', { cause });
+  }
+
+  /** `inner`, `depth` errors down the thrown error's `cause` chain (0: the thrown error itself). */
+  function at(depth: number, inner: Error): Error {
+    let node = inner;
+    for (let link = depth; link > 0; link--) {
+      node = new Error(`Listing runs failed (${link})`, { cause: node });
+    }
+    return node;
+  }
+
+  /** Throw `thrown` from a run read (or, with POST, a cancel); the answer. */
+  async function answer(thrown: Error, method = 'GET') {
+    const path = method === 'GET' ? '/v1/runs' : `/v1/runs/${randomUUID()}/cancel`;
+    const { res, text } = await get(appWhoseRunCallsThrow(thrown), path, method);
+    return { res, text, error: (JSON.parse(text) as { error: Record<string, unknown> }).error };
+  }
+
+  const DATABASE = {
+    code: 'internal-server-error',
+    message: 'A database query failed.',
+    requestId: 'req-thrown-errors',
+  };
+  const UNHANDLED = { ...DATABASE, message: 'Unhandled server error' };
+
+  test.each([
+    ['22P02', 'invalid input syntax for type uuid: "marker-not-a-uuid"', 'marker-not-a-uuid'],
+    [
+      '23505',
+      'duplicate key value violates unique constraint "people_email_key"',
+      'people_email_key',
+    ],
+  ])(
+    'a Postgres server error (%s) thrown as it is: `A database query failed.`, never its text',
+    async (code, text, marker) => {
+      const said = await answer(serverError(code, text));
+      expect(said.res.status).toBe(500);
+      expect(said.error).toEqual(DATABASE);
+      expect(said.text).not.toContain(marker);
+    },
+  );
+
+  test("a failure on a tenant's connection, the driver's error its cause: `A database query failed.`", async () => {
+    for (const cause of [
+      serverError('22P02', 'invalid input syntax for type uuid: "x"'),
+      connectionError('CONNECTION_CLOSED'),
+    ]) {
+      const said = await answer(tenantScoped(cause));
+      expect(said.res.status).toBe(500);
+      expect(said.error).toEqual(DATABASE);
+    }
+  });
+
+  test.each(['CONNECT_TIMEOUT', 'CONNECTION_CLOSED', 'CONNECTION_DESTROYED', 'CONNECTION_ENDED'])(
+    'a connection postgres.js gave up on (%s), thrown or as a cause: `A database query failed.`, no address',
+    async (code) => {
+      for (const depth of [0, 1]) {
+        const said = await answer(at(depth, connectionError(code)));
+        expect(said.error, `${depth} deep`).toEqual(DATABASE);
+        expect(said.text, `${depth} deep`).not.toContain('db.internal');
+      }
+    },
+  );
+
+  test('as far down as the busy mark is looked for: a failed query 3 deep, a server error 15 deep; 16 deep is past it', async () => {
+    const failed = Object.assign(
+      new Error(
+        'Failed query: select "id" from "people" where "email" = $1\nparams: alice@acme.example',
+      ),
+      { name: 'DrizzleQueryError' },
+    );
+    const three = await answer(at(3, failed));
+    expect(three.error).toEqual(DATABASE);
+    expect(three.text).not.toContain('alice@acme.example');
+    expect(
+      (await answer(at(15, serverError('42P01', 'relation "people" does not exist')))).error,
+    ).toEqual(DATABASE);
+    expect(
+      (await answer(at(16, serverError('42P01', 'relation "people" does not exist')))).error,
+    ).toEqual(UNHANDLED);
+  });
+
+  test('a cycle of causes with no database error on it: `Unhandled server error`', async () => {
+    const first = new Error('Listing runs failed');
+    first.cause = new Error('Checking access failed', { cause: first });
+    expect((await answer(first)).error).toEqual(UNHANDLED);
+  });
+
+  test("a `code` without what marks the driver's error: `Unhandled server error`", async () => {
+    const cases: Array<[string, Error]> = [
+      [
+        'a SQLSTATE with no severity',
+        Object.assign(new Error('not the server'), { code: '22P02' }),
+      ],
+      [
+        'a severity beside a code that is no SQLSTATE',
+        Object.assign(new Error('a queue'), { code: 'E_TIMEOUT', severity: 'ERROR' }),
+      ],
+      [
+        'a postgres.js connection code without its errno',
+        Object.assign(new Error('a message bus closed'), { code: 'CONNECTION_CLOSED' }),
+      ],
+    ];
+    for (const [what, err] of cases) {
+      for (const depth of [0, 1]) {
+        expect((await answer(at(depth, err))).error, `${what}, ${depth} deep`).toEqual(UNHANDLED);
+      }
+    }
+  });
+
+  test("an HTTP client's refused connection (OpenFGA, a secrets store): `Unhandled server error`", async () => {
+    const refused = () =>
+      Object.assign(new Error('connect ECONNREFUSED 10.1.2.3:8080'), {
+        code: 'ECONNREFUSED',
+        errno: -61,
+        syscall: 'connect',
+        address: '10.1.2.3',
+        port: 8080,
+      });
+    for (const thrown of [refused(), new TypeError('fetch failed', { cause: refused() })]) {
+      const said = await answer(thrown);
+      expect(said.error).toEqual(UNHANDLED);
+      expect(said.text).not.toContain('10.1.2.3');
+    }
+  });
+
+  test.each([
+    ['55P03', 'canceling statement due to lock timeout'],
+    ['57014', 'canceling statement due to statement timeout'],
+  ])(
+    'busy (%s): a read still answers the 503, a write the 500 saying `A database query failed.`',
+    async (code, text) => {
+      const busy = () =>
+        Object.assign(new Error(`Tenant-scoped query failed: ${text}`), {
+          code: 'database-busy',
+          cause: serverError(code, text),
+        });
+      const read = await answer(busy());
+      expect(read.res.status).toBe(503);
+      expect(read.res.headers.get('Retry-After')).toBe('5');
+      expect(read.error.code).toBe('database-busy');
+      const write = await answer(busy(), 'POST');
+      expect(write.res.status).toBe(500);
+      expect(write.res.headers.get('Retry-After')).toBeNull();
+      expect(write.error).toEqual(DATABASE);
+    },
+  );
+});
