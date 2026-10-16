@@ -1629,6 +1629,14 @@ class ApprovalDecisionRecord(BaseModel):
     """
     decided_at: Annotated[AwareDatetime, Field(alias="decidedAt")]
     rationale: str | None = None
+    session_provider: Annotated[str | None, Field(alias="sessionProvider")] = None
+    """
+    The provider of the session the reviewer decided with: `site:<id>` for a site's sign-in, an identity provider's id for a single sign-on session. Absent for an API key, and on decisions an older runtime recorded.
+    """
+    decider_name: Annotated[str | None, Field(alias="deciderName")] = None
+    """
+    The reviewer's display name when they decided: a person renamed since still shows as they were. Absent on decisions an older runtime recorded.
+    """
 
 
 class ReviewDecision(BaseModel):
@@ -3337,6 +3345,10 @@ class Conversation(BaseModel):
     """
     The project the conversation is in: the project of the run that opened it, or `projectId` on open (when omitted, the agent's own project, or the tenant's Default project for an agent filed under none). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.
     """
+    opened_by: Annotated[str | None, Field(alias="openedBy")] = None
+    """
+    Who opened it: the caller's principal (`user:<id>`, `service_account:<id>`), or, for one a turn opened, whoever the run acts for. Set by the server, never from a request's body. Absent on conversations an older runtime opened, and when the caller had no principal; those aren't listed by `?openedBy=me`.
+    """
     scope: dict[str, Any]
     """
     Free-form scope object (currently `{ tenantId }` in tests; enterprises extend with `matterId`, `engagementId`, etc.).
@@ -3424,6 +3436,10 @@ class ConversationCollectionPage(BaseModel):
     Opaque cursor for the next page. Absent when `hasMore: false`.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
+    opened_by: Annotated[Literal["me"] | None, Field(alias="openedBy")] = None
+    """
+    `me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.
+    """
 
 
 class ConversationMessageCollectionPage(BaseModel):
@@ -11265,6 +11281,10 @@ class ApprovalCollectionPage(BaseModel):
     order: Literal["asc", "desc"] | None = None
     """
     The order the page is in: `asc` (oldest first) or `desc` (newest first). Absent from a runtime before Kindgi 0.1.6, which lists newest first and ignores `order`.
+    """
+    decided_by: Annotated[Literal["me"] | None, Field(alias="decidedBy")] = None
+    """
+    `me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.
     """
 
 
