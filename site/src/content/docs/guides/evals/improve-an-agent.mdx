@@ -73,29 +73,30 @@ kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=acme.rank-
   `weightedPrecisionAtK`, as in a
   [comparison](../compare-an-agent-version/#read-the-result).
 - **How it decides:** it searches on 70% of the test set's cases and proves
-  its best candidate on the other 30% — the cases it didn't learn from — a
-  split fixed for the pass. A candidate becomes a proposal only when it beats
-  the current version on those cases by more than the variation between its
-  own repeated runs, and the proposal gives both figures: the current
-  version's and the candidate's.
+  its best candidate on the other 30% (the cases it didn't learn from), a
+  split fixed for the pass. On the 70%, a candidate has to beat the current
+  version by more than the spread between the current version's own repeated
+  runs. On the 30%, the best one has to beat the recorded outputs, and only
+  then does it become a proposal, which carries both figures: the recorded
+  outputs' score and the candidate's.
 
 It answers at once with the pass. `--wait` waits for its outcome, at most 30
 minutes, and prints it:
 
 - **`proposed`**, with the proposal it wrote, which a person decides: run
-  `kindgi proposals request <proposal-id>`, then approve it. A pass's proposal
-  always waits for a reviewer, even where the scope's policy asks for no
-  approval, because a pass — not a person — drafted it. With no `approvals` on
-  the scope's [gate policy](../release-an-agent-version/#gate-a-release), you
-  can be that reviewer yourself; a separate second person is needed only when
-  the gate policy has `approvals`.
-- **`nothing-found`**, with why. No candidate beat the current version by
-  enough on the cases it didn't learn from, and the reason gives the best
-  one's figures there, beside the current version's. Or the best one is a
-  change an existing proposal already holds. Or nothing could be measured: a
-  pass scores from the judgments on an output's items — a ranking's entries,
-  say — so a changed free-text answer, one new answer no one has judged yet,
-  has nothing to score, and then you
+  `kindgi proposals request <proposal-id>`, then decide the approval. A pass's
+  proposal always waits for a reviewer, because a pass, not a person, drafted
+  it. When the scope's [gate policy](../release-an-agent-version/#gate-a-release)
+  has no `approvals`, that reviewer can be you, if you're one. When it has,
+  someone else must approve it, unless its `approvals` sets
+  `"separateApprover": false`.
+- **`nothing-found`**, with why. No candidate beat the current version by more
+  than the noise on the 70%. Or the best one didn't beat the recorded outputs
+  on the 30%, and the outcome's hold-out comparison gives both figures there.
+  Or the best one is a change an existing proposal already holds. Or nothing
+  could be measured: a pass scores only the items of an output that judgments
+  cover (a ranking's entries, say), so a changed free-text answer is a new
+  answer no one has judged yet and has nothing to score, and then you
   [judge the new answers, then rescore](../propose-a-change/#judge-the-new-answers-then-rescore).
   The reason also says if the pass ran out of budget before comparing the
   rest.
@@ -149,11 +150,11 @@ The cost is 0 on `dev-echo`, which costs nothing:
 
 ### It learns from trusted judgments
 
-Your **experts** are the people whose judgments steer the pass: a
+A pass counts only the judgments of the people you trust: a
 [judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class) you
 restrict, each class carrying a weight. By default a pass counts only the
 judgments recorded under a restricted class, `classWeights:
-"restricted-only"` — so who may steer it is a choice you make.
+"restricted-only"`, so who may steer it is a choice you make.
 `"as-recorded"` counts every judgment, by its class's weight: set it in the
 API or the clients.
 
@@ -265,10 +266,14 @@ shows.
 
 ## In the console
 
-The same loop is in the console, without the CLI: you start a pass on the
-agent, follow it, and review the proposal it writes — its comparison and the
-figures — before requesting it. Starting a pass on a schedule is
-CLI-only.
+The same loop runs in the console. On an agent's proposals page, **Improve**
+starts a pass, and the pass's page follows it. The proposal it writes shows
+its verdict and the comparison figures, and a **Request promotion** button to
+send it for a decision. A schedule that starts passes is made with the CLI,
+the API or the clients, as
+[Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
+shows: the console lists schedules and can pause, resume or run them, but
+doesn't make them.
 
 ## Next
 
