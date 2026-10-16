@@ -500,6 +500,7 @@ describe('kindgi proposals passes', () => {
           outcome: { kind: 'nothing-found', reason: 'no candidate beat the noise' },
         },
         { ...PASS, id: 'pass-3' },
+        { ...PASS, id: 'pass-4', status: 'cancelled', cancelReason: 'project-suspended' },
       ],
       hasMore: false,
     };
@@ -513,6 +514,7 @@ describe('kindgi proposals passes', () => {
     expect(out.stdout).toContain('$0.84');
     expect(out.stdout).toContain('$0.00');
     expect(out.stdout).toContain('running');
+    expect(out.stdout).toContain('project-suspended');
   });
 
   test('get and cancel name the pass', async () => {

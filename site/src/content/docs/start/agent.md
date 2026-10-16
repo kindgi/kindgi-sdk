@@ -126,13 +126,16 @@ running and no model key yet:
 ```
 
 The checks come in this order: `node`, `npm`, `python`, `uv`, `java`,
-`maven`, `sbt`, `docker`, `registry`, `dev-sandbox`, `console-sign-in`,
-`license`, `mcp-headers`, `project`, `dependencies`, `model-key`, `runtime`,
-`provider`, `erasures`.
+`maven`, `sbt`, `docker`, `registry`, `dev-sandbox`, `api-key`,
+`console-sign-in`, `license`, `mcp-headers`, `project`, `dependencies`,
+`model-key`, `runtime`, `provider`, `erasures`.
 
 - **`fail`:** run its `fix`, as written: it names the CLI to use in that
   folder. When the fix needs the person (start Docker Desktop, sign in, copy
-  a key), ask them, then run doctor again.
+  a key), ask them, then run doctor again. `api-key` fails when the key
+  stored for the CLI is for another address than the one it points at:
+  every command that needs the key refuses until that's fixed, and the
+  checks that would send it skip.
 - **`warn`:** it works now, but the person should know: tell them its
   `message` and `fix`, and go on. `ok` stays `true` and the exit code `0`.
   In this release six checks warn. `dev-sandbox`: when `kindgi dev` can't

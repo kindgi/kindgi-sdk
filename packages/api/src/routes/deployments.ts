@@ -9,7 +9,7 @@ import { type Agent, type AgentId, type AgentPins, templateProblem } from '@kind
 import { ref, tuplesForCreate } from '@kindgi/authz';
 import { runOutsideTenant } from '@kindgi/bounds';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
-import type { Flow, FlowPins } from '@kindgi/flow';
+import { type Flow, type FlowPins, flowSchemaProblems } from '@kindgi/flow';
 import {
   GUARDRAIL_SPEC_KEYS,
   type Guardrail,
@@ -17,7 +17,7 @@ import {
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
-import { SchemaCompileBudgetError } from '@kindgi/schema';
+import { SchemaCompileBudgetError, compileInlineSchema } from '@kindgi/schema';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
 import type {
   Cursor,
@@ -36,15 +36,15 @@ import { type UnpinnableRef, publishDeployedAgent, resolveAgentPins } from '../a
 import type { BlockRegistryBinding } from '../block-binding.js';
 import { type BlockPins, resolveBlockPins } from '../block-pins.js';
 import type { DeployedVersionOutcome } from '../deploy-versions.js';
-import type {
-  DeployedAgent,
-  DeployedFlow,
-  DeployedVersion,
-  Deployment,
-  DeploymentBinding,
-  DeploymentEndpoint,
-  DeploymentPrimitiveCounts,
-  DeploymentRegisterOutcome,
+import {
+  type DeployedAgent,
+  type DeployedFlow,
+  type DeployedVersion,
+  type Deployment,
+  type DeploymentBinding,
+  type DeploymentPrimitiveCounts,
+  type DeploymentRegisterOutcome,
+  endpointToWire,
 } from '../deployment-binding.js';
 import { type WireErrorBody, statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
@@ -1946,13 +1946,15 @@ const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 /**
  * Minimal shape check on an `IndexedAgent` after `modulePath` is
- * stripped. Deeper validation (RetrievalIntent shape, budget arithmetic,
- * conversation policy tri-state) is left to the runtime at dispatch —
- * the deploy route only validates that the wire is well-shaped enough to
- * persist. The alternative is running `defineAgent`, but that requires
- * promoting `capabilities`/`tools` to their branded shapes; the pattern
- * across the API package is to keep transport shape checks lightweight
- * and leave semantic checks to the runtime.
+ * stripped, plus what would fail every turn: the instructions' template
+ * and the output schema, checked as `defineAgent` checks them. Deeper
+ * validation (RetrievalIntent shape, budget arithmetic, conversation
+ * policy tri-state) is left to the runtime at dispatch — the deploy
+ * route only validates that the wire is well-shaped enough to persist.
+ * The alternative is running `defineAgent`, but that requires promoting
+ * `capabilities`/`tools` to their branded shapes; the pattern across the
+ * API package is to keep transport shape checks lightweight and leave
+ * semantic checks to the runtime.
  */
 function validateAgentIndexShape(
   spec: Record<string, unknown>,
@@ -1990,9 +1992,34 @@ function validateAgentIndexShape(
   if (!Array.isArray(spec.tools)) {
     out.push({ path: '/tools', message: 'agent.tools must be an array of tool ids' });
   }
+  out.push(...agentOutputProblems(spec.output));
   return out;
 }
 
+/** An agent's `output`, when it has one: an object whose schema compiles. */
+function agentOutputProblems(raw: unknown): readonly { path: string; message: string }[] {
+  if (raw === undefined) return [];
+  const output = raw as { schema?: unknown } | null;
+  if (typeof output !== 'object' || output === null || Array.isArray(output)) {
+    return [
+      { path: '/output', message: 'agent.output must be an object { schema, name?, maxRepairs? }' },
+    ];
+  }
+  // The compile `defineAgent` runs, and each structured turn after it:
+  // one that doesn't compile would fail every turn.
+  const compiled = compileInlineSchema(output.schema);
+  if (compiled.kind === 'ok') return [];
+  const why = compiled.error.message.replace(/^Inline schema failed to compile: /, '');
+  return [{ path: '/output/schema', message: `doesn't compile: ${why}` }];
+}
+
+/**
+ * Minimal shape check on an `IndexedFlow` after `modulePath` and
+ * `kernelPayloadVersion` are stripped, and every inline schema a run
+ * compiles (`flowSchemaProblems`): one that doesn't compile would fail
+ * every run. The rest of `loadFlow` isn't run: it refuses fields it
+ * doesn't know, and an index from a newer CLI may carry some.
+ */
 function validateFlowIndexShape(
   spec: Record<string, unknown>,
 ): readonly { path: string; message: string }[] {
@@ -2009,6 +2036,7 @@ function validateFlowIndexShape(
   if (!Array.isArray(spec.edges)) {
     out.push({ path: '/edges', message: 'flow.edges must be an array' });
   }
+  out.push(...flowSchemaProblems(spec));
   return out;
 }
 
@@ -2268,16 +2296,6 @@ async function rollback(actions: readonly RollbackAction[]): Promise<void> {
   }
 }
 
-/** Named fields only: an endpoint's URL and token never reach a tenant. */
-function serializeEndpoint(e: DeploymentEndpoint): Record<string, unknown> {
-  return {
-    status: e.status,
-    since: e.since,
-    ...(e.status === 'pending' &&
-      e.problem !== undefined && { problem: { code: e.problem.code, since: e.problem.since } }),
-  };
-}
-
 function serializeDeployment(d: Deployment): Record<string, unknown> {
   return {
     deploymentId: d.deploymentId,
@@ -2292,7 +2310,7 @@ function serializeDeployment(d: Deployment): Record<string, unknown> {
     publishedAt: d.publishedAt,
     activatedAt: d.activatedAt,
     ...(d.projectId !== undefined && { projectId: d.projectId as unknown as string }),
-    ...(d.endpoint !== undefined && { endpoint: serializeEndpoint(d.endpoint) }),
+    ...(d.endpoint !== undefined && { endpoint: endpointToWire(d.endpoint) }),
     primitives: {
       tools: d.primitives.tools,
       guardrails: d.primitives.guardrails,

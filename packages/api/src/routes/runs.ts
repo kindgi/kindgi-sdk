@@ -29,6 +29,7 @@ import type {
 } from '../handler-binding.js';
 import type { HitlBinding } from '../hitl-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
 import {
   type ReferenceScopeBinding,
@@ -753,6 +754,8 @@ export function runsRouter(
     const journal = await runBinding.readJournal(tenantId, runId);
     if (journal.kind === 'err') {
       const err = journal.error;
+      const busy = databaseBusyAnswer(err, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(err.code) as never);
       return c.json(toWireError(err as never, requestId));
     }

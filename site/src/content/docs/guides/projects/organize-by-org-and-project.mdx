@@ -239,9 +239,12 @@ What a deploy into a project does, with the runtime 0.1.8 or later:
 - **A project of another tenant, or none,** is `404 project-not-found`.
 - **A suspended project** takes no deploy, where the runtime suspends
   projects: `409 project-suspended`, before anything is written. No run
-  starts in it either: `POST /v1/runs` answers the same. A delivery to one
-  of its webhook triggers is answered `202` and skipped, with nothing
-  recorded on the trigger's fires.
+  starts in it either: `POST /v1/runs` answers the same, as do an eval run
+  started in it and an improvement pass for one of its agents. An eval run
+  or a pass already going stops at its next case and ends `cancelled`, with
+  `project-suspended` in its `cancelReason`. A delivery to one of its
+  webhook triggers is answered `202` and skipped, with nothing recorded on
+  the trigger's fires.
 
 Deploying the same pack into a second project is refused, because its ids
 already belong to the first project: `409 tool-project-mismatch` (or

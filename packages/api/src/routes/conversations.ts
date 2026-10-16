@@ -18,6 +18,7 @@ import type { AgentId, ProjectId, Semver, TenantId } from '@kindgi/types';
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -141,6 +142,8 @@ export function conversationsRouter(
       limit,
     });
     if (listResult.kind === 'err') {
+      const busy = databaseBusyAnswer(listResult.error, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(listResult.error.code) as never);
       return c.json(toWireError(listResult.error as never, requestId));
     }
@@ -176,6 +179,8 @@ export function conversationsRouter(
 
     const got = await conversationBinding.getConversation(tenantId, conversationId);
     if (got.kind === 'err') {
+      const busy = databaseBusyAnswer(got.error, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(got.error.code) as never);
       return c.json(toWireError(got.error as never, requestId));
     }
@@ -372,6 +377,8 @@ export function conversationsRouter(
     if (authorizer !== undefined) {
       const got = await conversationBinding.getConversation(tenantId, conversationId);
       if (got.kind === 'err') {
+        const busy = databaseBusyAnswer(got.error, c);
+        if (busy !== undefined) return busy;
         c.status(statusFor(got.error.code) as never);
         return c.json(toWireError(got.error as never, requestId));
       }
@@ -385,6 +392,8 @@ export function conversationsRouter(
       limit: limit + 1,
     });
     if (result.kind === 'err') {
+      const busy = databaseBusyAnswer(result.error, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(result.error.code) as never);
       return c.json(toWireError(result.error as never, requestId));
     }
