@@ -48,15 +48,20 @@ corrections and the tools to change each layer.
 
 ## What stays with the person
 
-1. **Never loosen — hand a loosening correction back.** Some corrections ask
-   for a *looser* agent: "should have refunded, it was within the window"
-   raises a limit or widens a window. This skill never raises a limit (in code
-   or in a setting), widens a window, drops a check, or stops a tool asking for
-   approval. A correction that would loosen anything goes to the owner with the
-   correction quoted — you don't make it. The corrections you do make tighten a
-   rule or change how the agent talks.
+1. **Never loosen a rule — a loosening correction goes to the owner.** Some
+   corrections ask for a policy *looser* than the one in force: with a 14-day
+   return window, "should have refunded — 20 days is fine for us" wants the
+   window widened; others want a limit raised, a check dropped, or a tool to
+   stop asking for approval. This skill makes none of those — it hands the
+   correction to the owner, quoted, and lets them decide. A refusal the
+   *current* rule already allows is not a loosening: the agent applied the rule
+   wrong ("should have refunded — it was inside the 14 days"), nothing about the
+   policy changes, so you fix it like any other correction — in code with a
+   test, or in the instructions through Improve. The corrections you make carry
+   out a rule the agent got wrong, tighten a rule, or change how the agent talks
+   — never loosen the policy.
 2. **Making a version live is the person's.** You publish a new version and
-   *ask* for it with `kindgi agents promote … --reason`. When the release gate
+   *ask* for it with `kindgi agents promote … --reason`. When the scope's gate
    policy has `approvals`, the promotion waits for a second person
    (`pending-approval`) — don't try to get around it.
 3. **The pulled runs hold real conversations.** A run you pull is a real
@@ -191,7 +196,7 @@ kindgi agents promote acme-store.refunds 1.0.4 --project=<project-id> \
   approval, or fails a gate.
 - `--reason` is kept on the record — write what the corrections were, so the
   approver reads the change in plain words.
-- The outcome is `promoted`, or `pending-approval` when the release gate policy
+- The outcome is `promoted`, or `pending-approval` when the scope's gate policy
   has `approvals` and a second person must approve — the "a second person
   checks it" step, working as it should. (Whoever asked can't approve their own
   request, unless the policy sets `separateApprover: false`.)
