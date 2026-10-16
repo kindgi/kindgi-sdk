@@ -5239,7 +5239,7 @@ function indexWith(
 const SECOND_KEY_ID = 'aperture-staging-2026-02' as SigningKeyId;
 
 /** An app that trusts two images of the pack: the first, and a later one (`second`). */
-function twoImages(second: SignedDeploy, opts: { refreshes?: boolean } = {}) {
+function twoImages(second: SignedDeploy, opts: { refreshes?: boolean; logger?: Logger } = {}) {
   const first = buildSignedDeploy({
     artifactVersion: '20260920.1',
     index: indexWith('20260920.1'),
@@ -5247,6 +5247,7 @@ function twoImages(second: SignedDeploy, opts: { refreshes?: boolean } = {}) {
   const made = makeApp({
     fixture: first,
     ...(opts.refreshes === true && { refreshes: true }),
+    ...(opts.logger !== undefined && { extra: { logger: opts.logger } }),
     extraTrust: [
       {
         keyId: SECOND_KEY_ID,
@@ -5417,6 +5418,44 @@ describe("POST /v1/deployments — a guardrail id that's already live", () => {
       await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
     ).not.toBeNull();
   });
+
+  test("registered again, then a guardrail the rollback can't unregister is warned, by name", async () => {
+    const fixture = buildSignedDeploy({ index: indexWith('20260920.1') });
+    const logger = recordingLogger();
+    const { app, guardrailRegistry } = makeApp({
+      fixture,
+      deploymentRegistry: makeFailingDeploymentBinding(1),
+      extra: { logger },
+    });
+    const register = guardrailRegistry.register.bind(guardrailRegistry);
+    let answered = false;
+    (guardrailRegistry as { register: GuardrailRegistryBinding['register'] }).register = async (
+      input,
+    ) => {
+      if (!answered) {
+        answered = true;
+        return { kind: 'already-registered', guardrailId: input.guardrail.id };
+      }
+      return register(input);
+    };
+    const down = new Error('the guardrail store is down');
+    (guardrailRegistry as { unregister: GuardrailRegistryBinding['unregister'] }).unregister =
+      async () => {
+        throw down;
+      };
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(500);
+    expect(rollbackWarns(logger)).toEqual([
+      {
+        message: `deploy rollback: couldn't unregister guardrail "acme.no-fabricated-quotes", so it stays as this deploy left it`,
+        fields: { primitive: 'guardrail', id: 'acme.no-fabricated-quotes', err: down },
+      },
+    ]);
+  });
 });
 
 describe('sameGuardrailDefinition', () => {
@@ -5537,6 +5576,72 @@ describe('POST /v1/deployments — a redeploy refreshes what it derived', () => 
       guardrail: '20260920.1',
       schema: undefined,
       tool: '20260920.1',
+    });
+  });
+
+  test("an old pointer or schema the rollback can't put back is warned, by name, last write first", async () => {
+    // As above, but each put-back (the call that names `expected`) fails.
+    const index = indexWith('20260921.1', { configSchema: SCHEMA }) as { guardrails: unknown[] };
+    index.guardrails.push({
+      id: 'acme.elsewhere',
+      kind: 'zero-llm',
+      check: 'must-cite',
+      action: { 'on-violation': 'halt' },
+    });
+    const second = buildSignedDeploy({
+      artifactVersion: '20260921.1',
+      keyId: SECOND_KEY_ID,
+      index: index as Record<string, unknown>,
+    });
+    const logger = recordingLogger();
+    const made = twoImages(second, { refreshes: true, logger });
+    expect((await made.deploy(made.first)).status).toBe(201);
+    await made.guardrailRegistry.register({
+      tenantId,
+      projectId: randomUUID() as ProjectId,
+      guardrail: {
+        id: 'acme.elsewhere',
+        kind: 'zero-llm',
+        check: 'must-cite',
+        action: { 'on-violation': 'halt' },
+      } as never,
+      enqueueTuples: () => [],
+    });
+    const refreshCode = made.toolRegistry.refreshCodeArtifactRef?.bind(made.toolRegistry);
+    const refreshFields = made.guardrailRegistry.refreshDeployedFields?.bind(
+      made.guardrailRegistry,
+    );
+    if (refreshCode === undefined || refreshFields === undefined) {
+      throw new Error('the registries take a refresh');
+    }
+    const down = new Error('the registry is down');
+    (made.toolRegistry as { refreshCodeArtifactRef: typeof refreshCode }).refreshCodeArtifactRef =
+      async (input) => {
+        if (input.expected !== undefined) throw down;
+        return refreshCode(input);
+      };
+    (
+      made.guardrailRegistry as { refreshDeployedFields: typeof refreshFields }
+    ).refreshDeployedFields = async (input) => {
+      if (input.expected !== undefined) throw down;
+      return refreshFields(input);
+    };
+
+    expect((await made.deploy(second)).status).toBe(409);
+    expect(rollbackWarns(logger)).toEqual([
+      {
+        message: `deploy rollback: couldn't put back the code pointer and config schema of guardrail "acme.no-fabricated-quotes", so it stays as this deploy left it`,
+        fields: { primitive: 'guardrail', id: 'acme.no-fabricated-quotes', err: down },
+      },
+      {
+        message: `deploy rollback: couldn't put back the code pointer of tool "acme.verify-citation@1.0.0", so it stays as this deploy left it`,
+        fields: { primitive: 'tool', id: 'acme.verify-citation@1.0.0', err: down },
+      },
+    ]);
+    expect(await pointerOf(made)).toEqual({
+      guardrail: '20260921.1',
+      schema: SCHEMA,
+      tool: '20260921.1',
     });
   });
 
