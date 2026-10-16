@@ -219,9 +219,10 @@ curl -sS -X POST "$KINDGI_API_URL/v1/system/keys" \
   `--runtime-token` can read it
   ([Where the keys are kept](#where-the-keys-are-kept)), and give `renew`
   that reference. On Azure, the module's README puts it in the vault without
-  printing it.
+  printing it. A mint sent again with the same `Idempotency-Key` doesn't
+  return it: mint another.
 - **On a runtime serving many tenants,** the same call mints it, with the
-  runtime's own token or a full system key.
+  runtime's own token or a system key holding `kindgi:system`.
 - **List the keys, and revoke one,** with the runtime's own token too. The
   list never shows a key's token, and a revoked key is refused from its next
   request:
