@@ -68,8 +68,9 @@ export interface SystemDeploymentsClient {
     options?: { readonly idempotencyKey?: string },
   ): Promise<DeploymentEndpoint>;
   /**
-   * Records why a pending deployment has no pack service yet, as one of
-   * the fixed codes.
+   * Records why a deployment waiting for its pack service has none yet
+   * (`pending`, or `cleared` and `waiting`, as after a suspension is
+   * lifted), as one of the fixed codes.
    *
    * @wire `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem`
    */

@@ -164,6 +164,8 @@
   "EnvSetOutcomeOk": ["EnvSetOutcomeOk"],
   "EnvSetOutcomeRevisionConflict": ["EnvSetOutcomeRevisionConflict"],
   "EnvSetRequest": ["EnvSetRequest"],
+  "Environment": ["Environment"],
+  "EnvironmentPage": ["EnvironmentPage"],
   "Error": ["WireError.error"],
   "EvalBaseline1": [
     "EvalComparison.baseline{agentId,version}",

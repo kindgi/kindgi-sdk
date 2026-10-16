@@ -10,6 +10,8 @@ import {
   DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
   type DeploymentEndpoint,
   type DeploymentEndpointProblemCode,
+  type SystemDeploymentRetireReason,
+  endpointToWire,
 } from '../deployment-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -41,27 +43,6 @@ export interface SystemDeploymentEntry {
   /** ISO-8601. */
   readonly activatedAt: string;
 }
-
-/**
- * Why a deployment's pack service should go:
- * - `superseded`: newer deployments ship every tool version and check it
- *   does, so no new call reaches it. A tool call a step made on it still
- *   goes back to it when the step runs again, and fails closed
- *   (`pack-endpoint-cleared`) once its endpoint is cleared;
- * - `tenant-closing`, `tenant-suspended`: every deployment of the tenant,
- *   routed or not, since nothing of it runs;
- * - `project-suspended`, `pack-suspended`: every deployment of the project,
- *   or this deployment.
- */
-export const SYSTEM_DEPLOYMENT_RETIRE_REASONS = [
-  'superseded',
-  'tenant-closing',
-  'tenant-suspended',
-  'project-suspended',
-  'pack-suspended',
-] as const;
-
-export type SystemDeploymentRetireReason = (typeof SYSTEM_DEPLOYMENT_RETIRE_REASONS)[number];
 
 export interface SystemDeploymentToRetire extends SystemDeploymentEntry {
   readonly reason: SystemDeploymentRetireReason;
@@ -160,7 +141,11 @@ export interface SystemDeploymentsBinding {
   ): Promise<
     { readonly kind: 'ok'; readonly endpoint: DeploymentEndpoint } | { readonly kind: 'not-found' }
   >;
-  /** Records why a pending deployment has no pack service yet. */
+  /**
+   * Records why a deployment waiting for its pack service has none yet: a
+   * pending one, or a cleared one that lists as needing a pack service
+   * again (`waiting`). Any other is `not-pending`.
+   */
   recordProblem(
     input: DeploymentRef & { readonly code: DeploymentEndpointProblemCode },
   ): Promise<
@@ -358,7 +343,7 @@ export function systemDeploymentsRouter(
             case 'not-pending':
               return fail(c, {
                 code: 'endpoint-not-pending',
-                message: `Deployment ${ref.value.deploymentId}'s endpoint is ${recorded.endpoint.status}: a problem goes with pending only.`,
+                message: `Deployment ${ref.value.deploymentId}'s endpoint is ${recorded.endpoint.status} and not waiting for a pack service: a problem goes with a pending one, or a cleared one that lists as needing a pack service again (\`waiting\`).`,
                 status: recorded.endpoint.status,
               });
           }
@@ -456,18 +441,6 @@ function entryToWire(entry: SystemDeploymentEntry) {
     imageDigest: entry.imageDigest,
     artifactVersion: entry.artifactVersion,
     activatedAt: entry.activatedAt,
-  };
-}
-
-/** Named fields only: never the URL, the auth or the token. */
-function endpointToWire(endpoint: DeploymentEndpoint) {
-  return {
-    status: endpoint.status,
-    since: endpoint.since,
-    ...(endpoint.status === 'pending' &&
-      endpoint.problem !== undefined && {
-        problem: { code: endpoint.problem.code, since: endpoint.problem.since },
-      }),
   };
 }
 
