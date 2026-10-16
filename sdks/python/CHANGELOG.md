@@ -12,8 +12,8 @@ same version, and the CLI's own changes are in
 
 - `kindgi`: **A union's members are named by the value that tells them
   apart.** The members of five inline unions in `kindgi.client.models` had
-  numbered names; four other models took names those would free. These names
-  change, and no old name is kept:
+  numbered names, and four other models' numbered names would have shifted
+  into the freed ones. These names change, and no old name is kept:
   - **A union's members, by their discriminator:**
     - `Config`, `Config1`, `Config2` (an MCP endpoint's config: stdio,
       http-sse, streamable-http): `MCPEndpointConfigStdio`,
