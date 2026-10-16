@@ -236,10 +236,11 @@ def redact_value(
     """A value with secret keys redacted and strings scrubbed, recursively (a copy).
 
     An error, at any depth and under any key, is serialized as `err` is, without its
-    stack (`_serialize_error`): its message, code and causes aren't lost, and none of
-    its other attributes (a database error's can carry the query and the values bound
-    to it) are written. A value that raises when read — its `str`, or a mapping's keys
-    — is `[unreadable]`, and a sibling that reads is still written.
+    stack (`_serialize_error`): its name, scrubbed message, code and causes. None of
+    its other attributes are written, but the message is written as the error gives it
+    (with secret shapes masked), and a database driver's message can itself quote the
+    statement and the values bound to it. A value that raises when read — its `str`, or
+    a mapping's keys — is `[unreadable]`, and a sibling that reads is still written.
     """
     if isinstance(value, str):
         return scrub_text(value)
@@ -270,22 +271,24 @@ def _redact_mapping(
     value: Mapping[Any, Any], extra: Sequence[str], depth: int, seen: set[int]
 ) -> Any:
     try:
-        items = list(value.items())
+        keys = list(value.keys())
     except Exception:
         return _UNREADABLE
     out: dict[str, Any] = {}
-    for key, element in items:
+    for key in keys:
         try:
             name = str(key)
         except Exception:
             continue
         if is_secret_key(name, extra):
             out[name] = REDACTED
-        else:
-            try:
-                out[name] = redact_value(element, extra, depth + 1, seen)
-            except Exception:
-                out[name] = _UNREADABLE
+            continue
+        # A value read key by key, so one that raises is `[unreadable]` and its
+        # readable siblings are still written (as `_read_fields` reads a call's fields).
+        try:
+            out[name] = redact_value(value[key], extra, depth + 1, seen)
+        except Exception:
+            out[name] = _UNREADABLE
     return out
 
 
@@ -350,9 +353,10 @@ def _stack_of(err: BaseException) -> str | None:
 def _serialize_error(err: BaseException | Any, with_stack: bool, depth: int = 0) -> Any:
     """An error as a record carries it: its name (the class's), scrubbed message and
     `code`, its causes three deep, and its stack only when asked. None of its other
-    attributes are written — a database error's can carry the query and the values it
-    was bound to. An attribute that raises when read counts as missing (a message that
-    can't be read is empty), so logging never throws.
+    attributes are written, but the message is written as the error gives it (with
+    secret shapes masked), and a database driver's message can itself quote the
+    statement and the values it was bound to. An attribute that raises when read counts
+    as missing (a message that can't be read is empty), so logging never throws.
     """
     if not isinstance(err, BaseException):
         return scrub_text(_text_of(err))
@@ -845,8 +849,10 @@ class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         level = _level_of(record.levelno)
         fields = getattr(record, "fields", None)
+        # `_read_fields` reads key by key, so a hostile `fields` doesn't make `format`
+        # raise (which would drop the record through logging's error handler).
         merged: dict[str, Any] = (
-            dict(cast("Mapping[str, Any]", fields)) if isinstance(fields, Mapping) else {}
+            _read_fields(cast("Mapping[str, Any]", fields)) if isinstance(fields, Mapping) else {}
         )
         if record.exc_info and record.exc_info[1] is not None:
             merged["err"] = record.exc_info[1]

@@ -13,13 +13,17 @@ same version, and the CLI's own changes are in
 - `kindgi`: **An error inside a field is logged like `err`, and a value that
   raises when read never fails the log call.** An error nested in a field (in a
   mapping or a list) was written as its scrubbed `str()`, so its `name`, `code`
-  and causes were lost. It's now written as `err` is — its `name`, scrubbed
-  `message` and `code`, and its causes — without its stack at any level, and
-  none of its other attributes (a database error's can carry the query and the
-  values it was bound to). An attribute that raises when read counts as missing
-  (a message that can't be read is empty, a name that can't be read is the
-  class's), a value that raises when read is `[unreadable]`, and fields whose
-  keys can't be listed are left out; the record is still written.
+  and causes were lost. It's now written as `err` is — its `name` (its class's),
+  scrubbed `message` and `code`, and its causes — without its stack at any
+  level. The message is written as the error gives it, with known secret shapes
+  masked; a database driver's message can itself quote the statement and the
+  values it was bound to (SQLAlchemy appends `[SQL: …]` and `[parameters: …]`
+  unless the engine has `hide_parameters=True`, and libpq keeps a `DETAIL:`
+  line), so when that matters log a field such as the SQLSTATE rather than the
+  error. None of the error's other attributes are written. An attribute that
+  raises when read counts as missing (a message that can't be read is empty), a
+  value that raises when read is `[unreadable]`, and fields whose keys can't be
+  listed are left out; the record is still written.
 - `kindgi`: **`flows.get` and `flows.get_version` answer the flow, and
   `tools.get` and `tools.get_version` the tool.** They read each answer as
   another object that had taken the name `Flow` or `Tool` (a judged run's

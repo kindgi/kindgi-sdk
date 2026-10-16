@@ -348,3 +348,43 @@ def test_a_field_whose_value_cannot_be_read_is_unreadable() -> None:
     record = json.loads(lines[0])
     assert record["bad"] == "[unreadable]"
     assert record["ok"] == 1
+
+
+def test_a_nested_mapping_keeps_its_readable_keys_when_one_value_raises() -> None:
+    class PartlyReadable(Mapping[str, Any]):
+        def __iter__(self) -> Any:
+            return iter(["ok", "bad"])
+
+        def __len__(self) -> int:
+            return 2
+
+        def __getitem__(self, key: str) -> Any:
+            if key == "bad":
+                raise RuntimeError("nope")
+            return 1
+
+    lines: list[str] = []
+    create_logger(write=lines.append, now=lambda: NOW).info("values", {"outer": PartlyReadable()})
+    record = json.loads(lines[0])
+    # One value that raises is `[unreadable]`; the whole mapping isn't lost.
+    assert record["outer"] == {"ok": 1, "bad": "[unreadable]"}
+
+
+def test_the_formatter_writes_a_record_even_when_its_fields_cannot_be_read() -> None:
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(JsonFormatter())
+    std = logging.getLogger("acme.hostile")
+    std.addHandler(handler)
+    std.setLevel(logging.INFO)
+    std.propagate = False
+    try:
+        std.info("looked up %s", "o-1", extra={"fields": _Unlistable()})
+    finally:
+        std.removeHandler(handler)
+    # A hostile `fields` doesn't make `format` raise, so logging doesn't drop the record.
+    out = stream.getvalue()
+    assert out != ""
+    record = json.loads(out)
+    assert record["subsystem"] == "acme.hostile"
+    assert record["message"] == "looked up o-1"
