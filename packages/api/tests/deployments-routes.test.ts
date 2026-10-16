@@ -4436,6 +4436,305 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
   });
 });
 
+// ---------------- a redeploy after a rolled-back deploy ----------------
+
+/**
+ * A tool registry keyed by (id, version) whose `unregister` retires a
+ * version, as the runtime's does: its number stays taken (`publish`
+ * answers `already-registered`), `listVersions` lists it only with
+ * `includeTombstoned` (with `unregisteredAt`), and `reinstateVersion`
+ * makes it active again.
+ */
+function makeRetiringToolRegistry(opts: { versionsPerPage?: number } = {}): ToolRegistryBinding & {
+  /** Each version, as `id@version active|unregistered`. */
+  states: () => string[];
+  /** Every reinstate asked, as `id@version`. */
+  reinstated: string[];
+  /** Store `tool` as a version an earlier deploy published, since unregistered. */
+  seedRetired: (tool: Record<string, unknown>) => void;
+  /** Store `tool` as a version an earlier deploy published. */
+  seedActive: (tool: Record<string, unknown>) => void;
+} {
+  const rows = new Map<
+    string,
+    { readonly tool: Record<string, unknown>; unregisteredAt: string | undefined }
+  >();
+  const key = (id: unknown, version: unknown) => `${id as string}@${version as string}`;
+  const reinstated: string[] = [];
+  return {
+    states: () =>
+      [...rows.entries()]
+        .map(([k, r]) => `${k} ${r.unregisteredAt === undefined ? 'active' : 'unregistered'}`)
+        .sort(),
+    reinstated,
+    seedRetired: (tool) =>
+      rows.set(key(tool.id, tool.version), { tool, unregisteredAt: '2026-10-01T00:00:00.000Z' }),
+    seedActive: (tool) => rows.set(key(tool.id, tool.version), { tool, unregisteredAt: undefined }),
+    async list() {
+      return { data: [] };
+    },
+    async get() {
+      return null;
+    },
+    async getVersion({ toolId, version }) {
+      return (rows.get(key(toolId, version))?.tool as never) ?? null;
+    },
+    async headExists({ toolId }) {
+      return [...rows.keys()].some((k) => k.startsWith(key(toolId, '')));
+    },
+    async listVersions({ toolId, includeTombstoned, cursor }) {
+      const all = [...rows.entries()]
+        .filter(([k]) => k.startsWith(key(toolId, '')))
+        .filter(([, r]) => includeTombstoned === true || r.unregisteredAt === undefined)
+        .map(([, r]) => ({
+          ...r.tool,
+          ...(r.unregisteredAt !== undefined && { unregisteredAt: r.unregisteredAt }),
+        }));
+      // Pages of `versionsPerPage`, the cursor the next page's first index.
+      const from = cursor === undefined ? 0 : Number(cursor);
+      const to = from + (opts.versionsPerPage ?? all.length);
+      return {
+        data: all.slice(from, to) as never[],
+        ...(to < all.length && { nextCursor: String(to) as never }),
+      };
+    },
+    async resolve({ toolId }) {
+      return { kind: 'not-found', toolId };
+    },
+    async publish({ tool }) {
+      const k = key(tool.id, tool.version);
+      if (rows.has(k)) {
+        return { kind: 'already-registered', toolId: tool.id, version: tool.version as never };
+      }
+      rows.set(k, { tool: tool as never, unregisteredAt: undefined });
+      return { kind: 'ok', toolId: tool.id, version: tool.version as never };
+    },
+    async unregister({ toolId, version }) {
+      const row = rows.get(key(toolId, version));
+      if (row === undefined || row.unregisteredAt !== undefined) return { unregistered: false };
+      row.unregisteredAt = new Date().toISOString();
+      return { unregistered: true };
+    },
+    async reinstateVersion({ toolId, version }) {
+      reinstated.push(key(toolId, version));
+      const row = rows.get(key(toolId, version));
+      if (row === undefined) return { kind: 'not-found', toolId, version };
+      const wasTombstoned = row.unregisteredAt !== undefined;
+      row.unregisteredAt = undefined;
+      return { kind: 'ok', toolId, version, wasTombstoned };
+    },
+  };
+}
+
+describe('POST /v1/deployments — a redeploy after a rolled-back deploy', () => {
+  const pack = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.0.0', flowVersion: '1.0.0' });
+  /** `acme.score@1.0.0` as a registry stores it. */
+  const scoreTool = {
+    id: 'acme.score',
+    description: 'Scores a match.',
+    version: '1.0.0',
+    input: { type: 'object', properties: { q: { type: 'string' } } },
+    output: { type: 'object', properties: { score: { type: 'number' } } },
+  };
+
+  /** One app over `tools`; its deployment record throws for the first `failures` deploys. */
+  function setup(
+    tools: ToolRegistryBinding,
+    opts: {
+      failures?: number;
+      packs?: readonly SignedDeploy[];
+      extra?: Partial<Parameters<typeof createApp>[0]>;
+    } = {},
+  ) {
+    let failures = opts.failures ?? 0;
+    const records = makeInMemoryDeploymentBinding();
+    const deploymentRegistry: DeploymentBinding = {
+      ...records,
+      register: async (input) => {
+        if (failures > 0) {
+          failures -= 1;
+          throw new Error('the deployment record failed');
+        }
+        return records.register(input);
+      },
+    };
+    const packs = opts.packs ?? [pack];
+    const flows = makeVersionedFlowRegistry();
+    const { app } = makeApp({
+      deploymentRegistry,
+      toolRegistry: tools,
+      agentRegistry: makeVersionedAgentRegistry(),
+      flowRegistry: flows,
+      ...(opts.extra !== undefined && { extra: opts.extra }),
+      extraTrust: packs.map((f) => ({
+        keyId: KEY_ID,
+        tenantId,
+        publicKey: Buffer.from(f.publicKeyRaw).toString('base64'),
+      })),
+      extraImages: packs.map((f) => ({
+        imageRef: f.imageRef,
+        digest: f.digest,
+        indexBytes: f.indexBytes,
+      })),
+    });
+    const deploy = async (f: SignedDeploy = pack) => {
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(f.wire),
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, any> };
+    };
+    return { flows, deploy };
+  }
+
+  test('a deploy that failed after its tool publish unregistered the tool; the same image deploys again, and its agent and flow pin the tool', async () => {
+    const tools = makeRetiringToolRegistry();
+    const { flows, deploy } = setup(tools, { failures: 1 });
+
+    const failed = await deploy();
+    expect(failed.status).toBe(500);
+    expect(tools.states()).toEqual(['acme.score@1.0.0 unregistered']);
+
+    const again = await deploy();
+    expect(again.status).toBe(201);
+    expect(tools.reinstated).toEqual(['acme.score@1.0.0']);
+    expect(tools.states()).toEqual(['acme.score@1.0.0 active']);
+    expect(again.body.contents.tools).toEqual([{ id: 'acme.score', version: '1.0.0' }]);
+    expect(flows.versions()[0]?.pins).toEqual({
+      tools: { 'acme.score': '1.0.0' },
+      agents: { 'acme.matcher': '1.0.0' },
+    });
+  });
+
+  test('a redeploy that fails again unregisters the version it reinstated', async () => {
+    const tools = makeRetiringToolRegistry();
+    const { deploy } = setup(tools, { failures: 2 });
+
+    expect((await deploy()).status).toBe(500);
+    expect((await deploy()).status).toBe(500);
+    expect(tools.reinstated).toEqual(['acme.score@1.0.0']);
+    expect(tools.states()).toEqual(['acme.score@1.0.0 unregistered']);
+
+    expect((await deploy()).status).toBe(201);
+    expect(tools.states()).toEqual(['acme.score@1.0.0 active']);
+  });
+
+  test("a version past its registry's first page of versions is found, and reinstated", async () => {
+    const tools = makeRetiringToolRegistry({ versionsPerPage: 1 });
+    tools.seedActive({ ...scoreTool, version: '0.9.0' });
+    tools.seedRetired(scoreTool);
+    const { deploy } = setup(tools);
+
+    expect((await deploy()).status).toBe(201);
+    expect(tools.reinstated).toEqual(['acme.score@1.0.0']);
+    expect(tools.states()).toEqual(['acme.score@0.9.0 active', 'acme.score@1.0.0 active']);
+  });
+
+  test("a version reinstated since its registry listed it isn't this deploy's to unregister rolling back", async () => {
+    const tools = makeRetiringToolRegistry();
+    tools.seedRetired(scoreTool);
+    const { deploy } = setup(
+      {
+        ...tools,
+        // Another caller reinstates it first: this deploy's reinstate finds it active.
+        reinstateVersion: async (input) => {
+          await tools.reinstateVersion(input);
+          return tools.reinstateVersion(input);
+        },
+      },
+      { failures: 1 },
+    );
+
+    expect((await deploy()).status).toBe(500);
+    expect(tools.states()).toEqual(['acme.score@1.0.0 active']);
+  });
+
+  test("an active tool version isn't reinstated (as under kindgi dev, whose registry answers every publish already-registered and every reinstate not-found)", async () => {
+    const tools = makeRetiringToolRegistry();
+    const asked: string[] = [];
+    const dev: ToolRegistryBinding = {
+      ...tools,
+      reinstateVersion: async ({ toolId, version }) => {
+        asked.push(`${toolId as unknown as string}@${version as unknown as string}`);
+        return { kind: 'not-found', toolId, version };
+      },
+    };
+    const next = pinnedPack({
+      toolVersion: '1.0.0',
+      agentVersion: '1.0.0',
+      flowVersion: '1.0.0',
+      artifactVersion: '20261005.2',
+      instructions: 'Match the request, briefly.',
+    });
+    const { deploy } = setup(dev, { packs: [pack, next] });
+
+    expect((await deploy()).status).toBe(201);
+    // A new image of the same pack: its tool version is already published, and active.
+    expect((await deploy(next)).status).toBe(201);
+    expect(asked).toEqual([]);
+    expect(tools.states()).toEqual(['acme.score@1.0.0 active']);
+  });
+
+  test('a reinstate its registry answers not-found is a 500, and nothing else is written', async () => {
+    const tools = makeRetiringToolRegistry();
+    tools.seedRetired(scoreTool);
+    const { flows, deploy } = setup({
+      ...tools,
+      reinstateVersion: async ({ toolId, version }) => ({ kind: 'not-found', toolId, version }),
+    });
+
+    const res = await deploy();
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe('internal-server-error');
+    expect(tools.states()).toEqual(['acme.score@1.0.0 unregistered']);
+    expect(flows.versions()).toEqual([]);
+  });
+
+  test("an unregistered version naming a model provider's key stays unregistered: the deploy is refused, as the same name in the pack's tool is", async () => {
+    const tools = makeRetiringToolRegistry();
+    // The stored version names the key; the pack's tool, at the same version, doesn't.
+    tools.seedRetired({
+      ...scoreTool,
+      needsSpec: { secrets: { ANTHROPIC_API_KEY: { type: 'string' } } },
+    });
+    const { flows, deploy } = setup(tools, {
+      extra: {
+        providerRegistry: {
+          resolveForRuntime: async () => [
+            {
+              metadata: { id: 'anthropic-main' },
+              adapterId: '@kindgi/adapter-model-anthropic',
+              secretRef: { envName: 'local', name: 'ANTHROPIC_API_KEY' },
+            },
+          ],
+          register: async () => ({ kind: 'ok', providerId: 'anthropic-main' }),
+          list: async () => ({ data: [] }),
+          get: async () => null,
+        } as never,
+      },
+    });
+
+    const res = await deploy();
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('deployment-validation-failed');
+    expect(res.body.error.details.issues).toEqual([
+      {
+        primitive: 'tool',
+        index: 0,
+        id: 'acme.score',
+        path: '/secrets/ANTHROPIC_API_KEY',
+        message: expect.stringMatching(
+          /^version 1\.0\.0 of this tool is unregistered, and the version stored under that number stays so: `ANTHROPIC_API_KEY` is the key of model provider "anthropic-main".*Publish the tool under a new version$/,
+        ),
+      },
+    ]);
+    expect(tools.reinstated).toEqual([]);
+    expect(tools.states()).toEqual(['acme.score@1.0.0 unregistered']);
+    expect(flows.versions()).toEqual([]);
+  });
+});
+
 // ---------------- a guardrail id that's already live ----------------
 
 /** The fixture's index, its guardrail changed by `guardrail`, for `artifactVersion`. */

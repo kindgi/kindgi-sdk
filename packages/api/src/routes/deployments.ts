@@ -70,7 +70,7 @@ import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js'
 import { secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import type { SecretBinding } from '../secrets-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
-import type { ToolRegistryBinding } from '../tool-binding.js';
+import type { ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { capabilityRefusal } from './denied.js';
 import { requireEnvName } from './env.js';
@@ -743,7 +743,7 @@ export function deploymentsRouter(
       // half-written.
       await runOutsideTenant(async () => {
         if (bindings.toolRegistry !== undefined && targetProjectId !== undefined) {
-          for (const tool of validated.tools) {
+          for (const [index, tool] of validated.tools.entries()) {
             const projectIdForTool = targetProjectId;
             // Where each secret it names is read: decided now, as the deployer
             // may read them, and kept with this version (`secret-scope.ts`).
@@ -777,6 +777,14 @@ export function deploymentsRouter(
                 await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
               });
             } else if (outcome.kind === 'already-registered') {
+              await reinstateRetiredTool({
+                registry: bindings.toolRegistry,
+                providerKeys: bindings.providerKeys,
+                tenantId,
+                tool,
+                index,
+                rolled,
+              });
               await refreshToolCode(bindings.toolRegistry, tenantId, tool, rolled);
             } else {
               throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome);
@@ -904,6 +912,9 @@ export function deploymentsRouter(
           ),
         );
       }
+      // An unregistered tool version the deploy can't reinstate: refused as
+      // the same name in the pack's own tools is, before any write.
+      if (cause instanceof RetiredToolKept) return validationFailed(c, [cause.issue]);
       // Not a mapped outcome: to the central error handler (a 500 for this
       // write — the rollback above already ran; the whole error is logged).
       throw cause;
@@ -1597,6 +1608,86 @@ async function refreshToolCode(
 }
 
 /**
+ * A tool version a deploy finds already published but unregistered is
+ * reinstated. Version numbers are single-use (`publish`), so the registry
+ * won't take it again, and without it the agents and flows that use the
+ * tool find no published version: a deploy that failed after its tool
+ * publish unregistered it rolling back, and the same image was refused
+ * from then on, until its pack was rebuilt under a new version. Rolling
+ * this deploy back unregisters it again.
+ *
+ * Only a version its registry lists as unregistered (`unregisteredAt`) is
+ * reinstated, under the rule reinstating it by hand holds
+ * (`POST /v1/tools/{toolId}/versions/{version}/reinstate`): the stored
+ * version is what comes back, and one naming a model provider's key stays
+ * unregistered (`RetiredToolKept`).
+ */
+async function reinstateRetiredTool(input: {
+  readonly registry: ToolRegistryBinding;
+  readonly providerKeys: ProviderKeys | undefined;
+  readonly tenantId: TenantId;
+  readonly tool: import('@kindgi/tools').ToolManifest;
+  /** The tool's index in the pack, for the refusal's issue. */
+  readonly index: number;
+  readonly rolled: RollbackAction[];
+}): Promise<void> {
+  const { registry, tenantId, tool, rolled } = input;
+  const toolId = tool.id;
+  const version = tool.version as unknown as Semver;
+  const retired = await unregisteredVersion(registry, tenantId, toolId, version);
+  if (retired === undefined) return;
+  const refusal = await refuseProviderKeys(
+    input.providerKeys,
+    tenantId,
+    toolSecretNames(retired),
+    'a tool',
+  );
+  if (refusal !== undefined) {
+    throw new RetiredToolKept({
+      primitive: 'tool',
+      index: input.index,
+      id: toolId as unknown as string,
+      path: `/secrets/${refusal.secret}`,
+      message: `version ${tool.version} of this tool is unregistered, and the version stored under that number stays so: ${refusal.message}. Publish the tool under a new version`,
+    });
+  }
+  const outcome = await registry.reinstateVersion({ tenantId, toolId, version });
+  if (outcome.kind === 'not-found') {
+    throw new Error(
+      `tool ${toolId as unknown as string}@${tool.version}: its registry lists the version as unregistered, then answered not-found reinstating it`,
+    );
+  }
+  // Reinstated since the registry listed it: nothing of this deploy's to undo.
+  if (!outcome.wasTombstoned) return;
+  rolled.push(async () => {
+    await registry.unregister({ tenantId, toolId, version });
+  });
+}
+
+/** `toolId@version` as its registry lists it, when it's unregistered. */
+async function unregisteredVersion(
+  registry: ToolRegistryBinding,
+  tenantId: TenantId,
+  toolId: ToolId,
+  version: Semver,
+): Promise<ToolVersionRow | undefined> {
+  let cursor: Cursor | undefined;
+  do {
+    const page = await registry.listVersions({
+      tenantId,
+      toolId,
+      includeTombstoned: true,
+      limit: 100,
+      ...(cursor !== undefined && { cursor }),
+    });
+    const row = page.data.find((v) => v.version === version);
+    if (row !== undefined) return row.unregisteredAt !== undefined ? row : undefined;
+    cursor = page.nextCursor;
+  } while (cursor !== undefined);
+  return undefined;
+}
+
+/**
  * A guardrail a deploy keeps gets what this deploy derived for it: its
  * code pointer and its check's config schema, when its registry can take
  * them (`refreshDeployedFields`); rolling the deploy back restores the old
@@ -2022,6 +2113,13 @@ type RollbackAction = () => Promise<void>;
 class UnpinnableDeploy extends Error {
   constructor(readonly issues: readonly UnpinnableRef[]) {
     super('the deployment uses tools or agents that are not published');
+  }
+}
+
+/** A tool version a deploy found unregistered and may not reinstate (`reinstateRetiredTool`). */
+class RetiredToolKept extends Error {
+  constructor(readonly issue: ValidationDetail) {
+    super(issue.message);
   }
 }
 
