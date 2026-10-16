@@ -6,8 +6,9 @@ spells it: `0.1.8rc0` for npm's `0.1.8-rc.0`. Each user-visible change adds
 its line under **Unreleased** in the pull request that makes it. A release
 turns that heading into its version. A release after release candidates
 lists their changes too, so its section has every change since the release
-before. `kindgi-cli` carries `@kindgi/cli` of the
-same version, and the CLI's own changes are in
+before. Up to 0.1.8, a release's section has only what came after its
+candidates, and theirs are just below it. `kindgi-cli` carries `@kindgi/cli`
+of the same version, and the CLI's own changes are in
 [`@kindgi/cli`'s changelog](../../packages/cli/CHANGELOG.md).
 
 ## Unreleased
