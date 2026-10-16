@@ -1,31 +1,35 @@
 ---
 title: Export your data
-description: Export what your Kindgi Cloud workspace holds as files, with the API or the CLI, while your account is open and for 30 days after it closes.
+description: Export what your Kindgi Cloud workspace holds as files with `kindgi exports create`, while your account is open and for 30 days after it closes.
 sidebar:
   order: 20
 ---
 
-Your workspace's data can be read at any time through the API, as JSON, and
-saved as files; most of it with the CLI too. After your account closes, it
-can still be read for 30 days, signed in as before or with the workspace's
-own API keys.
+`kindgi exports create` writes what your workspace holds into a folder, as
+files: every kind of record the API reads, every artifact's file, and the
+records Kindgi Cloud signs. You can run it while your account is open, and
+for 30 days after it closes, with the workspace's own API keys.
 
 Secret values are never exported: they can't be read back, by design. Their
-names and metadata are.
+names and versions are.
 
 ## Before you start
 
-- **A tenant admin's API key.** Some lists are for tenant admins only: the
-  people in the workspace, and the audit trail.
-- **A reviewer's role, for approvals.** Approvals are listed to registered
-  reviewers, up to their role. Register yourself as an `admin` reviewer while
-  your account is open:
+- **The Kindgi CLI, 0.1.8.1 or later** (`kindgi --version`).
+- **A tenant admin's API key.** Some kinds only a tenant admin reads, such as
+  the workspace's people, its API keys and its sign-ins. In the console, open
+  **API keys** and **Create a key**, and under **How far it goes**, choose
+  **Admin**.
+- **A reviewer's role, for the approvals' audit bundles.** A tenant admin
+  reads every approval, but only a registered reviewer gets an approval's
+  signed audit bundle. Register yourself as an `admin` reviewer while your
+  account is open:
 
   ```sh
   kindgi reviewers register --spec='{"role":"admin"}'
   ```
 
-- **The address and the key,** for the CLI and the Python client:
+- **The address and the key:**
 
   ```sh
   export KINDGI_API_URL=https://platform.kindgi.com
@@ -35,181 +39,110 @@ names and metadata are.
   Paste the key at the prompt, which doesn't echo it, so it stays out of
   your shell's history.
 
-## Export everything with the Python client
+## Export everything
 
-The Python client (`kindgi` on PyPI) has `paginate`, which reads a list page
-after page. This script writes what the workspace holds into
-`kindgi-export/`: one JSON Lines file per kind, with every version of each
-agent, tool and flow, every conversation's messages, every run's journal and
-every artifact's file.
+Name a new or empty folder:
 
-```python
-# export_workspace.py
-from pathlib import Path
-
-from kindgi.client import Kindgi, paginate
-
-kindgi = Kindgi()  # KINDGI_API_URL and KINDGI_API_TOKEN
-out = Path("kindgi-export")
-ENVIRONMENTS = ["prod"]  # the environment Kindgi Cloud serves
-
-
-def save(name, items):
-    path = out / f"{name}.jsonl"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w") as f:
-        for item in items:
-            f.write(item.model_dump_json(by_alias=True) + "\n")
-
-
-def every(list_method, *args, **filters):
-    return paginate(list_method, *args, limit=100, **filters)
-
-
-def journal(run_id):
-    since = None
-    while True:
-        page = kindgi.runs.journal(run_id, since=since)
-        yield from page.data
-        if not page.has_more or not page.data:
-            return
-        since = page.data[-1].sequence
-
-
-lists = {
-    "people": kindgi.identity.users.list,
-    "teams": kindgi.teams.list,
-    "orgs": kindgi.orgs.list,
-    "projects": kindgi.projects.list,
-    "service-accounts": kindgi.service_accounts.list,
-    "api-keys": kindgi.tokens.list,
-    "blocks": kindgi.blocks.list,
-    "guardrails": kindgi.guardrails.list,
-    "policies": kindgi.policies.list,
-    "gate-policies": kindgi.gate_policies.list,
-    "memory-facts": kindgi.memory.list_facts,
-    "memory-erasures": kindgi.memory.list_erasures,
-    "approvals": kindgi.approvals.list,
-    "reviewers": kindgi.approvals.reviewers.list,
-    "schedules": kindgi.schedules.list,
-    "webhooks": kindgi.webhooks.list,
-    "webhook-endpoints": kindgi.webhook_endpoints.list,
-    "mcp-endpoints": kindgi.mcp.endpoints.list,
-    "model-providers": kindgi.providers.list,
-    "eval-suites": kindgi.eval_suites.list,
-    "eval-runs": kindgi.eval_runs.list,
-    "judgments": kindgi.judgments.list,
-    "judge-classes": kindgi.judge_classes.list,
-    "proposals": kindgi.proposals.list,
-    "improvement-passes": kindgi.improvement_passes.list,
-    "observations": kindgi.observations.list,
-    "provenance": kindgi.provenance.list,
-    "cost-records": kindgi.cost.records.list,
-    "deployments": kindgi.deployments.list,
-    "tenant-settings": kindgi.tenant.config.list,
-    "signing-keys": kindgi.signing_keys.list,
-    "audit-access-decisions": kindgi.audit.authz.list,
-    "audit-sign-ins": kindgi.audit.sign_ins.list,
-}
-for name, list_method in lists.items():
-    save(name, every(list_method))
-save("identity-providers", kindgi.auth.providers.list().data)
-
-# Agents, tools and flows: every version, retired ones too.
-for kind, resource in {"agents": kindgi.agents, "tools": kindgi.tools, "flows": kindgi.flows}.items():
-    for item in every(resource.list, include_retired=True):
-        save(f"{kind}/{item.id}", every(resource.list_versions, item.id, include_tombstoned=True))
-
-# Runs with their output and journal, replays too.
-runs = list(every(kindgi.runs.list, include="output", replays="include"))
-save("runs", runs)
-for run in runs:
-    save(f"journals/{run.id}", journal(run.id))
-
-# Conversations with their messages, replays too.
-conversations = list(every(kindgi.conversations.list, replays="include"))
-save("conversations", conversations)
-for conversation in conversations:
-    save(f"messages/{conversation.id}", every(kindgi.conversations.messages, conversation.id))
-
-# Artifacts: the list, then each file.
-artifacts = list(every(kindgi.artifacts.list))
-save("artifacts", artifacts)
-for artifact in artifacts:
-    path = out / "artifact-files" / artifact.blob_id
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(kindgi.artifacts.download(artifact.blob_id))
-
-# Secrets (names and metadata, never values) and env values, in each scope.
-scopes = [("tenant", None)]
-scopes += [("org", org.id) for org in every(kindgi.orgs.list)]
-scopes += [("project", project.id) for project in every(kindgi.projects.list)]
-for env in ENVIRONMENTS:
-    for kind, scope_id in scopes:
-        where = f"{env}/{kind}" + (f"-{scope_id}" if scope_id else "")
-        filters = {"env_name": env, "scope_kind": kind, "scope_id": scope_id}
-        save(f"secrets/{where}", every(kindgi.secrets.list, **filters))
-        save(f"env/{where}", every(kindgi.env.list, **filters))
+```sh
+kindgi exports create --out ./acme-export
 ```
 
-Run it with `python export_workspace.py`. A large workspace takes a while:
-each run's journal is a request of its own.
+It prints a line for each kind as it's written, and ends by saying how many
+kinds it wrote, skipped and failed. A large workspace takes a while: each
+run's journal, each conversation's messages and each signed record is a
+request of its own.
 
-## What each kind is
+A kind that fails doesn't stop the others, and the command then exits with
+`1`. If it stops part way, or a kind failed, run it again with `--resume`.
+It keeps the kinds already written and reads the others again:
 
-Every list answers a page at a time: `--limit` (at most 100) and `--cursor`
-with the page before's `nextCursor` (`?limit=` and `?cursor=` in the API).
-The CLI prints JSON, so `kindgi runs list --limit=100 > runs-1.json` saves a
-page. Kinds marked "API" have no CLI command.
+```sh
+kindgi exports create --out ./acme-export --resume
+```
 
-| Kind | CLI | API |
-| --- | --- | --- |
-| People, their grants and sessions | `kindgi people list`, `get`, `grants` (sessions: API) | `GET /v1/identity/users`, `…/{userId}/grants`, `…/{userId}/sessions` |
-| Teams, their people and project grants | API | `GET /v1/teams`, `…/{teamId}/memberships`, `…/{teamId}/project-grants` |
-| Orgs | API | `GET /v1/orgs` |
-| Projects, their access, members and team grants | `kindgi projects list`, `get` | `GET /v1/projects`, `…/{projectId}/access`, `…/memberships`, `…/team-grants` |
-| Service accounts | `kindgi service-accounts list`, `get` | `GET /v1/service-accounts` |
-| API keys (never the key itself) | `kindgi tokens list`, `get` | `GET /v1/tokens` |
-| Agents, every version | `kindgi agents list`, `versions` | `GET /v1/agents`, `…/{agentId}/versions` |
-| Tools, flows and blocks, every version | `kindgi tools …`, `kindgi flows …`, `kindgi blocks …` | `GET /v1/tools`, `/v1/flows`, `/v1/blocks`, each with `…/versions` |
-| Guardrails, and what they found | `kindgi guardrails list`, `get` (outcomes: API) | `GET /v1/guardrails`, `…/{guardrailId}/outcomes` |
-| Policies and gate policies | `kindgi gate-policies …` (policies: API) | `GET /v1/policies`, `/v1/gate-policies` |
-| Runs: the record, the output, the journal | `kindgi runs list`, `get`, `journal` | `GET /v1/runs?include=output`, `…/{runId}/journal` |
-| Conversations and their messages | `kindgi conversations list`, `messages` | `GET /v1/conversations`, `…/{conversationId}/messages` |
-| Memory facts and their revisions | `kindgi memory facts list`, `revisions` | `GET /v1/memory/facts`, `…/{factId}/revisions` |
-| Memory erasures | `kindgi memory erasures list`, `export` | `GET /v1/memory/erasures`, `…/export` |
-| Approvals and their decisions; reviewers | `kindgi approvals list`, `get`; `kindgi reviewers list` | `GET /v1/approvals`, `/v1/approvals/reviewers` |
-| Artifacts, and each file | `kindgi artifacts list`, `download` | `GET /v1/artifacts`, `…/{blobId}` |
-| Secrets: names and metadata, never values | `kindgi secrets list` | `GET /v1/secrets` |
-| Env values | `kindgi env list` | `GET /v1/env` |
-| Schedules, and when they fired | `kindgi schedules list`, `fires` | `GET /v1/schedules`, `…/{triggerId}/fires` |
-| Webhook triggers, and when they fired | `kindgi webhooks list`, `fires` | `GET /v1/webhooks`, `…/{triggerId}/fires` |
-| Webhook endpoints, and their deliveries | API | `GET /v1/webhook-endpoints`, `…/{endpointId}/deliveries` |
-| MCP endpoints | `kindgi mcp list` | `GET /v1/mcp/endpoints` |
-| Model providers and identity providers | `kindgi providers list`; `kindgi sso list` | `GET /v1/providers`, `/v1/auth/providers` |
-| Evals: test sets, eval runs, judgments | `kindgi eval-suites …`, `kindgi eval-runs list`, `kindgi judgments list`, `kindgi judge-classes list` | `GET /v1/eval-suites`, `/v1/eval-runs`, `/v1/judgments`, `/v1/judge-classes` |
-| Judging rules, queue and results | API | `GET /v1/projects/{projectId}/judging-rules`, `…/judging-queue` |
-| Proposals and improvement passes | `kindgi proposals list`, `kindgi proposals passes list` | `GET /v1/proposals`, `/v1/improvement-passes` |
-| Observations | `kindgi observations list` | `GET /v1/observations` |
-| Provenance | `kindgi provenance list`, `get` | `GET /v1/provenance` |
-| Cost records | API | `GET /v1/cost/records` |
-| Deployments | API | `GET /v1/deployments` |
-| Tenant settings | API | `GET /v1/tenant/config` |
-| Signing keys (public keys) | API | `GET /v1/signing-keys` |
-| The audit trail: access decisions and sign-ins | API | `GET /v1/audit/authz`, `/v1/audit/sign-ins` |
+([`kindgi exports`](../../reference/cli/exports/))
+
+## What's in the folder
+
+- **`manifest.json`:** each kind's file and outcome: `ok` with its count of
+  records, `skipped` and why, or `failed` with the error. It also lists what's
+  never exported.
+- **`<kind>.jsonl`:** one file per kind, such as `agents.jsonl`, `runs.jsonl`
+  or `users.jsonl`, with one record per line, as the API answers it. A kind
+  read for each record of another, such as `run-journals.jsonl` or
+  `conversation-messages.jsonl`, has `{ "parent": { … }, "item": { … } }` on
+  each line: `parent` names the record it belongs to.
+- **`artifacts/`:** each artifact's file, named by its blob id.
+  `artifacts.jsonl` lists them.
+- **`signed/`:** the records Kindgi Cloud signs: each decided approval's audit
+  bundle (`signed/approvals/`), each run's provenance (`signed/provenance/`)
+  and the compliance evidence (`signed/compliance-evidence.json`).
+  `kindgi exports verify` checks one
+  ([Check an export](../../guides/observability/export-signed-evidence/#check-an-export)).
+  Each is recorded as an `export-signed` event in the workspace's audit
+  trail; `--no-signed` leaves them out.
+
+While your account is open, records can change as the export reads them, so
+each kind is as it stood when it was read (its `at` in the manifest). After
+your account closes, nothing in the workspace changes but deletes and
+erasures, so the files agree with each other.
 
 ## Secrets and env values
 
 Secrets and env values are kept per environment and scope (the tenant, an
-org or a project). On Kindgi Cloud, your tools read them in the `prod`
-environment, so the script lists `prod` in every scope. A secret's entry has
-its name, its current version, its tags and its dates, never its value
+org or a project). The command reads them in each of the workspace's
+environments (on Kindgi Cloud, `prod`) and each scope. A secret's entry has
+its name, its versions, its tags and its dates, never its value
 ([Store a secret](../../guides/secrets/store-a-secret/)).
+
+## What each file holds
+
+Each file is a route's answer, so you can read any kind through the API too.
+Every list answers a page at a time: `?limit=` (at most 100), and `?cursor=`
+with the page before's `nextCursor`.
+
+| Kind | Files | API |
+| --- | --- | --- |
+| The workspace, its orgs and projects, and the projects' members | `tenant.jsonl`, `orgs.jsonl`, `projects.jsonl`, `project-memberships.jsonl` | `GET /v1/tenant`, `/v1/orgs`, `/v1/projects`, `…/{projectId}/memberships` |
+| People, their grants and sessions | `users.jsonl`, `user-sessions.jsonl` | `GET /v1/identity/users?include=grants`, `…/{userId}/sessions` |
+| Teams, their people and project grants | `teams.jsonl`, `team-memberships.jsonl`, `team-project-grants.jsonl` | `GET /v1/teams`, `…/{teamId}/memberships`, `…/{teamId}/project-grants` |
+| Service accounts | `service-accounts.jsonl` | `GET /v1/service-accounts` |
+| API keys (never the key itself) | `api-keys.jsonl` | `GET /v1/tokens` |
+| Agents: every version, the live versions and the promotions | `agents.jsonl`, `agent-versions.jsonl`, `agent-live-versions.jsonl`, `agent-promotions.jsonl` | `GET /v1/agents`, `…/{agentId}/versions`, `…/live-versions`, `…/promotions` |
+| Tools, flows and blocks, every version | `tools.jsonl`, `flows.jsonl`, `blocks.jsonl`, each with its `-versions.jsonl` | `GET /v1/tools`, `/v1/flows`, `/v1/blocks`, each with `…/versions` |
+| Guardrails | `guardrails.jsonl` | `GET /v1/guardrails` |
+| Policies and gate policies, every version | `policies.jsonl`, `gate-policies.jsonl`, each with its `-versions.jsonl` | `GET /v1/policies`, `/v1/gate-policies`, each with `…/versions` |
+| Runs: the record, the output, the journal | `runs.jsonl`, `run-journals.jsonl` | `GET /v1/runs?include=output`, `…/{runId}/journal` |
+| Conversations and their messages | `conversations.jsonl`, `conversation-messages.jsonl` | `GET /v1/conversations`, `…/{conversationId}/messages` |
+| Memory facts and their revisions | `memory-facts.jsonl`, `memory-fact-revisions.jsonl` | `GET /v1/memory/facts`, `…/{factId}/revisions` |
+| Memory erasures and their ledger | `memory-erasures.jsonl`, `memory-erasure-ledger.jsonl` | `GET /v1/memory/erasures`, `…/export` |
+| Approvals and their decisions; reviewers | `approvals.jsonl`, `reviewers.jsonl` | `GET /v1/approvals`, `/v1/approvals/reviewers` |
+| Approvals' audit bundles | `signed/approvals/` | `POST /v1/approvals/{approvalId}/audit-bundle` |
+| Artifacts, and each file | `artifacts.jsonl`, `artifacts/` | `GET /v1/artifacts`, `…/{blobId}` |
+| Environments and env values | `environments.jsonl`, `env.jsonl` | `GET /v1/environments`, `/v1/env` |
+| Secrets: names and versions, never values | `secrets.jsonl`, `secret-versions.jsonl` | `GET /v1/secrets`, `…/{name}/versions` |
+| Workspace settings | `tenant-config.jsonl` | `GET /v1/tenant/config` |
+| Schedules, and when they fired | `schedules.jsonl`, `schedule-fires.jsonl` | `GET /v1/schedules`, `…/{triggerId}/fires` |
+| Webhook triggers, and when they fired | `webhooks.jsonl`, `webhook-fires.jsonl` | `GET /v1/webhooks`, `…/{triggerId}/fires` |
+| Webhook endpoints, and their deliveries | `webhook-endpoints.jsonl`, `webhook-deliveries.jsonl` | `GET /v1/webhook-endpoints`, `…/{endpointId}/deliveries` |
+| MCP endpoints | `mcp-endpoints.jsonl` | `GET /v1/mcp/endpoints` |
+| Capabilities | `capabilities.jsonl` | `GET /v1/capabilities` |
+| Model providers and their capabilities; identity providers | `providers.jsonl`, `provider-capabilities.jsonl`, `identity-providers.jsonl` | `GET /v1/providers`, `…/{providerId}/capabilities`, `/v1/auth/providers` |
+| Evals: test sets and their cases, eval runs, judgments, judge classes | `eval-suites.jsonl`, `eval-suite-versions.jsonl`, `eval-cases.jsonl`, `eval-runs.jsonl`, `judgments.jsonl`, `judge-classes.jsonl` | `GET /v1/eval-suites`, `…/{suiteId}/versions`, `…/{version}/cases`, `/v1/eval-runs`, `/v1/judgments`, `/v1/judge-classes` |
+| Judging rules, every version, and the queue | `judging-rules.jsonl`, `judging-rule-versions.jsonl`, `judging-queue.jsonl` | `GET /v1/projects/{projectId}/judging-rules`, `…/{ruleId}/versions`, `…/judging-queue` |
+| Proposals and improvement passes | `proposals.jsonl`, `improvement-passes.jsonl` | `GET /v1/proposals`, `/v1/improvement-passes` |
+| Observations | `observations.jsonl` | `GET /v1/observations` |
+| Provenance, and each run's signed provenance | `provenance.jsonl`, `signed/provenance/` | `GET /v1/provenance`, `POST /v1/provenance/{runId}/export` |
+| Cost records | `cost-records.jsonl` | `GET /v1/cost/records?include=rawUsage` |
+| Deployments | `deployments.jsonl` | `GET /v1/deployments` |
+| Signing keys and export signing keys (public keys) | `signing-keys.jsonl`, `export-signing-keys.jsonl` | `GET /v1/signing-keys`, `/v1/export-signing-keys` |
+| Compliance evidence, and its signed export | `compliance-evidence.jsonl`, `signed/compliance-evidence.json` | `GET /v1/compliance/evidence`, `POST …/export` |
+| The audit trail: access decisions and sign-ins | `access-decisions.jsonl`, `sign-ins.jsonl` | `GET /v1/audit/authz`, `/v1/audit/sign-ins` |
 
 ## What isn't exported
 
 - **Secret values.** They can't be read back, by design.
-- **Your packs' built images.** Your pack's source is yours, and the images
-  built from it aren't exported.
-- **Your packs' logs.** They're operational records, kept for 30 days and
-  not exported.
+- **Your packs' built images.** Your pack's source is yours: build them again
+  from it.
+- **Your packs' logs, and the service's logs of your runs.** They're
+  operational records, kept for 30 days and not exported.
