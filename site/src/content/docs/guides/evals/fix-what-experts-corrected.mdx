@@ -1,0 +1,170 @@
+---
+title: Fix what the experts corrected
+description: Pull the runs an expert marked wrong, sort each correction to where it belongs — a rule in code, a setting, an approval rule, or the instructions — add a pack test for each, then publish a new version and ask a person to make it live, naming the corrections it fixes.
+sidebar:
+  order: 8
+---
+
+An expert — a support lead, a claims reviewer, an editor —
+[marks a run's answer wrong and says why](../judge-a-runs-output/). This
+guide turns those corrections into changes to the agent, each at the layer
+where it belongs, so the agent stops making the mistake and you can see the
+mistake is gone.
+
+A correction is not always a prompt change. A store's "never refund
+shipping" belongs in the refund tool's code, where it's checked every time,
+not in instructions a model may or may not follow. The work is to sort each
+correction to the right layer, change that layer, and prove the fix with a
+test. [A coding agent](../../../start/coding-agents/) does most of it, led by
+its `kindgi-fix-corrections` skill, which walks it through these same steps.
+
+## Before you start
+
+- **an agent whose settings and instructions are [data blocks](../change-a-prompt-or-setting/),** so a setting or a wording changes without a code deploy;
+- **corrections to work from:** runs the experts [judged "no" with a reason](../judge-a-runs-output/);
+- **a coding agent,** or someone who runs the CLI, to make the changes and add the tests;
+- **`publish` on the agent,** to derive and promote a version.
+
+## The loop
+
+1. **Pull the corrections** — the agent's "no" judgments, with the reason and the run.
+2. **Sort each** to a rule in code, a setting, an approval rule, or the instructions.
+3. **Change that layer, with a test per correction** so the mistake can't come back.
+4. **Publish a new version and ask to make it live,** naming the corrections it fixes.
+5. A person reviews and makes it live; an approval rule means a second person checks it.
+
+The corrections only ever make the agent stricter, or change how it talks. A
+refund limit and an approval rule are the "never" layer: they stay in code
+and in approvals, and nothing here edits a limit down or removes a check.
+
+## Pull the corrections
+
+List the "no" judgments for the version the expert was correcting:
+
+```sh
+kindgi judgments list --agent=acme-store.refunds --agent-version=1.0.3 --verdict=no
+```
+
+Read each one for the reason and the run it's on:
+
+```sh
+kindgi judgments show <judgment-id>
+kindgi runs get <run-id>
+kindgi runs journal <run-id>
+```
+
+`runs get` is the run's snapshot; `runs journal` is its durable record, step
+by step, where the agent's tool calls and their arguments are. Between the
+reason and the run you have what the agent did and what it should have done.
+
+The runs hold real customer conversations. Keep them out of your repository,
+and write every test with invented data — made-up order ids, amounts and
+names — never a customer's words or details.
+
+## Sort each correction
+
+| The expert wrote | Where it belongs | Who changes it |
+|---|---|---|
+| "Never refund shipping", "final sale: no refund" | a rule in **code** — the refund tool checks it every time | the coding agent, reviewed as a code change |
+| "Our return window is 14 days, not 30" | a **setting** | the owner, [in a form](../change-a-prompt-or-setting/), or the coding agent publishes the block |
+| "Over 50 on a first order: ask a person" | an **approval rule** | the owner or the approver |
+| "Store credit before cash", "too stiff", "say when the money arrives" | the agent's **instructions** | [Improve](../improve-an-agent/), tried on the test cases |
+
+A correction that must hold every time is a code rule; one that's a matter of
+judgment or wording is for the instructions, which you leave to Improve.
+
+## Change the layer, with a test per correction
+
+Add **one test per correction**, so a later version can't bring the mistake
+back:
+
+- **A rule in code:** the coding agent adds the check to the tool and a test
+  that the corrected case is now handled right — an order delivered 20 days
+  ago is refused, a final-sale item isn't refunded. A Node pack runs its
+  tests with `kindgi test` (a wrapper over `vitest`); a Python, Java or
+  Scala pack runs its own test runner.
+- **A setting:** decide the key, its limits and its default, and publish the
+  settings block. Add a test that the tool reads the setting and acts on it.
+- **Instructions:** make sure the corrected cases are in a
+  [test set](../build-a-test-set/), then let [a pass](../improve-an-agent/)
+  try wordings on them. The pass keeps a wording only if it does better on
+  those cases. You don't write the prompt.
+
+A correction the owner would rather own (a setting) or the approver owns (an
+approval rule) is theirs to make: give them the command or the console page,
+and don't make the change for them.
+
+## Publish, and ask to make it live
+
+For a **setting**, publish the block, then derive a new agent version that
+pins it — no code change:
+
+```sh
+kindgi blocks publish acme.store-policy \
+  --block-version=1.0.1 --project=<project-id> \
+  --settings=@store-policy.json --schema=@store-policy.schema.json
+kindgi agents derive acme-store.refunds \
+  --from=1.0.3 --setting=acme.store-policy=1.0.1 --label="return window 14 days"
+```
+
+`blocks publish` takes `--block-version` (a semver) and a required
+`--project`; `--settings` is the block's values and `--schema` constrains
+them. `agents derive --setting=<block-id>=<version>` pins a block the version
+already uses to its new version.
+
+For a **code** change, `kindgi deploy` publishes the new version with the
+changed tool.
+
+Then ask a person to make it live, naming the corrections. Check first what
+will happen, then promote:
+
+```sh
+kindgi agents promote acme-store.refunds 1.0.4 --project=<project-id> --check
+kindgi agents promote acme-store.refunds 1.0.4 --project=<project-id> \
+  --reason="Fixes 1 correction: our return window is 14 days"
+```
+
+- The scope is `--tenant` (every project), `--org=<org-id>`, or
+  `--project=<project-id>` (one project).
+- `--check` changes nothing and answers whether it would promote, needs an
+  approval, or fails a gate.
+- `--reason` is kept on the record: write what the corrections were, so the
+  approver reads the change in plain words.
+- The outcome is `promoted`, or `pending-approval` when an approval rule
+  covers the scope and a second person must approve. Setting an approval rule
+  is how you [get that second person](../release-an-agent-version/).
+
+## A worked example: the return window
+
+An expert corrects a refund: "Shouldn't have refunded — delivered 20 days
+ago, our window is 14." You pull it, and see the window is a store policy,
+not a one-off.
+
+- **If the agent already reads a `returnWindowDays` setting,** publish the
+  block with `returnWindowDays: 14` and derive a version that pins it. Or tell
+  the owner to change it [in a form](../change-a-prompt-or-setting/).
+- **If it doesn't,** the coding agent adds `returnWindowDays` to the
+  store-policy block's schema (whole days, 0–365), makes the refund tool
+  refuse an order delivered more than `returnWindowDays` ago and offer a
+  person, and adds a test: an order delivered 20 days ago is refused. Then
+  `kindgi deploy`.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "returnWindowDays": { "type": "integer", "minimum": 0, "maximum": 365 }
+  }
+}
+```
+
+Ask to make it live with `--reason="Fixes 1 correction: our return window is
+14 days"`. The refund limit — the most a refund can be without a person — is
+never touched here: it stays in code and in the approval rule.
+
+## Next
+
+- [Judge a run's output](../judge-a-runs-output/)
+- [Change a prompt or a setting without a deploy](../change-a-prompt-or-setting/)
+- [Let a pass look for something better](../improve-an-agent/)
+- [Release an agent version](../release-an-agent-version/)
