@@ -343,6 +343,72 @@ describe("a failed query in the thrown error's log line", () => {
     expect(line).not.toContain('alice@acme.example');
   });
 
+  /** A Postgres server error as postgres.js surfaces one: a SQLSTATE `code`, a `severity`, the server's text. */
+  function serverError(text: string, code: string, severity: string | null = 'ERROR'): Error {
+    const err = Object.assign(new Error(text), {
+      code,
+      ...(severity !== null && { severity }),
+    });
+    err.name = 'PostgresError';
+    return err;
+  }
+
+  test.each([
+    [
+      'an invalid uuid',
+      'invalid input syntax for type uuid: "marker-not-a-uuid"',
+      'marker-not-a-uuid',
+    ],
+    [
+      'an invalid enum value',
+      'invalid input value for enum run_status: "marker-status"',
+      'marker-status',
+    ],
+  ])(
+    '%s under a failed query: the line says what it means and its SQLSTATE, never the value',
+    async (_, text, marker) => {
+      const rejected = serverError(text, '22P02');
+      const { errs, line } = await logged(wrappedAt(1, queryError(rejected)), 'unhandled error');
+      expect(line).not.toContain(marker);
+      const said = errs[0]?.cause?.cause;
+      expect(said).toMatchObject({
+        name: 'PostgresError',
+        message: 'invalid input for its type (22P02)',
+        code: '22P02',
+      });
+      expect(said?.stack).toMatch(/^PostgresError: invalid input for its type \(22P02\)\n {4}at /);
+      // The driver's error itself is unchanged.
+      expect(rejected.message).toBe(text);
+    },
+  );
+
+  test('a data exception with no failed query over it says what it means too', async () => {
+    for (const [text, code, said] of [
+      [
+        'date/time field value out of range: "marker-date"',
+        '22008',
+        'a date or time out of range (22008)',
+      ],
+      ['invalid parameter value: "marker-other"', '22023', 'a value the database rejected (22023)'],
+    ] as const) {
+      const { errs, line } = await logged(wrappedAt(1, serverError(text, code)), 'unhandled error');
+      expect(line).not.toContain('marker-');
+      expect(errs[0]?.cause).toMatchObject({ name: 'PostgresError', message: said, code });
+    }
+  });
+
+  test("another SQLSTATE's text, or a class-22 code with no severity, is logged as it is", async () => {
+    const unique = serverError(
+      'duplicate key value violates unique constraint "people_email_key"',
+      '23505',
+    );
+    const noSeverity = serverError('not the server: "kept"', '22P02', null);
+    for (const err of [unique, noSeverity]) {
+      const { errs } = await logged(wrappedAt(1, err), 'unhandled error');
+      expect(errs[0]?.cause?.message).toBe(err.message);
+    }
+  });
+
   test('an error with no failed query among its causes is logged as it is', async () => {
     const thrown = wrappedAt(2, driverError());
     const { errs } = await logged(thrown, 'unhandled error');

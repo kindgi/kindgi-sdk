@@ -50,9 +50,10 @@ import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
  * address (`connect ECONNREFUSED …`). The body says only a fixed message —
  * `A database query failed.` for a query, `Unhandled server error`
  * otherwise — and the log keeps the error under `err`, but never a failed
- * query's SQL or values: on the error or down its `cause` chain, the line
- * says `A database query failed.` in the query error's place, over its
- * stack frames and the database driver's error (see `withoutQueryText`).
+ * query's SQL or values, or a value the server quotes as rejected: on the
+ * error or down its `cause` chain, the line says `A database query
+ * failed.` in a query error's place, and what a data exception means in
+ * place of its text (see `loggable`).
  */
 export function mapThrownError(cause: Error, c: Context): Response {
   if ('getResponse' in cause && typeof cause.getResponse === 'function') {
@@ -76,7 +77,7 @@ export function mapThrownError(cause: Error, c: Context): Response {
     );
   }
   if (isDatabaseBusy(cause) && READ_METHODS.has(c.req.method)) {
-    (c.get('log') as Logger | undefined)?.warn('database busy', { err: withoutQueryText(cause) });
+    (c.get('log') as Logger | undefined)?.warn('database busy', { err: loggable(cause) });
     c.header('Retry-After', String(DATABASE_BUSY_RETRY_AFTER_S));
     c.status(statusFor('database-busy') as never);
     return c.json(
@@ -90,7 +91,7 @@ export function mapThrownError(cause: Error, c: Context): Response {
     );
   }
   // A 500 is something an operator should look at: logged, with the error.
-  (c.get('log') as Logger | undefined)?.error('unhandled error', { err: withoutQueryText(cause) });
+  (c.get('log') as Logger | undefined)?.error('unhandled error', { err: loggable(cause) });
   const body = toWireError(
     {
       code: 'internal-server-error',
@@ -129,25 +130,67 @@ const QUERY_FAILED = 'A database query failed.';
 const LOGGED_CAUSE_DEPTH = 3;
 
 /**
- * `err` as this handler logs it. A query error's message is its SQL and the
- * values bound to it, a person's email or address among them, and a log
- * line writes an error's message and stack, and its causes', down to
- * `LOGGED_CAUSE_DEPTH`. So a query error there is logged as a stand-in that
- * says `A database query failed.`. The stand-in keeps the query error's
- * name, code and stack frames (where the query ran), and its cause, the
- * database driver's error (what the server answered, with its SQLSTATE).
- * The errors above it are copies with the new chain as their cause. With
- * no query error there, `err` is logged as it is. The thrown errors aren't
+ * What a data exception (SQLSTATE class 22) means, in words: its own text
+ * can quote the value the server rejected (`invalid input syntax for type
+ * uuid: "…"`, `invalid input value for enum …: "…"`). The runtime's
+ * storage describes one in the same words.
+ */
+const DATA_EXCEPTIONS: Readonly<Record<string, string>> = {
+  '22001': 'a value too long for its column',
+  '22003': 'a number out of range for its type',
+  '22007': 'an invalid date or time',
+  '22008': 'a date or time out of range',
+  '22021': 'bytes invalid in the encoding',
+  '22P02': 'invalid input for its type',
+  '22P05': 'a character the database cannot store',
+};
+
+/** Any other data exception, in words. */
+const DATA_EXCEPTION = 'a value the database rejected';
+
+/** A SQLSTATE of class 22, data exception. */
+const DATA_EXCEPTION_RE = /^22[0-9A-Z]{3}$/;
+
+/**
+ * `err` as this handler logs it. A log line writes an error's message and
+ * stack, and its causes', down to `LOGGED_CAUSE_DEPTH`. Two messages there
+ * can carry a request's values:
+ * - a query error's is its SQL and the values bound to it, a person's
+ *   email or address among them. It's logged as a stand-in that says
+ *   `A database query failed.` and keeps the query error's name, code and
+ *   stack frames (where the query ran), and its cause, the database
+ *   driver's error;
+ * - a data exception's, the server's answer to a value it couldn't take,
+ *   can quote that value. It's logged saying what it means and its
+ *   SQLSTATE (`invalid input for its type (22P02)`), with its name, code
+ *   and stack frames.
+ * The errors above one are copies with the new chain as their cause.
+ * With neither there, `err` is logged as it is. The thrown errors aren't
  * changed.
  */
-function withoutQueryText(err: unknown, depth = 0): unknown {
-  const query = isQueryError(err);
+function loggable(err: unknown, depth = 0): unknown {
+  const said = saidInstead(err);
   // A plain object's cause isn't written (`@kindgi/log`), nor one past the depth.
-  if (!query && !isError(err)) return err;
+  if (said === undefined && !isError(err)) return err;
   const cause = depth < LOGGED_CAUSE_DEPTH ? fieldOf(err, 'cause') : undefined;
-  const logged = cause === undefined ? undefined : withoutQueryText(cause, depth + 1);
-  if (!query && logged === cause) return err;
-  return copyOf(err as object, logged, query);
+  const logged = cause === undefined ? undefined : loggable(cause, depth + 1);
+  if (said === undefined && logged === cause) return err;
+  return copyOf(err as object, logged, said);
+}
+
+/** What the log line says in place of `err`'s own message, when that can carry a request's values. */
+function saidInstead(err: unknown): string | undefined {
+  if (isQueryError(err)) return QUERY_FAILED;
+  const code = fieldOf(err, 'code');
+  // A Postgres server error: a SQLSTATE and the severity every one carries.
+  if (
+    typeof code !== 'string' ||
+    !DATA_EXCEPTION_RE.test(code) ||
+    typeof fieldOf(err, 'severity') !== 'string'
+  ) {
+    return undefined;
+  }
+  return `${DATA_EXCEPTIONS[code] ?? DATA_EXCEPTION} (${code})`;
 }
 
 /** Drizzle's wrapper around a failed query, whose message is the SQL and its values. */
@@ -161,25 +204,26 @@ function isQueryError(err: unknown): boolean {
 
 /**
  * A copy of `err` with `cause` as its cause, holding what a log line
- * writes of an error: its name, message, code and stack. A query error's
- * copy says `A database query failed.`, over its stack's frames only.
+ * writes of an error: its name, message, code and stack. With `said`, the
+ * copy says that instead, over its stack's frames only.
  */
-function copyOf(err: object, cause: unknown, query: boolean): Error {
+function copyOf(err: object, cause: unknown, said: string | undefined): Error {
   const name = fieldOf(err, 'name');
   const named = typeof name === 'string' ? name : 'Error';
-  const fields = query
-    ? {
-        name: named,
-        message: QUERY_FAILED,
-        code: fieldOf(err, 'code'),
-        stack: framesOf(err, named),
-      }
-    : {
-        name,
-        message: fieldOf(err, 'message'),
-        code: fieldOf(err, 'code'),
-        stack: fieldOf(err, 'stack'),
-      };
+  const fields =
+    said === undefined
+      ? {
+          name,
+          message: fieldOf(err, 'message'),
+          code: fieldOf(err, 'code'),
+          stack: fieldOf(err, 'stack'),
+        }
+      : {
+          name: named,
+          message: said,
+          code: fieldOf(err, 'code'),
+          stack: framesOf(err, named, said),
+        };
   const copy = new Error(undefined, cause === undefined ? undefined : { cause });
   for (const [key, value] of Object.entries(fields)) {
     Object.defineProperty(copy, key, { value, writable: true, configurable: true });
@@ -188,12 +232,12 @@ function copyOf(err: object, cause: unknown, query: boolean): Error {
 }
 
 /**
- * A query error's stack under the line `<name>: A database query failed.`:
- * the frames after the first line V8 writes (`<name>: <message>`). None
- * when the stack doesn't start with that line, or anything after it isn't
- * a frame, since the SQL and values are in that line.
+ * `err`'s stack under the line `<name>: <said>`: the frames after the
+ * first line V8 writes (`<name>: <message>`). None when the stack doesn't
+ * start with that line, or anything after it isn't a frame, since the
+ * message being left out is in that line.
  */
-function framesOf(err: object, name: string): string | undefined {
+function framesOf(err: object, name: string, said: string): string | undefined {
   const stack = fieldOf(err, 'stack');
   const message = fieldOf(err, 'message');
   if (typeof stack !== 'string' || typeof message !== 'string') return undefined;
@@ -201,7 +245,7 @@ function framesOf(err: object, name: string): string | undefined {
   if (!stack.startsWith(head)) return undefined;
   const frames = stack.slice(head.length);
   if (!/^(\n {4}at [^\n]*)+$/.test(frames)) return undefined;
-  return `${name}: ${QUERY_FAILED}${frames}`;
+  return `${name}: ${said}${frames}`;
 }
 
 /** `err[key]`: `undefined` for a non-object, or where reading it throws (a getter, a revoked proxy). */
