@@ -262,8 +262,17 @@ describe("a failed query in the thrown error's log line", () => {
     return { res, text, errs, line: lines.join('\n') };
   }
 
+  /** The stand-in a query error is logged as: the fixed text, over the frames of where it was made. */
+  function expectStandIn(at: LoggedError | undefined) {
+    expect(at?.name).toBe('Error');
+    expect(at?.message).toBe('A database query failed.');
+    expect(typeof at?.stack).toBe('string');
+    expect(at?.stack).toMatch(/^Error: A database query failed\.\n {4}at /);
+    expect(at?.stack).toContain('thrown-errors.test');
+  }
+
   test.each([0, 1, 2, 3])(
-    "%i deep: the driver's error stands in the query error's place, and no SQL or value is logged",
+    '%i deep: a stand-in in its place keeps where the query ran and what the server said, and no SQL or value is logged',
     async (depth) => {
       const driver = driverError();
       const failed = queryError(driver);
@@ -279,16 +288,22 @@ describe("a failed query in the thrown error's log line", () => {
       let at = errs[0];
       for (let link = 1; link <= depth; link++) {
         expect(at?.message).toBe(`Listing runs failed (${link})`);
+        expect(typeof at?.stack).toBe('string');
         expect(at?.stack).toContain(`Listing runs failed (${link})`);
         expect(at?.stack).toContain('thrown-errors.test');
         at = at?.cause;
       }
-      expect(at).toMatchObject({
-        name: 'Error',
-        message: 'relation "people" does not exist',
-        code: '42P01',
-      });
-      expect(at?.stack).toContain('thrown-errors.test');
+      expectStandIn(at);
+      // The driver's error under it, unless that's past the three causes a line writes.
+      if (depth < 3) {
+        expect(at?.cause).toMatchObject({
+          name: 'Error',
+          message: 'relation "people" does not exist',
+          code: '42P01',
+        });
+      } else {
+        expect(at?.cause).toBeUndefined();
+      }
       // The thrown errors themselves are unchanged.
       let node: unknown = thrown;
       for (let link = 0; link < depth; link++) node = (node as Error).cause;
@@ -298,19 +313,33 @@ describe("a failed query in the thrown error's log line", () => {
     },
   );
 
-  test('a failed query with no cause, or on a cycle of them, logs `A database query failed.` with no stack', async () => {
+  test('a failed query with no cause, or on a cycle of them, logs its stand-in', async () => {
     const cyclic = queryError();
     (cyclic as { cause?: unknown }).cause = queryError(cyclic);
     for (const failed of [queryError(), cyclic]) {
       const { errs, line } = await logged(wrappedAt(1, failed), 'unhandled error');
-      expect(errs[0]?.cause).toEqual({ name: 'Error', message: 'A database query failed.' });
+      expectStandIn(errs[0]?.cause);
       expect(line).not.toContain('alice@acme.example');
     }
   });
 
-  test('a failed query whose cause is another gives way to the driver error under both', async () => {
+  test('a failed query whose cause is another: a stand-in for each, and the driver error under both', async () => {
     const { errs, line } = await logged(queryError(queryError(driverError())), 'unhandled error');
-    expect(errs[0]).toMatchObject({ message: 'relation "people" does not exist', code: '42P01' });
+    expectStandIn(errs[0]);
+    expectStandIn(errs[0]?.cause);
+    expect(errs[0]?.cause?.cause).toMatchObject({ message: 'relation "people" does not exist' });
+    expect(line).not.toContain('alice@acme.example');
+  });
+
+  test("a stack that doesn't start with the query's own message line keeps no frames", async () => {
+    // The stack was written before the message lost its values line, so the
+    // values sit after what the message says the first line is.
+    const failed = queryError(driverError());
+    expect(failed.stack).toContain('alice@acme.example');
+    failed.message = 'Failed query: select "id" from "people" where "email" = $1';
+    const { errs, line } = await logged(failed, 'unhandled error');
+    expect(errs[0]).toMatchObject({ name: 'Error', message: 'A database query failed.' });
+    expect(errs[0]?.stack).toBeUndefined();
     expect(line).not.toContain('alice@acme.example');
   });
 
@@ -329,7 +358,8 @@ describe("a failed query in the thrown error's log line", () => {
     });
     const { res, errs, line } = await logged(thrown, 'database busy');
     expect(res.status).toBe(503);
-    expect(errs[0]?.cause).toMatchObject({
+    expect(errs[0]?.cause).toMatchObject({ message: 'A database query failed.' });
+    expect(errs[0]?.cause?.cause).toMatchObject({
       message: 'relation "people" does not exist',
       code: '42P01',
     });
