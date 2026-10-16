@@ -129,8 +129,8 @@ built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.7" \
-  quay.io/kindgi/runtime:0.1.7@sha256:442e3232adf13830868b309390a2cbf74cb1f3538e7efbe3166fad925a10984c
+docker buildx imagetools create --tag "$REPO/runtime:0.1.8" \
+  quay.io/kindgi/runtime:0.1.8@sha256:48b81defe532ec284abb2a9cd8fac5ff7543dea998e7cbf67704a163ce183358
 ```
 
 - `REPO` is the repository's address, from the foundation's output.
@@ -788,10 +788,11 @@ A new grant can take a minute or two to apply.
 
 ## Tear it down
 
-Cloud SQL is protected from deletion: set `database_deletion_protection =
-false` and apply first. The KMS key ring and key outlive `terraform destroy`:
-Google Cloud never deletes them. Take them out of Terraform's state, destroy
-the rest, then schedule the key's versions for destruction:
+Terraform won't delete Cloud SQL while `database_deletion_protection` is
+on (the default). Set it to `false` and apply first. The KMS key ring and
+key outlive `terraform destroy`: Google Cloud never deletes them. Take them
+out of Terraform's state, destroy the rest, then schedule the key's versions
+for destruction:
 
 ```sh
 terraform apply -var-file=prod.tfvars -var=database_deletion_protection=false

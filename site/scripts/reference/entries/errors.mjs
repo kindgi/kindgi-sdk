@@ -976,6 +976,12 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['GET /v1/deployments'],
   },
+  'database-busy': {
+    description:
+      "The database was too busy to answer the read in time: a lock held by other work or a query past the database's time limit ended it, or no database connection came free within the server's wait. Only a `GET` or `HEAD` answers it. Retry after the `Retry-After` header. A request with any other method that the database was too busy for answers a 500 (`internal-server-error`, or the code of what failed, such as `persistence-error`), since it may have saved part of its work: check what it changed before you send it again.",
+    details: [],
+    seeAlso: ['GET /v1/runs'],
+  },
   'journal-error': {
     description:
       "The run's record couldn't be written or read back: the run was started but its row isn't readable, or it couldn't be started or reloaded after cancelling.",
@@ -1099,7 +1105,7 @@ export const ERROR_ENTRIES = {
   },
   'export-key-error': {
     description:
-      "Signing the export with the deployment's export key failed. The message carries the reason.",
+      "Signing the export with the deployment's export key failed. The reason is in the runtime's log, not the message.",
     details: [],
     seeAlso: ['POST /v1/approvals/{approvalId}/audit-bundle', 'POST /v1/provenance/{runId}/export'],
   },
@@ -2482,11 +2488,11 @@ export const ERROR_ENTRIES = {
   },
   'endpoint-not-pending': {
     description:
-      "A problem was recorded for a deployment whose pack service isn't pending. A problem goes with `pending` only.",
+      "A problem was sent for a deployment that isn't waiting for a pack service. A problem goes with a `pending` one, or a `cleared` one listed as needing a pack service again (`waiting`, once a suspension is lifted).",
     details: [
       {
         key: 'status',
-        meaning: "the deployment's endpoint status now: `ready` or `cleared`",
+        meaning: "the deployment's endpoint status now: `ready`, or `cleared` and not `waiting`",
       },
     ],
     seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem'],
@@ -2642,6 +2648,11 @@ export const ERROR_ENTRIES = {
       "The runtime has no authorization store, so it can't say who has access to the project.",
     details: [],
   },
+  'environments-unsupported': {
+    description:
+      "The runtime's env store or secrets store can't list the env names it holds, so the tenant's environments can't be listed whole. The message names the store.",
+    details: [],
+  },
   'provider-key-refused': {
     description:
       "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint or a webhook endpoint. Store the key under its own name and use that name.",
@@ -2732,7 +2743,7 @@ export const ERROR_ENTRIES = {
     details: [
       {
         key: 'policyKind',
-        meaning: 'the kind of policy that failed, for example `hitl`',
+        meaning: 'the kind of policy that failed: `hitl`, `model-routing` or `tool-errors`',
       },
     ],
     seeAlso: ['deploy/operate'],

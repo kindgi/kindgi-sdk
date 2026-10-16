@@ -8069,7 +8069,7 @@ class DeploymentPrimitiveCounts(BaseModel):
 
 class DeploymentEndpointProblem(BaseModel):
     """
-    With `pending` only: the last reason the deployment has no pack service yet, gone once the status changes. A fixed code, never free text.
+    While the deployment waits for a pack service (`pending`, or `cleared` and `waiting`): the last reason recorded while it waited. A `ready` endpoint has none, nor a `retired` one. A fixed code, never free text.
     """
 
     model_config = ConfigDict(
@@ -8088,7 +8088,7 @@ class DeploymentEndpointProblem(BaseModel):
 
 class DeploymentEndpoint(BaseModel):
     """
-    Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`). Carries no URL and no token.
+    Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); it carries `waiting` or `retired` to say whether it comes back. Carries no URL and no token.
     """
 
     model_config = ConfigDict(
@@ -8101,6 +8101,14 @@ class DeploymentEndpoint(BaseModel):
     When the status last changed.
     """
     problem: DeploymentEndpointProblem | None = None
+    waiting: Literal[True] | None = None
+    """
+    `cleared` only: a pack service is wanted for it again, as once a suspension that took its service down is lifted, and it lists as needing one; `problem` says why it isn't back yet. A `cleared` endpoint carries this or `retired`, never both. Absent from older servers, which send neither.
+    """
+    retired: str | None = None
+    """
+    `cleared` only: why no pack service is wanted for it now. `superseded` is for good: newer deployments ship every tool version and check it does, so no new call reaches it; a tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.
+    """
 
 
 class DeploymentRegistrationBody(BaseModel):
@@ -9268,6 +9276,27 @@ class UpsertTenantConfigResult(BaseModel):
         populate_by_name=True,
     )
     entry: TenantConfigEntry
+
+
+class Environment(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    env_name: Annotated[str, Field(alias="envName", pattern="^[a-z][a-z0-9-]{0,62}$")]
+    """
+    Per-environment slug. `[a-z][a-z0-9-]{0,62}` — RFC-1035-like label.
+    """
+
+
+class EnvironmentPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Environment]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
 class SecretRevokeOutcome(BaseModel):

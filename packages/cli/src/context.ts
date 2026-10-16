@@ -13,6 +13,7 @@ import type { ResolvedConfig } from './config.js';
 import type { DeployRunners } from './deploy/runners.js';
 import type { DevRunners } from './dev/runners.js';
 import type { EnvRunners } from './env/runners.js';
+import type { ExportsSeam } from './exports/create.js';
 import type { KeyRunners } from './key/runners.js';
 import type { LicenseCommandDeps } from './license/renew.js';
 import type { OpenUrl } from './open-url.js';
@@ -175,6 +176,8 @@ export interface CommandContext {
    * production leaves this undefined (a timer, the clock, stderr).
    */
   readonly rateLimitWaits?: RateLimitWaitSeam;
+  /** `kindgi exports create`'s output, clock and pauses. Tests inject them; production leaves this undefined. */
+  readonly exportsSeam?: ExportsSeam;
 }
 
 export interface InitSeam {
@@ -211,6 +214,7 @@ export interface BuildContextInputs {
   readonly doctorSeam?: DoctorSeam;
   readonly openUrl?: OpenUrl;
   readonly rateLimitWaits?: RateLimitWaitSeam;
+  readonly exportsSeam?: ExportsSeam;
 }
 
 export function buildContext(inputs: BuildContextInputs): CommandContext {
@@ -266,5 +270,6 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     doctorSeam: inputs.doctorSeam,
     openUrl: inputs.openUrl,
     ...(inputs.rateLimitWaits !== undefined && { rateLimitWaits: inputs.rateLimitWaits }),
+    ...(inputs.exportsSeam !== undefined && { exportsSeam: inputs.exportsSeam }),
   };
 }
