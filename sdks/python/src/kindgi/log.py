@@ -17,7 +17,9 @@ Levels, per subsystem with dotted inheritance (`pack=debug` covers `pack.tool`),
 format come from `KINDGI_LOG_LEVEL`, `KINDGI_LOG_LEVELS` and `KINDGI_LOG_FORMAT`
 (`configure`). Every record is redacted before it's written: fields whose key looks secret
 become `[redacted]`, and known secret shapes in any string (Kindgi tokens, `Bearer …`, a
-URL's password) are masked. Pass a secret's name, never its value.
+URL's password) are masked. Pass a secret's name, never its value. An error in a field is
+written as `err` is — its `name`, scrubbed `message` and `code`, and its causes, without
+its stack — and a value (or a field) that raises when read is `[unreadable]`.
 
 `JsonFormatter` and `PrettyFormatter` put an app's own `logging` records in the same
 schema.
@@ -208,17 +210,46 @@ def scrub_text(text: str) -> str:
 
 _MAX_DEPTH = 8
 
+# What a value, or a field of one, is written as when reading it raises.
+_UNREADABLE = "[unreadable]"
+
+
+def _read(value: Any, attr: str) -> Any:
+    """`getattr(value, attr)`, or `None` when reading it raises (a property that throws)."""
+    try:
+        return getattr(value, attr)
+    except Exception:
+        return None
+
+
+def _text_of(value: Any) -> str:
+    """`str(value)`, or `[unreadable]` when stringifying it raises: logging never throws."""
+    try:
+        return str(value)
+    except Exception:
+        return _UNREADABLE
+
 
 def redact_value(
     value: Any, extra: Sequence[str] = (), _depth: int = 0, _seen: set[int] | None = None
 ) -> Any:
-    """A value with secret keys redacted and strings scrubbed, recursively (a copy)."""
+    """A value with secret keys redacted and strings scrubbed, recursively (a copy).
+
+    An error, at any depth and under any key, is serialized as `err` is, without its
+    stack (`_serialize_error`): its name, scrubbed message, code and causes. None of
+    its other attributes are written, but the message is written as the error gives it
+    (with secret shapes masked), and a database driver's message can itself quote the
+    statement and the values bound to it. A value that raises when read — its `str`, or
+    a mapping's keys — is `[unreadable]`, and a sibling that reads is still written.
+    """
     if isinstance(value, str):
         return scrub_text(value)
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, _dt.datetime):
         return _iso(value)
+    if isinstance(value, BaseException):
+        return _serialize_error(value, with_stack=False)
     seen: set[int] = _seen if _seen is not None else set()
     marker = id(value)
     if marker in seen:
@@ -228,19 +259,73 @@ def redact_value(
     seen.add(marker)
     try:
         if isinstance(value, Mapping):
-            items = cast("Mapping[Any, Any]", value).items()
-            return {
-                str(k): REDACTED
-                if is_secret_key(str(k), extra)
-                else redact_value(v, extra, _depth + 1, seen)
-                for k, v in items
-            }
+            return _redact_mapping(cast("Mapping[Any, Any]", value), extra, _depth, seen)
         if isinstance(value, (list, tuple)):
-            elements = cast("Sequence[Any]", value)
-            return [redact_value(v, extra, _depth + 1, seen) for v in elements]
-        return scrub_text(str(value))
+            return _redact_sequence(cast("Sequence[Any]", value), extra, _depth, seen)
+        return scrub_text(_text_of(value))
     finally:
         seen.discard(marker)
+
+
+def _redact_mapping(
+    value: Mapping[Any, Any], extra: Sequence[str], depth: int, seen: set[int]
+) -> Any:
+    try:
+        keys = list(value.keys())
+    except Exception:
+        return _UNREADABLE
+    out: dict[str, Any] = {}
+    for key in keys:
+        try:
+            name = str(key)
+        except Exception:
+            continue
+        if is_secret_key(name, extra):
+            out[name] = REDACTED
+            continue
+        # A value read key by key, so one that raises is `[unreadable]` and its
+        # readable siblings are still written (as `_read_fields` reads a call's fields).
+        try:
+            out[name] = redact_value(value[key], extra, depth + 1, seen)
+        except Exception:
+            out[name] = _UNREADABLE
+    return out
+
+
+def _redact_sequence(value: Sequence[Any], extra: Sequence[str], depth: int, seen: set[int]) -> Any:
+    try:
+        elements = list(value)
+    except Exception:
+        return _UNREADABLE
+    out: list[Any] = []
+    for element in elements:
+        try:
+            out.append(redact_value(element, extra, depth + 1, seen))
+        except Exception:
+            out.append(_UNREADABLE)
+    return out
+
+
+def _read_fields(fields: Mapping[str, Any] | None) -> dict[str, Any]:
+    """A copy of a call's fields (or a child's bindings), key by key.
+
+    A key whose value raises when read is `[unreadable]`, and when the keys can't be
+    listed the copy is empty, so a log call (and `child`) never throws: its other
+    fields, and the record, are still written.
+    """
+    if fields is None:
+        return {}
+    try:
+        keys = list(fields.keys())
+    except Exception:
+        return {}
+    out: dict[str, Any] = {}
+    for key in keys:
+        try:
+            out[key] = fields[key]
+        except Exception:
+            out[key] = _UNREADABLE
+    return out
 
 
 # -- records ------------------------------------------------------------------------------
@@ -251,18 +336,43 @@ def _iso(when: _dt.datetime) -> str:
     return when.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+def _name_of(err: BaseException) -> str:
+    try:
+        return type(err).__name__ or "Error"
+    except Exception:
+        return "Error"
+
+
+def _stack_of(err: BaseException) -> str | None:
+    try:
+        return "".join(traceback.format_exception(type(err), err, err.__traceback__))
+    except Exception:
+        return None
+
+
 def _serialize_error(err: BaseException | Any, with_stack: bool, depth: int = 0) -> Any:
+    """An error as a record carries it: its name (the class's), scrubbed message and
+    `code`, its causes three deep, and its stack only when asked. None of its other
+    attributes are written, but the message is written as the error gives it (with
+    secret shapes masked), and a database driver's message can itself quote the
+    statement and the values it was bound to. An attribute that raises when read counts
+    as missing (a message that can't be read is empty), so logging never throws.
+    """
     if not isinstance(err, BaseException):
-        return scrub_text(str(err))
-    out: dict[str, Any] = {"name": type(err).__name__, "message": scrub_text(str(err))}
-    code = getattr(err, "code", None)
+        return scrub_text(_text_of(err))
+    try:
+        message = str(err)
+    except Exception:
+        message = ""
+    out: dict[str, Any] = {"name": _name_of(err), "message": scrub_text(message)}
+    code = _read(err, "code")
     if isinstance(code, (str, int)) and not isinstance(code, bool):
         out["code"] = str(code)
     if with_stack:
-        out["stack"] = scrub_text(
-            "".join(traceback.format_exception(type(err), err, err.__traceback__))
-        )
-    cause = err.__cause__
+        stack = _stack_of(err)
+        if stack is not None:
+            out["stack"] = scrub_text(stack)
+    cause = _read(err, "__cause__")
     if cause is not None and depth < 3:
         out["cause"] = _serialize_error(cause, with_stack, depth + 1)
     return out
@@ -450,7 +560,7 @@ class Logger:
         if not level_enabled(level, self._threshold):
             return
         try:
-            merged = {**self._bindings, **(fields or {}), **kwargs}
+            merged = {**self._bindings, **_read_fields(fields), **kwargs}
             record = _build_record(
                 time=self._shared.now(),
                 level=level,
@@ -527,7 +637,7 @@ class Logger:
 
     def child(self, bindings: Mapping[str, Any] | None = None, /, **kw: Any) -> Logger:
         """A logger whose records also carry `bindings`; `subsystem` replaces the parent's."""
-        return Logger(self._shared, {**self._bindings, **(bindings or {}), **kw})
+        return Logger(self._shared, {**self._bindings, **_read_fields(bindings), **kw})
 
     def is_level_enabled(self, level: str) -> bool:
         """Whether a record at `level` would be written: skip costly fields when it wouldn't."""
@@ -739,8 +849,10 @@ class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         level = _level_of(record.levelno)
         fields = getattr(record, "fields", None)
+        # `_read_fields` reads key by key, so a hostile `fields` doesn't make `format`
+        # raise (which would drop the record through logging's error handler).
         merged: dict[str, Any] = (
-            dict(cast("Mapping[str, Any]", fields)) if isinstance(fields, Mapping) else {}
+            _read_fields(cast("Mapping[str, Any]", fields)) if isinstance(fields, Mapping) else {}
         )
         if record.exc_info and record.exc_info[1] is not None:
             merged["err"] = record.exc_info[1]
