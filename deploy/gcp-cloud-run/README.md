@@ -132,7 +132,7 @@ openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-exp
 read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | gcloud secrets versions add $N-license-key --data-file=- && unset LICENSE_KEY
 ```
 
-With `database_private_network` set, the URL is `postgres://kindgi:<password>@<private ip>:5432/kindgi?sslmode=require` (`terraform output database_private_ip`).
+With `database_private_network` set, the URL is `postgres://kindgi:<password>@<private ip>:5432/kindgi?sslmode=require` (`terraform output database_private_ip`). `sslmode=require` encrypts the connection and checks no certificate, and the private IP isn't in the instance's certificate. So the module also sets `KINDGI_DATABASE_SERVER_CA` to the instance's server CAs, and the server (runtime 0.1.8.2 on; an earlier one ignores it) checks that the database's certificate chains to one of them and is in date. It doesn't check the name: the instance's default per-instance CA signs that one instance's certificate alone, and "Verifying the CA verifies the server identity since each instance has a unique CA" ([Google: SSL/TLS certificates](https://docs.cloud.google.com/sql/docs/postgres/authorize-ssl)). Through `/cloudsql` (no `database_private_network`), the Cloud SQL connector encrypts the connection and checks the instance itself.
 
 **Your pack's own secrets** (`secret_env` in `kindgi env plan --env dev`): create each one and add its value, then list it in `pack_secret_env`. The pack service gets read access to exactly those.
 
@@ -305,6 +305,10 @@ server_secret_env = {
 - **Client addresses:** the server trusts one proxy, Cloud Run's front end, which appends the caller to `X-Forwarded-For` (`trusted_proxies = "1"`, `KINDGI_TRUSTED_PROXIES`), so rate limits and audit records see the caller. With an external Application Load Balancer in front, set `"2"`: it appends the client and then its own address ([Google: the X-Forwarded-For header](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
 - **One server instance** (`server_max_instances = 1`) until several replicas are verified. Migrations run at boot and need a direct database connection (the socket or a private IP, not a transaction pooler).
 - **Rotating a secret:** add a version, then roll a new revision of each service that reads it (`gcloud run services update <service> --update-labels=rotated=$(date +%s)`).
+- **Rotating the database's server CA** (private-IP mode): the server trusts the CAs the instance lists at the last apply, so add the new one, apply, and only then rotate. Applying after the rotation is too late: the server refuses the new certificate until it has the new CA.
+  1. `gcloud sql ssl server-ca-certs create --instance=$N` adds the upcoming CA.
+  2. `terraform apply`: the server's new revision trusts it and the current one.
+  3. `gcloud sql ssl server-ca-certs rotate --instance=$N` moves the instance to the new CA ([Google: manage SSL/TLS](https://docs.cloud.google.com/sql/docs/postgres/manage-ssl-instance)).
 - **The AAD key is pinned, never rotated this way.** The server reads the version `secrets_aad_key_version` names, not `latest`. Every secret stored in Postgres is bound to it: a new version is a key change that needs every stored secret re-encrypted, and a version added by mistake must not reach the server.
   - **Upgrading from a module copy before this variable:** set it to the version your server reads now. `gcloud secrets versions list $N-secrets-aad-key` shows it; normally `1`.
 - **Slow tools:** the runtime waits `KINDGI_PACK_CALL_TIMEOUT_MS` (default 120 s, `pack_call_timeout_ms`) for a tool call. Keep the pack service's `pack_timeout` above it.
