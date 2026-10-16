@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.6"
+version: "0.4.7"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -135,6 +135,8 @@ export default defined.value;
   gates (a turn-count gate and per-tool gates). A tenant's `hitl`
   policy can tighten these — a shorter approval timeout, a higher
   reviewer role, a stricter gate for a tool — never loosen them.
+  `hitl.separateApprover` (`true`, or `{ overrides: { '<tool id>': true } }`)
+  makes a tool's approval need someone other than whoever asked.
 - **`budget`** — per-turn ceiling. `maxSteps` caps model-call cycles
   (default 8); `maxCostUsd` caps model spend; `maxWallMs` caps wall
   time (default 120 000). Exceeding steps or cost fails the turn with

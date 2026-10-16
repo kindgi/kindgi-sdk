@@ -13,6 +13,7 @@ import type { TurnContext } from './context.js';
 import { approvalsPendingLimitOf, throwAgentTurnFailure } from './errors.js';
 import { SESSION_GATE_SUBJECT, readGateDecision, withdrawnGateFailure } from './gate-decision.js';
 import { followReplaySessionGate } from './replay.js';
+import { requestedBy } from './requested-by.js';
 import { writeRunSnapshot } from './run-snapshot.js';
 import {
   loadTurnConversation,
@@ -149,6 +150,7 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
       const { waitTokenId, timeoutMs } = gate;
       const expiresAt = new Date(Date.now() + timeoutMs).toISOString();
 
+      const asker = requestedBy(ctx.input.principal);
       if (ctx.bindings.hitl?.enqueue !== undefined) {
         try {
           await ctx.bindings.hitl.enqueue({
@@ -163,6 +165,8 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
               threshold: gate.threshold,
             },
             requiredRole: gate.requiredRole,
+            // Who asked: the person the turn runs for.
+            ...(asker !== undefined && { requestedBy: asker }),
             title: `HITL review required for ${ctx.input.agent.name}`,
             description: gate.reason,
             waitTokenId,
