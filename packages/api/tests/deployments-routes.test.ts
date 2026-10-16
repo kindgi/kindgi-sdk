@@ -11,6 +11,7 @@ import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import { generateEd25519KeyPair, serializePublicKeyPem, signEd25519 } from '@kindgi/crypto';
 import { type Flow, type FlowPins, flowPinsDigest } from '@kindgi/flow';
 import type { Guardrail } from '@kindgi/guardrails';
+import type { LogFields, Logger } from '@kindgi/log';
 import type { Project, ProjectBinding } from '@kindgi/platform';
 import { latestVersion } from '@kindgi/tools';
 import type { Cursor, ProjectId, Semver, SigningKeyId, TenantId } from '@kindgi/types';
@@ -2037,6 +2038,44 @@ describe('POST /v1/deployments — 500s route through the central handler', () =
 
 // ---------------- rollback ----------------
 
+/** A deployment record that throws for the first `failures` deploys, then records them. */
+function makeFailingDeploymentBinding(failures: number): DeploymentBinding {
+  let left = failures;
+  const records = makeInMemoryDeploymentBinding();
+  return {
+    ...records,
+    register: async (input) => {
+      if (left > 0) {
+        left -= 1;
+        throw new Error('the deployment record failed');
+      }
+      return records.register(input);
+    },
+  };
+}
+
+/** A logger that keeps each warn; a child is the same logger. */
+function recordingLogger(): Logger & {
+  warns: { readonly message: string; readonly fields: LogFields | undefined }[];
+} {
+  const warns: { readonly message: string; readonly fields: LogFields | undefined }[] = [];
+  const log: Logger & { warns: typeof warns } = {
+    warns,
+    error: () => undefined,
+    warn: (message, fields) => void warns.push({ message, fields }),
+    info: () => undefined,
+    debug: () => undefined,
+    trace: () => undefined,
+    child: () => log,
+    isLevelEnabled: () => true,
+  };
+  return log;
+}
+
+/** The rollback's warns `logger` kept. */
+const rollbackWarns = (logger: ReturnType<typeof recordingLogger>) =>
+  logger.warns.filter((w) => w.message.startsWith('deploy rollback'));
+
 describe('POST /v1/deployments — rollback', () => {
   test('agent publish throw mid-transaction → 500 + tool/guardrail rolled back', async () => {
     const fixture = buildSignedDeploy({
@@ -2287,6 +2326,47 @@ describe('POST /v1/deployments — rollback', () => {
     );
     expect(await toolRegistry.get({ tenantId, toolId: 'inline' as never })).toBeNull();
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
+  test("a guardrail the rollback can't unregister is warned, by name, and the tool before it is still unregistered", async () => {
+    const fixture = buildSignedDeploy({
+      artifactVersion: '20260920.1',
+      index: indexWith('20260920.1'),
+    });
+    const logger = recordingLogger();
+    const { app, toolRegistry } = makeApp({
+      fixture,
+      deploymentRegistry: makeFailingDeploymentBinding(1),
+      extra: {
+        logger,
+        guardrailRegistry: {
+          ...makeInMemoryGuardrailRegistry(),
+          unregister: async () => {
+            throw new Error('the guardrail store is down');
+          },
+        },
+      },
+    });
+
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(500);
+    expect(rollbackWarns(logger)).toEqual([
+      {
+        message: `deploy rollback: couldn't unregister guardrail "acme.no-fabricated-quotes", so it stays as this deploy left it`,
+        fields: {
+          primitive: 'guardrail',
+          id: 'acme.no-fabricated-quotes',
+          err: new Error('the guardrail store is down'),
+        },
+      },
+    ]);
+    expect(
+      await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+    ).toBeNull();
   });
 });
 
@@ -4547,18 +4627,7 @@ describe('POST /v1/deployments — a redeploy after a rolled-back deploy', () =>
       extra?: Partial<Parameters<typeof createApp>[0]>;
     } = {},
   ) {
-    let failures = opts.failures ?? 0;
-    const records = makeInMemoryDeploymentBinding();
-    const deploymentRegistry: DeploymentBinding = {
-      ...records,
-      register: async (input) => {
-        if (failures > 0) {
-          failures -= 1;
-          throw new Error('the deployment record failed');
-        }
-        return records.register(input);
-      },
-    };
+    const deploymentRegistry = makeFailingDeploymentBinding(opts.failures ?? 0);
     const packs = opts.packs ?? [pack];
     const flows = makeVersionedFlowRegistry();
     const { app } = makeApp({
@@ -4734,6 +4803,40 @@ describe('POST /v1/deployments — a redeploy after a rolled-back deploy', () =>
     expect(tools.states()).toEqual(['acme.score@1.0.0 unregistered']);
     expect(flows.versions()).toEqual([]);
   });
+
+  /** `tools`, its unregister failing. */
+  const unregisterFails = (tools: ToolRegistryBinding): ToolRegistryBinding => ({
+    ...tools,
+    unregister: async () => {
+      throw new Error('the tool store is down');
+    },
+  });
+  const toolWarn = {
+    message: `deploy rollback: couldn't unregister tool "acme.score@1.0.0", so it stays as this deploy left it`,
+    fields: { primitive: 'tool', id: 'acme.score@1.0.0', err: new Error('the tool store is down') },
+  };
+
+  test("a tool version the rollback can't unregister is warned, by name", async () => {
+    const tools = makeRetiringToolRegistry();
+    const logger = recordingLogger();
+    const { deploy } = setup(unregisterFails(tools), { failures: 1, extra: { logger } });
+
+    expect((await deploy()).status).toBe(500);
+    expect(rollbackWarns(logger)).toEqual([toolWarn]);
+    expect(tools.states()).toEqual(['acme.score@1.0.0 active']);
+  });
+
+  test("a reinstated tool version the rollback can't unregister again is warned, by name", async () => {
+    const tools = makeRetiringToolRegistry();
+    tools.seedRetired(scoreTool);
+    const logger = recordingLogger();
+    const { deploy } = setup(unregisterFails(tools), { failures: 1, extra: { logger } });
+
+    expect((await deploy()).status).toBe(500);
+    expect(tools.reinstated).toEqual(['acme.score@1.0.0']);
+    expect(rollbackWarns(logger)).toEqual([toolWarn]);
+    expect(tools.states()).toEqual(['acme.score@1.0.0 active']);
+  });
 });
 
 /**
@@ -4907,30 +5010,21 @@ describe('POST /v1/deployments — a redeploy after a rolled-back deploy, its ag
     opts: {
       failures?: number;
       agents?: (registry: AgentRegistryBinding) => AgentRegistryBinding;
+      flows?: (registry: FlowRegistryBinding) => FlowRegistryBinding;
       extra?: Partial<Parameters<typeof createApp>[0]>;
     } = {},
   ) {
-    let failures = opts.failures ?? 0;
-    const records = makeInMemoryDeploymentBinding();
-    const deploymentRegistry: DeploymentBinding = {
-      ...records,
-      register: async (input) => {
-        if (failures > 0) {
-          failures -= 1;
-          throw new Error('the deployment record failed');
-        }
-        return records.register(input);
-      },
-    };
+    const deploymentRegistry = makeFailingDeploymentBinding(opts.failures ?? 0);
     const agents = makeRetiringVersions();
     const flows = makeRetiringVersions();
     const agentRegistry = makeRetiringAgentRegistry(agents);
+    const flowRegistry = makeRetiringFlowRegistry(flows);
     const { app } = makeApp({
       fixture: pack,
       deploymentRegistry,
       omit: 'tools',
       agentRegistry: opts.agents?.(agentRegistry) ?? agentRegistry,
-      flowRegistry: makeRetiringFlowRegistry(flows),
+      flowRegistry: opts.flows?.(flowRegistry) ?? flowRegistry,
       ...(opts.extra !== undefined && { extra: opts.extra }),
     });
     const deploy = async () => {
@@ -5061,6 +5155,46 @@ describe('POST /v1/deployments — a redeploy after a rolled-back deploy, its ag
     expect(flows.states()).toEqual(['acme.review@1.0.0 unregistered']);
     // The agent this deploy published is rolled back with it.
     expect(agents.states()).toEqual(['acme.matcher@1.0.0 unregistered']);
+  });
+
+  test("each undo the rollback can't do is warned, by name, last write first, and none stops the rest", async () => {
+    const logger = recordingLogger();
+    const fails =
+      <R extends AgentRegistryBinding | FlowRegistryBinding>(what: string) =>
+      (registry: R): R => ({
+        ...registry,
+        unregister: async () => {
+          throw new Error(`the ${what} store is down`);
+        },
+      });
+    const { agents, flows, deploy } = setup({
+      failures: 1,
+      agents: fails('agent'),
+      flows: fails('flow'),
+      extra: { logger },
+    });
+
+    expect((await deploy()).status).toBe(500);
+    expect(rollbackWarns(logger)).toEqual([
+      {
+        message: `deploy rollback: couldn't unregister flow "acme.review@1.0.0", so it stays as this deploy left it`,
+        fields: {
+          primitive: 'flow',
+          id: 'acme.review@1.0.0',
+          err: new Error('the flow store is down'),
+        },
+      },
+      {
+        message: `deploy rollback: couldn't unregister agent "acme.matcher@1.0.0", so it stays as this deploy left it`,
+        fields: {
+          primitive: 'agent',
+          id: 'acme.matcher@1.0.0',
+          err: new Error('the agent store is down'),
+        },
+      },
+    ]);
+    expect(agents.states()).toEqual(['acme.matcher@1.0.0 active']);
+    expect(flows.states()).toEqual(['acme.review@1.0.0 active']);
   });
 });
 

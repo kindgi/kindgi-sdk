@@ -16,6 +16,7 @@ import {
   createCheckRegistry,
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
+import type { Logger } from '@kindgi/log';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
 import { SchemaCompileBudgetError, compileInlineSchema } from '@kindgi/schema';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
@@ -775,8 +776,13 @@ export function deploymentsRouter(
             if (outcome.kind === 'ok') {
               const toolId = outcome.toolId;
               const version = outcome.version;
-              rolled.push(async () => {
-                await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
+              rolled.push({
+                primitive: 'tool',
+                id: `${toolId}@${version}`,
+                undo: 'unregister',
+                run: async () => {
+                  await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
+                },
               });
             } else if (outcome.kind === 'already-registered') {
               await reinstateRetiredTool({
@@ -810,8 +816,13 @@ export function deploymentsRouter(
             });
             if (outcome.kind === 'ok') {
               const guardrailId = outcome.guardrailId;
-              rolled.push(async () => {
-                await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
+              rolled.push({
+                primitive: 'guardrail',
+                id: guardrailId,
+                undo: 'unregister',
+                run: async () => {
+                  await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
+                },
               });
             } else if (outcome.kind === 'already-registered') {
               const kept = await keepRegisteredGuardrail(
@@ -823,8 +834,13 @@ export function deploymentsRouter(
               // Unregistered since the registry answered: registered afresh.
               if (kept.kind === 'registered') {
                 const guardrailId = guardrail.id;
-                rolled.push(async () => {
-                  await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
+                rolled.push({
+                  primitive: 'guardrail',
+                  id: guardrailId,
+                  undo: 'unregister',
+                  run: async () => {
+                    await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
+                  },
                 });
               } else {
                 await refreshGuardrailFields(
@@ -875,7 +891,7 @@ export function deploymentsRouter(
         }
       });
     } catch (cause) {
-      await rollback(rolled);
+      await rollback(rolled, c.get('log'));
       // A compile the tenant's budget refused is a limit, which the app's
       // error handler answers. None runs past the first write here.
       if (cause instanceof SchemaCompileBudgetError) throw cause;
@@ -971,13 +987,13 @@ export function deploymentsRouter(
         },
       });
     } catch (cause) {
-      await rollback(rolled);
+      await rollback(rolled, c.get('log'));
       // To the central error handler: a 500 with no raw text; the error is logged.
       throw cause;
     }
 
     if (outcome.kind === 'error') {
-      await rollback(rolled);
+      await rollback(rolled, c.get('log'));
       // To the central error handler: a 500 with no raw text; the outcome's
       // code and message go to the log.
       throw new Error(`Deployment record failed (${outcome.code}): ${outcome.message}`);
@@ -989,7 +1005,7 @@ export function deploymentsRouter(
       // at the primitive layer too, so `ok` outcomes only happen when
       // the primitive was DIFFERENT this run, which is an inconsistent
       // wire body).
-      await rollback(rolled);
+      await rollback(rolled, c.get('log'));
       c.status(200);
       return c.json(serializeDeployment(outcome.deployment));
     }
@@ -1611,8 +1627,13 @@ async function refreshToolCode(
   const done = await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: now });
   if (!done.refreshed) return;
   // Only while it still points where this deploy put it.
-  rolled.push(async () => {
-    await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: was, expected: now });
+  rolled.push({
+    primitive: 'tool',
+    id: `${tool.id}@${tool.version}`,
+    undo: 'put back the code pointer of',
+    run: async () => {
+      await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: was, expected: now });
+    },
   });
 }
 
@@ -1668,8 +1689,13 @@ async function reinstateRetiredTool(input: {
   }
   // Reinstated since the registry listed it: nothing of this deploy's to undo.
   if (!outcome.wasTombstoned) return;
-  rolled.push(async () => {
-    await registry.unregister({ tenantId, toolId, version });
+  rolled.push({
+    primitive: 'tool',
+    id: `${toolId}@${version}`,
+    undo: 'unregister',
+    run: async () => {
+      await registry.unregister({ tenantId, toolId, version });
+    },
   });
 }
 
@@ -1789,8 +1815,13 @@ async function refreshGuardrailFields(
   const done = await refresh({ tenantId, guardrailId: guardrail.id, ...now });
   if (!done.refreshed) return;
   // Only while it still holds what this deploy gave it.
-  rolled.push(async () => {
-    await refresh({ tenantId, guardrailId: guardrail.id, ...was, expected: now });
+  rolled.push({
+    primitive: 'guardrail',
+    id: guardrail.id,
+    undo: 'put back the code pointer and config schema of',
+    run: async () => {
+      await refresh({ tenantId, guardrailId: guardrail.id, ...was, expected: now });
+    },
   });
 }
 
@@ -2180,7 +2211,18 @@ function validateFlowIndexShape(
 // Rollback / serialisation
 // ------------------------------------------------------------
 
-type RollbackAction = () => Promise<void>;
+/**
+ * A write a deploy made, and how to undo it should the deploy fail
+ * (`rollback`), named for the warn when the undo fails.
+ */
+interface RollbackAction {
+  readonly primitive: 'tool' | 'guardrail' | 'agent' | 'flow';
+  /** `id@version`, or a guardrail's id. */
+  readonly id: string;
+  /** What `run` does to it, as the warn says it: `unregister`, `put back the code pointer of`. */
+  readonly undo: string;
+  readonly run: () => Promise<void>;
+}
 
 /** A deploy whose agents or flows use a tool or agent with no published version in range. */
 class UnpinnableDeploy extends Error {
@@ -2259,8 +2301,13 @@ async function registerAgents(input: {
   const enqueueTuples = (agentId: string) =>
     tuplesForCreate({ kind: 'agent', id: agentId as AgentId, tenantId, projectId });
   const written = (agentId: AgentId, version: Semver) =>
-    rolled.push(async () => {
-      await agents.unregister({ tenantId, agentId, version });
+    rolled.push({
+      primitive: 'agent',
+      id: `${agentId}@${version}`,
+      undo: 'unregister',
+      run: async () => {
+        await agents.unregister({ tenantId, agentId, version });
+      },
     });
 
   if (tools === undefined || blockPins === undefined) {
@@ -2340,8 +2387,13 @@ async function registerFlows(input: {
   const enqueueTuples = (flowId: string) =>
     tuplesForCreate({ kind: 'flow', id: flowId as FlowId, tenantId, projectId });
   const written = (flowId: FlowId, version: string) =>
-    rolled.push(async () => {
-      await flows.unregister({ tenantId, flowId, version: version as never });
+    rolled.push({
+      primitive: 'flow',
+      id: `${flowId}@${version}`,
+      undo: 'unregister',
+      run: async () => {
+        await flows.unregister({ tenantId, flowId, version: version as never });
+      },
     });
 
   if (tools === undefined || agents === undefined) {
@@ -2465,17 +2517,23 @@ async function pinAgents(
   return pins;
 }
 
-async function rollback(actions: readonly RollbackAction[]): Promise<void> {
-  // Reverse order — last-in, first-out — so registrations are undone in
-  // the mirror sequence of their creation.
+/**
+ * Undo a deploy's writes, last first, so registrations are undone in the
+ * mirror sequence of their creation. An undo that fails doesn't stop the
+ * rest: it's warned, naming what it couldn't undo, which stays as the
+ * deploy left it for an operator to reconcile.
+ */
+async function rollback(actions: readonly RollbackAction[], log: Logger): Promise<void> {
   for (let i = actions.length - 1; i >= 0; i--) {
     const action = actions[i];
     if (action === undefined) continue;
     try {
-      await action();
-    } catch {
-      // Swallow: rollback is best-effort. Real production adapters
-      // record a rollback-failure event so operators can reconcile.
+      await action.run();
+    } catch (cause) {
+      log.warn(
+        `deploy rollback: couldn't ${action.undo} ${action.primitive} "${action.id}", so it stays as this deploy left it`,
+        { primitive: action.primitive, id: action.id, err: cause },
+      );
     }
   }
 }
