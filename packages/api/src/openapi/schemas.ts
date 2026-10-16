@@ -1895,6 +1895,16 @@ export const ApprovalDecisionRecordSchema: JsonSchema = {
     reviewerRoleAtDecision: ReviewerRoleSchema,
     decidedAt: { type: 'string', format: 'date-time' },
     rationale: { type: 'string' },
+    sessionProvider: {
+      type: 'string',
+      description:
+        "The provider of the session the reviewer decided with: `site:<id>` for a site's sign-in, an identity provider's id for a single sign-on session. Absent for an API key, and on decisions an older runtime recorded.",
+    },
+    deciderName: {
+      type: 'string',
+      description:
+        "The reviewer's display name when they decided: a person renamed since still shows as they were. Absent on decisions an older runtime recorded.",
+    },
   },
 };
 
@@ -1930,6 +1940,12 @@ export const ApprovalCollectionPageSchema: JsonSchema = {
       enum: ['asc', 'desc'],
       description:
         'The order the page is in: `asc` (oldest first) or `desc` (newest first). Absent from a runtime before Kindgi 0.1.6, which lists newest first and ignores `order`.',
+    },
+    decidedBy: {
+      type: 'string',
+      enum: ['me'],
+      description:
+        '`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.',
     },
   },
 };
@@ -3621,6 +3637,11 @@ export const ConversationSchema: JsonSchema = {
       description:
         "The project the conversation is in: the project of the run that opened it, or `projectId` on open (when omitted, the agent's own project, or the tenant's Default project for an agent filed under none). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.",
     },
+    openedBy: {
+      type: 'string',
+      description:
+        "Who opened it: the caller's principal (`user:<id>`, `service_account:<id>`), or, for one a turn opened, whoever the run acts for. Set by the server, never from a request's body. Absent on conversations an older runtime opened, and when the caller had no principal; those aren't listed by `?openedBy=me`.",
+    },
     scope: {
       type: 'object',
       additionalProperties: true,
@@ -3709,6 +3730,12 @@ export const ConversationCollectionPageSchema: JsonSchema = {
       description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
     },
     hasMore: { type: 'boolean' },
+    openedBy: {
+      type: 'string',
+      enum: ['me'],
+      description:
+        "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.",
+    },
   },
 };
 

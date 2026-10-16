@@ -240,6 +240,21 @@ export function approvalsRouter(
       );
     }
 
+    // `?decidedBy=me`: the approvals the caller's own reviewer row decided.
+    const decidedByRaw = c.req.query('decidedBy');
+    if (decidedByRaw !== undefined && decidedByRaw !== 'me') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: '`decidedBy` takes `me` (the approvals you decided)' },
+          requestId,
+        ),
+      );
+    }
+    // Every page of the list says it holds only the caller's decisions, an
+    // empty one too, so a client can tell a runtime that ignores the filter.
+    const filtered = decidedByRaw === 'me' ? { decidedBy: 'me' as const } : {};
+
     const orderRaw = c.req.query('order');
     if (orderRaw !== undefined && orderRaw !== 'asc' && orderRaw !== 'desc') {
       c.status(statusFor('bad-input') as never);
@@ -392,8 +407,19 @@ export function approvalsRouter(
         userId === undefined
           ? null
           : await reviewerBinding.resolveReviewer({ tenantId, userId: userId as UserId });
-      if (found === null) return c.json({ data: [], hasMore: false, order });
+      if (found === null) return c.json({ data: [], hasMore: false, order, ...filtered });
       assignee = found as ReviewerId;
+    }
+    // Decided by the caller: the same reviewer row. A caller with none decided nothing.
+    let decider: ReviewerId | undefined;
+    if (decidedByRaw === 'me') {
+      const userId = c.get('userId');
+      const found =
+        userId === undefined
+          ? null
+          : await reviewerBinding.resolveReviewer({ tenantId, userId: userId as UserId });
+      if (found === null) return c.json({ data: [], hasMore: false, order, ...filtered });
+      decider = found as ReviewerId;
     }
 
     // Over-fetch up to 4× the page size (capped at 500) so a page still
@@ -408,6 +434,7 @@ export function approvalsRouter(
       ...(statuses?.length === 1 && { status: statuses[0] }),
       ...(statuses !== undefined && { statuses }),
       ...(assignee !== undefined && { assignedTo: assignee }),
+      ...(decider !== undefined && { decidedBy: decider }),
       ...(order === 'asc' && { order }),
       ...(requiredRoleFilter !== undefined && { requiredRole: requiredRoleFilter }),
       ...(createdAfterIso !== undefined && { since: createdAfterIso as unknown as Timestamp }),
@@ -429,7 +456,8 @@ export function approvalsRouter(
       (a) =>
         REVIEWER_ROLE_RANK[a.requiredRole] <= roleRank &&
         (statuses === undefined || statuses.includes(a.status)) &&
-        (assignee === undefined || a.assignedTo === assignee),
+        (assignee === undefined || a.assignedTo === assignee) &&
+        (decider === undefined || a.decision?.reviewerId === decider),
     );
     let visible = inTier;
     if (authorizer !== undefined) {
@@ -472,6 +500,7 @@ export function approvalsRouter(
       hasMore: hasMore && (nextCursor !== undefined || listedOrder === 'desc'),
       ...(nextCursor !== undefined && { nextCursor }),
       order: listedOrder,
+      ...filtered,
     });
   });
 
@@ -598,12 +627,16 @@ export function approvalsRouter(
       });
     }
 
+    // The session's provider, kept with the decision: who vouched for the
+    // reviewer (a site's sign-in, an identity provider). None for a key.
+    const sessionProvider = c.get('sessionId') !== undefined ? c.get('providerId') : undefined;
     const submitted = await hitlBinding.submitReview({
       tenantId,
       approvalId,
       reviewerId: reviewerId as ReviewerId,
       decision: parsed.value.decision,
       ...(parsed.value.rationale !== undefined && { rationale: parsed.value.rationale }),
+      ...(sessionProvider !== undefined && { sessionProvider }),
     });
     if (submitted.kind === 'err') {
       c.status(statusFor(submitted.error.code) as never);
@@ -895,6 +928,8 @@ function serializeApprovalDecision(d: ReviewDecisionRecord): Record<string, unkn
     reviewerRoleAtDecision: d.reviewerRoleAtDecision,
     decidedAt: d.decidedAt,
     ...(d.rationale !== undefined && { rationale: d.rationale }),
+    ...(d.sessionProvider !== undefined && { sessionProvider: d.sessionProvider }),
+    ...(d.deciderName !== undefined && { deciderName: d.deciderName }),
   };
 }
 
