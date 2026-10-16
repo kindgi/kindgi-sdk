@@ -2669,7 +2669,7 @@ export const ERROR_ENTRIES = {
     details: [
       {
         key: 'policyKind',
-        meaning: 'the kind of policy that failed, for example `hitl`',
+        meaning: 'the kind of policy that failed: `hitl`, `model-routing` or `tool-errors`',
       },
     ],
     seeAlso: ['deploy/operate'],
