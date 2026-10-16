@@ -51,6 +51,7 @@ import {
   formatSseFrame,
   isTerminalWireKind,
   parseLastEventId,
+  pause,
   projectJournalEntry,
   toRunProgressEvent,
 } from './sse.js';
@@ -504,12 +505,29 @@ export function runsRouter(
       );
     }
 
+    const headers = {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Request-Id': requestId,
+    };
+    // Hono answers a HEAD with this GET route and drops the body unread, and
+    // nothing cancels it. So a HEAD answers the stream's status and headers
+    // here, before the stream exists, and starts none of its work.
+    if (c.req.method === 'HEAD') return new Response(null, { status: 200, headers });
+
     const encoder = new TextEncoder();
     let lastEmittedSeq = since ?? -1;
     const POLL_MS = 200;
     const MAX_WAIT_MS = 5 * 60_000;
+    // Aborted when the reader cancels the stream (the client went away). The
+    // poll, the wait and the subscription below end on it at once.
+    const reading = new AbortController();
 
     const body = new ReadableStream<Uint8Array>({
+      cancel() {
+        reading.abort();
+      },
       async start(controller) {
         const startedAt = Date.now();
         let closed = false;
@@ -565,6 +583,8 @@ export function runsRouter(
         // whether we're on the push or poll path.
         if (eventBus !== undefined) {
           const abortCtrl = new AbortController();
+          const stop = (): void => abortCtrl.abort();
+          reading.signal.addEventListener('abort', stop, { once: true });
           let subscription: Subscription | null = null;
           let fallBackToPoll = false;
           try {
@@ -608,6 +628,7 @@ export function runsRouter(
               close();
               return;
             }
+            if (abortCtrl.signal.aborted) return;
             const subOutcome = await eventBus.subscribe(
               tenantId,
               `${KERNEL_RUN_CHANNEL_PREFIX}${runId}`,
@@ -646,19 +667,14 @@ export function runsRouter(
               fallBackToPoll = true;
             } else {
               subscription = subOutcome.value;
-              // Wait until close or max-wait window elapses. We rely
-              // on the subscription callback to write frames.
-              await new Promise<void>((resolve) => {
-                const timer = setTimeout(() => resolve(), MAX_WAIT_MS);
-                const onDone = (): void => {
-                  clearTimeout(timer);
-                  resolve();
-                };
-                abortCtrl.signal.addEventListener('abort', onDone, { once: true });
-              });
+              // Wait until a terminal entry, the reader's cancel or the
+              // max-wait window, whichever is first. We rely on the
+              // subscription callback to write frames.
+              await pause(MAX_WAIT_MS, abortCtrl.signal);
               return;
             }
           } finally {
+            reading.signal.removeEventListener('abort', stop);
             abortCtrl.abort();
             if (subscription !== null) {
               try {
@@ -706,13 +722,15 @@ export function runsRouter(
           return { terminal: sawTerminal };
         };
         try {
+          if (reading.signal.aborted) return;
           const first = await pollEmit();
           if (first.terminal) {
             close();
             return;
           }
           while (Date.now() - startedAt < MAX_WAIT_MS) {
-            await new Promise((r) => setTimeout(r, POLL_MS));
+            await pause(POLL_MS, reading.signal);
+            if (reading.signal.aborted) break;
             const step = await pollEmit();
             if (step.terminal) break;
           }
@@ -722,15 +740,7 @@ export function runsRouter(
       },
     });
 
-    return new Response(body, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'X-Request-Id': requestId,
-      },
-    });
+    return new Response(body, { status: 200, headers });
   };
   r.get('/:runId/stream', refuseMalformedRunId, (c) => streamRun(c, 'full'));
   r.get('/:runId/progress/stream', refuseMalformedRunId, (c) => streamRun(c, 'progress'));

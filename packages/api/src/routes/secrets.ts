@@ -748,9 +748,27 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
       );
     }
 
+    const headers = {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      'X-Accel-Buffering': 'no',
+      Connection: 'keep-alive',
+    };
+    // Hono answers a HEAD with this GET route and drops the body unread, and
+    // nothing cancels it. So a HEAD answers the stream's status and headers
+    // here, before the stream exists, and starts none of its work.
+    if (c.req.method === 'HEAD') return new Response(null, { status: 200, headers });
+
     const encoder = new TextEncoder();
     const initialStatus = existing;
+    // Aborted when the reader cancels the stream (the client went away). The
+    // wait below ends on it at once, and the subscription and the heartbeat
+    // with it.
+    const reading = new AbortController();
     const body = new ReadableStream<Uint8Array>({
+      cancel() {
+        reading.abort();
+      },
       async start(controller) {
         let closed = false;
         const close = (): void => {
@@ -806,29 +824,23 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
           if (terminal) return;
           emit('ping', {});
         }, heartbeatMs);
+        reading.signal.addEventListener('abort', wakeup, { once: true });
 
         try {
-          while (!terminal) {
+          while (!terminal && !reading.signal.aborted) {
             await new Promise<void>((resolve) => {
               notifier = resolve;
             });
           }
         } finally {
+          reading.signal.removeEventListener('abort', wakeup);
           clearInterval(timer);
           unsub();
           close();
         }
       },
     });
-    return new Response(body, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache',
-        'X-Accel-Buffering': 'no',
-        Connection: 'keep-alive',
-      },
-    });
+    return new Response(body, { status: 200, headers });
   });
 
   // ------------------------ DELETE /:name -----------------------

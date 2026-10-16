@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, EnvName, Result, TenantId } from '@kindgi/types';
@@ -628,6 +628,109 @@ describe('API — POST /v1/secrets/:name/rotate — async (202)', () => {
       { headers: { authorization: `Bearer ${TOKEN_ALL}` } },
     );
     expect(res.status).toBe(404);
+  });
+
+  /** A pending rotation; the store's subscriptions to it counted. */
+  async function pendingRotation() {
+    const secrets = makeInMemorySecretsBinding();
+    secrets.rotateImpl = async () => ({
+      kind: 'ok',
+      value: { kind: 'rotation-pending', resumeToken: 'acme:rot-1', provider: 'acme-vault' },
+    });
+    const inner = createInMemoryRotationStatusStore();
+    const counts = { subscribed: 0, unsubscribed: 0 };
+    const store: RotationStatusStore = {
+      create: (input) => inner.create(input),
+      get: (input) => inner.get(input),
+      update: (input) => inner.update(input),
+      subscribe: (input) => {
+        counts.subscribed += 1;
+        const unsubscribe = inner.subscribe(input);
+        return () => {
+          counts.unsubscribed += 1;
+          unsubscribe();
+        };
+      },
+    };
+    const app = makeApp({ secrets, store });
+    const rot = await app.request('/v1/secrets/k/rotate?envName=staging&scopeKind=tenant', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN_ALL}`, 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(rot.status).toBe(202);
+    const { eventsUrl } = (await rot.json()) as { eventsUrl: string };
+    const call = (method: 'GET' | 'HEAD', url = eventsUrl) =>
+      app.request(url, {
+        method,
+        headers: { authorization: `Bearer ${TOKEN_ALL}`, 'x-request-id': 'req-events' },
+      });
+    // The same events URL for a rotation that isn't there.
+    const absentUrl = eventsUrl.replace(
+      /\/rotations\/[^/]+\//,
+      '/rotations/00000000-0000-0000-0000-000000000000/',
+    );
+    expect(absentUrl).not.toBe(eventsUrl);
+    return { call, counts, absentUrl };
+  }
+
+  test("a reader that cancels a pending rotation's events: unsubscribed, and no heartbeat after", async () => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
+    try {
+      const { call, counts } = await pendingRotation();
+      const res = await call('GET');
+      expect(res.status).toBe(200);
+      const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+      const decode = async () => new TextDecoder().decode((await reader.read()).value);
+      expect(await decode()).toContain('"status":"pending"');
+      // The heartbeat, every 15 s while the rotation is pending.
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(await decode()).toContain('event: ping');
+      expect([counts, vi.getTimerCount()]).toEqual([{ subscribed: 1, unsubscribed: 0 }, 1]);
+
+      await reader.cancel();
+      await vi.advanceTimersByTimeAsync(0);
+      expect([counts, vi.getTimerCount()]).toEqual([{ subscribed: 1, unsubscribed: 1 }, 0]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a HEAD on a pending rotation's events answers the stream's status and headers and starts none of its work", async () => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
+    try {
+      const { call, counts, absentUrl } = await pendingRotation();
+      const head = await call('HEAD');
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      // No subscription and no heartbeat: the stream never started.
+      expect([counts, vi.getTimerCount()]).toEqual([{ subscribed: 0, unsubscribed: 0 }, 0]);
+      expect(head.body).toBeNull();
+      const get = await call('GET');
+      await get.body?.cancel();
+      expect([head.status, get.status]).toEqual([200, 200]);
+      // Each request answers its own span; every other header is the same.
+      const { traceresponse: headSpan, ...headHeaders } = Object.fromEntries(head.headers);
+      const { traceresponse: getSpan, ...getHeaders } = Object.fromEntries(get.headers);
+      expect([headSpan, getSpan]).toEqual([expect.any(String), expect.any(String)]);
+      expect(headHeaders).toEqual(getHeaders);
+      expect(headHeaders['content-type']).toBe('text/event-stream; charset=utf-8');
+      // A rotation that isn't there: the GET's 404.
+      const [headMissing, getMissing] = [
+        await call('HEAD', absentUrl),
+        await call('GET', absentUrl),
+      ];
+      expect([headMissing.status, getMissing.status, headMissing.body]).toEqual([404, 404, null]);
+      expect(Object.fromEntries(headMissing.headers)).toEqual({
+        ...Object.fromEntries(getMissing.headers),
+        traceresponse: expect.any(String),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
