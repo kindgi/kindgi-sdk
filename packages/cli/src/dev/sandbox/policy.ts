@@ -15,7 +15,9 @@
  * - `dev.sandbox.allowRead`;
  * - a linked package's own folder: where a dependency's link points
  *   outside all of the above (a checkout's workspace packages, `link:`
- *   ones), and theirs in turn.
+ *   ones), and theirs in turn. For a package pnpm keeps in its virtual
+ *   store, the enclosing `node_modules` instead of the bare folder, so the
+ *   sibling dependencies it resolves its own imports through are reachable.
  *
  * A root that is `/`, the home folder, or a folder holding the home
  * folder is left out (`skipped`): it would open everything the sandbox
@@ -29,7 +31,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, lstatSync, readFileSync, readlinkSync, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { delimiter, dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
 
 import { type PackCode, isJvmPackCode, javaArgsFile } from '../pack-code.js';
 import type { DevSandboxSettings } from './settings.js';
@@ -170,10 +172,12 @@ export function symlinksOf(path: string): { readonly path: string; readonly targ
 const MAX_LINKED = 500;
 
 /**
- * The real folders of the packages that dependencies of `starts` link to
- * outside `covered` (a checkout's workspace packages, `link:` ones), and
- * theirs in turn: each package's own folder, never a parent. A link into
- * a covered folder (a `node_modules`) isn't followed: it's open already.
+ * The real folders that dependencies of `starts` link to outside `covered`
+ * (a checkout's workspace packages, `link:` ones), and theirs in turn: each
+ * package's own folder, never a parent — except a package in pnpm's virtual
+ * store, for which its enclosing `node_modules` (holding the package and the
+ * sibling symlinks it resolves its own dependencies through). A link into a
+ * covered folder (a `node_modules`) isn't followed: it's open already.
  */
 export function linkedPackages(starts: readonly string[], covered: readonly string[]): string[] {
   const isCovered = (p: string) => covered.some((c) => p === c || p.startsWith(c + sep));
@@ -184,22 +188,57 @@ export function linkedPackages(starts: readonly string[], covered: readonly stri
     const dir = queue.shift() as string;
     if (seen.has(dir)) continue;
     seen.add(dir);
+    // A package pnpm keeps in its virtual store finds its dependencies as
+    // siblings in the enclosing `node_modules`, not under `<dir>/node_modules`.
+    const depsHome = pnpmStoreNodeModules(dir) ?? join(dir, 'node_modules');
     for (const name of dependencyNames(dir)) {
-      const link = join(dir, 'node_modules', ...name.split('/'));
-      let isLink = false;
-      try {
-        isLink = lstatSync(link).isSymbolicLink();
-      } catch {
-        continue;
-      }
-      if (!isLink) continue;
-      const target = real(link);
-      if (isCovered(target) || !existsSync(join(target, 'package.json'))) continue;
-      found.add(target);
+      const target = linkedTarget(depsHome, name);
+      if (target === undefined || isCovered(target)) continue;
+      // Open the whole enclosing `node_modules` of a store package: its
+      // siblings are the links Node follows to resolve the package's imports.
+      found.add(pnpmStoreNodeModules(target) ?? target);
       queue.push(target);
     }
   }
   return [...found];
+}
+
+/**
+ * The enclosing `node_modules` of a package that sits in pnpm's virtual
+ * store (`.../.pnpm/<name>@<version>/node_modules/<name>`, or `@<scope>/<name>`
+ * for a scoped one), where the package keeps its own dependencies as siblings.
+ * `undefined` for any other layout, so a workspace or `link:` package still
+ * contributes its own folder.
+ */
+export function pnpmStoreNodeModules(pkgDir: string): string | undefined {
+  // The package segment is `<name>` or `@<scope>/<name>`: climb at most twice.
+  let at = dirname(pkgDir);
+  for (let hop = 0; hop < 2; hop += 1) {
+    if (basename(at) === 'node_modules') {
+      const slot = dirname(at);
+      return basename(dirname(slot)) === '.pnpm' && basename(slot).includes('@') ? at : undefined;
+    }
+    const up = dirname(at);
+    if (up === at) break;
+    at = up;
+  }
+  return undefined;
+}
+
+/**
+ * The real folder a dependency `name` links to from `depsHome`, if it's a
+ * symbolic link to a package (one with a `package.json`): otherwise `undefined`
+ * (a bundled copy, a missing dependency, or a broken link isn't followed).
+ */
+function linkedTarget(depsHome: string, name: string): string | undefined {
+  const link = join(depsHome, ...name.split('/'));
+  try {
+    if (!lstatSync(link).isSymbolicLink()) return undefined;
+  } catch {
+    return undefined;
+  }
+  const target = real(link);
+  return existsSync(join(target, 'package.json')) ? target : undefined;
 }
 
 /** The names a package depends on at run time (`dependencies`, `optionalDependencies`). */
