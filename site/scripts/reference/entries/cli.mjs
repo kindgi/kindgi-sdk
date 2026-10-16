@@ -604,7 +604,8 @@ export const CLI_DEFAULTS = {
     'people-cap': '`50`',
     project: "the tenant's Default project",
     'reviewer-ceiling': '`standard`',
-    'role-map': 'both default roles may ask, and decide as `standard` reviewers',
+    'role-map':
+      'both default roles may ask, and decide as `standard` reviewers; with `--allowed-role` alone, the entries of the roles it allows',
     vouching: '`on`',
   },
   'sites code': {
@@ -627,7 +628,7 @@ export const CLI_DEFAULTS = {
     'people-cap': 'unchanged',
     project: "the tenant's Default project",
     'reviewer-ceiling': 'unchanged',
-    'role-map': 'unchanged',
+    'role-map': 'unchanged; with `--allowed-role` alone, the entries of the roles still allowed',
     vouching: 'unchanged',
   },
   'sites pause': {
@@ -1418,6 +1419,11 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Allow more people from the site.',
       line: 'kindgi sites update <site-id> --people-cap=100 --new-people-per-day=40',
+    },
+    {
+      purpose:
+        "Stop the site's administrators signing in; shop managers keep what the role map gives them.",
+      line: 'kindgi sites update <site-id> --allowed-role=shop_manager',
     },
   ],
   'sites pause': [

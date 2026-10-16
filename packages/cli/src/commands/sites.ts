@@ -37,7 +37,7 @@ const SETTING_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   origin: {
     type: 'string',
     description:
-      "The site's origin, as the plugin's Kindgi → Settings page shows it (`https://acme-store.example`): https, no path. `http://` only for localhost or 127.0.0.1.",
+      "The site's origin, as the plugin's Kindgi → Settings page shows it (`https://acme-store.example`): https, no path. `http://` only for localhost, 127.0.0.1 or [::1].",
   },
   'approvals-url': {
     type: 'string',
@@ -48,7 +48,7 @@ const SETTING_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
     type: 'string',
     multiple: true,
     description:
-      'A role on the site that may sign in at all (a WordPress role: `shop_manager`); repeat for each (at most 20). Any other role is refused.',
+      "A role on the site that may sign in at all (a WordPress role: `shop_manager`); repeat for each (at most 20). Any other role is refused. Without --role-map, the role map keeps only these roles' entries: the default map's on register, the site's own on update.",
   },
   'role-map': {
     type: 'string',
