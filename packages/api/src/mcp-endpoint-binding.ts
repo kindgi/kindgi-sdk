@@ -45,6 +45,7 @@ export interface MCPEndpointRegistryBinding {
   /**
    * Remove an endpoint. `{ unregistered: false }` maps to
    * `404 mcp-endpoint-not-found` at the route.
+   * Rejects when its store fails; the route answers 500.
    */
   unregister(input: MCPEndpointUnregisterInput): Promise<MCPEndpointUnregisterOutcome>;
 }

@@ -108,12 +108,14 @@ export interface ToolRegistryBinding {
    * derived "retired" state (GET returns 410 gone).
    * Publish of a new version reactivates. Version is REQUIRED
    * (there are no bare-tool-id semantics).
+   * Rejects when its store fails; the route answers 500.
    */
   unregister(input: ToolUnregisterInput): Promise<ToolUnregisterOutcome>;
   /**
    * Un-tombstone a specific `(toolId, version)`. Recomputes the tool's
    * latest version across active versions. Restores the manifest
    * bytes verbatim (semver hygiene). Idempotent.
+   * Rejects when its store fails; the route answers 500.
    */
   reinstateVersion(input: ToolReinstateVersionInput): Promise<ToolReinstateVersionOutcome>;
   /**
