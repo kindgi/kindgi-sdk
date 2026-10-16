@@ -976,6 +976,12 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['GET /v1/deployments'],
   },
+  'database-busy': {
+    description:
+      "The database was too busy to answer the read in time: a lock held by other work or a query past the database's time limit ended it, or no database connection came free within the server's wait. Only a `GET` or `HEAD` answers it. Retry after the `Retry-After` header. A request with any other method that the database was too busy for answers `500 internal-server-error`, since it may have saved part of its work: check what it changed before you send it again.",
+    details: [],
+    seeAlso: ['GET /v1/runs'],
+  },
   'journal-error': {
     description:
       "The run's record couldn't be written or read back: the run was started but its row isn't readable, or it couldn't be started or reloaded after cancelling.",
@@ -2668,7 +2674,7 @@ export const ERROR_ENTRIES = {
     details: [
       {
         key: 'policyKind',
-        meaning: 'the kind of policy that failed, for example `hitl`',
+        meaning: 'the kind of policy that failed: `hitl`, `model-routing` or `tool-errors`',
       },
     ],
     seeAlso: ['deploy/operate'],

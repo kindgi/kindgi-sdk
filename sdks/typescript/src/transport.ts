@@ -175,6 +175,7 @@ export function createTransport(options: ClientOptions): Transport {
       throw new KindgiApiError(
         withRetryAfter(
           fromWire(unwrapErrorEnvelope(body, response.status), response.status),
+          response.status,
           response.headers.get('Retry-After'),
         ),
       );
@@ -183,11 +184,12 @@ export function createTransport(options: ClientOptions): Transport {
 }
 
 /**
- * A rate-limited error's wait, from the response's `Retry-After` when the
- * body gives none: whole seconds, or an HTTP date.
+ * A rate-limited error's wait, or a 503's, from the response's
+ * `Retry-After` when the body gives none: whole seconds, or an HTTP date.
  */
-function withRetryAfter(error: KindgiError, header: string | null): KindgiError {
-  if (error.code !== 'rate-limited' || error.retryAfterSeconds !== undefined || header === null) {
+function withRetryAfter(error: KindgiError, status: number, header: string | null): KindgiError {
+  const waits = error.code === 'rate-limited' || (error.code === 'server' && status === 503);
+  if (!waits || error.retryAfterSeconds !== undefined || header === null) {
     return error;
   }
   const value = header.trim();

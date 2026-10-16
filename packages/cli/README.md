@@ -590,6 +590,7 @@ and `--published-at`: the same inputs then give the same image.
 | `--push[=<repository>]` | With `--local`: push the image, sign it, and write the envelope. Default repository: the env block's `registry` + `/<packId>`. |
 | `--platform=<os/arch>` | The image's platform. Default: `linux/amd64` when pushing, else this machine's. |
 | `--endpoint=<url>` | The build server. Default: the env block's `build`. |
+| `--out=<dir>` | Where the build writes `dist/`, the `Containerfile`, `context/` and `deploy-envelope.json`. Default: `.kindgi/build`, under the pack. It cannot be the pack root or a directory that contains it; for a TypeScript pack it must stay under the pack root, where the pack's `node_modules` resolves the bundled indexer's imports. |
 | `--tenant=<id>` | The tenant the signature names. Default: the env block's `tenantId`, else `KINDGI_TENANT_ID`. |
 | `--signing-key=<path>` | The Ed25519 private key (PEM). Default: the env block's `signingKey`. |
 | `--skip-integrity-gate` | Sign without re-checking the image's index. Prints a warning. |
