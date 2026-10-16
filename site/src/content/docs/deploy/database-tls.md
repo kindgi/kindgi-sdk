@@ -149,7 +149,9 @@ the server presents a certificate it signed. On Cloud SQL:
 1. `gcloud sql ssl server-ca-certs create --instance=<instance>` adds the
    new CA.
 2. Get the CAs again, as in step 1 above (the file now holds both), and
-   restart the runtime with it. With the Cloud Run module, apply.
+   restart the runtime with it (with the Cloud Run module, apply), and
+   OpenFGA too if it checks the CA
+   ([below](#openfgas-connection-to-the-database)).
 3. `gcloud sql ssl server-ca-certs rotate --instance=<instance>` moves the
    instance to the new CA.
 
@@ -171,7 +173,8 @@ what OpenFGA v1.22.0 checks:
 | `sslmode=require` | yes, or no connection | nothing |
 | `sslmode=require` or `verify-ca`, with `sslrootcert=<file>` | yes, or no connection | that the certificate chains to a CA in the file and is in date, not the name |
 | `sslmode=verify-ca`, with no `sslrootcert` | yes, or no connection | that the certificate chains to a CA the system trusts, not the name |
-| `sslmode=verify-full` | yes, or no connection | the chain and the dates, and that the certificate names the host in the URI, a DNS name or an IP address |
+| `sslmode=verify-full` | yes, or no connection | that the certificate chains to a CA in the `sslrootcert` file, or without one to a CA the system trusts, and is in date, and that it names the host in the URI, a DNS name or an IP address |
+| `sslrootcert=system`, whatever `sslmode` says, `disable` too | yes, or no connection | as `verify-full`, against the CAs the system trusts |
 
 Unlike the runtime's URL, OpenFGA's takes `sslrootcert`, and with it
 `require` checks the CA as `verify-ca` does.
@@ -187,14 +190,21 @@ Which to use depends on how OpenFGA reaches the server, as for the runtime:
   `sslrootcert`. It's the file from
   [step 1 above](#by-an-ip-address-with-the-servers-ca), and, as there,
   checking the CA alone is enough only when the CA signs this one server's
-  certificate. `verify-full` by an address the certificate doesn't name
-  fails with `x509: cannot validate certificate for … because it doesn't
-  contain any IP SANs`.
+  certificate. `verify-full` fails by an address the certificate doesn't
+  name. For a certificate that names no address at all, the error is
+  `x509: cannot validate certificate for … because it doesn't contain any IP
+  SANs`.
 
 By an IP address, mount the CA file into OpenFGA's container and name it in
 the URI, for `migrate` and for `run`:
 
 ```sh
+docker run --rm --network kindgi \
+  -v "$PWD/database-ca.pem:/etc/openfga/database-ca.pem:ro" \
+  openfga/openfga:v1.22.0 migrate \
+  --datastore-engine postgres \
+  --datastore-uri "postgres://kindgi:$DB_PASSWORD@10.20.0.3:5432/openfga?sslmode=verify-ca&sslrootcert=/etc/openfga/database-ca.pem"
+
 docker run -d --name kindgi-openfga --network kindgi --restart unless-stopped \
   -v "$PWD/database-ca.pem:/etc/openfga/database-ca.pem:ro" \
   openfga/openfga:v1.22.0 run \
