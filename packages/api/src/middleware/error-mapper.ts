@@ -170,7 +170,8 @@ const DATA_EXCEPTION = 'a value the database rejected';
 const DATA_EXCEPTION_RE = /^22[0-9A-Z]{3}$/;
 
 /**
- * `err` as this handler logs it. A log line writes an error's message and
+ * `err` as this handler logs it, and as the auth middleware logs a session
+ * touch that failed. A log line writes an error's message and
  * stack, and its causes', down to `LOGGED_CAUSE_DEPTH`. Two messages there
  * can carry a request's values:
  * - a query error's is its SQL and the values bound to it, a person's
@@ -186,7 +187,7 @@ const DATA_EXCEPTION_RE = /^22[0-9A-Z]{3}$/;
  * With neither there, `err` is logged as it is. The thrown errors aren't
  * changed.
  */
-function loggable(err: unknown, depth = 0): unknown {
+export function loggable(err: unknown, depth = 0): unknown {
   const said = saidInstead(err);
   // A plain object's cause isn't written (`@kindgi/log`), nor one past the depth.
   if (said === undefined && !isError(err)) return err;

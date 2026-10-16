@@ -96,6 +96,7 @@ export interface AgentRegistryBinding {
    * version — it enters the derived "retired" state
    * (GET returns 410 gone) but the identity persists. Publish of a
    * new version reactivates.
+   * Rejects when its store fails; the route answers 500.
    */
   unregister(input: AgentUnregisterInput): Promise<AgentUnregisterOutcome>;
   /**
@@ -106,6 +107,7 @@ export interface AgentRegistryBinding {
    * the manifest). Idempotent: reinstating an active version is a
    * no-op. `{ kind: 'not-found' }` when the version was never
    * published.
+   * Rejects when its store fails; the route answers 500.
    */
   reinstateVersion(input: AgentReinstateVersionInput): Promise<AgentReinstateVersionOutcome>;
 }
