@@ -150,13 +150,12 @@ The cost is 0 on `dev-echo`, which costs nothing:
 
 ### It learns from trusted judgments
 
-A pass counts only the judgments of the people you trust: a
+By default, a pass counts only the judgments of the people you trust: those
+recorded under a
 [judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class) you
-restrict, each class carrying a weight. By default a pass counts only the
-judgments recorded under a restricted class, `classWeights:
-"restricted-only"`, so who may steer it is a choice you make.
-`"as-recorded"` counts every judgment, by its class's weight: set it in the
-API or the clients.
+restrict, `classWeights: "restricted-only"`. So who may steer it is a choice
+you make. `"as-recorded"` counts every judgment, by its class's weight: set
+it in the API or the clients.
 
 ## Draft a prompt instead
 
