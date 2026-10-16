@@ -33,7 +33,7 @@ Which check fits depends on how the runtime reaches the server:
   `sslmode=verify-full`.
 - **[By an IP address](#by-an-ip-address-with-the-servers-ca):** the
   server's CA, in `KINDGI_DATABASE_SERVER_CA_PATH` or
-  `KINDGI_DATABASE_SERVER_CA` (runtime 0.1.8.1 or later).
+  `KINDGI_DATABASE_SERVER_CA` (runtime 0.1.8.2 or later).
 
 ## On Cloud Run, through Cloud SQL's socket
 
@@ -72,11 +72,12 @@ instance with Private Service Connect
 
 ## By an IP address, with the server's CA
 
-A certificate rarely names an IP address, and the runtime's client can't
-check a name against one: it refuses `sslmode=verify-full` with a host
-given as an address. There, give the runtime the CA that signed the
-server's certificate. It then checks that the certificate chains to that
-CA and is in date, and not the name.
+A certificate rarely names an IP address. When yours does,
+`sslmode=verify-full` checks the address as it checks a name (runtime
+0.1.8.2 or later), and the [section above](#by-a-dns-name) applies. When
+it doesn't, give the runtime the CA that signed the server's certificate.
+It then checks that the certificate chains to that CA and is in date, and
+not the name.
 
 Checking the CA alone is enough only when the CA signs this one server's
 certificate. Cloud SQL's per-instance CA, the default, does: "Verifying
@@ -125,13 +126,12 @@ offers no TLS. A certificate the CA didn't sign, or one out of date, stops
 the boot (exit code 1):
 
 ```text
-Can't connect to the database at …: unable to verify the first certificate. Check KINDGI_DATABASE_URL and KINDGI_DATABASE_SERVER_CA_PATH (the CA that signed the server's certificate), and that Postgres is up and reachable from here.
+Can't connect to the database at …: UNABLE_TO_VERIFY_LEAF_SIGNATURE. Check KINDGI_DATABASE_URL and KINDGI_DATABASE_SERVER_CA_PATH (the CA that signed the server's certificate), and that Postgres is up and reachable from here.
 ```
 
 The runtime refuses to start (exit code 2) when both settings are set, or
-when a CA is given with a URL that reaches a Unix socket, turns TLS off
-(`sslmode=disable`, `ssl=false`), or asks for the name to be checked on an
-IP address. So do
+when a CA is given with a URL that reaches a Unix socket or turns TLS off
+(`sslmode=disable`, `ssl=false`). So do
 `kindgi-runtime check`, `kindgi-runtime tenants` and
 `kindgi-runtime erasures`, which open the same database.
 

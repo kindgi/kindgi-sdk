@@ -17,7 +17,7 @@
 # the URL says sslmode=require, which encrypts and checks no certificate,
 # and the private IP isn't in the server certificate, so the server checks
 # its certificate against the instance's own CAs (KINDGI_DATABASE_SERVER_CA,
-# read from runtime 0.1.8.1 on): the chain and the dates, not the name.
+# read from runtime 0.1.8.2 on): the chain and the dates, not the name.
 # That's enough with the per-instance CA the instance gets by default,
 # which signs this one instance's certificate alone.
 
