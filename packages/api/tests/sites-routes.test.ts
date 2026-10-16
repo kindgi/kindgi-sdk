@@ -9,7 +9,7 @@ import type { ProjectId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { createApp } from '../src/index.js';
+import { applySiteChange, createApp } from '../src/index.js';
 import type {
   RunHandlerBinding,
   Site,
@@ -100,10 +100,13 @@ function makeApp(
     },
     list: async () => ({ data: [...sites.values()] }),
     get: async ({ siteId }) => sites.get(siteId) ?? null,
-    async update({ siteId, patch }) {
+    async update(input) {
+      calls.push({ method: 'update', input });
+      const { siteId, patch } = input;
       const site = sites.get(siteId);
       if (site === undefined) return { kind: 'not-found' };
-      const next = { ...site, ...patch } as Site;
+      // As the binding does: the change applied to the site as stored.
+      const next = { ...site, ...applySiteChange({ ...site }, patch) } as Site;
       sites.set(siteId, next);
       return { kind: 'ok', site: next };
     },
@@ -220,6 +223,24 @@ describe('the sites of a project (tenant admins)', () => {
     expect(h.calls[0]?.input).toMatchObject({ projectId: P1, by: 'user:ada' });
   });
 
+  test('allowed roles without a role map: the default map keeps the allowed roles only', async () => {
+    const h = makeApp();
+    const narrowed = await h.call(ADMIN, 'POST', `/v1/projects/${P1}/sites`, {
+      ...register,
+      allowedRoles: ['shop_manager'],
+    });
+    expect(narrowed.status).toBe(201);
+    expect(narrowed.body.site.roleMap).toEqual({
+      shop_manager: { ask: true, reviewer: 'standard' },
+    });
+    const other = await h.call(ADMIN, 'POST', `/v1/projects/${P1}/sites`, {
+      ...register,
+      allowedRoles: ['editor'],
+    });
+    expect(other.status).toBe(201);
+    expect(other.body.site.roleMap).toEqual({});
+  });
+
   test('a person who is not a tenant admin is refused, and the binding is never asked', async () => {
     const h = makeApp();
     const res = await h.call(MEMBER, 'POST', `/v1/projects/${P1}/sites`, register);
@@ -287,6 +308,12 @@ describe('the sites of a project (tenant admins)', () => {
       roleMap: { administrator: { ask: true, reviewer: 'senior' }, shop_manager: { ask: false } },
     });
     expect(res.status).toBe(201);
+    const v6 = await h.call(ADMIN, 'POST', `/v1/projects/${P1}/sites`, {
+      ...register,
+      origin: 'http://[::1]:18190',
+      approvalsUrl: 'http://[::1]:18190/wp-admin/admin.php?page=kindgi&approval={approvalId}',
+    });
+    expect(v6.status).toBe(201);
   });
 
   test("a project id that isn't one is a 400; a project that isn't there is a 404", async () => {
@@ -365,6 +392,28 @@ describe('a change is checked as the site it makes', () => {
     });
     expect(res.status).toBe(200);
     expect(res.body.origin).toBe('https://other-store.example');
+  });
+
+  test('allowed roles alone keep the map of the roles still allowed; a map given is checked as given', async () => {
+    const h = makeApp();
+    const siteId = (await h.call(ADMIN, 'POST', `/v1/projects/${P1}/sites`, register)).body.site
+      .siteId as string;
+    const url = `/v1/projects/${P1}/sites/${siteId}`;
+    const narrowed = await h.call(ADMIN, 'PATCH', url, { allowedRoles: ['shop_manager'] });
+    expect(narrowed.status).toBe(200);
+    expect(narrowed.body.roleMap).toEqual({ shop_manager: { ask: true, reviewer: 'standard' } });
+    // The binding gets the change as sent: it applies it to the site as stored.
+    expect(h.calls.at(-1)).toMatchObject({
+      method: 'update',
+      input: { patch: { allowedRoles: ['shop_manager'] } },
+    });
+    expect((h.calls.at(-1)?.input as { patch: object }).patch).not.toHaveProperty('roleMap');
+    const stray = await h.call(ADMIN, 'PATCH', url, {
+      allowedRoles: ['shop_manager'],
+      roleMap: { administrator: { ask: true } },
+    });
+    expect(stray.status).toBe(400);
+    expect(stray.body.error).toMatchObject({ code: 'site-invalid', details: { field: 'roleMap' } });
   });
 });
 

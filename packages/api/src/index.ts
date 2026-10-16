@@ -155,6 +155,7 @@ export type {
 } from './site-binding.js';
 export {
   SITE_DEFAULTS,
+  applySiteChange,
   checkSiteSettings,
   hasHiddenCharacters,
   siteOrigin,

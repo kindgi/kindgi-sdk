@@ -2129,7 +2129,7 @@ const SiteSettingsProperties: Record<string, JsonSchema> = {
   displayName: { type: 'string', minLength: 1, maxLength: 100 },
   origin: {
     type: 'string',
-    description: 'An https:// origin with no path; http:// only for localhost or 127.0.0.1.',
+    description: 'An https:// origin with no path; http:// only for localhost, 127.0.0.1 or [::1].',
   },
   approvalsUrl: {
     type: 'string',
@@ -2145,7 +2145,8 @@ const SiteSettingsProperties: Record<string, JsonSchema> = {
   roleMap: {
     type: 'object',
     additionalProperties: { $ref: '#/components/schemas/SiteRoleGrant' },
-    description: 'Default: both default roles may ask, and decide as `standard` reviewers.',
+    description:
+      "Default: both default roles may ask, and decide as `standard` reviewers. Without a `roleMap`, the map keeps the entries of the roles in `allowedRoles` only: the default map's for a new site, the site's own for a change.",
   },
   reviewerCeiling: {
     type: 'string',
