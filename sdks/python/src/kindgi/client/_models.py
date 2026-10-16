@@ -13367,11 +13367,11 @@ class WhoamiResult(BaseModel):
     """
     role: Literal["admin", "member"] | None = None
     """
-    The caller's API key role, when the key has one.
+    The caller's API key role, when the key has one, or its session's role ceiling.
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    The project the caller's API key is limited to, when it is.
+    The project the caller's API key or session is limited to, when it is.
     """
     tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
     """

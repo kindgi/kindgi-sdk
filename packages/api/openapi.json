@@ -438,6 +438,8 @@
           "invalid-provider-config": 400,
           "auth-not-session-token": 400,
           "cookie-session-not-refreshable": 400,
+          "limited-session-not-refreshable": 400,
+          "limited-session-cannot-mint": 403,
           "token-sign-in-needs-an-api-token": 400,
           "redirect-uri-not-allowed": 400,
           "redirect-uri-mismatch": 400,
@@ -15679,11 +15681,11 @@
               "admin",
               "member"
             ],
-            "description": "The caller's API key role, when the key has one."
+            "description": "The caller's API key role, when the key has one, or its session's role ceiling."
           },
           "projectId": {
             "type": "string",
-            "description": "The project the caller's API key is limited to, when it is."
+            "description": "The project the caller's API key or session is limited to, when it is."
           },
           "tenantAdmin": {
             "type": "boolean",
@@ -23550,7 +23552,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed).",
+            "description": "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a session limited to a project or a role, which mints no keys (`limited-session-cannot-mint`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43115,7 +43117,7 @@
             }
           },
           "400": {
-            "description": "Caller presented a bearer token (refresh is session-only), or a browser session (cookie).",
+            "description": "Caller presented a bearer token (refresh is session-only), a browser session (cookie), or a session limited to a project or a role (`limited-session-not-refreshable`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43175,7 +43177,7 @@
             }
           }
         },
-        "description": "Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. The session token rotates: the new session keeps the person, scopes and expiry, and the provider is not called. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.",
+        "description": "Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. The session token rotates: the new session keeps the person, scopes and expiry, and the provider is not called. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL. Nor is a session limited to a project or a role: `400 limited-session-not-refreshable`; get a new one where you got this one.",
         "parameters": [
           {
             "name": "Idempotency-Key",
