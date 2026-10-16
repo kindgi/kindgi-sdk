@@ -4,7 +4,9 @@
 developers) have one version, the same as the npm packages', spelled as PyPI
 spells it: `0.1.8rc0` for npm's `0.1.8-rc.0`. Each user-visible change adds
 its line under **Unreleased** in the pull request that makes it. A release
-turns that heading into its version. `kindgi-cli` carries `@kindgi/cli` of the
+turns that heading into its version. A release after release candidates
+lists their changes too, so its section has every change since the release
+before. `kindgi-cli` carries `@kindgi/cli` of the
 same version, and the CLI's own changes are in
 [`@kindgi/cli`'s changelog](../../packages/cli/CHANGELOG.md).
 
