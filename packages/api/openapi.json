@@ -293,6 +293,7 @@
           "internal-server-error": 500,
           "journal-error": 500,
           "stuck": 500,
+          "database-busy": 503,
           "waitpoint-error": 409,
           "approval-not-found": 404,
           "reviewer-not-found": 404,
