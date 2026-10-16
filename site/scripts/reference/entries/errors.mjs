@@ -2419,11 +2419,11 @@ export const ERROR_ENTRIES = {
   },
   'endpoint-not-pending': {
     description:
-      "A problem was recorded for a deployment whose pack service isn't pending. A problem goes with `pending` only.",
+      "A problem was sent for a deployment that isn't waiting for a pack service. A problem goes with a `pending` one, or a `cleared` one listed as needing a pack service again (`waiting`, once a suspension is lifted).",
     details: [
       {
         key: 'status',
-        meaning: "the deployment's endpoint status now: `ready` or `cleared`",
+        meaning: "the deployment's endpoint status now: `ready`, or `cleared` and not `waiting`",
       },
     ],
     seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem'],

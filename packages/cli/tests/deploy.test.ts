@@ -1246,6 +1246,12 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     status: 'cleared',
     since: '2026-10-13T08:00:30.000Z',
   };
+  const waiting = (problem?: string): DeploymentEndpointRecord => ({
+    ...cleared,
+    waiting: true,
+    ...(problem !== undefined && { problem: { code: problem, since: '2026-10-13T08:00:31.000Z' } }),
+  });
+  const retired = (reason: string): DeploymentEndpointRecord => ({ ...cleared, retired: reason });
 
   /**
    * Fixtures whose deploy answers with `first`, and whose reads of the
@@ -1255,15 +1261,16 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
   function hostedFixtures(
     first: DeploymentEndpointRecord | undefined,
     reads: readonly (DeploymentEndpointRecord | 'error')[],
-    opts: FixtureOptions = {},
+    opts: FixtureOptions & { readonly repeat?: boolean } = {},
   ) {
+    const record = makeDeploymentRecord(first !== undefined ? { endpoint: first } : {});
     const fixtures = makeFixtures({
       ...opts,
-      postResult: {
-        kind: 'created',
-        status: 201,
-        record: makeDeploymentRecord(first !== undefined ? { endpoint: first } : {}),
-      },
+      // A repeat deploy of the same image: the server answers with the deployment it has.
+      postResult:
+        opts.repeat === true
+          ? { kind: 'replayed', status: 200, record }
+          : { kind: 'created', status: 201, record },
     });
     let clock = 0;
     const sleeps: number[] = [];
@@ -1365,13 +1372,75 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     expect(run.readIds).toHaveLength(0);
   });
 
-  test('a pack service taken down before it was ready fails, naming the deployment', async () => {
+  test('a cleared pack service from a server that says neither (before 0.1.8.1) fails, naming the deployment', async () => {
     await writeAutoEnvelope();
     const run = hostedFixtures(pending(), [cleared]);
     const out = await deploy(run.fixtures, '--hosted');
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain(
-      "The deployment's pack service was taken down before it was ready (cleared). deploymentId dep-01H8XM.",
+      "The deployment's pack service was taken down (cleared). deploymentId dep-01H8XM.",
+    );
+  });
+
+  test('a repeat deploy of an image a suspension took down, once lifted: it waits for the service to come back', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(waiting(), [waiting(), waiting('service-start-failed'), ready], {
+      repeat: true,
+    });
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode, out.stderr).toBe(0);
+    const waited = out.stderr.slice(out.stderr.indexOf('Waiting for the pack service'));
+    expect(waited.split('\n').slice(0, 4)).toEqual([
+      'Waiting for the pack service',
+      '    … cleared, waiting for its pack service again',
+      "    … cleared, waiting for its pack service again (service-start-failed): the pack's image was deployed but didn't start",
+      '    ✓ ready',
+    ]);
+  });
+
+  test('still waiting after 5 minutes: it stops as for a pending one, with the last state', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(waiting(), [waiting('capacity-unavailable')], { repeat: true });
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "The pack service isn't ready after 5 minutes: cleared, waiting for its pack service again (capacity-unavailable): there is no room for another pack service just now. deploymentId dep-01H8XM.",
+    );
+  });
+
+  test('a repeat deploy of a superseded image fails at once, saying no call reaches it', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(retired('superseded'), [ready], { repeat: true });
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode).toBe(1);
+    expect(run.readIds).toHaveLength(0);
+    expect(out.stderr).toContain(
+      "The deployment's pack service was taken down (cleared, superseded): a later deploy ships every tool version and check this one does, so no new call reaches it. deploymentId dep-01H8XM.",
+    );
+  });
+
+  test('suspended again while it waits: it stops with the reason', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(waiting(), [waiting(), retired('pack-suspended')], { repeat: true });
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "The deployment's pack service was taken down (cleared, pack-suspended): its pack is suspended, until it's restored. deploymentId dep-01H8XM.",
+    );
+  });
+
+  test.each([
+    ['tenant-closing', 'your workspace is closing'],
+    ['tenant-suspended', "your workspace is suspended, until it's restored"],
+    ['project-suspended', "its project is suspended, until it's restored"],
+    ['a-later-reason', 'none is wanted for it now'],
+  ])('retired %s: it says so', async (reason, why) => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [retired(reason)]);
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      `The deployment's pack service was taken down (cleared, ${reason}): ${why}. deploymentId dep-01H8XM.`,
     );
   });
 

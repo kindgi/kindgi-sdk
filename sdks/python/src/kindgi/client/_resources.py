@@ -1972,7 +1972,7 @@ class SystemDeploymentsResource:
     ) -> _models.DeploymentEndpoint:
         """Record why a deployment has no pack service yet. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem`
 
-        For whatever creates the pack services: records why a `pending` deployment has none yet, as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.
+        For whatever creates the pack services: records why a deployment waiting for one has none yet (`pending`, or `cleared` and `waiting`, as after a suspension is lifted), as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.
         """
         return self._client._request(
             _OPERATIONS["systemDeployments.recordProblem"],
@@ -9771,7 +9771,7 @@ class AsyncSystemDeploymentsResource:
     ) -> _models.DeploymentEndpoint:
         """Record why a deployment has no pack service yet. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem`
 
-        For whatever creates the pack services: records why a `pending` deployment has none yet, as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.
+        For whatever creates the pack services: records why a deployment waiting for one has none yet (`pending`, or `cleared` and `waiting`, as after a suspension is lifted), as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.
         """
         return await self._client._request(
             _OPERATIONS["systemDeployments.recordProblem"],
