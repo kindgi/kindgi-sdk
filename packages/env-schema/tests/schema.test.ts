@@ -480,6 +480,7 @@ describe('validateEnvForTarget', () => {
       ['KINDGI_DB_STATEMENT_TIMEOUT_MS', '60000'],
       ['KINDGI_DB_LOCK_TIMEOUT_MS', '30000'],
       ['KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS', '120000'],
+      ['KINDGI_DB_POOL_WAIT_TIMEOUT_MS', '10000'],
     ] as const) {
       expect(server.get(name)?.required, name).toBe(false);
       expect(server.get(name)?.example, name).toBe(example);
