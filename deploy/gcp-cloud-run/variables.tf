@@ -239,7 +239,7 @@ variable "database_private_network" {
 }
 
 variable "database_deletion_protection" {
-  description = "Keep Terraform (and the console) from deleting Kindgi's database instance."
+  description = "Keep Terraform from deleting Kindgi's database instance (Terraform's own deletion_protection). It doesn't stop a delete from the console, gcloud or the Cloud SQL API."
   type        = bool
   default     = true
 }
