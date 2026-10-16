@@ -115,9 +115,11 @@ The plugin is in the kindgi-sdk repository, under
 [`integrations/wordpress/kindgi`](https://github.com/kindgi/kindgi-sdk/tree/main/integrations/wordpress/kindgi).
 It needs WordPress 6.4 or later and PHP 7.4 or later.
 
-1. **Install it.** Zip the folder as `kindgi.zip` and upload it under
-   **Plugins → Add New → Upload Plugin**, or copy the folder to
-   `wp-content/plugins/kindgi`. Then activate it.
+1. **Install it.** Download `kindgi-<version>.zip` from the SDK's
+   [latest release](https://github.com/kindgi/kindgi-sdk/releases/latest),
+   and upload it under **Plugins → Add New → Upload Plugin**. The `.sha256`
+   file next to it checks the download (`sha256sum -c`). Or copy the folder
+   to `wp-content/plugins/kindgi`. Then activate it.
 2. **Connect.** An administrator, under **Kindgi → Settings**, pastes the
    one-time code and the Kindgi URL this server reaches, then chooses
    **Connect**. The plugin makes
