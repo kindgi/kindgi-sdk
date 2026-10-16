@@ -57,6 +57,7 @@ export const SECTIONS = [
   { slug: 'guides', label: 'Guides', description: 'how to do one thing', paths: ['guides/'] },
   { slug: 'concepts', label: 'Concepts', paths: ['concepts/'] },
   { slug: 'deploy', label: 'Deploy', paths: ['deploy/'] },
+  { slug: 'kindgi-cloud', label: 'Kindgi Cloud', paths: ['hosted/'] },
   { slug: 'cli-reference', label: 'CLI reference', paths: ['reference/cli/'] },
   { slug: 'python-sdk-reference', label: 'Python SDK reference', paths: ['reference/python/'] },
 ];

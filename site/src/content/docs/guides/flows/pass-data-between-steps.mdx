@@ -432,8 +432,10 @@ declares a [typed answer](../../agents/typed-answer/):
 
 `output.mapping` is resolved when the run finishes, from the same roots as
 `inputMapping`. With a `schema`, the result is checked against it, and a run
-whose output doesn't match fails. If `customer` were mapped from a path that
-doesn't resolve, `acme.hold-for-stock`'s run would fail with:
+whose output doesn't match fails. A `schema` that doesn't compile is refused
+when the flow is loaded or deployed, not at each run. If `customer` were
+mapped from a path that doesn't resolve, `acme.hold-for-stock`'s run would
+fail with:
 
 ```text
 output-schema-violation: the run's output does not match the flow's output schema: [{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"customer"},"message":"must have required property 'customer'"}]

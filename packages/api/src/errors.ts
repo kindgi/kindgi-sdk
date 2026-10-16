@@ -272,7 +272,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   /** A system route naming a tenant in a state it refuses. */
   'tenant-closing': 409,
   'tenant-suspended': 409,
-  /** A system route naming a deployment whose project, or pack, is suspended. */
+  /** A deployment, eval run or improvement pass whose project, or pack, is suspended. */
   'project-suspended': 409,
   'pack-suspended': 409,
   /** A deployment's endpoint refused: its URL isn't `https://<host>`, with no user info or path. */

@@ -548,7 +548,7 @@ describe('kindgi build --hosted', () => {
       });
       expect(out.exitCode).toBe(1);
       expect(out.stderr).toContain(
-        `kindgi build --hosted sends your API key to ${API}, the address it's for (${from}), and environments.staging.endpoint names another: ${STAGING}. The key goes only to its own address: remove environments.staging.endpoint (Kindgi Cloud needs none), or sign in to ${STAGING} with \`kindgi auth login --url ${STAGING}\`.`,
+        `kindgi build --hosted sends your API key to ${API}, the address it's for (${from}), and environments.staging.endpoint names another: ${STAGING}. The key goes only to its own address: remove environments.staging.endpoint (Kindgi Cloud needs none), or sign in to ${STAGING} with \`kindgi auth login --url ${STAGING} --token <its key>\`.`,
       );
       expect(fixtures.state.esbuildCalls).toBe(0);
       expect(fixtures.state.postCalls).toBe(0);
@@ -578,7 +578,7 @@ describe('kindgi build --hosted', () => {
     });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain(
-      'kindgi build --hosted goes to the API your key is for, and no API address is set. Run `kindgi auth login --url <url>`, export KINDGI_API_URL, or pass --url <url>.',
+      'kindgi build --hosted goes to the API your key is for, and no API address is set. Run `kindgi auth login --url <url> --token <its key>`, export KINDGI_API_URL, or pass --url <url>.',
     );
     expect(fixtures.state.esbuildCalls).toBe(0);
     expect(fixtures.state.postCalls).toBe(0);
@@ -647,7 +647,7 @@ describe('kindgi build --hosted', () => {
         const out = await hostedBuild(fixtures, env, ...flags);
         expect(out.exitCode).toBe(1);
         expect(out.stderr).toContain(
-          `kindgi build --hosted would send the API key stored in ${homeFile()}, which is for ${API}, to ${OTHER}, which ${where} names. The key goes only to its own address: point ${where} at ${API}, or sign in to ${OTHER} with \`kindgi auth login --url ${OTHER}\`.`,
+          `kindgi build --hosted would send the API key stored in ${homeFile()}, which is for ${API}, to ${OTHER}, which ${where} names. The key goes only to its own address: point ${where} at ${API}, or sign in to ${OTHER} with \`kindgi auth login --url ${OTHER} --token <its key>\`.`,
         );
         expect(fixtures.state.esbuildCalls).toBe(0);
         expect(fixtures.state.postCalls).toBe(0);

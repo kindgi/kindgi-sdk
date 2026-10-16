@@ -3,6 +3,7 @@
 
 import { type KindgiClient, createClient } from '@kindgi/client';
 
+import { ownAddressKeyRefusal } from './api-address.js';
 import type { BuildRunners } from './build/runners.js';
 import type { RegistryAuthSeam } from './commands/auth.js';
 import type { DoctorSeam } from './commands/doctor.js';
@@ -39,13 +40,20 @@ export interface CommandContext {
   readonly positionals: readonly string[];
   readonly options: Readonly<Record<string, OptionValue>>;
   readonly config: ResolvedConfig;
-  /** Create an SDK client using the resolved config. Throws if apiUrl / token are missing. */
+  /**
+   * Create an SDK client using the resolved config. Throws if apiUrl / token
+   * are missing, or the token is a stored key that isn't for apiUrl.
+   */
   readonly client: () => KindgiClient;
   /** Create an SDK client bound to arbitrary apiUrl + token (used by `kindgi dev`). */
   readonly clientFor: (apiUrl: string, token: string) => KindgiClient;
   /** Base URL, if resolved — used by non-SDK direct fetch (health, whoami). */
   readonly apiUrl: () => string;
-  /** Bearer token, if resolved — used by non-SDK direct fetch. */
+  /**
+   * Bearer token, if resolved — used by non-SDK direct fetch to `apiUrl()`.
+   * Throws when it's a stored key that isn't for that address
+   * (api-address.ts): before anything is sent.
+   */
   readonly token: () => string;
   /** fetch impl (injectable for tests). */
   readonly fetch: typeof fetch;
@@ -180,6 +188,8 @@ export interface BuildContextInputs {
   readonly positionals: readonly string[];
   readonly options: Readonly<Record<string, OptionValue>>;
   readonly config: ResolvedConfig;
+  /** The command as typed (`kindgi runs list`), for a refusal to name. Default: `kindgi`. */
+  readonly commandLabel?: string;
   readonly fetchImpl?: typeof fetch;
   readonly clientFactory?: (apiUrl: string, token: string) => KindgiClient;
   readonly home?: string;
@@ -218,6 +228,9 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
         'API token not configured. Set KINDGI_API_TOKEN, pass --token=..., or run `kindgi auth login`.',
       );
     }
+    // A stored key goes only to the address stored with it.
+    const refusal = ownAddressKeyRefusal(inputs.commandLabel ?? 'kindgi', inputs.config);
+    if (refusal !== undefined) throw new Error(refusal);
     return inputs.config.token;
   };
   const factory =
