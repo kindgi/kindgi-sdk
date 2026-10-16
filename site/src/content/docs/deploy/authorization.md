@@ -146,8 +146,12 @@ the keys minted for them. A runtime started with a new token and no
 `⚠ KINDGI_API_TOKEN changed, so it acts as a new user`.
 :::
 
-**When OpenFGA is unreachable,** requests that need a check answer `500`,
-with `FGA Error: connect ECONNREFUSED …`. They work again once it's back.
+**When OpenFGA is unreachable,** requests that need a check answer `500
+internal-server-error` with `Unhandled server error` and the request id
+(runtime 0.1.8.1 or later; earlier ones answer with the cause itself). The
+runtime's `unhandled error` log line for that request id has the cause,
+`FGA Error: connect ECONNREFUSED …` ([Logs](../logs/)). They work again
+once it's back.
 
 **When the database fails one tenant's permission changes:** the runtime
 sends permission changes to OpenFGA from a queue in Postgres, about twice a
