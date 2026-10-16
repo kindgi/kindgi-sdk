@@ -12,6 +12,7 @@
 import type { CommandContext } from '../context.js';
 import { UsageError, extractKindgiError } from '../errors.js';
 import { renderJson } from '../output.js';
+import { SLUG, slugOf } from '../slug.js';
 import {
   commandResultFromThrown,
   integerFlag,
@@ -66,23 +67,43 @@ const get: LeafCommand = {
 };
 
 /**
- * A name as a slug: lowercase letters and digits, each run of anything else
- * one `-`, none at either end, at most 63 characters. An accent goes, not
- * its letter (`Café` is `cafe`).
+ * A flag's value, trimmed, or `undefined` when it isn't given. Given empty
+ * (`--org=$ORG` with `ORG` unset) is a usage error, never the same as not
+ * given: a project in no org, or a slug nobody chose, would be made.
  */
-function slugOf(name: string): string {
-  return name
-    .normalize('NFKD')
-    .replace(/\p{M}/gu, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 63)
-    .replace(/-+$/, '');
+function givenFlag(ctx: CommandContext, name: string): string | undefined {
+  const raw = ctx.options[name];
+  if (raw === undefined) return undefined;
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  if (value === '') throw new UsageError(`--${name} takes a value`);
+  return value;
 }
 
-/** A slug as the console takes one: what links and `deploy --project=<slug>` carry. */
-const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
+/**
+ * The project, as `projects get` prints it. The change went through before
+ * this read, so a read that fails prints its id and says so, rather than
+ * read as a change that failed (run again, it would meet its own slug).
+ */
+async function printProject(
+  ctx: CommandContext,
+  projectId: string,
+  done: string,
+): Promise<CommandResult> {
+  try {
+    const project = await ctx.client().projects.get(projectId);
+    return { kind: 'ok', rendered: renderJson(project, ctx.globals.format) };
+  } catch (err) {
+    const why =
+      extractKindgiError(err)?.message ?? (err instanceof Error ? err.message : String(err));
+    return {
+      kind: 'ok',
+      rendered: {
+        stdout: renderJson({ id: projectId }, ctx.globals.format).stdout,
+        stderr: `${done}, but couldn't read it back: ${why}. \`kindgi projects get ${projectId}\` shows it.\n`,
+      },
+    };
+  }
+}
 
 function checkSlug(slug: string): string {
   if (!SLUG.test(slug)) {
@@ -105,37 +126,31 @@ const create: LeafCommand = {
     slug: {
       type: 'string',
       description:
-        "The project's short name, unique in its org (or among projects in none); `kindgi deploy --project=<slug>` takes it. Defaults to the name as a slug: `Support bot` is `support-bot`.",
+        "The project's short name, unique in its org (or among projects in none); `kindgi deploy --project <id|slug>` takes it. Defaults to the name as a slug: `Support bot` is `support-bot`.",
     },
     description: { type: 'string', description: 'What the project is for.' },
     org: { type: 'string', description: 'The org it belongs to, by id. Without it, none.' },
   },
   run: async (ctx) => {
     try {
-      const name = stringFlag(ctx, 'name')?.trim();
-      if (name === undefined || name === '') {
-        throw new UsageError('--name=<name> is required');
-      }
-      const given = stringFlag(ctx, 'slug')?.trim();
-      const slug = given !== undefined && given !== '' ? checkSlug(given) : slugOf(name);
+      const name = givenFlag(ctx, 'name');
+      if (name === undefined) throw new UsageError('--name=<name> is required');
+      const given = givenFlag(ctx, 'slug');
+      const slug = given !== undefined ? checkSlug(given) : slugOf(name);
       if (slug === '') {
         throw new UsageError(
           `"${name}" has no letters or digits to make a slug of: give --slug=<slug>`,
         );
       }
-      const description = stringFlag(ctx, 'description');
-      const orgId = stringFlag(ctx, 'org');
-      const client = ctx.client();
-      const made = await client.projects.create({
+      const description = givenFlag(ctx, 'description');
+      const orgId = givenFlag(ctx, 'org');
+      const made = await ctx.client().projects.create({
         name,
         slug,
         ...(description !== undefined && { description }),
         ...(orgId !== undefined && { orgId }),
       });
-      return {
-        kind: 'ok',
-        rendered: renderJson(await client.projects.get(made.id), ctx.globals.format),
-      };
+      return await printProject(ctx, made.id, `Made project ${made.id}`);
     } catch (err) {
       return projectRefusal(err, ctx, 'kindgi projects create');
     }
@@ -146,7 +161,7 @@ const rename: LeafCommand = {
   kind: 'leaf',
   name: 'rename',
   description:
-    "Change a project's name, its slug, or both. Prints the project. A new slug changes what `kindgi deploy --project=<slug>` takes. For the project's admins and tenant admins.",
+    "Change a project's name, its slug, or both. Prints the project. `kindgi deploy --project <id|slug>` then takes the new slug, not the old one. For the project's admins (an admin of its org, or a tenant admin, is one).",
   usage: 'kindgi projects rename <project-id> [--name=<name>] [--slug=<slug>]',
   optionSpec: {
     name: { type: 'string', description: 'The new name.' },
@@ -158,24 +173,17 @@ const rename: LeafCommand = {
   run: async (ctx) => {
     try {
       const projectId = requiredPositional(ctx, 0, 'project-id');
-      const name = stringFlag(ctx, 'name')?.trim();
-      const slug = stringFlag(ctx, 'slug')?.trim();
+      const name = givenFlag(ctx, 'name');
+      const slug = givenFlag(ctx, 'slug');
       if (name === undefined && slug === undefined) {
         throw new UsageError('Give --name, --slug, or both');
       }
-      if (name === '' || slug === '') {
-        throw new UsageError('--name and --slug take a value');
-      }
       if (slug !== undefined) checkSlug(slug);
-      const client = ctx.client();
-      await client.projects.update(projectId, {
+      await ctx.client().projects.update(projectId, {
         ...(name !== undefined && { name }),
         ...(slug !== undefined && { slug }),
       });
-      return {
-        kind: 'ok',
-        rendered: renderJson(await client.projects.get(projectId), ctx.globals.format),
-      };
+      return await printProject(ctx, projectId, `Changed project ${projectId}`);
     } catch (err) {
       return projectRefusal(err, ctx, 'kindgi projects rename');
     }
@@ -262,7 +270,9 @@ function projectRefusal(err: unknown, ctx: CommandContext, commandLabel: string)
   const wire = extractKindgiError(err);
   const code = wire !== null && 'serverCode' in wire ? wire.serverCode : undefined;
   if (wire !== null && code !== undefined && PROJECT_REFUSALS.has(code)) {
-    return { kind: 'error', stderr: `Error [${code}]: ${wire.message}\n`, exitCode: 1 };
+    // As every refusal's line: with `--verbose`, the whole error (its requestId too).
+    const detail = ctx.globals.verbose ? `\n${JSON.stringify(wire, null, 2)}` : '';
+    return { kind: 'error', stderr: `Error [${code}]: ${wire.message}${detail}\n`, exitCode: 1 };
   }
   return commandResultFromThrown(err, ctx, commandLabel);
 }

@@ -45,7 +45,11 @@ const NO_PROJECT = fromWire(
 
 async function run(
   argv: readonly string[],
-  options: { readonly refuse?: ReturnType<typeof fromWire> } = {},
+  options: {
+    readonly refuse?: ReturnType<typeof fromWire>;
+    /** The read after the change fails with this. */
+    readonly unread?: ReturnType<typeof fromWire>;
+  } = {},
 ) {
   const calls: unknown[][] = [];
   let project: Record<string, unknown> = {};
@@ -78,6 +82,7 @@ async function run(
           },
           get: async (...args: unknown[]) => {
             calls.push(['get', ...args]);
+            if (options.unread !== undefined) throw new KindgiApiError(options.unread);
             return project;
           },
         },
@@ -158,7 +163,29 @@ describe('kindgi projects create', () => {
     expect(given.calls[0]).toEqual(['create', { name: '!!!', slug: 'bangs' }]);
   });
 
-  test("a --slug the console wouldn't take: a usage error, exit 2, nothing sent", async () => {
+  test('a flag given empty (`--slug=$SLUG` with SLUG unset) is a usage error, never the same as not given', async () => {
+    for (const flag of ['--slug=', '--slug=  ', '--org=', '--description=']) {
+      const { out, calls } = await run(['projects', 'create', '--name=Support bot', flag]);
+      expect(out.exitCode, flag).toBe(2);
+      expect(out.stderr, flag).toContain(`${flag.slice(0, flag.indexOf('='))} takes a value`);
+      expect(calls, flag).toEqual([]);
+    }
+  });
+
+  test('made, but the read after it fails: exit 0, its id printed, and stderr says so', async () => {
+    const { out, calls } = await run(['projects', 'create', '--name=Support bot'], {
+      unread: fromWire({ code: 'internal-error', message: 'database unavailable' }, 503),
+    });
+    expect(out.exitCode).toBe(0);
+    expect(JSON.parse(out.stdout)).toEqual({ id: 'p-new' });
+    expect(out.stderr).toContain(
+      "Made project p-new, but couldn't read it back: database unavailable.",
+    );
+    expect(out.stderr).toContain('`kindgi projects get p-new` shows it.');
+    expect(calls.map((c) => c[0])).toEqual(['create', 'get']);
+  });
+
+  test('a --slug of anything but lowercase letters, digits and hyphens, or past 63: a usage error, exit 2, nothing sent', async () => {
     for (const slug of ['Support', '-support', 'sup port', 'a'.repeat(64)]) {
       const { out, calls } = await run(['projects', 'create', '--name=Support', `--slug=${slug}`]);
       expect(out.exitCode, slug).toBe(2);
@@ -194,6 +221,15 @@ describe('kindgi projects create', () => {
     });
     expect(org.out.exitCode).toBe(1);
     expect(org.out.stderr).toBe('Error [org-not-found]: No org with id "o-gone"\n');
+  });
+
+  test('--verbose: the refusal line, then the whole error', async () => {
+    const { out } = await run(['projects', 'create', '--name=Shop', '--org=o-gone', '--verbose'], {
+      refuse: NO_ORG,
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr.startsWith('Error [org-not-found]: No org with id "o-gone"\n{')).toBe(true);
+    expect(out.stderr).toContain('"serverCode": "org-not-found"');
   });
 });
 
@@ -239,6 +275,15 @@ describe('kindgi projects rename', () => {
       expect(out.exitCode, argv.join(' ')).toBe(2);
       expect(calls, argv.join(' ')).toEqual([]);
     }
+  });
+
+  test('changed, but the read after it fails: exit 0, its id printed, and stderr says so', async () => {
+    const { out } = await run(['projects', 'rename', 'p-shop', '--name=Storefront'], {
+      unread: fromWire({ code: 'internal-error', message: 'database unavailable' }, 503),
+    });
+    expect(out.exitCode).toBe(0);
+    expect(JSON.parse(out.stdout)).toEqual({ id: 'p-shop' });
+    expect(out.stderr).toContain("Changed project p-shop, but couldn't read it back");
   });
 
   test('a project not found, or a slug taken: by their own codes, exit 1', async () => {

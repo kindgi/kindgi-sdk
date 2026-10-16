@@ -1197,6 +1197,11 @@ describe('kindgi deploy --project: one project per client', () => {
       '--project initech-shop: no project of this tenant has that slug. `kindgi projects list` shows them; `kindgi projects create --name=<name> --slug=initech-shop` makes one.',
     );
     expect(fixtures.state.postCalls).toBe(0);
+    // A slug `projects create` wouldn't take isn't offered as one.
+    const upper = await deploy(makeFixtures({ projects }), '--project=Initech');
+    expect(upper.stderr).toContain(
+      '`kindgi projects create --name=<name> --slug=<slug>` makes one.',
+    );
   });
 
   test('a slug two orgs share is refused, naming both ids; nothing is sent', async () => {

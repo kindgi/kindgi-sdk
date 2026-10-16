@@ -1087,7 +1087,7 @@ export const CLI_EXAMPLES = {
       line: 'kindgi projects create --name="Support bot"',
     },
     {
-      purpose: "Make a customer's project in their org, with a slug of your own.",
+      purpose: 'Make a project in an org, with a slug of your own.',
       line: 'kindgi projects create --name=Support --slug=support --org=<org-id> --description="Answers the support inbox"',
     },
   ],
