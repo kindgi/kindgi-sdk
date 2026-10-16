@@ -362,7 +362,9 @@ tenant 6aa3383b-3cd9-4e02-b9e4-6234fb4663a2 (tenant-1791937260612-75bcb7): Defau
 ```
 
 It adds only what's missing: the Default project, the authorization store's
-tuples and current model, the shipped adapters, and the sign-in providers. It
+tuples and current model, the access each active person and service account
+has on record (a person's tenant membership, a service account's grants), the
+shipped adapters, and the sign-in providers. It
 finishes a create whose setup didn't finish, if the create named a first
 admin. Run it again at will. `--tenant <id>` repairs one tenant.
 `--providers` redoes only sign-in's providers, after `KINDGI_PUBLIC_URL`
@@ -396,7 +398,10 @@ keys and people, as the first of many.
    tenant, so whoever used it as the tenant's admin needs another way in
    first. A tenant key minted before the switch keeps working, and so does
    the tenant's sign-in.
-4. **Run `kindgi-runtime tenants repair --all`** once.
+4. **Run `kindgi-runtime tenants repair --all`** once. Until it runs, the
+   people and service accounts added while the tenant ran without OpenFGA
+   are refused: the start in step 2 makes only the seed user an admin. The
+   repair gives them back the access their records show.
 5. **Set the tenant's image repository:**
    `PUT /v1/system/tenants/{tenantId}/image-prefix` with `{"prefix": "<host>/<path>"}`.
 6. **Deploy each pack again.** Its deployments from before have no routes,
