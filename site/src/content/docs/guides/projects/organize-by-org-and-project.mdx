@@ -201,6 +201,13 @@ the CLI:
 - `kindgi projects list` lists the projects with their ids.
 - `kindgi runs start … --project=<project-id>` runs in a customer's project.
 
+In the console, a tenant admin makes one with **New project** on the tenant
+dashboard's **Projects** card: a name, a slug made from the name until you
+edit it, an org if the tenant has any, and what it's for. The new project then
+opens. A project's admins (an admin of its org, or a tenant admin, is one)
+rename it with **Rename** in its **Dashboard**'s header. Its id stays; a new
+slug changes what `kindgi deploy --project` takes.
+
 **Slugs.** An org's slug is unique in the tenant. A project's slug is unique
 in its org, so every customer can have a `support` project. A project with
 no org has a slug unique among the projects with none. A taken slug is
