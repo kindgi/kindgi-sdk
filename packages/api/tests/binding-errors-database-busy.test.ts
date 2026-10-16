@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import type { AuthzCheckBinding } from '@kindgi/authz';
+import { type Logger, createLogger } from '@kindgi/log';
 import type { TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
@@ -70,7 +71,7 @@ const record = {
  */
 function appFailingWith(
   error: { code: string; message: string; cause?: unknown },
-  opts: { recordFound?: boolean; allowAll?: boolean } = {},
+  opts: { recordFound?: boolean; allowAll?: boolean; logger?: Logger } = {},
 ) {
   const err = async () => ({ kind: 'err', error });
   const stubs = createStubAppBindings();
@@ -107,6 +108,7 @@ function appFailingWith(
       getCallUsage: err,
     } as never,
     blobStorage: { list: err } as never,
+    ...(opts.logger !== undefined && { logger: opts.logger }),
     ...(opts.allowAll === true && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -224,5 +226,37 @@ describe("a binding's Result error the database was too busy for", () => {
     expect(closed.status, closed.text).toBe(500);
     expect(closed.retryAfter).toBeNull();
     expect(JSON.parse(closed.text).error.code).toBe('persistence-error');
+  });
+
+  test("the warn line names the binding's error by its code and message, and nothing under it", async () => {
+    // The storage failure and the driver error under it each carry text of
+    // their own: a query's values can be a person's (`params: …`).
+    const driver = Object.assign(
+      new Error('canceling statement due to lock timeout; params: owner@acme.test'),
+      { code: '55P03' },
+    );
+    const error = recoded('persistence-error', 1, {
+      code: 'database-busy',
+      message: 'Tenant-scoped query failed: the storage failure itself',
+      cause: driver,
+    });
+    const lines: string[] = [];
+    const app = appFailingWith(error, {
+      logger: createLogger({ write: (line) => lines.push(line) }),
+    });
+    expect((await call(app, '/v1/approvals')).status).toBe(503);
+    const busy = lines
+      .map((line) => JSON.parse(line) as { level?: string; message?: string; err?: unknown })
+      .filter((record) => record.message === 'database busy');
+    expect(busy).toHaveLength(1);
+    expect(busy[0]?.level).toBe('warn');
+    expect(busy[0]?.err).toEqual({
+      name: 'Object',
+      code: 'persistence-error',
+      message: error.message,
+    });
+    const logged = lines.join('\n');
+    expect(logged).not.toContain('the storage failure itself');
+    expect(logged).not.toContain('owner@acme.test');
   });
 });
