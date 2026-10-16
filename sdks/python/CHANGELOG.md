@@ -10,6 +10,41 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **A union's members are named by the value that tells them
+  apart.** The members of five inline unions in `kindgi.client.models` had
+  numbered names; four other models took names those would free. These names
+  change, and no old name is kept:
+  - **A union's members, by their discriminator:**
+    - `Config`, `Config1`, `Config2` (an MCP endpoint's config: stdio,
+      http-sse, streamable-http): `MCPEndpointConfigStdio`,
+      `MCPEndpointConfigHttpSse`, `MCPEndpointConfigStreamableHttp`.
+    - `Config3` to `5` (the same, in a registration's body):
+      `RegisterMCPEndpointBodyConfigStdio`,
+      `RegisterMCPEndpointBodyConfigHttpSse`,
+      `RegisterMCPEndpointBodyConfigStreamableHttp`.
+    - `Content2`, `Content3` (an MCP prompt message's content: text, image):
+      `MCPPromptMessageContentText`, `MCPPromptMessageContentImage`.
+    - `Resume`, `Resume1` (how completing an approval resumed its run: ok,
+      failed): `CompleteApprovalResultResumeOk`,
+      `CompleteApprovalResultResumeFailed`.
+    - `Baseline`, `Baseline1` (what a judged comparison compared with:
+      recorded runs, a version): `JudgedComparisonSummaryBaselineRecorded`,
+      `JudgedComparisonSummaryBaselineVersion`.
+  - **Named after their field, so no freed name passes to them:**
+    - `Config6`, `Config7` (a schedule's config, registering and patching):
+      `RegisterScheduleBodyConfig`, `PatchScheduleBodyConfig`.
+    - `Config8` (a webhook trigger's config, in both bodies): now one class
+      per body, `RegisterWebhookTriggerBodyConfig` and
+      `PatchWebhookTriggerBodyConfig`. A mapping works for either; an
+      instance of one isn't taken by the other.
+    - `Baseline2` (a compared case's baseline score):
+      `ComparisonCaseResultBaseline`.
+
+  Code that imports an old name fails at the import, and an `isinstance` or
+  `match` on one needs the new name. The client's generation now keeps a
+  dropped name dropped, so no later model takes `Config` or `Baseline` with
+  another meaning.
+
 - `kindgi`: **`flows.get` and `flows.get_version` answer the flow, and
   `tools.get` and `tools.get_version` the tool.** They read each answer as
   another object that had taken the name `Flow` or `Tool` (a judged run's
