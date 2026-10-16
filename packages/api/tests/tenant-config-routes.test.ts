@@ -152,6 +152,7 @@ describe('PATCH /v1/tenant/config — a secret write the store refuses', () => {
     ['secret-name-invalid', 400],
     ['reserved-name-prefix', 400],
     ['secret-value-too-large', 400],
+    ['secret-value-invalid', 400],
     ['secret-provider-rate-limited', 429],
     ['secret-provider-unauthorized', 502],
     ['secret-provider-unavailable', 503],

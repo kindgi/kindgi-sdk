@@ -8,8 +8,14 @@ locals {
   # The KMS key exists only for KINDGI_SECRETS_BACKEND=postgres (var.secrets_backend).
   kms = var.secrets_backend == "postgres"
 
+  # The module's own Cloud Resource Manager calls (the project IAM members,
+  # the project read) are billed to the caller's project, so they don't need
+  # it on here. A root beside it that reads this project with calls billed to
+  # the project (the provider's user_project_override) does, and can't turn
+  # it on itself: a data source reads before any resource is made.
   apis = concat([
     "artifactregistry.googleapis.com",
+    "cloudresourcemanager.googleapis.com",
     "compute.googleapis.com",
     "iam.googleapis.com",
     "run.googleapis.com",
@@ -32,6 +38,8 @@ resource "google_project_service" "apis" {
 
 locals {
   direct = var.network_mode == "direct"
+  # The one pack service, its account and its grants: only with a pack image.
+  pack = var.pack_image != ""
 }
 
 resource "google_compute_network" "kindgi" {
@@ -88,6 +96,7 @@ resource "google_service_account" "server" {
 }
 
 resource "google_service_account" "pack" {
+  count        = local.pack ? 1 : 0
   account_id   = "${var.name_prefix}-pack"
   display_name = "Kindgi pack service"
   depends_on   = [google_project_service.apis]
@@ -111,6 +120,33 @@ resource "google_project_iam_member" "server_sql_client" {
   }
 }
 
+# The instance it serves from instead (database_instance), as well: the old
+# revision keeps its own until the new one takes the traffic. Its own
+# condition, so a grant another root makes on the same instance is a
+# binding of its own, never this one.
+resource "google_project_iam_member" "server_sql_client_served" {
+  count   = var.database_instance != null && var.database_private_network == "" ? 1 : 0
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.server.email}"
+
+  condition {
+    title       = "kindgi-served-instance-only"
+    description = "The Cloud SQL instance Kindgi's server serves from (database_instance) only."
+    expression  = "resource.name == \"projects/${var.project_id}/instances/${var.database_instance.name}\""
+  }
+
+  # The server depends on this grant, and a plain dependency removes it before
+  # the server changes: on the way back (null) the revision still serving from
+  # this instance would lose it, and so would a move to another restored
+  # instance, since a new condition replaces the member. Created before
+  # destroyed, the old grant goes only after the server's new revision is in.
+  # A mock plan can't show the order, so no test checks it.
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
 # Gemini on Vertex with the server's own credentials (ADC).
 resource "google_project_iam_member" "server_vertex_ai" {
   count   = var.vertex_ai ? 1 : 0
@@ -120,17 +156,17 @@ resource "google_project_iam_member" "server_vertex_ai" {
 }
 
 resource "google_project_iam_member" "pack_sql_client" {
-  count   = length(var.pack_cloud_sql_instances) > 0 ? 1 : 0
+  count   = local.pack && length(var.pack_cloud_sql_instances) > 0 ? 1 : 0
   project = var.project_id
   role    = "roles/cloudsql.client"
-  member  = "serviceAccount:${google_service_account.pack.email}"
+  member  = "serviceAccount:${google_service_account.pack[0].email}"
 }
 
 resource "google_storage_bucket_iam_member" "pack_reads" {
-  for_each = toset(var.pack_bucket_readers)
+  for_each = local.pack ? toset(var.pack_bucket_readers) : toset([])
   bucket   = each.value
   role     = "roles/storage.objectViewer"
-  member   = "serviceAccount:${google_service_account.pack.email}"
+  member   = "serviceAccount:${google_service_account.pack[0].email}"
 
   # Narrowed to object prefixes when the bucket has them (it holds more
   # than the pack's own data).
@@ -150,12 +186,12 @@ resource "google_storage_bucket_iam_member" "pack_reads" {
 # The Cloud Run services the pack's code calls (C-PK-6): additive, one
 # member per service; nothing else of the service changes.
 resource "google_cloud_run_v2_service_iam_member" "pack_invokes" {
-  for_each = { for s in var.pack_run_invokers : "${s.project}/${s.location}/${s.service}" => s }
+  for_each = { for s in var.pack_run_invokers : "${s.project}/${s.location}/${s.service}" => s if local.pack }
   project  = each.value.project
   location = each.value.location
   name     = each.value.service
   role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.pack.email}"
+  member   = "serviceAccount:${google_service_account.pack[0].email}"
 }
 
 # ---- images -------------------------------------------------------------------

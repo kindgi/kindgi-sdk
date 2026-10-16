@@ -38,6 +38,12 @@ runtime makes the seed user a tenant admin at every start.
   ([Project memberships](../authorization/#project-memberships)).
 - **A service account** has only what it's granted. It isn't a tenant member
   unless you make it one.
+- **A capability** is needed on top of the role to trust signing keys
+  (`signing-keys:write`) and to write secrets and environment values
+  (`secrets:write`, `env:write` and the like). A tenant's first admin, the
+  person it was created with on a runtime serving many tenants, holds every
+  one but `secrets:reveal`, and no other person holds any. A key carries
+  those it was made with ([API keys](#api-keys)).
 
 Lists hold only what the caller may read.
 
@@ -143,6 +149,34 @@ Taking tenant admin away is refused in two cases:
   tenant admin again at every start. Unset `KINDGI_SEED_USER_ID` and restart
   the runtime first.
 
+If the first admin stops being a tenant admin, the capabilities they held
+are revoked, and the audit entry lists them. A key acts as the person or
+service account it's for, whoever made it. So their own keys keep their
+capabilities, but until the first admin is a tenant admin again, those keys
+can't trust signing keys, and can't change secrets or environment values
+where they aren't an admin. A key they made for another tenant admin, or
+for a service account that's one, keeps working.
+
+Making the first admin a tenant admin again doesn't give their own
+capabilities back, so the console offers them none. A key that carries
+capabilities makes new keys with them
+(`kindgi tokens create --capability=<cap>`, in [API keys](#api-keys)):
+their own keys, once they're an admin again, or one made for another
+tenant admin or a service account that's one. Before you revoke the last
+key that carries a capability, or let it expire, make its replacement with
+it. If the first admin doesn't hold a capability and no key in the tenant
+carries it, contact support.
+
+Make the key that deploys, from CI or anywhere else, for a service account
+that's a tenant admin, not for the first admin. It keeps working if the
+first admin stops being a tenant admin or is removed, and as a tenant
+admin, whoever holds it can make new keys with its capabilities:
+
+```sh
+kindgi service-accounts create acme-deploy --description="Deploys" --tenant-admin
+kindgi tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=deploy --expires=90d
+```
+
 ## What you may do
 
 `GET /v1/identity/me/permissions` answers what you, the caller, may do, with
@@ -159,8 +193,10 @@ a role.
 - **`key`:** when you call with an API key, its role and the project it's
   limited to.
 - **`tokenCapabilities`:** what your token itself carries for secret, env and
-  signing-key writes. A sign-in session carries none. An API key carries
-  those it was minted with, none by default.
+  signing-key writes. A sign-in session carries the ones you hold as a person.
+  A tenant's first admin, the person it was created with, holds every one but
+  `secrets:reveal`; no one else holds any. An API key carries those it was
+  minted with, none by default, and only ones its minter holds.
 - **`projects`:** each project you may read, with your highest role in it and
   every way you hold one (`via`):
   - `direct`, or through a `team`, with `since` when the runtime keeps it;
@@ -224,6 +260,12 @@ Make longer-lived keys with one of those, such as the 90-day key in
   `403 role-exceeds-principal`.
 - **`--project=<project-id>`** limits the key to one project. A request that
   names another project is refused with `403 key-project-mismatch`.
+- **`--capability=<cap>`,** repeatable, puts a capability on the key, such as
+  `signing-keys:write` or `secrets:write`
+  ([Who can do what](#who-can-do-what)). You can give only those you hold,
+  as `tokenCapabilities` lists them: another is refused with `403`, naming
+  it. The key uses them only as far as its role goes: trusting signing keys
+  takes `--role=admin`.
 
 A tenant admin made Sam's first key:
 
@@ -352,8 +394,8 @@ Removed Sam Rivera: 1 key(s) and 0 session(s) revoked, 1 role(s) and membership(
 ```
 
 In one step, before it answers, their API keys are revoked, their sessions
-end, and every grant and membership is taken away. The next request with
-Sam's key:
+end, and every grant, membership and capability is taken away. The next
+request with Sam's key:
 
 ```text
 {"error":{"code":"auth-missing","message":"Bearer token is not recognized","requestId":"req-ea8f3a9a-f1df-4365-9f7c-7bab23beea86"}}
@@ -374,6 +416,13 @@ It's refused for yourself and for the seed user, with
   **Create a key** makes one for you, with its role, project and expiry. A
   tenant admin can make one for a person or a service account too. The
   secret shows once, with a Copy button.
+
+  When you hold capabilities, **What it can change** offers them, none
+  ticked: **Trust signing keys**, **Store secrets**, **Rotate secrets**,
+  **Revoke secrets**, **Revoke secrets for good**, **Read secret values**
+  and **Change environment variables**, each with its name, such as
+  `signing-keys:write`. A key that trusts signing keys is an **Admin** key,
+  under **How far it goes**, with **Trust signing keys** ticked.
 
   ![The API keys page: one key, labelled laptop, acting as Sam Rivera with the member role, never used, expiring a month after it was made, with a Revoke button.](../../../assets/people/api-keys.png)
 - **Service accounts,** for tenant admins: create one with its grants,
@@ -460,7 +509,8 @@ read".
 ## Recorded
 
 Each change is kept as evidence: `person-added`, `person-granted`,
-`person-ungranted`, `person-unregistered`, `api-key-minted`,
+`person-ungranted`, `person-unregistered`, `person-capabilities-granted`,
+`person-capabilities-revoked`, `api-key-minted`,
 `api-key-revoked`, `service-account-created`, `service-account-granted`,
 `service-account-ungranted` and `service-account-unregistered`. A key's
 secret is never in one.

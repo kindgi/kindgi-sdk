@@ -221,6 +221,27 @@ describe("cost: an org's spend, a run tree's calls, the vendor's own counts", ()
     expect(params(subtree.stub)).toEqual({ runId: 'run-mid', includeDescendants: 'true' });
   });
 
+  it("query and aggregate: one flow's records, and its spend by day", async () => {
+    const records = client({ data: [], hasMore: false });
+    await records.client.cost.usage.query({ flowId: 'acme.triage' });
+    const daily = client({ groups: [], totalUsd: 0, totalRecords: 0 });
+    await daily.client.cost.usage.summary({
+      flowId: 'acme.triage',
+      from: '2026-10-01T00:00:00Z' as never,
+      to: '2026-10-04T00:00:00Z' as never,
+      groupBy: ['day'],
+    });
+    const params = (stub: typeof records.stub) =>
+      Object.fromEntries(new URL(stub.calls[0]?.url ?? '').searchParams);
+    expect(params(records.stub)).toEqual({ flowId: 'acme.triage' });
+    expect(params(daily.stub)).toEqual({
+      flowId: 'acme.triage',
+      from: '2026-10-01T00:00:00Z',
+      to: '2026-10-04T00:00:00Z',
+      groupBy: 'day',
+    });
+  });
+
   it('get: the raw usage too, when asked', async () => {
     const { stub, client: c } = client(WIRE_RECORD);
     await c.cost.usage.get('rec-1', { includeRawUsage: true });

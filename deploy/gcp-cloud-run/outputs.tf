@@ -7,8 +7,8 @@ output "server_url" {
 }
 
 output "pack_service_url" {
-  description = "The pack service's internal URL (the server's KINDGI_PACK_SERVICE_URL)."
-  value       = google_cloud_run_v2_service.pack.uri
+  description = "The pack service's internal URL (the server's KINDGI_PACK_SERVICE_URL); null without pack_image."
+  value       = local.pack ? google_cloud_run_v2_service.pack[0].uri : null
 }
 
 output "database_private_ip" {
@@ -39,7 +39,7 @@ output "secrets_to_fill" {
 output "service_accounts" {
   value = {
     server = google_service_account.server.email
-    pack   = google_service_account.pack.email
+    pack   = local.pack ? google_service_account.pack[0].email : null
   }
 }
 

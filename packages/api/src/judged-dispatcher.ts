@@ -322,12 +322,17 @@ async function replayAll(
   const models = new Map<string, { providerId: string; model: string; runs: number }>();
   // Erased after they were listed: the replay was refused (`run-erased`).
   const erasedLate = new Set<string>();
+  let halt: Halt | undefined;
   for (const judgedCase of all) {
     if (ctx.abortSignal.aborted) break;
     const result = await runCase(ctx, comparison, judgedCase, models);
     if (result === 'erased') {
       erasedLate.add(judgedCase.caseId);
       continue;
+    }
+    if ('halt' in result) {
+      halt = result.halt;
+      break;
     }
     results.push(result);
     ctx.onProgress(result as unknown as Readonly<Record<string, unknown>>);
@@ -342,6 +347,7 @@ async function replayAll(
   return {
     result: { summary, perCase: results },
     ...(ctx.abortSignal.aborted && { error: 'cancelled' }),
+    ...(halt !== undefined && { error: 'cancelled', cancelReason: halt.reason }),
   };
 }
 
@@ -364,6 +370,9 @@ async function allCases(
     cursor = page.nextCursor;
   }
 }
+
+/** Why a case couldn't start, and the eval run stops (`EvalRunSubjectInvokeOutcome.halt`). */
+type Halt = NonNullable<EvalRunSubjectInvokeOutcome['halt']>;
 
 /** One case's repetitions as they come back. */
 class CaseTally {
@@ -444,7 +453,7 @@ async function runCase(
   comparison: EvalComparison,
   judgedCase: JudgedEvalCase,
   models: Map<string, { providerId: string; model: string; runs: number }>,
-): Promise<JudgedCaseResult | 'erased'> {
+): Promise<JudgedCaseResult | 'erased' | { readonly halt: Halt }> {
   // An agent turn's items are its answer and typed result; a flow run's, its whole output.
   const agentTurn = judgedCase.subject.kind === 'agent';
   const baseline = scoreItems(
@@ -456,6 +465,8 @@ async function runCase(
     const outcome = await invokeCase(ctx, judgedCase);
     // Its past run was erased meanwhile: nothing left to replay.
     if (outcome.erased === true) return 'erased';
+    // Its project or tenant takes no new runs: the eval run stops here.
+    if (outcome.halt !== undefined) return { halt: outcome.halt };
     if (tally.add(outcome) === 'ran') countModel(models, outcome);
   }
   return tally.result(baseline);
