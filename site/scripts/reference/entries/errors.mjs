@@ -947,6 +947,16 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'invite-capped': {
+    description:
+      "Too many invitations sent, to this person or from the tenant: the limits are the server's. Nothing changed and nothing was sent. Try again after the `Retry-After` header, or tell them to sign in: their invitation is still open until it expires.",
+    details: [
+      {
+        key: 'userId',
+        meaning: 'the person whose invitation was to be sent again',
+      },
+    ],
+  },
   'turn-memory-limit-reached': {
     description:
       "The runtime's agent turns hold more memory than its limit leaves this turn: the tenant's share (`KINDGI_TURN_MEMORY_PER_TENANT_MIB`) or the runtime's whole (`KINDGI_TURN_MEMORY_MIB`). The turn's run fails, and every tool call it finished is in the conversation, so a new turn there doesn't call it again. Retry later, or use a smaller conversation.",
@@ -1962,6 +1972,16 @@ export const ERROR_ENTRIES = {
   'identity-user-unregistered': {
     description: "The person was removed from the tenant, so they can't be granted anything.",
     details: [],
+  },
+  'identity-user-not-invited': {
+    description:
+      'The person has no invitation to send again: they have signed in already, were added before invitations, or have no email. Nothing changed.',
+    details: [
+      {
+        key: 'userId',
+        meaning: 'the person',
+      },
+    ],
   },
   'person-grants-unsupported': {
     description:

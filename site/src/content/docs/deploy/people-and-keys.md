@@ -63,7 +63,9 @@ kindgi people add --name="Sam Rivera" --email=sam@acme.example
 
 - `--name` is their name, as people see it.
 - `--email` is the email they sign in with. It's unique among the tenant's
-  people.
+  people. A person added with one is [invited](#their-invitation).
+- `--no-invite` doesn't email them the invitation, for when you tell them
+  yourself. They're still invited.
 
 It prints the new person, and says on stderr what being added gives them:
 
@@ -110,6 +112,65 @@ added:
 In the TypeScript client, it's
 `projects.memberships.add(projectId, { email, role })`. They can then
 [sign in to the console](../sign-in/), or use a key you make them.
+
+### Their invitation
+
+On a runtime that invites people, a person added with an email is
+invited: the runtime emails them a link to sign in, through the
+[sign-in email](../sign-in/#sign-in-links-by-email) sender you set up.
+The invitation is open for 7 days from the add, or from the last time it
+was sent. It's `pending` until their first sign-in, then it's gone: they've
+joined. Once the 7 days pass with no sign-in it's `expired`, and every way
+in refuses them, an identity provider too, until a tenant admin sends it
+again. A key you made them still works.
+
+The person's record says it, while it's open:
+
+```json
+"invite": { "state": "pending", "expiresAt": "…", "sentAt": "…" }
+```
+
+`sentAt` is when it was last emailed; it's absent when it never was. People
+added before the runtime invited, the seed user, and people with no email
+aren't invited, so they have no `invite`.
+
+`kindgi people add` says on stderr whether the invitation went out, and if
+not, why (`inviteEmail.reason` in the answer):
+
+| Reason | Why it wasn't emailed |
+|---|---|
+| `not-requested` | `--no-invite` (`sendInvite: false`). |
+| `not-configured` | The runtime has no sign-in email sender. |
+| `send-failed` | The mail server refused it or didn't answer. |
+| `capped` | The tenant's invitations for the day are used up. |
+| `no-email` | They have no email, so they aren't invited. |
+
+Unless it's `no-email`, they're invited all the same: tell them to sign in
+with their email, or send it again. To send it again, with 7 more days:
+
+```sh
+kindgi people invite <user-id>
+```
+
+Someone who has joined, or was never invited, is refused with
+`409 identity-user-not-invited`. Sending one person's again within a
+minute, more than 5 times a day, or past the tenant's invitations for the
+day is refused with `429 invite-capped` and a `Retry-After`, and changes
+nothing.
+
+The people invited who haven't signed in yet, with a STATE of `pending` or
+`expired`:
+
+```sh
+kindgi people list --pending --table
+```
+
+To take an invitation back, [remove the person](#remove-a-person).
+
+In the TypeScript client, `users.create(spec)` answers with the person
+added; its `inviteEmail` says whether the invitation was emailed, and is
+absent on a runtime that doesn't invite. `users.resendInvite(userId)`
+sends it again, and `users.list({ pending: true })` lists the invited.
 
 ## Make someone a tenant admin
 

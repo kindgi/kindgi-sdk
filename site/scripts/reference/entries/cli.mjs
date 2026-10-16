@@ -1585,10 +1585,30 @@ export const CLI_EXAMPLES = {
       line: 'kindgi service-accounts unregister <service-account-id>',
     },
   ],
+  'people add': [
+    {
+      purpose: 'Add a person and email them their invitation.',
+      line: 'kindgi people add --name="Sam Lee" --email=sam@acme.example',
+    },
+    {
+      purpose: 'Add a person without emailing the invitation: you tell them.',
+      line: 'kindgi people add --name="Sam Lee" --email=sam@acme.example --no-invite',
+    },
+  ],
+  'people invite': [
+    {
+      purpose: "Send a person's invitation again, with a new expiry.",
+      line: 'kindgi people invite <user-id>',
+    },
+  ],
   'people list': [
     {
       purpose: 'Find people whose name starts with Sam.',
       line: 'kindgi people list --query=Sam',
+    },
+    {
+      purpose: "List the people invited who haven't signed in yet.",
+      line: 'kindgi people list --pending --table',
     },
     {
       purpose: 'List everyone, removed people too, as a table.',

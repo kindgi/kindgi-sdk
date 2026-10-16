@@ -139,6 +139,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'rate-limit-exceeded': 429,
   // A gate asked for an approval past the tenant's limit on approvals waiting.
   'approvals-pending-limit': 429,
+  // An invitation renewed again too soon for one person, or past the
+  // workspace's invitations for the day. With `Retry-After`.
+  'invite-capped': 429,
   // An agent turn's memory, charged by size, is past the tenant's share or
   // the runtime's whole (a runtime's limit, as Kindgi Cloud sets). No
   // `Retry-After`: there's no honest time to give.
@@ -319,6 +322,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'identity-user-unregister-refused': 409,
   /** A grant or a key for a person who was unregistered. */
   'identity-user-unregistered': 409,
+  /** Renewing the invitation of a person who has joined, or has no email to send one to. */
+  'identity-user-not-invited': 409,
   /** A person's grants on a runtime without an authorization store. */
   'person-grants-unsupported': 501,
   /** A caller's permissions on a runtime without an authorization store (`GET /v1/identity/me/permissions`). */

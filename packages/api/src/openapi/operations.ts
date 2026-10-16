@@ -6483,6 +6483,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: { type: 'boolean' },
       },
       {
+        name: 'pending',
+        in: 'query',
+        required: false,
+        description:
+          "With `true`, only people with an open invitation (`invite`: pending or expired), who haven't signed in yet. An older runtime ignores it and lists everyone (from 0.1.8.1).",
+        schema: { type: 'boolean' },
+      },
+      {
         name: 'include',
         in: 'query',
         required: false,
@@ -6504,13 +6512,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.create',
     summary: 'Add a person',
     description:
-      "Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the identity directory can add people.",
+      "Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.",
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('CreateUserBody') },
     responses: {
-      '201': { description: 'The new person.', schema: ref('UserRecord') },
+      '201': {
+        description: 'The new person, and whether their invitation was emailed.',
+        schema: ref('UserCreated'),
+      },
       ...CommonMutationErrors,
       '403': ErrorResponse('Not a tenant admin.'),
       '409': ErrorResponse(
@@ -6580,6 +6591,38 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
       '409': ErrorResponse(
         'Yourself or the seed user (`identity-user-unregister-refused`, `details.reason`), the only tenant admin (`last-tenant-admin`), or an idempotency conflict.',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/identity/users/:userId/invite',
+    openapiPath: '/v1/identity/users/{userId}/invite',
+    operationId: 'identity.users.resendInvite',
+    summary: "Renew a person's invitation",
+    description:
+      "For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times a day, or past the workspace's invitations for the day, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).",
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [
+      { name: 'userId', in: 'path', required: true, schema: { type: 'string', minLength: 1 } },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': {
+        description: 'The person, with the new expiry, and whether the invitation was emailed.',
+        schema: ref('InviteRenewed'),
+      },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse(
+        'No user with that id under this tenant, or one who was removed (`identity-user-not-found`).',
+      ),
+      '409': ErrorResponse(
+        'They have signed in, were added before invitations, or have no email (`identity-user-not-invited`), or an idempotency conflict.',
+      ),
+      '429': ErrorResponse(
+        "`invite-capped`: renewed again too soon for this person, or past the workspace's invitations for the day. Nothing changed; `Retry-After` says when to try again.",
       ),
     },
   },
