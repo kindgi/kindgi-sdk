@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { createHash } from 'node:crypto';
+
 import { Hono } from 'hono';
 import { describe, expect, test, vi } from 'vitest';
 
@@ -218,17 +220,23 @@ describe('idempotencyMiddleware: a key is held while its request runs (T349)', (
   });
 
   test("a crashed request's hold lapses: the next request runs", async () => {
-    const a = slowApp({ holdMs: 60 });
-    // A hold whose request died: nothing renews it.
-    await a.store.holds?.hold('00000000-0000-4000-8000-000000000001|POST:/v1/runs|k1', {
+    const store = createInMemoryIdempotencyStore();
+    const a = loggedApp(store);
+    // A hold whose request died: nothing renews it. Its key is the one the
+    // middleware holds for this caller: the tenant, the caller (a request
+    // with no credential is `token:` and the hash of an empty one), the
+    // route and the key.
+    const caller = `token:${createHash('sha256').update('').digest('hex').slice(0, 16)}`;
+    await store.holds?.hold(`00000000-0000-4000-8000-000000000001|${caller}|POST:/v1/things|k1`, {
       holder: 'gone',
       bodyHash: 'whatever',
-      expiresAt: Date.now() + 50,
+      expiresAt: Date.now() + 100,
     });
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    const { answer: next } = await a.started('k1');
-    a.release();
-    expect((await next).status).toBe(201);
+    // Until it lapses, the hold is the request's: a request is refused.
+    expect((await a.post('k1')).status).toBe(409);
+    expect(a.ran()).toBe(0);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect((await a.post('k1')).status).toBe(201);
     expect(a.ran()).toBe(1);
   });
 
