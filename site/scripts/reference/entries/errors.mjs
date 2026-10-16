@@ -2268,6 +2268,29 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/sso/sessions'],
   },
+  'limited-session-not-refreshable': {
+    description:
+      "`POST /v1/auth/refresh` was called with a session limited to a project or a role. Such a session isn't refreshed, so no copy of it can come back without its limits. Get a new one where you got this one.",
+    details: [],
+  },
+  'limited-session-cannot-mint': {
+    description:
+      "`POST /v1/tokens` was called by a session limited to a project or a role. A limited session mints no keys: a key would outlive whatever ends the session. Mint the key with an API key, or with a session that isn't limited.",
+    details: [
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+  },
   'token-sign-in-needs-an-api-token': {
     description:
       "`POST /v1/auth/token-sign-in` was called while signed in by a session. It takes an API token in the Authorization header, so there's nothing to exchange.",
