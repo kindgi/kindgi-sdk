@@ -117,14 +117,16 @@ export function outputInstructions(spec: AgentOutputSpec): string {
 }
 
 /**
- * The system message's part for a typed agent: the output, and that the
- * tools it needs come first, so a typed answer never stands in for a tool
- * call it still has to make.
+ * The system message's part for a typed agent: the output, and, when the
+ * model is offered tools (`hasTools`), that the ones it needs come first,
+ * so a typed answer never stands in for a tool call it still has to make.
  */
-export function outputSection(spec: AgentOutputSpec): string {
+export function outputSection(spec: AgentOutputSpec, hasTools: boolean): string {
   return [
     outputInstructions(spec),
-    'Call the tools you need first; then give your final answer as that JSON alone.',
+    hasTools
+      ? 'Call the tools you need first; then give your final answer as that JSON alone.'
+      : 'Give your final answer as that JSON alone.',
   ].join('\n');
 }
 
