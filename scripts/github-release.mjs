@@ -123,7 +123,7 @@ function main(args) {
   const dir = mkdtempSync(join(tmpdir(), 'kindgi-release-'));
   let exists = true;
   try {
-    const notesFile = join(dir, 'notes.md');
+    const notesFile = join(dir, 'notes.txt');
     writeFileSync(notesFile, notes);
     try {
       execFileSync('gh', ['release', 'view', releaseTag(version), '--json', 'tagName'], {

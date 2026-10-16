@@ -48,7 +48,7 @@ describe('ghCalls', () => {
   const files = ['out/kindgi-0.1.0.zip', 'out/kindgi-0.1.0.zip.sha256'];
 
   test('a new release: made on its tag (which must be there), as the latest', () => {
-    assert.deepEqual(ghCalls({ version: '0.1.9', exists: false, files, notesFile: 'n.md' }), [
+    assert.deepEqual(ghCalls({ version: '0.1.9', exists: false, files, notesFile: 'notes.txt' }), [
       [
         'release',
         'create',
@@ -58,21 +58,26 @@ describe('ghCalls', () => {
         '--title',
         'Kindgi SDK 0.1.9',
         '--notes-file',
-        'n.md',
+        'notes.txt',
         '--latest',
       ],
     ]);
   });
 
   test('a release candidate: a pre-release, never the latest', () => {
-    const [create] = ghCalls({ version: '0.1.9-rc.0', exists: false, files, notesFile: 'n.md' });
+    const [create] = ghCalls({
+      version: '0.1.9-rc.0',
+      exists: false,
+      files,
+      notesFile: 'notes.txt',
+    });
     assert.deepEqual(create.slice(-2), ['--prerelease', '--latest=false']);
-    const [edit] = ghCalls({ version: '0.1.9-rc.0', exists: true, files, notesFile: 'n.md' });
+    const [edit] = ghCalls({ version: '0.1.9-rc.0', exists: true, files, notesFile: 'notes.txt' });
     assert.deepEqual(edit.slice(-2), ['--prerelease', '--latest=false']);
   });
 
   test("a release that's there: its title and notes edited, its files replaced", () => {
-    assert.deepEqual(ghCalls({ version: '0.1.9', exists: true, files, notesFile: 'n.md' }), [
+    assert.deepEqual(ghCalls({ version: '0.1.9', exists: true, files, notesFile: 'notes.txt' }), [
       [
         'release',
         'edit',
@@ -80,7 +85,7 @@ describe('ghCalls', () => {
         '--title',
         'Kindgi SDK 0.1.9',
         '--notes-file',
-        'n.md',
+        'notes.txt',
         '--prerelease=false',
         '--latest',
       ],
