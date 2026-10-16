@@ -146,9 +146,12 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
 
 - **With `firstAdmin`,** that person becomes the tenant's admin and member by
   email, and signs in with the runtime's own sign-in
-  ([Turn on sign-in](../sign-in/)). No key comes back.
+  ([Turn on sign-in](../sign-in/)). No key comes back: once signed in, they
+  make the tenant's keys ([API keys](../people-and-keys/#api-keys)).
 - **Without `firstAdmin`,** the answer carries the tenant's first admin key,
-  once. Only the full capability creates a tenant that way.
+  once. Store it, because nothing shows it again, and without it nothing
+  gives the tenant another admin key. Only the full capability creates a
+  tenant that way.
 - **Production starts blocked.** `"productionAllowed": true` allows it from
   the start, and takes `system:tenants:production`.
 - **`imagePrefix`** is the repository every image the tenant deploys must
