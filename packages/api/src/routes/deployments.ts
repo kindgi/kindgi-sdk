@@ -402,8 +402,9 @@ export function deploymentsRouter(
       publicKey: publicKeyBase64,
     });
     if (trusted.kind === 'err') {
-      // To the central error handler: a 500 with no raw text; the error is logged.
-      throw new Error(`Trust check failed: ${trusted.error.message}`);
+      // To the central error handler: a 500 with no raw text; the trust-check
+      // error is logged via the cause, which keeps its code.
+      throw new Error('Trust check failed', { cause: trusted.error });
     }
     if (!trusted.value) {
       c.status(statusFor('signer-not-trusted') as never);

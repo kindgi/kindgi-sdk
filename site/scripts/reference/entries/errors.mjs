@@ -1105,7 +1105,7 @@ export const ERROR_ENTRIES = {
   },
   'export-key-error': {
     description:
-      "Signing the export with the deployment's export key failed. The message carries the reason.",
+      "Signing the export with the deployment's export key failed. The reason is in the runtime's log, not the message.",
     details: [],
     seeAlso: ['POST /v1/approvals/{approvalId}/audit-bundle', 'POST /v1/provenance/{runId}/export'],
   },

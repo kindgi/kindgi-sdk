@@ -210,9 +210,12 @@ export function signingNotConfigured(c: Context<AppEnv>, what: string): Response
 }
 
 /**
- * A `signExport` failure as the route answers it: `404
- * signing-key-not-found`, `500 persistence-error`, or `500` with
- * `failureCode` (each route keeps the code it answered before).
+ * A `signExport` failure as the route answers it. `404
+ * signing-key-not-found` is returned directly; the two 500s
+ * (`500 persistence-error`, or `500` with `failureCode`) are thrown as an
+ * `HTTPException` through the central error handler — a fixed-message body
+ * keeping the code each route answered before, with the cause logged here
+ * (the handler's `getResponse()` path does not log).
  */
 export function signExportFailure(
   c: Context<AppEnv>,
@@ -250,7 +253,7 @@ export function signExportFailure(
     });
   }
   (c.get('log') as Logger | undefined)?.error('signing the export failed', {
-    err: Object.assign(new Error(error.message), { code: error.code }),
+    err: Object.assign(new Error(error.message, { cause: error.cause }), { code: error.code }),
   });
   throw new HTTPException(statusFor(failureCode) as never, {
     res: c.json(

@@ -273,6 +273,30 @@ describe.each(EXPORTS)('the %s export', (kind, path, subjectKey, subject, versio
     expect(JSON.stringify(answer.json)).not.toContain('the audit store is down');
   });
 
+  test('a failed record logs the persistence error but never leaks it to the client', async () => {
+    const lines: string[] = [];
+    const logger = createLogger({ write: (line) => lines.push(line) });
+    const store = createInMemoryAuditEventBinding();
+    const failing: AuditEventBinding = {
+      ...store,
+      append: async () => ({
+        kind: 'err',
+        error: {
+          code: 'persistence-error',
+          message: 'insert into audit_events failed: duplicate key',
+          cause: null,
+        },
+      }),
+    };
+    const answer = await harness({ auditEvents: failing, logger }).post(path);
+    expect(answer.status).toBe(500);
+    // The fixed message reaches the client; the raw persistence detail does not.
+    expect(JSON.stringify(answer.json)).not.toContain('insert into audit_events failed');
+    // That detail reaches the log under `err`, though not the client. A mutant
+    // that drops the persistence-branch log line is killed here.
+    expect(lines.join('\n')).toContain('insert into audit_events failed');
+  });
+
   test('a signer failure is a 500 with the wire code and no raw detail', async () => {
     const failingSigner: ExportSigningBinding = {
       ...signer(),
@@ -294,21 +318,32 @@ describe.each(EXPORTS)('the %s export', (kind, path, subjectKey, subject, versio
     expect(raw).not.toContain('export-signing-failed');
   });
 
-  test('a signer failure logs the cause but never leaks it to the client', async () => {
+  test('a signer failure logs the cause reason, not just the code, and never leaks it', async () => {
     const lines: string[] = [];
     const logger = createLogger({ write: (line) => lines.push(line) });
     const failingSigner: ExportSigningBinding = {
       ...signer(),
       sign: async () => ({
         kind: 'err',
-        error: { code: 'export-signing-failed', message: 'kms refused the sign' },
+        // A local P-256 key fails with a terse message and the reason in `cause`.
+        error: {
+          code: 'export-signing-failed',
+          message: 'ECDSA P-256 signing failed',
+          cause: new Error('the private key PEM is malformed'),
+        },
       }),
     };
     const answer = await harness({ exportSigning: failingSigner, logger }).post(path);
     expect(answer.status).toBe(500);
-    expect(JSON.stringify(answer.json)).not.toContain('export-signing-failed');
-    // The underlying cause reaches the log, under `err`, though not the client.
-    expect(lines.join('\n')).toContain('export-signing-failed');
+    const body = JSON.stringify(answer.json);
+    expect(body).not.toContain('ECDSA P-256 signing failed');
+    expect(body).not.toContain('the private key PEM is malformed');
+    // The cause's reason reaches the log under `err`, though not the client. A
+    // mutant that drops `{ cause: error.cause }` from the logged Error is killed:
+    // the terse message alone would not carry the reason.
+    const log = lines.join('\n');
+    expect(log).toContain('export-signing-failed');
+    expect(log).toContain('the private key PEM is malformed');
   });
 });
 
