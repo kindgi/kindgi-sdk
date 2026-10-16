@@ -56,14 +56,40 @@ const FIXED: ReadonlySet<string> = new Set(['time', 'level', 'severity', 'subsys
 /** Names a field can't take: the fixed five and `inMessage`, the record's own. */
 const RESERVED: ReadonlySet<string> = new Set([...FIXED, 'inMessage']);
 
-function serializeError(err: unknown, withStack: boolean, depth = 0): SerializedError | string {
-  if (!(err instanceof Error)) return scrubText(String(err));
+/** A string or numeric `code`, as a string. */
+function codeOf(err: object): { readonly code?: string } {
   const code = (err as { readonly code?: unknown }).code;
+  return typeof code === 'string' || typeof code === 'number' ? { code: String(code) } : {};
+}
+
+/**
+ * A plain object in an error's place (a storage error is
+ * `{ code, message, cause }`): its string name (else `Object`), its code
+ * and its message, and nothing else. Its own cause isn't walked: a storage
+ * error's is the database driver's, whose text can carry the query and
+ * the values it was bound to. With neither a code nor a message, it's
+ * `String(err)`.
+ */
+function serializePlain(err: object): SerializedError | string {
+  const { name, message } = err as { readonly name?: unknown; readonly message?: unknown };
+  const code = codeOf(err);
+  if (typeof message !== 'string' && code.code === undefined) return scrubText(String(err));
+  return {
+    name: typeof name === 'string' ? name : 'Object',
+    message: typeof message === 'string' ? scrubText(message) : '',
+    ...code,
+  };
+}
+
+function serializeError(err: unknown, withStack: boolean, depth = 0): SerializedError | string {
+  if (!(err instanceof Error)) {
+    return typeof err === 'object' && err !== null ? serializePlain(err) : scrubText(String(err));
+  }
   const cause = (err as { readonly cause?: unknown }).cause;
   return {
     name: err.name,
     message: scrubText(err.message),
-    ...(typeof code === 'string' || typeof code === 'number' ? { code: String(code) } : {}),
+    ...codeOf(err),
     ...(withStack && err.stack !== undefined && { stack: scrubText(err.stack) }),
     ...(cause !== undefined && depth < 3 && { cause: serializeError(cause, withStack, depth + 1) }),
   };
