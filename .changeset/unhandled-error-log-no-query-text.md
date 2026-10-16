@@ -1,0 +1,5 @@
+---
+"@kindgi/api": patch
+---
+
+**A thrown error's log line no longer carries a failed database query's SQL or values.** A 500's body already said only `A database query failed.`. But its `unhandled error` log line wrote the thrown error's message and its causes', and Drizzle's wrapper around a failed query has the message `Failed query: <sql> params: <values>`. Those values are a request's own, a person's email or address among them. The same was true of a read's `database busy` warn line. Both lines now write such a wrapper as the database driver's error under it: what the server answered, its SQLSTATE, and the stack of the code that ran the query. One with no cause is written as `A database query failed.`, with no stack. This holds for the thrown error itself and for each cause the line writes, three deep. The errors above it in the chain keep their name, message, code and stack. An error with no failed query among those causes is logged exactly as before, and the thrown errors themselves aren't changed.

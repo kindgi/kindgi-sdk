@@ -104,7 +104,7 @@ describe('a thrown exception on the wire', () => {
     });
   });
 
-  test("a failed query's SQL and values stay in the log, not the answer", async () => {
+  test("a failed query's SQL and values stay out of the answer", async () => {
     const failed = new Error(
       'Failed query: select "id" from "people" where "email" = $1\nparams: alice@acme.example',
     );
@@ -210,5 +210,129 @@ describe('a thrown exception on the wire', () => {
     const { res, text } = await get(appWhoseRunCallsThrow(thrown), '/v1/runs');
     expect(res.status).toBe(413);
     expect(text).toBe('Too big');
+  });
+});
+
+describe("a failed query in the thrown error's log line", () => {
+  interface LoggedError {
+    name?: string;
+    message?: string;
+    code?: string;
+    stack?: string;
+    cause?: LoggedError;
+  }
+
+  /** The database driver's error: what the server answered, and its SQLSTATE. */
+  function driverError(): Error {
+    return Object.assign(new Error('relation "people" does not exist'), { code: '42P01' });
+  }
+
+  /** Drizzle's wrapper around a failed query, in its own shape: its message the SQL and the values. */
+  function queryError(cause?: unknown): Error {
+    return Object.assign(
+      new Error(
+        'Failed query: select "id" from "people" where "email" = $1\nparams: alice@acme.example',
+      ),
+      {
+        query: 'select "id" from "people" where "email" = $1',
+        params: ['alice@acme.example'],
+        cause,
+      },
+    );
+  }
+
+  /** `inner`, `depth` errors down the thrown error's `cause` chain (0: the thrown error itself). */
+  function wrappedAt(depth: number, inner: Error): Error {
+    let node = inner;
+    for (let link = depth; link > 0; link--) {
+      node = new Error(`Listing runs failed (${link})`, { cause: node });
+    }
+    return node;
+  }
+
+  /** Throw `thrown` from a run read; the answer, and the `err` of each log line with `message`. */
+  async function logged(thrown: Error, message: string, path = '/v1/runs') {
+    const lines: string[] = [];
+    const app = appWhoseRunCallsThrow(thrown, createLogger({ write: (line) => lines.push(line) }));
+    const { res, text } = await get(app, path);
+    const errs = lines
+      .map((line) => JSON.parse(line) as { message?: string; err?: LoggedError })
+      .filter((record) => record.message === message)
+      .map((record) => record.err);
+    return { res, text, errs, line: lines.join('\n') };
+  }
+
+  test.each([0, 1, 2, 3])(
+    "%i deep: the driver's error stands in the query error's place, and no SQL or value is logged",
+    async (depth) => {
+      const driver = driverError();
+      const failed = queryError(driver);
+      const thrown = wrappedAt(depth, failed);
+      const { res, text, errs, line } = await logged(thrown, 'unhandled error');
+      expect(res.status).toBe(500);
+      expect(text).not.toContain('alice@acme.example');
+      expect(errs).toHaveLength(1);
+      expect(line).not.toContain('Failed query');
+      expect(line).not.toContain('params:');
+      expect(line).not.toContain('alice@acme.example');
+      // The errors above it keep their message and their own stack.
+      let at = errs[0];
+      for (let link = 1; link <= depth; link++) {
+        expect(at?.message).toBe(`Listing runs failed (${link})`);
+        expect(at?.stack).toContain(`Listing runs failed (${link})`);
+        expect(at?.stack).toContain('thrown-errors.test');
+        at = at?.cause;
+      }
+      expect(at).toMatchObject({
+        name: 'Error',
+        message: 'relation "people" does not exist',
+        code: '42P01',
+      });
+      expect(at?.stack).toContain('thrown-errors.test');
+      // The thrown errors themselves are unchanged.
+      let node: unknown = thrown;
+      for (let link = 0; link < depth; link++) node = (node as Error).cause;
+      expect(node).toBe(failed);
+      expect(failed.cause).toBe(driver);
+      expect(failed.message).toContain('alice@acme.example');
+    },
+  );
+
+  test('a failed query with no cause, or on a cycle of them, logs `A database query failed.` with no stack', async () => {
+    const cyclic = queryError();
+    (cyclic as { cause?: unknown }).cause = queryError(cyclic);
+    for (const failed of [queryError(), cyclic]) {
+      const { errs, line } = await logged(wrappedAt(1, failed), 'unhandled error');
+      expect(errs[0]?.cause).toEqual({ name: 'Error', message: 'A database query failed.' });
+      expect(line).not.toContain('alice@acme.example');
+    }
+  });
+
+  test('a failed query whose cause is another gives way to the driver error under both', async () => {
+    const { errs, line } = await logged(queryError(queryError(driverError())), 'unhandled error');
+    expect(errs[0]).toMatchObject({ message: 'relation "people" does not exist', code: '42P01' });
+    expect(line).not.toContain('alice@acme.example');
+  });
+
+  test('an error with no failed query among its causes is logged as it is', async () => {
+    const thrown = wrappedAt(2, driverError());
+    const { errs } = await logged(thrown, 'unhandled error');
+    const direct: string[] = [];
+    createLogger({ write: (line) => direct.push(line) }).error('unhandled error', { err: thrown });
+    expect(errs[0]).toEqual((JSON.parse(direct[0] ?? '{}') as { err?: unknown }).err);
+  });
+
+  test("a read the database was too busy for: its warn line leaves a failed query's text out too", async () => {
+    const thrown = Object.assign(new Error('Listing runs failed'), {
+      code: 'database-busy',
+      cause: queryError(driverError()),
+    });
+    const { res, errs, line } = await logged(thrown, 'database busy');
+    expect(res.status).toBe(503);
+    expect(errs[0]?.cause).toMatchObject({
+      message: 'relation "people" does not exist',
+      code: '42P01',
+    });
+    expect(line).not.toContain('alice@acme.example');
   });
 });
