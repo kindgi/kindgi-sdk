@@ -12,8 +12,9 @@ import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
  * middleware throws becomes a `500 internal-server-error` wire error with
  * a fixed message and the request id — never the thrown error's own
  * message, which would leak internal detail (an upstream address, a
- * database driver's string) to the client, across tenants on a shared
- * deployment. The whole error stays in the log. Domain errors returned via
+ * database driver's string) to the tenant whose request failed — on a
+ * shared deployment, detail of the platform every tenant shares. The whole
+ * error stays in the log. Domain errors returned via
  * `Result<T, E>` are handled per-route; this catches thrown exceptions
  * (framework bugs, DB failures without a Result wrap, etc.).
  *
@@ -43,7 +44,7 @@ import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
  * The requestId embedded in the response body matches
  * `middleware/request-id.ts`, so a caller can correlate.
  *
- * No thrown error's message reaches the client. A failed database query's
+ * No thrown error's message reaches the client in a 500. A failed database query's
  * carries its SQL and parameters (Drizzle's `Failed query: … params: …`, a
  * person's email or address); an infrastructure error's carries an internal
  * address (`connect ECONNREFUSED …`). The body says only a fixed message —
