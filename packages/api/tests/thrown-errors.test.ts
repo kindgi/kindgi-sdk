@@ -382,20 +382,31 @@ describe("a failed query in the thrown error's log line", () => {
     },
   );
 
-  test('a data exception with no failed query over it says what it means too', async () => {
-    for (const [text, code, said] of [
-      [
-        'date/time field value out of range: "marker-date"',
-        '22008',
-        'a date or time out of range (22008)',
-      ],
-      ['invalid parameter value: "marker-other"', '22023', 'a value the database rejected (22023)'],
-    ] as const) {
-      const { errs, line } = await logged(wrappedAt(1, serverError(text, code)), 'unhandled error');
-      expect(line).not.toContain('marker-');
-      expect(errs[0]?.cause).toMatchObject({ name: 'PostgresError', message: said, code });
-    }
-  });
+  test.each([
+    ['22001', 'a value too long for its column'],
+    ['22003', 'a number out of range for its type'],
+    ['22007', 'an invalid date or time'],
+    ['22008', 'a date or time out of range'],
+    ['22021', 'bytes invalid in the encoding'],
+    ['22P02', 'invalid input for its type'],
+    ['22P05', 'a character the database cannot store'],
+    ['22023', 'a value the database rejected'],
+  ])(
+    'a data exception %s with no failed query over it says "%s" and its SQLSTATE',
+    async (code, words) => {
+      const marker = `marker-${code}`;
+      const { errs, line } = await logged(
+        wrappedAt(1, serverError(`the server's text: "${marker}"`, code)),
+        'unhandled error',
+      );
+      expect(line).not.toContain(marker);
+      expect(errs[0]?.cause).toMatchObject({
+        name: 'PostgresError',
+        message: `${words} (${code})`,
+        code,
+      });
+    },
+  );
 
   test("another SQLSTATE's text, or a class-22 code with no severity, is logged as it is", async () => {
     const unique = serverError(
