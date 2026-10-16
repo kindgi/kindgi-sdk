@@ -11,7 +11,10 @@
 //   - a larger refund, a price change and publishing a product each wait
 //     for a reviewer, who approves or rejects it in the console's approvals
 //     inbox (or by email). The tool runs only after an approval; a
-//     rejection is recorded in the audit, and the agent says so.
+//     rejection is recorded in the audit, and the agent says so;
+//   - those three need a reviewer other than the person who asked
+//     (`separateApprover`): whoever's turn asked for a large refund can't
+//     approve it themselves.
 import { defineAgent } from '@kindgi/sdk/define';
 import type { AgentId, GuardrailId, Semver } from '@kindgi/sdk/types';
 
@@ -54,6 +57,13 @@ const defined = defineAgent({
         },
       },
       defaultReviewerRole: 'standard',
+      separateApprover: {
+        overrides: {
+          '{{PACK_ID}}.woo.refund-large': true,
+          '{{PACK_ID}}.woo.set-price': true,
+          '{{PACK_ID}}.woo.publish-product': true,
+        },
+      },
     },
   },
   // A refused call goes back to the model instead of failing the turn: when
