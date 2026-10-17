@@ -628,6 +628,32 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'tool-kind-mismatch': {
+    description:
+      "A tool's active versions are all one kind: an MCP endpoint's tool, which the runtime registers from the endpoint's listing, or tools published here. This version is the other kind, so nothing was written. Publish or deploy it under another id, or unregister the endpoint (or the other kind's versions) first.",
+    details: [
+      {
+        key: 'toolId',
+        meaning: "the tool's id (single publish or reinstate)",
+      },
+      {
+        key: 'version',
+        meaning: 'the version refused (single publish or reinstate)',
+      },
+      {
+        key: 'endpointId',
+        meaning: "when the id is an MCP endpoint's tool: that endpoint's id",
+      },
+      {
+        key: 'primitive',
+        meaning: 'on a deployment: the kind of item refused (`tool`)',
+      },
+      {
+        key: 'id',
+        meaning: 'on a deployment: the refused item, as `id@version`',
+      },
+    ],
+  },
   'guardrail-already-registered': {
     description:
       'A guardrail with this id is already registered. On a deployment, the existing one has a different definition, so unregister it first and deploy again.',

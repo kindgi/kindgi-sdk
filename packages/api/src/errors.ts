@@ -95,6 +95,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'tool-gone': 410,
   'tool-already-registered': 409,
   'tool-project-mismatch': 409,
+  // A tool's active versions are all one kind: an MCP endpoint's, or published here.
+  'tool-kind-mismatch': 409,
   'guardrail-already-registered': 409,
   // A deploy's guardrail id is live in another project: a deploy never takes it.
   'guardrail-project-mismatch': 409,
