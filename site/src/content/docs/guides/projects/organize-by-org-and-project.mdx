@@ -191,8 +191,22 @@ completed [ '68ebe748-4259-4f46-ae21-cf0da3b978c6' ]
 ```
 
 Keep the org's and the project's ids on the customer's row in your app. From
-the CLI, `kindgi runs start … --project=<project-id>` runs in a customer's
-project, and `kindgi projects list` lists the projects with their ids.
+the CLI:
+
+- `kindgi projects create --name=Support --org=<org-id>` makes a project and
+  prints it with its id. Its slug is the name as a slug (`support`) unless
+  `--slug` gives one.
+- `kindgi projects rename <project-id> --name=<name>` renames one, and
+  `--slug` changes its slug.
+- `kindgi projects list` lists the projects with their ids.
+- `kindgi runs start … --project=<project-id>` runs in a customer's project.
+
+In the console, a tenant admin makes one with **New project** on the tenant
+dashboard's **Projects** card: a name, a slug made from the name until you
+edit it, an org if the tenant has any, and what it's for. The new project then
+opens. A project's admins (an admin of its org, or a tenant admin, is one)
+rename it with **Rename** in its **Dashboard**'s header. Its id stays; a new
+slug changes what `kindgi deploy --project` takes.
 
 **Slugs.** An org's slug is unique in the tenant. A project's slug is unique
 in its org, so every customer can have a `support` project. A project with
@@ -215,6 +229,7 @@ pack whose ids all start with its pack id, so two clients' packs never share
 an id:
 
 ```sh
+kindgi projects create --name="Acme shop" --org=<org-id>
 kindgi init acme-shop --template=woocommerce
 cd acme-shop
 kindgi deploy --project acme-shop
@@ -239,9 +254,12 @@ What a deploy into a project does, with the runtime 0.1.8 or later:
 - **A project of another tenant, or none,** is `404 project-not-found`.
 - **A suspended project** takes no deploy, where the runtime suspends
   projects: `409 project-suspended`, before anything is written. No run
-  starts in it either: `POST /v1/runs` answers the same. A delivery to one
-  of its webhook triggers is answered `202` and skipped, with nothing
-  recorded on the trigger's fires.
+  starts in it either: `POST /v1/runs` answers the same, as do an eval run
+  started in it and an improvement pass for one of its agents. An eval run
+  or a pass already going stops at its next case and ends `cancelled`, with
+  `project-suspended` in its `cancelReason`. A delivery to one of its
+  webhook triggers is answered `202` and skipped, with nothing recorded on
+  the trigger's fires.
 
 Deploying the same pack into a second project is refused, because its ids
 already belong to the first project: `409 tool-project-mismatch` (or
@@ -334,6 +352,16 @@ kindgi.projects().production()
 
 </TabItem>
 </Tabs>
+
+In the console, a project's **Dashboard** has a **Production** card. It shows
+**Live**, and since when, or **Not live**. A tenant admin puts the project in
+production with **Go live**, and takes it out with **Take out of
+production**, after the console asks ("Go live?", "Take this project out of
+production?"). While the tenant may not put projects in production, the card says so,
+and gives a tenant admin **See how to go live** when the runtime names where
+to go. A refused switch shows the runtime's own message.
+
+![The Default project's Dashboard, as a tenant admin sees it: the Production card, "Runs here count as staging: building and testing.", marked Not live, with Go live.](../../../../assets/projects/production-card.png)
 
 - **Tenant admins only,** both ways: anyone else gets
   `403 permission-denied`.

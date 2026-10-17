@@ -387,7 +387,8 @@ function costCell(costUsd: string): string {
 /** What a pass found, in a table cell. */
 function outcomeCell(p: ImprovementPass): string {
   const o = p.outcome;
-  if (o === undefined) return p.status === 'running' ? 'running' : '-';
+  // Cancelled for a reason (a suspended project), not by a person: the reason.
+  if (o === undefined) return p.status === 'running' ? 'running' : (p.cancelReason ?? '-');
   if (o.kind === 'proposed') return `proposed ${o.proposalId ?? ''}`.trim();
   if (o.kind === 'nothing-found') return 'nothing better';
   return 'failed';

@@ -38,6 +38,9 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
 - **[Turn on sign-in](sign-in/):** people sign in to the console with their
   organization's identity provider, Google, Microsoft or GitHub, or a link
   by email.
+- **[Publish the addresses your calls come from](egress-addresses/):** for
+  a site that admits only known addresses, and `kindgi egress` to print
+  them.
 - **[Google Cloud Run](cloud-run/):** the runtime and your pack's service as
   two Cloud Run services, with Cloud SQL, from Kindgi's Terraform module.
 - **[Azure Container Apps](azure-container-apps/):** the runtime and your

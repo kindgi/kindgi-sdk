@@ -14,10 +14,13 @@ import {
   type PolicyScopeChanged,
   type PolicyScopeTaken,
   isAppliedPolicyKind,
+  retentionSpecDoc,
   validatePolicySpec,
+  validateRetentionSpec,
 } from '@kindgi/policy-contract';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import type { RetentionLimits } from '../retention-binding.js';
 import type { AppEnv } from '../types.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
@@ -37,7 +40,11 @@ import { tenantResourceAccess } from './tenant-access.js';
  * kinds' specs are their runtime consumer's to validate. A kind that
  * holds a scope (`policyScope`: a retention policy, its domain) gets one
  * policy per scope; the binding enforces it (`409 policy-scope-taken`,
- * `409 policy-scope-changed`).
+ * `409 policy-scope-changed`). A retention policy that keeps a limited
+ * domain's rows longer than the server's limit (`retentionLimits`), or
+ * holds them, is refused when it's published or reinstated
+ * (`400 retention-over-limit`); a `*` policy isn't, as the runtime caps
+ * each limited domain when it sweeps.
  *
  * Enforcement is out of scope. This is the *registry* surface only.
  * Runtime consumers (e.g. `@kindgi/capabilities` `route` for
@@ -47,7 +54,10 @@ import { tenantResourceAccess } from './tenant-access.js';
 export function policiesRouter(
   binding: PolicyRegistryBinding,
   authorizer?: Authorizer,
+  options: { readonly retentionLimits?: RetentionLimits } = {},
 ): Hono<AppEnv> {
+  const { retentionLimits = {} } = options;
+  const limited = Object.keys(retentionLimits).length > 0;
   const r = new Hono<AppEnv>();
   r.use('*', tenantResourceAccess(authorizer));
 
@@ -196,7 +206,8 @@ export function policiesRouter(
         ),
       );
     }
-    return c.json(serializePolicy(policy));
+    // A retired version answers too, with its `unregisteredAt`.
+    return c.json(serializePolicyVersionRow(policy));
   });
 
   // ---------- POST / (publish) ----------
@@ -254,6 +265,12 @@ export function policiesRouter(
       );
     }
 
+    const overLimit = overRetentionLimit(validation.value, retentionLimits);
+    if (overLimit !== undefined) {
+      c.status(statusFor('retention-over-limit') as never);
+      return c.json(toWireError(overLimit, requestId));
+    }
+
     const outcome = await binding.publish({ tenantId, policy: validation.value });
     if (outcome.kind === 'already-registered') {
       c.status(statusFor('policy-already-registered') as never);
@@ -308,6 +325,24 @@ export function policiesRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const policyId = c.req.param('policyId');
     const version = c.req.param('version');
+    // A version over the limit stays retired: reinstating it would put it
+    // back in force. Its spec doesn't change, so reading it first is safe.
+    const stored = limited ? await storedVersion(binding, tenantId, policyId, version) : null;
+    const overLimit = stored === null ? undefined : overRetentionLimit(stored, retentionLimits);
+    if (overLimit !== undefined) {
+      c.status(statusFor('retention-over-limit') as never);
+      return c.json(
+        toWireError(
+          {
+            ...overLimit,
+            message: `Version ${version} of policy "${policyId}" stays retired: ${overLimit.message} Publish a version within it instead.`,
+            policyId,
+            version,
+          },
+          requestId,
+        ),
+      );
+    }
     const outcome = await binding.reinstateVersion({ tenantId, policyId, version });
     if (outcome.kind === 'not-found') {
       c.status(statusFor('policy-not-found') as never);
@@ -335,6 +370,78 @@ export function policiesRouter(
   });
 
   return r;
+}
+
+/**
+ * A version as stored, a retired one included (`listVersions` with
+ * `includeTombstoned`, to its last page): a store's `getVersion` may
+ * answer only active versions.
+ */
+async function storedVersion(
+  binding: PolicyRegistryBinding,
+  tenantId: TenantId,
+  policyId: string,
+  version: string,
+): Promise<Policy | null> {
+  let cursor: Cursor | undefined;
+  do {
+    const page = await binding.listVersions({
+      tenantId,
+      policyId,
+      limit: 100,
+      includeTombstoned: true,
+      ...(cursor !== undefined && { cursor }),
+    });
+    const found = page.data.find((row) => row.version === version);
+    if (found !== undefined) return found;
+    cursor = page.nextCursor;
+  } while (cursor !== undefined);
+  return null;
+}
+
+/**
+ * The 400 for a retention policy that keeps its domain's rows longer than
+ * the server's limit for that domain, or holds them (`-1`). Anything else
+ * passes: another kind, a `*` policy, a domain with no limit, a grace
+ * within it, and a spec that isn't a retention spec (publishing refuses
+ * it on its own; a sweep skips one stored before that).
+ */
+function overRetentionLimit(
+  policy: { readonly kind: PolicyKind; readonly spec: unknown },
+  limits: RetentionLimits,
+): ({ code: 'retention-over-limit'; message: string } & Record<string, unknown>) | undefined {
+  if (policy.kind !== 'retention') return undefined;
+  const checked = validateRetentionSpec(retentionSpecDoc(policy.spec));
+  if (checked.kind !== 'ok' || checked.value.domain === '*') return undefined;
+  const { domain, graceSeconds } = checked.value;
+  const limit = limits[domain];
+  if (limit === undefined || (graceSeconds !== -1 && graceSeconds <= limit.seconds)) {
+    return undefined;
+  }
+  const words = inWords(graceSeconds);
+  const kept =
+    graceSeconds === -1
+      ? '-1 (a hold)'
+      : `${graceSeconds}${words === undefined ? '' : ` (${words})`}`;
+  return {
+    code: 'retention-over-limit',
+    message: `\`graceSeconds\` ${kept} is over the retention limit for \`${domain}\` rows, ${inWords(limit.seconds) ?? `${limit.seconds} seconds`}.`,
+    domain,
+    graceSeconds,
+    limitSeconds: limit.seconds,
+  };
+}
+
+/** A whole number of days or hours, in words (`90 days`, `1 hour`); `undefined` for anything else. */
+function inWords(seconds: number): string | undefined {
+  const [count, unit] =
+    seconds > 0 && seconds % 86_400 === 0
+      ? [seconds / 86_400, 'day']
+      : seconds > 0 && seconds % 3_600 === 0
+        ? [seconds / 3_600, 'hour']
+        : [undefined, undefined];
+  if (count === undefined) return undefined;
+  return `${count} ${unit}${count === 1 ? '' : 's'}`;
 }
 
 /**
@@ -394,9 +501,10 @@ function serializePolicy(p: Policy): Record<string, unknown> {
 }
 
 /**
- * Version-list serializer — same shape as `serializePolicy` plus the
- * optional `unregisteredAt` timestamp when the row is tombstoned. Kept
- * separate so `get` / `getVersion` responses don't leak the field.
+ * A version's serializer (the version list and the version route) —
+ * same shape as `serializePolicy` plus the optional `unregisteredAt`
+ * timestamp when the version is tombstoned. `get` answers the latest
+ * active version, which never carries it.
  */
 function serializePolicyVersionRow(
   p: Policy & { readonly unregisteredAt?: string },

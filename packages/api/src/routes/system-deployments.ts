@@ -10,6 +10,8 @@ import {
   DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
   type DeploymentEndpoint,
   type DeploymentEndpointProblemCode,
+  type SystemDeploymentRetireReason,
+  endpointToWire,
 } from '../deployment-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -30,10 +32,7 @@ import type { AppEnv } from '../types.js';
 export interface SystemDeploymentEntry {
   readonly tenantId: TenantId;
   readonly deploymentId: string;
-  /**
-   * The pack it deploys (the image index's `packId`): retiring keeps the
-   * newest few superseded deployments per tenant and pack.
-   */
+  /** The pack it deploys (the image index's `packId`). */
   readonly packId: string;
   /** The project the deploy was scoped to; absent for a tenant-wide one. */
   readonly projectId?: string;
@@ -44,25 +43,6 @@ export interface SystemDeploymentEntry {
   /** ISO-8601. */
   readonly activatedAt: string;
 }
-
-/**
- * Why a deployment's pack service should go:
- * - `superseded`: no live or promoted version routes to it any more. The
- *   orchestrator may keep the newest few per pack, for rollbacks;
- * - `tenant-closing`, `tenant-suspended`: every deployment of the tenant,
- *   routed or not, since nothing of it runs;
- * - `project-suspended`, `pack-suspended`: every deployment of the project,
- *   or this deployment.
- */
-export const SYSTEM_DEPLOYMENT_RETIRE_REASONS = [
-  'superseded',
-  'tenant-closing',
-  'tenant-suspended',
-  'project-suspended',
-  'pack-suspended',
-] as const;
-
-export type SystemDeploymentRetireReason = (typeof SYSTEM_DEPLOYMENT_RETIRE_REASONS)[number];
 
 export interface SystemDeploymentToRetire extends SystemDeploymentEntry {
   readonly reason: SystemDeploymentRetireReason;
@@ -131,9 +111,9 @@ export interface DeploymentRef {
 export interface SystemDeploymentsBinding {
   /**
    * Across tenants, oldest `activatedAt` first: deployments that need a
-   * pack service. Each is routed (a live or promoted version resolves to
-   * it), has no endpoint or a cleared one, and nothing about it is closing
-   * or suspended.
+   * pack service. Each is routed (the newest deployment with routes for some
+   * tool version or pack check), has no endpoint or a cleared one, and
+   * nothing about it is closing or suspended.
    */
   listNeedingEndpoint(input: {
     readonly cursor?: string;
@@ -161,7 +141,11 @@ export interface SystemDeploymentsBinding {
   ): Promise<
     { readonly kind: 'ok'; readonly endpoint: DeploymentEndpoint } | { readonly kind: 'not-found' }
   >;
-  /** Records why a pending deployment has no pack service yet. */
+  /**
+   * Records why a deployment waiting for its pack service has none yet: a
+   * pending one, or a cleared one that lists as needing a pack service
+   * again (`waiting`). Any other is `not-pending`.
+   */
   recordProblem(
     input: DeploymentRef & { readonly code: DeploymentEndpointProblemCode },
   ): Promise<
@@ -359,7 +343,7 @@ export function systemDeploymentsRouter(
             case 'not-pending':
               return fail(c, {
                 code: 'endpoint-not-pending',
-                message: `Deployment ${ref.value.deploymentId}'s endpoint is ${recorded.endpoint.status}: a problem goes with pending only.`,
+                message: `Deployment ${ref.value.deploymentId}'s endpoint is ${recorded.endpoint.status} and not waiting for a pack service: a problem goes with a pending one, or a cleared one that lists as needing a pack service again (\`waiting\`).`,
                 status: recorded.endpoint.status,
               });
           }
@@ -457,18 +441,6 @@ function entryToWire(entry: SystemDeploymentEntry) {
     imageDigest: entry.imageDigest,
     artifactVersion: entry.artifactVersion,
     activatedAt: entry.activatedAt,
-  };
-}
-
-/** Named fields only: never the URL, the auth or the token. */
-function endpointToWire(endpoint: DeploymentEndpoint) {
-  return {
-    status: endpoint.status,
-    since: endpoint.since,
-    ...(endpoint.status === 'pending' &&
-      endpoint.problem !== undefined && {
-        problem: { code: endpoint.problem.code, since: endpoint.problem.since },
-      }),
   };
 }
 
