@@ -116,8 +116,10 @@ export interface SessionSecondFactor {
    * - `recovery-code`: one of their recovery codes.
    * - `identity-provider`: they signed in through the workspace's own
    *   identity provider, which owns the second factor there.
+   * - `site`: a site signed them in (`SiteBinding`), and the site owns
+   *   their second factor.
    */
-  readonly method: 'totp' | 'recovery-code' | 'identity-provider';
+  readonly method: 'totp' | 'recovery-code' | 'identity-provider' | 'site';
   readonly at: Timestamp;
 }
 

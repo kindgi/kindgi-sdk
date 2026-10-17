@@ -11,14 +11,15 @@ import type { Command, LeafCommand } from './types.js';
  * takes a second factor covers the deployment's own ways in (the emailed
  * link, and providers like Google, Microsoft and GitHub). Signing in
  * through the workspace's own identity provider (`kindgi sso`) is exempt:
- * it owns MFA there. API keys aren't covered.
+ * it owns MFA there. So are a site's people: the site signs them in and
+ * owns their second factor. API keys aren't covered.
  */
 
 const settings: LeafCommand = {
   kind: 'leaf',
   name: 'settings',
   description:
-    "The workspace's sign-in settings; `--require-second-factor=on` makes signing in take a second factor (an authenticator app), `off` stops requiring it. Once on, a session made without one ends at its next request, and signing in to the console with an API token is refused. Signing in through the workspace's own identity provider is exempt: it owns MFA there. API keys aren't covered: keep them to service accounts, and rotate them. Turning it on when signed in takes a sign-in made with your own second factor. Tenant admins only.",
+    "The workspace's sign-in settings; `--require-second-factor=on` makes signing in take a second factor (an authenticator app), `off` stops requiring it. Once on, a session made without one ends at its next request, and signing in to the console with an API token is refused. Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. API keys aren't covered: keep them to service accounts, and rotate them. Turning it on when signed in takes a sign-in made with your own second factor. Tenant admins only.",
   usage: 'kindgi sign-in settings [--require-second-factor=on|off]',
   optionSpec: {
     'require-second-factor': {

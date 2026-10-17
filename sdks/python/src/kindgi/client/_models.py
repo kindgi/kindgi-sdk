@@ -7637,7 +7637,7 @@ class SecondFactor(BaseModel):
     )
     required: bool
     """
-    Signing in by the deployment's own ways in takes a second factor. Signing in through the workspace's own identity provider is exempt: it owns MFA there. API keys aren't covered.
+    Signing in by the deployment's own ways in takes a second factor. Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. API keys aren't covered.
     """
     on_previous_secret: Annotated[int, Field(alias="onPreviousSecret", ge=0)]
     """
