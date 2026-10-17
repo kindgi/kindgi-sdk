@@ -169,6 +169,14 @@ describe('gradeCorrection — must not call (mutant 3)', () => {
     expect(result.differences).toContainEqual({ tool: 'refund', kind: 'must-not-call', actual: 2 });
   });
 
+  test('a forbidden tool called exactly once fails, with a count of one', () => {
+    const result = gradeCorrection({ calls: [], notCalled: ['refund'] }, [
+      call('refund', { amount: 25 }),
+    ]);
+    expect(result.pass).toBe(false);
+    expect(result.differences).toContainEqual({ tool: 'refund', kind: 'must-not-call', actual: 1 });
+  });
+
   test('a forbidden tool that was not called passes', () => {
     expect(
       gradeCorrection({ calls: [], notCalled: ['refund'] }, [call('lookup', { id: 'x' })]),
