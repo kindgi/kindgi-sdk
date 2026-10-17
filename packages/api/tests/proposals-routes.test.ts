@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import { type Agent, createAgentRegistry, pinsDigest } from '@kindgi/agents';
-import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import type { Action, AuthzCheckBinding, Decision, ResourceRef, TupleIntent } from '@kindgi/authz';
 import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import type {
@@ -68,13 +68,19 @@ const SEGMENT: LiveScope = {
 };
 const SEGMENT_WIRE = { kind: 'segment', projectId, path: [{ key: 'company', value: 'acme' }] };
 
-const resolveToken: TokenResolver = async (token) =>
-  token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
+const ACCOUNT_TOKEN = 'proposals-account-token';
+const resolveToken: TokenResolver = async (token) => {
+  if (token === TOKEN) return { tenantId, userId: 'user-1' as UserId };
+  if (token === ACCOUNT_TOKEN) return { tenantId, serviceAccountId: 'sa-ci' };
+  return null;
+};
 
-/** The agent registry in memory, recording each version's project. */
-function agentBinding(): AgentRegistryBinding {
+/** The agent registry in memory, recording each version's project and the entries its publish wrote. */
+function agentBinding(): AgentRegistryBinding & { written: TupleIntent[] } {
   const registry = createAgentRegistry();
+  const written: TupleIntent[] = [];
   return {
+    written,
     async list() {
       return { data: [] };
     },
@@ -96,11 +102,12 @@ function agentBinding(): AgentRegistryBinding {
         data: registry.list().filter((a) => (a.id as unknown as string) === agentId),
       };
     },
-    async publish({ agent }) {
+    async publish({ agent, enqueueTuples }) {
       if (registry.get(agent.id, agent.version as unknown as string).kind === 'ok') {
         return { kind: 'already-registered', agentId: agent.id, version: agent.version };
       }
       registry.register(agent);
+      written.push(...enqueueTuples(agent.id as unknown as string));
       return { kind: 'ok', agentId: agent.id, version: agent.version };
     },
     async unregister() {
@@ -457,6 +464,8 @@ async function harness(
     modelSettings?: boolean;
     referenceScope?: ReferenceScopeBinding;
     projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+    /** The key every call is made with: the person's unless given. */
+    token?: string;
   } = {},
 ) {
   const agents = agentBinding();
@@ -574,7 +583,7 @@ async function harness(
     const res = await app.request(path, {
       method,
       headers: {
-        authorization: `Bearer ${TOKEN}`,
+        authorization: `Bearer ${opts.token ?? TOKEN}`,
         ...(body !== undefined && { 'content-type': 'application/json' }),
       },
       ...(body !== undefined && { body: JSON.stringify(body) }),
@@ -599,7 +608,7 @@ const DRAFT = {
 
 /** A draft, with the tenant pinned to 1.0.0 so it can be evaluated. */
 async function drafted(
-  opts: { grants?: readonly string[]; referenceScope?: ReferenceScopeBinding } = {},
+  opts: { grants?: readonly string[]; referenceScope?: ReferenceScopeBinding; token?: string } = {},
 ) {
   const h = await harness(opts);
   h.releases.pin({ kind: 'tenant' }, '1.0.0');
@@ -1549,5 +1558,24 @@ describe('improvement passes', () => {
     });
     expect((await h.call('GET', `/v1/improvement-passes/${pass.id}`)).status).toBe(404);
     expect((await h.call('GET', '/v1/improvement-passes')).body.data).toEqual([]);
+  });
+});
+
+describe("POST /v1/proposals/:id/evaluate: who is made the derived version's owner", () => {
+  const evaluate = async (token?: string) => {
+    const h = await drafted(token === undefined ? {} : { token });
+    const res = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
+      suiteId: 'acme.scoring-judged',
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    return h.agents.written.filter((t) => t.relation === 'owner').map((t) => t.user);
+  };
+
+  test("a person's key makes them its owner", async () => {
+    expect(await evaluate()).toEqual(['user:user-1']);
+  });
+
+  test("a service account's key makes no one its owner", async () => {
+    expect(await evaluate(ACCOUNT_TOKEN)).toEqual([]);
   });
 });

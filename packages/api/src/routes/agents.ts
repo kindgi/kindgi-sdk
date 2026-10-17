@@ -409,9 +409,7 @@ export function agentsRouter(
 
     const principal = c.get('principal') as Principal | undefined;
     const creatorUserId =
-      principal?.actor.kind === 'user'
-        ? (principal.actor.id as UserId)
-        : ('00000000-0000-0000-0000-000000000000' as UserId);
+      principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
     const outcome = await binding.publish({
       tenantId,
       projectId,
@@ -490,10 +488,7 @@ export function agentsRouter(
       ...(userId !== undefined && { by: `user:${userId as unknown as string}` }),
       ...(parsed.projectId !== undefined && { projectId: parsed.projectId }),
       tuplesFor: (projectId) => (id) =>
-        tuplesForCreate(
-          { kind: 'agent', id: id as AgentId, tenantId, projectId },
-          userId ?? ('00000000-0000-0000-0000-000000000000' as UserId),
-        ),
+        tuplesForCreate({ kind: 'agent', id: id as AgentId, tenantId, projectId }, userId),
     });
     return derived(c, agentId, parsed.from, outcome);
   });
