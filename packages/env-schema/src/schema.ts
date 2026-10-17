@@ -776,8 +776,17 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_RETENTION_SWEEP_INTERVAL_MS',
     description:
-      "How often the server purges deleted rows on its own, in milliseconds: in every tenant it serves, it purges for good the tombstones past their retention policy's grace, as `POST /v1/retention/sweep` does, holds (`graceSeconds: -1`) kept, and logs what it purged. Memory facts and conversations purge only under a policy naming their domain (`memory`, `conversation`), never under a `*` policy. Unset (the default): nothing purges on its own; sweep with `POST /v1/retention/sweep` or the console. At least 60000, or the server refuses to start.",
+      "How often the server purges deleted rows on its own, in milliseconds: in every tenant it serves, it purges for good the tombstones past their retention policy's grace, as `POST /v1/retention/sweep` does, holds (`graceSeconds: -1`) kept except where `KINDGI_RUN_RETENTION_MAX_DAYS` limits runs, and logs what it purged. Memory facts and conversations purge only under a policy naming their domain (`memory`, `conversation`), never under a `*` policy. Unset (the default): nothing purges on its own; sweep with `POST /v1/retention/sweep` or the console. At least 60000, or the server refuses to start.",
     example: '3600000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_RUN_RETENTION_MAX_DAYS',
+    description:
+      "The longest the server keeps a finished run, in whole days, counted from when it finished. Publishing a `run` retention policy that keeps runs longer, or for good (`graceSeconds: -1`), is refused with `400 retention-over-limit`. Where a policy keeps them longer anyway (a `*` policy, or one stored before the limit was set), or no policy covers runs, they're purged at the limit. A run still going is never purged. The sweep purges them (`KINDGI_RETENTION_SWEEP_INTERVAL_MS`, or `POST /v1/retention/sweep`). Unset (the default): no limit. At least 1, or the server refuses to start.",
+    example: '90',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
