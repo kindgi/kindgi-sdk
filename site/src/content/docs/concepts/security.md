@@ -55,6 +55,16 @@ agent's turn with `model-invocation-failed`:
 `Prompt render failed: Template render failed: the render went over its memory limit of 16777216`.
 No setting changes it.
 
+The template can render in a worker process instead of the server's own
+(it needs runtime 0.1.8.1 or later): with `KINDGI_TEMPLATE_RENDER_WORKERS`
+at 1 or more, the default on a runtime serving many tenants
+(`KINDGI_TENANCY=multi`).
+The worker's heap has a cap of its own
+(`KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB`, 128 MiB by default): a render
+that runs it out fails the turn with the message above, and the server
+keeps running. A worker takes only the server's timezone and locale from
+its environment, never its database URLs, keys or tokens.
+
 With [authorization](../../deploy/authorization/) on, people and service
 accounts have API keys of their own, `kgi_ak_…`. Each key acts with its
 holder's grants and no more. A revoked key is refused from its next request.
