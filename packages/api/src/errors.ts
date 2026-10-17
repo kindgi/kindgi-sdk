@@ -285,6 +285,20 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   /** A system route naming a tenant in a state it refuses. */
   'tenant-closing': 409,
   'tenant-suspended': 409,
+  /** A purge's `confirm` that isn't the tenant's slug: nothing was changed. */
+  'tenant-slug-mismatch': 400,
+  /** A purge of a tenant that isn't closing (`details.state`). */
+  'tenant-not-closing': 409,
+  /** A purge of a closing tenant whose export window is still open (`details.windowEndsAt`). */
+  'tenant-export-window-open': 409,
+  /** A purge on a runtime with nowhere set to keep purge records, so a restore couldn't purge it again. */
+  'purge-record-unset': 409,
+  /** A purge of a tenant holding what a setting the runtime lacks reaches (its artifacts' bytes, its authorization store). */
+  'purge-setting-missing': 409,
+  /** The tenant's authorization store refused its delete, so none of its rows were deleted. */
+  'authz-store-delete-failed': 502,
+  /** A runtime whose tenants binding doesn't purge. */
+  'tenant-purge-unsupported': 501,
   /** A deployment, eval run or improvement pass whose project, or pack, is suspended. */
   'project-suspended': 409,
   'pack-suspended': 409,

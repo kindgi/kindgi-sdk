@@ -101,6 +101,7 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 | `system:tenants:production` | A tenant's production switch |
 | `system:tenants:limits` | A tenant's limits |
 | `system:tenants:contacts` | A tenant's admins' contact addresses, for service notices |
+| `system:tenants:purge` | [Purging a closed tenant](#close-and-purge-a-tenant), once its window has passed. No other scope includes it |
 | `system:suspend` | Suspending and restoring a tenant, a project or a pack |
 | `system:deployments` | The deployments and their pack services' endpoints |
 | `system:license` | Reading the deployment's license, for its renewal |
@@ -289,14 +290,63 @@ Its deployments list to retire.
 Once the window has passed, purge it. Its keys and sessions go with its
 rows. Until then, nothing of the tenant runs, and it writes only deletes,
 revokes, erasures, exports and sign-ins. One of those during the purge can
-leave a row: the purge exits `1` and names it, and running it again
-finishes it.
+leave a row: the purge names it, and running it again finishes it.
 
-When nothing of the tenant is left, the purge marks it purged. Each server
-keeps a tenant's state for about 5 seconds, so within about 5 seconds of
-the mark nothing of it signs in or is served. The purge waits three times
-that, then deletes again: work of the tenant under way at the mark, such as
-a request that started before it, can still write a row.
+When nothing of the tenant is left, the purge writes its record and marks it
+purged. Each server keeps a tenant's state for about 5 seconds, so within
+about 5 seconds of the mark nothing of it signs in or is served. The purge
+waits three times that, then deletes again: work of the tenant under way at
+the mark, such as a request that started before it, can still write a row.
+
+Purge it through the system API, or with `kindgi-runtime tenants purge`
+where the runtime's database is reachable. Both run the same purge.
+
+### Through the system API
+
+`POST /v1/system/tenants/{tenantId}/purge` (runtime 0.1.9 or later) takes a
+system key holding `system:tenants:purge`, or `kindgi:system`. No other scope
+includes it: give it to the tooling that ends accounts, and to nothing else.
+
+```sh
+curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/purge" \
+  -H "Authorization: Bearer $KINDGI_SYSTEM_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"confirm": "acme-shop"}'
+```
+
+- **`confirm` is the tenant's slug,** a second check on the id. Another
+  value is `400 tenant-slug-mismatch`, and nothing is changed.
+- **The servers need `KINDGI_TENANT_PURGE_RECORD`:** where purge records
+  are kept, `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]`, the same
+  place as the command's `--record`. Unset, every purge is refused with
+  `409 purge-record-unset`: a purge with no record would come back with a
+  restore.
+- **It answers when it's done,** after its wait. The answer names each
+  table's rows it deleted (`deleted`), the objects deleted from the
+  artifacts' store (`bytesDeleted`), and whether its authorization store
+  went (`authzStoreDeleted`).
+- **`complete: true`:** nothing of it is left, its record is written, and
+  it's marked purged at `purgedAt`. **`complete: false`:** `left` and
+  `bytesLeft` say what is, and `leftBecause` why, when it's a setting the
+  runtime lacks. Run it again. A call that ended before its answer is
+  finished the same way. Each run again is a new request: a new
+  `Idempotency-Key`, or none.
+- **Refused, with nothing changed:** a tenant that isn't closing
+  (`409 tenant-not-closing`), or whose window is still open
+  (`409 tenant-export-window-open`, with `windowEndsAt`), and one with
+  artifacts or an authorization store when the server has no
+  `KINDGI_ARTIFACTS` or `KINDGI_OPENFGA_API_URL` (`409 purge-setting-missing`).
+- **OpenFGA refusing the store's delete** is `502 authz-store-delete-failed`.
+  By then the tenant's artifacts' bytes may be deleted, but none of its
+  rows: run it again once OpenFGA answers.
+- **A day later,** run it again. On a tenant already purged, it deletes
+  what's of it (`alreadyPurged: true`), and its mark and its record stay as
+  they were. Nothing should write to a tenant a day after its mark, so
+  report any tables it names.
+- **Every call is on the operator's access record,** with its key, the
+  tenant and its outcome, a refusal too.
+
+### With kindgi-runtime
 
 ```sh
 kindgi-runtime tenants purge <tenant id> --confirm <tenant slug> --record <where>

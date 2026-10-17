@@ -1962,6 +1962,78 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'tenant-slug-mismatch': {
+    description:
+      "A purge's `confirm` isn't the tenant's slug, the second check on its id. Nothing was changed: send its slug, as `GET /v1/system/tenants/{tenantId}` gives it.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+    ],
+  },
+  'tenant-not-closing': {
+    description:
+      'A purge of a tenant that is active or suspended. Only a closing tenant is purged, once its 30-day export window has passed: close it first (`POST /v1/system/tenants/{tenantId}/close`). Nothing was changed.',
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+      {
+        key: 'state',
+        meaning: '`active` or `suspended`',
+      },
+    ],
+  },
+  'tenant-export-window-open': {
+    description:
+      "A purge of a closing tenant whose 30-day export window hasn't passed: its own keys and sessions can still read and export it. Purge it once `windowEndsAt` has passed. Nothing was changed.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+      {
+        key: 'windowEndsAt',
+        meaning: 'when its export window ends',
+      },
+    ],
+  },
+  'purge-record-unset': {
+    description:
+      "A purge on a runtime with nowhere set to keep purge records (`KINDGI_TENANT_PURGE_RECORD`). Without a record, a restore from a backup older than the purge would bring the tenant back. Set it on the runtime's servers, then purge. Nothing was changed.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+    ],
+  },
+  'purge-setting-missing': {
+    description:
+      "A purge of a tenant holding something the runtime has no setting to reach: artifacts with no artifacts' store set (`KINDGI_ARTIFACTS`), or an authorization store with no OpenFGA set (`KINDGI_OPENFGA_API_URL`). The message says which. Nothing was changed.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+    ],
+  },
+  'authz-store-delete-failed': {
+    description:
+      "A purge's delete of the tenant's authorization store was refused; the message gives OpenFGA's answer. None of the tenant's rows were deleted, and its artifacts' bytes may have been: run the purge again once OpenFGA answers.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+    ],
+  },
+  'tenant-purge-unsupported': {
+    description: "This runtime doesn't purge tenants through the API.",
+    details: [],
+  },
   'tenant-slug-taken': {
     description: 'Another tenant has that slug. Choose another.',
     details: [

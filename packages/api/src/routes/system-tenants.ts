@@ -69,6 +69,48 @@ export type SystemTenantCreateOutcome =
   /** The image prefix equals, holds or sits inside another tenant's (`imagePrefixesOverlap`). */
   | { readonly kind: 'image-prefix-taken' };
 
+/** A tenant's rows in one table. */
+export interface SystemTenantTableRows {
+  readonly table: string;
+  readonly rows: number;
+}
+
+/** What a purge did, as the operator sees it: tables and counts, never content. */
+export interface SystemTenantPurged {
+  /**
+   * It was marked purged before this run: what this run deleted was
+   * written after its mark. Its mark and its record stay as they were.
+   */
+  readonly alreadyPurged: boolean;
+  /** When it was marked purged; absent while something of it from before the mark is left. */
+  readonly purgedAt?: string;
+  /** Rows this run deleted, per table, both passes together. */
+  readonly deleted: readonly SystemTenantTableRows[];
+  /** Objects this run deleted from the artifacts' store. */
+  readonly bytesDeleted: number;
+  /** Whether this run deleted its authorization store. */
+  readonly authzStoreDeleted: boolean;
+  /** Rows of it still there afterwards, per table; empty when nothing is. */
+  readonly left: readonly SystemTenantTableRows[];
+  /** Objects still under its prefix in the artifacts' store. */
+  readonly bytesLeft: number;
+  /** Why what's left wasn't deleted, when it's a setting the runtime lacks. */
+  readonly leftBecause?: string;
+}
+
+export type SystemTenantPurgeOutcome =
+  | ({ readonly kind: 'ok' } & SystemTenantPurged)
+  /** `confirm` isn't the tenant's slug. */
+  | { readonly kind: 'slug-mismatch' }
+  | { readonly kind: 'not-closing'; readonly state: 'active' | 'suspended' }
+  | { readonly kind: 'window-open'; readonly windowEndsAt: string }
+  /** The runtime has nowhere set to keep purge records. */
+  | { readonly kind: 'record-unset' }
+  /** What the tenant holds needs a setting the runtime lacks (`reason` says which). */
+  | { readonly kind: 'setting-missing'; readonly reason: string }
+  /** Its authorization store refused the delete: its artifacts' bytes may be gone, none of its rows. */
+  | { readonly kind: 'authz-store-refused'; readonly reason: string };
+
 /**
  * The runtime's tenants, for the operator: creating one runs the tenant's
  * setup (its default project, its authorization store, adapter sync); a
@@ -148,6 +190,21 @@ export interface SystemTenantsBinding {
   ): Promise<
     readonly { readonly userId: string; readonly email: string; readonly displayName?: string }[]
   >;
+  /**
+   * Purges the tenant for good, once `confirm` matches its slug: only a
+   * `closing` one past its export window, with the runtime's purge record
+   * set. Every row of it, its artifacts' bytes and its authorization store
+   * go, its record is written, and it's marked purged; then, once each
+   * server has seen the mark, what work in flight wrote meanwhile goes too.
+   * Safe to run again: a run that stopped part-way is finished by the next,
+   * and on a tenant already purged it deletes what was written after its
+   * mark, leaving the mark and the record as they were. Absent: the route
+   * answers `501 tenant-purge-unsupported`.
+   */
+  purge?(
+    tenantId: TenantId,
+    input: { readonly confirm: string },
+  ): Promise<SystemTenantPurgeOutcome>;
 }
 
 const MAX_NAME = 100;
@@ -162,9 +219,9 @@ type Problem = string;
 
 /**
  * `/v1/system/tenants`, P1's routes: create, list and read tenants, close
- * and suspend them, set their image prefix, and read their admins' contact
- * addresses for service notices. Each takes its system scope, and acts in
- * one tenant through `withSystemTenantContext`.
+ * and suspend them, set their image prefix, read their admins' contact
+ * addresses for service notices, and purge a closed one. Each takes its
+ * system scope, and acts in one tenant through `withSystemTenantContext`.
  */
 export function systemTenantsRouter(options: {
   readonly tenants: SystemTenantsBinding;
@@ -335,6 +392,28 @@ export function systemTenantsRouter(options: {
       c.req.param('tenantId'),
       ctx('system:tenants:contacts'),
       async (t) => c.json({ data: await tenants.admins(t.id) }),
+    ),
+  );
+
+  // ---------- POST /:tenantId/purge ----------
+  // The one irreversible system action: its own scope, which no other
+  // includes. A purged tenant is let through, so a run again finishes it.
+  r.post('/:tenantId/purge', (c) =>
+    withSystemTenantContext(
+      c,
+      directory,
+      c.req.param('tenantId'),
+      { ...ctx('system:tenants:purge'), admitPurged: true },
+      async (t) => {
+        if (tenants.purge === undefined) {
+          return answer(c, 'tenant-purge-unsupported', "This runtime doesn't purge tenants.");
+        }
+        const body = await readJsonObject(c);
+        if (typeof body === 'string') return badInput(c, body);
+        const confirm = confirmOf(body);
+        if (typeof confirm === 'object') return badInput(c, confirm.problem);
+        return purgedAnswer(c, t.id, await tenants.purge(t.id, { confirm }));
+      },
     ),
   );
 
@@ -536,6 +615,86 @@ function createdAnswer(
     ...(created.firstAdmin !== undefined && { firstAdmin: created.firstAdmin }),
     ...(created.adminKey !== undefined && { adminKey: created.adminKey }),
   });
+}
+
+function confirmOf(b: Readonly<Record<string, unknown>>): string | { readonly problem: string } {
+  const unknown = Object.keys(b).filter((k) => k !== 'confirm');
+  if (unknown.length > 0) {
+    return { problem: `Unknown field ${unknown.map((k) => `\`${k}\``).join(', ')}` };
+  }
+  if (typeof b.confirm !== 'string' || b.confirm === '') {
+    return { problem: 'The body is `{ "confirm": "<the tenant\'s slug>" }`' };
+  }
+  return b.confirm;
+}
+
+function purgedAnswer(
+  c: Context<AppEnv>,
+  tenantId: TenantId,
+  done: SystemTenantPurgeOutcome,
+): Response {
+  const id = tenantId as unknown as string;
+  switch (done.kind) {
+    case 'slug-mismatch':
+      return answer(
+        c,
+        'tenant-slug-mismatch',
+        `\`confirm\` isn't tenant ${id}'s slug. Nothing was changed.`,
+        { tenantId: id },
+      );
+    case 'not-closing':
+      return answer(
+        c,
+        'tenant-not-closing',
+        `Tenant ${id} is ${done.state}: only a closing tenant is purged, once its export window has passed. Nothing was changed.`,
+        { tenantId: id, state: done.state },
+      );
+    case 'window-open':
+      return answer(
+        c,
+        'tenant-export-window-open',
+        `Tenant ${id}'s export window is open until ${done.windowEndsAt}. Nothing was changed.`,
+        { tenantId: id, windowEndsAt: done.windowEndsAt },
+      );
+    case 'record-unset':
+      return answer(
+        c,
+        'purge-record-unset',
+        "This runtime has nowhere set to keep purge records (KINDGI_TENANT_PURGE_RECORD), so a restore from a backup couldn't purge the tenant again. Nothing was changed.",
+        { tenantId: id },
+      );
+    case 'setting-missing':
+      return answer(c, 'purge-setting-missing', `Refused: ${done.reason}. Nothing was changed.`, {
+        tenantId: id,
+      });
+    case 'authz-store-refused':
+      return answer(
+        c,
+        'authz-store-delete-failed',
+        `${done.reason}. None of the tenant's rows were deleted: run the purge again.`,
+        { tenantId: id },
+      );
+    case 'ok': {
+      const left = tableRows(done.left);
+      return c.json({
+        tenantId: id,
+        complete: done.purgedAt !== undefined && left.length === 0 && done.bytesLeft === 0,
+        alreadyPurged: done.alreadyPurged,
+        ...(done.purgedAt !== undefined && { purgedAt: done.purgedAt }),
+        deleted: tableRows(done.deleted),
+        bytesDeleted: done.bytesDeleted,
+        authzStoreDeleted: done.authzStoreDeleted,
+        left,
+        bytesLeft: done.bytesLeft,
+        ...(done.leftBecause !== undefined && { leftBecause: done.leftBecause }),
+      });
+    }
+  }
+}
+
+/** Each table with rows, as the answer names it: its name and count, nothing more. */
+function tableRows(tables: readonly SystemTenantTableRows[]): SystemTenantTableRows[] {
+  return tables.filter((t) => t.rows > 0).map(({ table, rows }) => ({ table, rows }));
 }
 
 async function readJsonObject(

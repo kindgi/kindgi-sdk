@@ -407,6 +407,7 @@ export type {
   SystemTenantsClient,
   TenantAdminContact,
   TenantLimitsShape,
+  TenantPurge,
 } from './resources/system-tenants.js';
 export { SIGNED_EXPORT_ALGORITHMS, verifySignedExport } from './verify-export.js';
 export { docsUrl } from './docs-links.js';
