@@ -634,7 +634,7 @@ describe('a comparison of a flow version', () => {
     expect(wireErrors(result)).toEqual([]);
   });
 
-  test('a case that stopped at a refused write: counted, with what it would have done, and left out of the metrics', async () => {
+  test('a case that stopped at a refused tool call: counted, with what it would have done, and left out of the metrics', async () => {
     const { summary, perCase } = await compareFlow((caseId) =>
       caseId === 'run-f2'
         ? {

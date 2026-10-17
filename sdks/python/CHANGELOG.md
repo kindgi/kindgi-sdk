@@ -73,6 +73,10 @@ same version, and the CLI's own changes are in
   key). A flow's tool step that calls it is refused there. A run a person
   starts is unaffected. The pack's index carries it as
   `needsApprovalWhenUnattended`; left out, nothing changes.
+- `kindgi`: **`refused_writes` and `max_refused_writes` say what they count:
+  every tool call the replay refused, reads included.** The names don't
+  change. `stopped` says "a refused tool call" where it said "a refused
+  write".
 
 ## 0.1.8
 
