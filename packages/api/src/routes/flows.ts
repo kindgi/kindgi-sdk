@@ -105,16 +105,11 @@ export function flowsRouter(
       const mw = authorizer.authorize('read', () => ref('project', scopeProjectId));
       return mw(c, next);
     });
+    // '/:flowId/*' matches '/:flowId' too: this one gate decides both, once.
     r.use('/:flowId/*', async (c, next) => {
       const action = c.req.method === 'GET' ? 'read' : 'admin';
       const flowId = c.req.param('flowId') ?? '';
       const mw = authorizer.authorize(action, () => ref('flow', flowId));
-      return mw(c, next);
-    });
-    r.use('/:flowId', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
-      const flowId = c.req.param('flowId') ?? '';
-      const mw = authorizer.authorize('read', () => ref('flow', flowId));
       return mw(c, next);
     });
   }

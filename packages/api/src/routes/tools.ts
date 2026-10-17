@@ -104,16 +104,11 @@ export function toolsRouter(
       const mw = authorizer.authorize('read', () => ref('project', scopeProjectId));
       return mw(c, next);
     });
+    // '/:toolId/*' matches '/:toolId' too: this one gate decides both, once.
     r.use('/:toolId/*', async (c, next) => {
       const action = c.req.method === 'GET' ? 'read' : 'admin';
       const toolId = c.req.param('toolId') ?? '';
       const mw = authorizer.authorize(action, () => ref('tool', toolId));
-      return mw(c, next);
-    });
-    r.use('/:toolId', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
-      const toolId = c.req.param('toolId') ?? '';
-      const mw = authorizer.authorize('read', () => ref('tool', toolId));
       return mw(c, next);
     });
   }

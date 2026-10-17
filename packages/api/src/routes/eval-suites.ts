@@ -78,6 +78,7 @@ export function evalSuitesRouter(
       const mw = authorizer.authorize('read', () => ref('project', scopeProjectId));
       return mw(c, next);
     });
+    // '/:suiteId/*' matches '/:suiteId' too: this one gate decides both, once.
     r.use('/:suiteId/*', async (c, next) => {
       const suiteId = c.req.param('suiteId') ?? '';
       // Starting a run (`POST /:suiteId/runs`, exactly) doesn't change the
@@ -100,12 +101,6 @@ export function evalSuitesRouter(
         return next();
       }
       const mw = authorizer.authorize(action, () => ref('eval_suite', suiteId));
-      return mw(c, next);
-    });
-    r.use('/:suiteId', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
-      const suiteId = c.req.param('suiteId') ?? '';
-      const mw = authorizer.authorize('read', () => ref('eval_suite', suiteId));
       return mw(c, next);
     });
   }

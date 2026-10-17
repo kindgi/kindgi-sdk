@@ -31,7 +31,7 @@ export function sitesRouter(
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
-  r.use('/:projectId/sites', projectIdChecked, adminOnly(authorizer));
+  // '/:projectId/sites/*' matches '/:projectId/sites' too: one gate, once.
   r.use('/:projectId/sites/*', projectIdChecked, adminOnly(authorizer));
 
   r.get('/:projectId/sites', async (c) => {
