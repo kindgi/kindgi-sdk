@@ -66,7 +66,7 @@ import { LICENSE_GRACE_DAYS, renewAdvice, standingOf } from '../license/expiry.j
 import { checkLicenseKey } from '../license/license-key.js';
 import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
 import { secretStoreFor } from '../license/stores.js';
-import { MIN_NODE, atLeast } from '../node-version.js';
+import { MIN_NODE, MIN_NODE_MAJOR, atLeast } from '../node-version.js';
 import { renderJson } from '../output.js';
 import {
   type PackageManager,
@@ -490,7 +490,7 @@ function nodeCheck(version: string, pypi: boolean): DoctorCheck {
     : fail(
         'node',
         `Node ${version}; Kindgi needs ${MIN_NODE} or later.`,
-        `Install Node ${MIN_NODE} or later from https://nodejs.org (or: nvm install 22).`,
+        `Install Node ${MIN_NODE} or later from https://nodejs.org (or: nvm install ${MIN_NODE_MAJOR}).`,
       );
 }
 

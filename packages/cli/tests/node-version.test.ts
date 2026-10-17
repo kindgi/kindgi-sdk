@@ -16,7 +16,8 @@ import { expect, test } from 'vitest';
 
 import { MIN_NODE, atLeast, unsupportedNode } from '../src/node-version.js';
 
-const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+const DIST = new URL('../dist/', import.meta.url);
+const CLI = fileURLToPath(new URL('cli.js', DIST));
 const OLD_NODE = fileURLToPath(new URL('./fixtures/old-node.mjs', import.meta.url));
 
 async function cliPackage(): Promise<{ version: string; engines: { node: string } }> {
@@ -55,6 +56,20 @@ test('an older Node: that line alone and exit 1, with nothing past the check loa
     stdout: '',
     stderr: `${unsupportedNode('20.11.0')}\n`,
   });
+});
+
+test('cli.js and the modules it loads before the check: no `??` or `?.`, so Node 12 parses them', async () => {
+  const read = (file: string) => readFile(new URL(file, DIST), 'utf8');
+  const beforeTheCheck = [
+    ...(await read('cli.js')).matchAll(/^import .* from '\.\/([^']+)';$/gm),
+  ].map((m) => m[1] as string);
+  expect(beforeTheCheck).toContain('node-version.js');
+  for (const file of ['cli.js', ...beforeTheCheck]) {
+    expect({ file, newer: (await read(file)).match(/\?\?|\?\.(?!\d)/g) }).toEqual({
+      file,
+      newer: null,
+    });
+  }
 });
 
 test('the Node running these tests: the CLI runs', async () => {

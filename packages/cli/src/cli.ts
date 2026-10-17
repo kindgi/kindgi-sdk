@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-// Only modules that import nothing load before the Node check: the rest of
-// the CLI (`main.js`) is imported after it, so on an older Node its one
-// line is all the CLI prints.
+// Only modules that import nothing load before the Node check, and this file
+// and they keep to syntax older Nodes parse (no nullish coalescing or optional
+// chaining, which Node 12 can't): the rest of the CLI (`main.js`) is imported
+// after the check, so on an older Node its one line is all the CLI prints.
 import { unsupportedNode } from './node-version.js';
 import { createStopSignal, ignoreOutputAfterHangup } from './stop-signal.js';
 import { writeFully } from './write-fully.js';
@@ -38,7 +39,7 @@ async function main(): Promise<void> {
 main().catch(async (err: unknown) => {
   await writeFully(
     process.stderr,
-    `Fatal: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
+    `Fatal: ${err instanceof Error ? err.stack || err.message : String(err)}\n`,
   );
   process.exit(1);
 });

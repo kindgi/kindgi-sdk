@@ -358,6 +358,7 @@ describe('the machine', () => {
     expect(check('node')).toMatchObject({
       status: 'fail',
       message: `Node 20.11.1; Kindgi needs ${MIN_NODE} or later.`,
+      fix: `Install Node ${MIN_NODE} or later from https://nodejs.org (or: nvm install 22).`,
     });
     expect(check('npm')).toMatchObject({ status: 'fail' });
   });
