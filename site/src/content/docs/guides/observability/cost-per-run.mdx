@@ -25,8 +25,9 @@ the vendors' published prices. Your provider's invoice is what you pay.
 
 ## A run's calls
 
-Read the records of one run. Each script takes the run's id as its first
-argument:
+Read the records of one run. Ask your coding agent: "I want to see what each
+model call in a run cost." For reference, the code looks like this. Each
+script takes the run's id as its first argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -186,7 +187,9 @@ or `include="rawUsage"` in Python. Each record then has `rawUsage`:
 
 Each agent step of a flow runs as a run of its own, under the flow's run. The
 flow's run makes no model calls itself, so ask for its whole tree with
-`rootRunId`. `flowRunId` is the flow run's id:
+`rootRunId`. Ask your coding agent: "I want the cost of a flow's whole run."
+For reference, the call looks like this, where `flowRunId` is the flow run's
+id:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -228,7 +231,9 @@ flow's run.
 Give each of your customers an org, and run their work in a project of that
 org, as
 [Organize work by org and project](../../projects/organize-by-org-and-project/)
-shows. One call then sums a customer's spend, here by month and model:
+shows. One call then sums a customer's spend, here by month and model. Ask
+your coding agent: "I want to see what one customer spent this month, by
+model." For reference, the script looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
