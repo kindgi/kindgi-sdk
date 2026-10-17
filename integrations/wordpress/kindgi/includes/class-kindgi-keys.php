@@ -112,6 +112,12 @@ final class Kindgi_Keys {
 		);
 	}
 
+	/** The site key's id, as Kindgi lists the site's keys; null when there's no key, or the one configured is malformed. */
+	public static function kid(): ?string {
+		$seed = self::seed();
+		return is_string( $seed ) ? self::jwk( $seed )['kid'] : null;
+	}
+
 	/** RFC 7638: SHA-256 over the required members, in order, with no whitespace. */
 	public static function thumbprint( string $x ): string {
 		return Kindgi_Statement::b64url( hash( 'sha256', '{"crv":"Ed25519","kty":"OKP","x":"' . $x . '"}', true ) );

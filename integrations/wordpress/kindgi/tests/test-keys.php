@@ -57,6 +57,14 @@ function test_keys_come_from_the_environment_over_the_option_and_none_is_none():
 	kindgi_assert( Kindgi_Keys::configured(), 'the environment is configured' );
 }
 
+function test_keys_the_kid_is_the_keys_thumbprint_and_none_without_a_usable_key(): void {
+	kindgi_assert_same( null, Kindgi_Keys::kid(), 'no key yet' );
+	update_option( Kindgi_Keys::OPTION, KINDGI_RFC8037_D );
+	kindgi_assert_same( KINDGI_RFC8037_THUMBPRINT, Kindgi_Keys::kid(), 'the kept key' );
+	putenv( 'KINDGI_SITE_SECRET_KEY=too-short' );
+	kindgi_assert_same( null, Kindgi_Keys::kid(), 'a malformed configured key' );
+}
+
 function test_keys_a_malformed_configured_key_is_an_error_never_a_new_key(): void {
 	putenv( 'KINDGI_SITE_SECRET_KEY=too-short' );
 	$seed = Kindgi_Keys::seed();

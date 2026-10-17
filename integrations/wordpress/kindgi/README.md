@@ -58,6 +58,7 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 
   An environment variable of the same name works too. A copy of the database (a backup, a staging clone) never carries `wp-config.php` or the environment.
 - **Without one,** the plugin keeps the key in a database option, which isn't autoloaded. Connecting again with a new code replaces it.
+- **Its id** shows under **Kindgi → Settings**: the key's RFC 7638 thumbprint. `kindgi sites get <site-id>` lists the site's keys by the same id, so you can tell which one to revoke.
 - **The site's address is part of the deal.** The plugin signs nothing when `home_url()` isn't the address the site connected as, so a staging copy of the site never vouches as production. If the site moves, connect it again with a new code.
 
 ## Who sees the page

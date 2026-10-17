@@ -291,15 +291,17 @@ another reviewer decides." instead of **Approve**.
 
 ## Pause, re-key or remove
 
-- **Pause the site** (`kindgi sites pause <site-id>`).
-  It ends every session the site opened, and refuses its sign-ins until
-  `kindgi sites resume <site-id>`. The page says "This site is paused: a tenant admin resumes it".
-- **Get a new code** (`kindgi sites code <site-id>`). Connecting with it replaces every
-  key the site has and ends its sessions. Use it when the site moves, or its
-  key may be out.
+- **Pause the site** (`kindgi sites pause <site-id>`). It ends every
+  session the site opened, and refuses its sign-ins until
+  `kindgi sites resume <site-id>`. The page says "This site is paused: a
+  tenant admin resumes it".
+- **Get a new code** (`kindgi sites code <site-id>`). Connecting with it
+  replaces every key the site has and ends its sessions. Use it when the
+  site moves, or its key may be out.
 - **Revoke one key** (`kindgi sites revoke-key <site-id> <kid>`). It ends
-  the sessions that key opened. `kindgi sites get <site-id>` lists the
-  site's keys, with thumbprints to compare with the plugin's.
+  every session the site opened. `kindgi sites get <site-id>` lists the
+  site's keys, with thumbprints to compare with the plugin's key id under
+  **Kindgi → Settings**.
 - **Remove one person** (`kindgi people remove <user-id>`). It's for good:
   their next sign-in is refused, "This person was removed: their site can't
   sign them in again".

@@ -386,6 +386,7 @@ final class Kindgi_Admin {
 					? __( 'In wp-config.php (KINDGI_SITE_SECRET_KEY).', 'kindgi' )
 					: __( 'In the environment (KINDGI_SITE_SECRET_KEY).', 'kindgi' )
 			);
+			self::key_id();
 			echo '<p class="description">' . esc_html__( "The staff's Kindgi sessions, kept for up to 15 minutes, are sealed under a key made from it: a copy of the database opens none of them.", 'kindgi' ) . '</p>';
 			return;
 		}
@@ -394,12 +395,28 @@ final class Kindgi_Admin {
 				? __( "In the database, where a copy of the database carries it, and with it the staff's Kindgi sessions. Connecting again replaces it.", 'kindgi' )
 				: __( 'None yet: connecting makes one and keeps it in the database.', 'kindgi' )
 		);
+		self::key_id();
 		echo '<p class="description">';
 		printf(
 			/* translators: 1: define( 'KINDGI_SITE_SECRET_KEY', '…' ); 2: the command that makes a key */
 			esc_html__( 'Preferred: put the key in wp-config.php, %1$s, with one from %2$s, then connect (again).', 'kindgi' ),
 			"<code>define( 'KINDGI_SITE_SECRET_KEY', '…' );</code>",
 			"<code>php -r 'echo base64_encode(random_bytes(32)), PHP_EOL;'</code>"
+		);
+		echo '</p>';
+	}
+
+	/** The key's id, its RFC 7638 thumbprint: `kindgi sites get` lists the site's keys by it. */
+	private static function key_id(): void {
+		$kid = Kindgi_Keys::kid();
+		if ( null === $kid ) {
+			return;
+		}
+		echo '<p>';
+		printf(
+			/* translators: %s: the key's id */
+			esc_html__( 'Key id (its thumbprint): %s', 'kindgi' ),
+			'<code>' . esc_html( $kid ) . '</code>'
 		);
 		echo '</p>';
 	}
