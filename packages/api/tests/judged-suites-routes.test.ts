@@ -324,7 +324,8 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
   test("a correction and an ordinary verdict on a caller's own 'decision' item stay apart", async () => {
     // The reserved key is Kindgi's own, so a caller's item named 'decision'
     // never shares it: the correction rides on `corrections`, and the caller's
-    // verdict rides on `items` — neither drops the other.
+    // verdict rides on `items` — neither drops the other. The same expert makes
+    // both, so this pins the original same-expert collision, not supersession.
     const common = {
       tenantId,
       projectId: project,
@@ -343,7 +344,8 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
       ...common,
       item: { key: 'decision', pointer: '/decision' },
       verdict: 'yes',
-      assertedBy: { kind: 'user', id: 'u8' },
+      assertedBy: { kind: 'user', id: 'u7' },
+      judgeClassId: h.expertId,
     });
     expect((await h.call('POST', BUILD, base)).status).toBe(201);
 
