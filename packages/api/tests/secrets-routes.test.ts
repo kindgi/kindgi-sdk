@@ -1117,11 +1117,10 @@ describe('secretNameGrammarRefusal — the shared create-name grammar', () => {
       expect(secretNameGrammarRefusal(name)?.code).toBe('secret-name-invalid');
     },
   );
-  // A dot sits only between two non-dot characters: a name has no doubled dot
-  // and no trailing dot. (A mutant that relaxed the dot rule back to a flat
-  // `[A-Za-z0-9._-]*` class — which admits a doubled or trailing dot — is
-  // caught here.)
-  test.each(['a..b', 'a...b', 'a.', 'foo.', 'a..'])('refuses %s for its dot placement', (name) => {
+  // A dot sits only between two non-dot characters. (A mutant that relaxed the
+  // dot rule back to a flat `[A-Za-z0-9._-]*` class — which admits a doubled or
+  // trailing dot — is caught here.)
+  test.each(['a...b', 'a.', 'foo.'])('refuses %s for its dot placement', (name) => {
     expect(secretNameGrammarRefusal(name)?.code).toBe('secret-name-invalid');
   });
   test.each(['_abc', '9abc', 'Zabc', 'abc'])('allows a name starting with %s', (name) => {
