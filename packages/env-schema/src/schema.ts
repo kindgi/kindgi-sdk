@@ -693,6 +693,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_EGRESS_SERVER_ADDRESSES',
+    description:
+      "Used from runtime 0.1.8.1; earlier runtimes ignore it. The IP addresses this server's own calls to other sites come from, such as its calls to MCP servers and model providers, and its webhook deliveries: comma-separated IPv4 or IPv6 addresses, such as your NAT's. It publishes them for a site that admits only known addresses: `GET /v1/tenant` shows them to every tenant as `egress.server`, and `kindgi egress` prints them. It changes nothing about where calls go or come from, so set it only once calls really come from these addresses. A value that isn't an IP address stops the server from starting.",
+    example: '192.0.2.10',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_EGRESS_DEPLOYMENT_ADDRESSES',
+    description:
+      "Used from runtime 0.1.8.1; earlier runtimes ignore it. The IP addresses calls made by the code deployed to this server come from: comma-separated IPv4 or IPv6 addresses. As with `KINDGI_EGRESS_SERVER_ADDRESSES`, it only publishes them: `GET /v1/tenant` shows them to every tenant as `egress.deployments`, and `kindgi egress` prints them. A value that isn't an IP address stops the server from starting.",
+    example: '198.51.100.20,198.51.100.21',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_RUN_LEASE_MS',
     description:
       "How long a run's executor lease lasts without renewal, in milliseconds. Every unfinished run and every running eval run holds one, renewed every quarter of this by the server executing it. When a server stops without a shutdown (killed, out of memory, a crash), their leases run out, and a server's sweep fails them: a run sending `run.finished`, an eval run ending `failed`, interrupted, with its finished cases kept. Default 300000 (5 minutes); at least 10000, or the server refuses to start. A shorter lease finds such runs sooner, at the cost of more renewals.",

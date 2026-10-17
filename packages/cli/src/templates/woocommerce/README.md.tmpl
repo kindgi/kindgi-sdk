@@ -119,12 +119,13 @@ The tools sign in to your store as a WordPress user made for the agent,
 with an Application Password. WordPress has had these since 5.6. Never use
 your own account.
 
-1. **Make the user.** In WordPress, go to Users → Add New User. Use a
-   username like `shop-agent` and the **Shop Manager** role, which can
+1. **Make the user.** In WordPress, go to Users → Add User (Add New User
+   before WordPress 6.8). Use a username like `shop-agent` and the **Shop Manager** role, which can
    manage orders and products but not the site.
 2. **Make its Application Password.** Edit that user (Users → All Users →
    `shop-agent`), find **Application Passwords**, name it `kindgi`, and
-   choose **Add New Application Password**. WordPress shows it once.
+   choose **Add Application Password** (**Add New Application Password**
+   before WordPress 6.8). WordPress shows it once.
    WordPress offers Application Passwords only over HTTPS, except on a
    site whose `WP_ENVIRONMENT_TYPE` is `local`.
 3. **Give them to Kindgi.** With `{{KINDGI}} dev` running, from another
@@ -310,7 +311,9 @@ WordPress adds a Kindgi page with two tabs, Ask and Approvals. The record
 then says who approved, for example "approved by Jane, via Acme store", not
 "the store".
 
-1. **Install the plugin.** It's in the Kindgi SDK's repository, at
+1. **Install the plugin:** `kindgi-<version>.zip`, on the Kindgi SDK's
+   [latest release](https://github.com/kindgi/kindgi-sdk/releases/latest).
+   Its source is at
    [`integrations/wordpress/kindgi`](https://github.com/kindgi/kindgi-sdk/tree/main/integrations/wordpress/kindgi).
 2. **Register the store as a site** on this pack's project. A tenant admin
    runs `kindgi sites register` with `--project`, the store's origin and the

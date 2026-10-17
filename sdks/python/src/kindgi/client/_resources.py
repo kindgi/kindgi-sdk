@@ -8156,7 +8156,7 @@ class TenantResource:
     def get(self, /, *, timeout: float | None = None) -> _models.Tenant:
         """Fetch the caller's tenant. `GET /v1/tenant`
 
-        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), and one that sets limits adds the tenant's `limits`.
+        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the tenant's `limits`, and a deployment that publishes where its calls come from adds `egress`.
         """
         return self._client._request(
             _OPERATIONS["tenant.get"],
@@ -16265,7 +16265,7 @@ class AsyncTenantResource:
     async def get(self, /, *, timeout: float | None = None) -> _models.Tenant:
         """Fetch the caller's tenant. `GET /v1/tenant`
 
-        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), and one that sets limits adds the tenant's `limits`.
+        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the tenant's `limits`, and a deployment that publishes where its calls come from adds `egress`.
         """
         return await self._client._request(
             _OPERATIONS["tenant.get"],

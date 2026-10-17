@@ -9267,6 +9267,25 @@ class TenantLimits(BaseModel):
     """
 
 
+class EgressAddresses(BaseModel):
+    """
+    The IP addresses this deployment's calls to other sites come from, for a site that admits only known addresses. They're the same for every tenant on the deployment, so admitting them admits every tenant's calls: a site still checks its own credentials. They say where calls come from, not where they go. Absent when the deployment publishes none. An empty list: none of that kind.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    server: list[str]
+    """
+    Where the server's own calls come from, such as its calls to MCP servers and model providers, and its webhook deliveries.
+    """
+    deployments: list[str]
+    """
+    Where calls made by the code deployed to it come from.
+    """
+
+
 class ProductionAllowedBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -12367,6 +12386,7 @@ class Tenant(BaseModel):
     On a runtime serving many tenants: `closing` (readable and exportable for its window, nothing changes) or `suspended` (the same, until restored). `closing` wins. Absent: active.
     """
     limits: TenantLimits | None = None
+    egress: EgressAddresses | None = None
 
 
 class TenantLimitsResult(BaseModel):
