@@ -48,7 +48,10 @@ prints what to add to it:
 …
 ```
 
-Add it to `build.sbt`:
+Ask your coding agent: "Add the Kindgi dependency to our build.sbt."
+Kindgi's skills in your app tell it how
+([How it knows Kindgi](../coding-agents/)). For reference, it adds this
+line to `build.sbt`:
 
 ```scala
 libraryDependencies += "com.kindgi" %% "kindgi-pack-scala" % "…"
@@ -85,7 +88,9 @@ another sbt (such as `["sbt", "-mem", "2048"]`) and `dev.javaHome` another
 JDK. `SBT_OPTS` reaches sbt, never the pack.
 
 A tool is a `val` of an object in a `kindgi.tools` package under your own,
-named like its file, and calls your app's code directly:
+named like its file, and calls your app's code directly. Ask your coding
+agent: "Make a Kindgi tool from our customer order lookup." For reference,
+the tool looks like this:
 
 ```scala
 // src/main/scala/com/acme/kindgi/tools/CustomerOrders.scala
