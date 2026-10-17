@@ -39,8 +39,15 @@ KINDGI_EGRESS_DEPLOYMENT_ADDRESSES=198.51.100.20,2001:db8::1
 Then [restart the runtime](../restart-and-check-health/). A value that isn't
 an IP address, such as a range (`192.0.2.0/24`) or an address with an
 interface (`2001:db8::1%eth0`), stops it from starting, with an error that
-names the setting and the value. Each address shows once, blank entries are left out, and with
-both settings unset or empty nothing is published.
+names the setting and the value. Here,
+`KINDGI_EGRESS_SERVER_ADDRESSES=nat.acme.example`:
+
+```text
+KINDGI_EGRESS_SERVER_ADDRESSES must be comma-separated IP addresses. Got "nat.acme.example".
+```
+
+Each address shows once, blank entries are left out, and with both settings
+unset or empty nothing is published.
 
 The addresses are the runtime's, the same for every tenant it serves.
 Publish only addresses your calls really leave from, and that stay the same:
@@ -73,6 +80,7 @@ kindgi egress
 
 ```text
 CALLS        ADDRESS
+───────────  ─────────────
 server       192.0.2.10
 deployments  198.51.100.20
 deployments  2001:db8::1
@@ -82,8 +90,20 @@ Every tenant on this deployment calls from these addresses: admitting them admit
 
 - `CALLS` says whose calls come from the address: `server` for the server's
   own, `deployments` for the deployed code's.
-- `--json` prints both lists, `server` and `deployments`, for a script that
-  writes a site's firewall rule.
+- `--json` prints both lists, for a script that writes a site's firewall
+  rule:
+
+  ```json
+  {
+    "server": [
+      "192.0.2.10"
+    ],
+    "deployments": [
+      "198.51.100.20",
+      "2001:db8::1"
+    ]
+  }
+  ```
 
 When the runtime publishes none, it says so, and exits `0`:
 
@@ -94,7 +114,9 @@ This deployment publishes no egress addresses.
 Any key of the tenant reads them, in `GET /v1/tenant`'s `egress`, which is
 absent when none are published. In the TypeScript client, it's
 `tenant.get()`'s `egress`. In the console, the workspace's home page shows
-them under **Where this workspace's calls come from**.
+them under **Where this workspace's calls come from**:
+
+![Where this workspace's calls come from: Server, the server's own calls, 192.0.2.10; Deployed code, calls made by your deployed code, 198.51.100.20 and 2001:db8::1; then every workspace on this deployment calls from these addresses](../../../assets/egress/console-egress-card.png)
 
 ## Admit them at a site
 
