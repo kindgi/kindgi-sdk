@@ -319,8 +319,10 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/purge" \
 - **The servers need `KINDGI_TENANT_PURGE_RECORD`:** where purge records
   are kept, `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]`, the same
   place as the command's `--record`. Unset, every purge is refused with
-  `409 purge-record-unset`: a purge with no record would come back with a
-  restore.
+  `409 purge-record-unset`: without a record, restoring a backup taken
+  before the purge would bring the tenant back, with nothing to purge it
+  again (`kindgi-runtime tenants repurge` reads the records after a
+  restore).
 - **It answers when it's done,** after its wait. The answer names each
   table's rows it deleted (`deleted`), the objects deleted from the
   artifacts' store (`bytesDeleted`), and whether its authorization store
@@ -341,9 +343,9 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/purge" \
   store, so by then its artifacts' bytes may be deleted, but none of its
   rows. Run it again once OpenFGA answers.
 - **A day later,** run it again. On a tenant already purged, it deletes
-  what's of it (`alreadyPurged: true`), and its mark and its record stay as
-  they were. Nothing should write to a tenant a day after its mark, so
-  report any tables it names.
+  anything of it written since its mark (`alreadyPurged: true`), and its
+  mark and its record stay as they were. Nothing should write to a tenant
+  a day after its mark, so report any tables it names.
 - **Every call is on the operator's access record,** with its key, the
   tenant and its outcome, a refusal too.
 
