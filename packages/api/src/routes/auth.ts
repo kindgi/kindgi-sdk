@@ -329,6 +329,22 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
         ),
       );
     }
+    if (current.projectId !== undefined || current.role !== undefined) {
+      // A session with a key's limits is never refreshed: a store or a
+      // copy below that missed a limit would hand out an unlimited one.
+      // Whatever minted it mints the next.
+      c.status(statusFor('limited-session-not-refreshable') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'limited-session-not-refreshable',
+            message:
+              'A session limited to a project or a role is not refreshed: get a new one where you got this one',
+          },
+          requestId,
+        ),
+      );
+    }
 
     // A new session in place of this one: same person, provider, scopes,
     // expiry and metadata. Refresh never calls the provider.

@@ -444,6 +444,9 @@ export const WEBHOOK_EVENT_SHAPES = {
                   },
                 },
               },
+              cancelReason: {
+                kind: 'string',
+              },
               comparisons: {
                 kind: 'array',
                 items: {

@@ -66,8 +66,9 @@ export {
 } from './collect.js';
 
 // ============ Resolve + lifecycle event emitters ============
-export { emitLifecycleEvent, emitResolveEvent } from './resolve-emit.js';
+export { emitAuditEvent, emitLifecycleEvent, emitResolveEvent } from './resolve-emit.js';
 export type {
+  EmitAuditEventInput,
   EmitLifecycleEventInput,
   EmitResolveEventInput,
   ResolveContext,

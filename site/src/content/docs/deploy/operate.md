@@ -72,6 +72,8 @@ Nothing starts and nothing is written, and they print names and ids, never a val
 | `provider-keys` | Each tool version, MCP endpoint and webhook endpoint that names a model provider's key. A model provider's key is used by its provider only, so from 0.1.6 they're refused: a tool's calls fail with `provider-key-refused`, and so do an MCP endpoint's connections and a webhook endpoint's deliveries. For each, store the key it needs under its own name (the same value is fine), name that instead, and deploy or register it again. See [Give a tool a secret](../../guides/tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools). |
 | `secret-scopes` | Each tool version, MCP endpoint and webhook trigger in a project or an org that reads a secret at the tenant, registered by an earlier runtime that didn't record where its secrets are read. They keep reading at the tenant. One a tenant admin registered can stay. Register each other one again so where its secrets are read is recorded: a tool, publish a new version; an MCP endpoint, unregister it and register it again; a webhook trigger, `kindgi webhooks update <trigger-id> --secret=<name>`. The check ends with what to do about each, and also lists an unregistered tool version a flow or agent version still pins. |
 | `mcp-header-credentials` | Each MCP endpoint that keeps a credential in plaintext `config.headers` (`X-Api-Key`, `Authorization`, …), registered by an earlier runtime that allowed it. They keep working, and their requests never follow a redirect. For each, store each header's value as a secret, and register the endpoint again with `auth` in place of the header. See [Not in `config.headers`](../../guides/tools/mcp-servers/#not-in-configheaders). |
+| `stored-secrets` | Each live version of a stored secret that doesn't decrypt with the secrets' keys: the KMS key, the runtime's access to it, and the AAD key. Run it after a restore, before the runtime serves, since a restore brings back the database, not the keys. It needs `KINDGI_SECRETS_BACKEND=postgres`. See [Back up and restore](../back-up-and-restore/#restore-into-a-fresh-database). |
+| `purged-tenants` | Each tenant marked purged that still holds rows, with each table and its count: rows written after its mark, by work in flight then. Rows only, not the bytes under its prefix. Run it a day after a purge. For each tenant it lists, `kindgi-runtime tenants purge <tenant id> --confirm <its slug>`, with the server's `KINDGI_ARTIFACTS` and `KINDGI_OPENFGA_API_URL`, deletes them and leaves its mark and its record as they were. See [Close and purge a tenant](../serve-many-tenants/#close-and-purge-a-tenant). |
 
 Here `check provider-keys` runs on a 0.1.5 database where a tool and an MCP endpoint name Anthropic's key (exit `1`):
 
@@ -273,9 +275,10 @@ What to check before you upgrade, and what's different after:
     ([Renew the license key](../renew-the-license-key/)).
   - **Where the license stands:** `GET /v1/license` answers its `standing`
     (`valid`, `expiring`, `grace` or `expired`), `daysLeft` and its dates.
-    The deployment's token reads all of it; where the deployment serves one
-    tenant, that tenant's admins read the countdown only, and anyone else
-    gets `403 license-operator-only`.
+    The deployment's token reads all of it. Where the deployment is set up
+    to serve one tenant (without `KINDGI_TENANCY=multi`) and its database
+    holds only that one, that tenant's admins read the countdown only.
+    Anyone else gets `403 license-operator-only`.
   - **A tool's env values in a unit test:** `invokeToolForTest` and
     `toolContextForTest` in `@kindgi/sdk/define` decide them as a run does
     ([Give a tool per-project values](../../guides/tools/give-a-tool-env-values/#test-it)).

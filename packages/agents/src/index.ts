@@ -125,6 +125,12 @@ export type {
 } from './streaming.js';
 export { AUTO_INJECTED_VARS, renderInstructions } from './prompt.js';
 export { TemplateRenderBudgetError } from './render-budget.js';
+export { TemplateRenderError } from './template-renderer.js';
+export type {
+  TemplateRenderErrorInit,
+  TemplateRenderInput,
+  TemplateRenderer,
+} from './template-renderer.js';
 export {
   EARLIER_ANSWER_NOTE,
   MEMORY_DATA_RULE,
@@ -151,6 +157,7 @@ export type {
   PromptRenderError,
   RenderContext,
   RenderFailureError,
+  RenderInstructionsResult,
   RenderResult,
 } from './prompt.js';
 export { pinChanges, pinsDigest } from './pins.js';

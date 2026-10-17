@@ -52,7 +52,23 @@ const GRANTS = {
   reviewer: { role: 'senior' },
 };
 
-async function run(argv: readonly string[]) {
+const CAROL = {
+  userId: 'u-9',
+  tenantId: 't-1',
+  displayName: 'Carol',
+  primaryEmail: 'carol@acme.test',
+  createdAt: '2026-10-06T12:00:00Z',
+};
+const INVITE = { state: 'pending', expiresAt: '2026-10-13T12:00:00Z' };
+
+/** What `users.*` answers, where a test needs another answer. */
+interface UsersAnswers {
+  readonly create?: unknown;
+  readonly list?: unknown;
+  readonly resendInvite?: unknown;
+}
+
+async function run(argv: readonly string[], answers: UsersAnswers = {}) {
   const calls: unknown[][] = [];
   const rec =
     (name: string, value: unknown) =>
@@ -82,18 +98,15 @@ async function run(argv: readonly string[]) {
           unregister: rec('sa.unregister', ACCOUNT),
         },
         users: {
-          create: rec('users.create', 'u-9'),
-          list: rec('users.list', {
-            data: [
-              {
-                userId: 'u-9',
-                displayName: 'Carol',
-                primaryEmail: 'carol@acme.test',
-                createdAt: '2026-10-06T12:00:00Z',
-              },
-            ],
-            hasMore: false,
-          }),
+          create: rec('users.create', answers.create ?? CAROL),
+          list: rec('users.list', answers.list ?? { data: [CAROL], hasMore: false }),
+          resendInvite: rec(
+            'users.resendInvite',
+            answers.resendInvite ?? {
+              user: { ...CAROL, invite: { ...INVITE, sentAt: '2026-10-06T13:00:00Z' } },
+              inviteEmail: { sent: true },
+            },
+          ),
           get: rec('users.get', { userId: 'u-9' }),
           grants: rec('users.grants', GRANTS),
           grant: rec('users.grant', { ...GRANTS, tenantAdmin: true }),
@@ -285,7 +298,8 @@ describe('kindgi people', () => {
       displayName: 'Carol',
       email: 'carol@acme.test',
     });
-    // What being added gives them, and what's next.
+    // What being added gives them, and what's next. A runtime that doesn't
+    // invite says nothing about an invitation.
     expect(out.stderr).toBe(
       'Added to the tenant: they can read its settings. Give them a project role to work on its agents and runs, then their first key: kindgi tokens create --for=user:u-9\n',
     );
@@ -293,6 +307,92 @@ describe('kindgi people', () => {
     expect([quiet.out.stdout, quiet.out.stderr]).toEqual(['', '']);
     const missing = await run(['people', 'add']);
     expect(missing.out.stderr).toContain('--name is required');
+  });
+
+  test('add says where the invitation went, and when it expires', async () => {
+    const { out } = await run(['people', 'add', '--name=Carol', '--email=carol@acme.test'], {
+      create: { ...CAROL, invite: INVITE, inviteEmail: { sent: true } },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(JSON.parse(out.stdout)).toEqual({
+      userId: 'u-9',
+      displayName: 'Carol',
+      email: 'carol@acme.test',
+      invite: INVITE,
+      inviteEmail: { sent: true },
+    });
+    expect(out.stderr).toContain(
+      'The invitation went to carol@acme.test: they sign in with it before it expires (2026-10-13T12:00:00Z).\n',
+    );
+  });
+
+  test('add --no-invite still invites them, not emailed: you tell them', async () => {
+    const { out, calls } = await run(
+      ['people', 'add', '--name=Carol', '--email=carol@acme.test', '--no-invite'],
+      {
+        create: { ...CAROL, invite: INVITE, inviteEmail: { sent: false, reason: 'not-requested' } },
+      },
+    );
+    expect(calls).toEqual([
+      ['users.create', { displayName: 'Carol', email: 'carol@acme.test', sendInvite: false }],
+    ]);
+    expect(out.stderr).toContain(
+      'Invited, not emailed (--no-invite): tell them to sign in with carol@acme.test before it expires (2026-10-13T12:00:00Z).\n',
+    );
+  });
+
+  test.each([
+    ['no-email', 'No invitation: they have no email.\n'],
+    [
+      'not-configured',
+      'Invited, but this deployment sends no email: tell them to sign in through a provider with carol@acme.test before it expires (2026-10-13T12:00:00Z).\n',
+    ],
+    [
+      'send-failed',
+      "Invited, but the invitation email didn't go out: send it again (kindgi people invite u-9), or tell them to sign in before it expires (2026-10-13T12:00:00Z).\n",
+    ],
+    [
+      'capped',
+      "Invited, but the tenant's invitations for today are used up: send it later (kindgi people invite u-9), or tell them to sign in before it expires (2026-10-13T12:00:00Z).\n",
+    ],
+  ])('add says why the invitation was not emailed: %s', async (reason, line) => {
+    const { out } = await run(['people', 'add', '--name=Carol', '--email=carol@acme.test'], {
+      create: {
+        ...CAROL,
+        ...(reason !== 'no-email' && { invite: INVITE }),
+        inviteEmail: { sent: false, reason },
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr.endsWith(line)).toBe(true);
+  });
+
+  test('invite sends the invitation again: the record on stdout, where it went on stderr', async () => {
+    const { out, calls } = await run(['people', 'invite', 'u-9']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['users.resendInvite', 'u-9']]);
+    expect(JSON.parse(out.stdout)).toMatchObject({
+      user: { userId: 'u-9', invite: { state: 'pending' } },
+      inviteEmail: { sent: true },
+    });
+    expect(out.stderr).toBe(
+      'The invitation went to carol@acme.test: they sign in with it before it expires (2026-10-13T12:00:00Z).\n',
+    );
+    const quiet = await run(['people', 'invite', 'u-9', '--quiet']);
+    expect([quiet.out.stdout, quiet.out.stderr]).toEqual(['', '']);
+    const missing = await run(['people', 'invite']);
+    expect(missing.out.exitCode).toBe(2);
+    expect(missing.calls).toEqual([]);
+  });
+
+  test('list --pending asks for the invited people only, with their STATE', async () => {
+    const { out, calls } = await run(['people', 'list', '--pending', '--table'], {
+      list: { data: [{ ...CAROL, invite: { ...INVITE, state: 'expired' } }], hasMore: false },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['users.list', { pending: true }]]);
+    expect(out.stdout).toMatch(/STATE/);
+    expect(out.stdout).toMatch(/carol@acme\.test\s+expired/);
   });
 
   test('list --query as a table', async () => {
