@@ -174,7 +174,8 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   key, which is never sent twice. Without the key, a lost answer can't be told
   apart from another tenant's slug (`tenant-slug-taken`).
 - **A setup left pending shows at every start:** the log names each tenant
-  and says to retry the same create, or to run
+  (the first 10; it counts the rest, and `tenants repair --all` names them
+  all) and says to retry the same create, or to run
   `kindgi-runtime tenants repair --tenant <id>` if its create named a first
   admin.
 
@@ -189,8 +190,9 @@ service is, and checks it. It never creates or deletes one.
    A deployment needs one while it's routed: it's the newest with routes for
    some tool version or pack check, it has no endpoint or a cleared one, and
    nothing about it is closing or suspended. Each entry has the tenant's id,
-   the deployment's id, its pack and project, and its digest-pinned
-   `imageRef`. It has nothing else of the tenant.
+   the deployment's id, its pack (and project, if it has one), and its image:
+   the digest-pinned `imageRef`, its digest, the artifact version and when it
+   went live. It has nothing else of the tenant.
 2. **Run the image as a service** whose host begins with the deployment's own
    service name, `packServiceName(tenantId, deploymentId)` from `@kindgi/api`
    (`kp-` and 20 characters), then `-` or `.`. Give it a token of its own,
@@ -357,7 +359,7 @@ kindgi-runtime tenants repair --all
 ```
 
 ```text
-tenant 6aa3383b-3cd9-4e02-b9e4-6234fb4663a2 (tenant-1791937260612-75bcb7): Default project kept; authorization store kept; 0 tuples added; adapters: 6 kept up to date, 0 removed; sign-in providers reconciled
+tenant 5b52fd42-bd2b-4597-b324-84ec1a7033a4 (tenant-1792242381807-ed3afb): Default project kept; authorization store kept; 0 tuples added; 0 memberships and 0 service account grants put back; adapters: 6 kept up to date, 0 removed; sign-in providers reconciled
 1 tenant repaired.
 ```
 
