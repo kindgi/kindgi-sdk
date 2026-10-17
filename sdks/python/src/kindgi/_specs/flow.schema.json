@@ -266,7 +266,7 @@
       "type": "object",
       "required": ["nodes", "edges"],
       "additionalProperties": false,
-      "description": "The sub-flow a loop iterates. Same structure as the outer flow but uses `$loop-start` / `$loop-end` sentinels for entry/exit. Must be a DAG (own cycle check). Node ids must be globally unique across the entire flow including any nesting.",
+      "description": "The sub-flow a loop iterates. Same structure as the outer flow but uses `$loop-start` / `$loop-end` sentinels for entry/exit. Must be a DAG (own cycle check). Node ids must be globally unique across the entire flow including any nesting. A fan-out node can't be in a body: `loadFlow` refuses it (`loop-body-fanout`).",
       "properties": {
         "nodes": {
           "type": "array",

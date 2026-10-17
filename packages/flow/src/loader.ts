@@ -19,6 +19,7 @@ import type {
   InvalidSubflowNodeError,
   LoopBodyCycleError,
   LoopBodyEdgeReferenceError,
+  LoopBodyFanoutError,
   LoopBodyMissingStartError,
   LoopConcurrencyError,
   LoopMaxIterationsError,
@@ -92,6 +93,7 @@ const SEMANTIC_CHECKS: readonly ((flow: Flow) => FlowError | undefined)[] = [
   checkAllLoopVariants,
   checkAllLoopOutputSchemas,
   checkAllLoopConcurrency,
+  checkLoopBodyFanouts,
   checkAllFanoutNodes,
   checkAllSubflowNodes,
   checkAllMappings,
@@ -121,17 +123,19 @@ const SEMANTIC_CHECKS: readonly ((flow: Flow) => FlowError | undefined)[] = [
  *   9. Loop variant integrity (`while` vs `foreach` fields).
  *   10. Every loop `outputSchema` compiles.
  *   11. Foreach `concurrency` bounds.
- *   12. Fanout node rules (branches, `concurrency`, `convergence`,
+ *   12. No fan-out node in a loop body, at any nesting level: a loop body
+ *       can't run one.
+ *   13. Fanout node rules (branches, `concurrency`, `convergence`,
  *       per-branch `outputSchema`).
- *   13. Subgraph node rules (`flowRef`, `inputMapping`, `outputSchema`,
+ *   14. Subgraph node rules (`flowRef`, `inputMapping`, `outputSchema`,
  *       `convergence`).
- *   14. Data-flow mappings (1.8.0): every leaf `inputMapping` and the
+ *   15. Data-flow mappings (1.8.0): every leaf `inputMapping` and the
  *       flow's `output.mapping` names only nodes of the flow, never the
  *       node's own output, and no loop-only root.
- *   15. The flow's `output.schema` compiles.
- *   16. Outer flow must have at least one $start-rooted edge.
- *   17. Outer flow cycle detection (Kahn's algorithm on the outer DAG).
- *   18. Per loop-body: has a $loop-start-rooted edge; body-edge endpoints
+ *   16. The flow's `output.schema` compiles.
+ *   17. Outer flow must have at least one $start-rooted edge.
+ *   18. Outer flow cycle detection (Kahn's algorithm on the outer DAG).
+ *   19. Per loop-body: has a $loop-start-rooted edge; body-edge endpoints
  *       resolve to body nodes or $loop-start / $loop-end sentinels; body
  *       sub-DAG cycle detection.
  *
@@ -846,6 +850,28 @@ function concurrencyErr(
     value,
     reason,
   };
+}
+
+// ============ no fan-out in a loop body ============
+
+/**
+ * A loop body runs its steps, nested loops and subgraph nodes. A fan-out
+ * there would never run its branches, so the flow is refused, naming it
+ * and the loop whose body holds it.
+ */
+function checkLoopBodyFanouts(flow: Flow): LoopBodyFanoutError | undefined {
+  for (const loop of collectAllLoopNodes(flow)) {
+    const fanout = loop.body.nodes.find(isFanoutNode);
+    if (fanout === undefined) continue;
+    return {
+      code: 'loop-body-fanout',
+      message: `Loop node "${loop.id}" body holds fan-out node "${fanout.id}": a loop body can't run a fan-out. A subgraph node in the body can run a flow that has one.`,
+      flowId: flow.id,
+      loopNodeId: loop.id,
+      nodeId: fanout.id,
+    };
+  }
+  return undefined;
 }
 
 // ============ fanout node validation (1.6.0) ============
