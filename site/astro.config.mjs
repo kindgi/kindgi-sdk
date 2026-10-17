@@ -180,6 +180,14 @@ export default defineConfig({
         { label: 'Concepts', items: [{ autogenerate: { directory: 'concepts' } }] },
         { label: 'Deploy', items: [{ autogenerate: { directory: 'deploy' } }] },
         { label: 'Kindgi Cloud', items: [{ autogenerate: { directory: 'hosted' } }] },
+        // Newest first: each release adds its page's line.
+        {
+          label: 'Release notes',
+          items: [
+            { label: 'Overview', link: '/releases/' },
+            { label: '0.1.8', link: '/releases/0.1.8/' },
+          ],
+        },
         {
           label: 'Reference',
           items: [
