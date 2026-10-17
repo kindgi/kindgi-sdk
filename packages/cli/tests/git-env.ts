@@ -9,8 +9,8 @@
  * test's own process, which reads `process.env`. In a shell where they
  * point at another repository, both would otherwise act on that one.
  * Without git on `PATH` it does nothing, since then nothing acts on a
- * repository. `scripts/lib/git-env.mjs` does the same for the script
- * tests, which pass an environment to each child instead.
+ * repository. `scripts/lib/git-env.mjs` takes the same variables out for
+ * the script tests, which pass an environment to each child instead.
  */
 
 import { execFileSync } from 'node:child_process';
