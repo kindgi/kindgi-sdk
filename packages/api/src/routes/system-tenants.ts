@@ -87,13 +87,13 @@ export interface SystemTenantPurged {
   /** Rows this run deleted, per table, both passes together. */
   readonly deleted: readonly SystemTenantTableRows[];
   /** Objects this run deleted from the artifacts' store. */
-  readonly bytesDeleted: number;
+  readonly objectsDeleted: number;
   /** Whether this run deleted its authorization store. */
   readonly authzStoreDeleted: boolean;
   /** Rows of it still there afterwards, per table; empty when nothing is. */
   readonly left: readonly SystemTenantTableRows[];
   /** Objects still under its prefix in the artifacts' store. */
-  readonly bytesLeft: number;
+  readonly objectsLeft: number;
   /** Why what's left wasn't deleted, when it's a setting the runtime lacks. */
   readonly leftBecause?: string;
 }
@@ -679,14 +679,14 @@ function purgedAnswer(
       const left = tableRows(done.left);
       return c.json({
         tenantId: id,
-        complete: done.purgedAt !== undefined && left.length === 0 && done.bytesLeft === 0,
+        complete: done.purgedAt !== undefined && left.length === 0 && done.objectsLeft === 0,
         alreadyPurged: done.alreadyPurged,
         ...(done.purgedAt !== undefined && { purgedAt: done.purgedAt }),
         deleted: tableRows(done.deleted),
-        bytesDeleted: done.bytesDeleted,
+        objectsDeleted: done.objectsDeleted,
         authzStoreDeleted: done.authzStoreDeleted,
         left,
-        bytesLeft: done.bytesLeft,
+        objectsLeft: done.objectsLeft,
         ...(done.leftBecause !== undefined && { leftBecause: done.leftBecause }),
       });
     }

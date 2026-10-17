@@ -325,11 +325,11 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/purge" \
   restore).
 - **It answers when it's done,** after its wait. The answer names each
   table's rows it deleted (`deleted`), the objects deleted from the
-  artifacts' store (`bytesDeleted`), and whether its authorization store
+  artifacts' store (`objectsDeleted`), and whether its authorization store
   went (`authzStoreDeleted`).
 - **`complete: true`:** nothing of it is left, its record is written, and
   it's marked purged at `purgedAt`. **`complete: false`:** `left` and
-  `bytesLeft` say what is, and `leftBecause` why, when it's a setting the
+  `objectsLeft` say what is, and `leftBecause` why, when it's a setting the
   runtime lacks. Run it again. A call that ended before its answer is
   finished the same way. Each run again is a new request: a new
   `Idempotency-Key`, or none.

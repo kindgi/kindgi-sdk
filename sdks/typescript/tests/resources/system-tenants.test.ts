@@ -113,10 +113,10 @@ describe('systemTenants — P1 routes, wire round-trip', () => {
       alreadyPurged: false,
       purgedAt: '2026-11-20T10:00:15.000Z',
       deleted: [{ table: 'runs', rows: 12 }],
-      bytesDeleted: 3,
+      objectsDeleted: 3,
       authzStoreDeleted: true,
       left: [],
-      bytesLeft: 0,
+      objectsLeft: 0,
     };
     const stub = jsonFetch(answer);
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });

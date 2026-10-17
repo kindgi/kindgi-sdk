@@ -1501,17 +1501,17 @@ export const SystemTenantPurgeSchema: JsonSchema = {
     'complete',
     'alreadyPurged',
     'deleted',
-    'bytesDeleted',
+    'objectsDeleted',
     'authzStoreDeleted',
     'left',
-    'bytesLeft',
+    'objectsLeft',
   ],
   properties: {
     tenantId: { type: 'string', format: 'uuid' },
     complete: {
       type: 'boolean',
       description:
-        "`true`: nothing of the tenant is left, its purge record is written, and it's marked purged. `false`: `left` and `bytesLeft` say what is; run it again.",
+        "`true`: nothing of the tenant is left, its purge record is written, and it's marked purged. `false`: `left` and `objectsLeft` say what is; run it again.",
     },
     alreadyPurged: {
       type: 'boolean',
@@ -1530,7 +1530,7 @@ export const SystemTenantPurgeSchema: JsonSchema = {
       description:
         "Rows this run deleted, per table with any: table names and counts, never the rows' content.",
     },
-    bytesDeleted: {
+    objectsDeleted: {
       type: 'integer',
       minimum: 0,
       description: "Objects this run deleted from the artifacts' store.",
@@ -1545,7 +1545,7 @@ export const SystemTenantPurgeSchema: JsonSchema = {
       description:
         "Rows of it still there afterwards, per table; empty when none are. A table the purge doesn't delete from is named too: report it.",
     },
-    bytesLeft: {
+    objectsLeft: {
       type: 'integer',
       minimum: 0,
       description: "Objects still under its prefix in the artifacts' store.",

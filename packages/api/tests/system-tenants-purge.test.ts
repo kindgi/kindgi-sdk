@@ -52,10 +52,10 @@ const DONE: Extract<SystemTenantPurgeOutcome, { kind: 'ok' }> = {
     { table: 'runs', rows: 12 },
     { table: 'projects', rows: 1 },
   ],
-  bytesDeleted: 3,
+  objectsDeleted: 3,
   authzStoreDeleted: true,
   left: [],
-  bytesLeft: 0,
+  objectsLeft: 0,
 };
 
 /** A run that stopped before the mark: not marked, rows of it left. */
@@ -335,7 +335,7 @@ describe('which tenant', () => {
   test('a purged tenant is found, so a run again reaches the binding', async () => {
     const { call, calls } = makeApp({
       state: 'purged',
-      outcomes: [{ ...DONE, alreadyPurged: true, deleted: [], bytesDeleted: 0 }],
+      outcomes: [{ ...DONE, alreadyPurged: true, deleted: [], objectsDeleted: 0 }],
     });
     const r = await call('kgi_sy_purge', CONFIRM);
     expect(r.status, JSON.stringify(r.body)).toBe(200);
@@ -382,10 +382,10 @@ describe('the answer', () => {
         { table: 'runs', rows: 12 },
         { table: 'projects', rows: 1 },
       ],
-      bytesDeleted: 3,
+      objectsDeleted: 3,
       authzStoreDeleted: true,
       left: [],
-      bytesLeft: 0,
+      objectsLeft: 0,
     });
   });
 
@@ -399,11 +399,11 @@ describe('the answer', () => {
     expect(r.body).not.toHaveProperty('purgedAt');
   });
 
-  test('bytes left, or rows written after the mark left with why: not complete', async () => {
-    const bytes = makeApp({ outcomes: [{ ...DONE, bytesLeft: 1 }] });
-    expect((await bytes.call('kgi_sy_purge', CONFIRM)).body).toMatchObject({
+  test('objects left, or rows written after the mark left with why: not complete', async () => {
+    const objects = makeApp({ outcomes: [{ ...DONE, objectsLeft: 1 }] });
+    expect((await objects.call('kgi_sy_purge', CONFIRM)).body).toMatchObject({
       complete: false,
-      bytesLeft: 1,
+      objectsLeft: 1,
     });
     const late = makeApp({
       outcomes: [
@@ -429,7 +429,7 @@ describe('the answer', () => {
         {
           ...DONE,
           deleted: [{ table: 'audit_events', rows: 2 }],
-          bytesDeleted: 0,
+          objectsDeleted: 0,
           authzStoreDeleted: false,
         },
       ],

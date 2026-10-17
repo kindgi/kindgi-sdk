@@ -1401,7 +1401,7 @@ class SystemTenantPurge(BaseModel):
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
     complete: bool
     """
-    `true`: nothing of the tenant is left, its purge record is written, and it's marked purged. `false`: `left` and `bytesLeft` say what is; run it again.
+    `true`: nothing of the tenant is left, its purge record is written, and it's marked purged. `false`: `left` and `objectsLeft` say what is; run it again.
     """
     already_purged: Annotated[bool, Field(alias="alreadyPurged")]
     """
@@ -1415,7 +1415,7 @@ class SystemTenantPurge(BaseModel):
     """
     Rows this run deleted, per table with any: table names and counts, never the rows' content.
     """
-    bytes_deleted: Annotated[int, Field(alias="bytesDeleted", ge=0)]
+    objects_deleted: Annotated[int, Field(alias="objectsDeleted", ge=0)]
     """
     Objects this run deleted from the artifacts' store.
     """
@@ -1427,7 +1427,7 @@ class SystemTenantPurge(BaseModel):
     """
     Rows of it still there afterwards, per table; empty when none are. A table the purge doesn't delete from is named too: report it.
     """
-    bytes_left: Annotated[int, Field(alias="bytesLeft", ge=0)]
+    objects_left: Annotated[int, Field(alias="objectsLeft", ge=0)]
     """
     Objects still under its prefix in the artifacts' store.
     """
