@@ -69,6 +69,8 @@ export const ENV_DEFAULTS = {
   KINDGI_SITE_SIGN_IN: '`false`: no site signs anyone in',
   KINDGI_AUTH_EMAIL_FROM: 'none: the emailed sign-in link is off (required with the SMTP URL)',
   KINDGI_AUTH_EMAIL_LINK_DAILY_CAP: '`20` links a day (a whole number from 1 to 1000)',
+  KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP:
+    '`500` invitation emails a day, all tenants together (a whole number from 1 to 100000)',
   KINDGI_AUTH_TURNSTILE_SECRET:
     'none (with `KINDGI_AUTH_TURNSTILE_SECRET_PATH` unset): no Turnstile check on emailed-link requests',
   KINDGI_AUTH_TURNSTILE_SECRET_PATH: 'none: no Turnstile secret file',
