@@ -4,7 +4,7 @@
 import type { ModelMessage, ModelToolCall } from '@kindgi/capabilities';
 import type { NodeHandler } from '@kindgi/handler';
 
-import { EVENT_DATA_RULE, formatEventForPrompt, messageIsEvent } from '../event-data.js';
+import { EVENT_DATA_RULE, formatEventForPrompt, turnMessageIsEvent } from '../event-data.js';
 import {
   MEMORY_DATA_RULE,
   formatPoliciesForPrompt,
@@ -73,7 +73,7 @@ export function buildBuildInitialMessagesHandler(ctx: TurnContext): NodeHandler 
       });
     }
 
-    const isEvent = messageIsEvent(ctx.input.startedBy);
+    const isEvent = turnMessageIsEvent(ctx.input);
     const readsEvent = isEvent || history.some((m) => m.fromEvent === true);
     const system = [
       rendered,

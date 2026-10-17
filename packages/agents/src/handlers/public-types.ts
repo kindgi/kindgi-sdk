@@ -102,6 +102,16 @@ export interface InvokeAgentInput {
    * an event started reads its message as data (`<event>`).
    */
   readonly startedBy?: RunStartedBy;
+  /**
+   * The turn's message is an event's, though no webhook or event starts
+   * this run: a replay of a run one started sets it (its turn, or a flow's
+   * agent step's), and records no start of its own. The turn reads its
+   * message as data (`<event>`), as `startedBy` `webhook` or `event` makes
+   * it, and keeps it marked (`ConversationMessage.fromEvent`). It changes
+   * nothing else: the run stays as unattended as `startedBy` says. Set by
+   * the runtime, never from a request.
+   */
+  readonly messageFromEvent?: true;
   readonly participantId?: string;
   readonly abortSignal?: AbortSignal;
   /**

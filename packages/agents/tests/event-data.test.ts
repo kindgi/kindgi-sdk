@@ -49,11 +49,15 @@ const agent = (() => {
   return r.value;
 })();
 
-/** The messages a turn started by `startedBy` sends its first model call. */
+/**
+ * The messages a turn started by `startedBy` sends its first model call;
+ * `marked`: its input says its message is an event's (`messageFromEvent`).
+ */
 async function firstMessages(
   userMessage: string,
   startedBy: RunStartedBy | undefined,
   history: readonly ConversationMessage[] = [],
+  marked = false,
 ): Promise<{
   readonly system: string;
   readonly user: string;
@@ -67,6 +71,7 @@ async function firstMessages(
       conversationId,
       userMessage,
       ...(startedBy !== undefined && { startedBy }),
+      ...(marked && { messageFromEvent: true }),
     },
     bindings: {
       conversationBinding: { readMessages: async () => ({ kind: 'ok', value: history }) },
@@ -190,7 +195,7 @@ describe("a past event's message, in a later turn's history", () => {
 });
 
 describe("a turn's message is kept marked when it's an event's", () => {
-  async function kept(startedBy: RunStartedBy | undefined, dryRun: boolean) {
+  async function kept(startedBy: RunStartedBy | undefined, dryRun: boolean, marked = false) {
     const appended: AppendMessageInput[] = [];
     const ctx = {
       input: {
@@ -200,6 +205,7 @@ describe("a turn's message is kept marked when it's an event's", () => {
         conversationId,
         userMessage: delivery,
         ...(startedBy !== undefined && { startedBy }),
+        ...(marked && { messageFromEvent: true }),
       },
       bindings: {
         conversationBinding: {
@@ -234,4 +240,25 @@ describe("a turn's message is kept marked when it's an event's", () => {
       expect((await kept(by, true)).message).not.toHaveProperty('fromEvent');
     },
   );
+
+  test("a turn whose input says its message is an event's, though its run records no start (a replay's): marked", async () => {
+    const { appended, message } = await kept(undefined, false, true);
+    expect(appended).toEqual([expect.objectContaining({ content: delivery, fromEvent: true })]);
+    expect(message?.fromEvent).toBe(true);
+    expect((await kept(undefined, true, true)).message?.fromEvent).toBe(true);
+  });
+});
+
+describe("a turn whose input says its message is an event's (`messageFromEvent`), as a replay's does", () => {
+  test('no start recorded: an <event> block, and the rule in the system message', async () => {
+    const { system, user } = await firstMessages(delivery, undefined, [], true);
+    expect(user).toBe(formatEventForPrompt(delivery));
+    expect(system).toContain(EVENT_DATA_RULE);
+  });
+
+  test('without it, no start recorded: the message as it came, and no rule', async () => {
+    const { system, user } = await firstMessages(delivery, undefined, [], false);
+    expect(user).toBe(delivery);
+    expect(system).not.toContain(EVENT_DATA_RULE);
+  });
 });

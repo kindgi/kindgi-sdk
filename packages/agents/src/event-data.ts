@@ -19,6 +19,19 @@ export function messageIsEvent(startedBy: RunStartedBy | undefined): boolean {
 }
 
 /**
+ * Whether the turn's own message is outside data: a webhook or an event
+ * started its run (`startedBy`), or the turn's input says its message is
+ * an event's (`messageFromEvent`), as a replay of such a turn does while
+ * recording no start of its own.
+ */
+export function turnMessageIsEvent(input: {
+  readonly startedBy?: RunStartedBy;
+  readonly messageFromEvent?: true;
+}): boolean {
+  return input.messageFromEvent === true || messageIsEvent(input.startedBy);
+}
+
+/**
  * The turn's message as the data block the model reads, in a run a webhook
  * or an event started: the text as it came, with every `<` written as
  * `\u003c`, so nothing in it can close the block or open another. A JSON

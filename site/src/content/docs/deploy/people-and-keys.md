@@ -391,9 +391,10 @@ so a tool that needs a person's yes when no one is watching waits for one
 - **A tenant's first admin key is a service account's.** It's the key
   `POST /v1/system/tenants` answers with when it names no `firstAdmin`, so
   the runs it starts count as unattended. For the work you start yourself,
-  make a key of your own ([API keys](#api-keys)).
-- **On a runtime serving one tenant, the deployment's API token acts as its
-  seed person** (`KINDGI_SEED_USER_ID`), so its runs count as a person's.
+  add yourself as a person ([Add a person](#add-a-person)) and use a key of
+  your own ([API keys](#api-keys)).
+- **On a runtime serving one tenant, the runtime's API token acts as the
+  seed user,** a person, so the runs it starts count as a person's.
 
 Make one:
 

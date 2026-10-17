@@ -4,7 +4,7 @@
 import type { NodeHandler } from '@kindgi/handler';
 import type { Timestamp } from '@kindgi/types';
 
-import { messageIsEvent } from '../event-data.js';
+import { turnMessageIsEvent } from '../event-data.js';
 import type { ConversationMessage } from '../types.js';
 
 import type { TurnContext } from './context.js';
@@ -27,7 +27,7 @@ export function buildPersistUserMessageHandler(ctx: TurnContext): NodeHandler {
   return async (_input, kctx) => {
     // A webhook's or an event's message is marked as it's kept: every
     // later turn reads it back as data.
-    const fromEvent = messageIsEvent(ctx.input.startedBy);
+    const fromEvent = turnMessageIsEvent(ctx.input);
     if (kctx.dryRun) {
       const synthetic: ConversationMessage = {
         sequence: -1,
