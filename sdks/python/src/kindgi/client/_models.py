@@ -9440,6 +9440,9 @@ class SecretRotateResponseSync(BaseModel):
     old_version_revoked_at: Annotated[AwareDatetime | None, Field(alias="oldVersionRevokedAt")] = (
         None
     )
+    """
+    When the version this rotation replaced is revoked: at once (`revokeOldAfterMs: 0`), or at the end of its grace period, until which it still resolves. Absent when the rotation left it valid.
+    """
 
 
 class SecretRotateResponseAsync(BaseModel):
@@ -10647,6 +10650,9 @@ class SecretRotateOutcomeOk(BaseModel):
     old_version_revoked_at: Annotated[AwareDatetime | None, Field(alias="oldVersionRevokedAt")] = (
         None
     )
+    """
+    When the version this rotation replaced is revoked: at once (`revokeOldAfterMs: 0`), or at the end of its grace period, until which it still resolves. Absent when the rotation left it valid.
+    """
 
 
 class SecretRotateOutcomeRotationPending(BaseModel):
@@ -12512,6 +12518,9 @@ class SecretVersionRecord(BaseModel):
     Present + non-null only on `resolve` responses.
     """
     revoked_at: Annotated[AwareDatetime | None, Field(alias="revokedAt")] = None
+    """
+    When this version is revoked. A time still to come is the grace period a rotation gave it: the version still resolves until then.
+    """
 
 
 class SecretSetInput(BaseModel):
@@ -12659,7 +12668,12 @@ class SecretRotateRequest(BaseModel):
     Per-environment slug. `[a-z][a-z0-9-]{0,62}` — RFC-1035-like label.
     """
     new_value: Annotated[str | None, Field(alias="newValue")] = None
-    revoke_old_after_ms: Annotated[int | None, Field(alias="revokeOldAfterMs", ge=0)] = None
+    revoke_old_after_ms: Annotated[
+        int | None, Field(alias="revokeOldAfterMs", ge=0, le=31536000000)
+    ] = None
+    """
+    Revoke the version this rotation replaces this many milliseconds after it: `0` at once, at most 365 days (31536000000). Until then the old version still resolves. Without it, the old version stays valid.
+    """
 
 
 class ScheduleRecord(BaseModel):

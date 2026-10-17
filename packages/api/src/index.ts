@@ -1016,7 +1016,7 @@ export type {
   SecretVersionPage,
   SecretVersionRecord,
 } from './secrets-binding.js';
-export { RESERVED_SECRET_NAME_PREFIX } from './secrets-binding.js';
+export { MAX_REVOKE_OLD_AFTER_MS, RESERVED_SECRET_NAME_PREFIX } from './secrets-binding.js';
 export { resolveAtScope, scopeOfRecorded } from './secret-scope.js';
 // A model provider's key is used by its provider only.
 export {

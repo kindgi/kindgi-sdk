@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { MAX_REVOKE_OLD_AFTER_MS } from '../secrets-binding.js';
+
 /**
  * JSON Schemas for every request + response body on the platform API.
  *
@@ -11394,7 +11396,12 @@ export const SecretVersionRecordSchema: JsonSchema = {
       nullable: true,
       description: 'Present + non-null only on `resolve` responses.',
     },
-    revokedAt: { type: 'string', format: 'date-time' },
+    revokedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When this version is revoked. A time still to come is the grace period a rotation gave it: the version still resolves until then.',
+    },
   },
 };
 
@@ -11488,7 +11495,12 @@ export const SecretRotateOutcomeSchema: JsonSchema = {
         kind: { type: 'string', enum: ['ok'] },
         newVersionId: { type: 'integer', minimum: 1 },
         oldVersionId: { type: 'integer', minimum: 1 },
-        oldVersionRevokedAt: { type: 'string', format: 'date-time' },
+        oldVersionRevokedAt: {
+          type: 'string',
+          format: 'date-time',
+          description:
+            'When the version this rotation replaced is revoked: at once (`revokeOldAfterMs: 0`), or at the end of its grace period, until which it still resolves. Absent when the rotation left it valid.',
+        },
       },
     },
     {
@@ -11647,7 +11659,13 @@ export const SecretRotateRequestSchema: JsonSchema = {
     scope: { $ref: '#/components/schemas/Scope' },
     envName: { $ref: '#/components/schemas/EnvName' },
     newValue: { type: 'string' },
-    revokeOldAfterMs: { type: 'integer', minimum: 0 },
+    revokeOldAfterMs: {
+      type: 'integer',
+      minimum: 0,
+      maximum: MAX_REVOKE_OLD_AFTER_MS,
+      description:
+        'Revoke the version this rotation replaces this many milliseconds after it: `0` at once, at most 365 days (31536000000). Until then the old version still resolves. Without it, the old version stays valid.',
+    },
   },
 };
 
@@ -11660,7 +11678,12 @@ export const SecretRotateResponseSyncSchema: JsonSchema = {
     kind: { type: 'string', enum: ['sync'] },
     newVersionId: { type: 'integer', minimum: 1 },
     oldVersionId: { type: 'integer', minimum: 1 },
-    oldVersionRevokedAt: { type: 'string', format: 'date-time' },
+    oldVersionRevokedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When the version this rotation replaced is revoked: at once (`revokeOldAfterMs: 0`), or at the end of its grace period, until which it still resolves. Absent when the rotation left it valid.',
+    },
   },
 };
 

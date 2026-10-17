@@ -510,6 +510,19 @@ const setCmd: LeafCommand = {
 // rotate
 // ---------------------------------------------------------------------
 
+/**
+ * The longest grace period `--revoke-old-after` takes: 365 days, the API's
+ * `maximum` for `revokeOldAfterMs` (a test holds the two equal).
+ */
+const MAX_REVOKE_OLD_AFTER_MS = 31_536_000_000;
+
+/** `--revoke-old-after`'s milliseconds, or `undefined` unless it's a whole number from 0 to `MAX_REVOKE_OLD_AFTER_MS`. */
+function revokeOldAfterMsOf(raw: string): number | undefined {
+  if (!/^\d+$/.test(raw)) return undefined;
+  const ms = Number(raw);
+  return ms <= MAX_REVOKE_OLD_AFTER_MS ? ms : undefined;
+}
+
 const rotateCmd: LeafCommand = {
   kind: 'leaf',
   name: 'rotate',
@@ -536,7 +549,7 @@ const rotateCmd: LeafCommand = {
     'revoke-old-after': {
       type: 'string' as const,
       description:
-        'Revoke the old version this many milliseconds after the rotation (`0`: at once). Without it, the old version stays valid.',
+        'Revoke the old version this many milliseconds after the rotation: `0` at once, at most 31536000000 (365 days). Until then the old version still resolves. Without it, the old version stays valid.',
     },
     'no-wait': {
       type: 'boolean' as const,
@@ -573,11 +586,12 @@ const rotateCmd: LeafCommand = {
     }
 
     const revokeOldRaw = stringFlag(ctx, 'revoke-old-after');
-    const revokeOldAfterMs = revokeOldRaw !== undefined ? Number(revokeOldRaw) : undefined;
-    if (revokeOldAfterMs !== undefined && !Number.isFinite(revokeOldAfterMs)) {
+    const revokeOldAfterMs =
+      revokeOldRaw !== undefined ? revokeOldAfterMsOf(revokeOldRaw) : undefined;
+    if (revokeOldRaw !== undefined && revokeOldAfterMs === undefined) {
       return {
         kind: 'error',
-        stderr: `Invalid --revoke-old-after "${revokeOldRaw}": must be a number of milliseconds.\n`,
+        stderr: `Invalid --revoke-old-after "${revokeOldRaw}": must be a whole number of milliseconds from 0 to 31536000000 (365 days).\n`,
         exitCode: 2,
       };
     }

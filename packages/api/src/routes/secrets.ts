@@ -17,6 +17,7 @@ import type {
   SecretSetOutcome,
   SecretVersionRecord,
 } from '../secrets-binding.js';
+import { isRevokeOldAfterMs } from '../secrets-binding.js';
 import type { AppEnv } from '../types.js';
 import { capabilityRefusal } from './denied.js';
 import { requireEnvName, requireScope, scopesEqual } from './env.js';
@@ -590,11 +591,15 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
         ),
       );
     }
-    if (b.revokeOldAfterMs !== undefined && typeof b.revokeOldAfterMs !== 'number') {
+    if (b.revokeOldAfterMs !== undefined && !isRevokeOldAfterMs(b.revokeOldAfterMs)) {
       c.status(statusFor('bad-input') as never);
       return c.json(
         toWireError(
-          { code: 'bad-input', message: '`revokeOldAfterMs` must be a number when present' },
+          {
+            code: 'bad-input',
+            message:
+              '`revokeOldAfterMs` must be a whole number of milliseconds from 0 to 31536000000 (365 days) when present',
+          },
           requestId,
         ),
       );
