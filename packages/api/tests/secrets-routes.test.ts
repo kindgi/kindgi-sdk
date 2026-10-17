@@ -28,6 +28,7 @@ import type {
   SecretVersionRecord,
   TokenResolver,
 } from '../src/index.js';
+import { SecretSetRequestSchema } from '../src/openapi/schemas.js';
 
 /**
  * `/v1/secrets/*` route tests — the HTTP surface for
@@ -1116,8 +1117,29 @@ describe('secretNameGrammarRefusal — the shared create-name grammar', () => {
       expect(secretNameGrammarRefusal(name)?.code).toBe('secret-name-invalid');
     },
   );
+  // A dot sits only between two non-dot characters: a name has no doubled dot
+  // and no trailing dot. (A mutant that relaxed the dot rule back to a flat
+  // `[A-Za-z0-9._-]*` class — which admits a doubled or trailing dot — is
+  // caught here.)
+  test.each(['a..b', 'a...b', 'a.', 'foo.', 'a..'])('refuses %s for its dot placement', (name) => {
+    expect(secretNameGrammarRefusal(name)?.code).toBe('secret-name-invalid');
+  });
   test.each(['_abc', '9abc', 'Zabc', 'abc'])('allows a name starting with %s', (name) => {
     expect(secretNameGrammarRefusal(name)).toBeUndefined();
+  });
+  // The create grammar is the server's; the wire request stays additive, so a
+  // generated client can still add a version to a name stored before this
+  // release. Guard that the schema documents the rule without enforcing it.
+  test('SecretSetRequest.name stays additive on the wire — documented, not enforced', () => {
+    const nameSchema = (
+      SecretSetRequestSchema.properties as Record<
+        string,
+        { pattern?: string; maxLength?: number; description?: string }
+      >
+    ).name;
+    expect(nameSchema?.pattern).toBeUndefined();
+    expect(nameSchema?.maxLength).toBeUndefined();
+    expect(nameSchema?.description ?? '').toContain('already stored');
   });
 });
 
