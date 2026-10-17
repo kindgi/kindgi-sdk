@@ -86,7 +86,7 @@ export interface TenantRouterOptions {
 
 /**
  * Where a deployment's calls to other sites come from, for a site that
- * admits only known addresses. It says nothing about where calls may go.
+ * admits only known addresses. It says nothing about where calls go.
  */
 export interface EgressAddresses {
   /** The server's own calls, such as to MCP servers and model providers, and its webhook deliveries. */
@@ -99,7 +99,9 @@ export interface EgressAddresses {
 function publishedEgress(egress: EgressAddresses | undefined): EgressAddresses | undefined {
   if (egress === undefined) return undefined;
   for (const [list, addresses] of Object.entries(egress) as [string, readonly string[]][]) {
-    const bad = addresses.find((a) => isIP(a) === 0);
+    // A zone id (`fe80::1%eth0`) names an interface on this host, not an
+    // address another site sees.
+    const bad = addresses.find((a) => isIP(a) === 0 || a.includes('%'));
     if (bad !== undefined) throw new TypeError(`egress.${list}: "${bad}" isn't an IP address`);
   }
   if (egress.server.length === 0 && egress.deployments.length === 0) return undefined;
