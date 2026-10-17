@@ -454,7 +454,9 @@ of the project:
   it, such as the creator of a project an older runtime made.
 - **A project made with a service account's key has no creator** (runtime
   0.1.9 or later). It lists only who was given access to it, and the
-  tenant's admins (and its org's, if it's in one).
+  tenant's admins (and its org's, if it's in one). One an older runtime made
+  lists `00000000-0000-0000-0000-000000000000` as its owner, an id no person
+  has: `kindgi-runtime tenants repair` takes it away.
 - **A team's role** is changed on its grant (`…/team-grants/<team-id>`).
 
 Reading it takes `write` on the project: its editors and admins. Emails show
