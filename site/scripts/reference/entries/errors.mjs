@@ -2022,7 +2022,7 @@ export const ERROR_ENTRIES = {
   },
   'authz-store-delete-failed': {
     description:
-      "A purge's delete of the tenant's authorization store was refused; the message gives OpenFGA's answer. None of the tenant's rows were deleted, and its artifacts' bytes may have been: run the purge again once OpenFGA answers.",
+      "A purge's delete of the tenant's authorization store failed; the message gives OpenFGA's answer, if it gave one, and what that left. A tenant's rows go only after its store, so a failure before then leaves every row, though its artifacts' bytes may be deleted. Run the purge again once OpenFGA answers.",
     details: [
       {
         key: 'tenantId',

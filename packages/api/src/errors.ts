@@ -295,7 +295,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'purge-record-unset': 409,
   /** A purge of a tenant holding what a setting the runtime lacks reaches (its artifacts' bytes, its authorization store). */
   'purge-setting-missing': 409,
-  /** The tenant's authorization store refused its delete, so none of its rows were deleted. */
+  /** A purge's delete of the tenant's authorization store failed; the message says what that left. */
   'authz-store-delete-failed': 502,
   /** A runtime whose tenants binding doesn't purge. */
   'tenant-purge-unsupported': 501,

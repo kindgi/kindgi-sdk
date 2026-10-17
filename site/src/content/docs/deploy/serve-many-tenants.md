@@ -336,9 +336,10 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/purge" \
   (`409 tenant-export-window-open`, with `windowEndsAt`), and one with
   artifacts or an authorization store when the server has no
   `KINDGI_ARTIFACTS` or `KINDGI_OPENFGA_API_URL` (`409 purge-setting-missing`).
-- **OpenFGA refusing the store's delete** is `502 authz-store-delete-failed`.
-  By then the tenant's artifacts' bytes may be deleted, but none of its
-  rows: run it again once OpenFGA answers.
+- **A failed delete of its OpenFGA store** is `502 authz-store-delete-failed`,
+  and its message says what that left. A tenant's rows go only after its
+  store, so by then its artifacts' bytes may be deleted, but none of its
+  rows. Run it again once OpenFGA answers.
 - **A day later,** run it again. On a tenant already purged, it deletes
   what's of it (`alreadyPurged: true`), and its mark and its record stay as
   they were. Nothing should write to a tenant a day after its mark, so

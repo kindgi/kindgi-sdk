@@ -2348,7 +2348,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '501': ErrorResponse("This runtime doesn't purge tenants (`tenant-purge-unsupported`)."),
       '502': ErrorResponse(
-        "The tenant's authorization store refused its delete (`authz-store-delete-failed`): none of its rows were deleted, and its artifacts' bytes may be. Run it again.",
+        "Deleting the tenant's authorization store failed (`authz-store-delete-failed`): the message says what that left. Run it again.",
       ),
       '503': ErrorResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",

@@ -108,7 +108,11 @@ export type SystemTenantPurgeOutcome =
   | { readonly kind: 'record-unset' }
   /** What the tenant holds needs a setting the runtime lacks (`reason` says which). */
   | { readonly kind: 'setting-missing'; readonly reason: string }
-  /** Its authorization store refused the delete: its artifacts' bytes may be gone, none of its rows. */
+  /**
+   * Deleting its authorization store failed: `reason` says how, and what
+   * that left. Before any of its rows went, none are deleted, though its
+   * artifacts' bytes may be.
+   */
   | { readonly kind: 'authz-store-refused'; readonly reason: string };
 
 /**
@@ -668,12 +672,9 @@ function purgedAnswer(
         tenantId: id,
       });
     case 'authz-store-refused':
-      return answer(
-        c,
-        'authz-store-delete-failed',
-        `${done.reason}. None of the tenant's rows were deleted: run the purge again.`,
-        { tenantId: id },
-      );
+      return answer(c, 'authz-store-delete-failed', `${done.reason}. Run the purge again.`, {
+        tenantId: id,
+      });
     case 'ok': {
       const left = tableRows(done.left);
       return c.json({

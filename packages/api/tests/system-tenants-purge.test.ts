@@ -276,7 +276,11 @@ describe('what the runtime refuses: 409, nothing changed', () => {
   test('the authorization store refusing its delete is 502, and says to run it again', async () => {
     const { call, errorOf } = makeApp({
       outcomes: [
-        { kind: 'authz-store-refused', reason: 'OpenFGA answered 503 to deleting store s1' },
+        {
+          kind: 'authz-store-refused',
+          reason:
+            "OpenFGA answered 503 to deleting the tenant's authorization store, so none of its rows were deleted",
+        },
       ],
     });
     const r = await call('kgi_sy_purge', CONFIRM);
@@ -284,7 +288,7 @@ describe('what the runtime refuses: 409, nothing changed', () => {
     expect(errorOf(r)).toMatchObject({
       code: 'authz-store-delete-failed',
       message:
-        "OpenFGA answered 503 to deleting store s1. None of the tenant's rows were deleted: run the purge again.",
+        "OpenFGA answered 503 to deleting the tenant's authorization store, so none of its rows were deleted. Run the purge again.",
     });
   });
 });
