@@ -689,6 +689,9 @@ importers:
       '@kindgi/audit-events':
         specifier: workspace:*
         version: link:../audit-events
+      '@kindgi/log':
+        specifier: workspace:*
+        version: link:../log
       '@kindgi/platform':
         specifier: workspace:*
         version: link:../platform
@@ -792,6 +795,9 @@ importers:
       '@kindgi/compliance':
         specifier: workspace:*
         version: link:../compliance
+      '@kindgi/log':
+        specifier: workspace:*
+        version: link:../log
       '@kindgi/platform':
         specifier: workspace:*
         version: link:../platform

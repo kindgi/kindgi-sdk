@@ -9,7 +9,7 @@ import { type Agent, type AgentId, type AgentPins, templateProblem } from '@kind
 import { ref, tuplesForCreate } from '@kindgi/authz';
 import { runOutsideTenant } from '@kindgi/bounds';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
-import type { Flow, FlowPins } from '@kindgi/flow';
+import { type Flow, type FlowPins, flowSchemaProblems } from '@kindgi/flow';
 import {
   GUARDRAIL_SPEC_KEYS,
   type Guardrail,
@@ -17,7 +17,7 @@ import {
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
-import { SchemaCompileBudgetError } from '@kindgi/schema';
+import { SchemaCompileBudgetError, compileInlineSchema } from '@kindgi/schema';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
 import type {
   Cursor,
@@ -36,15 +36,15 @@ import { type UnpinnableRef, publishDeployedAgent, resolveAgentPins } from '../a
 import type { BlockRegistryBinding } from '../block-binding.js';
 import { type BlockPins, resolveBlockPins } from '../block-pins.js';
 import type { DeployedVersionOutcome } from '../deploy-versions.js';
-import type {
-  DeployedAgent,
-  DeployedFlow,
-  DeployedVersion,
-  Deployment,
-  DeploymentBinding,
-  DeploymentEndpoint,
-  DeploymentPrimitiveCounts,
-  DeploymentRegisterOutcome,
+import {
+  type DeployedAgent,
+  type DeployedFlow,
+  type DeployedVersion,
+  type Deployment,
+  type DeploymentBinding,
+  type DeploymentPrimitiveCounts,
+  type DeploymentRegisterOutcome,
+  endpointToWire,
 } from '../deployment-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
@@ -272,7 +272,6 @@ export function deploymentsRouter(
 
   // ---------- GET / (list, cursor-paginated) ----------
   r.get('/', async (c) => {
-    const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const limit = clampLimit(c.req.query('limit'));
 
@@ -280,39 +279,30 @@ export function deploymentsRouter(
     const imageRefPrefixRaw = c.req.query('imageRefPrefix');
     const signerKeyIdRaw = c.req.query('signerKeyId');
 
-    try {
-      const page = await bindings.deploymentRegistry.list({
-        tenantId,
-        limit,
-        ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
-        ...(imageRefPrefixRaw !== undefined &&
-          imageRefPrefixRaw.length > 0 && {
-            imageRefPrefix: imageRefPrefixRaw,
-          }),
-        ...(signerKeyIdRaw !== undefined &&
-          signerKeyIdRaw.length > 0 && {
-            signerKeyId: signerKeyIdRaw as SigningKeyId,
-          }),
-      });
-      return c.json({
-        data: page.data.map(serializeDeployment),
-        hasMore: page.nextCursor !== undefined,
-        ...(page.nextCursor !== undefined && {
-          nextCursor: page.nextCursor as unknown as string,
+    // A throw from list() propagates to the app's central error handler
+    // (middleware/error-mapper.ts): a busy database answers this GET with a
+    // 503 + Retry-After, anything else a 500 whose body carries no raw error
+    // text (the whole error goes to the log).
+    const page = await bindings.deploymentRegistry.list({
+      tenantId,
+      limit,
+      ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
+      ...(imageRefPrefixRaw !== undefined &&
+        imageRefPrefixRaw.length > 0 && {
+          imageRefPrefix: imageRefPrefixRaw,
         }),
-      });
-    } catch (cause) {
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Deployment list failed: ${errMessage(cause)}`,
-          },
-          requestId,
-        ),
-      );
-    }
+      ...(signerKeyIdRaw !== undefined &&
+        signerKeyIdRaw.length > 0 && {
+          signerKeyId: signerKeyIdRaw as SigningKeyId,
+        }),
+    });
+    return c.json({
+      data: page.data.map(serializeDeployment),
+      hasMore: page.nextCursor !== undefined,
+      ...(page.nextCursor !== undefined && {
+        nextCursor: page.nextCursor as unknown as string,
+      }),
+    });
   });
 
   // ---------- GET /:deploymentId ----------
@@ -412,16 +402,9 @@ export function deploymentsRouter(
       publicKey: publicKeyBase64,
     });
     if (trusted.kind === 'err') {
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Trust check failed: ${trusted.error.message}`,
-          },
-          requestId,
-        ),
-      );
+      // To the central error handler: a 500 with no raw text; the trust-check
+      // error is logged via the cause, which keeps its code.
+      throw new Error('Trust check failed', { cause: trusted.error });
     }
     if (!trusted.value) {
       c.status(statusFor('signer-not-trusted') as never);
@@ -885,7 +868,8 @@ export function deploymentsRouter(
       // error handler answers. None runs past the first write here.
       if (cause instanceof SchemaCompileBudgetError) throw cause;
       // A primitive refused with a typed outcome is the caller's to fix:
-      // that outcome's own status and code. Anything thrown is a 500.
+      // that outcome's own status and code. Anything else propagates to the
+      // central error handler (a 500 for this write).
       if (cause instanceof PublishRefused) {
         if (cause.projectId !== undefined) {
           c.get('log').info(`${cause.message}: deploy refused`, {
@@ -920,16 +904,9 @@ export function deploymentsRouter(
           ),
         );
       }
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Registry upsert failed: ${errMessage(cause)}`,
-          },
-          requestId,
-        ),
-      );
+      // Not a mapped outcome: to the central error handler (a 500 for this
+      // write — the rollback above already ran; the whole error is logged).
+      throw cause;
     }
 
     // ---- Deployment record ----
@@ -975,31 +952,15 @@ export function deploymentsRouter(
       });
     } catch (cause) {
       await rollback(rolled);
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Deployment record failed: ${errMessage(cause)}`,
-          },
-          requestId,
-        ),
-      );
+      // To the central error handler: a 500 with no raw text; the error is logged.
+      throw cause;
     }
 
     if (outcome.kind === 'error') {
       await rollback(rolled);
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Deployment record failed: ${outcome.message}`,
-            cause: outcome.code,
-          },
-          requestId,
-        ),
-      );
+      // To the central error handler: a 500 with no raw text; the outcome's
+      // code and message go to the log.
+      throw new Error(`Deployment record failed (${outcome.code}): ${outcome.message}`);
     }
     if (outcome.kind === 'already-registered') {
       // Digest-based idempotency: same digest already recorded. Roll back
@@ -1980,13 +1941,15 @@ const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 /**
  * Minimal shape check on an `IndexedAgent` after `modulePath` is
- * stripped. Deeper validation (RetrievalIntent shape, budget arithmetic,
- * conversation policy tri-state) is left to the runtime at dispatch —
- * the deploy route only validates that the wire is well-shaped enough to
- * persist. The alternative is running `defineAgent`, but that requires
- * promoting `capabilities`/`tools` to their branded shapes; the pattern
- * across the API package is to keep transport shape checks lightweight
- * and leave semantic checks to the runtime.
+ * stripped, plus what would fail every turn: the instructions' template
+ * and the output schema, checked as `defineAgent` checks them. Deeper
+ * validation (RetrievalIntent shape, budget arithmetic, conversation
+ * policy tri-state) is left to the runtime at dispatch — the deploy
+ * route only validates that the wire is well-shaped enough to persist.
+ * The alternative is running `defineAgent`, but that requires promoting
+ * `capabilities`/`tools` to their branded shapes; the pattern across the
+ * API package is to keep transport shape checks lightweight and leave
+ * semantic checks to the runtime.
  */
 function validateAgentIndexShape(
   spec: Record<string, unknown>,
@@ -2024,9 +1987,34 @@ function validateAgentIndexShape(
   if (!Array.isArray(spec.tools)) {
     out.push({ path: '/tools', message: 'agent.tools must be an array of tool ids' });
   }
+  out.push(...agentOutputProblems(spec.output));
   return out;
 }
 
+/** An agent's `output`, when it has one: an object whose schema compiles. */
+function agentOutputProblems(raw: unknown): readonly { path: string; message: string }[] {
+  if (raw === undefined) return [];
+  const output = raw as { schema?: unknown } | null;
+  if (typeof output !== 'object' || output === null || Array.isArray(output)) {
+    return [
+      { path: '/output', message: 'agent.output must be an object { schema, name?, maxRepairs? }' },
+    ];
+  }
+  // The compile `defineAgent` runs, and each structured turn after it:
+  // one that doesn't compile would fail every turn.
+  const compiled = compileInlineSchema(output.schema);
+  if (compiled.kind === 'ok') return [];
+  const why = compiled.error.message.replace(/^Inline schema failed to compile: /, '');
+  return [{ path: '/output/schema', message: `doesn't compile: ${why}` }];
+}
+
+/**
+ * Minimal shape check on an `IndexedFlow` after `modulePath` and
+ * `kernelPayloadVersion` are stripped, and every inline schema a run
+ * compiles (`flowSchemaProblems`): one that doesn't compile would fail
+ * every run. The rest of `loadFlow` isn't run: it refuses fields it
+ * doesn't know, and an index from a newer CLI may carry some.
+ */
 function validateFlowIndexShape(
   spec: Record<string, unknown>,
 ): readonly { path: string; message: string }[] {
@@ -2043,6 +2031,7 @@ function validateFlowIndexShape(
   if (!Array.isArray(spec.edges)) {
     out.push({ path: '/edges', message: 'flow.edges must be an array' });
   }
+  out.push(...flowSchemaProblems(spec));
   return out;
 }
 
@@ -2302,16 +2291,6 @@ async function rollback(actions: readonly RollbackAction[]): Promise<void> {
   }
 }
 
-/** Named fields only: an endpoint's URL and token never reach a tenant. */
-function serializeEndpoint(e: DeploymentEndpoint): Record<string, unknown> {
-  return {
-    status: e.status,
-    since: e.since,
-    ...(e.status === 'pending' &&
-      e.problem !== undefined && { problem: { code: e.problem.code, since: e.problem.since } }),
-  };
-}
-
 function serializeDeployment(d: Deployment): Record<string, unknown> {
   return {
     deploymentId: d.deploymentId,
@@ -2326,7 +2305,7 @@ function serializeDeployment(d: Deployment): Record<string, unknown> {
     publishedAt: d.publishedAt,
     activatedAt: d.activatedAt,
     ...(d.projectId !== undefined && { projectId: d.projectId as unknown as string }),
-    ...(d.endpoint !== undefined && { endpoint: serializeEndpoint(d.endpoint) }),
+    ...(d.endpoint !== undefined && { endpoint: endpointToWire(d.endpoint) }),
     primitives: {
       tools: d.primitives.tools,
       guardrails: d.primitives.guardrails,
@@ -2366,10 +2345,6 @@ async function notifyWrites(
       // Advisory, as on `POST /v1/guardrails`.
     }
   }
-}
-
-function errMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }
 
 // Formats a sha256 digest in the canonical `sha256:<hex>` shape. Not used

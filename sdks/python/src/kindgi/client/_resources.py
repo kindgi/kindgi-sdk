@@ -678,6 +678,9 @@ OPERATIONS: dict[str, Operation] = {
     "identity.users.unregister": Operation(
         "identity.users.unregister", "POST", "/v1/identity/users/{userId}/unregister", "json", True
     ),
+    "identity.users.resendInvite": Operation(
+        "identity.users.resendInvite", "POST", "/v1/identity/users/{userId}/invite", "json", True
+    ),
     "identity.users.revokeSessions": Operation(
         "identity.users.revokeSessions",
         "POST",
@@ -888,6 +891,7 @@ OPERATIONS: dict[str, Operation] = {
     "tenant.config.upsert": Operation(
         "tenant.config.upsert", "PATCH", "/v1/tenant/config", "json", True
     ),
+    "environments.list": Operation("environments.list", "GET", "/v1/environments", "json", False),
     "env.list": Operation("env.list", "GET", "/v1/env", "json", False),
     "env.get": Operation("env.get", "GET", "/v1/env/{name}", "json", False),
     "env.put": Operation("env.put", "PUT", "/v1/env/{name}", "json", True),
@@ -1007,6 +1011,57 @@ OPERATIONS: dict[str, Operation] = {
     "webhookEndpoints.sendTest": Operation(
         "webhookEndpoints.sendTest", "POST", "/v1/webhook-endpoints/{endpointId}/test", "json", True
     ),
+    "projects.sites.list": Operation(
+        "projects.sites.list", "GET", "/v1/projects/{projectId}/sites", "json", False
+    ),
+    "projects.sites.register": Operation(
+        "projects.sites.register", "POST", "/v1/projects/{projectId}/sites", "json", True
+    ),
+    "projects.sites.get": Operation(
+        "projects.sites.get", "GET", "/v1/projects/{projectId}/sites/{siteId}", "json", False
+    ),
+    "projects.sites.update": Operation(
+        "projects.sites.update", "PATCH", "/v1/projects/{projectId}/sites/{siteId}", "json", True
+    ),
+    "projects.sites.pause": Operation(
+        "projects.sites.pause",
+        "POST",
+        "/v1/projects/{projectId}/sites/{siteId}/pause",
+        "json",
+        True,
+    ),
+    "projects.sites.resume": Operation(
+        "projects.sites.resume",
+        "POST",
+        "/v1/projects/{projectId}/sites/{siteId}/resume",
+        "json",
+        True,
+    ),
+    "projects.sites.unregister": Operation(
+        "projects.sites.unregister",
+        "POST",
+        "/v1/projects/{projectId}/sites/{siteId}/unregister",
+        "json",
+        True,
+    ),
+    "projects.sites.enrollmentCode": Operation(
+        "projects.sites.enrollmentCode",
+        "POST",
+        "/v1/projects/{projectId}/sites/{siteId}/enrollment-codes",
+        "json",
+        True,
+    ),
+    "projects.sites.revokeKey": Operation(
+        "projects.sites.revokeKey",
+        "POST",
+        "/v1/projects/{projectId}/sites/{siteId}/keys/{kid}/revoke",
+        "json",
+        True,
+    ),
+    "auth.sites.enroll": Operation(
+        "auth.sites.enroll", "POST", "/v1/auth/sites/enroll", "json", False
+    ),
+    "auth.siteSignIn": Operation("auth.siteSignIn", "POST", "/v1/auth/site-sign-in", "json", False),
     "evalSuites.unregister": Operation(
         "evalSuites.unregister",
         "POST",
@@ -1232,16 +1287,23 @@ class RunsResource:
         )
 
     def journal(
-        self, run_id: str | UUID, /, *, since: int | None = None, timeout: float | None = None
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        since: int | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
     ) -> _models.RunJournalPage:
         """Read the durable journal for a run. `GET /v1/runs/{runId}/journal`
 
-        Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`). Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6.
+        Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`), in sequence order. Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6. Paging is opt-in: with `limit`, at most that many entries and a `nextCursor` while more remain; without it, the whole journal in one answer.
         """
         return self._client._request(
             _OPERATIONS["runs.journal"],
             path={"runId": run_id},
-            query={"since": since},
+            query={"since": since, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.RunJournalPage,
             timeout=timeout,
@@ -1673,7 +1735,7 @@ class SystemTenantsResource:
     ) -> _models.CreateSystemTenantResult:
         """Create a tenant. `POST /v1/system/tenants`
 
-        Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store). Safe to retry with the same slug: if the setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have; another request naming that slug is `tenant-slug-taken`. A repeat of a create that finished is `tenant-slug-taken` too, unless it carries the first request's Idempotency-Key: then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice (send an Idempotency-Key with every create, so a lost answer can be told from another tenant's slug). With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant, with the admin key withheld.
+        Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store). Safe to retry with the same slug: if the setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have; another request naming that slug is `tenant-slug-taken`. A repeat of a create that finished is `tenant-slug-taken` too, unless it carries the first request's Idempotency-Key: then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice (send an Idempotency-Key with every create, so a lost answer can be told from another tenant's slug). With `firstAdmin`, that person becomes its admin and member by email, with every capability but `secrets:reveal`, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant, with the admin key withheld.
         """
         return self._client._request(
             _OPERATIONS["systemTenants.create"],
@@ -1823,7 +1885,7 @@ class SystemTenantsResource:
     ) -> _models.TenantProductionAllowed:
         """Allow a tenant production, or stop it. `PUT /v1/system/tenants/{tenantId}/production-allowed`
 
-        The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant is allowed until it's switched off. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.
+        The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant made by `POST /v1/system/tenants` starts with it off, unless the create says `productionAllowed: true`; the tenant a server makes for itself, and one from before the switch, start with it on. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.
         """
         return self._client._request(
             _OPERATIONS["systemTenants.setProductionAllowed"],
@@ -1964,7 +2026,7 @@ class SystemDeploymentsResource:
     ) -> _models.DeploymentEndpoint:
         """Record why a deployment has no pack service yet. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem`
 
-        For whatever creates the pack services: records why a `pending` deployment has none yet, as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.
+        For whatever creates the pack services: records why a deployment waiting for one has none yet (`pending`, or `cleared` and `waiting`, as after a suspension is lifted), as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.
         """
         return self._client._request(
             _OPERATIONS["systemDeployments.recordProblem"],
@@ -1989,7 +2051,7 @@ class SystemDeploymentsResource:
     ) -> _models.PackSuspension:
         """Suspend a deployment's pack, or restore it. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`
 
-        Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it lists as needing a pack service again. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.
+        Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it serves again from the endpoint recorded for it; if that endpoint is pending or was cleared meanwhile, it lists as needing a pack service. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.
         """
         return self._client._request(
             _OPERATIONS["systemDeployments.setSuspended"],
@@ -2265,6 +2327,7 @@ class ApprovalsResource:
         ]
         | None = None,
         assigned_to: Literal["me"] | None = None,
+        decided_by: Literal["me"] | None = None,
         order: Literal["asc", "desc"] | None = None,
         required_role: Literal["standard", "senior", "admin"] | None = None,
         created_after: str | None = None,
@@ -2275,7 +2338,7 @@ class ApprovalsResource:
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
 
-        Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.
+        Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). With authorization on, a person who is the tenant's admin (through a session or an `admin` key not limited to a project) reads at every tier: with no roster entry, as an `admin` reviewer; with a lower role, their own tier, and any tier they ask for with `requiredRole`. The roster doesn't show such a reader, but the access audit records the tenant-admin check (`authz-decision`), made only where it changes what the roster gives. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). With authorization on, only approvals whose project the caller may read. `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return self._client._request(
             _OPERATIONS["approvals.list"],
@@ -2287,6 +2350,7 @@ class ApprovalsResource:
                 "scopeId": scope_id,
                 "status": status,
                 "assignedTo": assigned_to,
+                "decidedBy": decided_by,
                 "order": order,
                 "requiredRole": required_role,
                 "createdAfter": created_after,
@@ -2302,7 +2366,7 @@ class ApprovalsResource:
     def get(self, approval_id: str | UUID, /, *, timeout: float | None = None) -> _models.Approval:
         """Fetch a single approval. `GET /v1/approvals/{approvalId}`
 
-        Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4). A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).
+        Requires a reviewer, or (with authorization on) a person who is the tenant's admin, as the list does; the tenant's admin reads an approval of any tier. Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4), or that are in a project the caller may not read. A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).
         """
         return self._client._request(
             _OPERATIONS["approvals.get"],
@@ -3346,11 +3410,12 @@ class ConversationsResource:
         agent_id: str | UUID | None = None,
         status: Literal["open", "closed"] | None = None,
         replays: Literal["exclude", "include", "only"] | None = None,
+        opened_by: Literal["me"] | None = None,
         timeout: float | None = None,
     ) -> _models.ConversationCollectionPage:
         """List conversations. `GET /v1/conversations`
 
-        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.
+        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?openedBy=me` (the caller's own), `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return self._client._request(
             _OPERATIONS["conversations.list"],
@@ -3363,6 +3428,7 @@ class ConversationsResource:
                 "agentId": agent_id,
                 "status": status,
                 "replays": replays,
+                "openedBy": opened_by,
             },
             headers={},
             response=_models.ConversationCollectionPage,
@@ -3878,7 +3944,7 @@ class ProposalsResource:
     ) -> _models.ImprovementPass:
         """Start an improvement pass. `POST /v1/proposals/improve`
 
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts for an agent whose project is suspended (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.
         """
         return self._client._request(
             _OPERATIONS["proposals.improve"],
@@ -5003,6 +5069,7 @@ class CostRecordsResource:
         model: str | None = None,
         served_model: str | None = None,
         root_run_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         include_descendants: bool | None = None,
         from_: str | None = None,
         to: str | None = None,
@@ -5014,7 +5081,7 @@ class CostRecordsResource:
     ) -> _models.CostRecordCollectionPage:
         """List cost records. `GET /v1/cost/records`
 
-        Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.
+        Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `flowId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.
         """
         return self._client._request(
             _OPERATIONS["cost.records.list"],
@@ -5030,6 +5097,7 @@ class CostRecordsResource:
                 "model": model,
                 "servedModel": served_model,
                 "rootRunId": root_run_id,
+                "flowId": flow_id,
                 "includeDescendants": include_descendants,
                 "from": from_,
                 "to": to,
@@ -5085,6 +5153,7 @@ class CostResource:
         model: str | None = None,
         served_model: str | None = None,
         root_run_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         include_descendants: bool | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
@@ -5111,6 +5180,7 @@ class CostResource:
                 "model": model,
                 "servedModel": served_model,
                 "rootRunId": root_run_id,
+                "flowId": flow_id,
                 "includeDescendants": include_descendants,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
@@ -5246,14 +5316,17 @@ class PoliciesVersionsResource:
 
     def get(
         self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.Policy:
-        """Fetch a specific policy version. `GET /v1/policies/{policyId}/versions/{version}`"""
+    ) -> _models.PolicyVersionRow:
+        """Fetch a specific policy version. `GET /v1/policies/{policyId}/versions/{version}`
+
+        An unregistered version is returned too, with `unregisteredAt`.
+        """
         return self._client._request(
             _OPERATIONS["policies.versions.get"],
             path={"policyId": policy_id, "version": version},
             query={},
             headers={},
-            response=_models.Policy,
+            response=_models.PolicyVersionRow,
             timeout=timeout,
         )
 
@@ -5328,7 +5401,7 @@ class PoliciesResource:
     ) -> _models.PublishPolicyResult:
         """Publish a policy. `POST /v1/policies`
 
-        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A tenant has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A tenant has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). Where this server has a retention limit for a domain, a policy for that domain that keeps its rows longer, or holds them (`graceSeconds: -1`), is refused with `400 retention-over-limit` (`details.limitSeconds` is the limit); a `*` policy isn't, as the server caps each limited domain when it sweeps. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return self._client._request(
             _OPERATIONS["policies.publish"],
@@ -5362,7 +5435,7 @@ class PoliciesResource:
     ) -> _models.ReinstatePolicyVersionResult:
         """Reinstate a specific tombstoned policy version. `POST /v1/policies/{policyId}/versions/{version}/reinstate`
 
-        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (and refreshes `policyKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Reactivates a fully-retired policy identity when applicable. Publish is always allowed regardless of retirement state.
+        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (and refreshes `policyKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Reactivates a fully-retired policy identity when applicable. Publish is always allowed regardless of retirement state. A version whose retention policy keeps its domain's rows longer than this server's limit, or holds them, stays retired (`400 retention-over-limit`).
         """
         return self._client._request(
             _OPERATIONS["policies.reinstateVersion"],
@@ -5414,7 +5487,7 @@ class RetentionResource:
     ) -> _models.RetentionScheduledPage:
         """List deleted rows scheduled for purging. `GET /v1/retention/scheduled`
 
-        Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the tenant.
+        Tombstoned rows in every domain a retention policy or this server's retention limit covers, with when each is purged (`purgeAt`) and what decides it: the policy (`policyId`), or the limit (`limitApplied`) when no policy covers the domain or its policy keeps rows longer. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones neither covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the tenant.
         """
         return self._client._request(
             _OPERATIONS["retention.scheduled"],
@@ -5440,7 +5513,7 @@ class RetentionResource:
     ) -> _models.RetentionSweepResult:
         """Purge the deleted rows past their grace. `POST /v1/retention/sweep`
 
-        Purges, for good, every tombstoned row past the grace of the retention policy that covers its domain (or only `domain`'s), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.
+        Purges, for good, every tombstoned row past its grace (or only `domain`'s): the grace of the retention policy that covers its domain, or this server's limit for the domain when no policy covers it or the policy keeps rows longer (`limitApplied`), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows, unless the domain has a limit. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.
         """
         return self._client._request(
             _OPERATIONS["retention.sweep"],
@@ -5910,7 +5983,7 @@ class EvalRunsResource:
     ) -> _models.StartEvalRunResult:
         """Start an eval run against a suite. `POST /v1/eval-suites/{suiteId}/runs`
 
-        Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Idempotency-Key applies.
+        Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
         """
         return self._client._request(
             _OPERATIONS["evalRuns.start"],
@@ -6156,12 +6229,42 @@ class AuthProvidersResource:
         )
 
 
+class AuthSitesResource:
+    """`client.auth.sites` — the `auth.sites` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def enroll(
+        self,
+        body: _models.EnrollSiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.EnrollSiteResult:
+        """A site posts its public key with its enrollment code. `POST /v1/auth/sites/enroll`
+
+        Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.sites.enroll"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.EnrollSiteBody, body, fields),
+            response=_models.EnrollSiteResult,
+            timeout=timeout,
+        )
+
+
 class AuthResource:
     """`client.auth` — the `auth` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
         self.providers = AuthProvidersResource(client)
+        self.sites = AuthSitesResource(client)
 
     def sign_in_options(
         self, /, *, email: str | None = None, timeout: float | None = None
@@ -6198,7 +6301,7 @@ class AuthResource:
     ) -> _models.RefreshResult:
         """Refresh the current session token. `POST /v1/auth/refresh`
 
-        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. The session token rotates: the new session keeps the person, scopes and expiry, and the provider is not called. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.
+        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. The session token rotates: the new session keeps the person, scopes and expiry, and the provider is not called. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL. Nor is a session limited to a project or a role: `400 limited-session-not-refreshable`; get a new one where you got this one.
         """
         return self._client._request(
             _OPERATIONS["auth.refresh"],
@@ -6225,6 +6328,28 @@ class AuthResource:
             timeout=timeout,
         )
 
+    def site_sign_in(
+        self,
+        body: _models.SiteSignInBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SiteSignInResult:
+        """A site signs one of its people in. `POST /v1/auth/site-sign-in`
+
+        Public: the statement is the credential. A registered site's statement that a person is signed in there, exchanged for a session limited to the site's project: it reads nothing above the project, mints no keys, isn't refreshed, and ends early when the site is paused or unregistered, or one of its keys revoked. The person is the one the site created for that `sub` (a first statement creates them; never matched by email), with the grants the site's role map gives their roles. Every refusal is `401 site-sign-in-refused`, with `details.reason`. A statement whose signature wasn't verified gets `not-verified` alone, whatever was wrong (the site, the key, the signature, the format), since its sender has proved nothing; after a verified signature: `site-paused`, `site-not-vouching`, `wrong-audience`, `expired`, `issued-in-the-future`, `too-long-lived`, `replayed`, `role-not-allowed`, `person-removed` or `people-cap`. Rate-limited per client and per site (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.siteSignIn"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.SiteSignInBody, body, fields),
+            response=_models.SiteSignInResult,
+            timeout=timeout,
+        )
+
 
 class IdentityUsersResource:
     """`client.identity.users` — the `identity.users` operations."""
@@ -6240,6 +6365,7 @@ class IdentityUsersResource:
         cursor: str | None = None,
         query: str | None = None,
         include_unregistered: bool | None = None,
+        pending: bool | None = None,
         include: Literal["grants"] | None = None,
         timeout: float | None = None,
     ) -> _models.UserCollectionPage:
@@ -6255,6 +6381,7 @@ class IdentityUsersResource:
                 "cursor": cursor,
                 "query": query,
                 "includeUnregistered": include_unregistered,
+                "pending": pending,
                 "include": include,
             },
             headers={},
@@ -6270,10 +6397,10 @@ class IdentityUsersResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.UserRecord:
+    ) -> _models.UserCreated:
         """Add a person. `POST /v1/identity/users`
 
-        Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the identity directory can add people.
+        Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.
         """
         return self._client._request(
             _OPERATIONS["identity.users.create"],
@@ -6281,7 +6408,7 @@ class IdentityUsersResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.CreateUserBody, body, fields),
-            response=_models.UserRecord,
+            response=_models.UserCreated,
             timeout=timeout,
         )
 
@@ -6333,6 +6460,27 @@ class IdentityUsersResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.UnregisterUserResult,
+            timeout=timeout,
+        )
+
+    def resend_invite(
+        self,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.InviteRenewed:
+        """Renew a person's invitation. `POST /v1/identity/users/{userId}/invite`
+
+        For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).
+        """
+        return self._client._request(
+            _OPERATIONS["identity.users.resendInvite"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.InviteRenewed,
             timeout=timeout,
         )
 
@@ -7609,6 +7757,212 @@ class ProjectsTeamGrantsResource:
         )
 
 
+class ProjectsSitesResource:
+    """`client.projects.sites` — the `projects.sites` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        include_unregistered: bool | None = None,
+        timeout: float | None = None,
+    ) -> _models.SiteCollectionPage:
+        """List the project's sites. `GET /v1/projects/{projectId}/sites`
+
+        The sites that sign their own people in to this project. Tenant admins only: a site creates people in the tenant. `includeUnregistered=true` lists unregistered ones too. Mounted when the deployment supplies a `SiteBinding`.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor, "includeUnregistered": include_unregistered},
+            headers={},
+            response=_models.SiteCollectionPage,
+            timeout=timeout,
+        )
+
+    def register(
+        self,
+        project_id: str | UUID,
+        body: _models.RegisterSiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.RegisterSiteResult:
+        """Register a site. `POST /v1/projects/{projectId}/sites`
+
+        A site that will sign its own people in to this project, and a one-time enrollment code for it, shown once: the site posts it with its public key (`POST /v1/auth/sites/enroll`). Until then it has no key and signs nobody in. A role map gives no reviewer role above `reviewerCeiling`, and names only `allowedRoles`; nothing it gives reaches above the project. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.register"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RegisterSiteBody, body, fields),
+            response=_models.RegisterSiteResult,
+            timeout=timeout,
+        )
+
+    def get(
+        self, project_id: str | UUID, site_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Site:
+        """Read a site. `GET /v1/projects/{projectId}/sites/{siteId}`
+
+        Its settings and its keys (ids and thumbprints only). Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.get"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        body: _models.UpdateSiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Site:
+        """Change a site's settings. `PATCH /v1/projects/{projectId}/sites/{siteId}`
+
+        The settings given; the rest stay. A person's grants follow the new settings the next time the site signs them in. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.update"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateSiteBody, body, fields),
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    def pause(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Site:
+        """Stop a site's sign-ins. `POST /v1/projects/{projectId}/sites/{siteId}/pause`
+
+        The site's statements are refused until it's resumed, and its live sessions end now. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.pause"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    def resume(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Site:
+        """Start a paused site's sign-ins again. `POST /v1/projects/{projectId}/sites/{siteId}/resume`
+
+        Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.resume"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Site:
+        """Unregister a site. `POST /v1/projects/{projectId}/sites/{siteId}/unregister`
+
+        Tombstoned: its sign-ins stop and its live sessions end. The people it signed in stay, with their records. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.unregister"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    def enrollment_code(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SiteEnrollmentCode:
+        """A new enrollment code for a site. `POST /v1/projects/{projectId}/sites/{siteId}/enrollment-codes`
+
+        How a site's key is replaced: the site posts a new key with this code, which replaces every key it had and ends its live sessions. An earlier unused code stops working. Shown once. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.enrollmentCode"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SiteEnrollmentCode,
+            timeout=timeout,
+        )
+
+    def revoke_key(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        kid: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Site:
+        """Revoke one of a site's keys. `POST /v1/projects/{projectId}/sites/{siteId}/keys/{kid}/revoke`
+
+        Statements signed with it are refused from now on, and the site's live sessions end. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.revokeKey"],
+            path={"projectId": project_id, "siteId": site_id, "kid": kid},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+
 class ProjectsResource:
     """`client.projects` — the `projects` operations."""
 
@@ -7620,6 +7974,7 @@ class ProjectsResource:
         self.access = ProjectsAccessResource(client)
         self.production = ProjectsProductionResource(client)
         self.team_grants = ProjectsTeamGrantsResource(client)
+        self.sites = ProjectsSitesResource(client)
 
     def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
         """Fetch the tenant's Default project. `GET /v1/projects/default`
@@ -7801,7 +8156,7 @@ class TenantResource:
     def get(self, /, *, timeout: float | None = None) -> _models.Tenant:
         """Fetch the caller's tenant. `GET /v1/tenant`
 
-        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), and one that sets limits adds the tenant's `limits`.
+        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the tenant's `limits`, and a deployment that publishes where its calls come from adds `egress`.
         """
         return self._client._request(
             _OPERATIONS["tenant.get"],
@@ -7809,6 +8164,34 @@ class TenantResource:
             query={},
             headers={},
             response=_models.Tenant,
+            timeout=timeout,
+        )
+
+
+class EnvironmentsResource:
+    """`client.environments` — the `environments` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvironmentPage:
+        """List the tenant's env names. `GET /v1/environments`
+
+        The env names the tenant holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A revoked secret doesn't count. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.
+        """
+        return self._client._request(
+            _OPERATIONS["environments.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.EnvironmentPage,
             timeout=timeout,
         )
 
@@ -7947,11 +8330,12 @@ class SecretsResource:
         limit: int | None = None,
         cursor: str | None = None,
         name_prefix: str | None = None,
+        include_revoked: Literal["true", "false"] | None = None,
         timeout: float | None = None,
     ) -> _models.SecretCollectionPage:
         """List secret metadata. `GET /v1/secrets`
 
-        Cursor-paginated list of secret metadata at the given `(scope, envName)`. `value` is ALWAYS absent (structural redaction).
+        Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. `value` is ALWAYS absent (structural redaction).
         """
         return self._client._request(
             _OPERATIONS["secrets.list"],
@@ -7964,6 +8348,7 @@ class SecretsResource:
                 "limit": limit,
                 "cursor": cursor,
                 "namePrefix": name_prefix,
+                "includeRevoked": include_revoked,
             },
             headers={},
             response=_models.SecretCollectionPage,
@@ -8380,20 +8765,23 @@ class SchedulesResource:
     def take_ownership(
         self,
         trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
+        **fields: Any,
     ) -> _models.ScheduleRecord:
         """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
 
-        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access.
+        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs.
         """
         return self._client._request(
             _OPERATIONS["schedules.takeOwnership"],
             path={"triggerId": trigger_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
             response=_models.ScheduleRecord,
             timeout=timeout,
         )
@@ -8570,20 +8958,23 @@ class WebhooksResource:
     def take_ownership(
         self,
         trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
+        **fields: Any,
     ) -> _models.WebhookTriggerRecord:
         """Take over a webhook trigger. `POST /v1/webhooks/{triggerId}/owner`
 
-        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access.
+        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow.
         """
         return self._client._request(
             _OPERATIONS["webhooks.takeOwnership"],
             path={"triggerId": trigger_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
             response=_models.WebhookTriggerRecord,
             timeout=timeout,
         )
@@ -8985,16 +9376,23 @@ class AsyncRunsResource:
         )
 
     async def journal(
-        self, run_id: str | UUID, /, *, since: int | None = None, timeout: float | None = None
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        since: int | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
     ) -> _models.RunJournalPage:
         """Read the durable journal for a run. `GET /v1/runs/{runId}/journal`
 
-        Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`). Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6.
+        Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`), in sequence order. Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6. Paging is opt-in: with `limit`, at most that many entries and a `nextCursor` while more remain; without it, the whole journal in one answer.
         """
         return await self._client._request(
             _OPERATIONS["runs.journal"],
             path={"runId": run_id},
-            query={"since": since},
+            query={"since": since, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.RunJournalPage,
             timeout=timeout,
@@ -9428,7 +9826,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.CreateSystemTenantResult:
         """Create a tenant. `POST /v1/system/tenants`
 
-        Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store). Safe to retry with the same slug: if the setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have; another request naming that slug is `tenant-slug-taken`. A repeat of a create that finished is `tenant-slug-taken` too, unless it carries the first request's Idempotency-Key: then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice (send an Idempotency-Key with every create, so a lost answer can be told from another tenant's slug). With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant, with the admin key withheld.
+        Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store). Safe to retry with the same slug: if the setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have; another request naming that slug is `tenant-slug-taken`. A repeat of a create that finished is `tenant-slug-taken` too, unless it carries the first request's Idempotency-Key: then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice (send an Idempotency-Key with every create, so a lost answer can be told from another tenant's slug). With `firstAdmin`, that person becomes its admin and member by email, with every capability but `secrets:reveal`, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant, with the admin key withheld.
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.create"],
@@ -9578,7 +9976,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.TenantProductionAllowed:
         """Allow a tenant production, or stop it. `PUT /v1/system/tenants/{tenantId}/production-allowed`
 
-        The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant is allowed until it's switched off. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.
+        The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant made by `POST /v1/system/tenants` starts with it off, unless the create says `productionAllowed: true`; the tenant a server makes for itself, and one from before the switch, start with it on. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.setProductionAllowed"],
@@ -9719,7 +10117,7 @@ class AsyncSystemDeploymentsResource:
     ) -> _models.DeploymentEndpoint:
         """Record why a deployment has no pack service yet. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem`
 
-        For whatever creates the pack services: records why a `pending` deployment has none yet, as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.
+        For whatever creates the pack services: records why a deployment waiting for one has none yet (`pending`, or `cleared` and `waiting`, as after a suspension is lifted), as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.
         """
         return await self._client._request(
             _OPERATIONS["systemDeployments.recordProblem"],
@@ -9744,7 +10142,7 @@ class AsyncSystemDeploymentsResource:
     ) -> _models.PackSuspension:
         """Suspend a deployment's pack, or restore it. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`
 
-        Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it lists as needing a pack service again. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.
+        Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it serves again from the endpoint recorded for it; if that endpoint is pending or was cleared meanwhile, it lists as needing a pack service. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.
         """
         return await self._client._request(
             _OPERATIONS["systemDeployments.setSuspended"],
@@ -10022,6 +10420,7 @@ class AsyncApprovalsResource:
         ]
         | None = None,
         assigned_to: Literal["me"] | None = None,
+        decided_by: Literal["me"] | None = None,
         order: Literal["asc", "desc"] | None = None,
         required_role: Literal["standard", "senior", "admin"] | None = None,
         created_after: str | None = None,
@@ -10032,7 +10431,7 @@ class AsyncApprovalsResource:
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
 
-        Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.
+        Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). With authorization on, a person who is the tenant's admin (through a session or an `admin` key not limited to a project) reads at every tier: with no roster entry, as an `admin` reviewer; with a lower role, their own tier, and any tier they ask for with `requiredRole`. The roster doesn't show such a reader, but the access audit records the tenant-admin check (`authz-decision`), made only where it changes what the roster gives. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). With authorization on, only approvals whose project the caller may read. `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return await self._client._request(
             _OPERATIONS["approvals.list"],
@@ -10044,6 +10443,7 @@ class AsyncApprovalsResource:
                 "scopeId": scope_id,
                 "status": status,
                 "assignedTo": assigned_to,
+                "decidedBy": decided_by,
                 "order": order,
                 "requiredRole": required_role,
                 "createdAfter": created_after,
@@ -10061,7 +10461,7 @@ class AsyncApprovalsResource:
     ) -> _models.Approval:
         """Fetch a single approval. `GET /v1/approvals/{approvalId}`
 
-        Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4). A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).
+        Requires a reviewer, or (with authorization on) a person who is the tenant's admin, as the list does; the tenant's admin reads an approval of any tier. Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4), or that are in a project the caller may not read. A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).
         """
         return await self._client._request(
             _OPERATIONS["approvals.get"],
@@ -11109,11 +11509,12 @@ class AsyncConversationsResource:
         agent_id: str | UUID | None = None,
         status: Literal["open", "closed"] | None = None,
         replays: Literal["exclude", "include", "only"] | None = None,
+        opened_by: Literal["me"] | None = None,
         timeout: float | None = None,
     ) -> _models.ConversationCollectionPage:
         """List conversations. `GET /v1/conversations`
 
-        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.
+        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?openedBy=me` (the caller's own), `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return await self._client._request(
             _OPERATIONS["conversations.list"],
@@ -11126,6 +11527,7 @@ class AsyncConversationsResource:
                 "agentId": agent_id,
                 "status": status,
                 "replays": replays,
+                "openedBy": opened_by,
             },
             headers={},
             response=_models.ConversationCollectionPage,
@@ -11643,7 +12045,7 @@ class AsyncProposalsResource:
     ) -> _models.ImprovementPass:
         """Start an improvement pass. `POST /v1/proposals/improve`
 
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts for an agent whose project is suspended (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.
         """
         return await self._client._request(
             _OPERATIONS["proposals.improve"],
@@ -12768,6 +13170,7 @@ class AsyncCostRecordsResource:
         model: str | None = None,
         served_model: str | None = None,
         root_run_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         include_descendants: bool | None = None,
         from_: str | None = None,
         to: str | None = None,
@@ -12779,7 +13182,7 @@ class AsyncCostRecordsResource:
     ) -> _models.CostRecordCollectionPage:
         """List cost records. `GET /v1/cost/records`
 
-        Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.
+        Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `flowId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.
         """
         return await self._client._request(
             _OPERATIONS["cost.records.list"],
@@ -12795,6 +13198,7 @@ class AsyncCostRecordsResource:
                 "model": model,
                 "servedModel": served_model,
                 "rootRunId": root_run_id,
+                "flowId": flow_id,
                 "includeDescendants": include_descendants,
                 "from": from_,
                 "to": to,
@@ -12850,6 +13254,7 @@ class AsyncCostResource:
         model: str | None = None,
         served_model: str | None = None,
         root_run_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         include_descendants: bool | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
@@ -12876,6 +13281,7 @@ class AsyncCostResource:
                 "model": model,
                 "servedModel": served_model,
                 "rootRunId": root_run_id,
+                "flowId": flow_id,
                 "includeDescendants": include_descendants,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
@@ -13013,14 +13419,17 @@ class AsyncPoliciesVersionsResource:
 
     async def get(
         self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.Policy:
-        """Fetch a specific policy version. `GET /v1/policies/{policyId}/versions/{version}`"""
+    ) -> _models.PolicyVersionRow:
+        """Fetch a specific policy version. `GET /v1/policies/{policyId}/versions/{version}`
+
+        An unregistered version is returned too, with `unregisteredAt`.
+        """
         return await self._client._request(
             _OPERATIONS["policies.versions.get"],
             path={"policyId": policy_id, "version": version},
             query={},
             headers={},
-            response=_models.Policy,
+            response=_models.PolicyVersionRow,
             timeout=timeout,
         )
 
@@ -13095,7 +13504,7 @@ class AsyncPoliciesResource:
     ) -> _models.PublishPolicyResult:
         """Publish a policy. `POST /v1/policies`
 
-        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A tenant has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A tenant has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). Where this server has a retention limit for a domain, a policy for that domain that keeps its rows longer, or holds them (`graceSeconds: -1`), is refused with `400 retention-over-limit` (`details.limitSeconds` is the limit); a `*` policy isn't, as the server caps each limited domain when it sweeps. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return await self._client._request(
             _OPERATIONS["policies.publish"],
@@ -13131,7 +13540,7 @@ class AsyncPoliciesResource:
     ) -> _models.ReinstatePolicyVersionResult:
         """Reinstate a specific tombstoned policy version. `POST /v1/policies/{policyId}/versions/{version}/reinstate`
 
-        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (and refreshes `policyKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Reactivates a fully-retired policy identity when applicable. Publish is always allowed regardless of retirement state.
+        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (and refreshes `policyKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Reactivates a fully-retired policy identity when applicable. Publish is always allowed regardless of retirement state. A version whose retention policy keeps its domain's rows longer than this server's limit, or holds them, stays retired (`400 retention-over-limit`).
         """
         return await self._client._request(
             _OPERATIONS["policies.reinstateVersion"],
@@ -13183,7 +13592,7 @@ class AsyncRetentionResource:
     ) -> _models.RetentionScheduledPage:
         """List deleted rows scheduled for purging. `GET /v1/retention/scheduled`
 
-        Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the tenant.
+        Tombstoned rows in every domain a retention policy or this server's retention limit covers, with when each is purged (`purgeAt`) and what decides it: the policy (`policyId`), or the limit (`limitApplied`) when no policy covers the domain or its policy keeps rows longer. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones neither covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the tenant.
         """
         return await self._client._request(
             _OPERATIONS["retention.scheduled"],
@@ -13209,7 +13618,7 @@ class AsyncRetentionResource:
     ) -> _models.RetentionSweepResult:
         """Purge the deleted rows past their grace. `POST /v1/retention/sweep`
 
-        Purges, for good, every tombstoned row past the grace of the retention policy that covers its domain (or only `domain`'s), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.
+        Purges, for good, every tombstoned row past its grace (or only `domain`'s): the grace of the retention policy that covers its domain, or this server's limit for the domain when no policy covers it or the policy keeps rows longer (`limitApplied`), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows, unless the domain has a limit. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.
         """
         return await self._client._request(
             _OPERATIONS["retention.sweep"],
@@ -13681,7 +14090,7 @@ class AsyncEvalRunsResource:
     ) -> _models.StartEvalRunResult:
         """Start an eval run against a suite. `POST /v1/eval-suites/{suiteId}/runs`
 
-        Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Idempotency-Key applies.
+        Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
         """
         return await self._client._request(
             _OPERATIONS["evalRuns.start"],
@@ -13931,12 +14340,42 @@ class AsyncAuthProvidersResource:
         )
 
 
+class AsyncAuthSitesResource:
+    """`client.auth.sites` — the `auth.sites` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def enroll(
+        self,
+        body: _models.EnrollSiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.EnrollSiteResult:
+        """A site posts its public key with its enrollment code. `POST /v1/auth/sites/enroll`
+
+        Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.sites.enroll"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.EnrollSiteBody, body, fields),
+            response=_models.EnrollSiteResult,
+            timeout=timeout,
+        )
+
+
 class AsyncAuthResource:
     """`client.auth` — the `auth` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
         self.providers = AsyncAuthProvidersResource(client)
+        self.sites = AsyncAuthSitesResource(client)
 
     async def sign_in_options(
         self, /, *, email: str | None = None, timeout: float | None = None
@@ -13973,7 +14412,7 @@ class AsyncAuthResource:
     ) -> _models.RefreshResult:
         """Refresh the current session token. `POST /v1/auth/refresh`
 
-        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. The session token rotates: the new session keeps the person, scopes and expiry, and the provider is not called. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.
+        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. The session token rotates: the new session keeps the person, scopes and expiry, and the provider is not called. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL. Nor is a session limited to a project or a role: `400 limited-session-not-refreshable`; get a new one where you got this one.
         """
         return await self._client._request(
             _OPERATIONS["auth.refresh"],
@@ -14000,6 +14439,28 @@ class AsyncAuthResource:
             timeout=timeout,
         )
 
+    async def site_sign_in(
+        self,
+        body: _models.SiteSignInBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SiteSignInResult:
+        """A site signs one of its people in. `POST /v1/auth/site-sign-in`
+
+        Public: the statement is the credential. A registered site's statement that a person is signed in there, exchanged for a session limited to the site's project: it reads nothing above the project, mints no keys, isn't refreshed, and ends early when the site is paused or unregistered, or one of its keys revoked. The person is the one the site created for that `sub` (a first statement creates them; never matched by email), with the grants the site's role map gives their roles. Every refusal is `401 site-sign-in-refused`, with `details.reason`. A statement whose signature wasn't verified gets `not-verified` alone, whatever was wrong (the site, the key, the signature, the format), since its sender has proved nothing; after a verified signature: `site-paused`, `site-not-vouching`, `wrong-audience`, `expired`, `issued-in-the-future`, `too-long-lived`, `replayed`, `role-not-allowed`, `person-removed` or `people-cap`. Rate-limited per client and per site (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.siteSignIn"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.SiteSignInBody, body, fields),
+            response=_models.SiteSignInResult,
+            timeout=timeout,
+        )
+
 
 class AsyncIdentityUsersResource:
     """`client.identity.users` — the `identity.users` operations."""
@@ -14015,6 +14476,7 @@ class AsyncIdentityUsersResource:
         cursor: str | None = None,
         query: str | None = None,
         include_unregistered: bool | None = None,
+        pending: bool | None = None,
         include: Literal["grants"] | None = None,
         timeout: float | None = None,
     ) -> _models.UserCollectionPage:
@@ -14030,6 +14492,7 @@ class AsyncIdentityUsersResource:
                 "cursor": cursor,
                 "query": query,
                 "includeUnregistered": include_unregistered,
+                "pending": pending,
                 "include": include,
             },
             headers={},
@@ -14045,10 +14508,10 @@ class AsyncIdentityUsersResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.UserRecord:
+    ) -> _models.UserCreated:
         """Add a person. `POST /v1/identity/users`
 
-        Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the identity directory can add people.
+        Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.
         """
         return await self._client._request(
             _OPERATIONS["identity.users.create"],
@@ -14056,7 +14519,7 @@ class AsyncIdentityUsersResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.CreateUserBody, body, fields),
-            response=_models.UserRecord,
+            response=_models.UserCreated,
             timeout=timeout,
         )
 
@@ -14110,6 +14573,27 @@ class AsyncIdentityUsersResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.UnregisterUserResult,
+            timeout=timeout,
+        )
+
+    async def resend_invite(
+        self,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.InviteRenewed:
+        """Renew a person's invitation. `POST /v1/identity/users/{userId}/invite`
+
+        For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.users.resendInvite"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.InviteRenewed,
             timeout=timeout,
         )
 
@@ -15386,6 +15870,212 @@ class AsyncProjectsTeamGrantsResource:
         )
 
 
+class AsyncProjectsSitesResource:
+    """`client.projects.sites` — the `projects.sites` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        include_unregistered: bool | None = None,
+        timeout: float | None = None,
+    ) -> _models.SiteCollectionPage:
+        """List the project's sites. `GET /v1/projects/{projectId}/sites`
+
+        The sites that sign their own people in to this project. Tenant admins only: a site creates people in the tenant. `includeUnregistered=true` lists unregistered ones too. Mounted when the deployment supplies a `SiteBinding`.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor, "includeUnregistered": include_unregistered},
+            headers={},
+            response=_models.SiteCollectionPage,
+            timeout=timeout,
+        )
+
+    async def register(
+        self,
+        project_id: str | UUID,
+        body: _models.RegisterSiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.RegisterSiteResult:
+        """Register a site. `POST /v1/projects/{projectId}/sites`
+
+        A site that will sign its own people in to this project, and a one-time enrollment code for it, shown once: the site posts it with its public key (`POST /v1/auth/sites/enroll`). Until then it has no key and signs nobody in. A role map gives no reviewer role above `reviewerCeiling`, and names only `allowedRoles`; nothing it gives reaches above the project. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.register"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RegisterSiteBody, body, fields),
+            response=_models.RegisterSiteResult,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, project_id: str | UUID, site_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Site:
+        """Read a site. `GET /v1/projects/{projectId}/sites/{siteId}`
+
+        Its settings and its keys (ids and thumbprints only). Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.get"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        body: _models.UpdateSiteBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Site:
+        """Change a site's settings. `PATCH /v1/projects/{projectId}/sites/{siteId}`
+
+        The settings given; the rest stay. A person's grants follow the new settings the next time the site signs them in. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.update"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateSiteBody, body, fields),
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    async def pause(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Site:
+        """Stop a site's sign-ins. `POST /v1/projects/{projectId}/sites/{siteId}/pause`
+
+        The site's statements are refused until it's resumed, and its live sessions end now. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.pause"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    async def resume(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Site:
+        """Start a paused site's sign-ins again. `POST /v1/projects/{projectId}/sites/{siteId}/resume`
+
+        Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.resume"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Site:
+        """Unregister a site. `POST /v1/projects/{projectId}/sites/{siteId}/unregister`
+
+        Tombstoned: its sign-ins stop and its live sessions end. The people it signed in stay, with their records. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.unregister"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+    async def enrollment_code(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SiteEnrollmentCode:
+        """A new enrollment code for a site. `POST /v1/projects/{projectId}/sites/{siteId}/enrollment-codes`
+
+        How a site's key is replaced: the site posts a new key with this code, which replaces every key it had and ends its live sessions. An earlier unused code stops working. Shown once. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.enrollmentCode"],
+            path={"projectId": project_id, "siteId": site_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SiteEnrollmentCode,
+            timeout=timeout,
+        )
+
+    async def revoke_key(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        kid: str,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Site:
+        """Revoke one of a site's keys. `POST /v1/projects/{projectId}/sites/{siteId}/keys/{kid}/revoke`
+
+        Statements signed with it are refused from now on, and the site's live sessions end. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.revokeKey"],
+            path={"projectId": project_id, "siteId": site_id, "kid": kid},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Site,
+            timeout=timeout,
+        )
+
+
 class AsyncProjectsResource:
     """`client.projects` — the `projects` operations."""
 
@@ -15397,6 +16087,7 @@ class AsyncProjectsResource:
         self.access = AsyncProjectsAccessResource(client)
         self.production = AsyncProjectsProductionResource(client)
         self.team_grants = AsyncProjectsTeamGrantsResource(client)
+        self.sites = AsyncProjectsSitesResource(client)
 
     async def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
         """Fetch the tenant's Default project. `GET /v1/projects/default`
@@ -15580,7 +16271,7 @@ class AsyncTenantResource:
     async def get(self, /, *, timeout: float | None = None) -> _models.Tenant:
         """Fetch the caller's tenant. `GET /v1/tenant`
 
-        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), and one that sets limits adds the tenant's `limits`.
+        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the tenant's `limits`, and a deployment that publishes where its calls come from adds `egress`.
         """
         return await self._client._request(
             _OPERATIONS["tenant.get"],
@@ -15588,6 +16279,34 @@ class AsyncTenantResource:
             query={},
             headers={},
             response=_models.Tenant,
+            timeout=timeout,
+        )
+
+
+class AsyncEnvironmentsResource:
+    """`client.environments` — the `environments` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvironmentPage:
+        """List the tenant's env names. `GET /v1/environments`
+
+        The env names the tenant holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A revoked secret doesn't count. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.
+        """
+        return await self._client._request(
+            _OPERATIONS["environments.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.EnvironmentPage,
             timeout=timeout,
         )
 
@@ -15726,11 +16445,12 @@ class AsyncSecretsResource:
         limit: int | None = None,
         cursor: str | None = None,
         name_prefix: str | None = None,
+        include_revoked: Literal["true", "false"] | None = None,
         timeout: float | None = None,
     ) -> _models.SecretCollectionPage:
         """List secret metadata. `GET /v1/secrets`
 
-        Cursor-paginated list of secret metadata at the given `(scope, envName)`. `value` is ALWAYS absent (structural redaction).
+        Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. `value` is ALWAYS absent (structural redaction).
         """
         return await self._client._request(
             _OPERATIONS["secrets.list"],
@@ -15743,6 +16463,7 @@ class AsyncSecretsResource:
                 "limit": limit,
                 "cursor": cursor,
                 "namePrefix": name_prefix,
+                "includeRevoked": include_revoked,
             },
             headers={},
             response=_models.SecretCollectionPage,
@@ -16159,20 +16880,23 @@ class AsyncSchedulesResource:
     async def take_ownership(
         self,
         trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
+        **fields: Any,
     ) -> _models.ScheduleRecord:
         """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
 
-        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access.
+        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs.
         """
         return await self._client._request(
             _OPERATIONS["schedules.takeOwnership"],
             path={"triggerId": trigger_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
             response=_models.ScheduleRecord,
             timeout=timeout,
         )
@@ -16349,20 +17073,23 @@ class AsyncWebhooksResource:
     async def take_ownership(
         self,
         trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
+        **fields: Any,
     ) -> _models.WebhookTriggerRecord:
         """Take over a webhook trigger. `POST /v1/webhooks/{triggerId}/owner`
 
-        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access.
+        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow.
         """
         return await self._client._request(
             _OPERATIONS["webhooks.takeOwnership"],
             path={"triggerId": trigger_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
             response=_models.WebhookTriggerRecord,
             timeout=timeout,
         )
@@ -16603,6 +17330,7 @@ class Resources:
     teams: TeamsResource
     projects: ProjectsResource
     tenant: TenantResource
+    environments: EnvironmentsResource
     env: EnvResource
     secrets: SecretsResource
     schedules: SchedulesResource
@@ -16655,6 +17383,7 @@ class Resources:
         self.teams = TeamsResource(client)
         self.projects = ProjectsResource(client)
         self.tenant = TenantResource(client)
+        self.environments = EnvironmentsResource(client)
         self.env = EnvResource(client)
         self.secrets = SecretsResource(client)
         self.schedules = SchedulesResource(client)
@@ -16709,6 +17438,7 @@ class AsyncResources:
     teams: AsyncTeamsResource
     projects: AsyncProjectsResource
     tenant: AsyncTenantResource
+    environments: AsyncEnvironmentsResource
     env: AsyncEnvResource
     secrets: AsyncSecretsResource
     schedules: AsyncSchedulesResource
@@ -16761,6 +17491,7 @@ class AsyncResources:
         self.teams = AsyncTeamsResource(client)
         self.projects = AsyncProjectsResource(client)
         self.tenant = AsyncTenantResource(client)
+        self.environments = AsyncEnvironmentsResource(client)
         self.env = AsyncEnvResource(client)
         self.secrets = AsyncSecretsResource(client)
         self.schedules = AsyncSchedulesResource(client)

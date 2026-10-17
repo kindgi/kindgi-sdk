@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { isIP } from 'node:net';
+
 import { Hono } from 'hono';
 
 import { ref, tuplesForCreate } from '@kindgi/authz';
@@ -30,7 +32,8 @@ import { clampLimit } from './pagination.js';
  *                         updatedAt }` for the caller's tenant, plus,
  *                         when the runtime knows them,
  *                         `productionAllowed`, `productionNext` (only
- *                         while not allowed) and `limits`.
+ *                         while not allowed) and `limits`; and `egress`
+ *                         when the deployment publishes its addresses.
  *                         Reads the tenant via the tenant-hierarchy
  *                         binding.
  *   - `GET   /config`   — cursor-paginated list of the tenant's config
@@ -73,6 +76,37 @@ export interface TenantRouterOptions {
    * shown only while the tenant isn't allowed.
    */
   readonly productionNext?: string;
+  /**
+   * The addresses this deployment's calls to other sites come from
+   * (`KINDGI_EGRESS_SERVER_ADDRESSES`, `KINDGI_EGRESS_DEPLOYMENT_ADDRESSES`):
+   * `GET /`'s `egress`, the same for every tenant. Absent, or both lists
+   * empty: no `egress`. Each entry is an IPv4 or IPv6 address.
+   */
+  readonly egress?: EgressAddresses;
+}
+
+/**
+ * Where a deployment's calls to other sites come from, for a site that
+ * admits only known addresses. It says nothing about where calls go.
+ */
+export interface EgressAddresses {
+  /** The server's own calls, such as to MCP servers and model providers, and its webhook deliveries. */
+  readonly server: readonly string[];
+  /** Calls made by the code deployed to it. */
+  readonly deployments: readonly string[];
+}
+
+/** `egress` as `GET /` adds it, or `undefined` when nothing is published; a non-IP entry throws. */
+function publishedEgress(egress: EgressAddresses | undefined): EgressAddresses | undefined {
+  if (egress === undefined) return undefined;
+  for (const [list, addresses] of Object.entries(egress) as [string, readonly string[]][]) {
+    // A zone id (`fe80::1%eth0`) names an interface on this host, not an
+    // address another site sees.
+    const bad = addresses.find((a) => isIP(a) === 0 || a.includes('%'));
+    if (bad !== undefined) throw new TypeError(`egress.${list}: "${bad}" isn't an IP address`);
+  }
+  if (egress.server.length === 0 && egress.deployments.length === 0) return undefined;
+  return { server: [...egress.server], deployments: [...egress.deployments] };
 }
 
 /**
@@ -149,6 +183,7 @@ export function resolveTenantConfigEnvName(): EnvName {
 export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
   const { tenantHierarchyBinding, envBinding, secretsBinding, authorizer, productionNext } =
     options;
+  const egress = publishedEgress(options.egress);
   const r = new Hono<AppEnv>();
 
   // Authorization — gate every /v1/tenant route with `read` on the
@@ -199,6 +234,8 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
       ...(row.productionAllowed === false && productionNext !== undefined && { productionNext }),
       ...(row.limits !== undefined && { limits: row.limits }),
       ...(row.state !== undefined && { state: row.state }),
+      // The deployment's, not the tenant's: every tenant gets the same lists.
+      ...(egress !== undefined && { egress }),
     });
   });
 

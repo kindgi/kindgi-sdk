@@ -177,6 +177,14 @@ const TeamIdPathParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
+const SiteIdPathParam: ParameterSpec = {
+  name: 'siteId',
+  in: 'path',
+  required: true,
+  description: 'The site id (a UUID).',
+  schema: { type: 'string' },
+};
+
 const LimitQueryParam: ParameterSpec = {
   name: 'limit',
   in: 'query',
@@ -354,6 +362,16 @@ const JournalSinceQueryParam: ParameterSpec = {
   schema: { type: 'integer', minimum: 0 },
 };
 
+/** `GET /v1/runs/{runId}/journal`'s: paging is opt-in, so there's no default. */
+const JournalLimitQueryParam: ParameterSpec = {
+  name: 'limit',
+  in: 'query',
+  required: false,
+  description:
+    'The most entries in a page, 1..100: then `nextCursor` while more remain. Without it, the whole journal (after `since` or `cursor`) in one answer.',
+  schema: { type: 'integer', minimum: 1, maximum: 100 },
+};
+
 const LastEventIdParam: ParameterSpec = {
   name: 'Last-Event-Id',
   in: 'header',
@@ -491,6 +509,24 @@ const ApprovalAssignedToQueryParam: ParameterSpec = {
   required: false,
   description:
     "`me`: only the approvals assigned to the caller's own reviewer row (none when the caller has no row).",
+  schema: { type: 'string', enum: ['me'] },
+};
+
+const ApprovalDecidedByQueryParam: ParameterSpec = {
+  name: 'decidedBy',
+  in: 'query',
+  required: false,
+  description:
+    "`me`: only the approvals the caller's own reviewer row decided (none when the caller has no row).",
+  schema: { type: 'string', enum: ['me'] },
+};
+
+const ConversationOpenedByQueryParam: ParameterSpec = {
+  name: 'openedBy',
+  in: 'query',
+  required: false,
+  description:
+    "`me`: only the conversations the caller opened (none for a caller with no principal). Conversations an older runtime opened record no opener and aren't listed by it.",
   schema: { type: 'string', enum: ['me'] },
 };
 
@@ -893,6 +929,15 @@ const CostRootRunIdQueryParam: ParameterSpec = {
   description:
     'Every record of the run tree whose root is this run: a flow run and the agent turns and sub-flows it started.',
   schema: { type: 'string', format: 'uuid' },
+};
+
+const CostFlowIdQueryParam: ParameterSpec = {
+  name: 'flowId',
+  in: 'query',
+  required: false,
+  description:
+    "Every record of the run trees whose root is a run of this flow (the record's `flowId`, exact match): the flow's spend across its runs, any version.",
+  schema: { type: 'string' },
 };
 
 const CostIncludeDescendantsQueryParam: ParameterSpec = {
@@ -1656,12 +1701,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'runs.journal',
     summary: 'Read the durable journal for a run',
     description:
-      'Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`). Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6.',
+      'Returns raw `JournalEntry` values from the run journal (`@kindgi/runtime`), in sequence order. Distinct from the SSE wire enum — see `docs/API-ROUTE-CONVENTIONS.md` §6. Paging is opt-in: with `limit`, at most that many entries and a `nextCursor` while more remain; without it, the whole journal in one answer.',
     tags: ['runs'],
     security: 'bearer',
-    parameters: [RunIdPathParam, JournalSinceQueryParam],
+    parameters: [RunIdPathParam, JournalSinceQueryParam, JournalLimitQueryParam, CursorQueryParam],
     responses: {
-      '400': ErrorResponse('`runId` is not a run id (a UUID).'),
+      '400': ErrorResponse(
+        '`runId` is not a run id (a UUID), `limit` is not a whole number of 1 or more, or `cursor` is malformed.',
+      ),
       '200': { description: 'Journal page.', schema: ref('RunJournalPage') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No run with that id under this tenant.'),
@@ -1842,7 +1889,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
       ),
       '403': ErrorResponse(
-        "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed).",
+        "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a session limited to a project or a role, which mints no keys (`limited-session-cannot-mint`); a key for a person a site signs in, whose access is only the sessions their site gives (`site-person-grants-managed`).",
       ),
       '400': ErrorResponse(
         "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
@@ -2009,7 +2056,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.create',
     summary: 'Create a tenant',
     description:
-      "Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store). Safe to retry with the same slug: if the setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have; another request naming that slug is `tenant-slug-taken`. A repeat of a create that finished is `tenant-slug-taken` too, unless it carries the first request's Idempotency-Key: then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice (send an Idempotency-Key with every create, so a lost answer can be told from another tenant's slug). With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant, with the admin key withheld.",
+      "Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store). Safe to retry with the same slug: if the setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have; another request naming that slug is `tenant-slug-taken`. A repeat of a create that finished is `tenant-slug-taken` too, unless it carries the first request's Idempotency-Key: then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice (send an Idempotency-Key with every create, so a lost answer can be told from another tenant's slug). With `firstAdmin`, that person becomes its admin and member by email, with every capability but `secrets:reveal`, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant, with the admin key withheld.",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -2284,7 +2331,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.setProductionAllowed',
     summary: 'Allow a tenant production, or stop it',
     description:
-      "The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant is allowed until it's switched off. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.",
+      "The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant made by `POST /v1/system/tenants` starts with it off, unless the create says `productionAllowed: true`; the tenant a server makes for itself, and one from before the switch, start with it on. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [
@@ -2478,7 +2525,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemDeployments.recordProblem',
     summary: 'Record why a deployment has no pack service yet',
     description:
-      "For whatever creates the pack services: records why a `pending` deployment has none yet, as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.",
+      "For whatever creates the pack services: records why a deployment waiting for one has none yet (`pending`, or `cleared` and `waiting`, as after a suspension is lifted), as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.",
     tags: ['system-deployments'],
     security: 'bearer',
     parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam, IdempotencyKeyParam],
@@ -2497,7 +2544,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
       ),
       '409': ErrorResponse(
-        "The deployment's endpoint isn't `pending` (`endpoint-not-pending`, with `details.status`).",
+        "The deployment's endpoint isn't waiting for a pack service: `ready`, or `cleared` and not `waiting` (`endpoint-not-pending`, with `details.status`).",
       ),
       '503': ErrorResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
@@ -2511,7 +2558,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemDeployments.setSuspended',
     summary: "Suspend a deployment's pack, or restore it",
     description:
-      "Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it lists as needing a pack service again. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.",
+      "Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it serves again from the endpoint recorded for it; if that endpoint is pending or was cleared meanwhile, it lists as needing a pack service. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.",
     tags: ['system-deployments'],
     security: 'bearer',
     parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam, IdempotencyKeyParam],
@@ -2693,7 +2740,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.list',
     summary: 'List approvals visible to the caller',
     description:
-      "Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.",
+      "Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). With authorization on, a person who is the tenant's admin (through a session or an `admin` key not limited to a project) reads at every tier: with no roster entry, as an `admin` reviewer; with a lower role, their own tier, and any tier they ask for with `requiredRole`. The roster doesn't show such a reader, but the access audit records the tenant-admin check (`authz-decision`), made only where it changes what the roster gives. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). With authorization on, only approvals whose project the caller may read. `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.",
     tags: ['approvals'],
     security: 'bearer',
     parameters: [
@@ -2703,6 +2750,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeIdQueryParam,
       ApprovalStatusQueryParam,
       ApprovalAssignedToQueryParam,
+      ApprovalDecidedByQueryParam,
       ApprovalOrderQueryParam,
       ApprovalRequiredRoleQueryParam,
       CreatedAfterQueryParam,
@@ -2727,7 +2775,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Page of approvals.', schema: ref('ApprovalCollectionPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed query parameter or scope.'),
-      '403': ErrorResponse("The caller isn't a reviewer, or asked for a tier above its own."),
+      '403': ErrorResponse(
+        "The caller isn't a reviewer or the tenant's admin, or asked for a tier above its own and isn't the tenant's admin.",
+      ),
     },
   },
   {
@@ -2737,14 +2787,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.get',
     summary: 'Fetch a single approval',
     description:
-      'Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4). A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).',
+      "Requires a reviewer, or (with authorization on) a person who is the tenant's admin, as the list does; the tenant's admin reads an approval of any tier. Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4), or that are in a project the caller may not read. A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).",
     tags: ['approvals'],
     security: 'bearer',
     parameters: [ApprovalIdPathParam],
     responses: {
       '200': { description: 'Approval.', schema: ref('Approval') },
       ...CommonAuthErrors,
-      '403': ErrorResponse("The caller isn't a reviewer."),
+      '403': ErrorResponse("The caller isn't a reviewer or the tenant's admin."),
       '404': ErrorResponse('No approval with that id — or the caller cannot see it.'),
     },
   },
@@ -2822,7 +2872,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Reviewer registered.', schema: ref('Reviewer') },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        'With authorization enforced, the caller is not an admin of the tenant.',
+        "With authorization enforced, the caller is not an admin of the tenant; or the person is one a site signs in, whose reviewer role is their site's to give (`site-person-grants-managed`).",
       ),
     },
   },
@@ -2842,7 +2892,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '404': ErrorResponse('No reviewer with that id under this tenant.'),
       '403': ErrorResponse(
-        'With authorization enforced, the caller is not an admin of the tenant.',
+        'With authorization enforced, the caller is not an admin of the tenant; or the person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
       ),
     },
   },
@@ -3810,7 +3860,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'conversations.list',
     summary: 'List conversations',
     description:
-      "Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.",
+      "Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?openedBy=me` (the caller's own), `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.",
     tags: ['conversations'],
     security: 'bearer',
     parameters: [
@@ -3821,6 +3871,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       AgentIdQueryParam,
       ConversationStatusQueryParam,
       ConversationReplaysQueryParam,
+      ConversationOpenedByQueryParam,
     ],
     responses: {
       '200': {
@@ -4280,7 +4331,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'proposals.improve',
     summary: 'Start an improvement pass',
     description:
-      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts for an agent whose project is suspended (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
     tags: ['proposals'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -4293,6 +4344,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse(
         '`fromVersion` (or the version serving the scope) is not an active version.',
+      ),
+      '409': ErrorResponse(
+        "`registry-read-only`, `proposal-needs-pin`, or `project-suspended`: the agent's project is suspended. Or Idempotency-Key was reused with a different body.",
       ),
       '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
     },
@@ -5326,7 +5380,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'cost.records.list',
     summary: 'List cost records',
     description:
-      "Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.",
+      "Cursor-paginated. Filters (all AND): `runId` (with `includeDescendants`, its whole subtree), `rootRunId`, `flowId`, `agentId`, `conversationId`, `category`, `providerId`, `model`, `servedModel`, `from`, `to`. Sort order is fixed: `occurredAt desc, id desc`. Records represent one accounted resource event each — a model call (`category` `llm.inference`: one record per call, with its model, usage and what the vendor said about it), tool invocation, storage write, sandbox execution, etc. `include=rawUsage` adds each model call's usage as the vendor reported it.",
     tags: ['cost'],
     security: 'bearer',
     parameters: [
@@ -5340,6 +5394,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CostModelQueryParam,
       CostServedModelQueryParam,
       CostRootRunIdQueryParam,
+      CostFlowIdQueryParam,
       CostIncludeDescendantsQueryParam,
       CostFromQueryParam,
       CostToQueryParam,
@@ -5392,6 +5447,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CostModelQueryParam,
       CostServedModelQueryParam,
       CostRootRunIdQueryParam,
+      CostFlowIdQueryParam,
       CostIncludeDescendantsQueryParam,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
@@ -5554,11 +5610,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/policies/{policyId}/versions/{version}',
     operationId: 'policies.versions.get',
     summary: 'Fetch a specific policy version',
+    description: 'An unregistered version is returned too, with `unregisteredAt`.',
     tags: ['policies'],
     security: 'bearer',
     parameters: [PolicyIdPathParam, PolicyVersionPathParam],
     responses: {
-      '200': { description: 'Policy at that version.', schema: ref('Policy') },
+      '200': { description: 'Policy at that version.', schema: ref('PolicyVersionRow') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No policy at that (id, version) under this tenant.'),
     },
@@ -5570,7 +5627,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'policies.publish',
     summary: 'Publish a policy',
     description:
-      "Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A tenant has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).",
+      "Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A tenant has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). Where this server has a retention limit for a domain, a policy for that domain that keeps its rows longer, or holds them (`graceSeconds: -1`), is refused with `400 retention-over-limit` (`details.limitSeconds` is the limit); a `*` policy isn't, as the server caps each limited domain when it sweeps. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).",
     tags: ['policies'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5579,7 +5636,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Policy published.', schema: ref('PublishPolicyResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'Validation failed (see `details.issues`), or `kind-not-applied`: no runtime consumer applies that kind yet.',
+        "Validation failed (see `details.issues`); `kind-not-applied`: no runtime consumer applies that kind yet; or `retention-over-limit`: the retention policy keeps its domain's rows longer than this server's limit, or holds them (`details.limitSeconds`).",
       ),
       '409': ErrorResponse(
         '`policy-already-registered`: that (id, version) exists. `policy-scope-taken`: another policy covers the retention domain (`details.heldBy`). `policy-scope-changed`: the version would move the policy to another domain.',
@@ -5608,13 +5665,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'policies.reinstateVersion',
     summary: 'Reinstate a specific tombstoned policy version',
     description:
-      'Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (and refreshes `policyKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Reactivates a fully-retired policy identity when applicable. Publish is always allowed regardless of retirement state.',
+      "Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (and refreshes `policyKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Reactivates a fully-retired policy identity when applicable. Publish is always allowed regardless of retirement state. A version whose retention policy keeps its domain's rows longer than this server's limit, or holds them, stays retired (`400 retention-over-limit`).",
     tags: ['policies'],
     security: 'bearer',
     parameters: [PolicyIdPathParam, PolicyVersionPathParam, IdempotencyKeyParam],
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstatePolicyVersionResult') },
       ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "`retention-over-limit`: the version's retention policy keeps its domain's rows longer than this server's limit, or holds them (`details.limitSeconds`); it stays retired.",
+      ),
       '404': ErrorResponse('No policy at that (id, version) under this tenant.'),
       '409': ErrorResponse(
         "`policy-scope-taken`: another policy now covers the version's retention domain (`details.heldBy`); unregister it first. `policy-scope-changed`: the version covers a different domain from the policy's other versions.",
@@ -5630,7 +5690,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'retention.scheduled',
     summary: 'List deleted rows scheduled for purging',
     description:
-      "Tombstoned rows in every domain a retention policy covers, with when each is purged (`purgeAt`) and the policy that decides it. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones no policy covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the tenant.",
+      "Tombstoned rows in every domain a retention policy or this server's retention limit covers, with when each is purged (`purgeAt`) and what decides it: the policy (`policyId`), or the limit (`limitApplied`) when no policy covers the domain or its policy keeps rows longer. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones neither covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the tenant.",
     tags: ['retention'],
     security: 'bearer',
     parameters: [
@@ -5653,7 +5713,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'retention.sweep',
     summary: 'Purge the deleted rows past their grace',
     description:
-      "Purges, for good, every tombstoned row past the grace of the retention policy that covers its domain (or only `domain`'s), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.",
+      "Purges, for good, every tombstoned row past its grace (or only `domain`'s): the grace of the retention policy that covers its domain, or this server's limit for the domain when no policy covers it or the policy keeps rows longer (`limitApplied`), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows, unless the domain has a limit. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.",
     tags: ['retention'],
     security: 'bearer',
     requestBody: { required: false, schema: ref('RetentionSweepBody') },
@@ -6018,7 +6078,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'evalRuns.start',
     summary: 'Start an eval run against a suite',
     description:
-      'Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Idempotency-Key applies.',
+      'Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.',
     tags: ['eval-runs'],
     security: 'bearer',
     parameters: [EvalSuiteIdPathParam, IdempotencyKeyParam],
@@ -6031,6 +6091,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse(
         'No eval suite with that id under this tenant; or `projectId` names no project of this tenant (`project-not-found`).',
+      ),
+      '409': ErrorResponse(
+        '`project-suspended`: the project is suspended, so no eval run starts in it. Or Idempotency-Key was reused with a different body.',
       ),
       '422': ErrorResponse('No dispatcher registered for the suite kind.'),
     },
@@ -6360,7 +6423,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.refresh',
     summary: 'Refresh the current session token',
     description:
-      'Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. The session token rotates: the new session keeps the person, scopes and expiry, and the provider is not called. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.',
+      'Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. The session token rotates: the new session keeps the person, scopes and expiry, and the provider is not called. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL. Nor is a session limited to a project or a role: `400 limited-session-not-refreshable`; get a new one where you got this one.',
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6371,7 +6434,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
       ),
       '400': ErrorResponse(
-        'Caller presented a bearer token (refresh is session-only), or a browser session (cookie).',
+        'Caller presented a bearer token (refresh is session-only), a browser session (cookie), or a session limited to a project or a role (`limited-session-not-refreshable`).',
       ),
       '404': ErrorResponse('Session no longer exists.'),
       '422': ErrorResponse('Refresh with the provider failed.'),
@@ -6423,6 +6486,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: { type: 'boolean' },
       },
       {
+        name: 'pending',
+        in: 'query',
+        required: false,
+        description:
+          "With `true`, only people with an open invitation (`invite`: pending or expired), who haven't signed in yet. An older runtime ignores it and lists everyone (from 0.1.8.1).",
+        schema: { type: 'boolean' },
+      },
+      {
         name: 'include',
         in: 'query',
         required: false,
@@ -6444,13 +6515,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.create',
     summary: 'Add a person',
     description:
-      "Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the identity directory can add people.",
+      "Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.",
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('CreateUserBody') },
     responses: {
-      '201': { description: 'The new person.', schema: ref('UserRecord') },
+      '201': {
+        description: 'The new person, and whether their invitation was emailed.',
+        schema: ref('UserCreated'),
+      },
       ...CommonMutationErrors,
       '403': ErrorResponse('Not a tenant admin.'),
       '409': ErrorResponse(
@@ -6520,6 +6594,38 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
       '409': ErrorResponse(
         'Yourself or the seed user (`identity-user-unregister-refused`, `details.reason`), the only tenant admin (`last-tenant-admin`), or an idempotency conflict.',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/identity/users/:userId/invite',
+    openapiPath: '/v1/identity/users/{userId}/invite',
+    operationId: 'identity.users.resendInvite',
+    summary: "Renew a person's invitation",
+    description:
+      "For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).",
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [
+      { name: 'userId', in: 'path', required: true, schema: { type: 'string', minLength: 1 } },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': {
+        description: 'The person, with the new expiry, and whether the invitation was emailed.',
+        schema: ref('InviteRenewed'),
+      },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse(
+        'No user with that id under this tenant, or one who was removed (`identity-user-not-found`).',
+      ),
+      '409': ErrorResponse(
+        'They have signed in, were added before invitations, or have no email (`identity-user-not-invited`), or an idempotency conflict.',
+      ),
+      '429': ErrorResponse(
+        '`invite-capped`: renewed again too soon for this person, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours. Nothing changed; `Retry-After` says when to try again.',
       ),
     },
   },
@@ -6604,7 +6710,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: "The person's grants, after.", schema: ref('PersonGrants') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('Not a tenant admin.'),
+      '403': ErrorResponse(
+        "Not a tenant admin; or the person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+      ),
       '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
       '409': ErrorResponse(
         'The person was removed from the tenant (`identity-user-unregistered`), or an idempotency conflict.',
@@ -6678,7 +6786,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many tenants (`KINDGI_TENANCY=multi`), where each tenant deploys only its own images: `image-not-allowed`, the image is outside the tenant's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the tenant has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch` or `flow-project-mismatch`: one of the image's tools, agents or flows belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `project-suspended`: the project the deploy goes into (the named one, or the Default for a tenant-wide deploy) is suspended, and nothing deploys into it until it's restored. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '400': ErrorResponse(
-        "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. A tool that declares or sends a model provider's key is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered.",
+        "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. A tool that declares or sends a model provider's key is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered.",
       ),
       '403': ErrorResponse(
         "Signer key not on the tenant's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the tenant.",
@@ -7406,6 +7514,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Membership added.', schema: ref('AddTeamMembershipResult') },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+      ),
       '404': ErrorResponse(
         'No team with that id under this tenant (`team-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).',
       ),
@@ -7440,6 +7551,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       IdempotencyKeyParam,
     ],
     responses: {
+      '403': ErrorResponse(
+        'The person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
+      ),
       '204': { description: 'Removed (or already absent). No body.' },
       ...CommonAuthErrors,
       '501': ErrorResponse(
@@ -7476,6 +7590,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Role updated. No body.' },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+      ),
       '404': ErrorResponse(
         'No membership for that (team, user) pair, or no such team under this tenant.',
       ),
@@ -8104,6 +8221,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('AddProjectMembershipResult'),
       },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+      ),
       '404': ErrorResponse(
         'No project with that id under this tenant (`project-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).',
       ),
@@ -8286,6 +8406,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       IdempotencyKeyParam,
     ],
     responses: {
+      '403': ErrorResponse(
+        'The person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
+      ),
       '204': { description: 'Removed (or already absent). No body.' },
       ...CommonAuthErrors,
       '501': ErrorResponse(
@@ -8322,6 +8445,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Role updated. No body.' },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+      ),
       '404': ErrorResponse(
         'No membership for that (project, user) pair, or no such project under this tenant.',
       ),
@@ -8339,7 +8465,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tenant.get',
     summary: "Fetch the caller's tenant",
     description:
-      "Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), and one that sets limits adds the tenant's `limits`.",
+      "Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the tenant's `limits`, and a deployment that publishes where its calls come from adds `egress`.",
     tags: ['tenant'],
     security: 'bearer',
     responses: {
@@ -8409,6 +8535,26 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
 
   // ---------- env ----------
+  {
+    method: 'get',
+    honoPath: '/v1/environments',
+    openapiPath: '/v1/environments',
+    operationId: 'environments.list',
+    summary: "List the tenant's env names",
+    description:
+      "The env names the tenant holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A revoked secret doesn't count. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.",
+    tags: ['env'],
+    security: 'bearer',
+    parameters: [LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of env names.', schema: ref('EnvironmentPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse("`cursor` isn't one this list gave (`bad-input`)."),
+      '501': ErrorResponse(
+        "The runtime's env or secret store can't list its env names (`environments-unsupported`).",
+      ),
+    },
+  },
   {
     method: 'get',
     honoPath: '/v1/env',
@@ -8513,7 +8659,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'secrets.list',
     summary: 'List secret metadata',
     description:
-      'Cursor-paginated list of secret metadata at the given `(scope, envName)`. `value` is ALWAYS absent (structural redaction).',
+      'Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. `value` is ALWAYS absent (structural redaction).',
     tags: ['secrets'],
     security: 'bearer',
     parameters: [
@@ -8524,6 +8670,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
       LimitQueryParam,
       CursorQueryParam,
       NamePrefixQueryParam,
+      {
+        name: 'includeRevoked',
+        in: 'query',
+        required: false,
+        description:
+          '`true` lists revoked secrets too, with their `revokedAt` and `revokeReason`. Metadata only, never a value.',
+        schema: { type: 'string', enum: ['true', 'false'] },
+      },
     ],
     responses: {
       '200': {
@@ -8531,7 +8685,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretCollectionPage'),
       },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '400': ErrorResponse(
+        "Missing or malformed scope / envName, or a `cursor` this list didn't issue.",
+      ),
     },
   },
   {
@@ -8580,7 +8736,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SecretVersionCollectionPage'),
       },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '400': ErrorResponse(
+        "Missing or malformed scope / envName, or a `cursor` this list didn't issue.",
+      ),
     },
   },
   {
@@ -8964,14 +9122,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.takeOwnership',
     summary: 'Take over a schedule',
     description:
-      "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access.",
+      "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('TakeTriggerOwnerBody') },
     responses: {
       '200': { description: 'The schedule, with its new owner.', schema: ref('ScheduleRecord') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No cron trigger with that id.'),
+      '404': ErrorResponse('No cron trigger with that id, or no such service account.'),
       '501': ErrorResponse(
         "`trigger-operation-unsupported`: this deployment can't change a schedule's owner.",
       ),
@@ -9253,17 +9412,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.takeOwnership',
     summary: 'Take over a webhook trigger',
     description:
-      "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access.",
+      "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow.",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('TakeTriggerOwnerBody') },
     responses: {
       '200': {
         description: 'The trigger, with its new owner.',
         schema: ref('WebhookTriggerRecord'),
       },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No webhook trigger with that id.'),
+      '404': ErrorResponse('No webhook trigger with that id, or no such service account.'),
       '501': ErrorResponse(
         "`trigger-operation-unsupported`: this deployment can't change a trigger's owner.",
       ),
@@ -9495,6 +9655,249 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '202': { description: 'Queued.', schema: ref('WebhookDelivery') },
       ...CommonMutationErrors,
       '404': ErrorResponse('No endpoint with that id.'),
+    },
+  },
+  // ---------- sites (a site signs its own people in to one project) ----------
+  {
+    method: 'get',
+    honoPath: '/v1/projects/:projectId/sites',
+    openapiPath: '/v1/projects/{projectId}/sites',
+    operationId: 'projects.sites.list',
+    summary: "List the project's sites",
+    description:
+      'The sites that sign their own people in to this project. Tenant admins only: a site creates people in the tenant. `includeUnregistered=true` lists unregistered ones too. Mounted when the deployment supplies a `SiteBinding`.',
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [
+      ProjectIdPathParam,
+      LimitQueryParam,
+      CursorQueryParam,
+      {
+        name: 'includeUnregistered',
+        in: 'query',
+        required: false,
+        description: 'With `true`, unregistered sites too.',
+        schema: { type: 'boolean' },
+      },
+    ],
+    responses: {
+      '200': { description: 'A page of sites.', schema: ref('SiteCollectionPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`projectId` is not a project id (a UUID), or a malformed query.'),
+      '403': ErrorResponse('Not a tenant admin.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/sites',
+    openapiPath: '/v1/projects/{projectId}/sites',
+    operationId: 'projects.sites.register',
+    summary: 'Register a site',
+    description:
+      'A site that will sign its own people in to this project, and a one-time enrollment code for it, shown once: the site posts it with its public key (`POST /v1/auth/sites/enroll`). Until then it has no key and signs nobody in. A role map gives no reviewer role above `reviewerCeiling`, and names only `allowedRoles`; nothing it gives reaches above the project. Tenant admins only.',
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('RegisterSiteBody') },
+    responses: {
+      '201': {
+        description: 'The site, and its enrollment code.',
+        schema: ref('RegisterSiteResult'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A setting the site can't have (`site-invalid`, `details.field`): an origin that isn't https, an approvals URL on another origin, a role map above the ceiling or over a role that isn't allowed.",
+      ),
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No project with that id (`project-not-found`).'),
+      '409': ErrorResponse(
+        "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/projects/:projectId/sites/:siteId',
+    openapiPath: '/v1/projects/{projectId}/sites/{siteId}',
+    operationId: 'projects.sites.get',
+    summary: 'Read a site',
+    description: 'Its settings and its keys (ids and thumbprints only). Tenant admins only.',
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, SiteIdPathParam],
+    responses: {
+      '200': { description: 'The site.', schema: ref('Site') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No site with that id in this project (`site-not-found`).'),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/projects/:projectId/sites/:siteId',
+    openapiPath: '/v1/projects/{projectId}/sites/{siteId}',
+    operationId: 'projects.sites.update',
+    summary: "Change a site's settings",
+    description:
+      "The settings given; the rest stay. A person's grants follow the new settings the next time the site signs them in. Tenant admins only.",
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, SiteIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('UpdateSiteBody') },
+    responses: {
+      '200': { description: 'The site.', schema: ref('Site') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse("A setting the site can't have (`site-invalid`, `details.field`)."),
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No site with that id in this project (`site-not-found`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/sites/:siteId/pause',
+    openapiPath: '/v1/projects/{projectId}/sites/{siteId}/pause',
+    operationId: 'projects.sites.pause',
+    summary: "Stop a site's sign-ins",
+    description:
+      "The site's statements are refused until it's resumed, and its live sessions end now. Tenant admins only.",
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, SiteIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'The site, paused.', schema: ref('Site') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No site with that id in this project (`site-not-found`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/sites/:siteId/resume',
+    openapiPath: '/v1/projects/{projectId}/sites/{siteId}/resume',
+    operationId: 'projects.sites.resume',
+    summary: "Start a paused site's sign-ins again",
+    description: 'Tenant admins only.',
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, SiteIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'The site.', schema: ref('Site') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No site with that id in this project (`site-not-found`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/sites/:siteId/unregister',
+    openapiPath: '/v1/projects/{projectId}/sites/{siteId}/unregister',
+    operationId: 'projects.sites.unregister',
+    summary: 'Unregister a site',
+    description:
+      'Tombstoned: its sign-ins stop and its live sessions end. The people it signed in stay, with their records. Tenant admins only.',
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, SiteIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'The site, unregistered.', schema: ref('Site') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No site with that id in this project (`site-not-found`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/sites/:siteId/enrollment-codes',
+    openapiPath: '/v1/projects/{projectId}/sites/{siteId}/enrollment-codes',
+    operationId: 'projects.sites.enrollmentCode',
+    summary: 'A new enrollment code for a site',
+    description:
+      "How a site's key is replaced: the site posts a new key with this code, which replaces every key it had and ends its live sessions. An earlier unused code stops working. Shown once. Tenant admins only.",
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, SiteIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '201': { description: 'The code.', schema: ref('SiteEnrollmentCode') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No site with that id in this project (`site-not-found`).'),
+      '409': ErrorResponse(
+        "A retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`).",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/sites/:siteId/keys/:kid/revoke',
+    openapiPath: '/v1/projects/{projectId}/sites/{siteId}/keys/{kid}/revoke',
+    operationId: 'projects.sites.revokeKey',
+    summary: "Revoke one of a site's keys",
+    description:
+      "Statements signed with it are refused from now on, and the site's live sessions end. Tenant admins only.",
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [
+      ProjectIdPathParam,
+      SiteIdPathParam,
+      {
+        name: 'kid',
+        in: 'path',
+        required: true,
+        description: "The key's id.",
+        schema: { type: 'string' },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': { description: 'The site, without the key.', schema: ref('Site') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse(
+        'No site with that id in this project, or no key with that id (`site-not-found`).',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/auth/sites/enroll',
+    openapiPath: '/v1/auth/sites/enroll',
+    operationId: 'auth.sites.enroll',
+    summary: 'A site posts its public key with its enrollment code',
+    description:
+      "Public: the code is the credential. The site keeps its private key; Kindgi stores the public one, and answers the site's id (its statements' `iss`) and the audience (their `aud`). A wrong, used or expired code, or one for a paused or unregistered site, gets one answer: `401 site-enrollment-refused`. Failures are limited per client (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.",
+    tags: ['sites'],
+    security: 'public',
+    requestBody: { required: true, schema: ref('EnrollSiteBody') },
+    responses: {
+      '200': {
+        description: "The site's id and its statements' audience.",
+        schema: ref('EnrollSiteResult'),
+      },
+      '400': ErrorResponse(
+        "A malformed body, or a public key that isn't an Ed25519 JWK with a `kid`, or has a private part (`site-key-invalid`); it's checked before the code.",
+      ),
+      '401': ErrorResponse('The code was refused (`site-enrollment-refused`).'),
+      '413': ErrorResponse('The body is over 4096 bytes (`site-request-too-large`).'),
+      '429': ErrorResponse('Too many failures from this client.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/auth/site-sign-in',
+    openapiPath: '/v1/auth/site-sign-in',
+    operationId: 'auth.siteSignIn',
+    summary: 'A site signs one of its people in',
+    description:
+      "Public: the statement is the credential. A registered site's statement that a person is signed in there, exchanged for a session limited to the site's project: it reads nothing above the project, mints no keys, isn't refreshed, and ends early when the site is paused or unregistered, or one of its keys revoked. The person is the one the site created for that `sub` (a first statement creates them; never matched by email), with the grants the site's role map gives their roles. Every refusal is `401 site-sign-in-refused`, with `details.reason`. A statement whose signature wasn't verified gets `not-verified` alone, whatever was wrong (the site, the key, the signature, the format), since its sender has proved nothing; after a verified signature: `site-paused`, `site-not-vouching`, `wrong-audience`, `expired`, `issued-in-the-future`, `too-long-lived`, `replayed`, `role-not-allowed`, `person-removed` or `people-cap`. Rate-limited per client and per site (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.",
+    tags: ['sites'],
+    security: 'public',
+    requestBody: { required: true, schema: ref('SiteSignInBody') },
+    responses: {
+      '200': { description: 'A session for the person.', schema: ref('SiteSignInResult') },
+      '400': ErrorResponse("A malformed body, or a statement that isn't a compact JWS."),
+      '401': ErrorResponse('The statement was refused (`site-sign-in-refused`, `details.reason`).'),
+      '413': ErrorResponse('The body is over 4096 bytes (`site-request-too-large`).'),
+      '429': ErrorResponse('Too many requests from this client or for this site.'),
     },
   },
 ] as const;
