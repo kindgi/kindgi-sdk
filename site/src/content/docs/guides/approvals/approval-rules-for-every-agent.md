@@ -28,7 +28,7 @@ Publish the rules as a `hitl` policy with an id and a version:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/policies" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{
     "id": "acme.approval-rules",
     "version": "1.0.0",
@@ -127,7 +127,7 @@ Unregister a version by the policy's id and the version, in the path:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/policies/acme.approval-rules/versions/1.0.0/unregister" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN"
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 ```json

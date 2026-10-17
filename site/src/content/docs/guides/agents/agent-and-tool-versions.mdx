@@ -33,7 +33,7 @@ An agent `acme.greeter` 1.0.0 asks for `acme.greet` `^1.0.0` while
 the version shows:
 
 ```sh
-curl "$KINDGI_API_URL/v1/agents/acme.greeter/versions/1.0.0" -H "Authorization: Bearer $KINDGI_API_TOKEN"
+curl "$KINDGI_API_URL/v1/agents/acme.greeter/versions/1.0.0" -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 `$KINDGI_API_URL` and `$KINDGI_API_TOKEN` are your runtime's URL and API
