@@ -31,7 +31,7 @@ export interface CreateOrgParams {
   readonly tenantId: TenantId;
   /**
    * The person who creates it, made its admin. Absent when no person is
-   * behind the key (a service account's or the system's): no one is made
+   * behind the key (a service account's): no one is made
    * its admin, and the tenant's admins reach it through its parent.
    */
   readonly creatorUserId?: UserId;
@@ -46,7 +46,7 @@ export interface CreateTeamParams {
   readonly tenantId: TenantId;
   /**
    * The person who creates it, made its admin. Absent when no person is
-   * behind the key (a service account's or the system's): no one is made
+   * behind the key (a service account's): no one is made
    * its admin, and the tenant's admins reach it through its parent.
    */
   readonly creatorUserId?: UserId;
@@ -70,7 +70,7 @@ export interface CreateProjectParams {
   readonly tenantId: TenantId;
   /**
    * The person who creates it, made its owner. Absent when no person is
-   * behind the key (a service account's or the system's): no one is made
+   * behind the key (a service account's): no one is made
    * its owner, and the tenant's admins reach it through its parent.
    */
   readonly creatorUserId?: UserId;
