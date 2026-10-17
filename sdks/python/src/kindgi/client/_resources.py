@@ -8998,20 +8998,23 @@ class SchedulesResource:
     def take_ownership(
         self,
         trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
+        **fields: Any,
     ) -> _models.ScheduleRecord:
         """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
 
-        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access.
+        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs.
         """
         return self._client._request(
             _OPERATIONS["schedules.takeOwnership"],
             path={"triggerId": trigger_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
             response=_models.ScheduleRecord,
             timeout=timeout,
         )
@@ -9188,20 +9191,23 @@ class WebhooksResource:
     def take_ownership(
         self,
         trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
+        **fields: Any,
     ) -> _models.WebhookTriggerRecord:
         """Take over a webhook trigger. `POST /v1/webhooks/{triggerId}/owner`
 
-        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access.
+        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow.
         """
         return self._client._request(
             _OPERATIONS["webhooks.takeOwnership"],
             path={"triggerId": trigger_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
             response=_models.WebhookTriggerRecord,
             timeout=timeout,
         )
@@ -17295,20 +17301,23 @@ class AsyncSchedulesResource:
     async def take_ownership(
         self,
         trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
+        **fields: Any,
     ) -> _models.ScheduleRecord:
         """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
 
-        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access.
+        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs.
         """
         return await self._client._request(
             _OPERATIONS["schedules.takeOwnership"],
             path={"triggerId": trigger_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
             response=_models.ScheduleRecord,
             timeout=timeout,
         )
@@ -17485,20 +17494,23 @@ class AsyncWebhooksResource:
     async def take_ownership(
         self,
         trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
+        **fields: Any,
     ) -> _models.WebhookTriggerRecord:
         """Take over a webhook trigger. `POST /v1/webhooks/{triggerId}/owner`
 
-        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access.
+        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow.
         """
         return await self._client._request(
             _OPERATIONS["webhooks.takeOwnership"],
             path={"triggerId": trigger_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
             response=_models.WebhookTriggerRecord,
             timeout=timeout,
         )

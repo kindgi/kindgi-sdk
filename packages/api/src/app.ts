@@ -1878,6 +1878,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             }),
           },
           input.referenceScope,
+          input.auditEvents,
         ),
       );
     }

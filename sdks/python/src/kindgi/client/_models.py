@@ -8496,6 +8496,7 @@ class EvidenceKind(RootModel[str]):
                 "person-added",
                 "person-granted",
                 "person-ungranted",
+                "trigger-owner-set",
             ],
             min_length=1,
         ),
@@ -8657,6 +8658,7 @@ class ComplianceEvidence(BaseModel):
                 "person-added",
                 "person-granted",
                 "person-ungranted",
+                "trigger-owner-set",
             ],
             min_length=1,
         ),
@@ -8743,6 +8745,7 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "person-added",
                 "person-granted",
                 "person-ungranted",
+                "trigger-owner-set",
             ],
             min_length=1,
         ),
@@ -8811,6 +8814,7 @@ class Filter(BaseModel):
                 "person-added",
                 "person-granted",
                 "person-ungranted",
+                "trigger-owner-set",
             ],
             min_length=1,
         ),
@@ -9827,6 +9831,23 @@ class Config8(BaseModel):
         populate_by_name=True,
     )
     input: Any | None = None
+
+
+class TakeTriggerOwnerBody(BaseModel):
+    """
+    Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_as_service_account_id: Annotated[
+        str | None, Field(alias="runAsServiceAccountId", min_length=1)
+    ] = None
+    """
+    A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs.
+    """
 
 
 class WebhookTriggerUnregisterResult(BaseModel):
@@ -12933,6 +12954,12 @@ class RegisterScheduleBody(BaseModel):
     """
     The schedule's project. Absent → the tenant's default project.
     """
+    run_as_service_account_id: Annotated[
+        str | None, Field(alias="runAsServiceAccountId", min_length=1)
+    ] = None
+    """
+    A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. Absent: the caller owns it.
+    """
     config: Config6
     catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
     """
@@ -13125,6 +13152,12 @@ class RegisterWebhookTriggerBody(BaseModel):
         int | None, Field(alias="rateLimitPerMinute", ge=1, le=6000)
     ] = None
     label: str | None = None
+    run_as_service_account_id: Annotated[
+        str | None, Field(alias="runAsServiceAccountId", min_length=1)
+    ] = None
+    """
+    A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it.
+    """
 
 
 class PatchWebhookTriggerBody(BaseModel):

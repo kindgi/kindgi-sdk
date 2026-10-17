@@ -63,7 +63,7 @@
  * per-route parsers in `routes/*.ts` validate ad hoc.
  */
 
-import { OBJECT_ACTIONS, OBJECT_TYPES } from '@kindgi/authz';
+import { OBJECT_ACTIONS, PROJECT_SCOPED_TYPES } from '@kindgi/authz';
 import { EVIDENCE_KINDS } from '@kindgi/compliance';
 import {
   MAX_TOOL_ERROR_RETRIES,
@@ -9523,11 +9523,6 @@ export const MyReviewerAccessSchema: JsonSchema = {
   },
 };
 
-/** What a project role allows, by object type, in `OBJECT_TYPES` order with each type's actions. */
-const PROJECT_SCOPED_TYPES = OBJECT_TYPES.filter(
-  (t) => t !== 'tenant' && t !== 'org' && t !== 'team' && t !== 'user',
-);
-
 export const RoleActionsSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -12118,6 +12113,12 @@ export const RegisterScheduleBodySchema: JsonSchema = {
       format: 'uuid',
       description: "The schedule's project. Absent → the tenant's default project.",
     },
+    runAsServiceAccountId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. Absent: the caller owns it.",
+    },
     config: {
       type: 'object',
       additionalProperties: false,
@@ -12553,6 +12554,12 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
     },
     ...WebhookDeliveryProperties,
     label: { type: 'string' },
+    runAsServiceAccountId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it.",
+    },
   },
 };
 
@@ -12587,6 +12594,21 @@ export const PatchWebhookTriggerBodySchema: JsonSchema = {
       minimum: 1,
       maximum: 6000,
       description: '`null`: the default.',
+    },
+  },
+};
+
+export const TakeTriggerOwnerBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner.",
+  properties: {
+    runAsServiceAccountId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs.",
     },
   },
 };
@@ -13624,6 +13646,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WebhookTriggerCollectionPage', WebhookTriggerCollectionPageSchema],
   ['RegisterWebhookTriggerBody', RegisterWebhookTriggerBodySchema],
   ['PatchWebhookTriggerBody', PatchWebhookTriggerBodySchema],
+  ['TakeTriggerOwnerBody', TakeTriggerOwnerBodySchema],
   ['WebhookTriggerUnregisterResult', WebhookTriggerUnregisterResultSchema],
   // Outbound webhook endpoints.
   ['WebhookEventType', WebhookEventTypeSchema],

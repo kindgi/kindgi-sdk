@@ -67,7 +67,8 @@
         "service-account-unregistered",
         "person-added",
         "person-granted",
-        "person-ungranted"
+        "person-ungranted",
+        "trigger-owner-set"
       ]
     },
     "timestamp": {
