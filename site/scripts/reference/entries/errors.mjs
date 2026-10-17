@@ -949,7 +949,7 @@ export const ERROR_ENTRIES = {
   },
   'invite-capped': {
     description:
-      "Too many invitations sent, to this person or from the tenant: the limits are the server's. Nothing changed and nothing was sent. Try again after the `Retry-After` header, or, if their invitation hasn't expired, tell them to sign in.",
+      "Too many invitations sent: to this person, from the tenant, or from the whole deployment. The limits are the server's. Nothing changed and nothing was sent. Try again after the `Retry-After` header, or, if their invitation hasn't expired, tell them to sign in.",
     details: [
       {
         key: 'userId',

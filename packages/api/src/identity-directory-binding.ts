@@ -118,7 +118,11 @@ export type IdentityUnregisterUserResult =
       readonly kind: 'unregistered';
       /** The person, with `unregisteredAt`. */
       readonly user: UserRecord;
-      /** What unregistering took away (each 0 when they were already unregistered). */
+      /**
+       * What unregistering took away: keys, sessions, and every grant (each
+       * entry and capability). A repeat takes what an earlier one left; each
+       * is 0 once nothing is left.
+       */
       readonly keysRevoked: number;
       readonly sessionsRevoked: number;
       readonly grantsRemoved: number;
