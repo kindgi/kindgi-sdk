@@ -696,7 +696,10 @@ describe('kindgi license renew', () => {
     expect(`${sent.stdout}${sent.stderr}`).not.toContain('counts: not sent');
 
     const production = licenseKey({ use: 'production' });
-    writeFileSync(join(dir, 'kindgi.env'), `KINDGI_API_PORT=8080\nKINDGI_LICENSE_KEY=${production}\n`);
+    writeFileSync(
+      join(dir, 'kindgi.env'),
+      `KINDGI_API_PORT=8080\nKINDGI_LICENSE_KEY=${production}\n`,
+    );
     const productions = await renew(() => Response.json({ licenseKey: production }));
     expect(productions.exitCode).toBe(0);
     expect(productions.stdout).toContain(PRODUCTION);
