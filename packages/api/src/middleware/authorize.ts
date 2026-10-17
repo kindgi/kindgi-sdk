@@ -130,14 +130,14 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
     resource: ResourceRef,
   ): Promise<Decision | undefined> {
     const refused =
-      undefinedRelation(action, resource) ??
+      undefinedRelation(c, action, resource) ??
       keyCeilingDeny(c, action, resource) ??
       ((await inKeyProject(c, principal, resource))
         ? undefined
         : keyDecision(
             action,
             resource,
-            `the API key is limited to project ${c.get('tokenProjectId')}`,
+            `${limitedOne(c)} is limited to project ${c.get('tokenProjectId')}`,
           ));
     if (refused !== undefined) recordFor(c, principal, action, resource, refused);
     return refused;
@@ -276,13 +276,24 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
  * resource's type (`OBJECT_ACTIONS`, kept equal to the runtime's model by
  * its tests). Any other pair is a bug in the route: the PDP rejects it
  * for everyone, the seed admin included, and only with authorization on,
- * so it's refused here, naming the pair, and logged.
+ * so it's refused here, naming the pair, and logged at `error` through the
+ * request's logger (subsystem `authz`).
  */
-function undefinedRelation(action: Action, resource: ResourceRef): Decision | undefined {
+function undefinedRelation(
+  c: Context<AppEnv>,
+  action: Action,
+  resource: ResourceRef,
+): Decision | undefined {
   const defined = OBJECT_ACTIONS[resource.type as ObjectType] as readonly Action[] | undefined;
   if (defined?.includes(action) === true) return undefined;
   const reason = `the authorization model has no \`${action}\` on \`${resource.type}\` (a check that can never pass: a bug in the route)`;
-  console.error(`[authz] ${reason}`);
+  c.get('log')
+    .child({ subsystem: 'authz' })
+    .error(
+      reason,
+      { action, resource: `${resource.type}:${resource.id}` },
+      { inMessage: ['action'] },
+    );
   return {
     allowed: false,
     failing: 'invalid-action',
@@ -313,9 +324,16 @@ function keyDecision(action: Action, resource: ResourceRef, reason: string): Dec
   };
 }
 
+/** What a refusal names as limited: the caller's session, or its API key. */
+function limitedOne(c: Context<AppEnv>): string {
+  return c.get('sessionId') !== undefined ? 'this session' : 'the API key';
+}
+
 /**
  * What an API key itself rules out, before the principal's grants are
- * asked: a key can do less than its principal, never more.
+ * asked: a key can do less than its principal, never more. A session
+ * with a key's limits (`SessionCreateInput.projectId`, `role`) is held
+ * the same way, and tighter above its project.
  *
  * - A `member` key takes no `admin` action on the tenant, even for a
  *   principal who is a tenant admin: a day-to-day key can't change keys,
@@ -324,6 +342,10 @@ function keyDecision(action: Action, resource: ResourceRef, reason: string): Dec
  * - A key limited to a project acts on no other project, and takes no
  *   `admin` action on the tenant, an org or a team. Other resources must
  *   be in its project (`inKeyProject`).
+ * - A session limited to a project takes no action at all on the tenant,
+ *   an org or a team, reading included: its person's tenant membership
+ *   reads the tenant's settings, which such a session must not reach.
+ *   A key keeps today's rule, since its holder is its principal.
  */
 function keyCeilingDeny(
   c: Context<AppEnv>,
@@ -331,14 +353,19 @@ function keyCeilingDeny(
   resource: ResourceRef,
 ): Decision | undefined {
   if (action === 'admin' && resource.type === 'tenant' && c.get('tokenRole') === 'member') {
-    return keyDecision(action, resource, 'a member API key takes no admin action on the tenant');
+    return keyDecision(
+      action,
+      resource,
+      `a member ${c.get('sessionId') !== undefined ? 'session' : 'API key'} takes no admin action on the tenant`,
+    );
   }
   const keyProject = c.get('tokenProjectId');
   if (keyProject === undefined) return undefined;
   const otherProject = resource.type === 'project' && resource.id !== keyProject;
+  const session = c.get('sessionId') !== undefined;
   const aboveIt =
-    resource.type !== 'project' && STRUCTURAL.has(resource.type) && action === 'admin';
+    resource.type !== 'project' && STRUCTURAL.has(resource.type) && (action === 'admin' || session);
   return otherProject || aboveIt
-    ? keyDecision(action, resource, `the API key is limited to project ${keyProject}`)
+    ? keyDecision(action, resource, `${limitedOne(c)} is limited to project ${keyProject}`)
     : undefined;
 }

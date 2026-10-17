@@ -179,8 +179,8 @@ image there by digest, with every platform it was built for:
 ```sh
 ACR=$(terraform output -raw image_registry)
 az acr login -n "${ACR%%.*}"
-docker buildx imagetools create --tag "$ACR/runtime:0.1.7" \
-  quay.io/kindgi/runtime:0.1.7@sha256:442e3232adf13830868b309390a2cbf74cb1f3538e7efbe3166fad925a10984c
+docker buildx imagetools create --tag "$ACR/runtime:0.1.8" \
+  quay.io/kindgi/runtime:0.1.8@sha256:48b81defe532ec284abb2a9cd8fac5ff7543dea998e7cbf67704a163ce183358
 ```
 
 - `ACR` is the registry's address, from the foundation's output, and
@@ -226,11 +226,15 @@ digest, `…@sha256:…`.
 ## 3. The secrets
 
 The apps read their secrets from Key Vault. Make each value here and pipe
-it straight into Key Vault: it's never on disk or in Terraform's state, and
-Kindgi generates none of them. The one exception is the database password,
-which `az postgres flexible-server update` takes as an argument.
+it in, straight into Key Vault or, for the database password, into az:
+it's never on disk, on a command line or in Terraform's state, and Kindgi
+generates none of them. Don't run these commands with `--debug`: it prints
+each request's body, values included.
 
 ```sh
+# Off in this shell: az's log file, if it's on, records each request's body.
+export AZURE_LOGGING_ENABLE_LOG_FILE=no
+
 V=$(terraform output -raw key_vault_name)
 PG=$(terraform output -raw database_server_name)
 FQDN=$(terraform output -raw database_fqdn)
@@ -238,7 +242,7 @@ put() { az keyvault secret set --vault-name "$V" -n "$1" --file /dev/stdin --que
 
 # Kindgi's database login: set its password, then the URL with it.
 DBPW=$(openssl rand -hex 24)
-az postgres flexible-server update -g <rg> -n "$PG" --admin-password "$DBPW" -o none
+printf '%s' "$DBPW" | az postgres flexible-server update -g <rg> -n "$PG" --admin-password @- -o none
 printf 'postgres://kindgiadmin:%s@%s:5432/kindgi?sslmode=require' "$DBPW" "$FQDN" | put database-url
 unset DBPW
 
@@ -265,6 +269,9 @@ read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | put license-key && unset LI
 
 - `put` stores what it reads on its input as the Key Vault secret its
   argument names, and prints the secret's id.
+- `--admin-password @-` reads the database password from its input.
+- `AZURE_LOGGING_ENABLE_LOG_FILE=no` keeps az's log file off in this shell,
+  whatever az's configuration says.
 - `openssl rand -hex 24` and `openssl rand -hex 32` make random values, and
   `openssl rand 32 | base64` 32 random bytes in base64.
 - `openssl genpkey -algorithm ed25519` makes an Ed25519 private key.

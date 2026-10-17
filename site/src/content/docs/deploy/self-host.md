@@ -48,7 +48,7 @@ The runtime runs from Kindgi's image. Log in to its registry and pull it:
 
 ```sh
 docker login quay.io
-docker pull quay.io/kindgi/runtime:0.1.7
+docker pull quay.io/kindgi/runtime:0.1.8
 ```
 
 `docker login` prints `Login Succeeded`. It asks for the robot name and
@@ -272,7 +272,7 @@ Start the runtime:
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.7
+  quay.io/kindgi/runtime:0.1.8
 ```
 
 - **`--restart unless-stopped`** brings the runtime back by itself after a

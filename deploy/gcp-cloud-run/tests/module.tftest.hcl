@@ -11,6 +11,15 @@ mock_provider "google" {
       number = "123456789012"
     }
   }
+  # database_instance's instance: one a restore made, with a public IP.
+  mock_data "google_sql_database_instance" {
+    defaults = {
+      connection_name = "acme-app-dev:northamerica-northeast2:kindgi-dev-restored"
+      settings = [{
+        ip_configuration = [{ ipv4_enabled = true }]
+      }]
+    }
+  }
 }
 
 variables {
@@ -47,6 +56,10 @@ run "defaults_keep_kms_and_the_own_repository" {
   assert {
     condition     = length(google_cloud_run_v2_service_iam_member.pack_invokes) == 0
     error_message = "Without pack_run_invokers, the pack may invoke no other service."
+  }
+  assert {
+    condition     = contains(keys(google_project_service.apis), "cloudresourcemanager.googleapis.com")
+    error_message = "The module turns Cloud Resource Manager on, for a root beside it that reads the project billed to the project."
   }
 }
 
@@ -824,4 +837,147 @@ run "multi_needs_the_postgres_secrets_backend" {
     secrets_aad_key_version = null
   }
   expect_failures = [google_cloud_run_v2_service.server]
+}
+
+# ---- database_instance: serving from another instance ------------------------
+
+run "unset_the_server_serves_from_its_own_instance" {
+  command = plan
+
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value_source[0].secret_key_ref[0].secret
+      if e.name == "KINDGI_DATABASE_URL"
+    ]) == "kindgi-dev-database-url"
+    error_message = "Without database_instance, KINDGI_DATABASE_URL reads the module's own secret."
+  }
+  assert {
+    condition     = length(data.google_sql_database_instance.served) == 0 && length(google_project_iam_member.server_sql_client_served) == 0
+    error_message = "Without database_instance, no other instance is read or granted."
+  }
+  assert {
+    condition     = length(google_cloud_run_v2_service.server.template[0].volumes[0].cloud_sql_instance[0].instances) == 1
+    error_message = "The /cloudsql volume names one instance: the module's own."
+  }
+}
+
+run "database_instance_moves_the_server_and_keeps_its_own_instance" {
+  command = plan
+
+  variables {
+    database_instance = {
+      name       = "kindgi-dev-restored"
+      url_secret = "kindgi-dev-restored-database-url"
+    }
+  }
+
+  assert {
+    condition     = google_cloud_run_v2_service.server.template[0].volumes[0].cloud_sql_instance[0].instances == toset(["acme-app-dev:northamerica-northeast2:kindgi-dev-restored"])
+    error_message = "The /cloudsql volume names database_instance's instance alone."
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value_source[0].secret_key_ref[0].secret
+      if e.name == "KINDGI_DATABASE_URL"
+    ]) == "kindgi-dev-restored-database-url"
+    error_message = "KINDGI_DATABASE_URL reads database_instance.url_secret."
+  }
+  assert {
+    condition     = google_project_iam_member.server_sql_client_served[0].condition[0].expression == "resource.name == \"projects/acme-app-dev/instances/kindgi-dev-restored\""
+    error_message = "The server's account may connect to database_instance's instance, and only to it."
+  }
+  assert {
+    condition     = google_project_iam_member.server_sql_client_served[0].condition[0].title != google_project_iam_member.server_sql_client[0].condition[0].title
+    error_message = "The served instance's grant has a condition of its own, so it's a binding of its own."
+  }
+  assert {
+    condition     = google_project_iam_member.server_sql_client[0].condition[0].expression == "resource.name == \"projects/acme-app-dev/instances/kindgi-dev\""
+    error_message = "The grant on the module's own instance stays, for the revision that still serves from it."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi.name == "kindgi-dev" && contains(keys(google_secret_manager_secret.server), "database_url")
+    error_message = "The module's own instance and its URL secret stay."
+  }
+  assert {
+    condition = length([
+      for m in google_secret_manager_secret_iam_member.server_reads_its_secrets : m
+      if endswith(m.secret_id, "/kindgi-dev-restored-database-url")
+    ]) == 0
+    error_message = "The module doesn't grant reading url_secret: whoever made it does."
+  }
+}
+
+run "database_instance_refuses_private_ip_mode" {
+  command = plan
+  variables {
+    database_private_network = "projects/acme-app-dev/global/networks/acme"
+    database_instance = {
+      name       = "kindgi-dev-restored"
+      url_secret = "kindgi-dev-restored-database-url"
+    }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "database_instance_refuses_the_own_instance" {
+  command = plan
+  variables {
+    database_instance = {
+      name       = "kindgi-dev"
+      url_secret = "kindgi-dev-restored-database-url"
+    }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "database_instance_refuses_the_own_url_secret" {
+  command = plan
+  variables {
+    database_instance = {
+      name       = "kindgi-dev-restored"
+      url_secret = "kindgi-dev-database-url"
+    }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "database_instance_refuses_an_instance_without_a_public_ip" {
+  command = plan
+  variables {
+    database_instance = {
+      name       = "kindgi-dev-restored"
+      url_secret = "kindgi-dev-restored-database-url"
+    }
+  }
+  override_data {
+    target = data.google_sql_database_instance.served
+    values = {
+      settings = [{
+        ip_configuration = [{ ipv4_enabled = false }]
+      }]
+    }
+  }
+  expect_failures = [data.google_sql_database_instance.served]
+}
+
+run "database_instance_refuses_a_connection_name" {
+  command = plan
+  variables {
+    database_instance = {
+      name       = "acme-app-dev:northamerica-northeast2:kindgi-dev-restored"
+      url_secret = "kindgi-dev-restored-database-url"
+    }
+  }
+  expect_failures = [var.database_instance]
+}
+
+run "database_instance_refuses_a_secret_path" {
+  command = plan
+  variables {
+    database_instance = {
+      name       = "kindgi-dev-restored"
+      url_secret = "projects/acme-app-dev/secrets/kindgi-dev-restored-database-url"
+    }
+  }
+  expect_failures = [var.database_instance]
 }

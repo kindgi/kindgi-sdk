@@ -5,8 +5,14 @@
 # internal only) and the server (the API, agent and flow execution).
 
 locals {
-  sql_connection = google_sql_database_instance.kindgi.connection_name
-  registry_host  = "${local.own_repository ? var.region : var.image_repository.location}-docker.pkg.dev"
+  # The instance the server serves from: the module's own, or database_instance's.
+  sql_connection = (var.database_instance == null
+    ? google_sql_database_instance.kindgi.connection_name
+  : data.google_sql_database_instance.served[0].connection_name)
+  database_url_secret = (var.database_instance == null
+    ? google_secret_manager_secret.server["database_url"].secret_id
+  : var.database_instance.url_secret)
+  registry_host = "${local.own_repository ? var.region : var.image_repository.location}-docker.pkg.dev"
 
   # Every name the module sets on the server (some only with an option on),
   # plus KINDGI_DEV: server_env and server_secret_env can't set these.
@@ -282,7 +288,7 @@ resource "google_cloud_run_v2_service" "server" {
         name = "KINDGI_DATABASE_URL"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.server["database_url"].secret_id
+            secret  = local.database_url_secret
             version = "latest"
           }
         }
@@ -533,6 +539,18 @@ resource "google_cloud_run_v2_service" "server" {
       error_message = "export_signing = \"kms\" needs export_signing_kms_key: the key version that signs."
     }
     precondition {
+      condition     = var.database_instance == null || var.database_private_network == ""
+      error_message = "database_instance serves from another instance through the /cloudsql volume, which private-IP mode (database_private_network) doesn't use: unset one."
+    }
+    precondition {
+      condition     = try(var.database_instance.name != var.name_prefix, true)
+      error_message = "database_instance names the module's own instance (${var.name_prefix}): leave database_instance null to serve from it."
+    }
+    precondition {
+      condition     = try(var.database_instance.url_secret != local.server_secrets.database_url, true)
+      error_message = "database_instance.url_secret is the module's own ${local.server_secrets.database_url}, whose URL names the module's own instance: put the other instance's URL in a secret of its own."
+    }
+    precondition {
       condition     = !(var.server_public && var.server_invoker_iam_disabled)
       error_message = "server_public (an allUsers invoker binding) and server_invoker_iam_disabled are two ways to the same thing: pick one."
     }
@@ -570,6 +588,7 @@ resource "google_cloud_run_v2_service" "server" {
     google_secret_manager_secret_iam_member.server_reads_export_key,
     google_kms_crypto_key_iam_member.server_signs_exports,
     google_project_iam_member.server_sql_client,
+    google_project_iam_member.server_sql_client_served,
     google_compute_router_nat.nat,
   ]
 }

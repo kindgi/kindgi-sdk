@@ -1,5 +1,21 @@
 # @kindgi/audit-events-inmemory
 
+## 0.1.8
+
+### Patch Changes
+
+- Updated dependencies [ebf405d]
+  - @kindgi/types@0.1.8
+  - @kindgi/audit-events@0.1.8
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- Updated dependencies [ebf405d]
+  - @kindgi/types@0.1.8-rc.0
+  - @kindgi/audit-events@0.1.8-rc.0
+
 ## 0.1.7
 
 ### Patch Changes

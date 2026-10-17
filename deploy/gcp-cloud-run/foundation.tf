@@ -8,8 +8,14 @@ locals {
   # The KMS key exists only for KINDGI_SECRETS_BACKEND=postgres (var.secrets_backend).
   kms = var.secrets_backend == "postgres"
 
+  # The module's own Cloud Resource Manager calls (the project IAM members,
+  # the project read) are billed to the caller's project, so they don't need
+  # it on here. A root beside it that reads this project with calls billed to
+  # the project (the provider's user_project_override) does, and can't turn
+  # it on itself: a data source reads before any resource is made.
   apis = concat([
     "artifactregistry.googleapis.com",
+    "cloudresourcemanager.googleapis.com",
     "compute.googleapis.com",
     "iam.googleapis.com",
     "run.googleapis.com",
@@ -111,6 +117,33 @@ resource "google_project_iam_member" "server_sql_client" {
     title       = "kindgi-instance-only"
     description = "Kindgi's own Cloud SQL instance only."
     expression  = "resource.name == \"projects/${var.project_id}/instances/${var.name_prefix}\""
+  }
+}
+
+# The instance it serves from instead (database_instance), as well: the old
+# revision keeps its own until the new one takes the traffic. Its own
+# condition, so a grant another root makes on the same instance is a
+# binding of its own, never this one.
+resource "google_project_iam_member" "server_sql_client_served" {
+  count   = var.database_instance != null && var.database_private_network == "" ? 1 : 0
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.server.email}"
+
+  condition {
+    title       = "kindgi-served-instance-only"
+    description = "The Cloud SQL instance Kindgi's server serves from (database_instance) only."
+    expression  = "resource.name == \"projects/${var.project_id}/instances/${var.database_instance.name}\""
+  }
+
+  # The server depends on this grant, and a plain dependency removes it before
+  # the server changes: on the way back (null) the revision still serving from
+  # this instance would lose it, and so would a move to another restored
+  # instance, since a new condition replaces the member. Created before
+  # destroyed, the old grant goes only after the server's new revision is in.
+  # A mock plan can't show the order, so no test checks it.
+  lifecycle {
+    create_before_destroy = true
   }
 }
 

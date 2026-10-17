@@ -148,8 +148,11 @@ function makeInMemoryBinding(): PolicyRegistryBinding {
       const versions = rowStore.get(policyId);
       if (versions === undefined) return null;
       const row = versions.get(version);
-      if (row === undefined || row.unregisteredAt !== null) return null;
-      return row.policy;
+      if (row === undefined) return null;
+      // A tombstoned version too, with its `unregisteredAt`.
+      return row.unregisteredAt !== null
+        ? { ...row.policy, unregisteredAt: row.unregisteredAt }
+        : row.policy;
     },
     async headExists({ policyId }) {
       return rowStore.has(policyId);
@@ -710,6 +713,8 @@ describe('API — policies versions', () => {
     const body = (await res.json()) as { id: string; version: string };
     expect(body.id).toBe('acme.model-routing');
     expect(body.version).toBe('1.0.0');
+    // An active version carries no `unregisteredAt`.
+    expect(body).not.toHaveProperty('unregisteredAt');
   });
 
   test('get unknown version → 404', async () => {
@@ -740,10 +745,19 @@ describe('API — policies unregister', () => {
     expect(body.version).toBe('1.0.0');
     expect(body.unregistered).toBe(true);
 
+    // The retired version still answers at its own path, with when it was
+    // unregistered; the policy itself has no active version left (410).
     const get = await app.request('/v1/policies/acme.model-routing/versions/1.0.0', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
-    expect(get.status).toBe(404);
+    expect(get.status).toBe(200);
+    const retired = (await get.json()) as { version: string; unregisteredAt?: string };
+    expect(retired.version).toBe('1.0.0');
+    expect(Number.isFinite(Date.parse(retired.unregisteredAt ?? ''))).toBe(true);
+    const head = await app.request('/v1/policies/acme.model-routing', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(head.status).toBe(410);
   });
 
   test('unregister unknown version → 404', async () => {

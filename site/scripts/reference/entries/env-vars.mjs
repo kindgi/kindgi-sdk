@@ -66,6 +66,7 @@ export const ENV_DEFAULTS = {
     'none (with `KINDGI_AUTH_EMAIL_SMTP_URL_PATH` unset): the emailed sign-in link is off',
   KINDGI_AUTH_EMAIL_SMTP_URL_PATH: 'none: no SMTP URL file',
   KINDGI_REVIEWER_EMAIL: '`off`',
+  KINDGI_SITE_SIGN_IN: '`false`: no site signs anyone in',
   KINDGI_AUTH_EMAIL_FROM: 'none: the emailed sign-in link is off (required with the SMTP URL)',
   KINDGI_AUTH_EMAIL_LINK_DAILY_CAP: '`20` links a day (a whole number from 1 to 1000)',
   KINDGI_AUTH_TURNSTILE_SECRET:
@@ -86,6 +87,10 @@ export const ENV_DEFAULTS = {
   KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS_PATH: 'none: no retired export keys are listed',
   KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS: 'none: no retired export keys are listed',
   KINDGI_CORS_ORIGINS: 'none: no CORS headers on any route',
+  KINDGI_EGRESS_SERVER_ADDRESSES:
+    'none: no server addresses are published (with `KINDGI_EGRESS_DEPLOYMENT_ADDRESSES` unset too, `GET /v1/tenant` has no `egress`)',
+  KINDGI_EGRESS_DEPLOYMENT_ADDRESSES:
+    'none: no deployment addresses are published (with `KINDGI_EGRESS_SERVER_ADDRESSES` unset too, `GET /v1/tenant` has no `egress`)',
   KINDGI_RUN_LEASE_MS: '`300000` (5 minutes); at least `10000`',
   KINDGI_RUN_SWEEP_INTERVAL_MS: '`60000` (1 minute); at least `1000`, shorter than the lease',
   KINDGI_RUN_ENDED_CHECK_MS: '`5000` (5 seconds); at least `1000`',
@@ -154,7 +159,7 @@ export const ENV_DEFAULTS = {
   KINDGI_PACK_TENANT_ID: "none: no check, the pack service answers any tenant's calls",
   KINDGI_PACK_ROUTING: '`single`: one pack service, `KINDGI_PACK_SERVICE_URL`, for every call',
   KINDGI_PACK_ENDPOINT_HOSTS:
-    'none: every endpoint is refused, so per-deployment routing is never open by default',
+    'none: with `KINDGI_PACK_ROUTING=per-deployment`, the server refuses to start',
   KINDGI_IMAGE_REGISTRY_HOST: 'none: every registry is read anonymously',
   KINDGI_IMAGE_REGISTRY_USERNAME: 'none: no credentials (anonymous reads)',
   KINDGI_IMAGE_REGISTRY_PASSWORD: 'none: no credentials (anonymous reads)',

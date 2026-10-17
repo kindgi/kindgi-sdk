@@ -61,7 +61,7 @@ Who calls whom:
 - **A Google Cloud project,** and a Cloud Storage bucket for Terraform's
   state. Whoever applies the module is an Owner, or an Editor with Security
   Admin and Secret Manager Admin.
-- **Terraform 1.6 or later, gcloud, Docker** with `buildx`, **jq**,
+- **Terraform 1.6 or later, gcloud, Docker** with `buildx`, **jq**, **curl**,
   **openssl**, and your pack's `kindgi` CLI, 0.1.2 or later, which has
   `kindgi key trust`.
 - **Runtime 0.1.1 or later.** Cloud SQL has no superuser; 0.1.0 can't start
@@ -129,8 +129,8 @@ built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.7" \
-  quay.io/kindgi/runtime:0.1.7@sha256:442e3232adf13830868b309390a2cbf74cb1f3538e7efbe3166fad925a10984c
+docker buildx imagetools create --tag "$REPO/runtime:0.1.8" \
+  quay.io/kindgi/runtime:0.1.8@sha256:48b81defe532ec284abb2a9cd8fac5ff7543dea998e7cbf67704a163ce183358
 ```
 
 - `REPO` is the repository's address, from the foundation's output.
@@ -188,20 +188,32 @@ its own.
 ## 3. The secrets
 
 The services read their secrets from Secret Manager. Make each value here
-and pipe it straight into Secret Manager: it's never on disk or in
-Terraform's state, and Kindgi generates none of them. To run with no KMS
-key, set `secrets_backend = "none"` first
+and pipe it straight into Secret Manager: it's never on disk, in
+Terraform's state or in a command's arguments, which other processes can
+read and gcloud writes to its log file. Kindgi generates none of them. The
+commands are for bash or zsh. To run with no KMS key, set
+`secrets_backend = "none"` first
 ([Without a KMS key](../cloud-run-reference/#without-a-kms-key)).
 
 ```sh
 N=kindgi   # name_prefix
 CONN=$(terraform output -raw sql_connection_name)
+P=$(gcloud config get-value project)
 
 # Kindgi's database user: a built-in user, not an IAM one. The instance is
 # named after name_prefix ($N); the database is database_name (kindgi).
+# Made through the Cloud SQL Admin API rather than `gcloud sql users create --password`:
+# the body goes in on stdin and the token in a header from a pipe.
+# Each step runs only if the one before it worked, so the secret never holds
+# a password the user wasn't given.
 DBPW=$(openssl rand -hex 24)
-gcloud sql users create kindgi --instance=$N --password="$DBPW"
-printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
+OP=$(printf '{"name":"kindgi","password":"%s"}' "$DBPW" \
+  | curl -sS -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud auth print-access-token)") \
+      -H 'Content-Type: application/json' --data-binary @- \
+      "https://sqladmin.googleapis.com/v1/projects/$P/instances/$N/users" \
+  | jq -r '.name // error(.error.message)') && [ -n "$OP" ] \
+  && gcloud sql operations wait "$OP" --project=$P \
+  && printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
   | gcloud secrets versions add $N-database-url --data-file=-
 unset DBPW
 
@@ -219,9 +231,14 @@ openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-exp
 read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | gcloud secrets versions add $N-license-key --data-file=- && unset LICENSE_KEY
 ```
 
-- `N` is your `name_prefix`, and `CONN` the Cloud SQL instance's connection
-  name.
-- `gcloud sql users create` makes the database user with that password.
+- `N` is your `name_prefix`, `CONN` the Cloud SQL instance's connection
+  name, and `P` your Google Cloud project's id.
+- `curl` sends the database user's name and password to the Cloud SQL Admin
+  API (`users.insert`) on its input, with your gcloud access token in a
+  header read from a pipe. `jq` takes the operation's name, or prints the
+  API's error, and `gcloud sql operations wait` waits until the user exists.
+  The `&&`s stop at the first step that fails, and `[ -n "$OP" ]` stops them
+  when `curl` got no answer: then no password goes into the secret.
 - `gcloud secrets versions add <name> --data-file=-` adds what it reads on
   its input as the secret's next version.
 - `openssl rand` makes random values, and `openssl genpkey -algorithm ed25519`
@@ -476,8 +493,11 @@ server_secret_env = {
   `pack_call_timeout_ms` still caps each call.
 - **The API token** is the operator's: it reaches only `/v1/system/*`, in no
   tenant. So step 5 and everything after it use a tenant's key instead:
-  - **A tenant:** `POST /v1/system/tenants` with the API token. Without
-    `firstAdmin`, the answer carries the first admin's key, sent once.
+  - **A tenant:** `POST /v1/system/tenants` with the API token. With
+    `firstAdmin`, that person is its admin and holds every capability but
+    `secrets:reveal`, to put on the keys they make
+    ([Who can do what](../people-and-keys/#who-can-do-what)). Without it,
+    the answer carries the first admin's key, sent once.
   - **Its image repository:** the create's `imagePrefix`, or
     `PUT /v1/system/tenants/{tenantId}/image-prefix`, before its first
     deploy. Without it, a deploy is refused with `409 image-prefix-unset`.
@@ -713,6 +733,17 @@ A new grant can take a minute or two to apply.
   version your server reads, normally `1`
   (`gcloud secrets versions list $N-secrets-aad-key` lists them). Without
   it, `terraform plan` stops and asks for it.
+- **Restore Cloud SQL:** a point-in-time recovery always makes a new
+  instance, and a backup can go into one too (restored into the serving
+  instance, it overwrites everything on it). `database_instance` moves the
+  server onto the new instance: the instance's name, and a secret of yours
+  holding the server's URL to it. The module's own instance stays as it is.
+  The module's README has the steps, under
+  [Serving from a restored instance](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#serving-from-a-restored-instance):
+  - the new instance's URL, and the server's read access to it;
+  - the erasure replay before it serves
+    ([Erasures and backups](../back-up-and-restore/#erasures-and-backups));
+  - the switch, and the way back.
 - **Rotate a secret:** add a version, then roll a new revision of each service
   that reads it (`gcloud run services update … --update-labels=rotated=$(date +%s)`).
 - **The AAD key is never rotated.** Every stored secret is bound to the
@@ -757,10 +788,11 @@ A new grant can take a minute or two to apply.
 
 ## Tear it down
 
-Cloud SQL is protected from deletion: set `database_deletion_protection =
-false` and apply first. The KMS key ring and key outlive `terraform destroy`:
-Google Cloud never deletes them. Take them out of Terraform's state, destroy
-the rest, then schedule the key's versions for destruction:
+Terraform won't delete Cloud SQL while `database_deletion_protection` is
+on (the default). Set it to `false` and apply first. The KMS key ring and
+key outlive `terraform destroy`: Google Cloud never deletes them. Take them
+out of Terraform's state, destroy the rest, then schedule the key's versions
+for destruction:
 
 ```sh
 terraform apply -var-file=prod.tfvars -var=database_deletion_protection=false
