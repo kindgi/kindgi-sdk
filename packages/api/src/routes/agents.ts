@@ -136,6 +136,7 @@ export function agentsRouter(
       const mw = authorizer.authorize('read', () => ref('project', scopeProjectId));
       return mw(c, next);
     });
+    // '/:agentId/*' matches '/:agentId' too: this one gate decides both, once.
     r.use('/:agentId/*', async (c, next) => {
       // Deriving a version (POST …/versions) is `publish` on the agent;
       // changing what's live is its own permission (`promote`, granted to
@@ -150,12 +151,6 @@ export function agentsRouter(
               : 'admin';
       const agentId = c.req.param('agentId') ?? '';
       const mw = authorizer.authorize(action, () => ref('agent', agentId));
-      return mw(c, next);
-    });
-    r.use('/:agentId', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
-      const agentId = c.req.param('agentId') ?? '';
-      const mw = authorizer.authorize('read', () => ref('agent', agentId));
       return mw(c, next);
     });
   }

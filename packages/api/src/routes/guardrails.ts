@@ -124,16 +124,11 @@ export function guardrailsRouter(
       const mw = authorizer.authorize('read', () => ref('project', scopeProjectId));
       return mw(c, next);
     });
+    // '/:guardrailId/*' matches '/:guardrailId' too: this one gate decides both, once.
     r.use('/:guardrailId/*', async (c, next) => {
       const action = c.req.method === 'GET' ? 'read' : 'admin';
       const guardrailId = c.req.param('guardrailId') ?? '';
       const mw = authorizer.authorize(action, () => ref('guardrail', guardrailId));
-      return mw(c, next);
-    });
-    r.use('/:guardrailId', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
-      const guardrailId = c.req.param('guardrailId') ?? '';
-      const mw = authorizer.authorize('read', () => ref('guardrail', guardrailId));
       return mw(c, next);
     });
   }
