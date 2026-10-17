@@ -214,6 +214,79 @@ describe('POST /v1/judgments', () => {
     });
   });
 
+  test('stores a correction and echoes it back on read', async () => {
+    const run = row();
+    const h = harness([run]);
+    const correction = {
+      calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+      notCalled: ['acme.email'],
+    };
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'answer', pointer: '' },
+      verdict: 'no',
+      correction,
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.correction).toEqual(correction);
+    const got = await h.call('GET', `/v1/judgments/${res.body.id}`);
+    expect(got.body.correction).toEqual(correction);
+  });
+
+  test('a tool in both calls and notCalled is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'answer', pointer: '' },
+      verdict: 'no',
+      correction: { calls: [{ tool: 'acme.refund', args: {} }], notCalled: ['acme.refund'] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('bad-input');
+    expect(res.body.error.message).toContain("can't be in both");
+  });
+
+  test('a correction with neither a call nor a must-not-call is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'answer', pointer: '' },
+      verdict: 'no',
+      correction: { calls: [], notCalled: [] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('bad-input');
+    expect(res.body.error.message).toContain('at least one of calls or notCalled');
+  });
+
+  test('a second correction by the same judge on the same item replaces the first (counts once)', async () => {
+    const run = row();
+    const h = harness([run]);
+    const post = (amount: number) =>
+      h.call('POST', '/v1/judgments', {
+        runId: run.runId,
+        item: { key: 'answer', pointer: '' },
+        verdict: 'no',
+        correction: { calls: [{ tool: 'acme.refund', args: { amount } }], notCalled: [] },
+      });
+    const first = await post(25);
+    const second = await post(40);
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    // The first is superseded by the second, so the correction counts once.
+    const gotFirst = await h.call('GET', `/v1/judgments/${first.body.id}`);
+    expect(gotFirst.body.supersededBy).toBe(second.body.id);
+    const list = await h.call('GET', `/v1/judgments?runId=${run.runId}`);
+    expect(list.body.data).toHaveLength(1);
+    expect(list.body.data[0].id).toBe(second.body.id);
+    expect(list.body.data[0].correction).toEqual({
+      calls: [{ tool: 'acme.refund', args: { amount: 40 } }],
+      notCalled: [],
+    });
+  });
+
   test('the run copy keeps the segment path the run was started with (none: empty)', async () => {
     const acme = row({ segments: [{ key: 'company', value: 'acme' }] });
     const plain = row();

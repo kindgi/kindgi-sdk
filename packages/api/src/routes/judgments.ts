@@ -8,6 +8,7 @@ import { REVIEWER_ROLE_RANK, type ReviewerRole, ref } from '@kindgi/authz';
 import type { RunBinding } from '@kindgi/runtime';
 import type { Cursor, ProjectId, RunId, ScopeSegment, TenantId } from '@kindgi/types';
 
+import type { Correction, ExpectedCall } from '../corrections.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
 import {
@@ -119,6 +120,7 @@ export function judgmentsRouter(
       ...(itemValue !== undefined && { itemValue }),
       verdict: body.verdict,
       ...(body.reason !== undefined && { reason: body.reason }),
+      ...(body.correction !== undefined && { correction: body.correction }),
       ...(body.judgeClassId !== undefined && { judgeClassId: body.judgeClassId }),
       ...(restricted === true && { restricted }),
       assertedBy: asserted,
@@ -599,6 +601,7 @@ interface JudgmentBody {
   readonly item: JudgedItem;
   readonly verdict: Verdict;
   readonly reason?: string;
+  readonly correction?: Correction;
   readonly judgeClassId?: string;
   readonly participantId?: string;
 }
@@ -621,17 +624,84 @@ function parseJudgmentBody(raw: unknown): Parsed<JudgmentBody> {
   if (typeof item === 'string') return err(item);
   const optional = optionalFieldError(b);
   if (optional !== undefined) return err(optional);
+  let correction: Correction | undefined;
+  if (b.correction !== undefined) {
+    const parsedCorrection = parseCorrection(b.correction);
+    if (typeof parsedCorrection === 'string') return err(parsedCorrection);
+    correction = parsedCorrection;
+  }
   return {
     kind: 'ok',
     body: {
       runId: b.runId,
       item,
       verdict: b.verdict,
+      ...(correction !== undefined && { correction }),
       ...(typeof b.judgeClassId === 'string' && { judgeClassId: b.judgeClassId }),
       ...(typeof b.reason === 'string' && b.reason.length > 0 && { reason: b.reason }),
       ...(typeof b.participantId === 'string' && { participantId: b.participantId }),
     },
   };
+}
+
+const MAX_CORRECTION_CALLS = 50;
+const MAX_CORRECTION_ARGS = 100;
+
+/**
+ * A correction on the judgment, or a message saying what's wrong. A tool
+ * can't be in both `calls` and `notCalled`, and at least one of them must be
+ * non-empty (both empty is a 400). Argument values aren't checked here; the
+ * comparator compares them on the replay.
+ */
+/** One expected call `{ tool, args }`, or a message saying what's wrong. */
+function parseExpectedCall(call: unknown): ExpectedCall | string {
+  if (call === null || typeof call !== 'object' || Array.isArray(call)) {
+    return 'each correction.calls entry is an object { tool, args }.';
+  }
+  const cc = call as Record<string, unknown>;
+  if (!nonEmpty(cc.tool)) return 'each correction call needs a non-empty tool.';
+  if (cc.args === null || typeof cc.args !== 'object' || Array.isArray(cc.args)) {
+    return 'each correction call needs an args object ({} asks only that the tool was called).';
+  }
+  if (Object.keys(cc.args).length > MAX_CORRECTION_ARGS) {
+    return `a correction call's args hold at most ${MAX_CORRECTION_ARGS} fields.`;
+  }
+  return { tool: cc.tool, args: cc.args as Record<string, unknown> };
+}
+
+function parseCorrection(raw: unknown): Correction | string {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return 'correction must be an object { calls, notCalled }.';
+  }
+  const b = raw as Record<string, unknown>;
+  if (Object.keys(b).some((k) => k !== 'calls' && k !== 'notCalled')) {
+    return 'correction has only calls and notCalled.';
+  }
+  const { calls, notCalled } = b;
+  if (!Array.isArray(calls) || !Array.isArray(notCalled)) {
+    return 'correction.calls and correction.notCalled are both arrays.';
+  }
+  if (calls.length > MAX_CORRECTION_CALLS || notCalled.length > MAX_CORRECTION_CALLS) {
+    return `correction.calls and correction.notCalled hold at most ${MAX_CORRECTION_CALLS} each.`;
+  }
+  const parsedCalls: ExpectedCall[] = [];
+  for (const call of calls) {
+    const parsed = parseExpectedCall(call);
+    if (typeof parsed === 'string') return parsed;
+    parsedCalls.push(parsed);
+  }
+  if (notCalled.some((t) => !nonEmpty(t))) {
+    return 'each correction.notCalled entry is a non-empty tool name.';
+  }
+  if (parsedCalls.length === 0 && notCalled.length === 0) {
+    return 'correction needs at least one of calls or notCalled.';
+  }
+  const named = new Set(parsedCalls.map((call) => call.tool));
+  const inBoth = (notCalled as string[]).find((t) => named.has(t));
+  if (inBoth !== undefined) {
+    return `"${inBoth}" can't be in both correction.calls and correction.notCalled.`;
+  }
+  return { calls: parsedCalls, notCalled: notCalled as string[] };
 }
 
 /** What's wrong with the optional fields (class, reason, participant), if anything. */
@@ -852,6 +922,7 @@ function serializeJudgment(j: Judgment): Record<string, unknown> {
     item: j.item,
     verdict: j.verdict,
     ...(j.reason !== undefined && { reason: j.reason }),
+    ...(j.correction !== undefined && { correction: j.correction }),
     ...(j.judgeClassId !== undefined && { judgeClassId: j.judgeClassId }),
     ...(j.restricted === true && { restricted: true }),
     assertedBy: j.assertedBy,
