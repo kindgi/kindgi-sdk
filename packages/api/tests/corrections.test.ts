@@ -285,7 +285,7 @@ describe('describeCorrectionDifference', () => {
         field: 'amount',
         expected: 25,
       }),
-    ).toBe('amount: expected 25, got nothing');
+    ).toBe('refund amount: expected 25, got nothing');
     expect(
       describeCorrectionDifference({
         tool: 'refund',
@@ -294,7 +294,7 @@ describe('describeCorrectionDifference', () => {
         expected: 25,
         actual: 80,
       }),
-    ).toBe('amount: expected 25, got 80');
+    ).toBe('refund amount: expected 25, got 80');
     expect(
       describeCorrectionDifference({
         tool: 'refund',
@@ -303,6 +303,27 @@ describe('describeCorrectionDifference', () => {
         expected: 'USD',
         actual: 'EUR',
       }),
-    ).toBe('currency: expected USD, got EUR');
+    ).toBe('refund currency: expected "USD", got "EUR"');
+  });
+
+  test('a string value reads quoted, so it is not mistaken for the number it looks like', () => {
+    expect(
+      describeCorrectionDifference({
+        tool: 'refund',
+        kind: 'field-value',
+        field: 'amount',
+        expected: 25,
+        actual: '25',
+      }),
+    ).toBe('refund amount: expected 25, got "25"');
+    expect(
+      describeCorrectionDifference({
+        tool: 'refund',
+        kind: 'field-value',
+        field: 'note',
+        expected: null,
+        actual: 'null',
+      }),
+    ).toBe('refund note: expected null, got "null"');
   });
 });

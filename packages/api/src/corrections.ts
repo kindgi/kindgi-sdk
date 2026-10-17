@@ -130,9 +130,9 @@ export function describeCorrectionDifference(d: CorrectionDifference): string {
     case 'must-not-call':
       return `${d.tool}: expected no calls, got ${d.actual}`;
     case 'missing-field':
-      return `${d.field}: expected ${show(d.expected)}, got nothing`;
+      return `${d.tool} ${d.field}: expected ${show(d.expected)}, got nothing`;
     case 'field-value':
-      return `${d.field}: expected ${show(d.expected)}, got ${show(d.actual)}`;
+      return `${d.tool} ${d.field}: expected ${show(d.expected)}, got ${show(d.actual)}`;
   }
 }
 
@@ -261,7 +261,9 @@ function fieldDifferences(
 }
 
 function present(args: Readonly<Record<string, unknown>>, field: string): boolean {
-  return field in args && args[field] !== undefined;
+  // `Object.hasOwn`, not `in`: a field named for a prototype member (say
+  // `constructor`) isn't present just because the chain has one.
+  return Object.hasOwn(args, field) && args[field] !== undefined;
 }
 
 /** Actual calls in a fixed order: by step, then callId, then their given order. */
@@ -271,10 +273,16 @@ function ordered(calls: readonly CandidateCall[]): CandidateCall[] {
     .sort(
       (a, b) =>
         (a.call.step ?? Number.POSITIVE_INFINITY) - (b.call.step ?? Number.POSITIVE_INFINITY) ||
-        (a.call.callId ?? '').localeCompare(b.call.callId ?? '') ||
+        // A plain codepoint compare, not `localeCompare`: the order mustn't
+        // depend on the host's locale.
+        compareStrings(a.call.callId ?? '', b.call.callId ?? '') ||
         a.index - b.index,
     )
     .map((x) => x.call);
+}
+
+function compareStrings(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 function distinct(values: readonly string[]): string[] {
@@ -282,5 +290,8 @@ function distinct(values: readonly string[]): string[] {
 }
 
 function show(value: unknown): string {
-  return typeof value === 'string' ? value : (JSON.stringify(value) ?? 'null');
+  // Render every value as JSON, so a string reads quoted and can't be
+  // mistaken for the number, boolean or null it stringifies to (`'25'` vs
+  // `25`, `'null'` vs `null`).
+  return JSON.stringify(value) ?? 'null';
 }
