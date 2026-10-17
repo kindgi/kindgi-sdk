@@ -544,6 +544,7 @@ describe('kindgi proposals improve', () => {
       { proposals: { improve: rec('improve') } },
     );
     expect(out.exitCode).toBe(2); // a usage error
+    expect(out.stderr).toContain('--tier=prompt needs --provider and --model.');
     expect(calls).toEqual([]);
   });
 
@@ -555,6 +556,9 @@ describe('kindgi proposals improve', () => {
         proposals: { improve: rec('improve') },
       });
       expect(out.exitCode, extra.join(' ')).toBe(2); // a usage error
+      expect(out.stderr, extra.join(' ')).toContain(
+        '--provider, --model and --drafts are for --tier=prompt.',
+      );
     }
     expect(calls).toEqual([]);
   });
