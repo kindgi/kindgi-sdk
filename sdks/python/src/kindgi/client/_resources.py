@@ -678,6 +678,9 @@ OPERATIONS: dict[str, Operation] = {
     "identity.users.unregister": Operation(
         "identity.users.unregister", "POST", "/v1/identity/users/{userId}/unregister", "json", True
     ),
+    "identity.users.resendInvite": Operation(
+        "identity.users.resendInvite", "POST", "/v1/identity/users/{userId}/invite", "json", True
+    ),
     "identity.users.revokeSessions": Operation(
         "identity.users.revokeSessions",
         "POST",
@@ -6362,6 +6365,7 @@ class IdentityUsersResource:
         cursor: str | None = None,
         query: str | None = None,
         include_unregistered: bool | None = None,
+        pending: bool | None = None,
         include: Literal["grants"] | None = None,
         timeout: float | None = None,
     ) -> _models.UserCollectionPage:
@@ -6377,6 +6381,7 @@ class IdentityUsersResource:
                 "cursor": cursor,
                 "query": query,
                 "includeUnregistered": include_unregistered,
+                "pending": pending,
                 "include": include,
             },
             headers={},
@@ -6392,10 +6397,10 @@ class IdentityUsersResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.UserRecord:
+    ) -> _models.UserCreated:
         """Add a person. `POST /v1/identity/users`
 
-        Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the identity directory can add people.
+        Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.
         """
         return self._client._request(
             _OPERATIONS["identity.users.create"],
@@ -6403,7 +6408,7 @@ class IdentityUsersResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.CreateUserBody, body, fields),
-            response=_models.UserRecord,
+            response=_models.UserCreated,
             timeout=timeout,
         )
 
@@ -6455,6 +6460,27 @@ class IdentityUsersResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.UnregisterUserResult,
+            timeout=timeout,
+        )
+
+    def resend_invite(
+        self,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.InviteRenewed:
+        """Renew a person's invitation. `POST /v1/identity/users/{userId}/invite`
+
+        For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times a day, or past the workspace's invitations for the day, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).
+        """
+        return self._client._request(
+            _OPERATIONS["identity.users.resendInvite"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.InviteRenewed,
             timeout=timeout,
         )
 
@@ -14444,6 +14470,7 @@ class AsyncIdentityUsersResource:
         cursor: str | None = None,
         query: str | None = None,
         include_unregistered: bool | None = None,
+        pending: bool | None = None,
         include: Literal["grants"] | None = None,
         timeout: float | None = None,
     ) -> _models.UserCollectionPage:
@@ -14459,6 +14486,7 @@ class AsyncIdentityUsersResource:
                 "cursor": cursor,
                 "query": query,
                 "includeUnregistered": include_unregistered,
+                "pending": pending,
                 "include": include,
             },
             headers={},
@@ -14474,10 +14502,10 @@ class AsyncIdentityUsersResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.UserRecord:
+    ) -> _models.UserCreated:
         """Add a person. `POST /v1/identity/users`
 
-        Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the identity directory can add people.
+        Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.
         """
         return await self._client._request(
             _OPERATIONS["identity.users.create"],
@@ -14485,7 +14513,7 @@ class AsyncIdentityUsersResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.CreateUserBody, body, fields),
-            response=_models.UserRecord,
+            response=_models.UserCreated,
             timeout=timeout,
         )
 
@@ -14539,6 +14567,27 @@ class AsyncIdentityUsersResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.UnregisterUserResult,
+            timeout=timeout,
+        )
+
+    async def resend_invite(
+        self,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.InviteRenewed:
+        """Renew a person's invitation. `POST /v1/identity/users/{userId}/invite`
+
+        For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times a day, or past the workspace's invitations for the day, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.users.resendInvite"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.InviteRenewed,
             timeout=timeout,
         )
 

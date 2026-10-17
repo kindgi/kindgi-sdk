@@ -9089,6 +9089,34 @@ export const WhoamiResultSchema: JsonSchema = {
   },
 };
 
+/** A person's fields, as every answer about them carries them. */
+const USER_PROPERTIES: Record<string, JsonSchema> = {
+  userId: { type: 'string' },
+  tenantId: { type: 'string', format: 'uuid' },
+  primaryEmail: { type: 'string' },
+  displayName: { type: 'string' },
+  createdAt: { type: 'string', format: 'date-time' },
+  lastActiveAt: { type: 'string', format: 'date-time' },
+  unregisteredAt: {
+    type: 'string',
+    format: 'date-time',
+    description:
+      'When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.',
+  },
+  invite: {
+    $ref: '#/components/schemas/UserInvite',
+    description:
+      "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).",
+  },
+  firstSignedInAt: {
+    type: 'string',
+    format: 'date-time',
+    description:
+      'Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).',
+  },
+  metadata: { type: 'object', additionalProperties: true },
+};
+
 export const UserRecordSchema: JsonSchema = {
   description:
     'Tenant-scoped user record (admin plane). `primaryEmail` may be redacted on the wire based on tenant policy (the routes treat it as opaque). `metadata` is free-form JSON — deployments carry IdP claims / provisioning source / roles here.',
@@ -9096,24 +9124,67 @@ export const UserRecordSchema: JsonSchema = {
   additionalProperties: false,
   required: ['userId', 'tenantId', 'createdAt'],
   properties: {
-    userId: { type: 'string' },
-    tenantId: { type: 'string', format: 'uuid' },
-    primaryEmail: { type: 'string' },
-    displayName: { type: 'string' },
-    createdAt: { type: 'string', format: 'date-time' },
-    lastActiveAt: { type: 'string', format: 'date-time' },
-    unregisteredAt: {
-      type: 'string',
-      format: 'date-time',
-      description:
-        'When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.',
-    },
-    metadata: { type: 'object', additionalProperties: true },
+    ...USER_PROPERTIES,
     grants: {
       $ref: '#/components/schemas/PersonGrants',
       description:
         "The person's grants: only on `GET /v1/identity/users?include=grants`, and only from a runtime that reads grants.",
     },
+  },
+};
+
+export const UserInviteSchema: JsonSchema = {
+  description:
+    'An open invitation. `pending` signs in. `expired` (past `expiresAt`, 7 days after it was made or last renewed) is refused at every way of signing in until a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`).',
+  type: 'object',
+  additionalProperties: false,
+  required: ['state', 'expiresAt'],
+  properties: {
+    state: { type: 'string', enum: ['pending', 'expired'] },
+    expiresAt: { type: 'string', format: 'date-time' },
+    sentAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When it was last emailed; absent when it never was.',
+    },
+  },
+};
+
+export const InviteEmailSchema: JsonSchema = {
+  description:
+    "Whether the invitation was emailed, and why not: `no-email` (the person has no email, so isn't invited), `not-requested` (`sendInvite: false`), `not-configured` (the deployment sends no email), `send-failed` (the mail server refused it or didn't answer), `capped` (the workspace's invitations for the day are used up). An invitation not emailed is still open: tell them yourself.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['sent'],
+  properties: {
+    sent: { type: 'boolean' },
+    reason: {
+      type: 'string',
+      enum: ['no-email', 'not-requested', 'not-configured', 'send-failed', 'capped'],
+    },
+  },
+};
+
+export const UserCreatedSchema: JsonSchema = {
+  description:
+    'The person just added, and whether their invitation was emailed (`inviteEmail`: absent from a runtime that sends no invitations).',
+  type: 'object',
+  additionalProperties: false,
+  required: ['userId', 'tenantId', 'createdAt'],
+  properties: {
+    ...USER_PROPERTIES,
+    inviteEmail: { $ref: '#/components/schemas/InviteEmail' },
+  },
+};
+
+export const InviteRenewedSchema: JsonSchema = {
+  description: "The person, with their invitation's new expiry, and whether it was emailed.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['user', 'inviteEmail'],
+  properties: {
+    user: { $ref: '#/components/schemas/UserRecord' },
+    inviteEmail: { $ref: '#/components/schemas/InviteEmail' },
   },
 };
 
@@ -9138,6 +9209,11 @@ export const CreateUserBodySchema: JsonSchema = {
   properties: {
     displayName: { type: 'string', minLength: 1, maxLength: 200 },
     primaryEmail: { type: 'string', description: "Unique among the tenant's people." },
+    sendInvite: {
+      type: 'boolean',
+      description:
+        "Email them the invitation (default `true`). `false` still invites them, for an admin who tells them another way. A person without an email isn't invited.",
+    },
   },
 };
 
@@ -13229,6 +13305,10 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['LogoutResult', LogoutResultSchema],
   ['WhoamiResult', WhoamiResultSchema],
   ['UserRecord', UserRecordSchema],
+  ['UserInvite', UserInviteSchema],
+  ['InviteEmail', InviteEmailSchema],
+  ['UserCreated', UserCreatedSchema],
+  ['InviteRenewed', InviteRenewedSchema],
   ['UnregisterUserResult', UnregisterUserResultSchema],
   ['CreateUserBody', CreateUserBodySchema],
   ['PersonGrants', PersonGrantsSchema],

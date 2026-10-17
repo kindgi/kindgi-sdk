@@ -7468,6 +7468,69 @@ class LogoutResult(BaseModel):
     revoked: bool
 
 
+class UserInvite(BaseModel):
+    """
+    An open invitation. `pending` signs in. `expired` (past `expiresAt`, 7 days after it was made or last renewed) is refused at every way of signing in until a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    state: Literal["pending", "expired"]
+    expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
+    sent_at: Annotated[AwareDatetime | None, Field(alias="sentAt")] = None
+    """
+    When it was last emailed; absent when it never was.
+    """
+
+
+class InviteEmail(BaseModel):
+    """
+    Whether the invitation was emailed, and why not: `no-email` (the person has no email, so isn't invited), `not-requested` (`sendInvite: false`), `not-configured` (the deployment sends no email), `send-failed` (the mail server refused it or didn't answer), `capped` (the workspace's invitations for the day are used up). An invitation not emailed is still open: tell them yourself.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    sent: bool
+    reason: (
+        Literal["no-email", "not-requested", "not-configured", "send-failed", "capped"] | None
+    ) = None
+
+
+class UserCreated(BaseModel):
+    """
+    The person just added, and whether their invitation was emailed (`inviteEmail`: absent from a runtime that sends no invitations).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId")]
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    primary_email: Annotated[str | None, Field(alias="primaryEmail")] = None
+    display_name: Annotated[str | None, Field(alias="displayName")] = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    last_active_at: Annotated[AwareDatetime | None, Field(alias="lastActiveAt")] = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.
+    """
+    invite: UserInvite | None = None
+    """
+    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).
+    """
+    first_signed_in_at: Annotated[AwareDatetime | None, Field(alias="firstSignedInAt")] = None
+    """
+    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).
+    """
+    metadata: dict[str, Any] | None = None
+    invite_email: Annotated[InviteEmail | None, Field(alias="inviteEmail")] = None
+
+
 class CreateUserBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -7477,6 +7540,10 @@ class CreateUserBody(BaseModel):
     primary_email: Annotated[str | None, Field(alias="primaryEmail")] = None
     """
     Unique among the tenant's people.
+    """
+    send_invite: Annotated[bool | None, Field(alias="sendInvite")] = None
+    """
+    Email them the invitation (default `true`). `false` still invites them, for an admin who tells them another way. A person without an email isn't invited.
     """
 
 
@@ -13599,11 +13666,32 @@ class UserRecord(BaseModel):
     """
     When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.
     """
+    invite: UserInvite | None = None
+    """
+    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).
+    """
+    first_signed_in_at: Annotated[AwareDatetime | None, Field(alias="firstSignedInAt")] = None
+    """
+    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).
+    """
     metadata: dict[str, Any] | None = None
     grants: PersonGrants | None = None
     """
     The person's grants: only on `GET /v1/identity/users?include=grants`, and only from a runtime that reads grants.
     """
+
+
+class InviteRenewed(BaseModel):
+    """
+    The person, with their invitation's new expiry, and whether it was emailed.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user: UserRecord
+    invite_email: Annotated[InviteEmail, Field(alias="inviteEmail")]
 
 
 class UnregisterUserResult(BaseModel):

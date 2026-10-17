@@ -293,6 +293,7 @@
           "semantic-unavailable": 422,
           "rate-limit-exceeded": 429,
           "approvals-pending-limit": 429,
+          "invite-capped": 429,
           "turn-memory-limit-reached": 429,
           "internal-server-error": 500,
           "journal-error": 500,
@@ -407,6 +408,7 @@
           "seed-user-admin": 409,
           "identity-user-unregister-refused": 409,
           "identity-user-unregistered": 409,
+          "identity-user-not-invited": 409,
           "person-grants-unsupported": 501,
           "permissions-unsupported": 501,
           "agent-version-live": 409,
@@ -15740,6 +15742,15 @@
             "format": "date-time",
             "description": "When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here."
           },
+          "invite": {
+            "$ref": "#/components/schemas/UserInvite",
+            "description": "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1)."
+          },
+          "firstSignedInAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1)."
+          },
           "metadata": {
             "type": "object",
             "additionalProperties": true
@@ -15747,6 +15758,127 @@
           "grants": {
             "$ref": "#/components/schemas/PersonGrants",
             "description": "The person's grants: only on `GET /v1/identity/users?include=grants`, and only from a runtime that reads grants."
+          }
+        }
+      },
+      "UserInvite": {
+        "description": "An open invitation. `pending` signs in. `expired` (past `expiresAt`, 7 days after it was made or last renewed) is refused at every way of signing in until a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`).",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "expiresAt"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "expired"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sentAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was last emailed; absent when it never was."
+          }
+        }
+      },
+      "InviteEmail": {
+        "description": "Whether the invitation was emailed, and why not: `no-email` (the person has no email, so isn't invited), `not-requested` (`sendInvite: false`), `not-configured` (the deployment sends no email), `send-failed` (the mail server refused it or didn't answer), `capped` (the workspace's invitations for the day are used up). An invitation not emailed is still open: tell them yourself.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sent"
+        ],
+        "properties": {
+          "sent": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "no-email",
+              "not-requested",
+              "not-configured",
+              "send-failed",
+              "capped"
+            ]
+          }
+        }
+      },
+      "UserCreated": {
+        "description": "The person just added, and whether their invitation was emailed (`inviteEmail`: absent from a runtime that sends no invitations).",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "userId",
+          "tenantId",
+          "createdAt"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "primaryEmail": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastActiveAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here."
+          },
+          "invite": {
+            "$ref": "#/components/schemas/UserInvite",
+            "description": "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1)."
+          },
+          "firstSignedInAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1)."
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "inviteEmail": {
+            "$ref": "#/components/schemas/InviteEmail"
+          }
+        }
+      },
+      "InviteRenewed": {
+        "description": "The person, with their invitation's new expiry, and whether it was emailed.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "user",
+          "inviteEmail"
+        ],
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/UserRecord"
+          },
+          "inviteEmail": {
+            "$ref": "#/components/schemas/InviteEmail"
           }
         }
       },
@@ -15793,6 +15925,10 @@
           "primaryEmail": {
             "type": "string",
             "description": "Unique among the tenant's people."
+          },
+          "sendInvite": {
+            "type": "boolean",
+            "description": "Email them the invitation (default `true`). `false` still invites them, for an admin who tells them another way. A person without an email isn't invited."
           }
         }
       },
@@ -43814,6 +43950,15 @@
             "description": "With `true`, people who were removed (`unregisteredAt`) too."
           },
           {
+            "name": "pending",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "required": false,
+            "description": "With `true`, only people with an open invitation (`invite`: pending or expired), who haven't signed in yet. An older runtime ignores it and lists everyone (from 0.1.8.1)."
+          },
+          {
             "name": "include",
             "in": "query",
             "schema": {
@@ -43840,11 +43985,11 @@
         ],
         "responses": {
           "201": {
-            "description": "The new person.",
+            "description": "The new person, and whether their invitation was emailed.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UserRecord"
+                  "$ref": "#/components/schemas/UserCreated"
                 }
               }
             }
@@ -43910,7 +44055,7 @@
             }
           }
         },
-        "description": "Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the identity directory can add people.",
+        "description": "Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -44146,6 +44291,124 @@
           }
         },
         "description": "Removes a person from the tenant, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, and every grant and membership they hold is taken away, all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/identity/users/{userId}/invite": {
+      "post": {
+        "operationId": "identity.users.resendInvite",
+        "summary": "Renew a person's invitation",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "The person, with the new expiry, and whether the invitation was emailed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteRenewed"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No user with that id under this tenant, or one who was removed (`identity-user-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "They have signed in, were added before invitations, or have no email (`identity-user-not-invited`), or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`invite-capped`: renewed again too soon for this person, or past the workspace's invitations for the day. Nothing changed; `Retry-After` says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times a day, or past the workspace's invitations for the day, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).",
         "parameters": [
           {
             "name": "userId",
