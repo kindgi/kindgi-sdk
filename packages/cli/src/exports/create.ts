@@ -263,9 +263,9 @@ const CHANGING =
 
 /**
  * How far the files agree. A closing or suspended tenant changes only by
- * deletes and erasures, so its files agree, when it was closing or
- * suspended through every run of the export: at each run's start and end
- * (an earlier run's manifest says whether it was).
+ * deletes, revocations and erasures, so its files agree, when it was
+ * closing or suspended through every run of the export: at each run's start
+ * and end (an earlier run's manifest says whether it was).
  */
 function consistencyOf(
   states: readonly (string | undefined)[],
@@ -275,7 +275,7 @@ function consistencyOf(
   const frozenBefore =
     earlier === undefined || (frozen(earlier.tenant?.state) && earlier.consistency !== CHANGING);
   if (states.every((s) => frozen(s)) && frozenBefore) {
-    return `The tenant is ${states.at(-1)}: nothing in it changes but deletes and erasures, so the files agree with each other, but for a delete or an erasure made while the export ran.`;
+    return `The tenant is ${states.at(-1)}: nothing in it changes but deletes, revocations and erasures, so the files agree with each other, but for one of those made while the export ran.`;
   }
   return CHANGING;
 }
