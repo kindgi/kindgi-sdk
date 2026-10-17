@@ -87,6 +87,10 @@ export const ENV_DEFAULTS = {
   KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS_PATH: 'none: no retired export keys are listed',
   KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS: 'none: no retired export keys are listed',
   KINDGI_CORS_ORIGINS: 'none: no CORS headers on any route',
+  KINDGI_EGRESS_SERVER_ADDRESSES:
+    'none: no server addresses are published (with `KINDGI_EGRESS_DEPLOYMENT_ADDRESSES` unset too, `GET /v1/tenant` has no `egress`)',
+  KINDGI_EGRESS_DEPLOYMENT_ADDRESSES:
+    'none: no deployment addresses are published (with `KINDGI_EGRESS_SERVER_ADDRESSES` unset too, `GET /v1/tenant` has no `egress`)',
   KINDGI_RUN_LEASE_MS: '`300000` (5 minutes); at least `10000`',
   KINDGI_RUN_SWEEP_INTERVAL_MS: '`60000` (1 minute); at least `1000`, shorter than the lease',
   KINDGI_RUN_ENDED_CHECK_MS: '`5000` (5 seconds); at least `1000`',
