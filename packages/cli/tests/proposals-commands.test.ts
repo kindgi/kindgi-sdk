@@ -536,6 +536,28 @@ describe('kindgi proposals improve', () => {
     expect(out.exitCode).toBe(2); // a usage error
     expect(calls).toEqual([]);
   });
+
+  test('--tier=prompt needs --provider and --model', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      ['proposals', 'improve', '--agent=a', '--tenant', '--test-set=s', '--tier=prompt'],
+      { proposals: { improve: rec('improve') } },
+    );
+    expect(out.exitCode).toBe(2); // a usage error
+    expect(calls).toEqual([]);
+  });
+
+  test('--provider, --model and --drafts are for a prompt pass', async () => {
+    const { calls, rec } = recorder();
+    const settingsPass = ['proposals', 'improve', '--agent=a', '--tenant', '--test-set=s'];
+    for (const extra of [['--provider=openai', '--model=gpt-4o'], ['--drafts=3']]) {
+      const out = await run([...settingsPass, ...extra], {
+        proposals: { improve: rec('improve') },
+      });
+      expect(out.exitCode, extra.join(' ')).toBe(2); // a usage error
+    }
+    expect(calls).toEqual([]);
+  });
 });
 
 describe('kindgi proposals passes', () => {

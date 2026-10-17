@@ -433,6 +433,17 @@ function improveModel(
   return { providerId, model };
 }
 
+function assertImproveTier(
+  tier: string | undefined,
+  model: { readonly providerId: string; readonly model: string } | undefined,
+  candidates: number | undefined,
+): void {
+  if (tier === 'prompt' && model === undefined)
+    throw new UsageError('--tier=prompt needs --provider and --model.');
+  if (tier !== 'prompt' && (model !== undefined || candidates !== undefined))
+    throw new UsageError('--provider, --model and --drafts are for --tier=prompt.');
+}
+
 const improve: LeafCommand = {
   kind: 'leaf',
   name: 'improve',
@@ -504,6 +515,7 @@ const improve: LeafCommand = {
       const candidates = integerFlag(ctx, 'drafts');
       const maxCostUsd = numberFlag(ctx, 'max-cost');
       const maxCandidates = integerFlag(ctx, 'max-candidates');
+      assertImproveTier(tier, model, candidates);
       const client = ctx.client();
       const pass = await client.proposals.improve({
         agentId,
