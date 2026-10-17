@@ -170,12 +170,12 @@ With `--runtime`, a line says what the renewal carried:
 
 On a refusal, the line goes to stderr, before `refused (…)`.
 
-A renewal that goes without counts still exits `0` when the key renews,
-so your scheduler's alerting doesn't see it. To hear about it, match
+A renewal that goes without counts still exits `0`, whether it renews the
+key or answers `unchanged`, so your scheduler's alerting doesn't see it. To hear about it, match
 `counts: not sent (` in `renew`'s output, and leave out
 `counts: not sent (a production key's renewal carries no counts)`, which
-is expected. On Azure, the module raises this alert itself
-([On a schedule](#on-a-schedule)).
+is expected. On Azure, with `license_usage_key_secret` set, the module
+raises this alert itself ([On a schedule](#on-a-schedule)).
 
 In the key's last 30 days, `renew` adds a line that starts
 `⚠ It expires in <N> days`. It says how to get a key if `renew` keeps
@@ -270,8 +270,8 @@ scheduled job. Once a day is plenty.
 - `license_usage_key_secret` names the vault secret holding a
   [key for the counts](#a-key-for-the-counts), which you put there before
   you apply. With it, the job reads that secret too, and its renewals carry
-  counts. A third alert comes with it, a warning: a run that sent none,
-  other than a production key's. Terraform never holds the key.
+  counts. A third alert comes with it, at a lower severity: a run that sent
+  none, other than a production key's. Terraform never holds the key.
 - `license_renewer_secret` names the renewer's secret, `license-renewer` by
   default. The outputs `license_enroll_command` and `license_renew_command`
   print the two commands for this deployment.

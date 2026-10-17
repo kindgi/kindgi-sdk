@@ -230,7 +230,8 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "license_key_expiring"
 # revoked, or the job can't reach the server (`server_ip_allowlist`), say.
 # A run that renews without them still succeeds, so the failed-run alert
 # never sees it. A production key's renewal carries no counts by design,
-# and says so with a reason of its own, which this leaves out.
+# and says so with a reason of its own, which this leaves out. Severity 3
+# (Informational), below the other two's 2 (Warning): the key renewed.
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "license_counts_not_sent" {
   count                = local.license_renewal && local.license_usage_counts ? 1 : 0
   name                 = "${var.name_prefix}-license-counts-not-sent"

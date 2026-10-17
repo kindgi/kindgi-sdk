@@ -693,7 +693,8 @@ run "license_renewal_alerts" {
 
 # With the usage key, a third: a run whose counts line says it sent none. A
 # production key's renewal never carries counts and says so with a reason of
-# its own, which doesn't alert. A warning, not an error: the key renewed.
+# its own, which doesn't alert. Below the other two (3, Informational, to
+# their 2, Warning): the key renewed.
 run "license_renewal_alerts_with_counts" {
   command = plan
   variables {
@@ -711,7 +712,7 @@ run "license_renewal_alerts_with_counts" {
   }
   assert {
     condition     = azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].severity == 3 && azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].name == "kindgi-license-counts-not-sent" && strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].description, "the vault secret license-usage-key")
-    error_message = "A warning, named for what it says, and it names the usage key's secret."
+    error_message = "Severity 3, below the other two, named for what it says, and it names the usage key's secret."
   }
   assert {
     condition     = toset(azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].action[0].action_groups) == toset(var.alert_action_groups)
