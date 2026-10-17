@@ -2747,7 +2747,7 @@ export const ERROR_ENTRIES = {
   },
   'secret-name-invalid': {
     description:
-      "The name isn't one a new secret can have. A new secret's name is 1 to 255 ASCII letters, digits, `.`, `-` and `_`, starting with a letter, digit or `_`, and a secrets store can narrow that. Under `kindgi dev`, a secret is a key in your env files, so its name is capital letters, digits and underscores, not starting with a digit (`ACME_WOO_ORDERS`, not `acme-woo-orders`), and never `KINDGI_*`, the runtime's own configuration. The message says the rule, and under `kindgi dev` a name that works.",
+      "The name isn't one a new secret can have. A new secret's name is 1 to 255 ASCII letters, digits, `.`, `-` and `_`, starting with a letter, digit or `_`, not ending with `.` and with no two `.` in a row, and a secrets store can narrow that. Under `kindgi dev`, a secret is a key in your env files, so its name is capital letters, digits and underscores, not starting with a digit (`ACME_WOO_ORDERS`, not `acme-woo-orders`), and never `KINDGI_*`, the runtime's own configuration. The message says the rule, and under `kindgi dev` a name that works.",
     details: [],
     seeAlso: ['guides/secrets/store-a-secret'],
   },
