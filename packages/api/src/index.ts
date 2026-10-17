@@ -171,6 +171,7 @@ export type {
   SessionRevokeAllForUserOutcome,
   SessionRevokeInput,
   SessionRevokeOutcome,
+  SessionSecondFactor,
   SessionStoreBinding,
   SessionTouchInput,
   SessionTouchOutcome,
