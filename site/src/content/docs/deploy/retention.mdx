@@ -235,6 +235,18 @@ PublishPolicyResult[policyId=acme.keep-providers, version=1.0.0]
 - **A spec that doesn't fit is refused** with `400 validation-failed`, naming
   the field: `policy.spec/mode can't be "archive" yet: use "purge"`, or
   `policy.spec/domain must be one of: org, agent, …, provider, * (got "blocks")`.
+- **A server can limit how long a domain's records are kept.** Where it
+  does, a policy for that domain that keeps them longer, or for good
+  (`-1`), is refused (`400 retention-over-limit`), and so is reinstating a
+  retired version that does:
+
+  ```text
+  `graceSeconds` 31536000 (365 days) is over the retention limit for `run` rows, 90 days.
+  ```
+
+  A `*` policy isn't refused: in a limited domain, the server keeps
+  records no longer than the limit. A limited domain that no policy covers
+  gets the limit too.
 - **Two policies can still cover one domain** when an older runtime took
   both. The console warns. Lists, sweeps and the runtime's log say which one
   applies: unregister the others.
@@ -264,7 +276,9 @@ const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the runni
 
 // What a sweep would purge now, then purge it.
 const due = await kindgi.retention.scheduled({ pastGraceOnly: true });
-console.log(due.data.map((row) => `${row.domain} ${row.id} (policy ${row.policyId})`));
+console.log(
+  due.data.map((row) => `${row.domain} ${row.id} (${row.policyId ? `policy ${row.policyId}` : 'the server limit'})`),
+);
 
 const swept = await kindgi.retention.sweep({ domain: 'provider' });
 console.log(`${swept.totalPurged} purged`);
@@ -286,7 +300,10 @@ kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 # What a sweep would purge now, then purge it.
 due = kindgi.retention.scheduled(past_grace_only=True)
-print([f"{row.domain} {row.id} (policy {row.policy_id})" for row in due.data])
+print([
+    f"{row.domain} {row.id} ({f'policy {row.policy_id}' if row.policy_id else 'the server limit'})"
+    for row in due.data
+])
 
 swept = kindgi.retention.sweep(domain="provider")
 print(f"{swept.total_purged} purged")
@@ -319,7 +336,8 @@ public final class RetentionSweep {
     RetentionScheduledPage due =
         kindgi.retention().scheduled(RetentionScheduledParams.builder().pastGraceOnly(true).build());
     System.out.println(due.data().stream()
-        .map(row -> row.domain() + " " + row.id() + " (policy " + row.policyId() + ")")
+        .map(row -> row.domain() + " " + row.id() + " ("
+            + (row.policyId() != null ? "policy " + row.policyId() : "the server limit") + ")")
         .toList());
 
     RetentionSweepResult swept =
@@ -352,7 +370,10 @@ object RetentionSweep {
 
     // What a sweep would purge now, then purge it.
     val due = kindgi.retention().scheduled(RetentionScheduledParams.builder().pastGraceOnly(true).build())
-    println(due.data.asScala.map(row => s"${row.domain} ${row.id} (policy ${row.policyId})").toList)
+    println(due.data.asScala.map { row =>
+      val decidedBy = Option(row.policyId).fold("the server limit")(id => s"policy $id")
+      s"${row.domain} ${row.id} ($decidedBy)"
+    }.toList)
 
     val swept = kindgi.retention().sweep(RetentionSweepBody.builder().domain(RetentionDomain.PROVIDER).build())
     println(s"${swept.totalPurged} purged")
@@ -388,7 +409,11 @@ purged:
 - **`pastGraceOnly`**, `past_grace_only` in Python, narrows the list to what
   a sweep would purge now.
 - **`unpolicedDomains`**, in the list's answer, names the domains no policy
-  covers. Their deleted records are kept.
+  covers and the server doesn't limit. Their deleted records are kept.
+- **`limitApplied: true`**, `limit_applied` in Python, marks a record the
+  server's limit decides: no policy covers its domain, so it has no
+  `policyId`, or its policy keeps records longer than the limit.
+  `graceSeconds` is then the limit.
 - **A long list comes in pages.** `limit` is how many records per domain:
   25 unless you say, at most 100. `hasMore` says there are more, and
   `nextCursor`, passed back as `cursor`, gets the next page. In Python,
@@ -440,7 +465,7 @@ startup log says so:
 
 A policy with `graceSeconds: -1` keeps a domain's deleted records, and sweeps
 skip it. With `"domain": "*"`, nothing is purged except in the domains that
-have a policy of their own:
+have a policy of their own, or a limit on the server:
 
 ```json
 { "id": "acme.keep-everything", "version": "1.0.0", "kind": "retention",
