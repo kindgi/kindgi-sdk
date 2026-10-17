@@ -428,6 +428,9 @@ theirs, and they're told by email where the deployment sends it:
 kindgi people reset-second-factor <user-id>
 ```
 
+An admin's own isn't removed this way: they take it off on My access, with a
+code from it, as anyone does.
+
 The keys are kept encrypted under the sign-in secret (`KINDGI_AUTH_SECRET`).
 When you rotate it, set the old one as
 [`KINDGI_AUTH_PREVIOUS_SECRET_PATH`](../../reference/env-vars/#kindgi_auth_previous_secret_path)

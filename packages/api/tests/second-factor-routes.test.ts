@@ -449,6 +449,20 @@ describe("a tenant admin and a person's second factor", () => {
     expect(removals[1]?.[2]).toBe(`user:${ALICE}`);
   });
 
+  test("an admin's own: 403, pointing to /me, and nothing removed", async () => {
+    const t = makeApp();
+    const res = await t.call(
+      'POST',
+      `/v1/identity/users/${ALICE}/second-factor/remove`,
+      t.session(ALICE, { admin: true }),
+    );
+    expect(res.status).toBe(403);
+    const error = await errorOf(res);
+    expect(error.code).toBe('permission-denied');
+    expect(error.message).toContain('/v1/identity/me/second-factor/remove');
+    expect(named(t.calls, 'removeFor')).toEqual([]);
+  });
+
   test('none to remove: removed false', async () => {
     const t = makeApp({ removeFor: false });
     const res = await t.call('POST', '/v1/identity/users/u-bob/second-factor/remove', ADMIN_KEY);

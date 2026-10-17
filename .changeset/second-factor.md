@@ -5,11 +5,11 @@
 "@kindgi/env-schema": patch
 ---
 
-**A second factor at sign-in, and a workspace setting that requires one, on a runtime that keeps them.** An authenticator app's codes (TOTP), with 10 recovery codes for when the app is lost. Covers the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub); signing in through the workspace's own identity provider is exempt, since it owns MFA there. API keys aren't covered.
+**A second factor at sign-in, and a workspace setting that requires one, on a runtime that keeps them.** An authenticator app's codes (TOTP), with 10 recovery codes for when the app is lost. Covers the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub); signing in through the workspace's own identity provider is exempt, since it owns the second factor there. API keys aren't covered.
 
 - **The API.** A `secondFactor` binding (`SecondFactorBinding`) mounts:
   - `/v1/identity/me/second-factor`: `GET` yours (`setUp`, `since`, `recoveryCodesLeft`, `usable`, and whether the workspace `required` one); `POST` starts setting one up (the key and its `otpauth://` URI, shown once; replacing one takes a code from it), then `POST …/confirm {code}` sets it up and answers the 10 recovery codes, once; `POST …/recovery-codes` gives 10 new ones; `POST …/remove` takes it off, refused while the workspace requires one. From a session only (`400 auth-not-session-token` with an API key). A key or codes in an answer are never replayed for an `Idempotency-Key`.
-  - `GET /v1/identity/users/{userId}/second-factor` and `POST …/second-factor/remove` (tenant admins): a person's, and removing it for a lost phone. Their sessions stay.
+  - `GET /v1/identity/users/{userId}/second-factor` and `POST …/second-factor/remove` (tenant admins): a person's, and removing it for a lost phone. Their sessions stay. An admin's own isn't removed there (`403 permission-denied`): it's taken off at `/me`, with a code from it.
   - `GET` / `PATCH /v1/auth/settings` `{ secondFactor: { required } }` (tenant admins), with how many people's keys are still on the previous sign-in secret (`onPreviousSecret`) or on neither (`unusable`). Once required, a session made without a second factor ends at its next request. Turning it on from a session made without one is `409 second-factor-enroll-first`.
   - Token sign-in is refused in a workspace that requires one: `403 second-factor-required`.
   - The sign-in history (`GET /v1/audit/sign-ins`) has three new kinds: `second-factor-set-up`, `second-factor-removed` (with `byUserId` when an admin removed it) and `recovery-codes-replaced`. It never has a key or a code.

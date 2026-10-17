@@ -150,7 +150,7 @@ const resetSecondFactor: LeafCommand = {
   kind: 'leaf',
   name: 'reset-second-factor',
   description:
-    "Remove a person's second factor, for a lost phone or lost recovery codes: they're told by email where the deployment sends it, and it's audited. Their sessions stay. Where the workspace requires one, they set one up again at their next sign-in. Tenant admins only.",
+    "Remove a person's second factor, for a lost phone or lost recovery codes: they're told by email where the deployment sends it, and it's audited. Their sessions stay. Where the workspace requires one, they set one up again at their next sign-in. Tenant admins only, for anyone but themselves: your own you take off on My access, with a code from it.",
   usage: 'kindgi people reset-second-factor <user-id>',
   run: (ctx) =>
     runSdkRendered(ctx, 'people reset-second-factor', async () => {

@@ -33,7 +33,7 @@ import type { AppEnv } from '../types.js';
  *   - `POST /me/second-factor/recovery-codes`      (10 new ones; the old ones stop working)
  *   - `POST /me/second-factor/remove`              (off; refused while the tenant requires one)
  *   - `GET  /users/:userId/second-factor`          (a person's; tenant admins)
- *   - `POST /users/:userId/second-factor/remove`   (a lost phone; tenant admins)
+ *   - `POST /users/:userId/second-factor/remove`   (a lost phone; tenant admins, for anyone but themselves)
  *
  * Under `/v1/auth/settings` (`authSettingsRouter`): `GET`, and `PATCH
  * {secondFactor: {required}}` (tenant admins).
@@ -282,6 +282,14 @@ export function secondFactorIdentityRouter(options: SecondFactorRouterOptions): 
   r.post('/users/:userId/second-factor/remove', async (c) => {
     const ref = await person(c);
     if (ref instanceof Response) return ref;
+    // An admin's own takes a code from it, and stays where it's required.
+    if ((c.get('userId') as unknown as string | undefined) === ref.userId) {
+      return fail(
+        c,
+        'permission-denied',
+        'Your own second factor is taken off at POST /v1/identity/me/second-factor/remove, with a code from it.',
+      );
+    }
     const removed = await binding.removeFor(ref, callerIdentity(c));
     return c.json({ removed });
   });

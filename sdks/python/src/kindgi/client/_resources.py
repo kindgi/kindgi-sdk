@@ -6600,7 +6600,7 @@ class IdentityUsersResource:
     ) -> _models.SecondFactorRemoved:
         """Remove a person's second factor. `POST /v1/identity/users/{userId}/second-factor/remove`
 
-        For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.8.1).
         """
         return self._client._request(
             _OPERATIONS["identity.users.removeSecondFactor"],
@@ -14895,7 +14895,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.SecondFactorRemoved:
         """Remove a person's second factor. `POST /v1/identity/users/{userId}/second-factor/remove`
 
-        For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.8.1).
         """
         return await self._client._request(
             _OPERATIONS["identity.users.removeSecondFactor"],
