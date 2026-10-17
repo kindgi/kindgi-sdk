@@ -8874,9 +8874,12 @@ export const SignInEventSchema: JsonSchema = {
         'sign-in-link-capped',
         'sessions-revoked',
         'sessions-ended',
+        'second-factor-set-up',
+        'second-factor-removed',
+        'recovery-codes-replaced',
       ],
       description:
-        '`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token).',
+        '`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token, or a session made without a second factor in a workspace that requires one: `reason` says which); `second-factor-set-up`, `second-factor-removed` (`byUserId` is the admin who removed it, if not the person) and `recovery-codes-replaced`. Never a key or a code.',
     },
     outcome: { type: 'string', description: '`succeeded` or `denied`.' },
     userId: {

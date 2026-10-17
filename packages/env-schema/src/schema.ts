@@ -404,6 +404,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_AUTH_PREVIOUS_SECRET_PATH',
+    description:
+      "While the sign-in secret rotates, the one before it (a 32-byte file, mode 0600): people's second-factor keys sealed under it still open, and each moves to the current secret at that person's next code. `kindgi sign-in settings` counts those left in each workspace: keep it until every count is 0, then remove it. A key that opens under neither secret can't be used: its person needs a recovery code, or an admin to remove it. Needs `KINDGI_AUTH_SECRET(_PATH)`, and must differ from it. This or `KINDGI_AUTH_PREVIOUS_SECRET`, not both.",
+    example: '/etc/kindgi/auth-secret.previous',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_PREVIOUS_SECRET',
+    description:
+      'The previous sign-in secret itself, base64. See `KINDGI_AUTH_PREVIOUS_SECRET_PATH`; this or that, not both.',
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_AUTH_PRIVATE_IDP_ORIGINS',
     description:
       "Comma-separated origins of identity providers on a private network (a self-hosted Keycloak or AD FS behind a VPN, e.g. `https://sso.corp.internal`) that tenants may register. Only public HTTPS identity providers are allowed otherwise: a tenant admin can't point the runtime at the deployment's own network. `KINDGI_TENANT_HOST_ACCESS=isolated` refuses this setting, since every tenant could name a listed origin.",

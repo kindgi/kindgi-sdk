@@ -39,6 +39,12 @@ export const AUTH_SECRET_PATH_VAR = 'KINDGI_AUTH_SECRET_PATH';
 /** The same secret, base64. */
 export const AUTH_SECRET_VAR = 'KINDGI_AUTH_SECRET';
 
+/** While the sign-in secret rotates, the one before it (a file): it still opens second-factor keys sealed under it. */
+export const AUTH_PREVIOUS_SECRET_PATH_VAR = 'KINDGI_AUTH_PREVIOUS_SECRET_PATH';
+
+/** The previous sign-in secret, base64. */
+export const AUTH_PREVIOUS_SECRET_VAR = 'KINDGI_AUTH_PREVIOUS_SECRET';
+
 /** Identity provider origins on a private network the operator allows. */
 export const AUTH_PRIVATE_IDP_ORIGINS_VAR = 'KINDGI_AUTH_PRIVATE_IDP_ORIGINS';
 

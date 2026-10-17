@@ -17,6 +17,8 @@
  */
 
 import type {
+  AuthSettings,
+  AuthSettingsPatch,
   EnrollSiteBody,
   EnrollSiteResult,
   IdentityProviderCollectionPage,
@@ -49,9 +51,12 @@ export type RefreshResultShape = RefreshResult;
 export type LogoutResultShape = LogoutResult;
 export type SignInOptionsResult = SignInOptions;
 export type TokenSignInResultShape = TokenSignInResult;
+export type { AuthSettings, AuthSettingsPatch };
 
 export interface AuthClient {
   readonly providers: AuthProvidersClient;
+  /** The workspace's sign-in settings: tenant admins. */
+  readonly settings: AuthSettingsClient;
   /**
    * How a person can sign in, before anyone is signed in (no credential
    * needed): the identity providers for the email's domain, each with a
@@ -96,6 +101,34 @@ export interface AuthClient {
   logout(options?: { readonly idempotencyKey?: string }): Promise<LogoutResultShape>;
 }
 
+/**
+ * Whether signing in takes a second factor. Mounted where the deployment
+ * keeps second factors. Covers the deployment's own ways in; signing in
+ * through the workspace's own identity provider is exempt, and API keys
+ * aren't covered.
+ */
+export interface AuthSettingsClient {
+  /**
+   * The settings, and how many people's keys are still on the
+   * deployment's previous sign-in secret, or on neither.
+   *
+   * @wire GET /v1/auth/settings
+   */
+  get(): Promise<AuthSettings>;
+  /**
+   * Require a second factor, or stop requiring it. Once required, a
+   * session made without one ends at its next request. From a session,
+   * turning it on takes one made with your own second factor
+   * (`second-factor-enroll-first`).
+   *
+   * @wire PATCH /v1/auth/settings
+   */
+  update(
+    patch: AuthSettingsPatch,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<AuthSettings>;
+}
+
 export interface AuthProvidersClient {
   /** @wire GET /v1/auth/providers */
   list(): Promise<IdentityProviderPage>;
@@ -137,6 +170,19 @@ export interface AuthProvidersClient {
 export function makeAuthClient(transport: Transport): AuthClient {
   const seg = (s: string): string => encodeURIComponent(s);
   return {
+    settings: {
+      async get() {
+        return transport.request<AuthSettings>({ method: 'GET', path: '/v1/auth/settings' });
+      },
+      async update(patch, options) {
+        return transport.request<AuthSettings>({
+          method: 'PATCH',
+          path: '/v1/auth/settings',
+          body: patch,
+          ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+        });
+      },
+    },
     providers: {
       async list() {
         const page = await transport.request<IdentityProviderCollectionPage>({
