@@ -3664,18 +3664,26 @@ export const GuardrailActionSchema: JsonSchema = {
       minLength: 1,
       examples: ['halt', 'retry', 'escalate', 'log-only', 'compensate'],
       description:
-        'What happens when the guardrail fires. Open string: the built-in actions are listed in `examples`; any other name needs an action handler registered under it where the guardrail is evaluated.',
+        'What a failed check does to the agent turn. Open string: the built-in actions are listed in `examples`, and any other non-empty name is accepted. In 0.1 the runtime acts only on `halt`: the turn fails with `guardrail-violation` and its response is not stored. Any other value is recorded as a violation, as `log-only` is, and the turn completes: nothing runs the turn again, escalates or calls a compensating tool.',
     },
     retry: {
       type: 'object',
       additionalProperties: false,
       required: ['maxAttempts'],
+      description:
+        "The attempts a `retry` asks for. In 0.1 nothing acts on it: there's no second attempt.",
       properties: {
         maxAttempts: { type: 'integer', minimum: 1, maximum: 10 },
       },
     },
-    escalateTo: { type: 'string' },
-    compensateWith: { type: 'string' },
+    escalateTo: {
+      type: 'string',
+      description: 'Where an `escalate` goes. In 0.1 nothing escalates.',
+    },
+    compensateWith: {
+      type: 'string',
+      description: "The tool id a `compensate` names. In 0.1 that tool isn't called.",
+    },
   },
 };
 
