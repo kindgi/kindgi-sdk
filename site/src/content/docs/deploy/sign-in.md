@@ -409,7 +409,10 @@ kindgi sign-in settings --require-second-factor=on
 - Signing in to the console with an API token is refused
   (`second-factor-required`), since a token can't give a second factor.
 - Signing in through the workspace's own identity provider is exempt: it owns
-  MFA there.
+  the second factor there.
+- A site's people, signed in through
+  [site sign-in](../../guides/approvals/ask-and-approve-in-wordpress/#a-sites-people-in-kindgi),
+  are exempt too: the site owns their second factor.
 - API keys aren't covered. Keep them to service accounts, and rotate them.
 
 Turning it on from a session made without your own second factor is refused
