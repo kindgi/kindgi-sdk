@@ -551,13 +551,6 @@ export function toolsRouter(
   return r;
 }
 
-/**
- * The manifest as the wire carries it: every `ToolManifest` field the
- * `Tool` schema declares (a mirror of `@kindgi/specs/tool.schema.json`),
- * including where the code runs (`codeArtifactRef`) and the declarative
- * `spec`, and the tool's project when the registry records it. A secret
- * appears only as a reference (`secretRef`), never a value.
- */
 /** A reinstate's refusal: no such version (`404 tool-not-found`), or `409 tool-kind-mismatch`. */
 function reinstateRefusal(outcome: Exclude<ToolReinstateVersionOutcome, { readonly kind: 'ok' }>) {
   if (outcome.kind === 'kind-mismatch') return kindMismatch(outcome, 'reinstate');
@@ -601,6 +594,13 @@ function kindMismatch(outcome: ToolKindMismatch, write: 'publish' | 'reinstate')
   };
 }
 
+/**
+ * The manifest as the wire carries it: every `ToolManifest` field the
+ * `Tool` schema declares (a mirror of `@kindgi/specs/tool.schema.json`),
+ * including where the code runs (`codeArtifactRef`) and the declarative
+ * `spec`, and the tool's project when the registry records it. A secret
+ * appears only as a reference (`secretRef`), never a value.
+ */
 function serializeTool(t: ToolRecord): Record<string, unknown> {
   return {
     id: t.id as unknown as string,
