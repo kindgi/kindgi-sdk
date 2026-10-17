@@ -3,11 +3,12 @@
 
 import { type Context, Hono } from 'hono';
 
-import type { ConversationBinding } from '@kindgi/agents';
+import type { AgentId, ConversationBinding } from '@kindgi/agents';
 import { REVIEWER_ROLE_RANK, type ReviewerRole, ref } from '@kindgi/authz';
 import type { RunBinding } from '@kindgi/runtime';
-import type { Cursor, ProjectId, RunId, ScopeSegment, TenantId } from '@kindgi/types';
+import type { Cursor, ProjectId, RunId, ScopeSegment, Semver, TenantId } from '@kindgi/types';
 
+import type { AgentRegistryBinding } from '../agent-binding.js';
 import type { Correction, ExpectedCall } from '../corrections.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
@@ -60,6 +61,8 @@ export function judgmentsRouter(
   flows?: FlowRegistryBinding,
   /** Whose reviewer role a restricted judge class checks (T200). */
   reviewers?: ReviewerBinding,
+  /** Resolves a judged agent version's tools, so a correction can only name tools it has. */
+  agents?: AgentRegistryBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -86,6 +89,10 @@ export function judgmentsRouter(
     });
     if (prepared.kind === 'err') return fail(prepared.code, prepared.message, prepared.details);
     const { run, subject, projectId, itemValue, conversationId, restricted, replayOf } = prepared;
+    const unknownTool = await unknownCorrectionTool(tenantId, subject, body.correction, agents);
+    if (unknownTool !== undefined) {
+      return fail('bad-input', `The judged version has no tool "${unknownTool}".`);
+    }
     const first = await isFirstJudgment(binding, tenantId, body.runId);
     const captured = first
       ? await captureContext({
@@ -873,6 +880,34 @@ function assertedByOf(
 }
 
 /** What a run ran: its agent at a version (agent turns), else its flow. */
+/**
+ * Best-effort: a correction may only name tools the judged agent version
+ * has. Returns the first offending tool, or `undefined` when all are known
+ * or the check cannot run. It is skipped for flow subjects (a flow has no
+ * single tool list) and when the version cannot be resolved — a judgment
+ * outlives its version — so it never blocks an otherwise valid judgment.
+ */
+async function unknownCorrectionTool(
+  tenantId: TenantId,
+  subject: JudgedSubject,
+  correction: Correction | undefined,
+  agents: AgentRegistryBinding | undefined,
+): Promise<string | undefined> {
+  if (correction === undefined || agents === undefined || subject.kind !== 'agent')
+    return undefined;
+  const version = await agents.getVersion({
+    tenantId,
+    agentId: subject.id as AgentId,
+    version: subject.version as Semver,
+  });
+  if (version === null) return undefined;
+  const have = new Set(version.tools.map((t) => t.id as string));
+  for (const tool of [...correction.calls.map((call) => call.tool), ...correction.notCalled]) {
+    if (!have.has(tool)) return tool;
+  }
+  return undefined;
+}
+
 function subjectOf(run: {
   readonly flowId: string;
   readonly flowVersion: string;

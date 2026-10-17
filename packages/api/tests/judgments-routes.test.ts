@@ -17,7 +17,13 @@ import type { ConversationId, ProjectId, RunId, TenantId, Timestamp, UserId } fr
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
-import type { JudgmentRegistryBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';
+import type {
+  AgentRegistryBinding,
+  AgentVersionRecord,
+  JudgmentRegistryBinding,
+  RunHandlerBinding,
+  TokenResolver,
+} from '../src/index.js';
 import { isReplayCopy, judgeClassApplies, whyNotAssertable } from '../src/index.js';
 import { inMemoryJudgments } from './support/in-memory-judgments.js';
 
@@ -63,6 +69,18 @@ function row(overrides: Partial<KernelRunRecord> = {}): KernelRunRecord {
     ...overrides,
   };
 }
+
+/** A stub agent registry whose resolved version advertises exactly these tool ids. */
+const registryWithTools = (...ids: readonly string[]): AgentRegistryBinding =>
+  ({
+    getVersion: async () =>
+      ({ tools: ids.map((id) => ({ id, version: '1.0.0' })) }) as unknown as AgentVersionRecord,
+  }) as unknown as AgentRegistryBinding;
+
+/** A stub agent registry that cannot resolve the judged version (it is gone). */
+const registryVersionGone = {
+  getVersion: async () => null,
+} as unknown as AgentRegistryBinding;
 
 interface Harness {
   readonly call: (
@@ -111,6 +129,7 @@ function harness(
   rows: KernelRunRecord[],
   reads: TurnReads = {},
   authz?: Authz,
+  agentRegistry?: AgentRegistryBinding,
 ): Harness & { readonly reads: number[] } {
   const binding = inMemoryJudgments();
   const stubs = createStubAppBindings();
@@ -138,6 +157,7 @@ function harness(
     resolveToken,
     runHandler,
     judgmentRegistry: binding,
+    ...(agentRegistry !== undefined && { agentRegistry }),
     ...(authz !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -285,6 +305,72 @@ describe('POST /v1/judgments', () => {
       calls: [{ tool: 'acme.refund', args: { amount: 40 } }],
       notCalled: [],
     });
+  });
+
+  test('a correction may name tools the judged version has', async () => {
+    const run = row();
+    const h = harness([run], {}, undefined, registryWithTools('acme.refund', 'acme.email'));
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'answer', pointer: '' },
+      verdict: 'no',
+      correction: {
+        calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+        notCalled: ['acme.email'],
+      },
+    });
+    expect(res.status).toBe(201);
+  });
+
+  test('a correction naming a call tool the version lacks is a 400', async () => {
+    const run = row();
+    const h = harness([run], {}, undefined, registryWithTools('acme.refund'));
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'answer', pointer: '' },
+      verdict: 'no',
+      correction: { calls: [{ tool: 'acme.ghost', args: {} }], notCalled: [] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('bad-input');
+    expect(res.body.error.message).toContain('acme.ghost');
+  });
+
+  test('a correction naming a must-not-call tool the version lacks is a 400', async () => {
+    const run = row();
+    const h = harness([run], {}, undefined, registryWithTools('acme.refund'));
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'answer', pointer: '' },
+      verdict: 'no',
+      correction: { calls: [], notCalled: ['acme.ghost'] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('acme.ghost');
+  });
+
+  test('an unknown tool is allowed when the judged version cannot be resolved', async () => {
+    const run = row();
+    const h = harness([run], {}, undefined, registryVersionGone);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'answer', pointer: '' },
+      verdict: 'no',
+      correction: { calls: [{ tool: 'acme.ghost', args: {} }], notCalled: [] },
+    });
+    expect(res.status).toBe(201);
+  });
+
+  test('a flow subject skips the tool check (best-effort)', async () => {
+    const { agent: _agent, ...flowRun } = row();
+    const h = harness([flowRun], {}, undefined, registryWithTools('acme.refund'));
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: flowRun.runId,
+      item: { key: 'answer', pointer: '' },
+      verdict: 'no',
+      correction: { calls: [{ tool: 'acme.ghost', args: {} }], notCalled: [] },
+    });
+    expect(res.status).toBe(201);
   });
 
   test('the run copy keeps the segment path the run was started with (none: empty)', async () => {
