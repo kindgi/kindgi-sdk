@@ -37,8 +37,9 @@ KINDGI_EGRESS_DEPLOYMENT_ADDRESSES=198.51.100.20,2001:db8::1
 ```
 
 Then [restart the runtime](../restart-and-check-health/). A value that isn't
-an IP address stops it from starting, with an error that names the setting
-and the value. Each address shows once, blank entries are left out, and with
+an IP address, such as a range (`192.0.2.0/24`) or an address with an
+interface (`2001:db8::1%eth0`), stops it from starting, with an error that
+names the setting and the value. Each address shows once, blank entries are left out, and with
 both settings unset or empty nothing is published.
 
 The addresses are the runtime's, the same for every tenant it serves.
