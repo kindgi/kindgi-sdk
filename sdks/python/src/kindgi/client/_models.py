@@ -6069,20 +6069,27 @@ class RetentionScheduledItem(BaseModel):
     unregistered_at: Annotated[AwareDatetime, Field(alias="unregisteredAt")]
     purge_at: Annotated[AwareDatetime, Field(alias="purgeAt")]
     """
-    `unregisteredAt` plus the policy's grace: when a sweep purges the row.
+    `unregisteredAt` plus `graceSeconds`: when a sweep purges the row.
     """
     past_grace: Annotated[bool, Field(alias="pastGrace")]
     """
     Whether a sweep would purge the row now.
     """
-    policy_id: Annotated[str, Field(alias="policyId")]
+    policy_id: Annotated[str | None, Field(alias="policyId")] = None
     """
-    The retention policy that applies.
+    The retention policy that covers the domain. Absent when none does, and this server's limit decides (`limitApplied`); always present on a server with no limit.
     """
-    policy_version: Annotated[str, Field(alias="policyVersion")]
+    policy_version: Annotated[str | None, Field(alias="policyVersion")] = None
+    """
+    The policy's version. Absent with `policyId`.
+    """
     grace_seconds: Annotated[int, Field(alias="graceSeconds")]
     """
-    The policy's grace, in seconds (`-1`: a hold, never purged).
+    How long the row is kept, in seconds (`-1`: a hold, never purged): the policy's grace, or this server's limit (`limitApplied`).
+    """
+    limit_applied: Annotated[Literal[True] | None, Field(alias="limitApplied")] = None
+    """
+    Present when this server's retention limit for the domain set `graceSeconds`: no policy covers the domain, or its policy keeps rows longer than the limit, or holds them.
     """
 
 
@@ -6158,7 +6165,7 @@ class RetentionScheduledPage(BaseModel):
         Field(alias="unpolicedDomains"),
     ]
     """
-    Domains no retention policy covers: their tombstones are kept.
+    Domains no retention policy covers and this server sets no retention limit for: their tombstones are kept.
     """
     conflicts: list[RetentionPolicyConflict] | None = None
     """
@@ -6254,6 +6261,10 @@ class PerDomainItem(BaseModel):
     policy_id: Annotated[str | None, Field(alias="policyId")] = None
     """
     The retention policy that applied.
+    """
+    limit_applied: Annotated[Literal[True] | None, Field(alias="limitApplied")] = None
+    """
+    Present when this server's retention limit set the grace (see `RetentionScheduledItem.limitApplied`).
     """
     missing_adapter: Annotated[Literal[True] | None, Field(alias="missingAdapter")] = None
     """
