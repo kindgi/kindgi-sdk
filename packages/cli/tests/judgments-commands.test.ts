@@ -108,7 +108,7 @@ describe('kindgi judgments', () => {
     ]);
   });
 
-  test('add refuses --item or --pointer that fight the correction fixed item', async () => {
+  test('add refuses --item, --pointer or --rank that fight the correction item', async () => {
     const client = { judgments: { create: recorder().rec('create') } };
     const corr = '--correction={"calls":[],"notCalled":["acme.escalate"]}';
     const wrongItem = await run(
@@ -123,6 +123,12 @@ describe('kindgi judgments', () => {
     );
     expect(wrongPointer.exitCode).toBe(2);
     expect(wrongPointer.stderr).toContain('whole output');
+    const wrongRank = await run(
+      ['judgments', 'add', '--run=r-1', '--rank=1', '--no', corr],
+      client,
+    );
+    expect(wrongRank.exitCode).toBe(2);
+    expect(wrongRank.stderr).toContain('whole output');
   });
 
   test('add rejects a malformed --correction', async () => {

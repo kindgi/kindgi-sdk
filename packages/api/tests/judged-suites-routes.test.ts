@@ -321,6 +321,47 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
     });
   });
 
+  test("a correction and an ordinary verdict on a caller's own 'decision' item stay apart", async () => {
+    // The reserved key is Kindgi's own, so a caller's item named 'decision'
+    // never shares it: the correction rides on `corrections`, and the caller's
+    // verdict rides on `items` — neither drops the other.
+    const common = {
+      tenantId,
+      projectId: project,
+      runId: 'run-apart',
+      run: { subject: subject(), input: { query: 'sigma' }, output: { decision: 'refund' } },
+    };
+    await h.judgments.record({
+      ...common,
+      item: { key: CORRECTION_ITEM.key },
+      verdict: 'no',
+      assertedBy: { kind: 'user', id: 'u7' },
+      judgeClassId: h.expertId,
+      correction: { calls: [{ tool: 'acme.refund', args: { amount: 25 } }], notCalled: [] },
+    });
+    await h.judgments.record({
+      ...common,
+      item: { key: 'decision', pointer: '/decision' },
+      verdict: 'yes',
+      assertedBy: { kind: 'user', id: 'u8' },
+    });
+    expect((await h.call('POST', BUILD, base)).status).toBe(201);
+
+    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    const built = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-apart');
+    // The correction survives (before the reserved key, a 'decision' judgment
+    // sharing its key would have merged and dropped it), and the caller's own
+    // 'decision' item stays a separate item from the reserved whole-output one.
+    expect(built.corrections).toHaveLength(1);
+    expect(built.corrections[0]).toMatchObject({
+      calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+    });
+    const keys = built.items.map((i: { key: string }) => i.key);
+    expect(keys).toContain('decision');
+    expect(keys).toContain(CORRECTION_ITEM.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
   test('segments keep only runs started in that segment or below it: a judgment in globex never counts for acme', async () => {
     const at = (company: string, more: { key: string; value: string }[] = []) => [
       { key: 'company', value: company },

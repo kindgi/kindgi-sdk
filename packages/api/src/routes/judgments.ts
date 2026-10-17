@@ -761,29 +761,38 @@ function parseItem(raw: unknown): JudgedItem | string {
 }
 
 /**
- * A correction must sit on the one fixed item (the whole output), so every
- * correction for a run by one expert lands on the same item and counts once.
- * Returns the message for a correction on any other item, else `undefined`.
+ * The correction item key is reserved for Kindgi. A judgment on it is accepted
+ * only when it carries a correction at pointer `""`; any other judgment there,
+ * at any pointer, is a 400. And a correction is accepted only there — so every
+ * correction for a run by one expert lands on the same item and counts once, and
+ * no caller's own item can collide with it. Returns the message for a judgment
+ * that breaks either rule, else `undefined`.
  */
-function correctionItemError(item: JudgedItem): string | undefined {
-  if (item.key !== CORRECTION_ITEM.key) {
-    return `a correction is recorded under the item "${CORRECTION_ITEM.key}", not "${item.key}".`;
+function reservedItemError(item: JudgedItem, hasCorrection: boolean): string | undefined {
+  if (item.key === CORRECTION_ITEM.key) {
+    if (!hasCorrection) {
+      return `the item "${CORRECTION_ITEM.key}" is reserved for corrections; judge an item of the output instead.`;
+    }
+    if (item.pointer !== undefined && item.pointer !== CORRECTION_ITEM.pointer) {
+      return 'a correction judges the whole output; leave item.pointer as "" or unset.';
+    }
+    return undefined;
   }
-  if (item.pointer !== undefined && item.pointer !== CORRECTION_ITEM.pointer) {
-    return 'a correction judges the whole output; leave item.pointer as "" or unset.';
+  if (hasCorrection) {
+    return `a correction is recorded under the item "${CORRECTION_ITEM.key}", not "${item.key}".`;
   }
   return undefined;
 }
 
 /**
  * The judgment's correction, an error message, or `undefined` when there is
- * none: the correction must parse and sit on the fixed item.
+ * none. The correction must parse; and whether or not one is present, the item
+ * must obey the reserved-key rule.
  */
 function parseCorrectionField(raw: unknown, item: JudgedItem): Correction | string | undefined {
-  if (raw === undefined) return undefined;
-  const parsed = parseCorrection(raw);
-  if (typeof parsed === 'string') return parsed;
-  return correctionItemError(item) ?? parsed;
+  const correction = raw === undefined ? undefined : parseCorrection(raw);
+  if (typeof correction === 'string') return correction;
+  return reservedItemError(item, correction !== undefined) ?? correction;
 }
 
 interface ClassBody {

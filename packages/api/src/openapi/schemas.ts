@@ -71,6 +71,7 @@ import {
   RETENTION_DOMAINS,
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
+import { CORRECTION_ITEM } from '@kindgi/types';
 
 import {
   DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
@@ -4284,7 +4285,11 @@ export const JudgedItemSchema: JsonSchema = {
   required: ['key'],
   description: "The judged item of a run's output.",
   properties: {
-    key: { type: 'string', minLength: 1, description: "The caller's stable id for the item." },
+    key: {
+      type: 'string',
+      minLength: 1,
+      description: `The caller's stable id for the item. \`${CORRECTION_ITEM.key}\` is reserved: a judgment on it is accepted only when it carries a correction at pointer \`""\`.`,
+    },
     pointer: {
       type: 'string',
       description:
@@ -4652,8 +4657,7 @@ export const CreateJudgmentBodySchema: JsonSchema = {
     },
     correction: {
       $ref: '#/components/schemas/Correction',
-      description:
-        'Optional. The tool calls the agent should have made, graded on a replay. A correction judges the run\'s whole output, so it is recorded under one fixed item (`item.key` `"decision"`, `item.pointer` `""`): a correction on any other item is a 400, and a second correction of the run by the same expert replaces the first, so it counts once.',
+      description: `Optional. The tool calls the agent should have made, graded on a replay. A correction judges the run's whole output, so it is recorded under one reserved item (\`item.key\` \`"${CORRECTION_ITEM.key}"\`, \`item.pointer\` \`""\`): a correction on any other item is a 400, and a second correction of the run by the same expert replaces the first, so it counts once.`,
     },
   },
 };

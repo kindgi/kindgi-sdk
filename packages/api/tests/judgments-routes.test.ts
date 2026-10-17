@@ -316,6 +316,42 @@ describe('POST /v1/judgments', () => {
     expect(res.body.error.message).toContain('whole output');
   });
 
+  test('an ordinary judgment on the reserved item is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { ...CORRECTION_ITEM },
+      verdict: 'no',
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('bad-input');
+    expect(res.body.error.message).toContain('reserved');
+  });
+
+  test('an ordinary judgment on the reserved key at any pointer is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: CORRECTION_ITEM.key, pointer: '/matches/0' },
+      verdict: 'yes',
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('reserved');
+  });
+
+  test('an ordinary caller key the reserved key no longer shadows is accepted', async () => {
+    const run = row({ output: { decision: 'refund' } });
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'decision', pointer: '/decision' },
+      verdict: 'yes',
+    });
+    expect(res.status).toBe(201);
+  });
+
   test('a correction call with oversized args is a 400', async () => {
     const run = row();
     const h = harness([run]);

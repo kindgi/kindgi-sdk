@@ -45,8 +45,9 @@ function ordinaryItem(ctx: CommandContext): JudgedItem {
 }
 
 /**
- * The one fixed item a correction rides on — the whole output — so it counts
- * once per run per expert. `--item` or `--pointer`, if given, may only name it.
+ * The one reserved item a correction rides on — the whole output — so it counts
+ * once per run per expert. `--item`, `--pointer` or `--rank`, if given, may only
+ * name that whole-output item; `--rank` never applies, so it is refused.
  */
 function correctionItem(ctx: CommandContext): JudgedItem {
   const key = stringFlag(ctx, 'item');
@@ -58,6 +59,9 @@ function correctionItem(ctx: CommandContext): JudgedItem {
   const pointer = ctx.options.pointer;
   if (typeof pointer === 'string' && pointer !== CORRECTION_ITEM.pointer) {
     throw new UsageError('a correction judges the whole output; drop --pointer');
+  }
+  if (integerFlag(ctx, 'rank') !== undefined) {
+    throw new UsageError('a correction judges the whole output; drop --rank');
   }
   return { key: CORRECTION_ITEM.key, pointer: CORRECTION_ITEM.pointer };
 }
@@ -87,7 +91,7 @@ const add: LeafCommand = {
     correction: {
       type: 'string',
       description:
-        'What the agent should have done, as JSON or `@<file>`: `{ "calls": [{ "tool": "<tool-id>", "args": { … } }], "notCalled": ["<tool-id>"] }`. `args` are the partial top-level fields to compare (those left out are not compared); `notCalled` lists tools that should not have been called at all. Graded on a replay. Recorded against the whole output, so a later correction of the same run by the same caller replaces it; `--item`/`--pointer` aren\'t needed.',
+        'What the agent should have done, as JSON or `@<file>`: `{ "calls": [{ "tool": "<tool-id>", "args": { … } }], "notCalled": ["<tool-id>"] }`. `args` are the partial top-level fields to compare (those left out are not compared); `notCalled` lists tools that should not have been called at all. Graded on a replay. Recorded against the whole output, so a later correction of the same run by the same caller replaces it; `--item`/`--pointer`/`--rank` aren\'t needed.',
     },
     class: {
       type: 'string',
