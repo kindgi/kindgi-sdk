@@ -11746,7 +11746,15 @@ export const SecretSetRequestSchema: JsonSchema = {
   properties: {
     scope: { $ref: '#/components/schemas/Scope' },
     envName: { $ref: '#/components/schemas/EnvName' },
-    name: { type: 'string', minLength: 1 },
+    name: {
+      type: 'string',
+      minLength: 1,
+      // Documented, not enforced on the wire: the create-name grammar is the
+      // server's (SECRET_NAME_ALLOWED), so the request stays additive — a client
+      // can still add a version to a name stored before this release.
+      description:
+        'A new secret name: 1 to 255 ASCII letters, digits, `.`, `-` and `_`, starting with a letter, digit or `_`, with any `.` between two non-`.` characters. The server holds a newly-created name to this shape (`create-new`, or an `add-version` of a name not yet stored); a name already stored outside this shape still reads, rotates and takes new versions.',
+    },
     value: { type: 'string' },
     writeMode: { type: 'string', enum: ['create-new', 'add-version'] },
     tags: { type: 'object', additionalProperties: { type: 'string' } },

@@ -12802,6 +12802,9 @@ class SecretSetRequest(BaseModel):
     Per-environment slug. `[a-z][a-z0-9-]{0,62}` — RFC-1035-like label.
     """
     name: Annotated[str, Field(min_length=1)]
+    """
+    A new secret name: 1 to 255 ASCII letters, digits, `.`, `-` and `_`, starting with a letter, digit or `_`, with any `.` between two non-`.` characters. The server holds a newly-created name to this shape (`create-new`, or an `add-version` of a name not yet stored); a name already stored outside this shape still reads, rotates and takes new versions.
+    """
     value: str
     write_mode: Annotated[Literal["create-new", "add-version"], Field(alias="writeMode")]
     tags: dict[str, str] | None = None

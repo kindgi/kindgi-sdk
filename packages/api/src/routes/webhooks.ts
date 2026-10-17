@@ -30,6 +30,7 @@ import {
 } from '../reference-scope.js';
 import { recordedSecretScope, secretScopesFor } from '../secret-scope.js';
 import type { SecretBinding } from '../secrets-binding.js';
+import { secretNameGrammarRefusal } from '../secrets-binding.js';
 import {
   type RegisterWebhookTriggerInput,
   type TriggerFire,
@@ -196,13 +197,14 @@ export function webhooksRouter(
   }
 
   /**
-   * A name `generateSecret` can't store the signing secret under
-   * (`nameRefusal`): the store's rule, as a typed `400`. Naming a secret
-   * that's already stored never asks: the dev store reads names it can't
-   * write (a key typed into `.env` by hand).
+   * A name `generateSecret` can't store the signing secret under: the shared
+   * name grammar ({@link secretNameGrammarRefusal}) first, then the store's
+   * own rule (`nameRefusal`), as a typed `400`. Naming a secret that's already
+   * stored never asks: the dev store reads names it can't write (a key typed
+   * into `.env` by hand).
    */
   function nameRefused(c: Context<AppEnv>, name: string): Response | undefined {
-    const refusal = secrets?.nameRefusal?.(name);
+    const refusal = secretNameGrammarRefusal(name) ?? secrets?.nameRefusal?.(name);
     if (refusal === undefined) return undefined;
     c.status(statusFor(refusal.code) as never);
     return c.json(
