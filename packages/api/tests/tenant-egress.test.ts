@@ -119,6 +119,9 @@ describe("GET /v1/tenant's egress", () => {
     expect(() => makeApp({ server: ['192.0.2.0/24'], deployments: [] })).toThrow(
       'egress.server: "192.0.2.0/24" isn\'t an IP address',
     );
+    expect(() => makeApp({ server: ['fe80::1%eth0'], deployments: [] })).toThrow(
+      'egress.server: "fe80::1%eth0" isn\'t an IP address',
+    );
   });
 
   test("a later change to the caller's arrays doesn't change the answer", async () => {

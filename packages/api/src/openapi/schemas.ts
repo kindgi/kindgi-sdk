@@ -10943,7 +10943,7 @@ export const EgressAddressesSchema: JsonSchema = {
   additionalProperties: false,
   required: ['server', 'deployments'],
   description:
-    "The IP addresses this deployment's calls to other sites come from, for a site that admits only known addresses. They're the same for every tenant on the deployment, so admitting them admits every tenant's calls: a site still checks its own credentials. They say where calls come from, not where they may go. Absent when the deployment publishes none. An empty list: none of that kind.",
+    "The IP addresses this deployment's calls to other sites come from, for a site that admits only known addresses. They're the same for every tenant on the deployment, so admitting them admits every tenant's calls: a site still checks its own credentials. They say where calls come from, not where they go. Absent when the deployment publishes none. An empty list: none of that kind.",
   properties: {
     server: {
       type: 'array',
