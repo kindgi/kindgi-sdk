@@ -12,9 +12,10 @@ import type { AnyTool } from '@kindgi/tools';
 import type { RunId, Semver, TenantId, Timestamp, ToolId } from '@kindgi/types';
 
 import { defineAgent } from '../src/define.js';
+import type { AgentVersionMismatchError } from '../src/errors.js';
 import type { TurnContext } from '../src/handlers/context.js';
 import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
-import { AgentTurnFailure } from '../src/handlers/errors.js';
+import { AgentTurnFailure, type RunJournalUnavailableError } from '../src/handlers/errors.js';
 import { rehydrateTurnContext } from '../src/handlers/rehydrate.js';
 import { resolveEffectiveHitlPolicy } from '../src/hitl-policy.js';
 import { resumeAgentTurn } from '../src/invoke.js';
@@ -295,6 +296,106 @@ describe('rehydrateTurnContext', () => {
       },
     });
     expect(resumes).toBe(0);
+  });
+
+  /** The bindings of a resumed turn whose snapshot reads, with `readJournal` as given. */
+  function resumeBindings(
+    turn: TurnContext,
+    agentVersion: string,
+    readJournal: () => Promise<unknown>,
+    resumes: { count: number },
+  ) {
+    return {
+      ...turn.bindings,
+      runSnapshotBinding: {
+        read: async () => ({
+          kind: 'ok',
+          value: {
+            runId: 'run-1',
+            tenantId,
+            projectId: 'p-1',
+            agentId: turn.input.agent.id,
+            agentVersion,
+            conversationId: 'conv-1',
+            userMessage: 'user 3',
+            dryRun: false,
+            createdAt: '2026-10-01T00:00:00Z',
+          },
+        }),
+      },
+      runBinding: {
+        readJournal,
+        resumeRun: async () => {
+          resumes.count += 1;
+          throw new Error('not resumed');
+        },
+      },
+    } as never;
+  }
+
+  test("a resumed turn whose run's journal can't be read fails with run-journal-unavailable, a declared error", async () => {
+    const turn = resumedTurn([provider('second')]);
+    const { agent: resumed } = turn.input;
+    const resumes = { count: 0 };
+    const result = await resumeAgentTurn(
+      { tenantId, runId: 'run-1' as RunId, agent: resumed },
+      resumeBindings(
+        turn,
+        resumed.version,
+        async () => ({
+          kind: 'err',
+          error: { code: 'persistence-error', message: 'connection reset' },
+        }),
+        resumes,
+      ),
+    );
+    expect(result).toEqual({
+      kind: 'err',
+      error: {
+        code: 'run-journal-unavailable',
+        message: 'Failed to read the journal of run run-1: connection reset',
+      },
+    });
+    // A typed caller narrows to it, as to any of the turn's errors.
+    if (result.kind === 'err' && result.error.code === 'run-journal-unavailable') {
+      const declared: RunJournalUnavailableError = result.error;
+      expect(declared.code).toBe('run-journal-unavailable');
+    }
+    expect(resumes.count).toBe(0);
+  });
+
+  test('a resume at another agent version than its snapshot fails with agent-version-mismatch, naming the conversation', async () => {
+    const turn = resumedTurn([provider('second')]);
+    const { agent: resumed } = turn.input;
+    const resumes = { count: 0 };
+    let journalReads = 0;
+    const result = await resumeAgentTurn(
+      { tenantId, runId: 'run-1' as RunId, agent: resumed },
+      resumeBindings(
+        turn,
+        '0.9.0',
+        async () => {
+          journalReads += 1;
+          return { kind: 'ok', value: parkedJournal };
+        },
+        resumes,
+      ),
+    );
+    expect(result).toMatchObject({
+      kind: 'err',
+      error: {
+        code: 'agent-version-mismatch',
+        conversationId: 'conv-1',
+        expectedVersion: '0.9.0',
+        actualVersion: resumed.version,
+      },
+    });
+    if (result.kind === 'err' && result.error.code === 'agent-version-mismatch') {
+      const declared: AgentVersionMismatchError = result.error;
+      expect(declared.conversationId).toBe('conv-1');
+    }
+    expect(journalReads).toBe(0);
+    expect(resumes.count).toBe(0);
   });
 });
 
