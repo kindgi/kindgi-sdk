@@ -82,14 +82,20 @@ docker exec -i kindgi-db-restored pg_restore -U kindgi -d kindgi --no-privileges
   doesn't have that role yet.
 
 `docker run -d` prints the new container's id. `pg_isready` prints
-`no response` until Postgres is up. `pg_restore` then reports one error, and
-exits `1`:
+`no response` until Postgres is up. `pg_restore` then prints nothing, and
+exits `0`:
 
 ```text
-09760d6e9bf5d2818925e52d5c0d30aae9b1b608458494784cbc738454df0e64
+63a0c75b208177672cd20076cfbaa9df3391ecfccbaf34d326420374c4d7c826
 127.0.0.1:5432 - no response
-…
 127.0.0.1:5432 - accepting connections
+```
+
+That's a backup of runtime 0.1.9 or later. A backup of an earlier runtime
+holds one policy that names the runtime's database role, which the fresh
+server doesn't have yet. Its restore reports one error, and exits `1`:
+
+```text
 pg_restore: error: could not execute query: ERROR:  role "…" does not exist
 Command was: CREATE POLICY tenant_rows ON public.auth_sso_providers TO … USING (…) WITH CHECK (…);
 
@@ -97,10 +103,8 @@ Command was: CREATE POLICY tenant_rows ON public.auth_sso_providers TO … USING
 pg_restore: warning: errors ignored on restore: 1
 ```
 
-The error comes from the one policy in the backup that names the runtime's
-database role, which the fresh server doesn't have yet. Everything else is
-restored. The runtime makes the role, and that policy, when it starts on the
-new database.
+Everything else is restored. The runtime makes the role, and that policy,
+when it starts on the new database.
 
 Point the runtime at the new database in `kindgi.env`, where `<DB_PASSWORD>`
 is the database password:
