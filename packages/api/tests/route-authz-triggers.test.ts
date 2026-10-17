@@ -28,7 +28,12 @@ import type { TenantId, UserId } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
-import type { RunHandlerBinding, TokenResolver, TriggerRegistryBinding } from '../src/index.js';
+import type {
+  RunHandlerBinding,
+  ServiceAccountBinding,
+  TokenResolver,
+  TriggerRegistryBinding,
+} from '../src/index.js';
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'route-authz-triggers';
@@ -163,6 +168,7 @@ const P_MINE = '00000000-0000-4000-8000-00000000a001';
 const P_THEIRS = '00000000-0000-4000-8000-00000000a002';
 const T_MINE = '00000000-0000-4000-8000-00000000b001';
 const T_THEIRS = '00000000-0000-4000-8000-00000000b002';
+const BOT = '00000000-0000-4000-8000-00000000c001';
 
 function webhookRecord(triggerId: string, flowId: string, projectId: string) {
   return {
@@ -204,20 +210,30 @@ function webhookHarness(grants: readonly string[]) {
   const triggers = {
     list: async () => ({ data: rows }),
     get: async ({ triggerId }: { triggerId: string }) => byId(triggerId),
-    register: async (input: { flowId: string; projectId: string }) =>
-      ok(webhookRecord(randomUUID(), input.flowId, input.projectId)),
+    register: async (input: { flowId: string; projectId: string; owner?: unknown }) =>
+      ok({
+        ...webhookRecord(randomUUID(), input.flowId, input.projectId),
+        ...(input.owner !== undefined && { owner: input.owner }),
+      }),
     update: async ({ triggerId }: { triggerId: string }) => ok(byId(triggerId)),
     pause: async ({ triggerId }: { triggerId: string }) => ok(byId(triggerId)),
     resume: async ({ triggerId }: { triggerId: string }) => ok(byId(triggerId)),
     unregister: async () => ({ unregistered: true }),
     listFires: async () => ({ data: [] }),
-    setOwner: async ({ triggerId }: { triggerId: string }) => ok(byId(triggerId)),
+    setOwner: async (input: { triggerId: string; owner?: unknown }) =>
+      ok({ ...byId(input.triggerId), ...(input.owner !== undefined && { owner: input.owner }) }),
   } as unknown as TriggerRegistryBinding;
   const app = createApp({
     ...createStubAppBindings(),
     triggerRegistry: triggers,
     resolveToken,
     runHandler: {} as RunHandlerBinding,
+    serviceAccountBinding: {
+      get: async ({ serviceAccountId }: { serviceAccountId: string }) =>
+        serviceAccountId === BOT
+          ? { serviceAccountId, tenantId, name: 'acme-bot', grants: [], createdAt: '' }
+          : null,
+    } as unknown as ServiceAccountBinding,
     authz: {
       fgaApiUrl: 'http://fga.invalid',
       authzCheckBinding: {
@@ -238,7 +254,7 @@ function webhookHarness(grants: readonly string[]) {
     hmacSecretName: 'acme-hmac',
     projectId,
   });
-  return { call, asked, registerBody };
+  return { app, call, asked, registerBody };
 }
 
 const READ_P = `read project:${P_MINE}`;
@@ -307,5 +323,61 @@ describe('webhook triggers: the project decides, as for schedules', () => {
     expect((await call('GET', '/00000000-0000-4000-8000-00000000ffff')).status).toBe(404);
     expect((await call('GET', '/t-missing')).status).toBe(404);
     expect(asked).toEqual([]);
+  });
+});
+
+// ---------- naming a service account as the owner (`runAsServiceAccountId`) ----------
+
+const ACT_AS_BOT = `act_as service_account:${BOT}`;
+const ownerOf = async (res: Response) =>
+  ((await res.json()) as { owner?: { kind: string; id: string } }).owner;
+
+describe('webhook triggers: naming a service account as owner needs `act_as` on it', () => {
+  test('register: `act_as` withheld is a 403; held, the account owns the trigger', async () => {
+    const withheld = webhookHarness([WRITE_P, EXECUTE_MINE]);
+    const refused = await withheld.call('POST', '', {
+      ...withheld.registerBody(MINE, P_MINE),
+      runAsServiceAccountId: BOT,
+    });
+    expect(refused.status).toBe(403);
+    expect(withheld.asked).toContain(ACT_AS_BOT);
+
+    const held = webhookHarness([WRITE_P, EXECUTE_MINE, ACT_AS_BOT]);
+    const ok = await held.call('POST', '', {
+      ...held.registerBody(MINE, P_MINE),
+      runAsServiceAccountId: BOT,
+    });
+    expect(ok.status).toBe(201);
+    expect(await ownerOf(ok)).toMatchObject({ kind: 'service', id: BOT });
+  });
+
+  test('take-over: `act_as` withheld is a 403; held, the account owns it', async () => {
+    const withheld = webhookHarness([ADMIN_P, EXECUTE_MINE]);
+    const refused = await withheld.call('POST', `/${T_MINE}/owner`, { runAsServiceAccountId: BOT });
+    expect(refused.status).toBe(403);
+    expect(withheld.asked).toContain(ACT_AS_BOT);
+
+    const held = webhookHarness([ADMIN_P, EXECUTE_MINE, ACT_AS_BOT]);
+    const ok = await held.call('POST', `/${T_MINE}/owner`, { runAsServiceAccountId: BOT });
+    expect(ok.status).toBe(200);
+    expect(await ownerOf(ok)).toMatchObject({ kind: 'service', id: BOT });
+  });
+
+  test("a take-over body that isn't a JSON object with a service-account id is a 400", async () => {
+    const h = webhookHarness([ADMIN_P, EXECUTE_MINE]);
+    const raw = (rawBody: string) =>
+      h.app.request(`/v1/webhooks/${T_MINE}/owner`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: rawBody,
+      });
+    expect((await raw('not json{')).status).toBe(400); // not valid JSON
+    expect((await raw('[1,2]')).status).toBe(400); // an array, not an object
+    expect((await h.call('POST', `/${T_MINE}/owner`, { runAsServiceAccountId: 123 })).status).toBe(
+      400,
+    ); // not a string
+    expect((await h.call('POST', `/${T_MINE}/owner`, { runAsServiceAccountId: '' })).status).toBe(
+      400,
+    ); // empty
   });
 });
