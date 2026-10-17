@@ -24,7 +24,7 @@ import type { KernelBinding } from '@kindgi/runtime';
 
 import type { BlobStorageBinding } from '@kindgi/blob-binding';
 import type { MemoryQueryBinding } from '@kindgi/memory';
-import type { PolicyRegistryBinding } from '@kindgi/policy-contract';
+import { type PolicyRegistryBinding, RETENTION_DOMAINS } from '@kindgi/policy-contract';
 import type { AdapterRegistryBinding } from './adapter-binding.js';
 import type { AgentRegistryBinding } from './agent-binding.js';
 import type { BlockRegistryBinding } from './block-binding.js';
@@ -108,7 +108,7 @@ import {
 } from './public-run-token.js';
 import { type RateLimitStore, nearestForwardedClient } from './rate-limit-store.js';
 import type { ReferenceScopeBinding } from './reference-scope.js';
-import type { RetentionBinding } from './retention-binding.js';
+import type { RetentionBinding, RetentionLimits } from './retention-binding.js';
 import type { ReviewerBinding, ReviewerRegistryBinding } from './reviewer-binding.js';
 import {
   type RotationStatusStore,
@@ -836,6 +836,15 @@ export interface CreateAppInput {
    */
   readonly policyRegistry?: PolicyRegistryBinding;
   /**
+   * The most a retention policy may keep a domain's tombstoned rows, per
+   * domain, in whole seconds (`RetentionLimits`): publishing or
+   * reinstating a policy that keeps a limited domain's rows longer, or
+   * holds them, is `400 retention-over-limit`. What the runtime's sweep
+   * does with the limit is the runtime's (it caps the domain, and applies
+   * the limit where no policy covers it). Absent: no limit, any grace.
+   */
+  readonly retentionLimits?: RetentionLimits;
+  /**
    * Optional. When present, mounts the evaluation-suite catalog surface
    * (`/v1/eval-suites` list/get/publish, `/v1/eval-suites/:suiteId/versions/*`).
    * Full versioned CRUD — mirrors `policies` 1:1. Registry-only:
@@ -1290,6 +1299,19 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     throw new Error(
       "createApp: a runtime serving many tenants needs systemAccessAudit, the record of every request the operator's system keys make",
     );
+  }
+  // A limit that isn't one would refuse every policy, or none.
+  for (const [domain, limit] of Object.entries(input.retentionLimits ?? {})) {
+    if (domain === '*' || !(RETENTION_DOMAINS as readonly string[]).includes(domain)) {
+      throw new Error(
+        `createApp: retentionLimits names "${domain}", which isn't a retention domain (one of ${RETENTION_DOMAINS.filter((d) => d !== '*').join(', ')})`,
+      );
+    }
+    if (!Number.isSafeInteger(limit?.seconds) || (limit?.seconds ?? 0) < 1) {
+      throw new Error(
+        `createApp: retentionLimits.${domain}.seconds must be a whole number of seconds, 1 or more (got ${String(limit?.seconds)})`,
+      );
+    }
   }
   // Every secret route and reader goes through one binding, whose writes
   // the webhook receiver hears: it keeps a trigger's signing key for a few
@@ -1891,7 +1913,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   if (input.policyRegistry !== undefined) {
-    v1.route('/policies', policiesRouter(input.policyRegistry, authorizer));
+    v1.route(
+      '/policies',
+      policiesRouter(input.policyRegistry, authorizer, {
+        ...(input.retentionLimits !== undefined && { retentionLimits: input.retentionLimits }),
+      }),
+    );
   }
   if (input.evalSuiteRegistry !== undefined) {
     v1.route('/eval-suites', evalSuitesRouter(input.evalSuiteRegistry, authorizer));

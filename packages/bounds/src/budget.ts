@@ -73,6 +73,24 @@ interface Ledger {
 }
 
 /**
+ * A piece of a tenant's work that runs somewhere else and ends later (a
+ * render in a child process), charged for the time from its `start` to
+ * its `end`.
+ */
+export interface TenantWork {
+  /** The work started: its time counts from now. A second call changes nothing. */
+  start(): void;
+  /**
+   * The work ended: charges the time since `start`, a failed piece's too.
+   * Work that never started is charged nothing. A second call changes nothing.
+   */
+  end(): void;
+}
+
+/** Work no budget counts. */
+const UNCOUNTED: TenantWork = Object.freeze({ start: () => undefined, end: () => undefined });
+
+/**
  * The time each tenant spent on one kind of work in the last 60 seconds,
  * against `budgetMs`; `refuse` makes the error for a tenant past it. An
  * infinite budget keeps no count. Charging a piece costs the same however
@@ -107,6 +125,34 @@ export class TenantTimeBudget {
     } finally {
       this.spend(tenant, now, this.clock.monotonic() - started);
     }
+  }
+
+  /**
+   * For work that runs somewhere else and ends later (a render in a worker
+   * thread): refused as `charge` refuses, now, before it's handed over,
+   * once the tenant has spent its budget. The work returned is charged for
+   * the time from its `start()` to its `end()`, as work that started then,
+   * so time it spends waiting to start isn't counted.
+   */
+  admit(tenant: string): TenantWork {
+    if (this.budgetMs === Number.POSITIVE_INFINITY) return UNCOUNTED;
+    const now = this.clock.now();
+    this.sweep(now);
+    this.check(tenant, now);
+    let started: { readonly at: number; readonly monotonic: number } | undefined;
+    let ended = false;
+    return {
+      start: () => {
+        if (started !== undefined || ended) return;
+        started = { at: this.clock.now(), monotonic: this.clock.monotonic() };
+      },
+      end: () => {
+        if (ended) return;
+        ended = true;
+        if (started === undefined) return;
+        this.spend(tenant, started.at, this.clock.monotonic() - started.monotonic);
+      },
+    };
   }
 
   /** Once a window: drops the work that left it, and the tenants with none left. */
