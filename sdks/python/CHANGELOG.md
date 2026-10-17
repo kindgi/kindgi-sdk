@@ -10,6 +10,8 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+## 0.1.9
+
 - `kindgi`: **a webhook or schedule trigger can run as a service account.**
   `run_as_service_account_id` on `webhooks.register`,
   `webhooks.take_ownership`, `schedules.register` and

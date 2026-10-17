@@ -1,5 +1,38 @@
 # @kindgi/testing
 
+## 0.1.9
+
+### Patch Changes
+
+- Updated dependencies [83ad88a]
+- Updated dependencies [6ed7bc6]
+- Updated dependencies [5d68d0d]
+- Updated dependencies [499082a]
+- Updated dependencies [17bc390]
+- Updated dependencies [66e5ec7]
+- Updated dependencies [22b619b]
+- Updated dependencies [e5b38a8]
+- Updated dependencies [1ac8e67]
+- Updated dependencies [404c4c9]
+- Updated dependencies [53b09f7]
+- Updated dependencies [8f52412]
+- Updated dependencies [f56c6ae]
+- Updated dependencies [c46503d]
+- Updated dependencies [e35d94f]
+- Updated dependencies [7be42d0]
+- Updated dependencies [f605c7e]
+- Updated dependencies [f82bb04]
+- Updated dependencies [c8d3c1e]
+- Updated dependencies [66bb5eb]
+- Updated dependencies [5b5bd3b]
+- Updated dependencies [c44d803]
+- Updated dependencies [3be3ba0]
+- Updated dependencies [409b9bf]
+- Updated dependencies [10ec595]
+- Updated dependencies [3502389]
+- Updated dependencies [dd34dcf]
+  - @kindgi/api@0.1.9
+
 ## 0.1.8
 
 ### Patch Changes

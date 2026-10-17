@@ -1,5 +1,16 @@
 # @kindgi/runtime
 
+## 0.1.9
+
+### Patch Changes
+
+- Updated dependencies [22b619b]
+- Updated dependencies [3502389]
+  - @kindgi/flow@0.1.9
+  - @kindgi/authz@0.1.9
+  - @kindgi/handler@0.1.9
+  - @kindgi/types@0.1.9
+
 ## 0.1.8
 
 ### Patch Changes

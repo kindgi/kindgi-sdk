@@ -1,5 +1,0 @@
----
-"@kindgi/cli": patch
----
-
-**`kindgi build` (and an inline build from `kindgi deploy`) now guards `--out`.** In any language, `--out` can no longer be the pack root itself, nor a directory that contains it — the build writes `dist/`, the `Containerfile` and `context/`, which would land on the pack's own files or, from a containing directory, beside the pack over a sibling of the same name. For a TypeScript pack, `--out` must also stay under the pack root: that build's local indexer runs `node <out>/dist/kindgi-index.mjs` and resolves the pack's dependencies (`zod`, `@kindgi/*`) by walking up from `<out>/dist` into the pack's `node_modules`, which only works under the pack root; an outside `--out` otherwise fails the index with `Cannot find package '@kindgi/sdk'`. A Python or JVM pack's indexer takes the pack directory and an explicit output path, so its `--out` may sit anywhere outside the pack. The checks follow symlinks — including a dangling in-pack symlink that points outside — so one can't slip the output past them. The default (`.kindgi/build` under the pack root) and any path inside the pack are unaffected.
