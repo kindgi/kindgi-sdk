@@ -13,12 +13,13 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type { SecretsValueInputSeam } from '../src/commands/secrets.js';
 import type { EnvRunners } from '../src/env/runners.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
 import { PromptCancelled, type TtySeam } from '../src/terminal-input.js';
+import { stubOutGitRepoVars } from './git-env.js';
 
 let packDir: string;
 
@@ -109,11 +110,13 @@ function baseInputs(
 }
 
 beforeEach(async () => {
+  stubOutGitRepoVars();
   packDir = await mkdtemp(join(tmpdir(), 'kindgi-cli-secrets-'));
   await writeFile(join(packDir, 'kindgi.config.ts'), 'export default {};\n', 'utf8');
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await rm(packDir, { recursive: true, force: true });
 });
 
