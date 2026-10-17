@@ -279,10 +279,11 @@ a role.
 - **`licenseOperatorOnly`:** `true` when `GET /v1/license` refuses you
   whatever your role, because the license is the deployment operator's, as
   on a runtime serving many tenants; the console doesn't ask it then.
-  `false` with the deployment's own token, and where the deployment is set
-  up to serve one tenant (without `KINDGI_TENANCY=multi`) and its database
-  holds only yours, whose admins (`tenant.admin`) read the license's
-  countdown. It's absent when the deployment has no license to read, or
+  `false` when your role decides: the deployment's own token reads it, and
+  where the deployment is set up to serve one tenant (without
+  `KINDGI_TENANCY=multi`) and its database holds only yours, its admins
+  (`tenant.admin`) read the license's countdown and its other people are
+  still refused. It's absent when the deployment has no license to read, or
   couldn't read its tenants just then, and on an older runtime: ask
   `GET /v1/license` as before.
 - **`readOnlyNotice`:** the line the console shows someone who may only
