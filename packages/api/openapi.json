@@ -19126,6 +19126,9 @@
           },
           "limits": {
             "$ref": "#/components/schemas/TenantLimits"
+          },
+          "egress": {
+            "$ref": "#/components/schemas/EgressAddresses"
           }
         }
       },
@@ -19168,6 +19171,33 @@
             "type": "integer",
             "minimum": 1,
             "description": "Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production."
+          }
+        }
+      },
+      "EgressAddresses": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "server",
+          "deployments"
+        ],
+        "description": "The IP addresses this deployment's calls to other sites come from, for a site that admits only known addresses. They're the same for every tenant on the deployment, so admitting them admits every tenant's calls: a site still checks its own credentials. They say where calls come from, not where they may go. Absent when the deployment publishes none. An empty list: none of that kind.",
+        "properties": {
+          "server": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "An IPv4 or IPv6 address."
+            },
+            "description": "Where the server's own calls come from, such as its calls to MCP servers and model providers, and its webhook deliveries."
+          },
+          "deployments": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "An IPv4 or IPv6 address."
+            },
+            "description": "Where calls made by the code deployed to it come from."
           }
         }
       },
@@ -49826,7 +49856,7 @@
             }
           }
         },
-        "description": "Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), and one that sets limits adds the tenant's `limits`.",
+        "description": "Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the tenant's `limits`, and a deployment that publishes where its calls come from adds `egress`.",
         "security": [
           {
             "bearerAuth": []

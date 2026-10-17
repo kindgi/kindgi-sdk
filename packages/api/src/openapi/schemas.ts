@@ -10930,6 +10930,32 @@ export const TenantSchema: JsonSchema = {
         'On a runtime serving many tenants: `closing` (readable and exportable for its window, nothing changes) or `suspended` (the same, until restored). `closing` wins. Absent: active.',
     },
     limits: ref('TenantLimits'),
+    egress: ref('EgressAddresses'),
+  },
+};
+
+/**
+ * `EgressAddresses` — where a deployment's calls to other sites come
+ * from. `GET /v1/tenant`'s `egress`, the deployment's, not the tenant's.
+ */
+export const EgressAddressesSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['server', 'deployments'],
+  description:
+    "The IP addresses this deployment's calls to other sites come from, for a site that admits only known addresses. They're the same for every tenant on the deployment, so admitting them admits every tenant's calls: a site still checks its own credentials. They say where calls come from, not where they may go. Absent when the deployment publishes none. An empty list: none of that kind.",
+  properties: {
+    server: {
+      type: 'array',
+      items: { type: 'string', description: 'An IPv4 or IPv6 address.' },
+      description:
+        "Where the server's own calls come from, such as its calls to MCP servers and model providers, and its webhook deliveries.",
+    },
+    deployments: {
+      type: 'array',
+      items: { type: 'string', description: 'An IPv4 or IPv6 address.' },
+      description: 'Where calls made by the code deployed to it come from.',
+    },
   },
 };
 
@@ -13313,6 +13339,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['AddProjectMembershipResult', AddProjectMembershipResultSchema],
   ['Tenant', TenantSchema],
   ['TenantLimits', TenantLimitsSchema],
+  ['EgressAddresses', EgressAddressesSchema],
   ['ProductionAllowedBody', ProductionAllowedBodySchema],
   ['TenantProductionAllowed', TenantProductionAllowedSchema],
   ['TenantLimitsResult', TenantLimitsResultSchema],

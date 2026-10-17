@@ -151,6 +151,7 @@
   ],
   "DroppedItem": ["ComparisonCaseResult.changes.dropped"],
   "Edge": ["ProvenanceRecord.dag.edges"],
+  "EgressAddresses": ["EgressAddresses"],
   "EmailLink": ["SignInOptions.methods.emailLink"],
   "EnrollSiteBody": ["EnrollSiteBody"],
   "EnrollSiteResult": ["EnrollSiteResult"],

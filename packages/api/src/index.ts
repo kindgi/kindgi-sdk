@@ -26,6 +26,7 @@ export type {
 } from './routes/license.js';
 export { WRITE_AUDIT_KINDS } from './routes/write-audit.js';
 export type { ProductionGateOptions } from './routes/project-production.js';
+export type { EgressAddresses } from './routes/tenant.js';
 export { USAGE_CLASSES, USAGE_KINDS, type UsageClass, type UsageKind } from './usage.js';
 export type { WriteAuditKind } from './routes/write-audit.js';
 export {
