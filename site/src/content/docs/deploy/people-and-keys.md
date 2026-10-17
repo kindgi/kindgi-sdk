@@ -426,7 +426,9 @@ settings. Without it, such a read is refused, and the refusal says how to
 grant it.
 
 `kindgi service-accounts unregister <service-account-id>` takes its grants
-away, and its keys stop working.
+away, and its keys stop working. If it stops part way, its keys have
+already stopped: run it again to take away the grants it left (runtime
+0.1.9 or later).
 
 ## Who sees the tenant's people
 
