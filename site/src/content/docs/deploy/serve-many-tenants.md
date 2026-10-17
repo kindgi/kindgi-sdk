@@ -387,7 +387,11 @@ keys and people, as the first of many.
    tenant,** `KINDGI_TENANT_ID` kept. If the tenant has no authorization
    store yet, because it ran without OpenFGA, that start sets one up. Going
    straight to many tenants would leave it without one, and `tenants repair`
-   can't make one.
+   can't make one. For such a tenant, this step needs runtime 0.1.8.1 or
+   later. With a runtime older than 0.1.8.1, the store this start sets up
+   makes only the seed user an admin: the people and service accounts the
+   tenant added stay refused, and `tenants repair` doesn't put their access
+   back.
 3. **Start it with many tenants:** `KINDGI_TENANCY=multi` and the
    [settings above](#the-settings-it-starts-only-with), with
    `KINDGI_TENANT_ID`, `KINDGI_SEED_USER_ID` and the rest that name one
@@ -398,10 +402,9 @@ keys and people, as the first of many.
    tenant, so whoever used it as the tenant's admin needs another way in
    first. A tenant key minted before the switch keeps working, and so does
    the tenant's sign-in.
-4. **Run `kindgi-runtime tenants repair --all`** once. If the tenant ran
-   without OpenFGA, switch with runtime 0.1.8.1 or later: on 0.1.8, the
-   people and service accounts it added stay refused, and its repair doesn't
-   put their access back.
+4. **Run `kindgi-runtime tenants repair --all`** once. If you switched a
+   tenant that ran without OpenFGA with a runtime older than 0.1.8.1, upgrade
+   to 0.1.8.1 or later and run it again: it puts their access back.
 5. **Set the tenant's image repository:**
    `PUT /v1/system/tenants/{tenantId}/image-prefix` with `{"prefix": "<host>/<path>"}`.
 6. **Deploy each pack again.** Its deployments from before have no routes,
