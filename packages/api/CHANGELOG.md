@@ -1,5 +1,211 @@
 # @kindgi/api
 
+## 0.1.9
+
+### Patch Changes
+
+- 83ad88a: **A 500's body no longer repeats the thrown error's own message.** An unhandled exception now answers with a fixed message — `A database query failed.` for a failed query, `Unhandled server error` otherwise — and the request id. A thrown error's message often carries internal detail (an upstream's `connect ECONNREFUSED <address>`, a database driver's string, an audience value), which reached the tenant whose request failed — on a shared deployment, detail of the platform every tenant shares; it now stays in the `unhandled error` log line under the same request id, so an operator can still correlate and read the whole error. Errors that mean to speak to the client are unchanged (`getResponse`, `TenantBudgetError` → `429` with its budget, wire errors).
+- 6ed7bc6: **A person who is the tenant's admin reads approvals at every tier.** With authorization on, `GET /v1/approvals` and `GET /v1/approvals/{approvalId}` let a person who is the tenant's admin read approvals in the projects they may read. With no roster entry, they read as an `admin` reviewer. With a lower role on the roster, they read their own tier, and any tier they ask for (`requiredRole`, or one approval).
+  - **No one new gets this:** a tenant admin could already register themselves as an `admin` reviewer.
+  - **Deciding and signing an audit bundle stay the roster's.** An API key reads as its user does, within its own limits: a key with no user, a `member` key and a key limited to a project read nothing new.
+  - **Anyone else is answered as before:** a tier above their own is still `403`, and one approval above it is still `404`.
+  - **The roster doesn't show such a reader.** The access audit records the tenant-admin check (`authz-decision`), made only where it changes what the roster gives: a reviewer reading their own tier makes none.
+- 5d68d0d: **An audit record that can't be written, and a check the authorization model can't answer, are logged through your logger instead of the console.**
+  - `emitResolveEvent` and `emitLifecycleEvent` (`@kindgi/compliance`) take an optional `log`, a `@kindgi/log` `Logger`. An append that fails or throws still never fails the caller's operation. It's logged there at `warn`, with the record's `tenantId` and `kind`, and the error's `code` or the error it threw. Without a `log` it isn't logged anywhere; before, it went to `console.warn`.
+  - `createApp` passes the request's logger, under the subsystem `audit`, for a secret or env write's record and for a secret read refused for its scope. `resolveAtScope` takes that `log` as an optional fourth argument. An app without a `logger` won't see that a record was dropped, and the `logger` option's docs say so.
+  - A check the authorization model has no relation for, which is a bug in a route, is logged at `error` through the request's logger, under the subsystem `authz`, with its `action` and `resource`. Before, it went to `console.error`.
+  - `createInMemoryEnvBinding` takes an optional `log` and passes it on with every audit record it writes.
+- 499082a: **Cost filters to one flow.** `GET /v1/cost/records` and `GET /v1/cost/aggregate` take `flowId`: every record of the run trees whose root is a run of that flow, whatever its version. A flow's page can now show the flow's own spend (`groupBy=day&flowId=…`), where the aggregate could only group by flow before. In the TypeScript client, `cost.usage.query` and `cost.usage.summary` take `flowId`; in the Python client, `flow_id`.
+- 17bc390: **A `GET` or `HEAD` the database was too busy to answer in time answers `503 database-busy` with `Retry-After`, where it answered `500 internal-server-error`.** The API answers it for a thrown error that carries `code: 'database-busy'`, on itself or on its `cause` chain, as the runtime's storage marks a lock or statement timeout, or a wait for a pooled connection past its limit. A request with any other method keeps the 500: a write may have saved part of its work before the timeout, and clients retry a 503 as an answer that nothing ran.
+  - The TS client's server error now carries `retryAfterSeconds` from a 503's `Retry-After` (whole seconds or an HTTP date). The client still doesn't retry on its own.
+- 66e5ec7: **A read whose binding returns the database's busy failure, instead of throwing it, now answers `503 database-busy` too.** A `GET` or `HEAD` the database was too busy for answered `503 database-busy` with `Retry-After` only when its binding threw the storage failure. A binding can instead return the failure as a Result error under its own code (`persistence-error`, `journal-error`, `blob-storage-error`), keeping it as the error's `cause`. The route then answered that code's `500`. These reads now check for the busy mark first and answer the same 503:
+  - `GET /v1/approvals` and `/v1/approvals/{approvalId}`;
+  - `/v1/conversations`, `/v1/conversations/{conversationId}` and `/v1/conversations/{conversationId}/messages`;
+  - `/v1/runs/{runId}/journal`;
+  - `/v1/audit/authz` and `/v1/audit/sign-ins`;
+  - `/v1/observations`;
+  - `/v1/provenance` and `/v1/provenance/{runId}`;
+  - `/v1/artifacts`.
+  
+  A request with any other method answers as before. A thrown error that carries its own response (`getResponse`), with the busy mark down its `cause`, now answers a `GET` or `HEAD` with the 503 as well. `SupervisorQueryObservationsOutcome`'s `runtime-error` takes an optional `cause`, which never reaches the response.
+- 22b619b: **A deployment whose agent or flow carries a schema that doesn't compile is refused, naming where it sits.** `POST /v1/deployments` used to check an index's agents and flows for shape only. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile deployed, and then every turn or run refused it. It's now `400 deployment-validation-failed`, as `defineAgent` and the flow loader refuse it: one issue per schema, at its path (`/output/schema`, `/nodes/<i>/branches/<k>/outputSchema`, …). An agent's `output` that isn't an object is refused at `/output`. Each compile counts against the tenant's compile budget, as the deployment's other compiles do.
+  - `flowSchemaProblems(flow)` (`@kindgi/flow`) lists every inline schema of a flow that doesn't compile, where a run compiles it, with its path: for a flow that never went through `loadFlow`.
+  - `defineAgent` refuses an `output` that isn't an object at `/output`, as the deployment does, instead of throwing a `TypeError` on `null`: `POST /v1/agents` answers `400 validation-failed` for it.
+- e5b38a8: **`GET /v1/deployments` answers `503` when the database is busy, and more `500`s stop repeating an error's own message.** The deployments list built its own `500` in a `catch`, so a busy-database error became a `500` instead of the `503` + `Retry-After` the central handler gives a read; it now lets the error through. The deployments write paths and the signed-export failures that put a thrown error's, an outcome's or a signing error's message into a `500` body route through the handler too: the body carries a fixed message and the cause goes to the log. The public wire codes are unchanged (`export-key-error`, `compliance-export-failed` and `persistence-error` on the signing `500`s; `signing-key-not-found` stays a `4xx`), and the fixed-string wiring errors are left as deliberate client messages. One deployment-record `500` passed a `cause: outcome.code` field into its body; `toWireError` already dropped it before the wire (the `error` object is `additionalProperties: false`), so no response shape changes.
+- 1ac8e67: **A deployment can publish the IP addresses its calls to other sites come from, and `kindgi egress` prints them,** for a site that admits only known addresses. Publishing them changes nothing about where calls go or come from.
+  - **Settings:** `KINDGI_EGRESS_SERVER_ADDRESSES` (the server's own calls, such as to MCP servers and model providers, and its webhook deliveries) and `KINDGI_EGRESS_DEPLOYMENT_ADDRESSES` (calls made by deployed code), each a comma-separated list of IPv4 or IPv6 addresses. Unset: nothing is published.
+  - **`GET /v1/tenant`** gains an optional `egress: { server, deployments }`, the same for every tenant on the deployment, which any key of the tenant reads. It's absent when the deployment publishes none, and from a runtime before it. For runtimes: `createApp`'s optional `egress` (`EgressAddresses`), whose entries must be IP addresses.
+  - **`kindgi egress`** prints a CALLS / ADDRESS table, and says every tenant on the deployment shares the addresses, so a site keeps its own credentials too. `--json` prints both lists. With none published it says so, and exits 0.
+  - The TypeScript and Python clients' `Tenant` gains the optional `egress`.
+- 404c4c9: **A cleared deployment says whether its pack service comes back, and why it isn't back yet.** Restoring a tenant, project or pack lists its `cleared` deployments that aren't superseded as needing a pack service again (`GET /v1/system/deployments?endpoint=missing`). Such a deployment's status stays `cleared` while it waits. Before, a client couldn't tell it from one that's gone for good, and nothing said why it was still waiting.
+  - **`waiting` or `retired` on every `cleared` endpoint** (`DeploymentEndpoint`, wherever a deployment's endpoint is returned: `GET /v1/deployments`, `GET /v1/deployments/{id}`, `POST /v1/deployments`, and the system routes). `waiting: true` means a pack service is wanted for it again, and it lists as needing one (`?endpoint=missing`). `retired` says why none is wanted now, as the orchestrator is told to retire one:
+    - `superseded` is for good: newer deployments ship every tool version and check it does, so no new call reaches it; a tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`);
+    - `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored.
+  
+    A `cleared` endpoint carries one of the two, and no other endpoint carries either. Both are optional: an older server sends neither. `retired` is a string, so a later reason doesn't break a client. `SYSTEM_DEPLOYMENT_RETIRE_REASONS` and `SystemDeploymentRetireReason` now come from `@kindgi/api`'s deployment types, with the same names.
+  - **A problem while it waits:** `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem` records why a `waiting` deployment has no pack service yet, as for a `pending` one, and a refused `PUT …/endpoint` records its reason the same way. A `cleared` deployment that isn't waiting is still refused, `409 endpoint-not-pending`, with a message that says it isn't waiting for a pack service. `problem` shows while a deployment waits (`pending`, or `cleared` and `waiting`): never on a `ready` one, nor on a `retired` one.
+  - **`kindgi deploy --hosted` waits for a `waiting` one** as it waits for a pending one: `… cleared, waiting for its pack service again`, with the problem's line when there is one. On a `retired` one it stops at once and says why, e.g. on a repeat deploy of a superseded image: `The deployment's pack service was taken down (cleared, superseded): a later deploy ships every tool version and check this one does, so no call reaches it again.` From a server that sends neither, it stops as before, now saying only that the pack service was taken down (cleared), no longer "before it was ready".
+  
+  The descriptions of `DeploymentEndpoint`, its `problem`, `DeploymentEndpointProblem` and the problem route say so, in `@kindgi/api` and both clients.
+- 53b09f7: **`GET /v1/environments` lists the tenant's env names,** for a tenant admin: each name that holds an env value or a secret, at any scope, once, in byte order, paged by `cursor` and `limit`.
+  - An env store and a secrets store each say their own names through a new optional `listEnvNames({ tenantId, limit, after })` (`EnvBinding`, `SecretBinding`). A runtime whose store doesn't answers `501 environments-unsupported`, which names the store, rather than a list missing its names.
+  - The in-memory env store gives the names its tenant's values are under. The dotenv secrets store gives `local` and each `.env.<name>` file that holds a name.
+  - The TypeScript and Python clients list them with `client.environments.list()`.
+- 8f52412: **An eval run or an improvement pass stops when its project or tenant does.** The eval subject's new optional `halt` outcome says a case couldn't start because its project is suspended, or its tenant is suspended or closing. The eval run stops at that case, counting it nowhere, and ends `cancelled`, with the reason in its new optional `cancelReason` (`project-suspended`, `tenant-suspended`, `tenant-closing`) and the cases before it in `result`. An improvement pass whose comparison ends that way ends `cancelled` with the same `cancelReason` and goes no further, as when a person cancels it: it drafts no proposal, and one already drafted for its winner (stopped at the proof on the hold-out part) stays drafted. A runtime that doesn't set `halt` behaves as before: such a case is its own error. Where the runtime suspends projects, starting an eval run in a suspended one, or a pass for one of its agents, is refused `409 project-suspended`. An improvement pass's webhook event (`improvement-pass.finished`) carries `cancelReason` too (`parseEvent`). `kindgi proposals passes list` shows a cancelled pass's `cancelReason` in its outcome column.
+- f56c6ae: **The event streams for runs, eval runs and secret rotations stop their work as soon as the reader goes away (it cancels the stream, or the request is aborted), and a `HEAD` on one starts none of it.**
+  
+  Each of these server-sent-events routes starts its work when it opens the stream. Before this change, nothing stopped that work when the reader went away. That covers a client that disconnected mid-stream, and one that left while the route was still reading: the server cancels only a body it is writing, so that client never cancelled anything. Hono answers a `HEAD` with the `GET` route and drops the body without cancelling it, so every `HEAD` started the same work. The work then ran to its own end:
+  - `GET /v1/runs/{runId}/stream` and `/progress/stream`: a journal read every 200 ms, or an event-bus subscription, until the run's terminal event or five minutes.
+  - `GET /v1/eval-runs/{runId}/events`: a read of the eval run every 100 ms, until it ends or five minutes.
+  - `GET /v1/secrets/{name}/rotations/{rotationId}/events`: a subscription to the rotation's status and a heartbeat every 15 s, for as long as the rotation stays `pending`, with no time limit.
+  
+  Each stream now stops when its reader cancels it or its request is aborted:
+  - the poll and its wait end at once, and so does the five-minute wait;
+  - the subscription ends, and the heartbeat stops;
+  - a reader that cancels while the run's journal is still being read back doesn't subscribe at all.
+  
+  A `HEAD` answers with the stream's status and headers (`200`, or the `GET`'s `404`) and doesn't start the stream. So does a request that was aborted while the route was reading. A reader that stays connected receives the same events as before.
+- c46503d: **A closing or suspended workspace's refused write says what still changes in it.** The `409 tenant-closing` and `409 tenant-suspended` messages, and S3's `403 AllAccessDisabled`, said nothing in it changes, though its deletes, revocations and erasures still go through. They now name those.
+- e35d94f: **A `HEAD` on an artifact or an S3 object reads its metadata only, and no longer leaves the object open.**
+  
+  Hono answers a `HEAD` with the `GET` route at its path and drops the body. So `HEAD /v1/artifacts/{blobId}` and S3 `HeadObject` (`HEAD /s3/{bucket}/{key}`) ran the download: each opened the blob through the storage binding (`get`, `getByKey`), and nothing read or closed it. On a filesystem store each such `HEAD` left a file handle open for the life of the process; an object store's binding can hold its connection the same way. The routes' own `HEAD` handlers never ran.
+  
+  Now each `GET` route answers a `HEAD` itself, from the binding's metadata-only read (`head`, `headByKey`), and never opens the blob. A `HEAD` answers the same status and headers as before, which are the `GET`'s, except where the binding can't open what its metadata read describes: a `HEAD` answers from the metadata read (`200` for a record it finds, `404` when there's none), where the `GET` answers the open's error. The status and headers are:
+  - an artifact: `200` with `Content-Type`, `Content-Length`, `X-Kindgi-Blob-Hash` and `X-Kindgi-Blob-Name`, or the `GET`'s `404 blob-not-found`;
+  - an S3 object: `200` with `Content-Type`, `Content-Length`, `ETag`, `Last-Modified`, `Accept-Ranges` and the `x-amz-meta-*` headers; with a `Range`, the `206` headers or `416 InvalidRange`; or `404 NoSuchKey`.
+  
+  A `GET` of an S3 object with a malformed `Range` now cancels the object it opened before it answers `416 InvalidRange`, where it left it open too.
+- 7be42d0: **New runtime setting `KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP`:** the deployment's backstop on invitation emails, at most this many in 24 hours from all its tenants together. Default 500, a whole number from 1 to 100000. Each tenant's own limit stays: 100 in 24 hours, or 10 while `KINDGI_PRODUCTION_GATE` is `on` and the tenant isn't allowed production. At a limit the person is still added, without the email (`inviteEmail.reason` is `capped`), and sending it again answers `429 invite-capped`. It needs the emailed sign-in link's sender: set without `KINDGI_AUTH_EMAIL_SMTP_URL` (or `…_PATH`), the runtime refuses to start. `AUTH_INVITE_EMAIL_DAILY_CAP_VAR` names it.
+  
+  The API's texts for an invitation not emailed (`capped`) and for `429 invite-capped` name the deployment's backstop beside the tenant's limit (`openapi.json` descriptions only).
+- f605c7e: **`POST /v1/mcp/endpoints` refuses an `endpointId` with a `.`: `400 invalid-mcp-endpoint`, reason `dot-in-endpoint-id`, naming the id.** An MCP tool's id is `<endpointId>.<tool name>`, and a tool name may contain `.`. So endpoint `a` with tool `b.c` and endpoint `a.b` with tool `c` both made the tool `a.b.c`, and each sync took it from the other. With no `.` in an endpoint id, a tool id splits at its first `.`.
+  - A request that registered before is refused now when its id has a `.`: use `-` or `_` instead.
+  - An endpoint registered before with a `.` keeps its id: it still reads and unregisters as before. Nothing is renamed.
+  - The OpenAPI register body's `endpointId` has the pattern `^[^.]+$`, and the Python client's register body checks it before sending. The endpoint the API answers with has no pattern, so an id registered before still reads.
+- f82bb04: **Who opened a conversation, the approvals you decided, and the session a decision was made in.**
+  
+  - **`openedBy` on a conversation:** the caller who opened it (`user:<id>` or `service_account:<id>`), set by the server and never from the body.
+    - `GET /v1/conversations?openedBy=me` lists only the caller's own (`conversations.list({ openedBy: 'me' })`, `kindgi conversations list --opened-by=me`).
+    - The conversations table gains a nullable `opened_by` column and an index (migration `0006`). Nothing is backfilled, so earlier conversations record no opener and aren't listed by it.
+    - A binding that ignores `ListConversationsPageInput.openedBy` lists more, and the route keeps only the caller's.
+  - **`?decidedBy=me` on approvals:** only the approvals the caller's own reviewer row decided (`approvals.list({ decidedBy: 'me' })`, `kindgi approvals list --decided-by=me`). `ListApprovalsBindingInput` gains `decidedBy`; a binding that ignores it lists more, and the route keeps only those.
+  - **Every page of a filtered list says so,** an empty one too: `openedBy: "me"` and `decidedBy: "me"` (`ConversationPage.openedBy` and `ApprovalPage.decidedBy` in the TypeScript client, `opened_by` and `decided_by` on the Python pages). A runtime from before these filters ignores them and lists them all, with neither on its pages, so `kindgi conversations list --opened-by=me` and `kindgi approvals list --decided-by=me` stop there, naming the release the runtime needs.
+  - **A decision's session:**
+    - **`sessionProvider`:** an approval's `decision` gains it. It's the provider of the session the reviewer decided with: `site:<id>` for a site's sign-in, or an identity provider's id. An API key has none. `SubmitReviewBindingInput` gains it, and the complete route passes it.
+    - **`deciderName`:** the decision also gains the reviewer's name when they decided.
+    - Both are optional: a decision an older runtime recorded has neither.
+- c8d3c1e: **Breaking:** `users.create` in the TypeScript client answers with the person it added, not their id. Before: `const id = await client.users.create(spec)`. After: `const { userId } = await client.users.create(spec)`. In the Python client it answers `UserCreated`, which isn't a `UserRecord`: a type annotation or `isinstance` check on its answer changes.
+  
+  **People added with an email are invited, on a runtime that invites them.** The invitation is open until their first sign-in; past its expiry, every way in refuses them until a tenant admin sends it again.
+  
+  - **The API.**
+    - `POST /v1/identity/users` takes `sendInvite` (default `true`; `false` still invites them, unemailed), and its `201` adds `inviteEmail`: `{ sent, reason? }`, where `reason` is `no-email`, `not-requested`, `not-configured`, `send-failed` or `capped`.
+    - A person's record adds `invite` (`{ state: 'pending' | 'expired', expiresAt, sentAt? }`, while it's open) and `firstSignedInAt`.
+    - `GET /v1/identity/users?pending=true` lists only the people with an open invitation.
+    - `POST /v1/identity/users/{userId}/invite` (tenant admins) sends it again with a new expiry: `200 { user, inviteEmail }`; `409 identity-user-not-invited` for someone who has joined or was never invited; `429 invite-capped`, with `Retry-After`, over the server's limits.
+    - Every new response field is optional: a runtime that doesn't invite leaves them out.
+  - **`IdentityDirectoryBinding`.** `createUser` takes `sendInvite` and may answer `inviteEmail`; an optional `resendInvite` mounts the new route; `listUsers` takes `pending`; `UserRecord` adds `invite` and `firstSignedInAt`. The types are exported (`InviteEmail`, `InviteEmailUnsent`, `UserInvite`, `IdentityResendInviteInput`, `IdentityResendInviteResult`).
+  - **The TypeScript client.** `users.create` answers `UserCreated` (the `User`, with an optional `inviteEmail`); `UserSpec.sendInvite`; `users.resendInvite(id)` answers `InviteRenewed`; `users.list({ pending: true })`; `User.invite` and `User.firstSignedInAt`. `identity-user-not-invited` is a `conflict`, and `invite-capped` is `rate-limited`, with `retryAfterSeconds`.
+  - **The Python client** has the same: `users.create` takes `send_invite` and answers `UserCreated` (a `UserRecord`'s fields, and `invite_email`) where it answered `UserRecord`; `users.resend_invite(user_id)`; `users.list(pending=True)`.
+  - **The CLI.** `kindgi people add` says whether the invitation was emailed, and why not, and takes `--no-invite`; `kindgi people invite <user-id>` sends it again; `kindgi people list --pending` lists the invited, and the table has a STATE column.
+- 66bb5eb: `GET /v1/policies/{policyId}/versions/{version}` answers for a retired (unregistered) version too, with its `unregisteredAt`, as the agent, flow, block and gate-policy version routes already do. It used to answer `404 policy-not-found`, so a link to a retired version from the versions list led nowhere. `PolicyRegistryBinding.getVersion` now returns a `PolicyVersionRow`: the contract already said a tombstoned version is returned, and its `unregisteredAt` is now part of the type. An active version carries no `unregisteredAt`. A version the retention sweep has purged is still `404`. The TypeScript client's `policies.getVersion` (the client now exports `PolicyVersionRow`) and the Python client's `policies.versions.get` return a `PolicyVersionRow`.
+- 5b5bd3b: **A server can limit how long a retention policy keeps a domain's records.**
+  - `createApp` takes `retentionLimits`: per domain, the most seconds a policy may keep its records (a whole number, 1 or more). A `*` key, an unknown domain, or a limit that isn't a whole number of seconds fails at `createApp`, naming it.
+  - `POST /v1/policies` refuses a `retention` policy for a limited domain whose `graceSeconds` is over the limit, or `-1`, with `400 retention-over-limit` and a message that names the limit: "`graceSeconds` 31536000 (365 days) is over the retention limit for `run` rows, 90 days." (`details`: `domain`, `graceSeconds`, `limitSeconds`). Reinstating a retired version over the limit is refused the same way, and the version stays retired. A `*` policy isn't refused, and a domain with no limit takes any grace, as before.
+  - `GET /v1/retention/scheduled`: an item the limit decides has `limitApplied: true`. When no policy covers its domain it has no `policyId` or `policyVersion`, so both are now optional on `RetentionScheduledItem`. `POST /v1/retention/sweep`'s per-domain result can say `limitApplied: true` too. A server with no limit sends what it sent before.
+  - The error reference has an entry for `retention-over-limit`, and the retention page says what a limit does.
+- c44d803: **A second factor at sign-in, and a workspace setting that requires one, on a runtime that keeps them.** An authenticator app's codes (TOTP), with 10 recovery codes for when the app is lost. Covers the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub); signing in through the workspace's own identity provider is exempt, since it owns the second factor there. API keys aren't covered.
+  
+  - **The API.** A `secondFactor` binding (`SecondFactorBinding`) mounts:
+    - `/v1/identity/me/second-factor`: `GET` yours (`setUp`, `since`, `recoveryCodesLeft`, `usable`, and whether the workspace `required` one); `POST` starts setting one up (the key and its `otpauth://` URI, shown once; replacing one takes a code from it), then `POST …/confirm {code}` sets it up and answers the 10 recovery codes, once; `POST …/recovery-codes` gives 10 new ones; `POST …/remove` takes it off, refused while the workspace requires one. From a session only (`400 auth-not-session-token` with an API key). A key or codes in an answer are never replayed for an `Idempotency-Key`.
+    - `GET /v1/identity/users/{userId}/second-factor` and `POST …/second-factor/remove` (tenant admins): a person's, and removing it for a lost phone. Their sessions stay. An admin's own isn't removed there (`403 permission-denied`): it's taken off at `/me`, with a code from it.
+    - `GET` / `PATCH /v1/auth/settings` `{ secondFactor: { required } }` (tenant admins), with how many people's keys are still on the previous sign-in secret (`onPreviousSecret`) or on neither (`unusable`). Once required, a session made without a second factor ends at its next request. Turning it on from a session made without one is `409 second-factor-enroll-first`.
+    - Token sign-in is refused in a workspace that requires one: `403 second-factor-required`.
+    - The sign-in history (`GET /v1/audit/sign-ins`) has three new kinds: `second-factor-set-up`, `second-factor-removed` (with `byUserId` when an admin removed it) and `recovery-codes-replaced`. It never has a key or a code.
+    - New error codes: `second-factor-required`, `second-factor-invalid` (403), `second-factor-locked` (429, with `Retry-After`), `second-factor-unusable` (403), `second-factor-enroll-first`, `second-factor-not-set-up`, `second-factor-not-started` (409).
+  - **A session says how its person gave a second factor.** `SessionCreateInput.secondFactor` and `Session.secondFactor` (optional): `{ method, at }`, where `method` is `totp`, `recovery-code`, `identity-provider`, or `site` (a site signed them in, and owns their second factor). A session store keeps it and returns it from `get` and `resolveToken`; `POST /v1/auth/refresh` gives the new session the same one.
+  - **The TypeScript client.** `identity.me.secondFactor` (`get`, `start`, `confirm`, `newRecoveryCodes`, `remove`), `users.secondFactor(id)` and `users.removeSecondFactor(id)`, and `auth.settings` (`get`, `update`). A wrong code is an `auth` error whose `serverCode` is `second-factor-invalid`; too many is `rate-limited` (`second-factor-locked`), with `retryAfterSeconds`.
+  - **The CLI.** `kindgi people second-factor <user-id>`, `kindgi people reset-second-factor <user-id>`, and `kindgi sign-in settings [--require-second-factor=on|off]`. `kindgi exports create` also writes `user-second-factors` (each person's status, never a key) and `sign-in-settings`.
+  - **Runtime settings** (`@kindgi/env-schema`): `KINDGI_AUTH_PREVIOUS_SECRET_PATH` / `KINDGI_AUTH_PREVIOUS_SECRET`, optional: while the sign-in secret rotates, the one before it, so second-factor keys sealed under it still open.
+- 3be3ba0: A session can carry an API key's limits. A session store's `create` takes, and its `get` and `resolveToken` return, an optional `projectId` and `role`, and the API reads them as it reads a key's:
+  - a request naming another project is refused (`403 key-project-mismatch`);
+  - a `member` session takes no admin action on the tenant.
+  
+  A session limited to a project is held tighter than a key above its project. It takes no action on the tenant, an org or a team, reading included, so it can't read the tenant's settings. A key limited to a project keeps its rule, since its holder is its principal.
+  
+  A session with either limit also:
+  - mints no keys (`403 limited-session-cannot-mint`);
+  - isn't refreshed (`400 limited-session-not-refreshable`), so no copy of it comes back without its limits.
+  
+  `whoami` reports its `projectId` and `role`, and refusals say "this session is limited to project …" instead of naming an API key. Sessions without limits are unchanged, and nothing creates a limited session yet.
+- 409b9bf: A person a site signs in holds only the grants their site's sign-in writes. A deployment's bindings refuse any other grant naming such a person with `site-person-grants-managed`, and the API answers it as `403` on these routes:
+  - adding a project or team member, or changing their role (`AddProjectMemberError`, `AddTeamMemberError` and `MembershipWriteError` gain the code);
+  - granting tenant admin (`PersonGrantErrorCode`);
+  - registering a reviewer (`ReviewerRegisterOutcome` gains a `refused` outcome);
+  - removing such a person's project or team membership, or unregistering them as a reviewer (`ReviewerUnregisterOutcome` gains an optional `refused`). Their site would give it back at their next sign-in, so the answer points at the real levers: remove the person, change their role on the site, or pause the site.
+  - minting an API key for such a person (`TokenMintRefusal` gains the code). Their access is only the sessions their site's sign-in gives, which end when the site is paused or unregistered; a key would outlive both.
+  
+  `@kindgi/env-schema` gains `KINDGI_SITE_SIGN_IN`: `true` lets sites sign their people in. The runtime needs authorization enforced and `KINDGI_PUBLIC_URL` for it; it's off by default.
+- 10ec595: Sites that sign their own people in to one project. A site, such as a store's WordPress admin, vouches for whoever is signed in there, so the store's staff ask the project's agents and decide its approvals as themselves, without a Kindgi account. A decision's record names the person.
+  
+  **What the API package adds** (mounted only when a deployment supplies the new `SiteBinding`):
+  - **`/v1/projects/{projectId}/sites`, for tenant admins:** register, list, read, change, pause, resume, unregister, issue a new enrollment code, and revoke a key.
+    - Settings are checked before the binding sees them: an https origin (http only for localhost, 127.0.0.1 or [::1]), an approvals URL on that origin (compared as origins, not as a prefix), a role map that only names allowed roles (without one, the map keeps only the entries of the allowed roles: the default map's for a new site, the site's own for a change; an allowed role with no entry signs in to read the project only), no reviewer role above the site's ceiling and never `admin`, and a display name without control or bidirectional characters.
+  - **`POST /v1/auth/sites/enroll`, public:** a site posts its Ed25519 public key with its one-time code.
+  - **`POST /v1/auth/site-sign-in`, public:** a site exchanges one of its people's statements (a compact JWS) for a session limited to the site's project.
+  - **Both public routes** cap the body at 4096 bytes, pass the client's address to the binding (by default the nearest `X-Forwarded-For` hop), and leave every other check to it.
+    - Enrollment takes only an Ed25519 public key, and refuses a JWK with a private part, before it looks the code up.
+    - Refusals are `401 site-enrollment-refused` and `401 site-sign-in-refused`. Before a statement's signature holds, the only reason given is `not-verified`; after it, `details.reason` says why.
+    - Limits are `429 rate-limit-exceeded`.
+  - **A change to a site** is checked as the whole site it makes.
+  - **`createApp` refuses `sites`** without authorization (`authz`) or without a session store with `revokeByProvider`.
+  
+  **The clients:** the TypeScript client gains `client.projects.sites`, `client.auth.enrollSite` and `client.auth.siteSignIn`; the Python and JVM clients gain the same operations.
+  
+  **The CLI:** `kindgi exports create` writes each project's sites to `sites.jsonl`, unregistered ones included. It skips them when the server doesn't serve sites.
+- 3502389: A webhook or schedule trigger can run as a **service account**. A trigger's runs act as its owner; now the owner can be an account rather than whoever registered it. Pass `runAsServiceAccountId` when registering (`webhooks.register`, `schedules.register`) or when taking over a trigger whose owner left (`webhooks.takeOwnership`, `schedules.takeOwnership`), or `--run-as <service-account-id>` on `kindgi webhooks register`, `kindgi schedules create` and the `take-ownership` commands. Naming an account needs `act_as` on it. Only a caller who may read service accounts learns whether a named one is missing, unregistered or not `act_as`-able; everyone else gets a uniform permission error.
+- dd34dcf: **A thrown error's log line no longer carries a failed database query's SQL, its parameters, or a value the server quotes as rejected.**
+  
+  A 500's body already said only `A database query failed.`. But its `unhandled error` log line wrote the thrown error's message and stack, and its causes'. Two of those messages carry a request's values:
+  - Drizzle's wrapper around a failed query has the message `Failed query: <sql> params: <values>`, a person's email or address among them.
+  - A Postgres data exception (SQLSTATE class 22) quotes the value it rejected: `invalid input syntax for type uuid: "…"`, `invalid input value for enum …: "…"`.
+  
+  A read's `database busy` warn line wrote them the same way. Both lines now write:
+  - **such a wrapper** as `A database query failed.`. That entry keeps the wrapper's name, code and stack frames (where the query ran), and its cause, the database driver's error.
+  - **a data exception** as what it means plus its SQLSTATE, for example `invalid input for its type (22P02)`, with its name, code and stack frames.
+  
+  This holds for the thrown error itself and for each cause the line writes, three deep. Every other error keeps its name, message, code and stack, including the driver's error when it isn't a data exception. An error with neither among those causes is logged exactly as before, and the thrown errors themselves aren't changed.
+- Updated dependencies [5d68d0d]
+- Updated dependencies [22b619b]
+- Updated dependencies [3b90568]
+- Updated dependencies [f82bb04]
+- Updated dependencies [66bb5eb]
+- Updated dependencies [ffeecb2]
+- Updated dependencies [409b9bf]
+- Updated dependencies [016d40d]
+- Updated dependencies [3502389]
+- Updated dependencies [cb778f6]
+- Updated dependencies [a05ee69]
+  - @kindgi/compliance@0.1.9
+  - @kindgi/agents@0.1.9
+  - @kindgi/flow@0.1.9
+  - @kindgi/log@0.1.9
+  - @kindgi/policy-contract@0.1.9
+  - @kindgi/bounds@0.1.9
+  - @kindgi/platform@0.1.9
+  - @kindgi/authz@0.1.9
+  - @kindgi/guardrails@0.1.9
+  - @kindgi/runtime@0.1.9
+  - @kindgi/tools@0.1.9
+  - @kindgi/schema@0.1.9
+  - @kindgi/blob-binding@0.1.9
+  - @kindgi/capabilities@0.1.9
+  - @kindgi/provenance@0.1.9
+  - @kindgi/audit-events@0.1.9
+  - @kindgi/crypto@0.1.9
+  - @kindgi/memory@0.1.9
+  - @kindgi/types@0.1.9
+
 ## 0.1.8
 
 ### Patch Changes

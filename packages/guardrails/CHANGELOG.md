@@ -1,5 +1,18 @@
 # @kindgi/guardrails
 
+## 0.1.9
+
+### Patch Changes
+
+- Updated dependencies [5d68d0d]
+- Updated dependencies [ffeecb2]
+- Updated dependencies [3502389]
+  - @kindgi/compliance@0.1.9
+  - @kindgi/bounds@0.1.9
+  - @kindgi/schema@0.1.9
+  - @kindgi/capabilities@0.1.9
+  - @kindgi/types@0.1.9
+
 ## 0.1.8
 
 ### Patch Changes

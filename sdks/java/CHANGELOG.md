@@ -7,6 +7,8 @@ heading into its version.
 
 ## Unreleased
 
+## 0.1.9
+
 - `kindgi-models`: **a server's retention limit.** `RetentionScheduledItem`'s `policyId` and `policyVersion` can be `null`: a record that a server's limit decides, in a domain no policy covers, has neither. `limitApplied`, on `RetentionScheduledItem` and `RetentionSweepResult.PerDomainItem`, is `true` when the limit decides; `null` otherwise.
 
 ## 0.1.8

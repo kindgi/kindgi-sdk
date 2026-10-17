@@ -1,5 +1,53 @@
 # @kindgi/env-inmemory
 
+## 0.1.9
+
+### Patch Changes
+
+- 5d68d0d: **An audit record that can't be written, and a check the authorization model can't answer, are logged through your logger instead of the console.**
+  - `emitResolveEvent` and `emitLifecycleEvent` (`@kindgi/compliance`) take an optional `log`, a `@kindgi/log` `Logger`. An append that fails or throws still never fails the caller's operation. It's logged there at `warn`, with the record's `tenantId` and `kind`, and the error's `code` or the error it threw. Without a `log` it isn't logged anywhere; before, it went to `console.warn`.
+  - `createApp` passes the request's logger, under the subsystem `audit`, for a secret or env write's record and for a secret read refused for its scope. `resolveAtScope` takes that `log` as an optional fourth argument. An app without a `logger` won't see that a record was dropped, and the `logger` option's docs say so.
+  - A check the authorization model has no relation for, which is a bug in a route, is logged at `error` through the request's logger, under the subsystem `authz`, with its `action` and `resource`. Before, it went to `console.error`.
+  - `createInMemoryEnvBinding` takes an optional `log` and passes it on with every audit record it writes.
+- 53b09f7: **`GET /v1/environments` lists the tenant's env names,** for a tenant admin: each name that holds an env value or a secret, at any scope, once, in byte order, paged by `cursor` and `limit`.
+  - An env store and a secrets store each say their own names through a new optional `listEnvNames({ tenantId, limit, after })` (`EnvBinding`, `SecretBinding`). A runtime whose store doesn't answers `501 environments-unsupported`, which names the store, rather than a list missing its names.
+  - The in-memory env store gives the names its tenant's values are under. The dotenv secrets store gives `local` and each `.env.<name>` file that holds a name.
+  - The TypeScript and Python clients list them with `client.environments.list()`.
+- Updated dependencies [83ad88a]
+- Updated dependencies [6ed7bc6]
+- Updated dependencies [5d68d0d]
+- Updated dependencies [499082a]
+- Updated dependencies [17bc390]
+- Updated dependencies [66e5ec7]
+- Updated dependencies [22b619b]
+- Updated dependencies [e5b38a8]
+- Updated dependencies [1ac8e67]
+- Updated dependencies [404c4c9]
+- Updated dependencies [53b09f7]
+- Updated dependencies [8f52412]
+- Updated dependencies [f56c6ae]
+- Updated dependencies [c46503d]
+- Updated dependencies [e35d94f]
+- Updated dependencies [7be42d0]
+- Updated dependencies [3b90568]
+- Updated dependencies [f605c7e]
+- Updated dependencies [f82bb04]
+- Updated dependencies [c8d3c1e]
+- Updated dependencies [66bb5eb]
+- Updated dependencies [5b5bd3b]
+- Updated dependencies [c44d803]
+- Updated dependencies [3be3ba0]
+- Updated dependencies [409b9bf]
+- Updated dependencies [10ec595]
+- Updated dependencies [3502389]
+- Updated dependencies [dd34dcf]
+  - @kindgi/api@0.1.9
+  - @kindgi/compliance@0.1.9
+  - @kindgi/log@0.1.9
+  - @kindgi/platform@0.1.9
+  - @kindgi/audit-events@0.1.9
+  - @kindgi/types@0.1.9
+
 ## 0.1.8
 
 ### Patch Changes
