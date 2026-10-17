@@ -815,8 +815,9 @@ so that's `tool-project-mismatch`.
 
 An id that holds both kinds' active versions from an earlier runtime is
 served as neither, as before. Until every active version of one kind is
-unregistered, a new version of either kind is refused, and the endpoint's
-tool is skipped with the `WARN` above.
+unregistered, a new version of either kind is refused. While a published
+version of the id is active, the endpoint's tool is skipped with the `WARN`
+above.
 
 ## Transports
 
