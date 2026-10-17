@@ -1,36 +1,38 @@
 ---
-title: Let a pass look for something better
-description: An improvement pass tries an agent version's marked settings, or drafts prompt templates, on a test set within a budget, and writes its best candidate as a proposal a person reviews.
+title: Improve an agent
+description: An Improve run tries the settings Improve may change on an agent version, or drafts the agent's instructions, on the test cases within a budget, and writes its best candidate as a suggested change a person reviews.
 sidebar:
   order: 7
 ---
 
-This guide has a pass search for better settings or a better prompt for an
-agent version, within a budget, and write its best candidate as a proposal a
-person reviews.
+This guide has an Improve run search for better settings or better
+instructions for an agent version, within a budget, and write its best
+candidate as a suggested change a person reviews.
 
-An **improvement pass** does the search a [proposal](../propose-a-change/)
-starts from. It tries candidates on part of a test set, within a budget,
-proves the best one on the rest, and writes it as a proposal only when it's
-better. A person still decides: the proposal waits for a reviewer.
+An **Improve run** does the search a [suggested change](../propose-a-change/)
+starts from. It tries candidates on part of the test cases, within a budget,
+proves the best one on the cases it didn't learn from, and writes it as a
+suggested change only when it's better. A person still decides: the suggested
+change waits for a reviewer. On the CLI, `kindgi proposals passes` lists
+the Improve runs and `kindgi proposals` the suggested changes.
 
 ## Before you start
 
-A pass needs what a proposal does, as
+An Improve run needs what a suggested change does, as
 [Propose a change, and test it](../propose-a-change/#before-you-start)
 lists:
 
-- **an agent whose prompt or settings are data blocks;**
-- **a judged test set;**
+- **an agent whose instructions or settings are data blocks;**
+- **test cases;**
 - **a live version of the agent for the whole tenant.** Without one, the
-  pass is refused with `proposal-needs-pin`;
+  Improve run is refused with `proposal-needs-pin`;
 - **a deployed runtime,** with Kindgi 0.1's CLI. Under `kindgi dev`, it's
   refused with `registry-read-only`;
 - **`publish` on the agent,** to start one.
 
-## Mark what a pass may tune
+## Mark what Improve may change
 
-A pass changes only what you let it. A settings pass changes only the keys a
+An Improve run changes only what you let it. On settings, it changes only the keys a
 settings block's schema marks with `"x-kindgi-tunable": true`: a number or an
 integer with a `minimum` below its `maximum`, or an `enum`. Any other mark is
 refused when the block is published.
@@ -46,16 +48,16 @@ refused when the block is published.
 }
 ```
 
-Here a pass may try other sentence limits and tones, and never touches the
+Here Improve may try other sentence limits and tones, and never touches the
 refund limit. Publish the schema with the block's next version, with
 `kindgi blocks publish … --schema=@reply-style.schema.json`, as
 [Publish the blocks](../change-a-prompt-or-setting/#publish-the-blocks)
-shows. A version that pins no block with a marked key has nothing to tune,
-and the pass is refused, saying so.
+shows. A version that pins no block with a marked key has nothing Improve may change,
+and the Improve run is refused, saying so.
 
-## Start a pass
+## Start an Improve run
 
-A pass searches for a better version of the agent's marked settings:
+An Improve run searches for a better version of the settings Improve may change:
 
 ```sh
 kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=acme.rank-prompt-52080 --max-candidates=4 --wait
@@ -64,47 +66,48 @@ kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=acme.rank-
 - **The agent and scope:** `--agent` and `--tenant`, or another scope flag.
 - **The version** is the one serving the scope, unless `--from-version` names
   another.
-- **The test set:** `--test-set`, a judged one.
+- **The test cases:** `--test-set`.
 - **The budget:** `--max-cost` in US dollars, 5 by default and at most 100,
-  and `--max-candidates`, 30 by default and at most 200. A pass stops at
-  whichever it reaches first. It checks the cost between comparisons, so the
+  and `--max-candidates`, 30 by default and at most 200. An Improve run stops at
+  whichever it reaches first. It checks the cost between runs on the test cases, so the
   one already running can take it a little over `--max-cost`.
 - **What better means:** `--objective`, `weightedYesShare` by default or
   `weightedPrecisionAtK`, as in a
-  [comparison](../compare-an-agent-version/#read-the-result).
-- **How it decides:** it searches on 70% of the test set's cases and proves
-  its best candidate on the other 30% (the cases it didn't learn from), a
-  split fixed for the pass. On the 70%, a candidate has to beat the current
+  [run on the test cases](../compare-an-agent-version/#read-the-result).
+- **How it decides:** it searches on 70% of the test cases and proves
+  its best candidate on the other 30% (checked on cases it didn't learn from), a
+  split fixed for the Improve run. On the 70%, a candidate has to beat the current
   version by more than the spread between the current version's own repeated
   runs. On the 30%, the best one has to beat the recorded outputs, and only
-  then does it become a proposal, which carries both figures: the recorded
+  then does it become a suggested change, which carries both figures: the recorded
   outputs' score and the candidate's.
 
-It answers at once with the pass. `--wait` waits for its outcome, at most 30
+It answers at once with the Improve run. `--wait` waits for its outcome, at most 30
 minutes, and prints it:
 
-- **`proposed`**, with the proposal it wrote, which a person decides: run
-  `kindgi proposals request <proposal-id>`, then decide the approval. A pass's
-  proposal always waits for a reviewer, because a pass, not a person, drafted
-  it. When the scope's [gate policy](../release-an-agent-version/#gate-a-release)
+- **`proposed`**, with the suggested change it wrote, which a person decides: run
+  `kindgi proposals request <proposal-id>`, then decide the approval. An Improve run's
+  suggested change always waits for a reviewer, because an Improve run, not a person, drafted
+  it. When the scope's [release gate policy](../release-an-agent-version/#gate-a-release)
   has no `approvals`, that reviewer can be you, if you're registered as a
   reviewer. When it has, someone else must approve it, unless its `approvals`
   sets `"separateApprover": false`.
 - **`nothing-found`**, with why. No candidate beat the current version by more
   than the noise on the 70%. Or the best one didn't beat the recorded outputs
-  on the 30%, and the outcome's hold-out comparison gives both figures there.
-  Or the best one is a change an existing proposal already holds. Or nothing
-  could be measured: a pass scores only the items of an output that judgments
-  cover (a ranking's entries, say). So a changed free-text answer is a new
-  answer no one has judged yet and has nothing to score, and then you
+  on the 30%: the outcome shows both figures for the cases it didn't learn
+  from. Or the best one is a change an existing suggested change already
+  holds. Or nothing could be measured: an Improve run scores only the items of
+  an output that corrections cover (a ranking's entries, say). So a changed
+  free-text answer is a new answer no one has corrected yet and has nothing to
+  score, and then you
   [judge the new answers, then rescore](../propose-a-change/#judge-the-new-answers-then-rescore).
-  The reason also says if the pass ran out of budget before comparing the
+  The reason also says if the Improve run ran out of budget before comparing the
   rest.
 - **`failed`**, with the reason.
 
-A pass is `running`, then `completed`, `failed` or `cancelled`. Here a pass
+An Improve run is `running`, then `completed`, `failed` or `cancelled`. Here one
 tried four candidates. On the search part, setting `fit` to 0 scored best,
-but an earlier proposal already held that change, so the pass wrote none.
+but an earlier suggested change already held that change, so it wrote none.
 The cost is 0 on `dev-echo`, which costs nothing:
 
 ```json
@@ -146,22 +149,22 @@ The cost is 0 on `dev-echo`, which costs nothing:
 }
 ```
 
-`kindgi proposals passes get <pass-id>` reads the same pass back later.
+`kindgi proposals passes get <pass-id>` reads the same Improve run back later.
 
-### It learns from trusted judgments
+### It learns from experts' corrections
 
-By default, a pass counts only the judgments of the people you trust: those
+By default, an Improve run counts only the corrections of the people you trust: those
 recorded under a
-[judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class) you
+[judge class](../judge-a-runs-output/#restrict-a-judge-class-to-experts) you
 restrict, `classWeights: "restricted-only"`. So who may steer it is a choice
-you make. `"as-recorded"` counts every judgment, by its class's weight: set
+you make. `"as-recorded"` counts every correction, by its class's weight: set
 it in the API or the clients.
 
-## Draft a prompt instead
+## Draft the agent's instructions instead
 
-A pass can also draft prompt templates. The agent version must take its
-instructions from a [prompt block](../change-a-prompt-or-setting/) it pins.
-The CLI starts settings passes, so start a prompt pass from the API or the
+An Improve run can also draft the agent's instructions. The agent version must take its
+instructions from a [data block](../change-a-prompt-or-setting/) it pins.
+The CLI starts Improve runs on settings, so start one on instructions from the API or the
 clients:
 
 ```sh
@@ -172,14 +175,14 @@ curl -X POST "$KINDGI_API_URL/v1/proposals/improve" \
 
 - `$KINDGI_API_URL` and `$KINDGI_API_TOKEN` are your runtime's URL and API
   token.
-- `tiers: ["prompt"]` drafts prompt templates.
+- `tiers: ["prompt"]` drafts the agent's instructions.
 - `model` is the provider and model of yours that drafts them.
-- `candidates` is how many templates it drafts: 1 to 5, 3 by default.
+- `candidates` is how many drafts it makes: 1 to 5, 3 by default.
 
-It answers at once (`202`) with the pass, as the CLI does without `--wait`.
+It answers at once (`202`) with the Improve run, as the CLI does without `--wait`.
 
-The drafter sees the cases judged wrong and their reasons. A template it
-writes is compared only if it stays within what the agent already has:
+The drafter sees the cases corrected as wrong and their reasons. A draft it
+writes is tried on the test cases only if it stays within what the agent already has:
 
 - it parses as Liquid;
 - it reads only the prompt's declared parameters, the variables the current
@@ -191,7 +194,7 @@ writes is compared only if it stays within what the agent already has:
 - it quotes no test case: a run of 8 or more words in a row from what the
   drafter was shown is refused, and cut from the hypothesis it keeps.
 
-A refused template shows in the pass's `comparisons` with its issues, as
+A refused draft shows in the Improve run's `comparisons` with its issues, as
 `refused`, and each drafted one with its `hypothesis`. Here a local model
 drafted a template reading a variable the agent doesn't have. The drafts are
 that model's words, and yours will differ:
@@ -232,12 +235,12 @@ kindgi proposals passes get <pass-id>
 }
 ```
 
-A pass's drafts and hypotheses live on in the pass, the proposal and the
+An Improve run's drafts and hypotheses live on in the run, the suggested change and the
 published block version, which erasing a person's words doesn't reach. That's
 why a template may not quote a test case, and why a person reviews it before
 it goes live.
 
-## Read passes back, or stop one
+## Read Improve runs back, or stop one
 
 ```sh
 kindgi proposals passes list --table
@@ -245,30 +248,30 @@ kindgi proposals passes get <pass-id>
 kindgi proposals passes cancel <pass-id>
 ```
 
-- `list --table` prints each pass's agent version, scope, status, the
+- `list --table` prints each Improve run's agent version, scope, status, the
   candidates compared, the cost and the outcome.
 - `get` adds its comparisons, each an eval run you can open. `<pass-id>` is
-  the pass's `id`.
-- `cancel` stops a running pass: it ends `cancelled` and writes no proposal.
-  A pass that already ended answers `409 improvement-pass-finished`.
+  the Improve run's `id`.
+- `cancel` stops a running Improve run: it ends `cancelled` and writes no suggested change.
+  An Improve run that already ended answers `409 improvement-pass-finished`.
 
 From your app: `proposals.improve` and `improvementPasses.list`, `get` and
 `cancel` in TypeScript; `proposals.improve` and `improvement_passes` in
-Python. An endpoint subscribed to `improvement-pass.finished` gets each pass
+Python. An endpoint subscribed to `improvement-pass.finished` gets each Improve run
 when it ends ([Webhook events and deliveries](../../webhooks/webhook-events/#improvement-passes)).
 
-## Run passes on a schedule
+## Run Improve on a schedule
 
-A schedule can start a pass when enough new trusted judgments have come in,
+A schedule can start an Improve run when enough new experts' corrections have come in,
 as [Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
 shows.
 
 ## In the console
 
-The same loop runs in the console. On an agent's proposals page, **Improve**
-starts a pass, and the pass's page follows it. The proposal it writes shows
-its verdict and the comparison figures, and a **Request promotion** button to
-send it for a decision. A schedule that starts passes is made with the CLI,
+The same loop runs in the console. On an agent's **Suggested changes** page,
+**Improve** starts an Improve run, and its page follows it. The suggested
+change it writes shows its verdict and the figures from the test cases, and an
+**Ask to make it live** button to send it for a decision. A schedule that starts Improve runs is made with the CLI,
 the API or the clients, as
 [Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
 shows: the console lists schedules and can pause, resume, run or remove them, but
@@ -277,5 +280,5 @@ doesn't make them.
 ## Next
 
 - [Propose a change, and test it](../propose-a-change/)
-- [Judge a run's output](../judge-a-runs-output/)
+- [Mark a run's output right or wrong](../judge-a-runs-output/)
 - [Run on a schedule](../../runs/run-on-a-schedule/)

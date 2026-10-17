@@ -217,8 +217,8 @@ Once it completes, new turns for the person start again.
   - audit events' text, and monitoring observations;
   - a webhook delivery's error message, and a model call's error message
     (its cost stays);
-  - evals' copies. A test set's case copied from an erased run reads
-    `erased: true`, and comparisons leave it out and count it, in
+  - evals' copies. A test case copied from an erased run reads
+    `erased: true`, and runs on the test cases leave it out and count it, in
     `summary.erased`.
 
 Audit events of a kind your compliance setup holds, a legal hold, keep their
@@ -232,10 +232,10 @@ before it starts: `409 legal-hold`, with the held facts in `details.factIds`.
   explains.
 - **Signed exports already made**, such as an approval's audit bundle.
 - **A webhook receiver's copy** of a delivery that was already sent.
-- **An improvement pass's drafted prompts and hypotheses.** A draft that
+- **An Improve run's drafted instructions and hypotheses.** A draft that
   quotes eight or more words in a row of a test case is refused, and such
   quotes are cut from a hypothesis, so they hold a paraphrase at most. The
-  reviewer who approves a proposal is the check.
+  reviewer who approves a suggested change is the check.
 
 ## Shared flows
 
