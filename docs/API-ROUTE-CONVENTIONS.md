@@ -241,7 +241,7 @@ For the runs resource specifically (the largest surface):
 | `GET /v1/runs`                       | List with pagination                       | Filters: `parentRunId` (a run's children), `topLevel=true`. `include=output` adds each run's output. |
 | `POST /v1/runs/:runId/cancel`        | `cancelRun(...)`                           | Empty body. Returns updated `RunResult`. |
 | `POST /v1/runs/:runId/resume`        | `completeToken(...)`, then the host's `resumeRun(...)` | Body: `{ waitpointId, value? }`. Ids starting with `child:` are reserved for the runtime. |
-| `GET /v1/runs/:runId/journal`        | `readJournal(...)`                         | Paginated: `?since=<sequence>&limit=<int>`. |
+| `GET /v1/runs/:runId/journal`        | `readJournal(...)`                         | Paginated: `?since=<sequence>`, or `?limit=<int>` and `?cursor=` (the page before's `nextCursor`). |
 | `GET /v1/runs/:runId/stream`         | SSE from journal + in-process bus          | See §6. |
 
 The other resources (`agents`, `flows`, `tools`, `guardrails`, `approvals`, etc.) follow the same shape — CRUD verbs map to package-level functions; non-CRUD actions map to specific ops.

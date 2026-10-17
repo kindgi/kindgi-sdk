@@ -26,6 +26,17 @@ import type { TriggerRegistryBinding } from './schedulers/registry.js';
 import type { JournalEntry, RunResult } from './types.js';
 
 /**
+ * A part of a run's journal (`RunBinding.readJournal`): the entries after
+ * the sequence `after`, at most `limit` of them (a whole number from 1).
+ * Either may be left out. `after` may be any number: a binding gives the
+ * entries whose sequence is greater.
+ */
+export interface JournalPage {
+  readonly after?: number;
+  readonly limit?: number;
+}
+
+/**
  * Run-lifecycle binding. Every enforcement site (@kindgi/api routes,
  * @kindgi/agents invocation flow) that wants to start / resume /
  * cancel / read a run goes through this contract. The implementation
@@ -91,13 +102,16 @@ export interface RunBinding {
   ): Promise<Result<void, KernelError>>;
 
   /**
-   * Read the full ordered journal for a run — every entry, in
-   * sequence order. The primitive routes + agents consume this for
-   * SSE tailing + replay reconstruction.
+   * Read a run's journal in sequence order: every entry, or with `page`
+   * only that part of it. The primitive routes + agents consume this for
+   * SSE tailing + replay reconstruction. A binding that ignores `page` and
+   * gives every entry is still correct: a caller that pages keeps
+   * filtering what it gets.
    */
   readJournal(
     tenantId: TenantId,
     runId: RunId,
+    page?: JournalPage,
   ): Promise<Result<readonly JournalEntry[], KernelError>>;
 
   /**
