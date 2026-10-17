@@ -49,7 +49,7 @@ The secrets' local key changed: tenant 207f5388-1737-45c0-a02c-b5388ca12da0's se
 ```
 
 A different AAD key isn't checked when the runtime starts, so keep the two
-keys together.
+keys together, and check them after a restore, before the runtime serves.
 
 ## Restore into a fresh database
 
@@ -108,6 +108,42 @@ is the database password:
 ```sh
 KINDGI_DATABASE_URL=postgres://kindgi:<DB_PASSWORD>@kindgi-db-restored:5432/kindgi
 ```
+
+Before the runtime serves it, check that the secrets' keys open the secrets
+the backup brought back. The check reads the database with the settings in
+`kindgi.env`, and starts nothing. If the keys are in files, mount them as the
+server has them:
+
+```sh
+docker run --rm --network kindgi --env-file kindgi.env \
+  quay.io/kindgi/runtime:<version> check stored-secrets
+```
+
+It decrypts each live version of every stored secret, and prints ids and
+counts, never a value. When each one decrypts, it exits `0`:
+
+```text
+KMS probe OK (libsodium): chacha20-poly1305-node (0ms)
+stored-secrets: every stored secret decrypts, 2 versions (1 tenant checked):
+  tenant f2885e16-4039-44b4-a5f9-321b39e06dbe: 2 versions decrypt
+```
+
+With another AAD key than the one the secrets were written with, it names
+each version a read would fail on, and exits `1`. A KMS key that can't open
+them is named the same way, with the KMS's code:
+
+```text
+KMS probe OK (libsodium): chacha20-poly1305-node (0ms)
+stored-secrets: 2 of 2 stored secret versions don't decrypt (1 tenant checked):
+  tenant f2885e16-4039-44b4-a5f9-321b39e06dbe: 0 of 2 versions decrypt
+    secret 0491be6e-cf77-435e-9a01-74fe5407ee03 version 1 (key local:d639cc713bfa3041): its AAD doesn't match: the AAD key isn't the one it was written with, or its row changed since
+    secret afe8ad9d-07c7-4b7e-b8fb-df8173f27211 version 1 (key local:d639cc713bfa3041): its AAD doesn't match: the AAD key isn't the one it was written with, or its row changed since
+A read of each version named fails. Check that the KMS key, the runtime's access to it, and KINDGI_SECRETS_AAD_KEY are the ones those secrets were written with: a restore brings back the database, not the keys.
+```
+
+Set the keys the secrets were written with, and check again. Without
+`KINDGI_SECRETS_BACKEND=postgres`, the runtime stores no secrets, and the
+check exits `2`.
 
 Then [restart the runtime](../restart-and-check-health/#restart-the-runtime).
 A run from before the backup is there, where `<run id>` is its id:
