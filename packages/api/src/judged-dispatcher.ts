@@ -205,6 +205,10 @@ export interface JudgedCaseResult {
   /** The first repetition's tool calls. */
   readonly tools?: ReplayTurnReport['tools'];
   readonly diverged: boolean;
+  /**
+   * Tool calls the replay refused in this case: the most in any one of its
+   * repetitions. Reads count too, despite the name.
+   */
   readonly refusedWrites: number;
   readonly noContext: boolean;
   readonly approvalSkipped: boolean;

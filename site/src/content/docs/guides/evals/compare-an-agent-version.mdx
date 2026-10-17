@@ -368,10 +368,10 @@ stops there:
 ```
 
 A stopped case isn't an error: the refused call wasn't carried out, and the
-case has no output to rate, so it's left out of the metrics. The summary counts it in `stopped`,
-and the refused call in `refusedWrites`. The other cases are rated as usual.
-A step's agent turn doesn't stop the flow: its refused calls go back to the
-model, as in an agent comparison.
+case has no output to rate, so it's left out of the metrics. The summary
+counts it in `stopped`, and the refused call in `refusedWrites`. The other
+cases are rated as usual. A step's agent turn doesn't stop the flow: its
+refused calls go back to the model, as in an agent comparison.
 
 When a version does better, make it live where you choose, as
 [Release an agent version](../release-an-agent-version/) shows.
