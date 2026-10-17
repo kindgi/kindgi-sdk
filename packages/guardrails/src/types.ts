@@ -66,9 +66,20 @@ export type BuiltInOnViolation = (typeof BUILT_IN_ON_VIOLATIONS)[number];
 export type ScopeWhen = 'always' | 'ci-only' | 'runtime-only';
 
 export interface Action {
+  /**
+   * What a failed check does to the agent turn. In 0.1 the runtime acts
+   * only on `'halt'`: the turn fails with `guardrail-violation` and its
+   * response is not stored. Any other action, `'retry'`, `'escalate'` and
+   * `'compensate'` included, is recorded on the turn's `violations`, as
+   * `'log-only'` is, and the turn completes: nothing runs the turn again,
+   * escalates or calls a compensating tool.
+   */
   readonly 'on-violation': OnViolation;
+  /** The attempts a `'retry'` asks for. In 0.1 nothing acts on it: there's no second attempt. */
   readonly retry?: { readonly maxAttempts: number };
+  /** Where an `'escalate'` goes. In 0.1 nothing escalates. */
   readonly escalateTo?: string;
+  /** The tool id a `'compensate'` names. In 0.1 that tool isn't called. */
   readonly compensateWith?: string;
 }
 

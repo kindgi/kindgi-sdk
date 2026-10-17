@@ -1,20 +1,21 @@
 ---
 name: kindgi-python-authoring-guardrails
 description: >
-  Covers writing guardrails (safety checks on an agent's turn) for a
-  Kindgi pack in Python (the `kindgi` package): the `@guardrail`
-  decorator over a `(config, trace)` check, `RunTrace` and
-  `CheckResult`, config models, actions (halt / retry / escalate /
-  log-only / compensate), severity and scope, unit tests, and wiring a
-  guardrail onto an agent. Load this whenever you are authoring or
-  editing code inside a Python pack's guardrails/ directory (a pack
-  whose config is `[tool.kindgi]` in pyproject.toml), defining a check,
-  or wiring a guardrail onto an agent. Python agents are covered by
-  kindgi-python-authoring-agents, Python tools by
-  kindgi-python-authoring-tools.
+  Covers writing guardrails (safety checks on an agent's turn) for a Kindgi
+  pack in Python (the `kindgi` package): the `@guardrail` decorator over a
+  `(config, trace)` check, `RunTrace` and `CheckResult`, config models,
+  actions, severity and scope, unit tests, and wiring a guardrail onto an
+  agent. In 0.1 only the halt action acts (retry / escalate / compensate are
+  only recorded: nothing runs the turn again), and a check sees only the
+  current turn: its user message and tool results, not earlier turns'. Load
+  this whenever you are authoring or editing code inside a Python pack's
+  guardrails/ directory (a pack whose config is `[tool.kindgi]` in
+  pyproject.toml), defining a check, or wiring a guardrail onto an agent.
+  Python agents are covered by kindgi-python-authoring-agents, Python tools
+  by kindgi-python-authoring-tools.
 type: core
 library: "kindgi (Python)"
-version: "0.1.4"
+version: "0.1.5"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -40,6 +41,41 @@ answer, before it is stored.
 
 Ask what the rule should catch before writing one; the sample
 `response-not-empty` guardrail is a demonstration, not a template.
+
+## What a guardrail can do in 0.1
+
+Read this before you plan a guardrail. Three limits decide what can be
+built:
+
+- **Only `halt` acts.** A failed `halt` guardrail fails the turn with
+  `guardrail-violation`, and the answer is not stored. `retry`, `escalate`
+  and `compensate` are recorded on the turn's violations, as `log-only`
+  is, and the turn completes: nothing runs the turn again, escalates or
+  calls a compensating tool. So "block the reply and make the agent try
+  again" can't be a guardrail. Use `halt`: the error names the guardrail
+  and the check's reason, and the message is sent again (by the person, or
+  by your app when it gets `guardrail-violation`).
+- **A check sees one turn.** The trace holds the current turn only: its
+  user message (`trace.user_input`), its tool calls and their results
+  (`trace.tool_calls`, `trace.tool_results`) and its answer
+  (`trace.output`). Earlier turns' messages, tool results and answers
+  aren't in it. A check that every figure in the answer comes from a tool
+  result or the user's message therefore blocks an answer that repeats a
+  figure seen only in an earlier turn.
+- **A check's in-memory state doesn't last.** The check runs in the pack
+  service's process, so anything it keeps at module level (say, a dict
+  keyed by `trace.conversation_id`) is lost when that process is replaced:
+  under `kindgi dev`, on every reload after a save and on a restart; in a
+  deployment, whenever an instance stops. With more than one instance,
+  each keeps its own copy, and one conversation's turns can land on
+  different instances. Don't keep a conversation's history this way.
+
+What works today for a check on figures: tell the agent, in its
+instructions, to call its tools again in every answer that quotes a
+figure, so the figure is in that turn's tool results. It depends on the
+model following the instruction, and it doesn't cover figures the user
+typed in an earlier turn: `trace.user_input` is only the current turn's
+message, so an answer that repeats them is still blocked.
 
 ## A guardrail
 
