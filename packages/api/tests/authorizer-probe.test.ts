@@ -201,7 +201,7 @@ describe('canForDisplay', () => {
 
 /** Every use of the reads that record nothing in `src`, as `<file>: <name>`, comments left out. */
 function displayReads(src: string): string[] {
-  const uses = /\b(canForDisplay|isTenantAdminForDisplay)\(|\.probe\(/g;
+  const uses = /\b(canForDisplay|isTenantAdminForDisplay)\(|\.probe(\?\.)?\(/g;
   return (readdirSync(src, { recursive: true }) as string[])
     .filter((file) => file.endsWith('.ts'))
     .flatMap((file) =>
