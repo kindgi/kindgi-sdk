@@ -722,6 +722,65 @@ describe('kindgi secrets set — --from-file mode check', () => {
 // ---------- rotate ----------
 
 describe('kindgi secrets rotate', () => {
+  /** `kindgi secrets rotate` with `--revoke-old-after=<flag>`: its result, and what it sent. */
+  async function rotateWith(flag: string) {
+    const fixtures = makeFixtures();
+    const clientFactory = (): unknown =>
+      makeFakeClient({
+        rotate: async (args: unknown) => {
+          fixtures.state.rotateCalls.push(args);
+          return { kind: 'ok', newVersionId: 6, oldVersionId: 5 };
+        },
+      });
+    const out = await runCli({
+      ...baseInputs(fixtures, [
+        'secrets',
+        'rotate',
+        'stripe.key',
+        '--env=staging',
+        '--scope=tenant',
+        `--revoke-old-after=${flag}`,
+        '--url=https://api.example.com',
+        '--token=t',
+      ]),
+      clientFactory: clientFactory as never,
+    });
+    return { out, sent: fixtures.state.rotateCalls as { revokeOldAfterMs?: number }[] };
+  }
+
+  test.each(['0', '60000', '31536000000'])('--revoke-old-after=%s is sent', async (flag) => {
+    const { out, sent } = await rotateWith(flag);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(sent.map((call) => call.revokeOldAfterMs)).toEqual([Number(flag)]);
+  });
+
+  test.each(['31536000001', '-1', '1.5', '9007199254740991', '1e3', ' ', 'soon'])(
+    '--revoke-old-after=%j is refused before anything is sent (exit 2)',
+    async (flag) => {
+      const { out, sent } = await rotateWith(flag);
+      expect(out.exitCode).toBe(2);
+      expect(out.stderr).toBe(
+        `Invalid --revoke-old-after "${flag}": must be a whole number of milliseconds from 0 to 31536000000 (365 days).\n`,
+      );
+      expect(sent).toEqual([]);
+    },
+  );
+
+  test("--revoke-old-after takes the API's range: its maximum, and not one more", async () => {
+    const doc = JSON.parse(
+      await readFile(new URL('../../api/openapi.json', import.meta.url), 'utf8'),
+    ) as {
+      components: {
+        schemas: Record<string, { properties: Record<string, { maximum?: number }> }>;
+      };
+    };
+    const maximum =
+      doc.components.schemas.SecretRotateRequest?.properties.revokeOldAfterMs?.maximum;
+    expect(maximum).toBe(31_536_000_000);
+    expect((await rotateWith(String(maximum))).out.exitCode).toBe(0);
+    expect((await rotateWith(String((maximum as number) + 1))).out.exitCode).toBe(2);
+  });
+
   test('reports success on ok outcome', async () => {
     const fixtures = makeFixtures();
     const clientFactory = (): unknown =>
