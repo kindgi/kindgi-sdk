@@ -588,7 +588,7 @@ describe('KINDGI_ENV_SCHEMA — integrity', () => {
 
   test("every exported name (`*_VAR`) is a variable in the schema, so a reader and the docs can't drift", () => {
     const names = new Set(KINDGI_ENV_SCHEMA.map((v) => v.name));
-    const exported = Object.entries(envSchema).filter(
+    const exported = Object.entries(envSchema as Record<string, unknown>).filter(
       (entry): entry is [string, string] =>
         entry[0].endsWith('_VAR') && typeof entry[1] === 'string',
     );
