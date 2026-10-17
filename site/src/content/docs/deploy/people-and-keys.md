@@ -443,18 +443,18 @@ kindgi people remove <user-id>
 ```text
 {
   "user": {
-    "userId": "002ee784-0b05-47fb-918e-34d192be94c1",
-    "tenantId": "0b9f4c1e-4444-4a2b-8c3d-000000000402",
+    "userId": "e071f636-1e1e-4ee9-ac6e-ba1c1bd234ed",
+    "tenantId": "d283f09b-debf-46f5-9c10-13595df0224d",
     "primaryEmail": "sam@acme.example",
     "displayName": "Sam Rivera",
-    "createdAt": "2026-10-09T12:20:33.577Z",
-    "unregisteredAt": "2026-10-09T12:20:36.482Z"
+    "createdAt": "2026-10-17T02:45:02.525Z",
+    "unregisteredAt": "2026-10-17T02:45:03.717Z"
   },
   "keysRevoked": 1,
   "sessionsRevoked": 0,
-  "grantsRemoved": 1
+  "grantsRemoved": 5
 }
-Removed Sam Rivera: 1 key(s) and 0 session(s) revoked, 1 role(s) and membership(s) taken away.
+Removed Sam Rivera: 1 key(s) and 0 session(s) revoked, 5 role(s) and membership(s) taken away.
 ```
 
 In one step, before it answers, their API keys are revoked, their sessions
