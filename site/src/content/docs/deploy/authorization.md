@@ -452,6 +452,9 @@ of the project:
 - **A direct role with `joinedAt`** is a membership: change or remove it with
   `…/memberships/<user-id>`. One without `joinedAt` has no membership behind
   it, such as the creator of a project an older runtime made.
+- **A project made with a service account's key has no creator** (runtime
+  0.1.9 or later). It lists only who was given access to it, and the
+  tenant's admins (and its org's, if it's in one).
 - **A team's role** is changed on its grant (`…/team-grants/<team-id>`).
 
 Reading it takes `write` on the project: its editors and admins. Emails show
