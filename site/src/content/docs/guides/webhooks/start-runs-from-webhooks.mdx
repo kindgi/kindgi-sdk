@@ -420,11 +420,12 @@ what else a delivery leaves: the sender's address on a refusal.
 - **`kindgi webhooks take-ownership <trigger-id>`:** for a trigger whose owner
   left. Once they're removed from the tenant, or the service account it runs
   as is unregistered, its deliveries are refused (runtime 0.1.8.1 or later).
-  After 5 deliveries in a row that were refused or failed, a trigger pauses
-  itself, with the reason in its `statusReason`:
-  take it over, then `kindgi webhooks resume <trigger-id>`. Its runs act as
-  you from the next delivery. This needs `admin` on the project and `execute`
-  on the flow. With `--run-as=<service-account-id>`, the account becomes its
+  After 5 deliveries in a row that proved their sender but were then refused
+  or failed, a trigger pauses itself, with the reason in its `statusReason`.
+  A request that doesn't prove its sender neither counts nor resets the run
+  of 5. Take the trigger over, then `kindgi webhooks resume <trigger-id>`.
+  Its runs act as you from the next delivery. This needs `admin` on the
+  project and `execute` on the flow. With `--run-as=<service-account-id>`, the account becomes its
   owner instead, which needs `act_as` on it too. Every take-over is recorded
   as evidence, `trigger-owner-set`.
 - **`kindgi webhooks unregister <trigger-id>`:** the sender is answered `410`
