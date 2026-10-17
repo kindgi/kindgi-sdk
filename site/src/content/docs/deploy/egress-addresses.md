@@ -8,7 +8,7 @@ sidebar:
 Some sites admit calls only from addresses they know: a shop's API behind a
 firewall, an MCP server with an allowlist, a webhook receiver. A runtime can
 publish the IP addresses its calls to other sites come from (runtime 0.1.8.1
-or later), and anyone with a key of one of its tenants prints them with
+or later), and anyone who belongs to one of its tenants prints them with
 `kindgi egress`. Publishing them changes nothing about where calls go or
 where they come from.
 
@@ -39,7 +39,7 @@ KINDGI_EGRESS_DEPLOYMENT_ADDRESSES=198.51.100.20,2001:db8::1
 Then [restart the runtime](../restart-and-check-health/). A value that isn't
 an IP address, such as a range (`192.0.2.0/24`) or an address with an
 interface (`2001:db8::1%eth0`), stops it from starting, with an error that
-names the setting and the value. Here,
+names the setting and the entry it can't read. Here,
 `KINDGI_EGRESS_SERVER_ADDRESSES=nat.acme.example`:
 
 ```text
@@ -111,10 +111,12 @@ When the runtime publishes none, it says so, and exits `0`:
 This deployment publishes no egress addresses.
 ```
 
-Any key of the tenant reads them, in `GET /v1/tenant`'s `egress`, which is
-absent when none are published. In the TypeScript client, it's
-`tenant.get()`'s `egress`. In the console, the workspace's home page shows
-them under **Where this workspace's calls come from**:
+Anyone who belongs to the tenant reads them: every person added to it, and a
+service account given `--tenant-member` or `--tenant-admin`
+([Service accounts](../people-and-keys/#service-accounts)). They're in
+`GET /v1/tenant`'s `egress`, which is absent when none are published. In
+the TypeScript client, it's `tenant.get()`'s `egress`. In the console, the
+workspace's home page shows them under **Where this workspace's calls come from**:
 
 ![Where this workspace's calls come from: Server, the server's own calls, 192.0.2.10; Deployed code, calls made by your deployed code, 198.51.100.20 and 2001:db8::1; then every workspace on this deployment calls from these addresses](../../../assets/egress/console-egress-card.png)
 
