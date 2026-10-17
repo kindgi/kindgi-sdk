@@ -72,7 +72,7 @@ export const deployCommand: LeafCommand = {
   kind: 'leaf',
   name: 'deploy',
   description:
-    'Deploy a signed pack image to Kindgi. Reads deploy-envelope.json (or runs `kindgi build` inline) + POSTs to /v1/deployments.',
+    "Deploy a signed pack image to Kindgi. Reads deploy-envelope.json (or runs `kindgi build` inline) + POSTs to /v1/deployments. A pack tool whose id is an MCP endpoint's tool's id in the Default project is refused (`tool-kind-mismatch`), and nothing is deployed.",
   usage:
     'kindgi deploy [--env <name>] [--from-envelope <path>] [--endpoint <url>] [--token <bearer>] ' +
     '[--tenant <id>] [--project <id|slug>] [--hosted] [--idempotency-key <str>] [--dry-run] [--sync-secrets] [--allow-missing-env] ' +
