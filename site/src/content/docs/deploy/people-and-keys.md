@@ -449,22 +449,26 @@ kindgi people remove <user-id>
 ```text
 {
   "user": {
-    "userId": "002ee784-0b05-47fb-918e-34d192be94c1",
-    "tenantId": "0b9f4c1e-4444-4a2b-8c3d-000000000402",
+    "userId": "e071f636-1e1e-4ee9-ac6e-ba1c1bd234ed",
+    "tenantId": "d283f09b-debf-46f5-9c10-13595df0224d",
     "primaryEmail": "sam@acme.example",
     "displayName": "Sam Rivera",
-    "createdAt": "2026-10-09T12:20:33.577Z",
-    "unregisteredAt": "2026-10-09T12:20:36.482Z"
+    "createdAt": "2026-10-17T02:45:02.525Z",
+    "unregisteredAt": "2026-10-17T02:45:03.717Z"
   },
   "keysRevoked": 1,
   "sessionsRevoked": 0,
-  "grantsRemoved": 1
+  "grantsRemoved": 5
 }
-Removed Sam Rivera: 1 key(s) and 0 session(s) revoked, 1 role(s) and membership(s) taken away.
+Removed Sam Rivera: 1 key(s) and 0 session(s) revoked, 5 role(s) and membership(s) taken away.
 ```
 
 In one step, before it answers, their API keys are revoked, their sessions
-end, and every grant, membership and capability is taken away. The next
+end, and every grant, membership and capability is taken away, with what
+their creates gave them: `owner` on each agent, flow, tool, guardrail and
+eval suite they made, and `admin` on an org they made (runtime 0.1.8.1 or
+later). What they made stays. The tenant's admins still manage all of it,
+and an org's admins what's in their org; no one becomes its owner. The next
 request with Sam's key:
 
 ```text
@@ -474,6 +478,31 @@ request with Sam's key:
 That's a `401`. Their record stays, so runs, approvals and the audit trail still
 say who they were. Adding their email again makes a new person, with nothing
 granted.
+
+Schedules and webhook triggers they own stop running as them (runtime
+0.1.8.1 or later). Each fire is `refused` and counts toward pausing it:
+after 5 in a row that were refused or failed, it
+[pauses itself](../../guides/runs/run-on-a-schedule/#each-time-it-fires).
+The fire's `detail`, in `kindgi schedules fires` or `kindgi webhooks fires`,
+says why:
+
+```text
+The owner user:… was removed from the tenant, so flow acme.digest@1.0.0 no longer runs as them: take the schedule over, or delete it.
+```
+
+To keep one running, take it over, before or after you remove them:
+[`kindgi schedules take-ownership <schedule-id>`](../../guides/runs/run-on-a-schedule/#each-time-it-fires)
+or
+[`kindgi webhooks take-ownership <trigger-id>`](../../guides/webhooks/start-runs-from-webhooks/#pause-change-and-remove).
+A run of theirs that's already going isn't stopped: it fails at its next
+check of what they may do.
+
+For a person removed on an earlier runtime, their creates' `owner` and
+`admin` entries stayed, and their schedules and webhook triggers could go on
+running as them. To finish it: take over their schedules and webhook
+triggers, upgrade the runtime, then remove them again.
+`kindgi people list --include-removed` lists them, and `kindgi people remove`
+on someone already removed takes what's left.
 
 It's refused for yourself and for the seed user, with
 `identity-user-unregister-refused`, and for the only tenant admin, with
