@@ -346,8 +346,8 @@ declares it:
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
-// tools/post-update/index.ts
+```ts excerpt
+// in tools/post-update/index.ts
   effects: [{ kind: 'external-side-effect', resource: 'external:status-page' }],
   needsApprovalWhenUnattended: true,
 ```
@@ -355,8 +355,8 @@ declares it:
 </TabItem>
 <TabItem label="Python">
 
-```python
-# tools/post_update.py
+```python excerpt
+# in tools/post_update.py
 @tool(
     id="acme-ops.post-update",
     effects=[{"kind": "external-side-effect", "resource": "external:status-page"}],
@@ -367,8 +367,8 @@ declares it:
 </TabItem>
 <TabItem label="Java">
 
-```java
-// src/main/java/acmeops/tools/PostUpdate.java
+```java excerpt
+// in src/main/java/acmeops/tools/PostUpdate.java
       .effect("external-side-effect", "external:status-page")
       .needsApprovalWhenUnattended(true)
 ```
@@ -376,8 +376,8 @@ declares it:
 </TabItem>
 <TabItem label="Scala">
 
-```scala
-// src/main/scala/acmeops/tools/PostUpdate.scala
+```scala excerpt
+// in src/main/scala/acmeops/tools/PostUpdate.scala
     .effect("external-side-effect", "external:status-page")
     .needsApprovalWhenUnattended(true)
 ```
