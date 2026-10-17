@@ -4,15 +4,16 @@
 /** `kindgi doctor` (T130): each check, from fakes of the tools, Docker, the runtime and the client. */
 
 import { generateKeyPairSync, sign } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { type DoctorReport, type DoctorSeam, MIN_NODE, atLeast } from '../src/commands/doctor.js';
+import type { DoctorReport, DoctorSeam } from '../src/commands/doctor.js';
 import type { DockerRunner } from '../src/dev/runtime-container.js';
 import { runCli } from '../src/main.js';
+import { MIN_NODE } from '../src/node-version.js';
 import { loadProviderPresets } from '../src/providers/preset-loader.js';
 
 let dir: string;
@@ -357,6 +358,7 @@ describe('the machine', () => {
     expect(check('node')).toMatchObject({
       status: 'fail',
       message: `Node 20.11.1; Kindgi needs ${MIN_NODE} or later.`,
+      fix: `Install Node ${MIN_NODE} or later from https://nodejs.org (or: nvm install 22).`,
     });
     expect(check('npm')).toMatchObject({ status: 'fail' });
   });
@@ -1087,16 +1089,6 @@ describe('under kindgi-cli, the PyPI build (T127)', () => {
     });
     expect(check('registry')?.fix).toContain('uv run kindgi auth registry');
   });
-});
-
-test('MIN_NODE is the CLI package’s engines.node', async () => {
-  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
-    engines: { node: string };
-  };
-  expect(pkg.engines.node).toBe(`>=${MIN_NODE}`);
-  expect(atLeast('22.12.0', MIN_NODE)).toBe(true);
-  expect(atLeast('22.11.9', MIN_NODE)).toBe(false);
-  expect(atLeast('v23.0.0', MIN_NODE)).toBe(true);
 });
 
 describe('the API key: a stored key goes only to the address stored with it', () => {
