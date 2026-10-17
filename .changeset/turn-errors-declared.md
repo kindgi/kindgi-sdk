@@ -10,4 +10,4 @@
   - `hitl-withdrawn` (`HitlWithdrawnError`): a reviewer withdrew the approval.
 - `resumeAgentTurn`'s `agent-version-mismatch` now carries `conversationId`, as `AgentVersionMismatchError` says it does.
 
-The codes and messages are unchanged; before, the turn returned them outside its declared type.
+The codes and messages are unchanged; before, the turn returned them outside its declared type. A `switch` on `code` that checks every case (with `never`, or an `assertNever`) now has to handle these four codes to compile.
