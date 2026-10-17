@@ -214,13 +214,23 @@ function previewView(preview: LicensePreview): LicensePreview {
  * Whether the caller reads the license as the operator does: the
  * deployment's own token (`kindgi:system`), or a system key holding
  * `system:license` (the renewal job's). A tenant's key never gets that
- * scope.
+ * scope. It only asks: `servesAsOperator` marks the scope used.
  */
 function readsAsOperator(c: Context<AppEnv>): boolean {
   if (hasCapability(c, 'kindgi:system')) return true;
-  if (c.get('systemPrincipal') === undefined) return false;
-  if (!holdsSystemScope(c.get('capabilities'), 'system:license')) return false;
-  c.set('systemScopeUsed', 'system:license');
+  return (
+    c.get('systemPrincipal') !== undefined &&
+    holdsSystemScope(c.get('capabilities'), 'system:license')
+  );
+}
+
+/**
+ * `readsAsOperator`, for a route about to answer the caller as the
+ * operator: a system key's request is recorded as using `system:license`.
+ */
+function servesAsOperator(c: Context<AppEnv>): boolean {
+  if (!readsAsOperator(c)) return false;
+  if (!hasCapability(c, 'kindgi:system')) c.set('systemScopeUsed', 'system:license');
   return true;
 }
 
@@ -246,7 +256,7 @@ export function licenseRouter(
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   r.get('/', async (c) => {
-    if (readsAsOperator(c)) {
+    if (servesAsOperator(c)) {
       return c.json(operatorLicenseView(await binding.status()));
     }
     const tenantId = c.get('tenantId') as unknown as string;
@@ -274,7 +284,7 @@ export function licenseRouter(
     // reads the license (its own token, or a system key holding
     // `system:license`): it's every tenant's.
     r.get('/usage', async (c) => {
-      if (!readsAsOperator(c)) {
+      if (!servesAsOperator(c)) {
         return refused(c, authorizer, {
           action: 'read',
           resource: ref('tenant', c.get('tenantId') as unknown as string),

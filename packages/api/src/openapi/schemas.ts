@@ -9519,7 +9519,7 @@ export const MyPermissionsSchema: JsonSchema = {
     licenseOperatorOnly: {
       type: 'boolean',
       description:
-        "Whether `GET /v1/license` refuses this caller whatever its role (`license-operator-only`): the license is the deployment operator's, out of this caller's reach. It's about this caller, not a setting of the deployment. `true` when the caller isn't the deployment's own token and the deployment doesn't serve the caller's tenant alone, as on a runtime serving many tenants: a console doesn't ask. `false` when the caller may read it: the deployment's own token gets `false`, and so does a caller of the one tenant the deployment serves, whose admins read the license's countdown (`tenant.admin` says whether this caller is one). Absent when the deployment has no license to read, or its tenants couldn't be read just then: ask `GET /v1/license` as before.",
+        "Whether `GET /v1/license` refuses this caller whatever its role (`license-operator-only`): the license is the deployment operator's, held back from this caller. It's about this caller, not a setting of the deployment. `true` when the caller isn't the deployment's own token and the deployment doesn't serve the caller's tenant alone, as on a runtime serving many tenants: a console doesn't ask. `false` when it isn't held back and the caller's role decides: the deployment's own token gets `false` and reads it, and so does an admin of the one tenant the deployment serves (`tenant.admin` says whether this caller is one); that tenant's other callers get `false` too, and are still refused. Absent when the deployment has no license to read, or its tenants couldn't be read just then: ask `GET /v1/license` as before.",
     },
   },
 };
