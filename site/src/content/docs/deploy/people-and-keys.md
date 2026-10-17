@@ -474,8 +474,11 @@ say who they were. Adding their email again makes a new person, with nothing
 granted.
 
 Schedules and webhook triggers they own stop running as them (runtime
-0.1.8.1 or later). Each fire is `refused`, and its `detail`, in
-`kindgi schedules fires` or `kindgi webhooks fires`, says why:
+0.1.8.1 or later). Each fire is `refused` and counts toward pausing it:
+after 5 in a row that were refused or failed, it
+[pauses itself](../../guides/runs/run-on-a-schedule/#each-time-it-fires).
+The fire's `detail`, in `kindgi schedules fires` or `kindgi webhooks fires`,
+says why:
 
 ```text
 The owner user:… was removed from the tenant, so flow acme.digest@1.0.0 no longer runs as them: take the schedule over, or delete it.
@@ -489,7 +492,7 @@ A run of theirs that's already going isn't stopped: it fails at its next
 check of what they may do.
 
 For a person removed on an earlier runtime, their creates' `owner` and
-`admin` entries stayed, and their schedules and webhook triggers went on
+`admin` entries stayed, and their schedules and webhook triggers could go on
 running as them. To finish it: take over their schedules and webhook
 triggers, upgrade the runtime, then remove them again.
 `kindgi people list --include-removed` lists them, and `kindgi people remove`

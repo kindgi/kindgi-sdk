@@ -406,8 +406,10 @@ what else a delivery leaves: the sender's address on a refusal.
   instance that took the rotation, and within 10 seconds on the others.
 - **`kindgi webhooks take-ownership <trigger-id>`:** for a trigger whose owner
   left. Once they're removed from the tenant, its deliveries are refused
-  (runtime 0.1.8.1 or later). Its runs act as you from the next delivery.
-  This needs `admin` on the project.
+  (runtime 0.1.8.1 or later). After 5 deliveries in a row that were refused
+  or failed, a trigger pauses itself, with the reason in its `statusReason`:
+  take it over, then `kindgi webhooks resume <trigger-id>`. Its runs act as
+  you from the next delivery. This needs `admin` on the project.
 - **`kindgi webhooks unregister <trigger-id>`:** the sender is answered `410`
   from then on. WooCommerce switches a webhook off after 7 refusals in a row,
   and a `410` counts as one. A sender that doesn't prove itself still gets
