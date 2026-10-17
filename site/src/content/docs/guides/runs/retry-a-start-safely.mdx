@@ -55,9 +55,10 @@ Both print the same run, with the same `id` and `createdAt`.
 
 Your app sends the key with each start, so its own retries are safe.
 
-Pass `idempotencyKey` to `runs.start`, or `idempotency_key` in Python. This
-code starts the same run twice, then sends the same key with a different
-input:
+Pass `idempotencyKey` to `runs.start`, or `idempotency_key` in Python. Ask
+your coding agent: "I want my app to retry starting a run without starting it
+twice." For reference, this code starts the same run twice, then sends the
+same key with a different input:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

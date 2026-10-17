@@ -24,7 +24,11 @@ reviewer. Approve, and the tool runs. Reject, and it doesn't.
 ## Gate a tool
 
 `acme-ops.post-update` posts to a public status page. It changes something
-outside your app, so it doesn't say `mutating: false`:
+outside your app, so it doesn't say `mutating: false`. Ask your coding agent:
+"I want a tool that posts an update to our public status page." Kindgi's
+skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+tool looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -130,7 +134,9 @@ object PostUpdate {
 </TabItem>
 </Tabs>
 
-This agent posts status updates with it, and every post waits for a person:
+This agent posts status updates with it, and every post waits for a person.
+Ask your coding agent: "I want an agent that posts status updates, and asks a
+person before every post." For reference, the agent looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

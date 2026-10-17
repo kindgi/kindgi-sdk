@@ -57,7 +57,11 @@ its tools have run. So put the protection in the flow:
 
 The `woocommerce` template is built this way.
 `kindgi init <pack> --template=woocommerce` creates a pack from it, where
-`<pack>` is the pack's name. Its flow, in a pack named `acme-shop`:
+`<pack>` is the pack's name. To write your own, ask your coding agent: "I
+want a flow that checks each new order my store sends, then has an agent
+review it." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+template's flow, in a pack named `acme-shop`, looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
