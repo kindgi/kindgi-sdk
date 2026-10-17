@@ -389,9 +389,9 @@ machine:
 
 ## A second factor
 
-A person can add a second factor to signing in: the codes of an
-authenticator app (TOTP, as Google Authenticator, 1Password or Authy show
-them), and 10 recovery codes for when the phone is lost. They set it up in
+A person can add a second factor to signing in (runtime 0.1.8.1 or later):
+the codes an authenticator app shows (TOTP, as in Google Authenticator,
+1Password or Authy), and 10 recovery codes for when the phone is lost. They set it up in
 the console, which shows the key as a QR code, once. From then on, signing
 in by the emailed link, Google, Microsoft or GitHub asks for a code after the
 first step, and no session is made until it's given. Each recovery code works
@@ -416,8 +416,9 @@ Turning it on from a session made without your own second factor is refused
 (`second-factor-enroll-first`): it would end your session. Set yours up and
 sign in again with it first.
 
-Ten wrong codes in 15 minutes lock a person's second factor for the rest of
-that time (`second-factor-locked`). For a lost phone, a tenant admin removes
+After 5 wrong codes in one sign-in, that sign-in ends and the person starts
+again from the first step. Ten wrong codes in 15 minutes lock their second
+factor for the rest of that time (`second-factor-locked`). For a lost phone, a tenant admin removes
 theirs, and they're told by email where the deployment sends it:
 
 ```sh
@@ -425,8 +426,10 @@ kindgi people reset-second-factor <user-id>
 ```
 
 The keys are kept encrypted under the sign-in secret (`KINDGI_AUTH_SECRET`).
-When you rotate it, set the old one as `KINDGI_AUTH_PREVIOUS_SECRET(_PATH)`:
-each key moves to the new secret at its person's next code.
+When you rotate it, set the old one as
+[`KINDGI_AUTH_PREVIOUS_SECRET_PATH`](../../reference/env-vars/#kindgi_auth_previous_secret_path)
+(or `KINDGI_AUTH_PREVIOUS_SECRET`): each key moves to the new secret at its
+person's next code.
 `kindgi sign-in settings` counts the keys still on the previous secret; keep
 it until that is 0. A key that opens under neither secret can't be used
 (`second-factor-unusable`): its person signs in with a recovery code, or an
