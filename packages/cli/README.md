@@ -38,7 +38,7 @@ Desktop, or a Docker engine on Linux). A Python pack needs Python and the
 | [`kindgi key`](#kindgi-key) | Ed25519 signing keys: local pairs under `~/.kindgi/keys/`, and the runtime's trust list. |
 | [`kindgi skills`](#kindgi-skills) | Refresh the Claude Code skills in `.claude/skills/`. |
 | [`kindgi mcp`](#kindgi-mcp) | MCP servers for your coding agent, in `.mcp.json`. |
-| [`kindgi feedback`](#kindgi-feedback) | Note framework friction in the pack's `FEEDBACK.md`. |
+| [`kindgi feedback`](#kindgi-feedback) | Note framework friction in the pack's `FEEDBACK.md`, and send it to Kindgi once the person says yes to the preview. |
 
 The rest of the commands talk to a running Kindgi API: see
 [API commands](#api-commands).
@@ -590,6 +590,7 @@ and `--published-at`: the same inputs then give the same image.
 | `--push[=<repository>]` | With `--local`: push the image, sign it, and write the envelope. Default repository: the env block's `registry` + `/<packId>`. |
 | `--platform=<os/arch>` | The image's platform. Default: `linux/amd64` when pushing, else this machine's. |
 | `--endpoint=<url>` | The build server. Default: the env block's `build`. |
+| `--out=<dir>` | Where the build writes `dist/`, the `Containerfile`, `context/` and `deploy-envelope.json`. Default: `.kindgi/build`, under the pack. It cannot be the pack root or a directory that contains it; for a TypeScript pack it must stay under the pack root, where the pack's `node_modules` resolves the bundled indexer's imports. |
 | `--tenant=<id>` | The tenant the signature names. Default: the env block's `tenantId`, else `KINDGI_TENANT_ID`. |
 | `--signing-key=<path>` | The Ed25519 private key (PEM). Default: the env block's `signingKey`. |
 | `--skip-integrity-gate` | Sign without re-checking the image's index. Prints a warning. |
@@ -626,7 +627,10 @@ deployment. The envelope is `--from-envelope`, else
   deployment's secrets after it lands. Off by default; without it, a deploy
   with such a file says what it didn't send. With it, secret-shaped names
   (`*_KEY`, `*_TOKEN`, `*_SECRET`, …) get a warning: those belong in
-  `kindgi secrets set`.
+  `kindgi secrets set`. A hosted deploy (`--hosted`, or an env block's
+  `build: 'hosted'`) needs `--env` with it, since a hosted runtime reads
+  a deployment's secrets in the env it serves. Without it the deploy is
+  refused before anything is built or sent.
 - **Errors** carry a hint for the common ones: `signature-invalid`,
   `signer-not-trusted`, `image-unverifiable`,
   `deployment-validation-failed`.
@@ -760,6 +764,18 @@ pack's env files in its environment, so the secret is never written into
 friction to `FEEDBACK.md` at the pack root, where a coding agent can leave
 what it diagnosed for the maintainers.
 
+- `kindgi feedback submit --preview` prints exactly what would be sent to
+  Kindgi's intake (access.kindgi.com), after redaction, with its digest.
+  `--yes=<digest>` then sends exactly that; at a terminal it asks instead.
+  Home directories, paths outside the pack, the pack's env values, keys,
+  tokens, URL query values and email addresses are taken out first.
+  `KINDGI_FEEDBACK_SUBMIT=off` turns sending off.
+- `kindgi feedback status` says what became of the reports sent: received,
+  known, fixed (and in which version), won't fix, or withdrawn.
+- `kindgi feedback withdraw <id>` takes a report back: the intake clears its
+  text at once. The key it needs stays in `~/.kindgi/feedback/keys.json` on
+  the machine that sent it; `FEEDBACK.md` holds only the report id.
+
 ## API commands
 
 These call a running Kindgi API through [`@kindgi/client`](../../sdks/typescript).
@@ -821,6 +837,21 @@ The API URL and token come from, in order:
 `kindgi dev` writes `.kindgirc.json` in the pack. For another API, save the
 pair once with `kindgi auth login --url=<url> --token=<token>`, and check it
 with `kindgi auth whoami`.
+
+**A stored key goes only to the address stored with it.** A key in
+`.kindgirc.json` or `~/.kindgi/config.json` is for the `apiUrl` beside it.
+When the two files hold keys for different addresses, the key used is the
+one stored with the API URL the command goes to, so in a `kindgi dev`
+folder `--url <the address you signed in to>` uses your sign-in's key.
+When no key is stored for that address (a `--url`, `KINDGI_API_URL` or
+folder `apiUrl` that names another one, or a key with no `apiUrl` beside
+it), a command that needs the key is refused before it sends anything,
+naming both addresses and the file. A command that sends no key isn't.
+`kindgi auth login --url=<url>` saves a stored key only for its own address:
+for another one, give that server's key with `--token` or `KINDGI_API_TOKEN`.
+A key given with `--token` or `KINDGI_API_TOKEN` goes to whatever address
+the command goes to. `kindgi doctor` says which key the CLI would use, and
+whether it's for the API URL.
 
 ### The runtime image's registry
 

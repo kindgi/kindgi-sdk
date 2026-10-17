@@ -265,6 +265,66 @@ object StatusAgent {
 An agent without `hitl.tools` has no tool gates, unless your tenant has
 [approval rules](../approval-rules-for-every-agent/).
 
+### Someone other than whoever asked
+
+**A tool call's approval names who asked:** the person the turn runs for, in
+`requestedBy` (`user:<id>`, or `service_account:<id>` for an app's key). It
+stays the same when someone else's decision resumes the turn.
+
+**By default, that person may approve it too.** `hitl.separateApprover`
+makes the approval need someone else (four eyes):
+
+- **`true`** applies to every gated tool.
+- **Per tool,** set `overrides`, keyed by tool id as in `tools`. An optional
+  `default` covers the tools you don't name.
+
+```ts
+conversationPolicy: {
+  hitl: {
+    tools: { overrides: { 'acme-ops.post-update': 'always_ask' } },
+    separateApprover: { overrides: { 'acme-ops.post-update': true } },
+  },
+},
+```
+
+Every pack language sets it the same way: Python's `conversation_policy`,
+and the map Java and Scala pass to `set("conversationPolicy", …)`, take the
+same keys, `separateApprover` included.
+
+**When four eyes is on:**
+- **The person who asked isn't offered Approve.** That holds on the
+  console's approval page, in its inbox's keyboard decisions ("You asked
+  for this, so someone else approves it."), and on the Kindgi plugin for
+  WordPress's Approvals tab.
+- **The API refuses their approve:**
+
+  ```json
+  {
+    "error": {
+      "code": "separate-approver-required",
+      "message": "Approval ecaaa545-… was asked for by you: someone else must approve it",
+      "details": { "approvalId": "ecaaa545-…" },
+      "requestId": "…"
+    }
+  }
+  ```
+
+- **They may still reject their own request.**
+- **A turn that's already waiting** keeps the rule it parked with.
+- **It compares people.** A turn started with an app's key names the key's
+  service account (`service_account:<id>`), so a person holding that key
+  can still approve the call as themselves.
+- **With `ask_on_first_use`,** only a tool's first call is asked, and
+  someone other than whoever asked approves that one.
+- **The template's tools:** the store agent sets `separateApprover` per tool,
+  and `defineAgent` refuses an override naming a tool the agent doesn't
+  have, so a mistyped id never leaves the real tool without four eyes.
+
+**The `woocommerce` template's store agent turns it on** for
+`<pack>.woo.refund-large`, `<pack>.woo.set-price` and
+`<pack>.woo.publish-product` (`acme-shop.woo.refund-large` in a pack named
+`acme-shop`).
+
 ## Become a reviewer
 
 Approvals are decided by **reviewers**. Under `kindgi dev` you're one already,

@@ -10,7 +10,7 @@ import type { TenantId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { createApp } from '../src/index.js';
+import { COMPONENT_SCHEMAS, createApp } from '../src/index.js';
 import type {
   RetentionBinding,
   RetentionScheduledInput,
@@ -102,5 +102,47 @@ describe('GET /v1/retention/scheduled paging', () => {
     const body = await short.get('?limit=2');
     expect(body).toMatchObject({ hasMore: false });
     expect(body).not.toHaveProperty('nextCursor');
+  });
+});
+
+describe("the server's retention limit decides a row's grace (`limitApplied`)", () => {
+  test('an item the limit decides passes through with no policy, and one it caps with its policy', async () => {
+    const byLimit: RetentionScheduledItem = {
+      domain: 'run',
+      id: 'run-1',
+      unregisteredAt: '2026-01-01T00:00:00.000Z',
+      purgeAt: '2026-04-01T00:00:00.000Z',
+      pastGrace: true,
+      graceSeconds: 7_776_000,
+      limitApplied: true,
+    };
+    const capped: RetentionScheduledItem = {
+      ...byLimit,
+      id: 'run-2',
+      policyId: 'acme.keep-runs',
+      policyVersion: '1.0.0',
+    };
+    const { get } = makeApp({ data: [byLimit, capped], hasMore: false });
+    const body = await get('?limit=5');
+    expect(body.data).toEqual([byLimit, capped]);
+  });
+
+  test('the wire: an item needs no policy, and `limitApplied` is only ever true', () => {
+    const schemas = new Map(COMPONENT_SCHEMAS);
+    const item = schemas.get('RetentionScheduledItem') as unknown as {
+      required: string[];
+      properties: Record<string, Record<string, unknown>>;
+    };
+    expect(item.required).not.toContain('policyId');
+    expect(item.required).not.toContain('policyVersion');
+    expect(item.required).toContain('graceSeconds');
+    expect(item.properties.limitApplied).toMatchObject({ type: 'boolean', const: true });
+    const sweep = schemas.get('RetentionSweepResult') as unknown as {
+      properties: { perDomain: { items: { properties: Record<string, Record<string, unknown>> } } };
+    };
+    expect(sweep.properties.perDomain.items.properties.limitApplied).toMatchObject({
+      type: 'boolean',
+      const: true,
+    });
   });
 });

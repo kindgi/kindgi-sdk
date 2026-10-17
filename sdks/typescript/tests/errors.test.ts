@@ -89,6 +89,7 @@ describe('fromWire — conflicts', () => {
     'service-account-name-taken',
     'service-account-unregistered',
     'identity-user-email-taken',
+    'identity-user-not-invited',
     'provider-key-in-use',
   ])('a %s is a conflict, its code the reason', (code) => {
     expect(fromWire({ code, message: 'taken' })).toEqual({
@@ -122,6 +123,15 @@ describe('fromWire — live versions', () => {
       code: 'auth',
       reason: 'forbidden',
       serverCode: code,
+    });
+  });
+
+  it('too many invitations sent is rate-limited, with its wait', () => {
+    expect(fromWire({ code: 'invite-capped', message: 'later', retryAfterSeconds: 43 })).toEqual({
+      code: 'rate-limited',
+      serverCode: 'invite-capped',
+      message: 'later',
+      retryAfterSeconds: 43,
     });
   });
 

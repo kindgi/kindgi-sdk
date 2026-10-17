@@ -19,6 +19,7 @@ import { loadFlow } from '@kindgi/flow';
 
 import {
   type AgentRegistryBinding,
+  type CreateAppInput,
   type FlowRegistryBinding,
   type ReferenceScopeBinding,
   agentReferences,
@@ -161,9 +162,19 @@ describe('the helpers', () => {
 // The routes
 // ---------------------------------------------------------------------------
 
+/**
+ * The full app without authorization, so without sites, which need it: these
+ * tests ask about reference scope, and a test that needs an authorizer wires
+ * its own.
+ */
+function fullAppWithoutAuthz(): CreateAppInput {
+  const { authz: _authz, sites: _sites, ...input } = fullAppInput();
+  return input;
+}
+
 function app(referenceScope?: ReferenceScopeBinding) {
   return createApp({
-    ...fullAppInput(),
+    ...fullAppWithoutAuthz(),
     resolveToken: async (token) =>
       token === TOKEN ? { tenantId: '00000000-0000-4000-8000-0000000000aa' as never } : null,
     ...(referenceScope !== undefined && { referenceScope }),
@@ -377,7 +388,7 @@ describe('PATCH /v1/schedules/{triggerId}: a new target', () => {
   test("is checked against the schedule's project, as at registration", async () => {
     const asked: Parameters<ReferenceScopeBinding['reachable']>[0][] = [];
     const a = createApp({
-      ...fullAppInput(),
+      ...fullAppWithoutAuthz(),
       resolveToken: async (token) =>
         token === TOKEN ? { tenantId: '00000000-0000-4000-8000-0000000000aa' as never } : null,
       triggerRegistry: createInMemoryTriggerRegistry(),
@@ -437,7 +448,7 @@ describe('POST /v1/conversations: where it is filed', () => {
     const asked: Parameters<ReferenceScopeBinding['reachable']>[0][] = [];
     const deny = new Set(opts.denied ?? []);
     const a = createApp({
-      ...fullAppInput(),
+      ...fullAppWithoutAuthz(),
       resolveToken: async (token) =>
         token === TOKEN
           ? { tenantId: '00000000-0000-4000-8000-0000000000aa' as never, userId: 'user-1' as never }
@@ -584,7 +595,7 @@ describe('…/versions/{version}/reinstate: a retired version comes back only wi
       const { registry, reinstated, id } = retired(kind, projectId);
       const asked: Parameters<ReferenceScopeBinding['reachable']>[0][] = [];
       const a = createApp({
-        ...fullAppInput(),
+        ...fullAppWithoutAuthz(),
         resolveToken: async (token) =>
           token === TOKEN ? { tenantId: '00000000-0000-4000-8000-0000000000aa' as never } : null,
         ...(kind === 'agents'
@@ -612,7 +623,7 @@ describe('…/versions/{version}/reinstate: a retired version comes back only wi
 
       // With every reference in reach, it comes back.
       const inReach = createApp({
-        ...fullAppInput(),
+        ...fullAppWithoutAuthz(),
         resolveToken: async (token) =>
           token === TOKEN ? { tenantId: '00000000-0000-4000-8000-0000000000aa' as never } : null,
         ...(kind === 'agents'

@@ -17,6 +17,8 @@
  */
 
 import type {
+  EnrollSiteBody,
+  EnrollSiteResult,
   IdentityProviderCollectionPage,
   IdentityProviderConfig,
   IdentityProviderKind,
@@ -25,6 +27,7 @@ import type {
   RefreshResult,
   RegisterIdentityProviderResult,
   SignInOptions,
+  SiteSignInResult,
   TokenSignInResult,
   UnregisterIdentityProviderResult,
   UpdateIdentityProviderBody,
@@ -58,6 +61,20 @@ export interface AuthClient {
    * @wire GET /v1/auth/sign-in-options
    */
   signInOptions(input?: { readonly email?: string }): Promise<SignInOptionsResult>;
+  /**
+   * A site posts its Ed25519 public key with the one-time enrollment code a
+   * tenant admin gave it (no other credential), and learns its id and the
+   * audience its statements carry. The site keeps its private key.
+   * @wire POST /v1/auth/sites/enroll
+   */
+  enrollSite(body: EnrollSiteBody): Promise<EnrollSiteResult>;
+  /**
+   * A site exchanges one of its people's statements (a compact JWS it
+   * signed) for a session limited to the site's project. No other
+   * credential; refused with `401 site-sign-in-refused` and a `reason`.
+   * @wire POST /v1/auth/site-sign-in
+   */
+  siteSignIn(statement: string): Promise<SiteSignInResult>;
   /**
    * Refresh the current session token. Requires a session bearer.
    * @wire POST /v1/auth/refresh
@@ -170,6 +187,20 @@ export function makeAuthClient(transport: Transport): AuthClient {
         method: 'GET',
         path: '/v1/auth/sign-in-options',
         ...(input?.email !== undefined && { query: { email: input.email } }),
+      });
+    },
+    async enrollSite(body) {
+      return transport.request<EnrollSiteResult>({
+        method: 'POST',
+        path: '/v1/auth/sites/enroll',
+        body,
+      });
+    },
+    async siteSignIn(statement) {
+      return transport.request<SiteSignInResult>({
+        method: 'POST',
+        path: '/v1/auth/site-sign-in',
+        body: { statement },
       });
     },
     async refresh(options) {

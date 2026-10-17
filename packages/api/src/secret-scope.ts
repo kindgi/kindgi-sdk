@@ -26,6 +26,7 @@
 
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { emitResolveEvent } from '@kindgi/compliance';
+import type { Logger } from '@kindgi/log';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
 import type { ToolManifest } from '@kindgi/tools';
 import type { EnvName, OrgId, RecordedSecretScope, Result, TenantId } from '@kindgi/types';
@@ -102,12 +103,14 @@ export function scopeOfRecorded(tenantId: TenantId, recorded: RecordedSecretScop
  * exact read. A store that answers from another scope anyway, or doesn't
  * say which (one that ignores `exact`, or doesn't report `scope`), is
  * refused as the in-tree stores say a secret isn't set, and the refusal is
- * audited (scope and name, never the value).
+ * audited (scope and name, never the value). An audit append that fails
+ * is logged at `warn` through `log`, when given.
  */
 export async function resolveAtScope(
   secrets: Pick<SecretBinding, 'resolve'>,
   input: Omit<SecretResolveInput, 'exact'>,
   auditEvents?: AuditEventBinding,
+  log?: Logger,
 ): Promise<Result<SecretResolveOutcome, SecretError>> {
   const resolved = await secrets.resolve({ ...input, exact: true });
   if (resolved.kind === 'err') return resolved;
@@ -125,6 +128,7 @@ export async function resolveAtScope(
       auditEvents,
       tenantId: input.scope.tenantId,
       ...(input.scope.kind === 'project' && { projectId: input.scope.projectId }),
+      ...(log !== undefined && { log }),
     });
   }
   return {

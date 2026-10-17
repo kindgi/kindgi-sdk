@@ -5,7 +5,7 @@ import { type Context, Hono } from 'hono';
 
 import { type AgentId, tunableKeys } from '@kindgi/agents';
 import { type Action, ref } from '@kindgi/authz';
-import type { Cursor, Semver, TenantId } from '@kindgi/types';
+import type { Cursor, ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
@@ -45,6 +45,8 @@ export interface ImproveDeps {
   readonly releases: AgentReleaseBindings;
   /** What the agent's project may reach (`reference-scope.ts`); absent → as named. */
   readonly referenceScope?: ReferenceScopeBinding;
+  /** Whether a project is suspended: no pass starts for an agent in one. Absent: no check. */
+  readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
 }
 
 export const DEFAULT_BUDGET: ImprovementBudget = { maxCostUsd: 5, maxCandidates: 30 };
@@ -104,6 +106,17 @@ export function mountImproveRoute(r: Hono<AppEnv>, deps: ImproveDeps, authorizer
           ])) ??
       (await liveScopeOutOfScope(deps.referenceScope, tenantId, parsed.agentId, parsed.scope));
     if (outOfScope !== undefined) return outOfScopeResponse(c, c.get('requestId'), outOfScope);
+    if (
+      from.projectId !== undefined &&
+      deps.projectSuspended !== undefined &&
+      (await deps.projectSuspended(tenantId, from.projectId))
+    ) {
+      return fail(c, 'project-suspended', {
+        code: 'project-suspended',
+        message:
+          "The agent's project is suspended, so nothing new runs in it until it's restored; the pass wasn't started",
+      });
+    }
     const nothing = await nothingToTune(deps.blocks, tenantId, from, parsed.tiers[0]);
     if (nothing !== undefined) {
       return fail(c, 'validation-failed', {
@@ -287,6 +300,8 @@ export function serializePass(p: ImprovementPass): Record<string, unknown> {
     candidatesEvaluated: p.candidatesEvaluated,
     costUsd: p.costUsd,
     ...(p.outcome !== undefined && { outcome: p.outcome }),
+    ...(p.status === 'cancelled' &&
+      p.cancelReason !== undefined && { cancelReason: p.cancelReason }),
     ...(p.comparisons !== undefined && { comparisons: p.comparisons }),
     ...(p.trigger !== undefined && { trigger: p.trigger }),
     createdAt: p.createdAt,

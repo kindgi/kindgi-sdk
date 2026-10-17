@@ -23,6 +23,7 @@ import { requireEnvName, requireScope, scopesEqual } from './env.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { queryScopeResourceRef, scopeResourceRef } from './scope-params.js';
+import { readingOf } from './sse.js';
 import { parseTimeInput } from './time-input.js';
 import { auditWrite } from './write-audit.js';
 
@@ -748,9 +749,32 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
       );
     }
 
+    const headers = {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      'X-Accel-Buffering': 'no',
+      Connection: 'keep-alive',
+    };
+    // Nobody will read this stream when the request is a HEAD (Hono answers a
+    // HEAD with this GET route and drops the body unread, and nothing cancels
+    // it) or when the client left during the read above (its request aborts,
+    // but the server cancels only a body it's writing). Then the route
+    // answers the stream's status and headers, before the stream exists, and
+    // starts none of its work.
+    if (c.req.method === 'HEAD' || c.req.raw.signal.aborted) {
+      return new Response(null, { status: 200, headers });
+    }
+
     const encoder = new TextEncoder();
     const initialStatus = existing;
+    // Aborted when the client goes away: the reader cancels the stream, or
+    // the request aborts. The wait below ends on it at once, and the
+    // subscription and the heartbeat with it.
+    const reading = readingOf(c.req.raw);
     const body = new ReadableStream<Uint8Array>({
+      cancel() {
+        reading.abort();
+      },
       async start(controller) {
         let closed = false;
         const close = (): void => {
@@ -806,29 +830,23 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
           if (terminal) return;
           emit('ping', {});
         }, heartbeatMs);
+        reading.signal.addEventListener('abort', wakeup, { once: true });
 
         try {
-          while (!terminal) {
+          while (!terminal && !reading.signal.aborted) {
             await new Promise<void>((resolve) => {
               notifier = resolve;
             });
           }
         } finally {
+          reading.signal.removeEventListener('abort', wakeup);
           clearInterval(timer);
           unsub();
           close();
         }
       },
     });
-    return new Response(body, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache',
-        'X-Accel-Buffering': 'no',
-        Connection: 'keep-alive',
-      },
-    });
+    return new Response(body, { status: 200, headers });
   });
 
   // ------------------------ DELETE /:name -----------------------
