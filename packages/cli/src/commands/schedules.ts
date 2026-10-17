@@ -376,12 +376,10 @@ const takeOwnership: LeafCommand = {
     runSdk(ctx, 'schedules take-ownership', async () => {
       const id = requiredPositional(ctx, 0, 'schedule-id');
       const runAs = stringFlag(ctx, 'run-as');
-      return await ctx
-        .client()
-        .schedules.takeOwnership(
-          id,
-          runAs !== undefined ? { runAsServiceAccountId: runAs } : undefined,
-        );
+      const schedulesClient = ctx.client().schedules;
+      return await (runAs !== undefined
+        ? schedulesClient.takeOwnership(id, { runAsServiceAccountId: runAs })
+        : schedulesClient.takeOwnership(id));
     }),
 };
 

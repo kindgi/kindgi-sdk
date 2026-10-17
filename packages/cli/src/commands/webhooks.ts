@@ -478,12 +478,10 @@ const takeOwnership: LeafCommand = {
     runSdkRendered(ctx, 'webhooks take-ownership', async () => {
       const triggerId = requiredPositional(ctx, 0, 'trigger-id');
       const runAs = stringFlag(ctx, 'run-as');
-      const trigger = await ctx
-        .client()
-        .webhooks.takeOwnership(
-          triggerId,
-          runAs !== undefined ? { runAsServiceAccountId: runAs } : undefined,
-        );
+      const webhooksClient = ctx.client().webhooks;
+      const trigger = await (runAs !== undefined
+        ? webhooksClient.takeOwnership(triggerId, { runAsServiceAccountId: runAs })
+        : webhooksClient.takeOwnership(triggerId));
       const rendered = renderJson(trigger, ctx.globals.format);
       return {
         stdout: rendered.stdout,
