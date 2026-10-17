@@ -62,6 +62,13 @@ export interface CandidateCall {
   /** Its place in the replay trace; only ever used to break a tie. */
   readonly step?: number;
   readonly callId?: string;
+  /**
+   * The call was refused on the replay (a guardrail or a denied approval), so
+   * it never ran. It still counts — the agent decided to make it — but the
+   * differences name it, so a refused-then-retried call doesn't read as two
+   * plain calls.
+   */
+  readonly refused?: boolean;
 }
 
 /**
@@ -74,13 +81,23 @@ export type CorrectionDifference =
       readonly kind: 'count';
       readonly expected: number;
       readonly actual: number;
+      /** How many of the actual calls were refused, when any were. */
+      readonly refused?: number;
     }
-  | { readonly tool: string; readonly kind: 'must-not-call'; readonly actual: number }
+  | {
+      readonly tool: string;
+      readonly kind: 'must-not-call';
+      readonly actual: number;
+      /** How many of the forbidden calls were refused, when any were. */
+      readonly refused?: number;
+    }
   | {
       readonly tool: string;
       readonly kind: 'missing-field';
       readonly field: string;
       readonly expected: unknown;
+      /** Set when the call blamed for the miss was refused. */
+      readonly refused?: true;
     }
   | {
       readonly tool: string;
@@ -88,6 +105,8 @@ export type CorrectionDifference =
       readonly field: string;
       readonly expected: unknown;
       readonly actual: unknown;
+      /** Set when the call blamed for the miss was refused. */
+      readonly refused?: true;
     };
 
 export interface CorrectionResult {
@@ -105,8 +124,16 @@ export function gradeCorrection(
 
   // Must-not-call: a named tool has zero calls.
   for (const tool of distinct(correction.notCalled)) {
-    const n = calls.filter((c) => c.tool === tool).length;
-    if (n > 0) differences.push({ tool, kind: 'must-not-call', actual: n });
+    const made = calls.filter((c) => c.tool === tool);
+    if (made.length > 0) {
+      const refused = made.filter((c) => c.refused === true).length;
+      differences.push({
+        tool,
+        kind: 'must-not-call',
+        actual: made.length,
+        ...(refused > 0 && { refused }),
+      });
+    }
   }
 
   // Expected calls, per named tool, as a multiset.
@@ -114,7 +141,14 @@ export function gradeCorrection(
     const expected = correction.calls.filter((c) => c.tool === tool);
     const actual = ordered(calls.filter((c) => c.tool === tool));
     if (expected.length !== actual.length) {
-      differences.push({ tool, kind: 'count', expected: expected.length, actual: actual.length });
+      const refused = actual.filter((c) => c.refused === true).length;
+      differences.push({
+        tool,
+        kind: 'count',
+        expected: expected.length,
+        actual: actual.length,
+        ...(refused > 0 && { refused }),
+      });
     }
     differences.push(...diffNamedTool(tool, expected, actual));
   }
@@ -126,14 +160,24 @@ export function gradeCorrection(
 export function describeCorrectionDifference(d: CorrectionDifference): string {
   switch (d.kind) {
     case 'count':
-      return `${d.tool}: expected ${d.expected} call${d.expected === 1 ? '' : 's'}, got ${d.actual}`;
+      return `${d.tool}: expected ${d.expected} call${d.expected === 1 ? '' : 's'}, got ${d.actual}${refusedCount(d.refused)}`;
     case 'must-not-call':
-      return `${d.tool}: expected no calls, got ${d.actual}`;
+      return `${d.tool}: expected no calls, got ${d.actual}${refusedCount(d.refused)}`;
     case 'missing-field':
-      return `${d.tool} ${d.field}: expected ${show(d.expected)}, got nothing`;
+      return `${d.tool} ${d.field}: expected ${show(d.expected)}, got nothing${refusedMark(d.refused)}`;
     case 'field-value':
-      return `${d.tool} ${d.field}: expected ${show(d.expected)}, got ${show(d.actual)}`;
+      return `${d.tool} ${d.field}: expected ${show(d.expected)}, got ${show(d.actual)}${refusedMark(d.refused)}`;
   }
+}
+
+/** " (N refused)" when some of the counted calls were refused, else "". */
+function refusedCount(refused: number | undefined): string {
+  return refused !== undefined && refused > 0 ? ` (${refused} refused)` : '';
+}
+
+/** " (refused)" when the blamed call was refused, else "". */
+function refusedMark(refused: true | undefined): string {
+  return refused === true ? ' (refused)' : '';
 }
 
 // -------------------- the matching, per named tool --------------------
@@ -243,10 +287,11 @@ function fieldDifferences(
   e: ExpectedCall,
   a: CandidateCall | undefined,
 ): CorrectionDifference[] {
+  const refused = a?.refused === true ? { refused: true as const } : {};
   const differences: CorrectionDifference[] = [];
   for (const [field, value] of Object.entries(e.args)) {
     if (a === undefined || !present(a.args, field)) {
-      differences.push({ tool, kind: 'missing-field', field, expected: value });
+      differences.push({ tool, kind: 'missing-field', field, expected: value, ...refused });
     } else if (canonical(a.args[field]) !== canonical(value)) {
       differences.push({
         tool,
@@ -254,6 +299,7 @@ function fieldDifferences(
         field,
         expected: value,
         actual: a.args[field],
+        ...refused,
       });
     }
   }

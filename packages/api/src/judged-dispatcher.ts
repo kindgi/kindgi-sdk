@@ -488,6 +488,7 @@ class CaseTally {
       args: asArgs(t.arguments),
       step: t.step,
       callId: t.callId,
+      ...(t.source === 'refused' && { refused: true }),
     }));
     for (const c of this.correctionsCase) {
       const graded = gradeCorrection(c, calls);

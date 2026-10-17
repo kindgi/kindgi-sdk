@@ -14726,6 +14726,11 @@
                           "actual": {
                             "type": "integer",
                             "minimum": 0
+                          },
+                          "refused": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "How many of the actual calls were refused on the replay. Absent when none were."
                           }
                         }
                       },
@@ -14750,6 +14755,11 @@
                           "actual": {
                             "type": "integer",
                             "minimum": 1
+                          },
+                          "refused": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "How many of the forbidden calls were refused on the replay. Absent when none were."
                           }
                         }
                       },
@@ -14775,7 +14785,11 @@
                           "field": {
                             "type": "string"
                           },
-                          "expected": {}
+                          "expected": {},
+                          "refused": {
+                            "type": "boolean",
+                            "description": "Present and true when the call blamed for the miss was refused on the replay."
+                          }
                         }
                       },
                       {
@@ -14802,7 +14816,11 @@
                             "type": "string"
                           },
                           "expected": {},
-                          "actual": {}
+                          "actual": {},
+                          "refused": {
+                            "type": "boolean",
+                            "description": "Present and true when the call blamed for the miss was refused on the replay."
+                          }
                         }
                       }
                     ]

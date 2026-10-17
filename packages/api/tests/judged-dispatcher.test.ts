@@ -909,6 +909,39 @@ describe('corrections graded on the replay', () => {
     expect(out.error).toBeUndefined();
   });
 
+  test('a refused call then a real retry is counted twice, and the difference names the refused one', async () => {
+    const corrected: JudgedEvalCase = {
+      ...caseA,
+      caseId: 'case-c',
+      corrections: [
+        {
+          judgmentId: 'j-amount',
+          calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+          notCalled: [],
+        },
+      ],
+    };
+    const { perCase, summary } = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 1 },
+      cases: [corrected],
+      answer: () =>
+        outcomeWith('case-c', [
+          toolCall('acme.refund', { amount: 25 }, 'refused'),
+          toolCall('acme.refund', { amount: 25 }),
+        ]),
+    });
+    expect(perCase[0]?.corrections).toEqual([
+      { judgmentId: 'j-amount', pass: false, repetitionsPassed: 0, repetitions: 1 },
+    ]);
+    expect(perCase[0]?.correctionDifferences).toEqual([
+      {
+        judgmentId: 'j-amount',
+        differences: [{ tool: 'acme.refund', kind: 'count', expected: 1, actual: 2, refused: 1 }],
+      },
+    ]);
+    expect(summary.corrections).toEqual({ checked: 1, passed: 0 });
+  });
+
   test('a correction passes only when every repetition passes (k of n)', async () => {
     const corrected: JudgedEvalCase = {
       ...caseA,

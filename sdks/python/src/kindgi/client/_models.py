@@ -6924,6 +6924,10 @@ class Differences(BaseModel):
     kind: Literal["count"]
     expected: Annotated[int, Field(ge=0)]
     actual: Annotated[int, Field(ge=0)]
+    refused: Annotated[int | None, Field(ge=1)] = None
+    """
+    How many of the actual calls were refused on the replay. Absent when none were.
+    """
 
 
 class Differences1(BaseModel):
@@ -6934,6 +6938,10 @@ class Differences1(BaseModel):
     tool: str
     kind: Literal["must-not-call"]
     actual: Annotated[int, Field(ge=1)]
+    refused: Annotated[int | None, Field(ge=1)] = None
+    """
+    How many of the forbidden calls were refused on the replay. Absent when none were.
+    """
 
 
 class Differences2(BaseModel):
@@ -6945,6 +6953,10 @@ class Differences2(BaseModel):
     kind: Literal["missing-field"]
     field: str
     expected: Any
+    refused: bool | None = None
+    """
+    Present and true when the call blamed for the miss was refused on the replay.
+    """
 
 
 class Differences3(BaseModel):
@@ -6957,6 +6969,10 @@ class Differences3(BaseModel):
     field: str
     expected: Any
     actual: Any
+    refused: bool | None = None
+    """
+    Present and true when the call blamed for the miss was refused on the replay.
+    """
 
 
 class CorrectionDifference(BaseModel):

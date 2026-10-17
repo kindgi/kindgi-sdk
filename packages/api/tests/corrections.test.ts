@@ -16,6 +16,11 @@ const call = (tool: string, args: Record<string, unknown>, step?: number): Candi
   ...(step !== undefined && { step }),
 });
 
+const refused = (tool: string, args: Record<string, unknown>, step?: number): CandidateCall => ({
+  ...call(tool, args, step),
+  refused: true,
+});
+
 describe('gradeCorrection — scope', () => {
   test('ignores calls to tools the correction does not name', () => {
     const correction: Correction = {
@@ -220,6 +225,52 @@ describe('gradeCorrection — maximum matching, not greedy (mutant 5)', () => {
   });
 });
 
+describe('gradeCorrection — refused calls are named', () => {
+  test('a refused call then a real retry counts both, and the count names the refused one', () => {
+    const result = gradeCorrection(
+      { calls: [{ tool: 'refund', args: { amount: 25 } }], notCalled: [] },
+      [refused('refund', { amount: 25 }, 0), call('refund', { amount: 25 }, 1)],
+    );
+    expect(result.pass).toBe(false);
+    expect(result.differences).toContainEqual({
+      tool: 'refund',
+      kind: 'count',
+      expected: 1,
+      actual: 2,
+      refused: 1,
+    });
+  });
+
+  test('a forbidden tool whose only call was refused names it', () => {
+    const result = gradeCorrection({ calls: [], notCalled: ['refund'] }, [
+      refused('refund', { amount: 25 }),
+    ]);
+    expect(result.pass).toBe(false);
+    expect(result.differences).toContainEqual({
+      tool: 'refund',
+      kind: 'must-not-call',
+      actual: 1,
+      refused: 1,
+    });
+  });
+
+  test('a field difference against a refused call is marked refused', () => {
+    const result = gradeCorrection(
+      { calls: [{ tool: 'refund', args: { amount: 25 } }], notCalled: [] },
+      [refused('refund', { amount: 80 })],
+    );
+    expect(result.pass).toBe(false);
+    expect(result.differences).toContainEqual({
+      tool: 'refund',
+      kind: 'field-value',
+      field: 'amount',
+      expected: 25,
+      actual: 80,
+      refused: true,
+    });
+  });
+});
+
 describe('gradeCorrection — order is not compared', () => {
   test('two different tools in any order pass', () => {
     const correction: Correction = {
@@ -325,5 +376,35 @@ describe('describeCorrectionDifference', () => {
         actual: 'null',
       }),
     ).toBe('refund note: expected null, got "null"');
+  });
+
+  test('the default words name a refused call', () => {
+    expect(
+      describeCorrectionDifference({
+        tool: 'refund',
+        kind: 'count',
+        expected: 1,
+        actual: 2,
+        refused: 1,
+      }),
+    ).toBe('refund: expected 1 call, got 2 (1 refused)');
+    expect(
+      describeCorrectionDifference({
+        tool: 'refund',
+        kind: 'must-not-call',
+        actual: 1,
+        refused: 1,
+      }),
+    ).toBe('refund: expected no calls, got 1 (1 refused)');
+    expect(
+      describeCorrectionDifference({
+        tool: 'refund',
+        kind: 'field-value',
+        field: 'amount',
+        expected: 25,
+        actual: 80,
+        refused: true,
+      }),
+    ).toBe('refund amount: expected 25, got 80 (refused)');
   });
 });

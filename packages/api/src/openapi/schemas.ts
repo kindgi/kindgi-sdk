@@ -4367,6 +4367,12 @@ const correctionDifference = {
         kind: { type: 'string', enum: ['count'] },
         expected: { type: 'integer', minimum: 0 },
         actual: { type: 'integer', minimum: 0 },
+        refused: {
+          type: 'integer',
+          minimum: 1,
+          description:
+            'How many of the actual calls were refused on the replay. Absent when none were.',
+        },
       },
     },
     {
@@ -4377,6 +4383,12 @@ const correctionDifference = {
         tool: { type: 'string' },
         kind: { type: 'string', enum: ['must-not-call'] },
         actual: { type: 'integer', minimum: 1 },
+        refused: {
+          type: 'integer',
+          minimum: 1,
+          description:
+            'How many of the forbidden calls were refused on the replay. Absent when none were.',
+        },
       },
     },
     {
@@ -4388,6 +4400,11 @@ const correctionDifference = {
         kind: { type: 'string', enum: ['missing-field'] },
         field: { type: 'string' },
         expected: {},
+        refused: {
+          type: 'boolean',
+          description:
+            'Present and true when the call blamed for the miss was refused on the replay.',
+        },
       },
     },
     {
@@ -4400,6 +4417,11 @@ const correctionDifference = {
         field: { type: 'string' },
         expected: {},
         actual: {},
+        refused: {
+          type: 'boolean',
+          description:
+            'Present and true when the call blamed for the miss was refused on the replay.',
+        },
       },
     },
   ],
