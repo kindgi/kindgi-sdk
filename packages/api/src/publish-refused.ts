@@ -60,39 +60,44 @@ export class PublishRefused extends Error {
   /** With `tool-kind-mismatch`: the MCP endpoint whose tool the id is, when it's one's. */
   readonly endpointId?: string;
 
-  constructor(
-    readonly primitive: PublishedPrimitive,
-    readonly id: string,
-    outcome: RefusedOutcome | DeployRefusal,
-  ) {
+  /** The primitive refused. */
+  readonly primitive: PublishedPrimitive;
+  /** Its id (with `@<version>` where it has one). */
+  readonly id: string;
+
+  constructor(primitive: PublishedPrimitive, id: string, outcome: RefusedOutcome | DeployRefusal) {
+    // One `super` at the top: tsc assigns parameter properties only after
+    // a top-level one, so a refusal built in a branch had no `primitive`
+    // or `id` in the built package (esbuild, which the tests run, assigns
+    // them after every `super`).
+    super(`The ${primitive} ${id} wasn't published: ${refusedBecause(outcome)}`);
+    this.name = 'PublishRefused';
+    this.primitive = primitive;
+    this.id = id;
     if ('code' in outcome) {
-      super(`The ${primitive} ${id} wasn't published: ${outcome.reason}`);
-      this.name = 'PublishRefused';
       this.code = outcome.code;
-      return;
-    }
-    if (outcome.kind === 'kind-mismatch') {
-      super(
-        outcome.endpointId === undefined
-          ? `The ${primitive} ${id} wasn't published: its id is a tool published here, and this version is an MCP endpoint's`
-          : `The ${primitive} ${id} wasn't published: its id is MCP endpoint "${outcome.endpointId}"'s tool (give the pack's tool another name, or unregister the endpoint first)`,
-      );
-      this.name = 'PublishRefused';
+    } else if (outcome.kind === 'kind-mismatch') {
       this.code = 'tool-kind-mismatch';
       if (outcome.endpointId !== undefined) this.endpointId = outcome.endpointId;
-      return;
+    } else if (outcome.kind === 'project-mismatch') {
+      this.code = `${primitive}-project-mismatch`;
+      this.projectId = outcome.projectId;
+    } else {
+      this.code = outcome.kind;
     }
-    const code =
-      outcome.kind === 'project-mismatch'
-        ? (`${primitive}-project-mismatch` as const)
-        : outcome.kind;
-    super(
-      outcome.kind === 'project-mismatch'
-        ? `The ${primitive} ${id} wasn't published: it belongs to another project (one pack per client: \`kindgi init\` a copy of the pack for this client, with its own pack id)`
-        : `The ${primitive} ${id} wasn't published: ${code}`,
-    );
-    this.name = 'PublishRefused';
-    this.code = code;
-    if (outcome.kind === 'project-mismatch') this.projectId = outcome.projectId;
   }
+}
+
+/** Why a refused primitive wasn't published, for `PublishRefused`'s message. */
+function refusedBecause(outcome: RefusedOutcome | DeployRefusal): string {
+  if ('code' in outcome) return outcome.reason;
+  if (outcome.kind === 'kind-mismatch') {
+    return outcome.endpointId === undefined
+      ? "its id is a tool published here, and this version is an MCP endpoint's"
+      : `its id is MCP endpoint "${outcome.endpointId}"'s tool (give the pack's tool another name, or unregister the endpoint first)`;
+  }
+  if (outcome.kind === 'project-mismatch') {
+    return 'it belongs to another project (one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id)';
+  }
+  return outcome.kind;
 }
