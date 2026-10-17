@@ -412,5 +412,5 @@ Tell the person, in your own words:
 >    versions can be checked against your judgments
 >    ([Judge a run's output](https://docs.kindgi.com/guides/evals/judge-a-runs-output/)).
 > 3. **Compare two versions:** change its instructions and see whether people's
->    judgments rate the new version higher
+>    corrections rate the new version higher
 >    ([Compare a version on a test set](https://docs.kindgi.com/guides/evals/compare-an-agent-version/)).

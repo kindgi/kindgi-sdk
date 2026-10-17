@@ -8,10 +8,10 @@ sidebar:
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 This guide makes an agent version live where you choose, checks which
-version a run gets, rolls back, and gates a release behind your test set.
+version a run gets, rolls back, and gates a release behind your test cases.
 
 A run that names no version gets the agent's latest version. Once a new
-version has done better on your test set, as
+version has done better on your test cases, as
 [Compare a version on a test set](../compare-an-agent-version/) shows, you
 can make it **live** where you choose: the whole tenant, an org, a project, or
 a segment of a project's runs, such as one company's. Runs there use it from
@@ -26,7 +26,7 @@ refusal and console page.
   with versions 1.0.0, 1.1.0, 1.2.0 and 1.3.0.
 - **A project's id,** for a project or a segment: `kindgi projects list`
   lists them.
-- **For a gate:** a comparison of the version on your test set, and a second
+- **For a gate:** a run of the version on your test cases, and a second
   reviewer to approve.
 - **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
   Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
@@ -267,7 +267,7 @@ the scope above, or the latest version when nothing above is live:
 kindgi agents unpin acme.order-desk --tenant --reason="Back to the latest"
 ```
 
-Every promotion, rollback and unpin is kept, with who asked and why.
+Every go-live, rollback and unpin is kept, with who asked and why.
 `kindgi agents promotions list acme.order-desk --table` lists them, as
 [The history](../live-versions-reference/#the-history) shows.
 [Rollbacks and unpins](../live-versions-reference/#rollbacks-and-unpins)
@@ -275,10 +275,10 @@ lists what each refuses.
 
 ## Gate a release
 
-A **gate policy** says what a promotion must show before a version goes live
-for a scope: a recent comparison on your test set, enough judged cases,
+A **release gate policy** says what a go-live must show before a version goes live
+for a scope: a recent run on your test cases, enough corrected cases,
 figures at least this good, a clean replay and, if you want, a reviewer's
-approval. An agent has one policy per scope. A promotion is checked by the
+approval. An agent has one policy per scope. A go-live is checked by the
 most specific one covering its scope, at its latest version.
 
 ### Set a gate
@@ -312,8 +312,8 @@ kindgi gate-policies publish acme.order-desk-release --policy-version=1.0.0 --ag
 - `--agent` and `--tenant` are the agent and the scope it gates.
 - `--spec=@gate.json` reads the policy from the file.
 
-The tenant's promotions of `acme.order-desk` now go through the gate.
-[Gate policies](../live-versions-reference/#gate-policies) has what each
+The tenant's go-lives of `acme.order-desk` now go through the gate.
+[Release gate policies](../live-versions-reference/#release-gate-policies) has what each
 part asks, and who may publish one.
 
 ### Check before you promote
@@ -324,7 +324,7 @@ part asks, and who may publish one.
 kindgi agents promote acme.order-desk 1.3.0 --tenant --eval-run=<comparison-id> --check
 ```
 
-`--eval-run=<comparison-id>` names the comparison of 1.3.0, where
+`--eval-run=<comparison-id>` names the run on the test cases of 1.3.0, where
 `<comparison-id>` is its eval run's id. It prints what the gate would say:
 
 ```json
@@ -355,7 +355,7 @@ kindgi agents promote acme.order-desk 1.3.0 --tenant --eval-run=<comparison-id> 
 
 It prints the promotion or the gate's refusal:
 
-- **When the policy has no `approvals`,** a promotion that passes goes live
+- **When the policy has no `approvals`,** a go-live that passes goes live
   at once, `"status": "promoted"`.
 - **When it has,** it waits: `"status": "pending-approval"`, with an
   `approvalId`. The scope keeps its version until a reviewer approves.
@@ -369,7 +369,7 @@ The request is an approval like any other, for a reviewer with the policy's
 role, as [Decide an approval](../../approvals/decide-an-approval/) shows:
 
 ```sh
-kindgi approvals complete <approval-id> --decision=approve --rationale="Checked the comparison"
+kindgi approvals complete <approval-id> --decision=approve --rationale="Checked the run on the test cases"
 ```
 
 `<approval-id>` is the promotion's `approvalId`. The version goes live, and
@@ -387,7 +387,7 @@ second reviewer instead.
 
 ### Promote from your app
 
-Your app checks the gate, then promotes, with the comparison's id as the
+Your app checks the gate, then promotes, with the test-cases run's id as the
 script's argument:
 
 <Tabs syncKey="lang">
@@ -398,7 +398,7 @@ script's argument:
 import { createClient } from '@kindgi/sdk/client';
 
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
-const evalRunId = process.argv[2]; // the comparison of 1.3.0
+const evalRunId = process.argv[2]; // the run on the test cases of 1.3.0
 const request = {
   version: '1.3.0',
   scope: { kind: 'tenant' as const },
@@ -430,7 +430,7 @@ kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 request = {
     "version": "1.3.0",
     "scope": {"kind": "tenant"},
-    "eval_run_id": sys.argv[1],  # the comparison of 1.3.0
+    "eval_run_id": sys.argv[1],  # the run on the test cases of 1.3.0
     "reason": "1.3.0 did as well on the order checks",
 }
 

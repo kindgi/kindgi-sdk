@@ -623,7 +623,7 @@ export const CLI_DEFAULTS = {
     spec: 'required',
   },
   'judgments add': {
-    class: 'none (the judgment is unclassified)',
+    class: 'none (the correction is unclassified)',
     item: 'required',
     no: 'off (exactly one of `--yes` or `--no` is required)',
     participant: 'none',
@@ -1125,7 +1125,7 @@ export const CLI_EXAMPLES = {
   ],
   'agents gate-policy': [
     {
-      purpose: 'Show the gate policy for the whole tenant.',
+      purpose: 'Show the release gate policy for the whole tenant.',
       line: 'kindgi agents gate-policy acme.order-desk --tenant',
     },
     {
@@ -1145,7 +1145,7 @@ export const CLI_EXAMPLES = {
       line: 'kindgi conversations list --status=open',
     },
     {
-      purpose: 'List only comparison replays, a page at a time.',
+      purpose: 'List only the replays of runs on the test cases, a page at a time.',
       line: 'kindgi conversations list --replays=only --limit=10',
     },
   ],
@@ -1413,7 +1413,7 @@ export const CLI_EXAMPLES = {
   ],
   'eval-runs rescore': [
     {
-      purpose: 'Rescore a completed comparison and wait for the new run.',
+      purpose: 'Rescore a completed run on the test cases and wait for the new run.',
       line: 'kindgi eval-runs rescore <run-id> --wait',
     },
     {
@@ -1443,7 +1443,7 @@ export const CLI_EXAMPLES = {
   ],
   'eval-suites cases': [
     {
-      purpose: "List the first page of a test set's cases.",
+      purpose: 'List the first page of the test cases.',
       line: 'kindgi eval-suites cases acme.article-picks --suite-version=1.0.0',
     },
     {
@@ -1495,7 +1495,7 @@ export const CLI_EXAMPLES = {
   ],
   'gate-policies list': [
     {
-      purpose: 'List the gate policies of one agent.',
+      purpose: 'List the release gate policies of one agent.',
       line: 'kindgi gate-policies list --agent=acme.order-desk --table',
     },
     {
@@ -1521,13 +1521,13 @@ export const CLI_EXAMPLES = {
   ],
   'gate-policies unregister': [
     {
-      purpose: 'Unregister a gate policy version.',
+      purpose: 'Unregister a release gate policy version.',
       line: 'kindgi gate-policies unregister acme.order-desk-release 1.0.0',
     },
   ],
   'gate-policies reinstate': [
     {
-      purpose: 'Reinstate an unregistered gate policy version.',
+      purpose: 'Reinstate an unregistered release gate policy version.',
       line: 'kindgi gate-policies reinstate acme.order-desk-release 1.0.0',
     },
   ],
