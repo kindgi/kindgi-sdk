@@ -48,7 +48,7 @@ describe('scratchRepoEnv', () => {
     git(other, clean, 'add', '-A');
     git(other, clean, 'commit', '-q', '-m', 'other');
     const commits = () => git(other, clean, 'rev-list', '--all', '--count').trim();
-    const pointed = { ...process.env, GIT_DIR: join(other, '.git') };
+    const pointed = { ...clean, GIT_DIR: join(other, '.git') };
 
     const scratch = join(dir, 'scratch');
     mkdirSync(scratch);
