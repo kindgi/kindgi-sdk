@@ -243,7 +243,7 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
               decision.rationale !== undefined ? `: ${decision.rationale}` : ''
             }`,
             ...(decision.rationale !== undefined && { rationale: decision.rationale }),
-          } as never);
+          });
         }
         // Approved: the turn proceeds through the rest of setup.
       } catch (cause) {
@@ -270,11 +270,11 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
             });
           }
           throwAgentTurnFailure(
-            (withdrawnGateFailure(cause.reason, 'the session-HITL gate') ?? {
+            withdrawnGateFailure(cause.reason, 'the session-HITL gate') ?? {
               code: 'hitl-cancelled',
               message: `Session-HITL gate cancelled: ${cause.reason}`,
               reason: cause.reason,
-            }) as never,
+            },
           );
         }
         // SuspensionSignal or anything else — let it propagate. The

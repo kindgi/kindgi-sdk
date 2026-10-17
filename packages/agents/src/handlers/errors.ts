@@ -8,7 +8,10 @@ import type { PolicyKind } from '@kindgi/policy-contract';
 import type { AgentError } from '../errors.js';
 import type {
   GuardrailViolationError,
+  HitlCancelledError,
+  HitlRejectedError,
   HitlRequiredError,
+  HitlWithdrawnError,
   UnresolvedGuardrailError,
 } from '../guardrails-gate.js';
 
@@ -25,11 +28,15 @@ export type InvokeAgentError =
   | RateLimitExceededError
   | AgentTurnAbortedError
   | HitlRequiredError
+  | HitlRejectedError
+  | HitlCancelledError
+  | HitlWithdrawnError
   | GuardrailViolationError
   | UnresolvedGuardrailError
   | OutputSchemaViolationError
   | TenantPolicyUnavailableError
   | RunSnapshotError
+  | RunJournalUnavailableError
   | SemanticUnavailableError
   | ApprovalsPendingLimitError
   | TurnMemoryLimitReachedError;
@@ -105,6 +112,15 @@ export interface SemanticUnavailableError {
  */
 export interface RunSnapshotError {
   readonly code: 'run-snapshot-missing' | 'run-snapshot-unreadable';
+  readonly message: string;
+}
+
+/**
+ * A turn being resumed can't be rebuilt from its run's journal: reading
+ * it failed (a passing storage error), so resuming again may work.
+ */
+export interface RunJournalUnavailableError {
+  readonly code: 'run-journal-unavailable';
   readonly message: string;
 }
 
