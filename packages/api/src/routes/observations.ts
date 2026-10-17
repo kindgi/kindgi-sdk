@@ -17,6 +17,7 @@ import { ref } from '@kindgi/authz';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type {
   Observation,
   ObservationPosition,
@@ -151,6 +152,8 @@ export function observationsRouter(
       ...position,
     });
     if (outcome.kind === 'runtime-error') {
+      const busy = databaseBusyAnswer(outcome, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(outcome.code) as never);
       return c.json(toWireError({ code: outcome.code, message: outcome.message }, requestId));
     }

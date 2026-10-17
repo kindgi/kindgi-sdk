@@ -56,14 +56,78 @@ const FIXED: ReadonlySet<string> = new Set(['time', 'level', 'severity', 'subsys
 /** Names a field can't take: the fixed five and `inMessage`, the record's own. */
 const RESERVED: ReadonlySet<string> = new Set([...FIXED, 'inMessage']);
 
+/** `err[key]`, or undefined when reading it throws (a getter, a revoked proxy). */
+function fieldOf(err: object, key: 'name' | 'message' | 'code'): unknown {
+  try {
+    return (err as Readonly<Record<string, unknown>>)[key];
+  } catch {
+    return undefined;
+  }
+}
+
+/** A string or numeric `code`, as a string. */
+function codeOf(err: object): { readonly code?: string } {
+  const code = fieldOf(err, 'code');
+  return typeof code === 'string' || typeof code === 'number' ? { code: String(code) } : {};
+}
+
+/** `err instanceof Error`, and false where asking throws (a revoked proxy). */
+function isError(err: unknown): err is Error {
+  try {
+    return err instanceof Error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `String(value)`, for a value that isn't an error. One that can't be made
+ * a string (no prototype, a throwing `toString`) is its
+ * `Object.prototype.toString` tag, and a revoked proxy `[unreadable]`:
+ * logging it never throws.
+ */
+function textOf(value: unknown): string {
+  try {
+    return String(value);
+  } catch {
+    try {
+      return Object.prototype.toString.call(value);
+    } catch {
+      return '[unreadable]';
+    }
+  }
+}
+
+/**
+ * A plain object in an error's place (a storage error is
+ * `{ code, message, cause }`): its name when that's a non-empty string
+ * (else `Object`), its code and its message, and nothing else. Its own
+ * cause isn't walked: a storage error's is the database driver's, whose
+ * text can carry the query and the values it was bound to. With neither a
+ * code nor a message, it's `String(err)`. A field that throws when read
+ * counts as missing.
+ */
+function serializePlain(err: object): SerializedError | string {
+  const name = fieldOf(err, 'name');
+  const message = fieldOf(err, 'message');
+  const code = codeOf(err);
+  if (typeof message !== 'string' && code.code === undefined) return scrubText(textOf(err));
+  return {
+    name: typeof name === 'string' && name !== '' ? name : 'Object',
+    message: typeof message === 'string' ? scrubText(message) : '',
+    ...code,
+  };
+}
+
 function serializeError(err: unknown, withStack: boolean, depth = 0): SerializedError | string {
-  if (!(err instanceof Error)) return scrubText(String(err));
-  const code = (err as { readonly code?: unknown }).code;
+  if (!isError(err)) {
+    return typeof err === 'object' && err !== null ? serializePlain(err) : scrubText(textOf(err));
+  }
   const cause = (err as { readonly cause?: unknown }).cause;
   return {
     name: err.name,
     message: scrubText(err.message),
-    ...(typeof code === 'string' || typeof code === 'number' ? { code: String(code) } : {}),
+    ...codeOf(err),
     ...(withStack && err.stack !== undefined && { stack: scrubText(err.stack) }),
     ...(cause !== undefined && depth < 3 && { cause: serializeError(cause, withStack, depth + 1) }),
   };

@@ -16,8 +16,10 @@ import type { RunBinding } from '@kindgi/runtime';
 import type { AgentId, ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
+import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -93,6 +95,24 @@ export function conversationsRouter(
 
     const agentIdRaw = c.req.query('agentId');
 
+    // "My conversations": the ones the caller opened. Only `me`: a list of
+    // someone else's isn't a filter this route offers.
+    const openedByRaw = c.req.query('openedBy');
+    if (openedByRaw !== undefined && openedByRaw !== 'me') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError({ code: 'bad-input', message: '`openedBy` must be `me`' }, requestId),
+      );
+    }
+    const openedBy = openedByRaw === 'me' ? callerRef(c) : undefined;
+    // Every page of the list says it holds only the caller's own, an empty
+    // one too, so a client can tell a runtime that ignores the filter.
+    const filtered = openedByRaw === 'me' ? { openedBy: 'me' as const } : {};
+    // A caller with no principal opened nothing it could be listed by.
+    if (openedByRaw === 'me' && openedBy === undefined) {
+      return c.json({ data: [], hasMore: false, ...filtered });
+    }
+
     // Replay conversations (a comparison's replays) are left out unless asked for.
     const replaysRaw = c.req.query('replays');
     if (
@@ -136,11 +156,14 @@ export function conversationsRouter(
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(agentIdRaw !== undefined && agentIdRaw.length > 0 && { agentId: agentIdRaw as AgentId }),
       ...(statusFilter !== undefined && { status: statusFilter }),
+      ...(openedBy !== undefined && { openedBy }),
       replays: replaysRaw ?? 'exclude',
       ...(before !== undefined && { before }),
       limit,
     });
     if (listResult.kind === 'err') {
+      const busy = databaseBusyAnswer(listResult.error, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(listResult.error.code) as never);
       return c.json(toWireError(listResult.error as never, requestId));
     }
@@ -157,14 +180,17 @@ export function conversationsRouter(
             id: position.id as unknown as string,
           })
         : undefined;
+    // The binding narrows; this keeps a page right from one that doesn't.
+    const theirs = openedBy === undefined ? data : data.filter((row) => row.openedBy === openedBy);
     const visible =
       authorizer === undefined
-        ? data
-        : await authorizer.filterByCan(c, 'read', data, conversationRef);
+        ? theirs
+        : await authorizer.filterByCan(c, 'read', theirs, conversationRef);
     return c.json({
       data: visible.map(serializeConversation),
       hasMore,
       ...(nextCursor !== undefined && { nextCursor }),
+      ...filtered,
     });
   });
 
@@ -176,6 +202,8 @@ export function conversationsRouter(
 
     const got = await conversationBinding.getConversation(tenantId, conversationId);
     if (got.kind === 'err') {
+      const busy = databaseBusyAnswer(got.error, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(got.error.code) as never);
       return c.json(toWireError(got.error as never, requestId));
     }
@@ -254,9 +282,12 @@ export function conversationsRouter(
     });
     if (notAllowed !== undefined) return notAllowed;
 
+    // Who opened it: the caller, never the body.
+    const openedBy = callerRef(c);
     const opened = await conversationBinding.openConversation({
       tenantId,
       ...(projectId !== undefined && { projectId }),
+      ...(openedBy !== undefined && { openedBy }),
       agentId: parsed.value.agentId,
       agentVersion: parsed.value.agentVersion,
       title: parsed.value.title,
@@ -372,6 +403,8 @@ export function conversationsRouter(
     if (authorizer !== undefined) {
       const got = await conversationBinding.getConversation(tenantId, conversationId);
       if (got.kind === 'err') {
+        const busy = databaseBusyAnswer(got.error, c);
+        if (busy !== undefined) return busy;
         c.status(statusFor(got.error.code) as never);
         return c.json(toWireError(got.error as never, requestId));
       }
@@ -385,6 +418,8 @@ export function conversationsRouter(
       limit: limit + 1,
     });
     if (result.kind === 'err') {
+      const busy = databaseBusyAnswer(result.error, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(result.error.code) as never);
       return c.json(toWireError(result.error as never, requestId));
     }
@@ -426,6 +461,7 @@ function serializeConversation(c: Conversation): Record<string, unknown> {
     title: c.title,
     ...(c.participantId !== undefined && { participantId: c.participantId }),
     ...(c.projectId !== undefined && { projectId: c.projectId as unknown as string }),
+    ...(c.openedBy !== undefined && { openedBy: c.openedBy }),
     scope: c.scope,
     status: (c.closedAt === undefined ? 'open' : 'closed') as 'open' | 'closed',
     openedAt: c.openedAt as unknown as string,

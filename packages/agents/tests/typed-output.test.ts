@@ -138,7 +138,7 @@ describe('reading and checking the answer', () => {
 
 describe("the output, told from the turn's start", () => {
   /** The system message the turn's first model call is sent. */
-  async function systemOf(a: Agent): Promise<string> {
+  async function systemOf(a: Agent, toolNames: readonly string[] = []): Promise<string> {
     const ctx = {
       ...ctxFor(a),
       bindings: {
@@ -148,6 +148,11 @@ describe("the output, told from the turn's start", () => {
       retrieved: [],
       renderedPrompt: 'Read the grievance and list the remedies.',
       userMessage: { sequence: 1, role: 'user', content: 'go' },
+      // The tools the model call offers, as setup resolves them.
+      tools: {
+        definitions: toolNames.map((name) => ({ name, description: name, inputSchema: {} })),
+        byName: new Map(),
+      },
     } as unknown as TurnContext;
     const out = (await buildBuildInitialMessagesHandler(ctx)(undefined, kctx())) as {
       nextMessages: { role: string; content: string }[];
@@ -158,11 +163,24 @@ describe("the output, told from the turn's start", () => {
   }
 
   test("a typed agent's system message carries the output, in the words a repair uses", async () => {
-    const system = await systemOf(agent({ output: AXES }));
+    const system = await systemOf(agent({ output: AXES }), ['acme.lookup']);
     expect(system.startsWith('Read the grievance and list the remedies.')).toBe(true);
     expect(system).toContain(outputInstructions(AXES));
-    expect(system).toContain('Call the tools you need first');
+    expect(
+      system.endsWith(
+        'Call the tools you need first; then give your final answer as that JSON alone.',
+      ),
+    ).toBe(true);
     expect(repairMessage(AXES, ['x']).content).toContain(outputInstructions(AXES));
+  });
+
+  test('with no tools offered, the model is told to answer, not to call tools first', async () => {
+    const system = await systemOf(agent({ output: AXES }));
+    expect(system).toContain(outputInstructions(AXES));
+    expect(system).not.toContain('tools');
+    expect(
+      system.endsWith(`${outputInstructions(AXES)}\nGive your final answer as that JSON alone.`),
+    ).toBe(true);
   });
 
   test('the schema goes as written, its descriptions included', async () => {
@@ -383,6 +401,30 @@ describe('defineAgent output', () => {
       expect(r.error.issues.map((i) => i.path).sort()).toEqual([
         '/output/maxRepairs',
         '/output/schema',
+      ]);
+    }
+  });
+
+  test.each([
+    ['null', null],
+    ['a string', 'json'],
+    ['an array', [{ type: 'object' }]],
+  ])("an output that isn't an object (%s) is invalid at /output", (_what, output) => {
+    const r = defineAgent({
+      id: 'acme.bad',
+      version: '1.0.0',
+      name: 'Bad',
+      instructions: 'x',
+      capabilities: [{ needs: [{ feature: 'tool-use' }] }],
+      tools: [],
+      retrieval: [],
+      guardrails: [],
+      output: output as never,
+    });
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') {
+      expect(r.error.issues).toEqual([
+        { path: '/output', message: 'output must be an object { schema, name?, maxRepairs? }' },
       ]);
     }
   });

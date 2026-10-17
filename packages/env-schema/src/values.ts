@@ -73,8 +73,11 @@ export const AUTH_EMAIL_SMTP_URL_PATH_VAR = 'KINDGI_AUTH_EMAIL_SMTP_URL_PATH';
 /** The emailed sign-in link's From address. */
 export const AUTH_EMAIL_FROM_VAR = 'KINDGI_AUTH_EMAIL_FROM';
 
-/** At most this many emailed links to one address in 24 hours. Default 10. */
+/** At most this many emailed links to one address in 24 hours. Default 20. */
 export const AUTH_EMAIL_LINK_DAILY_CAP_VAR = 'KINDGI_AUTH_EMAIL_LINK_DAILY_CAP';
+
+/** At most this many invitation emails in 24 hours from the whole deployment, all its tenants together. Default 500. */
+export const AUTH_INVITE_EMAIL_DAILY_CAP_VAR = 'KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP';
 
 /** Cloudflare Turnstile on asking for an emailed link: its secret (or a file holding it) and its site key. */
 export const AUTH_TURNSTILE_SECRET_VAR = 'KINDGI_AUTH_TURNSTILE_SECRET';

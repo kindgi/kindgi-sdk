@@ -116,6 +116,12 @@ export type {
   EnvSetOutcome,
 } from './resources/env.js';
 export type {
+  Environment,
+  EnvironmentsClient,
+  EnvironmentsListInput,
+  EnvironmentsPage,
+} from './resources/environments.js';
+export type {
   PollingOverrides,
   RawRotationResponse,
   RotationOutcome,
@@ -144,6 +150,7 @@ export type {
 } from './resources/guardrails.js';
 export type {
   ConversationFilter,
+  ConversationPage,
   ConversationsClient,
   MessageFilter,
 } from './resources/conversations.js';
@@ -181,6 +188,7 @@ export type {
 export type {
   PoliciesClient,
   PolicyListFilter,
+  PolicyVersionRow,
   PolicyVersionsFilter,
 } from './resources/policies.js';
 export type {
@@ -247,6 +255,21 @@ export type {
   JudgingRulesClient,
   JudgingRuleWhen,
 } from './resources/judging.js';
+export type {
+  EnrollSiteBody,
+  EnrollSiteResult,
+  RegisterSiteBody,
+  RegisterSiteResult,
+  Site,
+  SiteCollectionPage,
+  SiteEnrollmentCode,
+  SiteKey,
+  SiteRoleGrant,
+  SiteSignInBody,
+  SiteSignInResult,
+  SitesClient,
+  UpdateSiteBody,
+} from './resources/sites.js';
 export type {
   CreateOrgInput,
   ListOrgsFilter,
@@ -572,6 +595,9 @@ export type {
   GetArtifactResult,
   InstallationId,
   InstalledPack,
+  InviteEmail,
+  InviteEmailUnsent,
+  InviteRenewed,
   Filter,
   FixProposal,
   FixProposalId,
@@ -731,7 +757,9 @@ export type {
   UsageRecord,
   UsageSummary,
   User,
+  UserCreated,
   UserId,
+  UserInvite,
   UserPatch,
   UserSpec,
   WaitResumedEvent,

@@ -15,7 +15,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.1"
+version: "0.1.2"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -148,7 +148,9 @@ public final class BriefWriter {
   loaded, and `hitl` configures approval gates. Absent, the turn loads the
   full history with no gates. A tenant's `hitl` policy can tighten the gates
   (a shorter timeout, a higher reviewer role, stricter per tool), never
-  loosen them.
+  loosen them. `"separateApprover"` in `hitl` (`true`, or
+  `Map.of("overrides", Map.of("<tool id>", true))`) makes a tool's approval
+  need someone other than whoever asked.
 - **`set("budget", …)`:** per turn. `maxSteps` counts model calls (default
   8); `maxCostUsd`; `maxWallMs` (default 120 000). Exceeding the steps or the
   cost fails the turn (`budget-exceeded`); running out of wall time aborts
