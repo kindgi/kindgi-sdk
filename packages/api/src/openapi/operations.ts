@@ -6638,7 +6638,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.resendInvite',
     summary: "Renew a person's invitation",
     description:
-      "For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times a day, or past the workspace's invitations for the day, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).",
+      "For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).",
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -6659,7 +6659,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'They have signed in, were added before invitations, or have no email (`identity-user-not-invited`), or an idempotency conflict.',
       ),
       '429': ErrorResponse(
-        "`invite-capped`: renewed again too soon for this person, or past the workspace's invitations for the day. Nothing changed; `Retry-After` says when to try again.",
+        '`invite-capped`: renewed again too soon for this person, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours. Nothing changed; `Retry-After` says when to try again.',
       ),
     },
   },
@@ -8662,7 +8662,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tenant.get',
     summary: "Fetch the caller's tenant",
     description:
-      "Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), and one that sets limits adds the tenant's `limits`.",
+      "Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the tenant's `limits`, and a deployment that publishes where its calls come from adds `egress`.",
     tags: ['tenant'],
     security: 'bearer',
     responses: {

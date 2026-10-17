@@ -584,6 +584,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP',
+    description:
+      "The deployment's backstop on invitation emails: at most this many in 24 hours, from all its tenants together. Default 500, a whole number from 1 to 100000. Each tenant may also send at most 100 in 24 hours, or 10 while `KINDGI_PRODUCTION_GATE` is `on` and the tenant isn't allowed production (its `productionAllowed` is `false`). At a limit the person is still added, without the email (`inviteEmail.reason` is `capped`), and sending it again answers `429 invite-capped`. Invitations are emailed by the emailed sign-in link's sender: set without `KINDGI_AUTH_EMAIL_SMTP_URL` (or `KINDGI_AUTH_EMAIL_SMTP_URL_PATH`), the runtime refuses to start.",
+    example: '500',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_AUTH_TURNSTILE_SECRET',
     description:
       "A Cloudflare Turnstile secret key: asking for an emailed link then needs the widget's token, checked with Cloudflare. Required when the runtime serves several tenants. Without it (one tenant), the link is still sent only to people who can sign in, within the per-address limits (see `KINDGI_AUTH_EMAIL_LINK_DAILY_CAP`), and requests are rate-limited per client. Set this or `KINDGI_AUTH_TURNSTILE_SECRET_PATH`, not both, with `KINDGI_AUTH_TURNSTILE_SITE_KEY`.",
@@ -697,6 +706,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       'Comma-separated browser origins allowed to call, cross-origin, the routes a public run token can use (`GET /v1/runs/{runId}/progress` and its stream). Exact origins, no wildcards. Unset: no CORS headers on any route.',
     example: 'https://app.example.com',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_EGRESS_SERVER_ADDRESSES',
+    description:
+      "Used from runtime 0.1.8.1; earlier runtimes ignore it. The IP addresses this server's own calls to other sites come from, such as its calls to MCP servers and model providers, and its webhook deliveries: comma-separated IPv4 or IPv6 addresses, such as your NAT's. It publishes them for a site that admits only known addresses: `GET /v1/tenant` shows them to every tenant as `egress.server`, and `kindgi egress` prints them. It changes nothing about where calls go or come from, so set it only once calls really come from these addresses. A value that isn't an IP address stops the server from starting.",
+    example: '192.0.2.10',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_EGRESS_DEPLOYMENT_ADDRESSES',
+    description:
+      "Used from runtime 0.1.8.1; earlier runtimes ignore it. The IP addresses calls made by the code deployed to this server come from: comma-separated IPv4 or IPv6 addresses. As with `KINDGI_EGRESS_SERVER_ADDRESSES`, it only publishes them: `GET /v1/tenant` shows them to every tenant as `egress.deployments`, and `kindgi egress` prints them. A value that isn't an IP address stops the server from starting.",
+    example: '198.51.100.20,198.51.100.21',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',

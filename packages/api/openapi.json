@@ -15799,7 +15799,7 @@
         }
       },
       "InviteEmail": {
-        "description": "Whether the invitation was emailed, and why not: `no-email` (the person has no email, so isn't invited), `not-requested` (`sendInvite: false`), `not-configured` (the deployment sends no email), `send-failed` (the mail server refused it or didn't answer), `capped` (the workspace's invitations for the day are used up). An invitation not emailed is still open: tell them yourself.",
+        "description": "Whether the invitation was emailed, and why not: `no-email` (the person has no email, so isn't invited), `not-requested` (`sendInvite: false`), `not-configured` (the deployment sends no email), `send-failed` (the mail server refused it or didn't answer), `capped` (the workspace, or the whole deployment, has sent as many invitation emails as it may in 24 hours). An invitation not emailed is still open: tell them yourself.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -19443,6 +19443,9 @@
           },
           "limits": {
             "$ref": "#/components/schemas/TenantLimits"
+          },
+          "egress": {
+            "$ref": "#/components/schemas/EgressAddresses"
           }
         }
       },
@@ -19485,6 +19488,33 @@
             "type": "integer",
             "minimum": 1,
             "description": "Projects in production at once. Past it, putting another project in production is refused with 403 `production-limit-reached`. Lowering it takes no project out of production."
+          }
+        }
+      },
+      "EgressAddresses": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "server",
+          "deployments"
+        ],
+        "description": "The IP addresses this deployment's calls to other sites come from, for a site that admits only known addresses. They're the same for every tenant on the deployment, so admitting them admits every tenant's calls: a site still checks its own credentials. They say where calls come from, not where they go. Absent when the deployment publishes none. An empty list: none of that kind.",
+        "properties": {
+          "server": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "An IPv4 or IPv6 address."
+            },
+            "description": "Where the server's own calls come from, such as its calls to MCP servers and model providers, and its webhook deliveries."
+          },
+          "deployments": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "An IPv4 or IPv6 address."
+            },
+            "description": "Where calls made by the code deployed to it come from."
           }
         }
       },
@@ -44693,7 +44723,7 @@
             }
           },
           "429": {
-            "description": "`invite-capped`: renewed again too soon for this person, or past the workspace's invitations for the day. Nothing changed; `Retry-After` says when to try again.",
+            "description": "`invite-capped`: renewed again too soon for this person, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours. Nothing changed; `Retry-After` says when to try again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -44713,7 +44743,7 @@
             }
           }
         },
-        "description": "For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times a day, or past the workspace's invitations for the day, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).",
+        "description": "For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).",
         "parameters": [
           {
             "name": "userId",
@@ -51121,7 +51151,7 @@
             }
           }
         },
-        "description": "Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), and one that sets limits adds the tenant's `limits`.",
+        "description": "Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the tenant's `limits`, and a deployment that publishes where its calls come from adds `egress`.",
         "security": [
           {
             "bearerAuth": []

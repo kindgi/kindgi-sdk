@@ -196,7 +196,8 @@ answered:
   example. It's `url-refused` when the deployment refuses the receiver's
   address, as [the `url`](../receive-run-finished/#2-register-the-endpoint)
   describes.
-- **`nextAttemptAt`** is when a pending delivery is tried again.
+- **`nextAttemptAt`** is when a pending delivery is due to be tried again.
+  The attempt starts within about 30 seconds of it.
 
 Pass `status: 'failed'`, or `status="failed"` in Python, to list only the
 ones that gave up.

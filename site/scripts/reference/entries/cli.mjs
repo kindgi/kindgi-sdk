@@ -1843,6 +1843,17 @@ export const CLI_EXAMPLES = {
       line: 'kindgi feedback submit',
     },
   ],
+  egress: [
+    {
+      purpose:
+        "Print the addresses this deployment's calls come from, to admit them on a site that admits only known addresses.",
+      line: 'kindgi egress',
+    },
+    {
+      purpose: "Both lists as JSON, for a script that writes the site's firewall rule.",
+      line: 'kindgi egress --json',
+    },
+  ],
   health: [
     {
       purpose: 'Check that the API server answers.',
@@ -1870,6 +1881,7 @@ export const CLI_GROUP_SEE_ALSO = {
   capabilities: ['guides/agents/choose-a-model'],
   adapters: ['guides/models/index', 'guides/models/serve-your-own-model'],
   feedback: ['start/coding-agents'],
+  egress: ['deploy/egress-addresses'],
   health: ['deploy/operate'],
   version: ['start/install'],
 };

@@ -190,7 +190,7 @@ import {
 } from './routes/system-tenants.js';
 import { projectTeamGrantsRouter, teamProjectGrantsRouter } from './routes/team-grants.js';
 import { teamsRouter } from './routes/teams.js';
-import { tenantRouter } from './routes/tenant.js';
+import { type EgressAddresses, tenantRouter } from './routes/tenant.js';
 import { tokenSignInRouter } from './routes/token-sign-in.js';
 import { tokensRouter } from './routes/tokens.js';
 import { toolsRouter } from './routes/tools.js';
@@ -1129,6 +1129,15 @@ export interface CreateAppInput {
    */
   readonly production?: ProductionGateOptions;
   /**
+   * Optional. The addresses this deployment's calls to other sites come
+   * from (`KINDGI_EGRESS_SERVER_ADDRESSES`,
+   * `KINDGI_EGRESS_DEPLOYMENT_ADDRESSES`), for a site that admits only
+   * known addresses: `GET /v1/tenant`'s `egress`, the same for every
+   * tenant. Each entry is an IPv4 or IPv6 address; another value throws
+   * here. Absent, or both lists empty: no `egress`.
+   */
+  readonly egress?: EgressAddresses;
+  /**
    * Optional. Non-sensitive per-env values. When present alongside or
    * separately from `secretsBinding`, mounts the `/v1/tenant/config`
    * sub-routes at tenant scope. The base `GET /v1/tenant` route is
@@ -2009,6 +2018,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(secretsBinding !== undefined && { secretsBinding }),
       ...(authorizer !== undefined && { authorizer }),
       ...(input.production?.next !== undefined && { productionNext: input.production.next }),
+      ...(input.egress !== undefined && { egress: input.egress }),
     }),
   );
   // ---------- env + secrets ----------
