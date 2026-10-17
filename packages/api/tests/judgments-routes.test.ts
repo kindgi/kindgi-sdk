@@ -12,7 +12,15 @@ import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import type { KernelRunRecord, RunAgentRef, RunBinding } from '@kindgi/runtime';
-import type { ConversationId, ProjectId, RunId, TenantId, Timestamp, UserId } from '@kindgi/types';
+import {
+  CORRECTION_ITEM,
+  type ConversationId,
+  type ProjectId,
+  type RunId,
+  type TenantId,
+  type Timestamp,
+  type UserId,
+} from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -243,7 +251,7 @@ describe('POST /v1/judgments', () => {
     };
     const res = await h.call('POST', '/v1/judgments', {
       runId: run.runId,
-      item: { key: 'answer', pointer: '' },
+      item: { ...CORRECTION_ITEM },
       verdict: 'no',
       correction,
     });
@@ -258,7 +266,7 @@ describe('POST /v1/judgments', () => {
     const h = harness([run]);
     const res = await h.call('POST', '/v1/judgments', {
       runId: run.runId,
-      item: { key: 'answer', pointer: '' },
+      item: { ...CORRECTION_ITEM },
       verdict: 'no',
       correction: { calls: [{ tool: 'acme.refund', args: {} }], notCalled: ['acme.refund'] },
     });
@@ -272,7 +280,7 @@ describe('POST /v1/judgments', () => {
     const h = harness([run]);
     const res = await h.call('POST', '/v1/judgments', {
       runId: run.runId,
-      item: { key: 'answer', pointer: '' },
+      item: { ...CORRECTION_ITEM },
       verdict: 'no',
       correction: { calls: [], notCalled: [] },
     });
@@ -281,13 +289,40 @@ describe('POST /v1/judgments', () => {
     expect(res.body.error.message).toContain('at least one of calls or notCalled');
   });
 
+  test('a correction on any item but the fixed one is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'answer', pointer: '' },
+      verdict: 'no',
+      correction: { calls: [{ tool: 'acme.refund', args: {} }], notCalled: [] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('bad-input');
+    expect(res.body.error.message).toContain(CORRECTION_ITEM.key);
+  });
+
+  test('a correction on the fixed key but a non-empty pointer is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: CORRECTION_ITEM.key, pointer: '/matches/0' },
+      verdict: 'no',
+      correction: { calls: [{ tool: 'acme.refund', args: {} }], notCalled: [] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('whole output');
+  });
+
   test('a second correction by the same judge on the same item replaces the first (counts once)', async () => {
     const run = row();
     const h = harness([run]);
     const post = (amount: number) =>
       h.call('POST', '/v1/judgments', {
         runId: run.runId,
-        item: { key: 'answer', pointer: '' },
+        item: { ...CORRECTION_ITEM },
         verdict: 'no',
         correction: { calls: [{ tool: 'acme.refund', args: { amount } }], notCalled: [] },
       });
@@ -312,7 +347,7 @@ describe('POST /v1/judgments', () => {
     const h = harness([run], {}, undefined, registryWithTools('acme.refund', 'acme.email'));
     const res = await h.call('POST', '/v1/judgments', {
       runId: run.runId,
-      item: { key: 'answer', pointer: '' },
+      item: { ...CORRECTION_ITEM },
       verdict: 'no',
       correction: {
         calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
@@ -327,7 +362,7 @@ describe('POST /v1/judgments', () => {
     const h = harness([run], {}, undefined, registryWithTools('acme.refund'));
     const res = await h.call('POST', '/v1/judgments', {
       runId: run.runId,
-      item: { key: 'answer', pointer: '' },
+      item: { ...CORRECTION_ITEM },
       verdict: 'no',
       correction: { calls: [{ tool: 'acme.ghost', args: {} }], notCalled: [] },
     });
@@ -341,7 +376,7 @@ describe('POST /v1/judgments', () => {
     const h = harness([run], {}, undefined, registryWithTools('acme.refund'));
     const res = await h.call('POST', '/v1/judgments', {
       runId: run.runId,
-      item: { key: 'answer', pointer: '' },
+      item: { ...CORRECTION_ITEM },
       verdict: 'no',
       correction: { calls: [], notCalled: ['acme.ghost'] },
     });
@@ -354,7 +389,7 @@ describe('POST /v1/judgments', () => {
     const h = harness([run], {}, undefined, registryVersionGone);
     const res = await h.call('POST', '/v1/judgments', {
       runId: run.runId,
-      item: { key: 'answer', pointer: '' },
+      item: { ...CORRECTION_ITEM },
       verdict: 'no',
       correction: { calls: [{ tool: 'acme.ghost', args: {} }], notCalled: [] },
     });
@@ -366,7 +401,7 @@ describe('POST /v1/judgments', () => {
     const h = harness([flowRun], {}, undefined, registryWithTools('acme.refund'));
     const res = await h.call('POST', '/v1/judgments', {
       runId: flowRun.runId,
-      item: { key: 'answer', pointer: '' },
+      item: { ...CORRECTION_ITEM },
       verdict: 'no',
       correction: { calls: [{ tool: 'acme.ghost', args: {} }], notCalled: [] },
     });

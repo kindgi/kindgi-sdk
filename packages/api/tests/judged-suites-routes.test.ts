@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 
 import { beforeEach, describe, expect, test } from 'vitest';
 
-import type { ProjectId, TenantId, UserId } from '@kindgi/types';
+import { CORRECTION_ITEM, type ProjectId, type TenantId, type UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -266,7 +266,7 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
       projectId: project,
       runId: 'run-corr',
       run: { subject: subject(), input: { query: 'delta' }, output: { matches: [{ id: 'd1' }] } },
-      item: { key: 'd1' },
+      item: { key: CORRECTION_ITEM.key },
       verdict: 'no',
       assertedBy: { kind: 'user', id: 'u5' },
       judgeClassId: h.expertId,
@@ -292,6 +292,33 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
     // A run whose kept judgments carry no correction has none.
     const plain = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-2');
     expect(plain.corrections).toBeUndefined();
+  });
+
+  test('a re-saved correction replaces the first, so its case carries one (counts once)', async () => {
+    const recordAt = (amount: number) =>
+      h.judgments.record({
+        tenantId,
+        projectId: project,
+        runId: 'run-once',
+        run: { subject: subject(), input: { query: 'omega' }, output: { matches: [{ id: 'o1' }] } },
+        item: { key: CORRECTION_ITEM.key },
+        verdict: 'no',
+        assertedBy: { kind: 'user', id: 'u6' },
+        judgeClassId: h.expertId,
+        correction: { calls: [{ tool: 'acme.refund', args: { amount } }], notCalled: [] },
+      });
+    await recordAt(25);
+    await recordAt(40);
+    expect((await h.call('POST', BUILD, base)).status).toBe(201);
+
+    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    const built = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-once');
+    // The first was superseded, so only the second rides onto the case.
+    expect(built.corrections).toHaveLength(1);
+    expect(built.corrections[0]).toMatchObject({
+      calls: [{ tool: 'acme.refund', args: { amount: 40 } }],
+      notCalled: [],
+    });
   });
 
   test('segments keep only runs started in that segment or below it: a judgment in globex never counts for acme', async () => {

@@ -6,7 +6,15 @@ import { type Context, Hono } from 'hono';
 import type { AgentId, ConversationBinding } from '@kindgi/agents';
 import { REVIEWER_ROLE_RANK, type ReviewerRole, ref } from '@kindgi/authz';
 import type { RunBinding } from '@kindgi/runtime';
-import type { Cursor, ProjectId, RunId, ScopeSegment, Semver, TenantId } from '@kindgi/types';
+import {
+  CORRECTION_ITEM,
+  type Cursor,
+  type ProjectId,
+  type RunId,
+  type ScopeSegment,
+  type Semver,
+  type TenantId,
+} from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import type { Correction, ExpectedCall } from '../corrections.js';
@@ -631,12 +639,8 @@ function parseJudgmentBody(raw: unknown): Parsed<JudgmentBody> {
   if (typeof item === 'string') return err(item);
   const optional = optionalFieldError(b);
   if (optional !== undefined) return err(optional);
-  let correction: Correction | undefined;
-  if (b.correction !== undefined) {
-    const parsedCorrection = parseCorrection(b.correction);
-    if (typeof parsedCorrection === 'string') return err(parsedCorrection);
-    correction = parsedCorrection;
-  }
+  const correction = parseCorrectionField(b.correction, item);
+  if (typeof correction === 'string') return err(correction);
   return {
     kind: 'ok',
     body: {
@@ -654,12 +658,6 @@ function parseJudgmentBody(raw: unknown): Parsed<JudgmentBody> {
 const MAX_CORRECTION_CALLS = 50;
 const MAX_CORRECTION_ARGS = 100;
 
-/**
- * A correction on the judgment, or a message saying what's wrong. A tool
- * can't be in both `calls` and `notCalled`, and at least one of them must be
- * non-empty (both empty is a 400). Argument values aren't checked here; the
- * comparator compares them on the replay.
- */
 /** One expected call `{ tool, args }`, or a message saying what's wrong. */
 function parseExpectedCall(call: unknown): ExpectedCall | string {
   if (call === null || typeof call !== 'object' || Array.isArray(call)) {
@@ -676,6 +674,12 @@ function parseExpectedCall(call: unknown): ExpectedCall | string {
   return { tool: cc.tool, args: cc.args as Record<string, unknown> };
 }
 
+/**
+ * A correction on the judgment, or a message saying what's wrong. A tool
+ * can't be in both `calls` and `notCalled`, and at least one of them must be
+ * non-empty (both empty is a 400). Argument values aren't checked here; the
+ * comparator compares them on the replay.
+ */
 function parseCorrection(raw: unknown): Correction | string {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     return 'correction must be an object { calls, notCalled }.';
@@ -740,6 +744,32 @@ function parseItem(raw: unknown): JudgedItem | string {
     ...(typeof i.pointer === 'string' && { pointer: i.pointer }),
     ...(typeof i.rank === 'number' && { rank: i.rank }),
   };
+}
+
+/**
+ * A correction must sit on the one fixed item (the whole output), so every
+ * correction for a run by one expert lands on the same item and counts once.
+ * Returns the message for a correction on any other item, else `undefined`.
+ */
+function correctionItemError(item: JudgedItem): string | undefined {
+  if (item.key !== CORRECTION_ITEM.key) {
+    return `a correction is recorded under the item "${CORRECTION_ITEM.key}", not "${item.key}".`;
+  }
+  if (item.pointer !== undefined && item.pointer !== CORRECTION_ITEM.pointer) {
+    return 'a correction judges the whole output; leave item.pointer as "" or unset.';
+  }
+  return undefined;
+}
+
+/**
+ * The judgment's correction, an error message, or `undefined` when there is
+ * none: the correction must parse and sit on the fixed item.
+ */
+function parseCorrectionField(raw: unknown, item: JudgedItem): Correction | string | undefined {
+  if (raw === undefined) return undefined;
+  const parsed = parseCorrection(raw);
+  if (typeof parsed === 'string') return parsed;
+  return correctionItemError(item) ?? parsed;
 }
 
 interface ClassBody {
@@ -879,7 +909,6 @@ function assertedByOf(
   return { kind: actor.kind === 'user' ? 'user' : 'service', id: actor.id };
 }
 
-/** What a run ran: its agent at a version (agent turns), else its flow. */
 /**
  * Best-effort: a correction may only name tools the judged agent version
  * has. Returns the first offending tool, or `undefined` when all are known
@@ -908,6 +937,7 @@ async function unknownCorrectionTool(
   return undefined;
 }
 
+/** What a run ran: its agent at a version (agent turns), else its flow. */
 function subjectOf(run: {
   readonly flowId: string;
   readonly flowVersion: string;

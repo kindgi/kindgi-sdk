@@ -5435,7 +5435,7 @@
           },
           "correction": {
             "$ref": "#/components/schemas/Correction",
-            "description": "Optional. The tool calls the agent should have made, graded on a replay. One correction per run per expert, under a fixed item key: saving again replaces it."
+            "description": "Optional. The tool calls the agent should have made, graded on a replay. A correction judges the run's whole output, so it is recorded under one fixed item (`item.key` `\"decision\"`, `item.pointer` `\"\"`): a correction on any other item is a 400, and a second correction of the run by the same expert replaces the first, so it counts once."
           }
         }
       },
