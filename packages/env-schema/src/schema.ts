@@ -566,6 +566,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP',
+    description:
+      "The deployment's backstop on invitation emails: at most this many in 24 hours, from all its tenants together. Default 500, a whole number from 1 to 100000. Each tenant may also send at most 100 in 24 hours, or 10 while `KINDGI_PRODUCTION_GATE` is `on` and the tenant isn't allowed production (its `productionAllowed` is `false`). At a limit the person is still added, without the email (`inviteEmail.reason` is `capped`), and sending it again answers `429 invite-capped`. Invitations are emailed by the emailed sign-in link's sender: set without `KINDGI_AUTH_EMAIL_SMTP_URL` (or `KINDGI_AUTH_EMAIL_SMTP_URL_PATH`), the runtime refuses to start.",
+    example: '500',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_AUTH_TURNSTILE_SECRET',
     description:
       "A Cloudflare Turnstile secret key: asking for an emailed link then needs the widget's token, checked with Cloudflare. Required when the runtime serves several tenants. Without it (one tenant), the link is still sent only to people who can sign in, within the per-address limits (see `KINDGI_AUTH_EMAIL_LINK_DAILY_CAP`), and requests are rate-limited per client. Set this or `KINDGI_AUTH_TURNSTILE_SECRET_PATH`, not both, with `KINDGI_AUTH_TURNSTILE_SITE_KEY`.",
@@ -767,8 +776,17 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_RETENTION_SWEEP_INTERVAL_MS',
     description:
-      "How often the server purges deleted rows on its own, in milliseconds: in every tenant it serves, it purges for good the tombstones past their retention policy's grace, as `POST /v1/retention/sweep` does, holds (`graceSeconds: -1`) kept, and logs what it purged. Memory facts and conversations purge only under a policy naming their domain (`memory`, `conversation`), never under a `*` policy. Unset (the default): nothing purges on its own; sweep with `POST /v1/retention/sweep` or the console. At least 60000, or the server refuses to start.",
+      "How often the server purges deleted rows on its own, in milliseconds: in every tenant it serves, it purges for good the tombstones past their retention policy's grace, as `POST /v1/retention/sweep` does, holds (`graceSeconds: -1`) kept except where `KINDGI_RUN_RETENTION_MAX_DAYS` limits runs, and logs what it purged. Memory facts and conversations purge only under a policy naming their domain (`memory`, `conversation`), never under a `*` policy. Unset (the default): nothing purges on its own; sweep with `POST /v1/retention/sweep` or the console. At least 60000, or the server refuses to start.",
     example: '3600000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_RUN_RETENTION_MAX_DAYS',
+    description:
+      "The longest the server keeps a finished run, in whole days, counted from when it finished. Publishing a `run` retention policy that keeps runs longer, or for good (`graceSeconds: -1`), is refused with `400 retention-over-limit`. Where a policy keeps them longer anyway (a `*` policy, or one stored before the limit was set), or no policy covers runs, they're purged at the limit. A run still going is never purged. The sweep purges them (`KINDGI_RETENTION_SWEEP_INTERVAL_MS`, or `POST /v1/retention/sweep`). Unset (the default): no limit. At least 1, or the server refuses to start.",
+    example: '90',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -904,6 +922,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       "Used from runtime 0.1.8; earlier runtimes ignore it. The most memory, in MiB, that one tenant's running agent turns may hold, charged as for `KINDGI_TURN_MEMORY_MIB`. Past it, the turn fails with `429 turn-memory-limit-reached` (`limit: tenant`), and a resume whose journal alone is bigger fails at once. Unset: no limit per tenant. Kindgi Cloud sets 192.",
     example: '192',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_TEMPLATE_RENDER_WORKERS',
+    description:
+      "Used from runtime 0.1.8.1; earlier runtimes ignore it. How many worker processes the server renders a turn's instruction template in, off the thread that runs the turn. Default 1 on a runtime serving many tenants (`KINDGI_TENANCY=multi`): one worker process, started at the first render and shared across turns; a higher count lets several templates render at once. Default 0 on a runtime serving one: the template renders in the server process, as before, and no worker starts. A runtime serving one tenant gives a render no time limit: with workers turned on there, a render that never ends holds its worker until a restart, and the turns after it wait for a free worker. Each worker holds about 67 MiB at rest, and up to its heap cap (`KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB`) under load. A value that isn't a whole number of at least 0 stops the server at boot, naming this variable (exit code 2).",
+    example: '1',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB',
+    description:
+      "Used from runtime 0.1.8.1; earlier runtimes ignore it. Each template-render worker process's old-space heap cap, in MiB (`--max-old-space-size`), when `KINDGI_TEMPLATE_RENDER_WORKERS` is 1 or more; unused when it is 0. Default 128. A value that isn't a whole number of at least 1 stops the server at boot, naming this variable (exit code 2).",
+    example: '128',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',

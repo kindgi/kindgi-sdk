@@ -949,7 +949,7 @@ export const ERROR_ENTRIES = {
   },
   'invite-capped': {
     description:
-      "Too many invitations sent, to this person or from the tenant: the limits are the server's. Nothing changed and nothing was sent. Try again after the `Retry-After` header, or, if their invitation hasn't expired, tell them to sign in.",
+      "Too many invitations sent: to this person, from the tenant, or from the whole deployment. The limits are the server's. Nothing changed and nothing was sent. Try again after the `Retry-After` header, or, if their invitation hasn't expired, tell them to sign in.",
     details: [
       {
         key: 'userId',
@@ -1447,6 +1447,33 @@ export const ERROR_ENTRIES = {
         meaning: 'the scope the policy already holds',
       },
     ],
+  },
+  'retention-over-limit': {
+    description:
+      "The retention policy keeps its domain's records longer than this server's limit for that domain, or holds them (`graceSeconds: -1`). Publish it with a `graceSeconds` at or under the limit. A version over the limit stays retired: reinstating it is refused the same way. A `*` policy isn't refused: in a limited domain, the server keeps records no longer than the limit.",
+    details: [
+      {
+        key: 'domain',
+        meaning: "the policy's retention domain",
+      },
+      {
+        key: 'graceSeconds',
+        meaning: "the policy's grace, in seconds (`-1`: a hold)",
+      },
+      {
+        key: 'limitSeconds',
+        meaning: "this server's limit for the domain, in seconds",
+      },
+      {
+        key: 'policyId',
+        meaning: 'the policy id (on a reinstate)',
+      },
+      {
+        key: 'version',
+        meaning: 'the version (on a reinstate)',
+      },
+    ],
+    seeAlso: ['deploy/retention'],
   },
   'block-not-found': {
     description:
@@ -2267,7 +2294,7 @@ export const ERROR_ENTRIES = {
   },
   'license-operator-only': {
     description:
-      "`GET /v1/license` and `GET /v1/license/usage` are for the deployment's own token, or a system key holding `system:license`. Where the deployment serves a single tenant, that tenant's admins also read the license's countdown, never its use. Other callers are refused, and the refusal recorded.",
+      "`GET /v1/license` and `GET /v1/license/usage` are for the deployment's own token, or a system key holding `system:license`. Where the deployment is set up to serve one tenant (without `KINDGI_TENANCY=multi`) and its database holds only that one, that tenant's admins also read the license's countdown, never its use. Other callers are refused, and the refusal recorded.",
     details: [],
   },
   'invalid-provider-config': {

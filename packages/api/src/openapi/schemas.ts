@@ -63,7 +63,7 @@
  * per-route parsers in `routes/*.ts` validate ad hoc.
  */
 
-import { OBJECT_ACTIONS, OBJECT_TYPES } from '@kindgi/authz';
+import { OBJECT_ACTIONS, PROJECT_SCOPED_TYPES } from '@kindgi/authz';
 import { EVIDENCE_KINDS } from '@kindgi/compliance';
 import {
   MAX_TOOL_ERROR_RETRIES,
@@ -7511,16 +7511,7 @@ export const RetentionPolicyConflictSchema: JsonSchema = {
 export const RetentionScheduledItemSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: [
-    'domain',
-    'id',
-    'unregisteredAt',
-    'purgeAt',
-    'pastGrace',
-    'policyId',
-    'policyVersion',
-    'graceSeconds',
-  ],
+  required: ['domain', 'id', 'unregisteredAt', 'purgeAt', 'pastGrace', 'graceSeconds'],
   properties: {
     domain: { $ref: '#/components/schemas/RetentionDomain' },
     id: { type: 'string', description: "The tombstoned row's id in its domain." },
@@ -7528,17 +7519,28 @@ export const RetentionScheduledItemSchema: JsonSchema = {
     purgeAt: {
       type: 'string',
       format: 'date-time',
-      description: "`unregisteredAt` plus the policy's grace: when a sweep purges the row.",
+      description: '`unregisteredAt` plus `graceSeconds`: when a sweep purges the row.',
     },
     pastGrace: {
       type: 'boolean',
       description: 'Whether a sweep would purge the row now.',
     },
-    policyId: { type: 'string', description: 'The retention policy that applies.' },
-    policyVersion: { type: 'string' },
+    policyId: {
+      type: 'string',
+      description:
+        "The retention policy that covers the domain. Absent when none does, and this server's limit decides (`limitApplied`); always present on a server with no limit.",
+    },
+    policyVersion: { type: 'string', description: "The policy's version. Absent with `policyId`." },
     graceSeconds: {
       type: 'integer',
-      description: "The policy's grace, in seconds (`-1`: a hold, never purged).",
+      description:
+        "How long the row is kept, in seconds (`-1`: a hold, never purged): the policy's grace, or this server's limit (`limitApplied`).",
+    },
+    limitApplied: {
+      type: 'boolean',
+      const: true,
+      description:
+        "Present when this server's retention limit for the domain set `graceSeconds`: no policy covers the domain, or its policy keeps rows longer than the limit, or holds them.",
     },
   },
 };
@@ -7571,7 +7573,8 @@ export const RetentionScheduledPageSchema: JsonSchema = {
     unpolicedDomains: {
       type: 'array',
       items: { $ref: '#/components/schemas/RetentionDomain' },
-      description: 'Domains no retention policy covers: their tombstones are kept.',
+      description:
+        'Domains no retention policy covers and this server sets no retention limit for: their tombstones are kept.',
     },
     conflicts: {
       type: 'array',
@@ -7632,6 +7635,12 @@ export const RetentionSweepResultSchema: JsonSchema = {
             description: 'Rows past grace this call left (the `maxPerDomain` cap); sweep again.',
           },
           policyId: { type: 'string', description: 'The retention policy that applied.' },
+          limitApplied: {
+            type: 'boolean',
+            const: true,
+            description:
+              "Present when this server's retention limit set the grace (see `RetentionScheduledItem.limitApplied`).",
+          },
           missingAdapter: {
             type: 'boolean',
             const: true,
@@ -9152,7 +9161,7 @@ export const UserInviteSchema: JsonSchema = {
 
 export const InviteEmailSchema: JsonSchema = {
   description:
-    "Whether the invitation was emailed, and why not: `no-email` (the person has no email, so isn't invited), `not-requested` (`sendInvite: false`), `not-configured` (the deployment sends no email), `send-failed` (the mail server refused it or didn't answer), `capped` (the workspace's invitations for the day are used up). An invitation not emailed is still open: tell them yourself.",
+    "Whether the invitation was emailed, and why not: `no-email` (the person has no email, so isn't invited), `not-requested` (`sendInvite: false`), `not-configured` (the deployment sends no email), `send-failed` (the mail server refused it or didn't answer), `capped` (the workspace, or the whole deployment, has sent as many invitation emails as it may in 24 hours). An invitation not emailed is still open: tell them yourself.",
   type: 'object',
   additionalProperties: false,
   required: ['sent'],
@@ -9389,11 +9398,6 @@ export const MyReviewerAccessSchema: JsonSchema = {
     },
   },
 };
-
-/** What a project role allows, by object type, in `OBJECT_TYPES` order with each type's actions. */
-const PROJECT_SCOPED_TYPES = OBJECT_TYPES.filter(
-  (t) => t !== 'tenant' && t !== 'org' && t !== 'team' && t !== 'user',
-);
 
 export const RoleActionsSchema: JsonSchema = {
   type: 'object',
@@ -11985,6 +11989,12 @@ export const RegisterScheduleBodySchema: JsonSchema = {
       format: 'uuid',
       description: "The schedule's project. Absent → the tenant's default project.",
     },
+    runAsServiceAccountId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. Absent: the caller owns it.",
+    },
     config: {
       type: 'object',
       additionalProperties: false,
@@ -12420,6 +12430,12 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
     },
     ...WebhookDeliveryProperties,
     label: { type: 'string' },
+    runAsServiceAccountId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it.",
+    },
   },
 };
 
@@ -12454,6 +12470,21 @@ export const PatchWebhookTriggerBodySchema: JsonSchema = {
       minimum: 1,
       maximum: 6000,
       description: '`null`: the default.',
+    },
+  },
+};
+
+export const TakeTriggerOwnerBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner.",
+  properties: {
+    runAsServiceAccountId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs.",
     },
   },
 };
@@ -13483,6 +13514,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WebhookTriggerCollectionPage', WebhookTriggerCollectionPageSchema],
   ['RegisterWebhookTriggerBody', RegisterWebhookTriggerBodySchema],
   ['PatchWebhookTriggerBody', PatchWebhookTriggerBodySchema],
+  ['TakeTriggerOwnerBody', TakeTriggerOwnerBodySchema],
   ['WebhookTriggerUnregisterResult', WebhookTriggerUnregisterResultSchema],
   // Outbound webhook endpoints.
   ['WebhookEventType', WebhookEventTypeSchema],

@@ -546,9 +546,13 @@ export const CLI_DEFAULTS = {
     label: 'none',
     overlap: '`skip`',
     project: "the tenant's Default project",
+    'run-as': 'none (you own the schedule)',
     segment: 'none',
     'starting-deadline': '`600` (seconds)',
     timezone: '`UTC`',
+  },
+  'schedules take-ownership': {
+    'run-as': 'none (you own the schedule)',
   },
   'schedules update': {
     agent: 'unchanged',
@@ -581,6 +585,7 @@ export const CLI_DEFAULTS = {
     preset: 'none (with no `--signature-header` either: a hex HMAC-SHA256 in `X-Kindgi-Signature`)',
     project: "the tenant's Default project",
     'rate-limit': '`600` a minute',
+    'run-as': 'none (you own the trigger)',
     secret: 'required',
     'signature-encoding': 'required with `--signature-header`',
     'signature-header': 'none',
@@ -608,6 +613,9 @@ export const CLI_DEFAULTS = {
   'webhooks fires': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
+  },
+  'webhooks take-ownership': {
+    'run-as': 'none (you own the trigger)',
   },
   'sites register': {
     'allowed-role': '`administrator` and `shop_manager`',
@@ -1890,7 +1898,7 @@ export const CLI_GROUP_SEE_ALSO = {
   capabilities: ['guides/agents/choose-a-model'],
   adapters: ['guides/models/index', 'guides/models/serve-your-own-model'],
   feedback: ['start/coding-agents'],
-  egress: ['deploy/operate'],
+  egress: ['deploy/egress-addresses'],
   health: ['deploy/operate'],
   version: ['start/install'],
 };

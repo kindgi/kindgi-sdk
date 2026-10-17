@@ -69,6 +69,8 @@ export const ENV_DEFAULTS = {
   KINDGI_SITE_SIGN_IN: '`false`: no site signs anyone in',
   KINDGI_AUTH_EMAIL_FROM: 'none: the emailed sign-in link is off (required with the SMTP URL)',
   KINDGI_AUTH_EMAIL_LINK_DAILY_CAP: '`20` links a day (a whole number from 1 to 1000)',
+  KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP:
+    '`500` invitation emails in 24 hours, all tenants together (a whole number from 1 to 100000)',
   KINDGI_AUTH_TURNSTILE_SECRET:
     'none (with `KINDGI_AUTH_TURNSTILE_SECRET_PATH` unset): no Turnstile check on emailed-link requests',
   KINDGI_AUTH_TURNSTILE_SECRET_PATH: 'none: no Turnstile secret file',
@@ -101,6 +103,7 @@ export const ENV_DEFAULTS = {
     'none: required when `KINDGI_MEMORY_EMBEDDINGS=openai-compat`, not read otherwise',
   KINDGI_MEMORY_EMBEDDINGS_API_KEY: 'none: requests carry no key',
   KINDGI_RETENTION_SWEEP_INTERVAL_MS: 'none: no automatic purge; at least `60000` when set',
+  KINDGI_RUN_RETENTION_MAX_DAYS: 'none: runs are kept as their retention policy says',
   KINDGI_ERASURE_SHARED_WAIT_MS: '`604800000` (7 days); at least `3600000`',
   KINDGI_ERASURE_LEDGER_KEY_PATH:
     'none (with `KINDGI_ERASURE_LEDGER_KEY` unset): erasures run but cannot be replayed after a restore',
@@ -117,6 +120,9 @@ export const ENV_DEFAULTS = {
   KINDGI_ARTIFACTS: 'none: artifacts are off (no `/v1/artifacts`)',
   KINDGI_TURN_MEMORY_MIB: "none: no limit on every tenant's turns together",
   KINDGI_TURN_MEMORY_PER_TENANT_MIB: 'none: no limit per tenant',
+  KINDGI_TEMPLATE_RENDER_WORKERS:
+    '`1` when `KINDGI_TENANCY=multi`, else `0`: the template renders in the server process',
+  KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB: '`128`; at least `1`',
   KINDGI_ARTIFACT_MAX_BYTES: '`104857600` (100 MiB)',
   KINDGI_LOG_LEVEL: '`info`',
   KINDGI_LOG_LEVELS: 'none: no per-subsystem levels; `KINDGI_LOG_LEVEL` applies everywhere',
