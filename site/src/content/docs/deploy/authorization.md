@@ -29,7 +29,7 @@ Authorization is for several people and teams sharing one deployment:
 - **Every decision on what a request may do or read is recorded,** allowed
   or denied, with who asked, what for and why
   ([The access audit](#the-access-audit)). What the console reads to show
-  you your own access isn't.
+  you your own access isn't (runtime 0.1.9 or later).
 - **Registering an approval reviewer takes a tenant admin.** A tenant admin
   reads approvals at every tier without registering, through a session or an
   `admin` key not limited to a project, in the projects they may read.
@@ -552,12 +552,13 @@ being minted. Nor is a refusal of a request with no principal behind it: a
 public run token used outside its two progress routes, or judging without a
 user or a service token. A `401`, for an unknown caller, never is.
 
-What a caller is shown about its own access isn't kept either, allowed or
-not: whoami's `tenantAdmin` (`GET /v1/identity/whoami`),
-`GET /v1/identity/me/permissions`, and a judging queue item's `can` (whether
-you may dismiss or reopen it). A console reads them often, to choose which
-pages and buttons to show, and none of them lets the caller do anything.
-Each request it then makes is checked, and kept, as above.
+On runtime 0.1.9 or later, what a caller is shown about its own access isn't
+kept either, allowed or not: whoami's `tenantAdmin`
+(`GET /v1/identity/whoami`), `GET /v1/identity/me/permissions`, and a
+judging queue item's `can` (whether you may dismiss or reopen it). A console
+reads them often, to choose which pages and buttons to show, and none of
+them lets the caller do anything. Each request it then makes is checked, and
+kept, as above.
 
 ### In the console
 
