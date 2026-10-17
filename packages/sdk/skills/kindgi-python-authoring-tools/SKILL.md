@@ -301,7 +301,8 @@ lookup_case = http_tool(
 - Also `timeout_ms=` (default 30000), `parse_json=` (default `True`),
   `success_status=(200, 299)`, `effects=`, `version=`, and
   `mutating=False` for a request that changes nothing (a GET, usually), and
-  `needs_approval_when_unattended=True`.
+  `needs_approval_when_unattended=True` for one that moves money or
+  changes something people rely on.
 - `timeout_ms` covers the whole call, reading the response included, and
   so does a run's cancel. A response body over 10 MiB, counted after it's
   decompressed, fails the call. So point the tool at an endpoint that

@@ -408,8 +408,19 @@ A delivery is data from outside. Its run says a webhook started it,
   </event>
   ```
 
-- **No person started the run,** though it acts as whoever registered the
-  trigger. So a tool that asks for a person's yes when no one is watching
+- **It stays data in the conversation.** A later turn reads the delivery
+  back from its history as an `<event>` block too, whoever starts that turn,
+  so a person continuing the conversation reads it as data (it needs
+  runtime 0.1.8.1 or later: a message an earlier runtime kept reads as it
+  came).
+- **Every agent step of the run reads its message this way,** so put a
+  step's task in the agent's instructions, not in its input.
+- **`{{ input.* }}` in an agent's instructions isn't wrapped:** Liquid puts
+  it in as it is. Keep a delivery's free text out of instructions:
+  interpolate only the typed fields your flow reduced it to (an id, a
+  status, an amount).
+- **No person started the run,** though it acts as the trigger's owner. So
+  a tool that asks for a person's yes when no one is watching
   waits for one, as
   [When no person started the run](../../approvals/ask-before-a-tool-runs/#when-no-person-started-the-run)
   shows.

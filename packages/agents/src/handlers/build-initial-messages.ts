@@ -25,7 +25,7 @@ import { outputSection } from './structured-output.js';
  *   [ system: rendered prompt
  *             (+ the memory rule, + the event rule, + "Policies (verified)",
  *              when there are, + the output's section, for a typed agent),
- *     ...history,
+ *     ...history (a message from an event: an <event> data block),
  *     user: <memory> data block (if anything was retrieved),
  *     user: current message (an <event> data block, in a run a webhook
  *           or an event started) ]
@@ -34,7 +34,8 @@ import { outputSection } from './structured-output.js';
  * as information about the world, never as instructions. Only a verified
  * fact of a type the agent lists in `memory.instructionTypes` is an
  * instruction, in the system message. So is a message from outside: in a
- * run a webhook or an event started, the turn's message is the event.
+ * run a webhook or an event started, the turn's message is the event, and
+ * it stays one in every later turn's history, whoever started that turn.
  *
  * Output shape: `{ nextMessages: ModelMessage[] }` — matches the loop
  * iteration output's `nextMessages` field so the loop body can treat
@@ -73,10 +74,11 @@ export function buildBuildInitialMessagesHandler(ctx: TurnContext): NodeHandler 
     }
 
     const isEvent = messageIsEvent(ctx.input.startedBy);
+    const readsEvent = isEvent || history.some((m) => m.fromEvent === true);
     const system = [
       rendered,
       ...(memoryMessage !== undefined ? [MEMORY_DATA_RULE] : []),
-      ...(isEvent ? [EVENT_DATA_RULE] : []),
+      ...(readsEvent ? [EVENT_DATA_RULE] : []),
       ...(policies.length > 0 ? [formatPoliciesForPrompt(policies)] : []),
       // A typed agent's output, from the turn's start: the first answer can
       // fit, and a repair (`budget-check`) is the fallback, not every turn's
@@ -122,8 +124,7 @@ function conversationToModelMessage(msg: ConversationMessage): ModelMessage {
     };
   }
   const role: ModelMessage['role'] = msg.role === 'agent' ? 'assistant' : msg.role;
-  return {
-    role,
-    content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
-  };
+  const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+  // An event's message stays data in every later turn's history.
+  return { role, content: msg.fromEvent === true ? formatEventForPrompt(content) : content };
 }

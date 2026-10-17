@@ -399,8 +399,9 @@ declares it:
   unattended.
 - **A flow's agent step, and any run a run starts,** started the way its run
   did.
-- **A run from before your runtime recorded it** has no `startedBy`, and
-  counts as unattended: it never reads as a person's.
+- **A run from before your runtime recorded it** reads as its trigger's
+  kind when a trigger started it, and has no `startedBy` otherwise. Either
+  way it counts as unattended: it never reads as a person's.
 - **The `woocommerce` template declares it** on `<pack>.woo.refund`,
   `<pack>.woo.refund-large`, `<pack>.woo.set-price` and
   `<pack>.woo.publish-product`. A staff member's refund in the store chat

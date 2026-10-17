@@ -273,6 +273,13 @@ tool with the same arguments.
   per end user, `same-user`, is offered the same tools as the past turn,
   `kindgi_remember` included, which stores nothing in a replay. A replay's
   conversation is never recalled later as an earlier conversation.
+- **A replay reads a webhook's message as the past turn did** (it needs
+  runtime 0.1.8.1 or later). The replay of a turn a webhook or an event
+  started starts the same way, and its `startedBy` says so: its model reads
+  the turn's message as an
+  [`<event>` block](../../webhooks/start-runs-from-webhooks/#what-its-agents-read),
+  data and not instructions. A delivery earlier in the conversation reads that
+  way too, unless an earlier runtime kept it: that one reads as it came.
 
 **The replay runs** are ordinary runs, marked with `replayOf`, the past run,
 and `evalRunId`. Lists of runs leave them out. `kindgi runs list
