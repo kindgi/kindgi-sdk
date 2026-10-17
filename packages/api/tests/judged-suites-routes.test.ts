@@ -260,6 +260,40 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
     expect(cases.body.data[1].context).toBeUndefined();
   });
 
+  test('a kept judgment with a correction rides onto its case, with its judge class and restriction (C2)', async () => {
+    const corrected = await h.judgments.record({
+      tenantId,
+      projectId: project,
+      runId: 'run-corr',
+      run: { subject: subject(), input: { query: 'delta' }, output: { matches: [{ id: 'd1' }] } },
+      item: { key: 'd1' },
+      verdict: 'no',
+      assertedBy: { kind: 'user', id: 'u5' },
+      judgeClassId: h.expertId,
+      restricted: true,
+      correction: {
+        calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+        notCalled: ['acme.email'],
+      },
+    });
+    expect((await h.call('POST', BUILD, base)).status).toBe(201);
+
+    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    const built = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-corr');
+    expect(built.corrections).toEqual([
+      {
+        judgmentId: corrected.id,
+        judgeClassId: h.expertId,
+        restricted: true,
+        calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+        notCalled: ['acme.email'],
+      },
+    ]);
+    // A run whose kept judgments carry no correction has none.
+    const plain = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-2');
+    expect(plain.corrections).toBeUndefined();
+  });
+
   test('segments keep only runs started in that segment or below it: a judgment in globex never counts for acme', async () => {
     const at = (company: string, more: { key: string; value: string }[] = []) => [
       { key: 'company', value: company },
