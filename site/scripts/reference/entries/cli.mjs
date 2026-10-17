@@ -1815,7 +1815,7 @@ export const CLI_GROUP_SEE_ALSO = {
   auth: ['start/install', 'deploy/people-and-keys'],
   upgrade: ['start/quickstart-java', 'start/quickstart-scala'],
   console: ['deploy/sign-in', 'start/introduction'],
-  sites: ['deploy/sign-in'],
+  sites: ['deploy/sign-in', 'guides/approvals/ask-and-approve-in-wordpress'],
   'mcp-launch': ['guides/tools/mcp-servers'],
   projects: ['guides/projects/organize-by-org-and-project'],
   flows: ['guides/flows/write-a-flow', 'guides/flows/index'],
