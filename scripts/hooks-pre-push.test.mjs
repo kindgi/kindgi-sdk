@@ -15,22 +15,27 @@ import { dirname, join } from 'node:path';
 import { after, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { scratchRepoEnv } from './lib/git-env.mjs';
+
 const HOOK = join(dirname(fileURLToPath(import.meta.url)), 'hooks', 'pre-push');
 
 const root = mkdtempSync(join(tmpdir(), 'pre-push-'));
 after(() => rmSync(root, { recursive: true, force: true }));
-execFileSync('git', ['init', '--quiet', root]);
+/** git's repository variables dropped, so a shell pointing at another repository leaves it alone. */
+const scratchEnv = scratchRepoEnv();
+execFileSync('git', ['init', '--quiet', root], { env: scratchEnv });
 
 const run = (stdin = '') =>
   spawnSync(HOOK, ['origin', 'https://example.com/acme.git'], {
     cwd: root,
+    env: scratchEnv,
     input: stdin,
     encoding: 'utf8',
   });
 const setCheck = (value) =>
   value === undefined
-    ? spawnSync('git', ['config', '--unset', 'kindgi.prePushCheck'], { cwd: root })
-    : execFileSync('git', ['config', 'kindgi.prePushCheck', value], { cwd: root });
+    ? spawnSync('git', ['config', '--unset', 'kindgi.prePushCheck'], { cwd: root, env: scratchEnv })
+    : execFileSync('git', ['config', 'kindgi.prePushCheck', value], { cwd: root, env: scratchEnv });
 
 describe('scripts/hooks/pre-push', () => {
   test('no check configured: nothing to do', () => {
