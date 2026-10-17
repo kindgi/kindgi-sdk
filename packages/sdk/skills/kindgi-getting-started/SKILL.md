@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.8"
+version: "0.3.12"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -23,7 +23,7 @@ pack_languages: [node]
 
 > **Running `kindgi`:** the CLI is a devDependency of the project (`@kindgi/cli`),
 > not a global command. Run it through the project's package manager —
-> `pnpm exec kindgi …`, `npx --no kindgi …` (npm), `yarn kindgi …` or
+> `pnpm exec kindgi …`, `npx --no -- kindgi …` (npm), `yarn kindgi …` or
 > `bun run kindgi …`. Commands below are written `kindgi …` for brevity.
 
 Scaffold a Kindgi pack — a versioned, deployable bundle
@@ -69,7 +69,9 @@ pnpm install          # or the app's own package manager
 ```
 
 This adds `kindgi.config.ts` and a `kindgi/` folder beside the app's code,
-and never creates env files: `kindgi dev` reads the app's own `.env` /
+and `vitest.config.mts` for the tests `kindgi test` runs (`kindgi/**/*.test.ts`,
+with the app's tsconfig path aliases) unless the app runs vitest already. It
+never creates env files: `kindgi dev` reads the app's own `.env` /
 `.env.local`. A package a tool imports must be in the app's `dependencies`,
 not `devDependencies`: the deployed pack installs production dependencies
 only (see `kindgi-authoring-tools`).
@@ -79,12 +81,20 @@ Either way, `init` adds `@kindgi/sdk` and `@kindgi/cli` to the project's
 one. (`npx @kindgi/cli` is the scoped package; a bare `npx kindgi` would
 fetch an unrelated package.)
 
-Two templates:
+Four templates:
 
 - `--template=minimal` (default) — folder structure only, no example
   primitives. Right when you know what you want to build.
 - `--template=sample` — worked kitchen-sink example (echo tool + agent
   + guardrail + flow). Right for exploring the primitive kinds.
+- `--template=woocommerce` — agents for a WooCommerce store: typed store
+  tools, approvals for large refunds and store changes, and a flow that
+  checks each order event before an agent sees it. Its README explains
+  each choice.
+- `--template=drupal` — agents for a Drupal site, through its MCP
+  Server signed in with OAuth: house-style fixes as drafts with every
+  change approved, and a flow that checks each saved article before an
+  agent sees it. Its README explains each choice.
 
 ## Boot the dev harness
 
@@ -96,6 +106,19 @@ pnpm exec kindgi dev
 needs on first run), indexes the pack, registers every primitive, and
 re-registers on every save. The banner prints the API URL, the seeded
 bearer token, and (if the console is bundled) the `/console/` URL.
+
+One `kindgi dev` per pack. When one is already running (the person's
+terminal, say), `kindgi dev` exits with code 3 and prints where it is
+(its pid, the console and the API): use that one. Don't start another,
+and don't stop theirs.
+
+Give the person the console's address as the banner prints it (its
+`Console` line). Never guess a console URL: an approval's own link is
+`/console/approvals/<approval id>`, which finds its tenant and project by
+itself, and every other page's address starts with the tenant and the
+project, `/console/tenants/<tenant>/projects/<project id>/…`, both taken
+from the CLI's answers (`kindgi auth whoami`'s `identity.tenantId`,
+`kindgi projects get-default`'s `id`), never made up.
 
 Until a model provider is registered, agents answer with `dev-echo`, a
 stand-in that calls the agent's first tool with `{"message": <userMessage>}`
@@ -129,6 +152,8 @@ my-pack/
 ├── tsconfig.json
 ├── .claude/
 │   └── skills/                # auto-copied from @kindgi/sdk on init
+├── .agents/
+│   └── skills/                # the same skills, where Codex and Gemini CLI look
 ├── tools/                  # place `<name>/index.ts` per tool
 ├── agents/                    # place `<name>/index.ts` per agent
 ├── guardrails/                # place `<name>/index.ts` per guardrail
@@ -159,10 +184,56 @@ Most of the setup is automatable, but two require your knowledge:
   returns canned responses (great for the loop test, useless for real
   agents). It is a fallback, so it steps aside once a real provider is
   registered. Declare it in `kindgi.config.ts`
-  (`providers: [{ preset: 'anthropic' }]`, the key in `.env`) and `kindgi dev`
+  (`providers: [{ preset: 'anthropic' }]`, the key stored by the person with
+  `kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant`) and `kindgi dev`
   registers it on every boot, in every worktree and after `--reset`; or once,
   by hand: `kindgi providers register --preset=anthropic`. See
   `kindgi-authoring-providers`.
+
+## Commands for the person's own terminal
+
+Two commands are always the person's to run, in their own terminal, since
+they ask for a secret:
+
+- `kindgi secrets set`, which asks for the value without echoing it;
+- `kindgi auth registry`, which logs Docker in to the runtime image's registry.
+
+Others need what a coding agent's sandbox often blocks: `kindgi dev` and any dev
+server of the app (they keep running), and `kindgi build` or anything else that
+needs Docker. When your sandbox blocks a command (a process it can't start,
+`spawn EPERM`; Docker's socket denied; `localhost` refused; a folder it keeps
+read-only, as Codex's keeps `.agents/`, which `kindgi skills sync` writes),
+don't work around it: don't turn your sandbox off, and don't start the command
+in the background. Give the person the exact command, the folder to run it in
+and what they'll see, then wait for them. Once they say `kindgi dev` is running,
+starting it yourself exits 3 and says where theirs runs: use that one.
+
+A tool's own `EPERM` while it runs under `kindgi dev` is something else:
+Kindgi's dev sandbox (see the tools skill). Never turn that one off either.
+
+## Keys and tokens: hands off
+
+Never open, read, grep, `cat`, copy or print the files that hold keys and
+tokens, in any folder of the repository (not only the pack's), and never
+print their values (`env`, `printenv`, or code that echoes the process
+environment):
+
+- `.env`, `.env.local` and any other `.env.*`: the app's settings, and any key
+  put there by hand;
+- `.kindgi/secrets.env`: Kindgi's own secrets, where `kindgi secrets set` writes;
+- `.kindgi/dev/runtime.env`: the dev runtime's token and database URL;
+- a self-hosted deployment's `kindgi.env` or `pack.env`.
+
+A value you read lands in your context and in every later request to the
+model provider. To see which secrets exist, run
+`kindgi secrets list --env=local --scope=tenant` (names only). To store one,
+ask the person to run `kindgi secrets set NAME --env=local --scope=tenant`
+themselves: it prompts without echoing. Never put a value on a command line.
+`kindgi init` adds these files to the deny rules in `.claude/settings.json`
+(Claude Code); in a monorepo, also to the repository root's, under the pack's
+path. It adds them to `.cursorignore`, `.geminiignore` or `.aiderignore` too
+when the project has one. Nothing `kindgi init` writes binds Codex. Whichever
+agent you are, keep to the rule above yourself.
 
 ## Your app and Kindgi's data
 
@@ -245,13 +316,13 @@ own tables. Docs: https://docs.kindgi.com/v0.1/guides/runs/show-runs-in-your-app
 
 ## Keeping skills up to date
 
-Skills in `.claude/skills/` are copied at `kindgi init` time. When the
-framework SDK ships a new version of a skill (better docs, corrected
-example, new capabilities), the pack's local copy stays stale until
-you resync. `kindgi dev` boot prints a warning when it detects drift;
-run `kindgi skills sync` to pull the latest framework skills.
-Local edits are preserved by default (marked `skipped-modified`);
-pass `--force` to overwrite them.
+Skills in `.claude/skills/` and `.agents/skills/` are copied at `kindgi init`
+time, the same copy in each. When the framework SDK ships a new version of a
+skill (better docs, corrected example, new capabilities), the pack's local
+copies stay stale until you resync. `kindgi dev` boot prints a warning when
+it detects drift; run `kindgi skills sync` to pull the latest framework
+skills into both folders. Local edits are preserved by default (marked
+`skipped-modified`), in each folder; pass `--force` to overwrite them.
 
 ## When the framework itself is the problem
 

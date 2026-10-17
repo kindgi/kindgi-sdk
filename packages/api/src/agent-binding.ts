@@ -42,7 +42,7 @@ export interface AgentRegistryBinding {
    * Latest version of the given agent id, or `null` if unknown. The
    * route surfaces `null` as `404 agent-not-found`.
    */
-  get(input: AgentGetInput): Promise<Agent | null>;
+  get(input: AgentGetInput): Promise<AgentVersionRecord | null>;
   /**
    * Specific `(agentId, version)` lookup, or `null` if unknown.
    * Returns unregistered (tombstoned) versions too, unlike `list` /
@@ -69,11 +69,21 @@ export interface AgentRegistryBinding {
    */
   listVersions(input: AgentListVersionsInput): Promise<AgentPage>;
   /**
+   * Whether `cursor` is one this binding issued for `list` (`'versions'`:
+   * a `listVersions` page's `nextCursor`). Optional: without it, the route passes any
+   * cursor to the list, as before. With it, a cursor the binding didn't
+   * issue answers `400 bad-input` before the list is read, so a client
+   * paging until done is never sent back to the first page.
+   */
+  issuedCursor?(list: 'versions', cursor: Cursor): boolean;
+  /**
    * Publish a validated agent definition. The API route validates
    * shape via `defineAgent(...)` before calling — the binding receives
    * a well-formed `Agent`. Bindings MAY reject with `already-registered`
    * when the same `(agentId, version)` is re-published; the route
    * maps that to `409`.
+   * A version of an agent whose versions live in another project is
+   * `project-mismatch` (agents never move between projects; `409 agent-project-mismatch`).
    */
   publish(input: AgentPublishInput): Promise<AgentPublishOutcome>;
   /**
@@ -100,11 +110,20 @@ export interface AgentRegistryBinding {
   reinstateVersion(input: AgentReinstateVersionInput): Promise<AgentReinstateVersionOutcome>;
 }
 
-/** An agent version as `getVersion` reads it: `unregisteredAt` is set when it's unregistered. */
+/**
+ * An agent version as the registry reads it (`get`, `getVersion`,
+ * `list` and `listVersions`): the definition, the agent's project when
+ * the store records it, and `unregisteredAt` on an unregistered version
+ * `getVersion` reads.
+ */
 export type AgentVersionRecord = Agent & {
   /** ISO-8601; present only on an unregistered version. */
   readonly unregisteredAt?: string;
-  /** The project the version belongs to, when the store records it (a derived version is published there). */
+  /**
+   * The agent's project, when the store records it: agents never move
+   * between projects, so every version reads the same one (a derived
+   * version is published there).
+   */
   readonly projectId?: ProjectId;
 };
 
@@ -138,6 +157,13 @@ export interface AgentListInput {
    * SDK and OpenAPI schemas.
    */
   readonly inherit?: boolean;
+  /**
+   * `true` lists retired agents too (every version unregistered), each
+   * as its highest version, with that version's `unregisteredAt`, so a
+   * client can find one to reinstate. Default: agents with an active
+   * version only.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export interface AgentGetInput {
@@ -156,6 +182,8 @@ export interface AgentListVersionsInput {
   readonly agentId: AgentId;
   readonly limit: number;
   readonly cursor?: Cursor;
+  /** `true` lists unregistered versions too, each with `unregisteredAt`. Default: active only. */
+  readonly includeTombstoned?: boolean;
 }
 
 export interface AgentPublishInput {
@@ -206,7 +234,7 @@ export interface AgentReinstateVersionInput {
 }
 
 export interface AgentPage {
-  readonly data: readonly Agent[];
+  readonly data: readonly AgentVersionRecord[];
   readonly nextCursor?: Cursor;
 }
 
@@ -234,6 +262,18 @@ export type AgentPublishOutcome =
       readonly kind: 'project-not-found';
       readonly agentId: AgentId;
       readonly version: Semver;
+      readonly projectId: ProjectId;
+    }
+  | {
+      /**
+       * The agent's versions live in another project: an agent belongs to
+       * the project its first version was published into, and never
+       * moves. Nothing is written (the route answers `409 agent-project-mismatch`).
+       */
+      readonly kind: 'project-mismatch';
+      readonly agentId: AgentId;
+      readonly version: Semver;
+      /** The project the agent belongs to. */
       readonly projectId: ProjectId;
     };
 

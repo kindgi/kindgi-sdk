@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { resolve } from 'node:path';
+
 import type { KindgiClient } from '@kindgi/client';
 
 import type { BuildRunners } from './build/runners.js';
+import { cliPinWarning, readCliPin } from './cli-pin.js';
 import type { RegistryAuthSeam } from './commands/auth.js';
 import type { DoctorSeam } from './commands/doctor.js';
 import type { EnvInitInputSeam } from './commands/env.js';
@@ -17,9 +20,14 @@ import type { DeployRunners } from './deploy/runners.js';
 import type { DevRunners } from './dev/runners.js';
 import type { EnvRunners } from './env/runners.js';
 import { formatThrown } from './errors.js';
-import { commandHelpText, rootHelpText } from './help.js';
+import type { ExportsSeam } from './exports/create.js';
+import type { FeedbackSeam } from './feedback/run.js';
+import { commandHelpText, rootHelpText, unknownSubcommandText } from './help.js';
 import type { KeyRunners } from './key/runners.js';
+import type { LicenseCommandDeps } from './license/renew.js';
+import type { OpenUrl } from './open-url.js';
 import { GLOBAL_OPTION_SPEC, parseCommand } from './parse.js';
+import type { RateLimitWaitSeam } from './rate-limit-wait.js';
 import type { TestRunners } from './test/runners.js';
 import { CLI_VERSION } from './version-info.js';
 
@@ -92,6 +100,10 @@ export interface RunCliInputs {
    * `packages/cli/src/key/defaults.ts` on dispatch.
    */
   readonly keyRunners?: KeyRunners;
+  /** Injectable seams for `kindgi license renew` (its clock, its fetch): tests only. */
+  readonly licenseDeps?: LicenseCommandDeps;
+  /** Injectable seams for `kindgi feedback` (its clock, the doctor, the platform, the prompt): tests only. */
+  readonly feedbackSeam?: FeedbackSeam;
   /**
    * Injectable value-input seams for `kindgi secrets set` /
    * `rotate`. Tests substitute stubs so the TTY / stdin / file paths
@@ -112,6 +124,12 @@ export interface RunCliInputs {
   readonly initSeam?: InitSeam;
   /** `kindgi doctor`'s seams (tools, docker, Node version, image, presets). */
   readonly doctorSeam?: DoctorSeam;
+  /** Opens a URL in the browser (`kindgi console`, `kindgi dev --open`). */
+  readonly openUrl?: OpenUrl;
+  /** The sleep, clock and output a publishing command waits out the server's rate limits with. */
+  readonly rateLimitWaits?: RateLimitWaitSeam;
+  /** `kindgi exports create`'s output, clock and pauses. */
+  readonly exportsSeam?: ExportsSeam;
 }
 
 /**
@@ -166,7 +184,15 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
   const remainingTokens = argv.slice(consumed);
 
   if (command.kind === 'group') {
-    return { stdout: commandHelpText(command, argv.slice(0, consumed)), stderr: '', exitCode: 0 };
+    const path = argv.slice(0, consumed);
+    // A word after the group that names none of its subcommands is a
+    // mistake (`kindgi agents register`), not a request for help: exit 2,
+    // as an unknown command does, so a script stops there.
+    const next = remainingTokens[0];
+    if (next !== undefined && !next.startsWith('-')) {
+      return { stdout: '', stderr: unknownSubcommandText(command, path, next), exitCode: 2 };
+    }
+    return { stdout: commandHelpText(command, path), stderr: '', exitCode: 0 };
   }
 
   let parsed: ReturnType<typeof parseCommand>;
@@ -227,11 +253,13 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
   const keyRunners =
     inputs.keyRunners ?? (topLevel === 'key' ? await loadRealKeyRunners() : undefined);
 
+  const label = commandLabel(command, argv, consumed);
   const ctx = buildContext({
     globals: parsed.globals,
     positionals: parsed.positionals,
     options: parsed.options,
     config,
+    commandLabel: label,
     ...(inputs.fetchImpl !== undefined ? { fetchImpl: inputs.fetchImpl } : {}),
     ...(inputs.clientFactory !== undefined ? { clientFactory: inputs.clientFactory } : {}),
     ...(inputs.home !== undefined ? { home: inputs.home } : {}),
@@ -247,28 +275,48 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ...(testRunners !== undefined ? { testRunners } : {}),
     ...(envRunners !== undefined ? { envRunners } : {}),
     ...(keyRunners !== undefined ? { keyRunners } : {}),
+    ...(inputs.licenseDeps !== undefined ? { licenseDeps: inputs.licenseDeps } : {}),
+    ...(inputs.feedbackSeam !== undefined ? { feedbackSeam: inputs.feedbackSeam } : {}),
     ...(inputs.secretsInputSeam !== undefined ? { secretsInputSeam: inputs.secretsInputSeam } : {}),
     ...(inputs.envInitInputSeam !== undefined ? { envInitInputSeam: inputs.envInitInputSeam } : {}),
     ...(inputs.registryAuthSeam !== undefined ? { registryAuthSeam: inputs.registryAuthSeam } : {}),
     ...(inputs.initSeam !== undefined ? { initSeam: inputs.initSeam } : {}),
     ...(inputs.doctorSeam !== undefined ? { doctorSeam: inputs.doctorSeam } : {}),
+    ...(inputs.openUrl !== undefined ? { openUrl: inputs.openUrl } : {}),
+    ...(inputs.rateLimitWaits !== undefined ? { rateLimitWaits: inputs.rateLimitWaits } : {}),
+    ...(inputs.exportsSeam !== undefined ? { exportsSeam: inputs.exportsSeam } : {}),
   });
 
-  const label = commandLabel(command, argv, consumed);
+  // A Java pack pins the CLI it runs with (`cli-pin.ts`): say when this isn't it.
+  // `kindgi dev` runs until stopped, so it hears it now, before it starts.
+  const pinWarning = PIN_EXEMPT.has(topLevel ?? '')
+    ? undefined
+    : await pinWarningFor(ctx.cwd, parsed.options.path);
+  if (pinWarning !== undefined && topLevel === 'dev') process.stderr.write(pinWarning);
+  const before = topLevel === 'dev' ? '' : (pinWarning ?? '');
   try {
     const result = await command.run(ctx);
     if (result.kind === 'ok') {
       return {
         stdout: result.rendered.stdout,
-        stderr: result.rendered.stderr,
+        stderr: `${before}${result.rendered.stderr}`,
         exitCode: result.exitCode ?? 0,
       };
     }
-    return { stdout: '', stderr: result.stderr, exitCode: result.exitCode };
+    return { stdout: '', stderr: `${before}${result.stderr}`, exitCode: result.exitCode };
   } catch (err) {
     const formatted = formatThrown(err, { commandLabel: label, verbose: parsed.globals.verbose });
     return { stdout: '', stderr: formatted.stderr, exitCode: formatted.exitCode };
   }
+}
+
+/** Commands that never warn about the pin: they make it, move it, or don't run against a pack. */
+const PIN_EXEMPT: ReadonlySet<string> = new Set(['init', 'upgrade', 'version']);
+
+async function pinWarningFor(cwd: string, pathOption: unknown): Promise<string | undefined> {
+  const dir = typeof pathOption === 'string' && pathOption !== '' ? resolve(cwd, pathOption) : cwd;
+  const pin = await readCliPin(dir);
+  return pin === undefined ? undefined : cliPinWarning(pin, CLI_VERSION);
 }
 
 function commandLabel(_command: Command, argv: readonly string[], consumed: number): string {

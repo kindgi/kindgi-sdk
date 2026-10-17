@@ -24,26 +24,34 @@
  */
 
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
+import { createLogger } from '@kindgi/log';
+
+import { LocalPortsRefused } from '../src/dev/blocked.js';
+import { type DevLockProcesses, devLockPath } from '../src/dev/dev-lock.js';
 import type { EnsureOutcome, ProjectDatabases } from '../src/dev/project-database.js';
 import type { DevProject, ProjectOutcome } from '../src/dev/project.js';
 import type {
   DevRunners,
   ExternalPackage,
+  IndexOutcome,
   IndexResult,
   PackBuild,
   RunningApiServer,
   StartServicesResult,
   WatchHandle,
 } from '../src/dev/runners.js';
-import { RuntimeStartStopped } from '../src/dev/runtime-container.js';
+import { RuntimeOwnedElsewhere, RuntimeStartStopped } from '../src/dev/runtime-container.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
 import { CLI_VERSION } from '../src/version-info.js';
+
+/** The models guide on this CLI's release line, as the banner links it. */
+const MODELS_GUIDE_URL = `https://docs.kindgi.com/v${CLI_VERSION.split('.').slice(0, 2).join('.')}/guides/models/`;
 
 /** vi.waitFor's own default (1 s) is too short on a loaded machine; a passing wait returns as soon as it holds. */
 const WAIT = { timeout: 15_000 } as const;
@@ -112,6 +120,8 @@ interface Fixtures {
   readonly stopOrder: string[];
   /** Interpreters `checkPackPython` was asked about. */
   readonly pythonChecks: (readonly string[])[];
+  /** The JVM pack code `checkPackJvm` was asked about. */
+  readonly javaChecks: unknown[];
   /** The `PackCode` each of the pack service, the builder and the indexer got. */
   readonly serviceCodes: unknown[];
   readonly builderCodes: unknown[];
@@ -126,10 +136,14 @@ function makeFixtures(
     readonly packBootProblems?: readonly string[];
     /** The pack's Python fails its check with this message. */
     readonly pythonProblem?: string;
+    /** The pack's JDK or Maven fails its check with this message. */
+    readonly javaProblem?: string;
     /** The tenant's providers (default: the dev-echo fallback). */
     readonly providers?: readonly unknown[];
     /** What the boot build loads from `node_modules` (default: not reported). */
     readonly externals?: readonly ExternalPackage[];
+    /** The runtime serves the console (`/console/`), as the runtime image does. */
+    readonly consoleMounted?: boolean;
     /** Disposing the builder fails (a shutdown step that throws). */
     readonly disposeFails?: boolean;
     /** Stopping the runtime fails at once. */
@@ -137,6 +151,7 @@ function makeFixtures(
   } = {},
 ): Fixtures {
   const pythonChecks: (readonly string[])[] = [];
+  const javaChecks: unknown[] = [];
   const stopOrder: string[] = [];
   const serviceCodes: unknown[] = [];
   const builderCodes: unknown[] = [];
@@ -152,6 +167,7 @@ function makeFixtures(
     defaultProjectId: 'project-default',
     token: 'kgi_bt_test-token',
     banner: 'Kindgi API server listening on http://localhost:4000',
+    ...(opts.consoleMounted === true && { consoleMounted: true }),
     shutdownCount: 0,
     shutdown: async () => {
       server.shutdownCount += 1;
@@ -188,11 +204,18 @@ function makeFixtures(
   } as const;
 
   const runners: DevRunners = {
+    detectSandbox: async () => ({ kind: 'available', engine: 'seatbelt' }),
     checkPackPython: async (python) => {
       pythonChecks.push(python);
       return opts.pythonProblem !== undefined
         ? { kind: 'err', message: opts.pythonProblem }
         : { kind: 'ok', value: 'Python 3.13 · kindgi test' };
+    },
+    checkPackJvm: async (code) => {
+      javaChecks.push(code);
+      return opts.javaProblem !== undefined
+        ? { kind: 'err', message: opts.javaProblem }
+        : { kind: 'ok', value: 'Java 17.0.6 · Maven 3.9.16 (test)' };
     },
     createPackService: (serviceOpts) => {
       serviceCodes.push(serviceOpts.code);
@@ -294,6 +317,7 @@ function makeFixtures(
     packBeginCloses: () => packBeginCloses,
     stopOrder,
     pythonChecks,
+    javaChecks,
     serviceCodes,
     builderCodes,
     indexerCodes,
@@ -639,6 +663,24 @@ describe('kindgi dev — the project env files', () => {
     );
   });
 
+  test('the live "Kindgi is up" block says what models agents have, as the exit banner does', async () => {
+    const fixtures = makeFixtures();
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      await runCli({ ...baseInputs(fixtures), argv: ['dev', '--no-watch', `--path=${packDir}`] });
+    } finally {
+      spy.mockRestore();
+    }
+    const up = writes.join('').split('✓ Kindgi is up')[1] ?? '';
+    expect(up).toContain(
+      `  Models     none yet. Agents give placeholder replies until you connect a model: ${MODELS_GUIDE_URL}\n`,
+    );
+  });
+
   test('public run tokens: the key file when KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH is set', async () => {
     const keyPath = join(packDir, 'public-token.pem');
     const { privateKey } = generateKeyPairSync('ed25519');
@@ -661,6 +703,146 @@ describe('kindgi dev — the project env files', () => {
     const paths = spy.mock.calls.map((call) => call[0]?.publicRunTokenKeyPath);
     expect(paths).toEqual([keyPath, keyPath]);
     expect(spy.mock.calls[0]?.[0]?.corsOrigins).toBeUndefined();
+  });
+
+  test("Google credentials: never this machine's gcloud login or GOOGLE_APPLICATION_CREDENTIALS unless KINDGI_DEV_GOOGLE_CREDENTIALS names them", async () => {
+    // A home with a gcloud application-default login, and a shell that sets
+    // GOOGLE_APPLICATION_CREDENTIALS: both exist, and neither is mounted.
+    const fakeHome = await mkdtemp(join(tmpdir(), 'kindgi-dev-home-'));
+    try {
+      await mkdir(join(fakeHome, '.config', 'gcloud'), { recursive: true });
+      const adc = join(fakeHome, '.config', 'gcloud', 'application_default_credentials.json');
+      await writeFile(
+        adc,
+        JSON.stringify({ type: 'authorized_user', refresh_token: 'not-a-real-refresh-token' }),
+      );
+      const shellFile = join(fakeHome, 'shell-sa.json');
+      await writeFile(
+        shellFile,
+        JSON.stringify({
+          type: 'service_account',
+          client_email: 'other@acme.iam.gserviceaccount.com',
+        }),
+      );
+      const fixtures = makeFixtures();
+      const spy = vi.spyOn(fixtures.runners, 'startApiServer');
+      const boot = async (env: Record<string, string>) => {
+        const { writes, restore } = captureStderr();
+        try {
+          const out = await runCli({
+            ...baseInputs(fixtures),
+            env: { ...baseInputs(fixtures).env, ...env },
+            argv: ['dev', '--no-watch', `--path=${packDir}`],
+          });
+          return { out, stderr: writes.join('') + out.stderr };
+        } finally {
+          restore();
+        }
+      };
+      const unset = await boot({ HOME: fakeHome, GOOGLE_APPLICATION_CREDENTIALS: shellFile });
+      expect(unset.out.exitCode).toBe(0);
+      expect(spy.mock.calls.at(-1)?.[0]?.googleCredentialsPath).toBeUndefined();
+      expect(unset.stderr).not.toContain('Google credentials');
+      // The developer's real home too: whatever login it holds stays out.
+      await boot({ HOME: homedir() });
+      expect(spy.mock.calls.at(-1)?.[0]?.googleCredentialsPath).toBeUndefined();
+
+      const fromShell = await boot({ HOME: fakeHome, KINDGI_DEV_GOOGLE_CREDENTIALS: 'adc' });
+      expect(fromShell.out.exitCode).toBe(0);
+      expect(spy.mock.calls.at(-1)?.[0]?.googleCredentialsPath).toBe(adc);
+      expect(fromShell.stderr).toContain(
+        `✓ Google credentials: ${adc} (your gcloud application-default login, a user account), mounted read-only for Vertex AI`,
+      );
+      expect(fromShell.stderr).toContain(
+        `    Google credentials ${adc} (your gcloud application-default login, a user account), read-only, for Vertex AI\n`,
+      );
+      expect(fromShell.stderr).not.toContain('not-a-real-refresh-token');
+
+      // From the pack's .env, like the other dev settings.
+      await writeFile(join(packDir, '.env'), `KINDGI_DEV_GOOGLE_CREDENTIALS=${shellFile}\n`);
+      const fromEnvFile = await boot({ HOME: fakeHome });
+      expect(fromEnvFile.out.exitCode).toBe(0);
+      expect(spy.mock.calls.at(-1)?.[0]?.googleCredentialsPath).toBe(shellFile);
+      expect(fromEnvFile.stderr).toContain('(service account other@acme.iam.gserviceaccount.com)');
+
+      const refused = await boot({ HOME: fakeHome, KINDGI_DEV_GOOGLE_CREDENTIALS: 'yes' });
+      expect(refused.out.exitCode).toBe(1);
+      expect(refused.out.stderr).toContain(
+        'kindgi dev: KINDGI_DEV_GOOGLE_CREDENTIALS must be `adc` (your gcloud application-default login), the absolute path of a Google credentials file, or `off`. Got "yes".',
+      );
+    } finally {
+      await rm(fakeHome, { recursive: true, force: true });
+    }
+  });
+
+  test('a declared Vertex provider without Google credentials is said before the start', async () => {
+    await writeFile(
+      join(packDir, 'kindgi.config.ts'),
+      "export default { pack: { id: 'my-pack', version: '0.1.0' }, providers: [{ preset: 'gemini', project: 'acme-gcp' }] };\n",
+      'utf8',
+    );
+    const fixtures = makeFixtures();
+    const { writes, restore } = captureStderr();
+    try {
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['dev', '--no-watch', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(0);
+      const said = writes.join('') + out.stderr;
+      expect(said).toContain(
+        "⚠ Provider gemini (Vertex AI) has no Google credentials: set KINDGI_DEV_GOOGLE_CREDENTIALS=adc (or a credentials file), in the pack's .env or the shell, and restart kindgi dev.",
+      );
+      // Once, before the start: not again after boot for the same provider.
+      expect(said.split('has no Google credentials').length - 1).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a Vertex provider registered by hand without Google credentials is said after boot', async () => {
+    const fixtures = makeFixtures({
+      providers: [
+        { id: 'gemini', region: 'global', models: [{ name: 'gemini-3.8-flash' }] },
+        DEV_ECHO_ROW,
+      ],
+    });
+    const { writes, restore } = captureStderr();
+    try {
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['dev', '--no-watch', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(0);
+      expect(writes.join('') + out.stderr).toContain(
+        '⚠ Provider gemini (Vertex AI) has no Google credentials: set KINDGI_DEV_GOOGLE_CREDENTIALS=adc',
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test('exports: the key file when KINDGI_EXPORT_SIGNING_KEY_PATH is set; a missing one refuses', async () => {
+    const keyPath = join(packDir, 'export-signing.pem');
+    const { privateKey } = generateKeyPairSync('ed25519');
+    await writeFile(keyPath, privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
+    const fixtures = makeFixtures();
+    const spy = vi.spyOn(fixtures.runners, 'startApiServer');
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      env: { ...baseInputs(fixtures).env, KINDGI_EXPORT_SIGNING_KEY_PATH: keyPath },
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(0);
+    // The key file is handed to the runtime (mounted): its key id holds across restarts.
+    expect(spy.mock.calls[0]?.[0]?.exportSigningKeyPath).toBe(keyPath);
+    const missing = await runCli({
+      ...baseInputs(fixtures),
+      env: { ...baseInputs(fixtures).env, KINDGI_EXPORT_SIGNING_KEY_PATH: join(packDir, 'no.pem') },
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(missing.exitCode).toBe(1);
+    expect(missing.stderr).toContain('KINDGI_EXPORT_SIGNING_KEY_PATH must be the absolute path');
   });
 
   test('a malformed KINDGI_CORS_ORIGINS refuses to boot', async () => {
@@ -784,6 +966,204 @@ describe('kindgi dev — a Python pack', () => {
   });
 });
 
+describe('kindgi dev — a Java pack', () => {
+  async function javaPack(
+    extra: Record<string, unknown> = {},
+    files: Record<string, string> = {},
+  ): Promise<void> {
+    await rm(join(packDir, 'kindgi.config.ts'), { force: true });
+    await writeFile(
+      join(packDir, 'kindgi.config.json'),
+      JSON.stringify({ language: 'java', pack: { id: 'my-pack', version: '0.1.0' }, ...extra }),
+      'utf8',
+    );
+    for (const [name, text] of Object.entries(files)) {
+      await writeFile(join(packDir, name), text, 'utf8');
+    }
+  }
+
+  test("kindgi.config.json: the pack's JDK and Maven build, index and serve it", async () => {
+    await javaPack({}, { mvnw: '#!/bin/sh\n' });
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      env: { ...baseInputs(fixtures).env, JAVA_HOME: '/opt/jdk-17' },
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(0);
+    const code = {
+      language: 'java',
+      java: '/opt/jdk-17/bin/java',
+      javaHome: '/opt/jdk-17',
+      maven: ['sh', join(packDir, 'mvnw')],
+      workDir: join(packDir, '.kindgi', 'dev', 'java'),
+    };
+    expect(fixtures.javaChecks).toEqual([code]);
+    expect(fixtures.serviceCodes).toEqual([code]);
+    expect(fixtures.builderCodes).toEqual([code]);
+    expect(fixtures.indexerCodes).toEqual([code]);
+    expect(fixtures.pythonChecks).toEqual([]);
+  });
+
+  test('dev.javaHome and dev.maven in the config come first; without them, java and mvn on PATH', async () => {
+    await javaPack({ dev: { javaHome: '/opt/jdk-21', maven: ['mvn', '-s', 'settings.xml'] } });
+    const fixtures = makeFixtures();
+    await runCli({
+      ...baseInputs(fixtures),
+      env: { ...baseInputs(fixtures).env, JAVA_HOME: '/opt/jdk-17' },
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(fixtures.javaChecks).toEqual([
+      expect.objectContaining({
+        java: '/opt/jdk-21/bin/java',
+        maven: ['mvn', '-s', 'settings.xml'],
+      }),
+    ]);
+
+    await javaPack();
+    const again = makeFixtures();
+    await runCli({ ...baseInputs(again), argv: ['dev', '--no-watch', `--path=${packDir}`] });
+    expect(again.javaChecks).toEqual([expect.objectContaining({ java: 'java', maven: ['mvn'] })]);
+    expect(again.javaChecks[0]).not.toHaveProperty('javaHome');
+  });
+
+  test('a JDK older than 17 (or no Maven) stops the boot with the reason', async () => {
+    await javaPack();
+    const fixtures = makeFixtures({
+      javaProblem: "the pack's JDK (java) is 11.0.22; a Java pack needs 17 or later.",
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('needs 17 or later');
+    expect(fixtures.serviceCodes).toEqual([]);
+  });
+
+  test('a bad dev.maven is refused before anything starts', async () => {
+    await javaPack({ dev: { maven: [] } });
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('`dev.maven` must be a command');
+    expect(fixtures.javaChecks).toEqual([]);
+  });
+
+  test('kindgi.config.json next to kindgi.config.ts: refused, naming both', async () => {
+    await writeFile(
+      join(packDir, 'kindgi.config.json'),
+      JSON.stringify({ language: 'java', pack: { id: 'my-pack', version: '0.1.0' } }),
+      'utf8',
+    );
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('two pack configs, kindgi.config.json and kindgi.config.ts');
+    expect(fixtures.serviceCodes).toEqual([]);
+  });
+});
+
+describe('kindgi dev — one per pack', () => {
+  /** This test process, and another kindgi dev that's `running` or not. */
+  const processes = (running: boolean): DevLockProcesses => ({
+    pid: process.pid,
+    isAlive: (p) => p === process.pid || (running && p === 4242),
+    startTime: async (p) => (p === 4242 ? 'Fri Oct 10 10:02:00 2026' : 'me'),
+    now: () => new Date(),
+  });
+  const lockedBy4242 = async () => {
+    await mkdir(join(packDir, '.kindgi', 'dev'), { recursive: true });
+    await writeFile(
+      devLockPath(packDir),
+      JSON.stringify({
+        pid: 4242,
+        processStart: 'Fri Oct 10 10:02:00 2026',
+        takenAt: '2026-10-10T10:02:00Z',
+        apiUrl: 'http://localhost:4000',
+      }),
+    );
+  };
+
+  test('a second one refuses with exit 3, says where the first is, and starts nothing', async () => {
+    await lockedBy4242();
+    const fixtures = makeFixtures();
+    let started = 0;
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      devRunners: {
+        ...fixtures.runners,
+        devLockProcesses: processes(true),
+        startApiServer: async (o) => {
+          started += 1;
+          return fixtures.runners.startApiServer(o);
+        },
+      },
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(3);
+    expect(out.stderr).toMatch(/kindgi dev is already running for this pack \(pid 4242, since /);
+    expect(started).toBe(0);
+    expect(fixtures.server.shutdownCount).toBe(0);
+    // The running one's lock is left as it was.
+    expect(JSON.parse(await readFile(devLockPath(packDir), 'utf8'))).toMatchObject({ pid: 4242 });
+    await rm(devLockPath(packDir));
+  });
+
+  test("a lock left by one that's gone is taken over, said so, and released at the end", async () => {
+    await lockedBy4242();
+    const fixtures = makeFixtures();
+    const { writes, restore } = captureStderr();
+    let out: Awaited<ReturnType<typeof runCli>>;
+    try {
+      out = await runCli({
+        ...baseInputs(fixtures),
+        devRunners: { ...fixtures.runners, devLockProcesses: processes(false) },
+        argv: ['dev', '--no-watch', `--path=${packDir}`],
+      });
+    } finally {
+      restore();
+    }
+    expect(out.exitCode).toBe(0);
+    expect(writes.join('')).toContain(
+      'a previous kindgi dev (pid 4242) ended without removing .kindgi/dev/dev.lock; continuing',
+    );
+    await expect(stat(devLockPath(packDir))).rejects.toThrow();
+  });
+
+  test("a lock removed by hand: the first one's runtime container stops it at the port check, exit 3", async () => {
+    const fixtures = makeFixtures();
+    let started = 0;
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      devRunners: {
+        ...fixtures.runners,
+        runtimePortInUse: async () => {
+          throw new RuntimeOwnedElsewhere('kindgi-dev-runtime-x', '4242@Fri Oct 10 10:02:00 2026');
+        },
+        startApiServer: async (o) => {
+          started += 1;
+          return fixtures.runners.startApiServer(o);
+        },
+      },
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(3);
+    expect(out.stderr).toContain(
+      "kindgi dev: this pack's runtime container (kindgi-dev-runtime-x) belongs to another kindgi dev (pid 4242), still running. Stop that kindgi dev first",
+    );
+    expect(started).toBe(0);
+    // The lock it took, there being none, is released.
+    await expect(stat(devLockPath(packDir))).rejects.toThrow();
+  });
+});
+
 describe('kindgi dev — boot flow (no watch)', () => {
   test('boots api-server + registers every primitive in one cycle', async () => {
     const fixtures = makeFixtures();
@@ -826,11 +1206,14 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(out.stderr).toContain('1 agents');
     expect(out.stderr).toContain('1 flows');
     expect(out.stderr).toContain(
-      'Providers          dev-echo (fallback) — canned replies; for a real model: set an LLM provider key, then npx --no kindgi providers register --preset=<anthropic|gemini-api|groq|openai|openrouter>',
+      `Models             none yet. Agents give placeholder replies until you connect a model: ${MODELS_GUIDE_URL}\n`,
     );
+    // Plain words: no fallback's name, and the command stays in `kindgi doctor`.
+    expect(out.stderr).not.toContain('dev-echo');
+    expect(out.stderr).not.toContain('providers register');
   });
 
-  test('the providers line lists real providers with their models, fallbacks marked', async () => {
+  test('the models line lists real providers with their models, and leaves the fallback out', async () => {
     const fixtures = makeFixtures({
       providers: [
         { id: 'anthropic', region: 'unspecified', models: [{ name: 'claude-haiku-4-5' }] },
@@ -841,9 +1224,7 @@ describe('kindgi dev — boot flow (no watch)', () => {
       ...baseInputs(fixtures),
       argv: ['dev', '--no-watch', `--path=${packDir}`],
     });
-    expect(out.stderr).toContain(
-      'Providers          anthropic (claude-haiku-4-5) · dev-echo (fallback)\n',
-    );
+    expect(out.stderr).toContain('Models             anthropic (claude-haiku-4-5)\n');
   });
 
   test('providers the config declares are registered on boot, and left alone on the next', async () => {
@@ -871,11 +1252,9 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(first).toContain('  ✓ gemini: registered\n');
     // Its key isn't in the env files: one line, and the boot goes on.
     expect(first).toContain(
-      '  ⚠ anthropic: not registered: ANTHROPIC_API_KEY is not in .env, .env.local. Set it (npx --no kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant), then restart kindgi dev',
+      '  ⚠ anthropic: not registered: ANTHROPIC_API_KEY is not in .env, .env.local, .kindgi/secrets.env. Set it (npx --no -- kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant), then restart kindgi dev',
     );
-    expect(first).toContain(
-      'Providers          dev-echo (fallback) · gemini (gemini-3.5-flash-lite)\n',
-    );
+    expect(first).toContain('Models             gemini (gemini-3.5-flash-lite)\n');
     const record = JSON.parse(
       await readFile(join(packDir, '.kindgi', 'dev', 'providers.json'), 'utf8'),
     ) as { readonly runtimes: Record<string, Record<string, unknown>> };
@@ -888,6 +1267,19 @@ describe('kindgi dev — boot flow (no watch)', () => {
     const second = await boot();
     expect(second).toContain('  · gemini: unchanged\n');
     expect(second).toContain('  ✓ anthropic: registered\n');
+    // Its key sits in a file the app loads too: one hint; the file is never edited.
+    const hint =
+      "  ⚠ ANTHROPIC_API_KEY is in .env, which your app loads too. To give Kindgi its own copy: npx --no -- kindgi secrets copy (it never edits your app's files).";
+    expect(second).toContain(hint);
+    expect(await readFile(join(packDir, '.env'), 'utf8')).toBe('ANTHROPIC_API_KEY=sk-test\n');
+    expect(
+      JSON.parse(await readFile(join(packDir, '.kindgi', 'dev', 'provider-keys.json'), 'utf8')),
+    ).toEqual({ names: ['ANTHROPIC_API_KEY'] });
+    expect(second).not.toContain('sk-test');
+
+    // With Kindgi's own copy, no hint.
+    await writeFile(join(packDir, '.kindgi', 'secrets.env'), 'ANTHROPIC_API_KEY=sk-kindgi\n');
+    expect(await boot()).not.toContain(hint);
   });
 
   test('a malformed provider in the config stops the boot before anything starts', async () => {
@@ -904,19 +1296,19 @@ describe('kindgi dev — boot flow (no watch)', () => {
     });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain(
-      'kindgi dev: `providers` in kindgi.config.ts: entry 1: a preset takes',
+      'kindgi dev: `providers` in kindgi.config.ts: entry 1: preset "anthropic" takes `preset`, `models`, `secret`, `maxOutputTokens`; not `model`.',
     );
     expect(spy).not.toHaveBeenCalled();
   });
 
-  test('with no providers, the banner says turns fail until one is registered', async () => {
+  test('with no providers at all, the banner says turns fail until a model is connected', async () => {
     const fixtures = makeFixtures({ providers: [] });
     const out = await runCli({
       ...baseInputs(fixtures),
       argv: ['dev', '--no-watch', `--path=${packDir}`],
     });
     expect(out.stderr).toContain(
-      'Providers          none — agent turns fail until one is registered: set an LLM provider key, then npx --no kindgi providers register --preset=<anthropic|gemini-api|groq|openai|openrouter>',
+      `Models             none yet. Agent turns fail until you connect a model: ${MODELS_GUIDE_URL}\n`,
     );
   });
 
@@ -1382,6 +1774,69 @@ describe('kindgi dev — watch flow', () => {
     expect(log.endsWith('  kindgi dev stopped.\n')).toBe(true);
   });
 
+  test("a reload prints only the warnings the last load didn't; the standing ones are one line", async () => {
+    const message = (check: string): string =>
+      `guardrails/${check}.ts: check "${check}" doesn't start with this pack's id ("my-pack.").`;
+    const withWarnings = (...checks: string[]): IndexResult => ({
+      ...(defaultHappyOutcome() as IndexOutcome),
+      warnings: checks.map((c) => ({
+        code: 'check-id-unprefixed',
+        message: message(c),
+        filePath: `guardrails/${c}.ts`,
+      })),
+    });
+    const controller = new AbortController();
+    const fixtures = makeFixtures({
+      outcomes: [
+        withWarnings('cites'), // boot
+        withWarnings('cites'),
+        withWarnings('cites', 'grounded'),
+        withWarnings('grounded'),
+        defaultHappyOutcome(),
+        withWarnings('cites'),
+      ],
+    });
+    const { writes, restore } = captureStderr();
+    const reload = async (): Promise<string> => {
+      const from = writes.length;
+      fixtures.triggerChange();
+      // The tick writes its loaded line and its warnings together.
+      await vi.waitFor(
+        () => expect(writes.slice(from).join('')).toMatch(/✓ loaded \d+ primitives/),
+        WAIT,
+      );
+      return writes.slice(from).join('');
+    };
+    const warned = (log: string): string[] => log.split('\n').filter((line) => line.includes('⚠'));
+    try {
+      const promise = runCli({
+        ...baseInputs(fixtures, { stopSignal: controller.signal }),
+        argv: ['dev', `--path=${packDir}`],
+      });
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+      expect(writes.join('')).toContain(`    ⚠ ${message('cites')}\n`);
+      // The same warning as the boot's: not repeated.
+      expect(warned(await reload())).toEqual([
+        '      ⚠ 1 warning from the last load still applies',
+      ]);
+      // A new one in full, beside the standing one.
+      expect(warned(await reload())).toEqual([
+        `      ⚠ ${message('grounded')}`,
+        '      ⚠ 1 warning from the last load still applies',
+      ]);
+      expect(warned(await reload())).toEqual([
+        '      ⚠ 1 warning from the last load still applies',
+      ]);
+      // Fixed: nothing; one that comes back is new again.
+      expect(warned(await reload())).toEqual([]);
+      expect(warned(await reload())).toEqual([`      ⚠ ${message('cites')}`]);
+      controller.abort();
+      await promise;
+    } finally {
+      restore();
+    }
+  });
+
   test('--json in watch mode: the summary reports an empty pack as ok, not as an indexer error', async () => {
     const controller = new AbortController();
     controller.abort();
@@ -1517,12 +1972,12 @@ describe("kindgi dev — imports a deployed pack wouldn't have", () => {
         ...baseInputs(fixtures, { stopSignal: controller.signal }),
         argv: ['dev', '--json', `--path=${packDir}`],
       });
-      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
       expect(linesWith(writes, { stderr: '' }, 'The pack imports ms')).toHaveLength(1);
 
       // A save that imports nanoid too: a warning for nanoid only.
       fixtures.triggerChange(build(ms, nanoid));
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(2));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(2), WAIT);
       expect(linesWith(writes, { stderr: '' }, WARNING)).toEqual([
         expect.stringContaining('The pack imports ms (in tools/clock/index.ts), which'),
         expect.stringContaining('The pack imports nanoid (in lib/ids.ts, tools/a.ts), which'),
@@ -1530,17 +1985,17 @@ describe("kindgi dev — imports a deployed pack wouldn't have", () => {
 
       // The same imports again (another save, an env-file change): nothing new.
       fixtures.triggerChange(build(ms, nanoid));
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(3));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(3), WAIT);
       fixtures.triggerEnvChange();
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(4));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(4), WAIT);
       expect(linesWith(writes, { stderr: '' }, WARNING)).toHaveLength(2);
 
       // ms moves to dependencies: the next refresh says so, once.
       await manifest({ dependencies: { ms: '^2.1.3' }, devDependencies: { nanoid: '^5.0.0' } });
       fixtures.triggerChange(build(ms, nanoid));
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(5));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(5), WAIT);
       fixtures.triggerChange(build(ms, nanoid));
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(6));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(6), WAIT);
       controller.abort();
       out = await promise;
     } finally {
@@ -1598,8 +2053,8 @@ describe("kindgi dev — the runtime's pack-service warning", () => {
     const devRunners: DevRunners = {
       ...fixtures.runners,
       startApiServer: async (opts) => {
-        opts.onLog?.('Kindgi API server listening on http://localhost:4000');
-        opts.onLog?.(WARNING);
+        opts.onLog?.('Kindgi API server listening on http://localhost:4000', 'stdout');
+        opts.onLog?.(WARNING, 'stdout');
         return fixtures.server;
       },
     };
@@ -2005,7 +2460,7 @@ describe('kindgi dev — a database per project', () => {
 
   test('another folder owns a database of the same name: refused, naming the way out', async () => {
     const message =
-      'the database kindgi_acme belongs to /elsewhere/acme, another folder whose project is also named "acme". Give this one its own name: set `project` in kindgi.config.ts (or `project` under [tool.kindgi] in pyproject.toml), or pass --database-url.';
+      'the database kindgi_acme belongs to /elsewhere/acme, another folder whose project is also named "acme". Give this one its own name: set `project` in kindgi.config.ts (or `project` under [tool.kindgi] in pyproject.toml, or in kindgi.config.json), or pass --database-url.';
     const { fixtures } = withProjectDatabase({ ensure: { kind: 'refused', message } });
     const { out, opts } = await boot(fixtures);
     expect(out.exitCode).toBe(1);
@@ -2214,12 +2669,14 @@ describe("kindgi dev — the runtime's port (T218)", () => {
   function withPorts(taken: readonly number[]) {
     const fixtures = makeFixtures();
     const asked: { packDir: string; port: number }[] = [];
+    const owners: (string | undefined)[] = [];
     const started: number[] = [];
     let servicesStarted = 0;
     const runners: DevRunners = {
       ...fixtures.runners,
       runtimePortInUse: async (input) => {
-        asked.push({ ...input });
+        asked.push({ packDir: input.packDir, port: input.port });
+        owners.push(input.owner);
         return taken.includes(input.port);
       },
       startApiServer: async (opts) => {
@@ -2241,6 +2698,7 @@ describe("kindgi dev — the runtime's port (T218)", () => {
     return {
       fixtures: { ...fixtures, runners },
       asked,
+      owners,
       started,
       servicesStarted: () => servicesStarted,
     };
@@ -2264,6 +2722,8 @@ describe("kindgi dev — the runtime's port (T218)", () => {
     const { out, live } = await dev(ports.fixtures, []);
     expect(out.exitCode).toBe(0);
     expect(ports.asked).toEqual([{ packDir, port: 4000 }]);
+    // Asked as this kindgi dev, so another live one's container is never removed for the port.
+    expect(ports.owners).toEqual([expect.stringMatching(new RegExp(`^${process.pid}@`))]);
     expect(ports.started).toEqual([4000]);
     expect(live).not.toContain('is in use');
   });
@@ -2319,5 +2779,384 @@ describe("kindgi dev — the runtime's port (T218)", () => {
     expect((await dev(any.fixtures, ['--port=0'])).out.exitCode).toBe(0);
     expect(any.asked).toEqual([]);
     expect(any.started).toEqual([0]);
+  });
+});
+
+describe('kindgi dev — the console (T374)', () => {
+  test('the ready block leads with the console and how to sign in; the exit banner and --json name it', async () => {
+    const fixtures = makeFixtures({ consoleMounted: true });
+    const err = captureStderr();
+    let out: Awaited<ReturnType<typeof runCli>>;
+    try {
+      out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['dev', '--no-watch', '--json', `--path=${packDir}`],
+      });
+    } finally {
+      err.restore();
+    }
+    expect(out.exitCode).toBe(0);
+    const up = err.writes.join('').split('✓ Kindgi is up')[1] ?? '';
+    const consoleAt = up.indexOf(
+      '    Console    http://localhost:4000/console/   (open in your browser)\n',
+    );
+    expect(consoleAt).toBeGreaterThan(-1);
+    // First: the URL a person opens is the console's, not the API's bare address.
+    expect(consoleAt).toBeLessThan(up.indexOf('    API        http://localhost:4000\n'));
+    expect(up).toContain(
+      '               Sign in: "Sign in as seeded user" on the sign-in page (the dev token, below)\n',
+    );
+    expect(out.stderr).toContain('    Console            http://localhost:4000/console/');
+    expect(JSON.parse(out.stdout).consoleUrl).toBe('http://localhost:4000/console/');
+  });
+
+  test('a runtime without a console: no console lines, no consoleUrl', async () => {
+    const fixtures = makeFixtures();
+    const err = captureStderr();
+    let out: Awaited<ReturnType<typeof runCli>>;
+    try {
+      out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['dev', '--no-watch', '--json', `--path=${packDir}`],
+      });
+    } finally {
+      err.restore();
+    }
+    expect(err.writes.join('')).not.toContain('Console');
+    expect(out.stderr).not.toContain('Console');
+    expect(JSON.parse(out.stdout).consoleUrl).toBeUndefined();
+  });
+
+  test('--open opens the console in the browser once Kindgi is up', async () => {
+    const controller = new AbortController();
+    const fixtures = makeFixtures({ consoleMounted: true });
+    const opened: string[] = [];
+    const err = captureStderr();
+    try {
+      const promise = runCli({
+        ...baseInputs(fixtures, {
+          stopSignal: controller.signal,
+          openUrl: async (url) => {
+            opened.push(url);
+            return { ok: true };
+          },
+        }),
+        argv: ['dev', '--open', `--path=${packDir}`],
+      });
+      await vi.waitFor(() => expect(opened).toEqual(['http://localhost:4000/console/']), WAIT);
+      controller.abort();
+      expect((await promise).exitCode).toBe(0);
+    } finally {
+      err.restore();
+    }
+    expect(err.writes.join('')).toContain('    Opened the console in your browser.\n');
+  });
+
+  test('--open with no browser to start: says to open the URL yourself, and keeps running', async () => {
+    const controller = new AbortController();
+    const fixtures = makeFixtures({ consoleMounted: true });
+    const err = captureStderr();
+    try {
+      const promise = runCli({
+        ...baseInputs(fixtures, {
+          stopSignal: controller.signal,
+          openUrl: async () => ({ ok: false, reason: 'xdg-open: ENOENT' }),
+        }),
+        argv: ['dev', '--open', `--path=${packDir}`],
+      });
+      await vi.waitFor(
+        () => expect(err.writes.join('')).toContain("Couldn't open a browser (xdg-open: ENOENT)"),
+        WAIT,
+      );
+      controller.abort();
+      expect((await promise).exitCode).toBe(0);
+    } finally {
+      err.restore();
+    }
+  });
+
+  test('--open with --no-watch is refused: the runtime stops as kindgi dev exits', async () => {
+    const fixtures = makeFixtures({ consoleMounted: true });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['dev', '--open', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('Contradictory flags: --open and --no-watch');
+    expect(fixtures.server.shutdownCount).toBe(0);
+  });
+});
+
+describe('kindgi dev — logs', () => {
+  const at = () => new Date('2026-10-07T14:02:11.123Z');
+  /** Records as the runtime writes them, one JSON line each. */
+  function records(write: (log: ReturnType<typeof createLogger>) => void): string[] {
+    const lines: string[] = [];
+    write(createLogger({ level: 'trace', write: (l) => lines.push(l), now: at }));
+    return lines;
+  }
+  const RUNTIME_LINES = [
+    ...records((log) => {
+      log
+        .child({ subsystem: 'http' })
+        .info(
+          'GET /v1/runs 200 12ms',
+          { method: 'GET', route: '/v1/runs', status: 200, durationMs: 12 },
+          { inMessage: ['method', 'route', 'status', 'durationMs'] },
+        );
+      log.child({ subsystem: 'kernel' }).error('step failed', { runId: 'run-1' });
+    }),
+    'a line that is not a record',
+  ];
+
+  /** Boot once with these flags and env, the runtime writing `RUNTIME_LINES`. */
+  async function boot(flags: readonly string[], env: Record<string, string> = {}) {
+    const fixtures = makeFixtures();
+    let logLevels: Readonly<Record<string, string>> | undefined;
+    let packEnv: Readonly<Record<string, string>> | undefined;
+    const devRunners: DevRunners = {
+      ...fixtures.runners,
+      createPackService: (serviceOpts) => {
+        void serviceOpts.env().then((e) => {
+          packEnv = e;
+        });
+        return fixtures.runners.createPackService(serviceOpts);
+      },
+      startApiServer: async (opts) => {
+        logLevels = opts.logLevels;
+        for (const line of RUNTIME_LINES) opts.onLog?.(line, 'stdout');
+        return fixtures.server;
+      },
+    };
+    const stderr = captureStderr();
+    const stdout: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+    let out: Awaited<ReturnType<typeof runCli>>;
+    try {
+      out = await runCli({
+        ...baseInputs(fixtures, { devRunners }),
+        env: { ...baseInputs(fixtures).env, ...env },
+        argv: ['dev', '--no-watch', `--path=${packDir}`, ...flags],
+      });
+    } finally {
+      stderr.restore();
+      stdoutSpy.mockRestore();
+    }
+    return {
+      out,
+      stderr: stderr.writes.join(''),
+      stdout: stdout.join(''),
+      logLevels,
+      packEnv,
+    };
+  }
+
+  test("the runtime's records: pretty, tagged, without what the message says", async () => {
+    const { out, stderr } = await boot([]);
+    expect(out.exitCode).toBe(0);
+    expect(stderr).toContain('    [runtime] 14:02:11.123 INFO  [http] GET /v1/runs 200 12ms\n');
+    expect(stderr).toContain('    [runtime] 14:02:11.123 ERROR [kernel] step failed runId=run-1\n');
+    expect(stderr).toContain('    [runtime] a line that is not a record\n');
+  });
+
+  test('the levels reach the runtime and the pack service, which write JSON records', async () => {
+    const { logLevels, packEnv } = await boot(['--log-level=debug', '--log=http=warn']);
+    expect(logLevels).toEqual({ KINDGI_LOG_LEVEL: 'debug', KINDGI_LOG_LEVELS: 'http=warn' });
+    expect(packEnv).toMatchObject({
+      KINDGI_LOG_FORMAT: 'json',
+      KINDGI_LOG_LEVEL: 'debug',
+      KINDGI_LOG_LEVELS: 'http=warn',
+    });
+  });
+
+  test('a level given in the shell is used when no flag is', async () => {
+    const { logLevels } = await boot([], { KINDGI_LOG_LEVEL: 'warn' });
+    // The runtime's boot record (its banner, which kindgi dev waits for) stays at info.
+    expect(logLevels).toEqual({ KINDGI_LOG_LEVEL: 'warn', KINDGI_LOG_LEVELS: 'boot=info' });
+  });
+
+  test('--quiet: errors only; no progress, no info records', async () => {
+    const { out, stderr, logLevels } = await boot(['--quiet']);
+    expect(out.exitCode).toBe(0);
+    expect(logLevels).toEqual({ KINDGI_LOG_LEVEL: 'error', KINDGI_LOG_LEVELS: 'boot=info' });
+    expect(stderr).toContain('ERROR [kernel] step failed');
+    expect(stderr).not.toContain('[http]');
+    expect(stderr).not.toContain('Kindgi is up');
+    expect(stderr).not.toContain('Bundling');
+    // Nor the summary --no-watch ends with.
+    expect(out.stderr).toBe('');
+  });
+
+  test('--log-format=json: records on stdout as written; the rest stays on stderr', async () => {
+    const { stdout, stderr } = await boot(['--log-format=json']);
+    expect(stdout.split('\n').filter(Boolean)).toEqual(RUNTIME_LINES.slice(0, 2));
+    expect(stderr).not.toContain('[http]');
+    expect(stderr).toContain('    [runtime] a line that is not a record\n');
+    expect(stderr).toContain('Kindgi is up');
+  });
+
+  test('a bad level is refused before anything starts', async () => {
+    const fixtures = makeFixtures();
+    const spy = vi.spyOn(fixtures.runners, 'startApiServer');
+    const bad = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['dev', '--no-watch', `--path=${packDir}`, '--log-level=loud'],
+    });
+    expect(bad.exitCode).toBe(1);
+    expect(bad.stderr).toContain('kindgi dev: --log-level must be one of error, warn, info');
+    const badEnv = await runCli({
+      ...baseInputs(fixtures),
+      env: { ...baseInputs(fixtures).env, KINDGI_LOG_LEVEL: 'loud' },
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(badEnv.exitCode).toBe(1);
+    expect(badEnv.stderr).toContain('kindgi dev: KINDGI_LOG_LEVEL must be one of');
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('kindgi dev — something around it refuses what it needs (a sandbox)', () => {
+  const OWN_TERMINAL =
+    'If a coding agent runs this, its sandbox is likely what stops it: run `kindgi dev` in your own terminal instead.';
+  const sysError = (code: string, syscall: string, more: Record<string, unknown> = {}) =>
+    Object.assign(new Error(`${syscall} ${code}`), { code, syscall, ...more });
+  const dev = (fixtures: Fixtures, env?: Record<string, string>, more: readonly string[] = []) =>
+    runCli({
+      ...baseInputs(fixtures),
+      ...(env !== undefined && { env }),
+      argv: ['dev', '--no-watch', `--path=${packDir}`, ...more],
+    });
+
+  test('no port on 127.0.0.1 at all: said as such, not "all in use"', async () => {
+    const fixtures = makeFixtures();
+    const asked: number[] = [];
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      runtimePortInUse: async (input) => {
+        asked.push(input.port);
+        throw new LocalPortsRefused(input.port, 'EPERM');
+      },
+    };
+    const out = await dev({ ...fixtures, runners });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev isn't allowed to listen on 127.0.0.1 (port ${asked[0]}: EPERM), so no local port would work.\n  ${OWN_TERMINAL}\n`,
+    );
+    // The first refusal ends it: no walk through the other ports.
+    expect(asked).toHaveLength(1);
+  });
+
+  test('the first port answering a connect, the next refused: the same message', async () => {
+    // A taken port reads as taken without a listen, so the refusal comes from the walk.
+    const fixtures = makeFixtures();
+    const asked: number[] = [];
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      runtimePortInUse: async (input) => {
+        asked.push(input.port);
+        if (asked.length === 1) return true;
+        throw new LocalPortsRefused(input.port, 'EPERM');
+      },
+    };
+    const out = await dev({ ...fixtures, runners });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev isn't allowed to listen on 127.0.0.1 (port ${asked[1]}: EPERM), so no local port would work.\n  ${OWN_TERMINAL}\n`,
+    );
+    expect(asked).toEqual([asked[0], (asked[0] ?? 0) + 1]);
+  });
+
+  test.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    "a pack folder it can't write: the folder, the code, the fix",
+    async () => {
+      // Read-only, as a sandbox keeps a folder: the dev lock's folder can't be made.
+      await chmod(packDir, 0o555);
+      try {
+        const out = await dev(makeFixtures());
+        expect(out.exitCode).toBe(1);
+        expect(out.stderr).toMatch(
+          /^kindgi dev isn't allowed to write \S*\/sample-pack\/\.kindgi\S* \(EACCES\)\.\n/,
+        );
+        expect(out.stderr).toContain(
+          `${OWN_TERMINAL} Otherwise, check that your user can write there.\n`,
+        );
+      } finally {
+        await chmod(packDir, 0o755);
+      }
+    },
+  );
+
+  test("the pack service can't listen: said as such, the service closed", async () => {
+    const fixtures = makeFixtures();
+    let closed = 0;
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      createPackService: (options) => {
+        const service = fixtures.runners.createPackService(options);
+        return {
+          ...service,
+          listen: async () => {
+            throw sysError('EPERM', 'listen', { address: '127.0.0.1', port: 0 });
+          },
+          close: async () => {
+            closed += 1;
+            await service.close();
+          },
+        };
+      },
+    };
+    const out = await dev({ ...fixtures, runners });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev isn't allowed to listen on 127.0.0.1 (EPERM), so no local port would work.\n  ${OWN_TERMINAL}\n`,
+    );
+    expect(closed).toBe(1);
+  });
+
+  test("a runtime file it can't write: the file, the code, the fix", async () => {
+    const fixtures = makeFixtures();
+    const file = join(packDir, '.kindgi', 'dev', 'runtime.env');
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      startApiServer: async () => {
+        throw sysError('EROFS', 'open', { path: file });
+      },
+    };
+    const out = await dev({ ...fixtures, runners });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev isn't allowed to write ${file} (EROFS).\n  ${OWN_TERMINAL} Otherwise, check that your user can write there.\n`,
+    );
+  });
+
+  test('Docker out of reach at the Postgres step: its own fix, not "install Docker"', async () => {
+    const fixtures = makeFixtures();
+    const reason = `Docker's socket refused \`kindgi dev\`: dial unix /var/run/docker.sock: connect: operation not permitted\n  ${OWN_TERMINAL} Otherwise, your user needs access to Docker (on Linux, the \`docker\` group, or rootless Docker).`;
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      startServices: async () => ({ kind: 'unavailable', reason, reach: 'socket-denied' }),
+    };
+    const out = await dev({ ...fixtures, runners }, {});
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev needs Docker for its Postgres and the Kindgi runtime. ${reason}\n`,
+    );
+  });
+
+  test('Docker out of reach with --runtime-url: only Postgres needs it, and your own is a way out', async () => {
+    const fixtures = makeFixtures();
+    const reason = `Docker isn't running, or \`kindgi dev\` can't reach it: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?\n  Start Docker Desktop (or the Docker engine), then run this again. If it's running, a coding agent's sandbox may be what keeps it out of reach: run \`kindgi dev\` in your own terminal instead.`;
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      startServices: async () => ({ kind: 'unavailable', reason, reach: 'not-running' }),
+    };
+    const out = await dev({ ...fixtures, runners }, {}, ['--runtime-url=http://127.0.0.1:4000']);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev needs Docker for its Postgres. ${reason}\n  Or use your own Postgres (16, with pgvector): pass --database-url=<url>, or set KINDGI_DATABASE_URL.\n`,
+    );
   });
 });

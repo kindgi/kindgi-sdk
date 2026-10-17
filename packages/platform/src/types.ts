@@ -130,6 +130,13 @@ export interface Project {
    */
   readonly isDefault: boolean;
   readonly description?: string;
+  /**
+   * When the project was put in production; absent while it isn't. A run
+   * in a project in production is a production run (usage class
+   * `production`), and a run anywhere else is staging. Set and cleared by
+   * `ProjectBinding.setProduction`.
+   */
+  readonly productionSince?: Timestamp;
   readonly createdAt: Timestamp;
   readonly updatedAt: Timestamp;
 }
@@ -165,6 +172,12 @@ export interface ProjectPatch {
  * lightweight `member` and administrative `admin` shorthands.
  */
 export type ProjectRole = 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
+
+/**
+ * A role a team holds on a project: `viewer`, `editor` or `admin`. A team
+ * never owns one (`owner` is a person's), and `member` is retired.
+ */
+export type TeamProjectRole = Exclude<ProjectRole, 'owner' | 'member'>;
 
 export interface ProjectMembership {
   readonly projectId: ProjectId;

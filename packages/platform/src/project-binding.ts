@@ -25,7 +25,7 @@
  * rejecting.
  */
 
-import type { Filter, OrgId, Page, ProjectId, TenantId, UserId } from '@kindgi/types';
+import type { Filter, OrgId, Page, ProjectId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
 import type {
   Project,
@@ -101,6 +101,29 @@ export interface ProjectBinding {
    * team grants with it.
    */
   delete(tenantId: TenantId, projectId: ProjectId): Promise<void>;
+  /**
+   * Put the project in production (`production: true`), or take it out.
+   * Optional: without it, the production route answers 501
+   * `production-unsupported`. Setting what's already set changes nothing:
+   * it answers `changed: false` and keeps the first `productionSince`. A
+   * runtime that meters usage records each change (`project.production`,
+   * `on` or `off`) in the same transaction as the change.
+   *
+   * With the tenant's limit set (`TenantLimits.projectsInProduction`),
+   * putting a project in production reads the limit, counts the tenant's
+   * projects already in production, and answers `limit-reached` without a
+   * change when they're at the limit or past it. The binding reads the
+   * limit itself, where the runtime keeps it, and the read, the count and
+   * the change are one step: two projects put in production at once can't
+   * both pass on the last place, and a limit changed meanwhile is the one
+   * counted against. Taking a project out, and a project already in
+   * production, are never counted.
+   */
+  setProduction?(
+    tenantId: TenantId,
+    projectId: ProjectId,
+    production: boolean,
+  ): Promise<ProjectProductionOutcome>;
 }
 
 /**
@@ -168,6 +191,28 @@ export type ProjectCreateOutcome =
       readonly orgId: OrgId;
     };
 
+/** What `ProjectBinding.setProduction` did. */
+export type ProjectProductionOutcome =
+  | {
+      readonly kind: 'ok';
+      /** When it went into production; `null` now that it isn't in production. */
+      readonly productionSince: Timestamp | null;
+      /** `false` when it was already so, and nothing was written. */
+      readonly changed: boolean;
+    }
+  | {
+      /** No project with this id in the tenant. */
+      readonly kind: 'project-not-found';
+    }
+  | {
+      /** Not put in production: the tenant's projects in production are at its limit, or past it. */
+      readonly kind: 'limit-reached';
+      /** The limit. */
+      readonly projectsInProduction: number;
+      /** The tenant's projects in production now. */
+      readonly inProduction: number;
+    };
+
 /** What `ProjectBinding.update` did. */
 export type ProjectUpdateOutcome =
   | { readonly kind: 'ok' }
@@ -195,6 +240,11 @@ export type ProjectMembershipAddOutcome =
   | {
       /** No project with this id in the tenant. */
       readonly kind: 'project-not-found';
+    }
+  | {
+      /** The person is a member already, with another role (kept: change it with `updateRole`). */
+      readonly kind: 'membership-exists';
+      readonly role: ProjectRole;
     };
 
 /** What `ProjectMembershipBinding.updateRole` did. */

@@ -4,6 +4,7 @@
 import { describe, expect, test } from 'vitest';
 
 import { defineAgent } from '../src/define.js';
+import { AUTO_INJECTED_VARS } from '../src/prompt.js';
 
 const baseCapabilities = [{ needs: [{ feature: 'structured-output' as const }] }];
 
@@ -136,16 +137,22 @@ describe('defineAgent — rejections', () => {
     }
   });
 
-  test('rejects a parameter named the same as an auto-injected var', () => {
-    const r = defineAgent({
-      ...baseSpec,
-      parameters: [{ name: 'today', type: 'date' }],
-    });
-    expect(r.kind).toBe('err');
-    if (r.kind === 'err') {
-      expect(r.error.issues.some((i) => i.path === '/parameters/0/name')).toBe(true);
-    }
-  });
+  test.each([...AUTO_INJECTED_VARS])(
+    'rejects a parameter named %s, an auto-injected var the render would replace',
+    (name) => {
+      const r = defineAgent({
+        ...baseSpec,
+        parameters: [{ name, type: 'string' }],
+      });
+      expect(r.kind).toBe('err');
+      if (r.kind === 'err') {
+        expect(r.error.issues).toContainEqual({
+          path: '/parameters/0/name',
+          message: `"${name}" is a reserved auto-injected variable — do not declare it as a parameter`,
+        });
+      }
+    },
+  );
 
   test('rejects duplicate parameter names', () => {
     const r = defineAgent({
@@ -250,5 +257,63 @@ describe('defineAgent — hitl.onTimeout', () => {
         message: "hitl.onTimeout must be 'escalate'",
       });
     }
+  });
+});
+
+describe('defineAgent — hitl.separateApprover', () => {
+  const withFourEyes = (separateApprover: unknown) =>
+    defineAgent({
+      ...baseSpec,
+      conversationPolicy: { hitl: { separateApprover } },
+    } as unknown as Parameters<typeof defineAgent>[0]);
+
+  test.each([
+    ['true', true],
+    ['false', false],
+    ['per tool', { overrides: { 'citations.verify': true } }],
+    ['a default and overrides', { default: true, overrides: { 'citations.verify': false } }],
+  ])('%s is accepted', (_what, value) => {
+    expect(withFourEyes(value).kind).toBe('ok');
+  });
+
+  test("an override for a tool the agent doesn't have is refused: the real one would have no four eyes", () => {
+    const r = withFourEyes({ overrides: { citations_verify: true } });
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') {
+      expect(r.error.issues).toContainEqual({
+        path: '/conversationPolicy/hitl/separateApprover/overrides/citations_verify',
+        message:
+          "hitl.separateApprover names citations_verify, which isn't one of this agent's tools",
+      });
+    }
+  });
+
+  test.each([
+    ['a string', 'yes', '/conversationPolicy/hitl/separateApprover'],
+    ['a list', ['acme.pay'], '/conversationPolicy/hitl/separateApprover'],
+    [
+      'a default that is not a boolean',
+      { default: 'on' },
+      '/conversationPolicy/hitl/separateApprover/default',
+    ],
+    [
+      'overrides that are not a map',
+      { overrides: ['acme.pay'] },
+      '/conversationPolicy/hitl/separateApprover/overrides',
+    ],
+    [
+      'an override that is not a boolean',
+      { overrides: { 'acme.pay': 'always' } },
+      '/conversationPolicy/hitl/separateApprover/overrides/acme.pay',
+    ],
+    [
+      'an unknown key',
+      { tools: { 'acme.pay': true } },
+      '/conversationPolicy/hitl/separateApprover/tools',
+    ],
+  ])('%s is refused, at its path', (_what, value, path) => {
+    const r = withFourEyes(value);
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') expect(r.error.issues.map((i) => i.path)).toContain(path);
   });
 });

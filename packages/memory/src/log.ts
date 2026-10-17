@@ -48,4 +48,18 @@ export interface LogEntry {
   readonly prevHash: string;
   readonly entryHash: string;
   readonly causedByLogId?: string;
+  /**
+   * How `entryHash` was computed. `2`: over the payload's hash
+   * (`contentHash`), so a payload cleared by an erasure still verifies.
+   * `1` (entries from before): over the payload itself. Absent: 1.
+   */
+  readonly hashVersion?: 1 | 2;
+  /** When an erasure cleared `payload` (its `contentHash` stays). */
+  readonly payloadErasedAt?: Timestamp;
+  /**
+   * The salt of a v2 entry's `contentHash`: the hash is over the payload
+   * and this salt, so it can't confirm a guessed payload. An erasure
+   * clears it with the payload.
+   */
+  readonly payloadSalt?: string;
 }

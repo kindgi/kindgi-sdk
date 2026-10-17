@@ -1,10 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { Guardrail, ListPage } from '@kindgi/client';
 import type { GuardrailId } from '@kindgi/types';
 
-import { projectIdFlag, readJsonInput, requiredPositional, runSdk, stringFlag } from './helpers.js';
+import { UsageError } from '../errors.js';
+import {
+  type TableSpec,
+  projectIdFlag,
+  readJsonInput,
+  requiredPositional,
+  runSdk,
+  stringFlag,
+} from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
+
+/** `guardrails list --table`: what each checks and what happens when it fires. */
+const GUARDRAILS_TABLE: TableSpec<ListPage<Guardrail>, Guardrail> = {
+  rows: (page) => page.data,
+  columns: [
+    { header: 'ID', get: (g) => String(g.id) },
+    { header: 'KIND', get: (g) => g.kind },
+    { header: 'CHECK', get: (g) => g.check },
+    { header: 'ACTION', get: (g) => g.action['on-violation'] },
+    { header: 'SEVERITY', get: (g) => g.severity ?? '' },
+  ],
+};
 
 const list: LeafCommand = {
   kind: 'leaf',
@@ -23,20 +44,25 @@ const list: LeafCommand = {
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'guardrails list', async () => {
-      const name = stringFlag(ctx, 'name');
-      const cursor = stringFlag(ctx, 'cursor');
-      const limitStr = stringFlag(ctx, 'limit');
-      const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
-      if (limit !== undefined && Number.isNaN(limit)) {
-        throw new Error(`--limit must be an integer, got "${limitStr}"`);
-      }
-      return await ctx.client().guardrails.list({
-        ...(name !== undefined && { name }),
-        ...(cursor !== undefined && { cursor: cursor as never }),
-        ...(limit !== undefined && { limit }),
-      });
-    }),
+    runSdk(
+      ctx,
+      'guardrails list',
+      async () => {
+        const name = stringFlag(ctx, 'name');
+        const cursor = stringFlag(ctx, 'cursor');
+        const limitStr = stringFlag(ctx, 'limit');
+        const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
+        if (limit !== undefined && Number.isNaN(limit)) {
+          throw new UsageError(`--limit must be an integer, got "${limitStr}"`);
+        }
+        return await ctx.client().guardrails.list({
+          ...(name !== undefined && { name }),
+          ...(cursor !== undefined && { cursor: cursor as never }),
+          ...(limit !== undefined && { limit }),
+        });
+      },
+      GUARDRAILS_TABLE,
+    ),
 };
 
 const get: LeafCommand = {
@@ -71,7 +97,7 @@ const register: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'guardrails register', async () => {
       const specText = stringFlag(ctx, 'spec');
-      if (specText === undefined) throw new Error('--spec=<json-or-@file> is required');
+      if (specText === undefined) throw new UsageError('--spec=<json-or-@file> is required');
       const spec = await readJsonInput(specText);
       const projectId = await projectIdFlag(ctx);
       return await ctx.client().guardrails.author(spec as never, { projectId });

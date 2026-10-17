@@ -9,8 +9,12 @@ import type { Cursor, OrgId, ProjectId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import {
+  type MCPAuthHeader,
+  type MCPAuthScheme,
+  type MCPBasicAuth,
   type MCPClientProbeBinding,
   type MCPEndpoint,
+  type MCPEndpointAuth,
   type MCPEndpointConfig,
   type MCPEndpointRegistryBinding,
   type MCPPromptDescriptor,
@@ -18,11 +22,22 @@ import {
   type MCPResourceContent,
   type MCPResourceDescriptor,
   type MCPTransport,
+  MCP_AUTH_HEADERS_MAX,
+  MCP_AUTH_SCHEMES,
+  MCP_OAUTH_CLIENT_AUTH,
   MCP_TRANSPORTS,
+  REDACTED_HEADER_VALUE,
+  isCredentialHeaderName,
+  mcpEndpointSecretNames,
+  mcpEndpointSecretRefs,
 } from '../mcp-endpoint-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
+import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
+import { type SecretScopeDeps, secretScopesFor } from '../secret-scope.js';
 import { type TenantHostAccess, deniesHostReach, stdioRefusal } from '../tenant-host-access.js';
 import type { AppEnv } from '../types.js';
+import { refused } from './denied.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams, scopeResourceRef } from './scope-params.js';
 import { parseSecretRef } from './secret-ref.js';
@@ -37,17 +52,25 @@ import { parseSecretRef } from './secret-ref.js';
  * secret in the deployment's store, never a plaintext credential. The
  * API surface accepts, stores, and returns only the reference.
  *
- * `hostAccess` (`KINDGI_TENANT_HOST_ACCESS`): under `deployed`, a stdio
- * endpoint — a command the server would run on its own host — is
+ * `hostAccess` (`KINDGI_TENANT_HOST_ACCESS`): under `deployed` and
+ * `isolated`, a stdio endpoint — a command the server would run on its own host — is
  * refused with `403 host-access-denied`.
  */
 export function mcpRouter(
   binding: MCPEndpointRegistryBinding,
   clientProbe: MCPClientProbeBinding | undefined,
   authorizer: Authorizer | undefined,
-  options: { readonly hostAccess: TenantHostAccess },
+  options: {
+    readonly hostAccess: TenantHostAccess;
+    readonly providerKeys?: ProviderKeys;
+    /** Where each secret an endpoint names is read is recorded at registration (`secret-scope.ts`). */
+    readonly secrets?: SecretScopeDeps['secrets'];
+    readonly projects?: SecretScopeDeps['projects'];
+  },
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // Every schema a publish compiles counts against its tenant's budget.
+  const publishCompiles = publishCompilesMiddleware();
 
   // Authorization PEP — config-shaped resource. `mcp_endpoint` has
   // `admin from scope`, so cascade fires when scope tuple exists.
@@ -133,8 +156,15 @@ export function mcpRouter(
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
     });
+    // Only what the caller may read (T243 A), as `GET …/:id` asks.
+    const visible =
+      authorizer === undefined
+        ? page.data
+        : await authorizer.filterByCan(c, 'read', page.data, (a) =>
+            ref('mcp_endpoint', a.endpointId as unknown as string),
+          );
     return c.json({
-      data: page.data.map(serializeEndpoint),
+      data: visible.map(serializeEndpoint),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -164,7 +194,7 @@ export function mcpRouter(
   });
 
   // ---------- POST /endpoints (register) ----------
-  r.post('/endpoints', async (c) => {
+  r.post('/endpoints', publishCompiles, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
 
@@ -199,14 +229,28 @@ export function mcpRouter(
       );
     }
 
+    // A model provider's key is never an MCP endpoint's.
+    const refusal = await refuseProviderKeys(
+      options.providerKeys,
+      tenantId,
+      mcpEndpointSecretNames(validation.value),
+      'an MCP endpoint',
+    );
+    if (refusal !== undefined) {
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, requestId));
+    }
+
     if (validation.value.transport === 'stdio' && deniesHostReach(options.hostAccess, 'exec')) {
-      c.status(statusFor('host-access-denied') as never);
-      return c.json(
-        toWireError(
-          { code: 'host-access-denied', message: stdioRefusal(validation.value.endpointId) },
-          requestId,
-        ),
-      );
+      // The deployment rules it out: recorded, as every refusal the API
+      // decides itself is.
+      return refused(c, authorizer, {
+        action: 'admin',
+        resource: ref('mcp_endpoint', validation.value.endpointId),
+        message: stdioRefusal(validation.value.endpointId, options.hostAccess),
+        failing: 'scope',
+        code: 'host-access-denied',
+      });
     }
 
     // Policy/config: register requires an explicit scope. Wire
@@ -221,9 +265,18 @@ export function mcpRouter(
     }
 
     const registerScope = scopeParsed.scope;
+    // Where each secret it names is read: decided now, as its registrant
+    // may read them, and kept with it (`secret-scope.ts`).
+    const secretScopes = await secretScopesFor(
+      c,
+      { secrets: options.secrets, projects: options.projects, authorizer },
+      registerScope,
+      mcpEndpointSecretRefs(validation.value),
+    );
     const outcome = await binding.register({
       tenantId,
-      endpoint: validation.value,
+      endpoint:
+        secretScopes === undefined ? validation.value : { ...validation.value, secretScopes },
       scope: registerScope,
       enqueueTuples: (endpointId) =>
         tuplesForCreate({
@@ -620,10 +673,33 @@ function serializeEndpoint(e: MCPEndpoint): Record<string, unknown> {
     endpointId: e.endpointId,
     name: e.name,
     transport: e.transport,
-    config: e.config,
+    config: redactedConfig(e.config),
     ...(e.secretRef !== undefined && { secretRef: e.secretRef }),
+    ...(e.auth !== undefined && { auth: e.auth }),
     ...(e.instructions !== undefined && { instructions: e.instructions }),
     ...(e.metadata !== undefined && { metadata: e.metadata }),
+    ...(e.sendTraceparent !== undefined && { sendTraceparent: e.sendTraceparent }),
+  };
+}
+
+/**
+ * The config as answered: a credential header's value reads `[redacted]`, its
+ * name kept, so an operator sees what to move to `auth` and nobody reads the
+ * value back. Registration refuses such a header now; an endpoint registered
+ * before keeps it, and keeps working.
+ */
+function redactedConfig(config: MCPEndpointConfig): MCPEndpointConfig {
+  if (config.transport === 'stdio' || config.headers === undefined) return config;
+  const entries = Object.entries(config.headers);
+  if (!entries.some(([name]) => isCredentialHeaderName(name))) return config;
+  return {
+    ...config,
+    headers: Object.fromEntries(
+      entries.map(([name, value]) => [
+        name,
+        isCredentialHeaderName(name) ? REDACTED_HEADER_VALUE : value,
+      ]),
+    ),
   };
 }
 
@@ -634,8 +710,10 @@ const REGISTER_BODY_FIELDS = new Set([
   'transport',
   'config',
   'secretRef',
+  'auth',
   'instructions',
   'metadata',
+  'sendTraceparent',
   'scopeKind',
   'scopeId',
 ]);
@@ -662,6 +740,18 @@ function validateMCPEndpoint(
     return {
       kind: 'err',
       error: { message: 'endpointId required (non-empty string)', reason: 'empty-endpoint-id' },
+    };
+  }
+  // A tool's id is `<endpointId>.<tool name>`: with a `.` here, two
+  // endpoints' tools could share one id. An endpoint registered with one
+  // before keeps it.
+  if (b.endpointId.includes('.')) {
+    return {
+      kind: 'err',
+      error: {
+        message: `endpointId "${b.endpointId}" contains ".": an MCP tool's id is "<endpointId>.<tool name>", so an endpoint id can't. Use "-" or "_" instead.`,
+        reason: 'dot-in-endpoint-id',
+      },
     };
   }
   if (typeof b.name !== 'string' || b.name.length === 0) {
@@ -718,6 +808,14 @@ function validateMCPEndpoint(
       },
     };
   }
+  const authResult =
+    b.auth === undefined
+      ? undefined
+      : checkedAuth(b.endpointId, b.transport as MCPTransport, b, configResult.value);
+  if (authResult?.kind === 'err') return authResult;
+  const auth = authResult?.value;
+  const credential = credentialInHeaders(b.endpointId, configResult.value);
+  if (credential !== undefined) return { kind: 'err', error: credential };
   if (b.instructions !== undefined && typeof b.instructions !== 'string') {
     return {
       kind: 'err',
@@ -736,6 +834,24 @@ function validateMCPEndpoint(
       },
     };
   }
+  if (b.sendTraceparent !== undefined && typeof b.sendTraceparent !== 'boolean') {
+    return {
+      kind: 'err',
+      error: {
+        message: `endpoint "${b.endpointId}" sendTraceparent must be true or false`,
+        reason: 'invalid-send-traceparent',
+      },
+    };
+  }
+  if (b.sendTraceparent === true && b.transport === 'stdio') {
+    return {
+      kind: 'err',
+      error: {
+        message: `endpoint "${b.endpointId}" sendTraceparent needs an HTTP transport: a stdio server gets no headers`,
+        reason: 'invalid-send-traceparent',
+      },
+    };
+  }
 
   const value: MCPEndpoint = {
     endpointId: b.endpointId,
@@ -743,12 +859,303 @@ function validateMCPEndpoint(
     transport: b.transport as MCPTransport,
     config: configResult.value,
     ...(secretRef !== undefined && { secretRef: secretRef.value }),
+    ...(auth !== undefined && { auth }),
     ...(b.instructions !== undefined && { instructions: b.instructions as string }),
     ...(b.metadata !== undefined && {
       metadata: b.metadata as Readonly<Record<string, unknown>>,
     }),
+    ...(b.sendTraceparent !== undefined && { sendTraceparent: b.sendTraceparent }),
   };
   return { kind: 'ok', value };
+}
+
+/** `auth`, parsed and checked against the rest of the endpoint. */
+function checkedAuth(
+  endpointId: string,
+  transport: MCPTransport,
+  b: Record<string, unknown>,
+  config: MCPEndpointConfig,
+): AuthParse {
+  const refusal = authConflict(endpointId, transport, b.secretRef);
+  if (refusal !== undefined) return { kind: 'err', error: refusal };
+  const parsed = parseAuth(endpointId, b.auth);
+  if (parsed.kind === 'err') return parsed;
+  const twice = authHeaderInConfig(endpointId, parsed.value, config);
+  if (twice !== undefined) return { kind: 'err', error: twice };
+  return parsed;
+}
+
+/** What `auth` can't be set with: `secretRef` (the bearer form), a stdio transport. */
+function authConflict(
+  endpointId: string,
+  transport: MCPTransport,
+  secretRef: unknown,
+): { readonly message: string; readonly reason: string } | undefined {
+  if (secretRef !== undefined) {
+    return {
+      message: `endpoint "${endpointId}" sets both secretRef and auth: secretRef is the bearer form, auth the others. Set one.`,
+      reason: 'auth-with-secret-ref',
+    };
+  }
+  if (transport === 'stdio') {
+    return {
+      message: `endpoint "${endpointId}" auth needs an HTTP transport: a stdio server gets no headers`,
+      reason: 'auth-on-stdio',
+    };
+  }
+  return undefined;
+}
+
+/** A header `auth` sends that `config.headers` sets too: `auth`'s wins, so the other is refused. */
+function authHeaderInConfig(
+  endpointId: string,
+  auth: MCPEndpointAuth,
+  config: MCPEndpointConfig,
+): { readonly message: string; readonly reason: string } | undefined {
+  const headers = config.transport === 'stdio' ? undefined : config.headers;
+  const sent = new Set(
+    auth.scheme === 'header' ? auth.headers.map((h) => h.name.toLowerCase()) : ['authorization'],
+  );
+  const twice = Object.keys(headers ?? {}).find((name) => sent.has(name.toLowerCase()));
+  if (twice === undefined) return undefined;
+  return auth.scheme === 'header'
+    ? {
+        message: `endpoint "${endpointId}" sets the header "${twice}" in both auth.headers and config.headers: auth sends it. Drop it from config.headers.`,
+        reason: 'auth-header-in-config',
+      }
+    : {
+        message: `endpoint "${endpointId}" sets auth and an Authorization header in config.headers: auth sends that header. Drop the header.`,
+        reason: 'auth-with-authorization-header',
+      };
+}
+
+/**
+ * A credential in `config.headers` (`isCredentialHeaderName`), refused: it'd
+ * be stored as given and could follow a redirect to another host. The message
+ * names each header, never its value.
+ */
+function credentialInHeaders(
+  endpointId: string,
+  config: MCPEndpointConfig,
+): { readonly message: string; readonly reason: string } | undefined {
+  const headers = config.transport === 'stdio' ? undefined : config.headers;
+  const names = Object.keys(headers ?? {}).filter(isCredentialHeaderName);
+  if (names.length === 0) return undefined;
+  const listed = names.map((name) => `"${name}"`).join(', ');
+  const byReference = names
+    .map((name) => `{ name: "${name}", secretRef: { envName, name } }`)
+    .join(', ');
+  const bearer = names.some((name) => name.toLowerCase() === 'authorization')
+    ? ' For `Authorization: Bearer <token>`, secretRef sends it.'
+    : '';
+  return {
+    message: `endpoint "${endpointId}" puts a credential in config.headers (${listed}), where it's stored and shown as given. Store each value as a secret and send it by reference: auth: { scheme: "header", headers: [${byReference}] }.${bearer}`,
+    reason: 'credential-in-headers',
+  };
+}
+
+/** Each scheme's fields. */
+const AUTH_FIELDS: Readonly<Record<MCPAuthScheme, ReadonlySet<string>>> = {
+  basic: new Set(['scheme', 'username', 'secretRef']),
+  'oauth2-client-credentials': new Set([
+    'scheme',
+    'tokenUrl',
+    'clientId',
+    'secretRef',
+    'scope',
+    'audience',
+    'clientAuth',
+  ]),
+  header: new Set(['scheme', 'headers']),
+};
+const AUTH_HEADER_FIELDS = new Set(['name', 'secretRef', 'prefix']);
+/** An HTTP field name: an RFC 9110 token. */
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+/** Headers the MCP transport or HTTP itself sets, which `auth` can't. */
+const TRANSPORT_HEADERS = new Set([
+  'host',
+  'content-length',
+  'content-type',
+  'accept',
+  'connection',
+  'keep-alive',
+  'transfer-encoding',
+  'te',
+  'upgrade',
+  'trailer',
+  'expect',
+  'last-event-id',
+  'mcp-session-id',
+  'mcp-protocol-version',
+  'traceparent',
+  'tracestate',
+]);
+/** The hosts a token URL may reach over plain http: this machine's own. */
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** Whether `value` is a string of 1 to `max` characters. */
+function boundedString(value: unknown, max: number): boolean {
+  return typeof value === 'string' && value.length > 0 && value.length <= max;
+}
+
+function parsedUrl(raw: string): URL | null {
+  try {
+    return new URL(raw);
+  } catch {
+    return null;
+  }
+}
+
+type AuthErr = { kind: 'err'; error: { message: string; reason: string } };
+type AuthParse = { kind: 'ok'; value: MCPEndpointAuth } | AuthErr;
+type AuthRefusal = (message: string, reason?: string) => AuthErr;
+
+/** `auth`, checked: a known scheme with its fields, the secret by reference. */
+function parseAuth(endpointId: string, raw: unknown): AuthParse {
+  const bad: AuthRefusal = (message, reason = 'invalid-auth') => ({
+    kind: 'err',
+    error: { message: `endpoint "${endpointId}" ${message}`, reason },
+  });
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return bad('auth must be an object with a `scheme`');
+  }
+  const a = raw as Record<string, unknown>;
+  if (!(MCP_AUTH_SCHEMES as readonly unknown[]).includes(a.scheme)) {
+    return bad(`auth.scheme must be one of ${MCP_AUTH_SCHEMES.join(' / ')}`);
+  }
+  const scheme = a.scheme as MCPAuthScheme;
+  const unknown = Object.keys(a).find((key) => !AUTH_FIELDS[scheme].has(key));
+  if (unknown !== undefined) {
+    return bad(`auth: unknown field \`auth.${unknown}\` for scheme ${scheme}`);
+  }
+  if (scheme === 'header') return parseHeaderAuth(a.headers, bad);
+  const secretRef = parseSecretRef(a.secretRef, 'auth.secretRef');
+  if (secretRef.kind === 'err') return bad(`auth: ${secretRef.message}`, 'invalid-secret-ref');
+  return a.scheme === 'basic'
+    ? parseBasicAuth(a, secretRef.value, bad)
+    : parseOAuth2Auth(a, secretRef.value, bad);
+}
+
+/** `auth.headers`: 1 to `MCP_AUTH_HEADERS_MAX` headers, each named once. */
+function parseHeaderAuth(raw: unknown, bad: AuthRefusal): AuthParse {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MCP_AUTH_HEADERS_MAX) {
+    return bad(`auth.headers must be a list of 1 to ${MCP_AUTH_HEADERS_MAX} headers`);
+  }
+  const headers: MCPAuthHeader[] = [];
+  const seen = new Set<string>();
+  for (const [i, item] of raw.entries()) {
+    const header = parseAuthHeader(item, `auth.headers[${i}]`, bad);
+    if (header.kind === 'err') return header;
+    const key = header.value.name.toLowerCase();
+    if (seen.has(key)) {
+      return bad(`auth.headers names "${header.value.name}" twice: each header once`);
+    }
+    seen.add(key);
+    headers.push(header.value);
+  }
+  return { kind: 'ok', value: { scheme: 'header', headers } };
+}
+
+/** One of `auth.headers`: a header name the transport doesn't own, its secret, a prefix. */
+function parseAuthHeader(
+  raw: unknown,
+  at: string,
+  bad: AuthRefusal,
+): { kind: 'ok'; value: MCPAuthHeader } | AuthErr {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return bad(`${at} must be an object \`{ name, secretRef, prefix? }\``);
+  }
+  const h = raw as Record<string, unknown>;
+  const unknown = Object.keys(h).find((key) => !AUTH_HEADER_FIELDS.has(key));
+  if (unknown !== undefined) return bad(`auth: unknown field \`${at}.${unknown}\``);
+  if (!boundedString(h.name, 256) || !HEADER_NAME.test(h.name as string)) {
+    return bad(`${at}.name must be an HTTP header name of 1 to 256 characters`);
+  }
+  const name = h.name as string;
+  if (TRANSPORT_HEADERS.has(name.toLowerCase())) {
+    return bad(`${at}.name "${name}" is a header the MCP transport sets itself`);
+  }
+  if (h.prefix !== undefined && !(boundedString(h.prefix, 64) && printable(h.prefix as string))) {
+    return bad(`${at}.prefix must be 1 to 64 characters, without control characters`);
+  }
+  const secretRef = parseSecretRef(h.secretRef, `${at}.secretRef`);
+  if (secretRef.kind === 'err') return bad(`auth: ${secretRef.message}`, 'invalid-secret-ref');
+  return {
+    kind: 'ok',
+    value: {
+      name,
+      secretRef: secretRef.value,
+      ...(h.prefix !== undefined && { prefix: h.prefix as string }),
+    },
+  };
+}
+
+/** Whether `text` has no control characters, which a header value can't carry. */
+function printable(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) return false;
+  }
+  return true;
+}
+
+function parseBasicAuth(
+  a: Record<string, unknown>,
+  secretRef: MCPBasicAuth['secretRef'],
+  bad: AuthRefusal,
+): AuthParse {
+  if (!boundedString(a.username, 256) || (a.username as string).includes(':')) {
+    return bad('auth.username must be 1 to 256 characters, without `:`');
+  }
+  return { kind: 'ok', value: { scheme: 'basic', username: a.username as string, secretRef } };
+}
+
+/** Whether a token URL may carry a client secret: https, or http to this machine; no credentials or fragment. */
+function tokenUrlAllowed(raw: unknown): boolean {
+  const url = boundedString(raw, 2048) ? parsedUrl(raw as string) : null;
+  if (url === null || url.username !== '' || url.password !== '' || url.hash !== '') return false;
+  return (
+    url.protocol === 'https:' || (url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname))
+  );
+}
+
+function parseOAuth2Auth(
+  a: Record<string, unknown>,
+  secretRef: MCPBasicAuth['secretRef'],
+  bad: AuthRefusal,
+): AuthParse {
+  if (!tokenUrlAllowed(a.tokenUrl)) {
+    return bad(
+      'auth.tokenUrl must be an https URL (or http to localhost, 127.0.0.1 or [::1]), without credentials or a fragment',
+      'invalid-token-url',
+    );
+  }
+  if (!boundedString(a.clientId, 512)) return bad('auth.clientId must be 1 to 512 characters');
+  for (const field of ['scope', 'audience'] as const) {
+    if (a[field] !== undefined && !boundedString(a[field], 1024)) {
+      return bad(`auth.${field} must be 1 to 1024 characters`);
+    }
+  }
+  if (
+    a.clientAuth !== undefined &&
+    !(MCP_OAUTH_CLIENT_AUTH as readonly unknown[]).includes(a.clientAuth)
+  ) {
+    return bad(`auth.clientAuth must be one of ${MCP_OAUTH_CLIENT_AUTH.join(' / ')}`);
+  }
+  return {
+    kind: 'ok',
+    value: {
+      scheme: 'oauth2-client-credentials',
+      tokenUrl: a.tokenUrl as string,
+      clientId: a.clientId as string,
+      secretRef,
+      ...(a.scope !== undefined && { scope: a.scope as string }),
+      ...(a.audience !== undefined && { audience: a.audience as string }),
+      ...(a.clientAuth !== undefined && {
+        clientAuth: a.clientAuth as (typeof MCP_OAUTH_CLIENT_AUTH)[number],
+      }),
+    },
+  };
 }
 
 function validateConfig(

@@ -25,6 +25,7 @@ export type TurnEvent =
   | ToolFailedEvent
   | AgentMessageEvent
   | GuardrailViolatedEvent
+  | GuardrailErrorEvent
   | TurnCompletedEvent
   | TurnFailedEvent;
 
@@ -115,6 +116,22 @@ export interface GuardrailViolatedEvent {
   readonly severity: EvaluationResult['severity'];
   readonly guardrailId: string;
   readonly reason?: string;
+}
+
+/**
+ * A guardrail whose check couldn't run: no such check, a bad configuration, a judge that couldn't
+ * be routed. A `halt` guardrail's error also fails the turn (it fails closed, as a
+ * `guardrail-violation` with `evaluationErrors`); with any other action the turn goes on.
+ */
+export interface GuardrailErrorEvent {
+  readonly kind: 'guardrail.error';
+  readonly guardrailId: string;
+  /** The guardrail's action and severity; absent when the guardrail itself isn't known. */
+  readonly action?: EvaluationResult['action'];
+  readonly severity?: EvaluationResult['severity'];
+  /** Why it couldn't run: the engine's error code (`unknown-check`, `invalid-check-config`, …). */
+  readonly code: string;
+  readonly message: string;
 }
 
 export interface TurnCompletedEvent {

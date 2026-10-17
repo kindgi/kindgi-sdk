@@ -10,28 +10,25 @@
  * Ajv's class for it, not 2020-12's with another meta-schema added.
  *
  * `strict` is Ajv's strict mode, an authoring lint (unknown keywords and
- * formats, loose tuples, union types): right for the schemas a pack's
- * author writes, wrong for a schema someone else's server sends, which is
- * valid JSON Schema without being written to that standard.
+ * formats, loose tuples): right for the schemas a pack's author writes,
+ * wrong for a schema someone else's server sends, which is valid JSON Schema
+ * without being written to that standard. A union of types
+ * (`type: ['string', 'number']`) is standard JSON Schema, and what Zod 4
+ * writes for a union of scalars, so it's allowed in either mode
+ * (`ALLOW_UNION_TYPES`).
  */
 
-import { createRequire } from 'node:module';
-
-import { Ajv } from 'ajv';
 import type { ValidateFunction } from 'ajv';
-import * as addFormatsModule from 'ajv-formats';
-import { Ajv2019 } from 'ajv/dist/2019.js';
-import { Ajv2020 } from 'ajv/dist/2020.js';
 
-type AnyAjv = Ajv | Ajv2019 | Ajv2020;
-type AddFormatsFn = (ajv: AnyAjv, opts?: unknown) => unknown;
-const addFormatsRaw = addFormatsModule as unknown;
-const addFormats: AddFormatsFn =
-  typeof addFormatsRaw === 'function'
-    ? (addFormatsRaw as AddFormatsFn)
-    : (addFormatsRaw as { default: AddFormatsFn }).default;
+import { type TenantSchemaCompile, compileTenantSchema, holdTenantSchema } from './bounded.js';
 
-const require = createRequire(import.meta.url);
+/**
+ * Every Kindgi schema compiler takes a union of types (`type: ['string', 'number']`): standard
+ * JSON Schema, which Ajv's strict mode otherwise refuses, and what Zod 4 writes for
+ * `z.union([z.string(), z.number()])`. The pack services' validators agree (Python's
+ * `jsonschema`, Java's `SchemaValidator`).
+ */
+export const ALLOW_UNION_TYPES = true;
 
 /** The JSON Schema dialects a schema may declare. */
 export type JsonSchemaDialect = 'draft-06' | 'draft-07' | '2019-09' | '2020-12';
@@ -85,30 +82,43 @@ export interface CompileJsonSchemaOptions {
 }
 
 /**
- * A validator for `schema`, compiled in its declared dialect. Throws when
- * the dialect isn't supported (or allowed) or the schema doesn't compile,
- * as `ajv.compile` does.
+ * A validator for `schema`, compiled in its declared dialect under the
+ * process's bounds (`compileTenantSchema`). Throws when the dialect isn't
+ * supported (or allowed), the schema is over a bound, or it doesn't
+ * compile, as `ajv.compile` does.
  */
 export function compileJsonSchema(
   schema: Readonly<Record<string, unknown>>,
   options: CompileJsonSchemaOptions = {},
 ): ValidateFunction {
-  const dialect = jsonSchemaDialect(schema, options.dialects);
-  const ajvOptions = {
-    strict: options.strict ?? true,
-    allErrors: true,
-    allowUnionTypes: false,
-    ...(options.useDefaults === true && { useDefaults: true }),
+  return compileTenantSchema(schema, compileFor(schema, options));
+}
+
+/**
+ * `compileJsonSchema` for a caller that keeps the schema: compiled now,
+ * and what to call for its validator each time (`holdTenantSchema`). The
+ * cache stays all that holds a JSON schema's validator. A schema JSON
+ * can't carry (a key whose value is `undefined`, say) is never cached, so
+ * it's held as compiled rather than compiled on every call.
+ */
+export function holdJsonSchema(
+  schema: Readonly<Record<string, unknown>>,
+  options: CompileJsonSchemaOptions = {},
+): () => ValidateFunction {
+  return holdTenantSchema(schema, compileFor(schema, options));
+}
+
+function compileFor(
+  schema: Readonly<Record<string, unknown>>,
+  options: CompileJsonSchemaOptions,
+): TenantSchemaCompile {
+  return {
+    dialect: jsonSchemaDialect(schema, options.dialects),
+    options: {
+      strict: options.strict ?? true,
+      allErrors: true,
+      allowUnionTypes: ALLOW_UNION_TYPES,
+      ...(options.useDefaults === true && { useDefaults: true }),
+    },
   };
-  let ajv: AnyAjv;
-  if (dialect === '2020-12') ajv = new Ajv2020(ajvOptions);
-  else if (dialect === '2019-09') ajv = new Ajv2019(ajvOptions);
-  else {
-    ajv = new Ajv(ajvOptions);
-    if (dialect === 'draft-06') {
-      ajv.addMetaSchema(require('ajv/dist/refs/json-schema-draft-06.json'));
-    }
-  }
-  addFormats(ajv);
-  return ajv.compile(schema as object);
 }

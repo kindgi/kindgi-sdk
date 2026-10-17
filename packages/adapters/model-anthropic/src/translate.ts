@@ -17,12 +17,14 @@ import type {
  * dots are forbidden), so this adapter transparently encodes tool
  * names on the way out and decodes them on the way in.
  *
- * Encoding is a simple `.` → `__` substitution. Reversible as long
- * as authors don't put literal `__` in their tool ids — which the
- * framework's kebab-case convention already discourages. The
- * substitution is contained to the wire boundary; the message trail,
- * runtime registry, and provenance records all continue to see the
- * canonical `<pack>.<tool>` form.
+ * Encoding is a simple `.` → `__` substitution. It isn't undone by
+ * substitution: a tool id can hold `__` itself (an MCP server names its
+ * tools as it likes), so the provider looks each call's name up among the
+ * request's own tools (`toolIdsBySentName`), and `decodeToolName` is only
+ * the fallback for a name the request didn't send. The substitution is
+ * contained to the wire boundary; the message trail, runtime registry,
+ * and provenance records all continue to see the canonical
+ * `<pack>.<tool>` form.
  */
 export function encodeToolName(name: string): string {
   return name.replace(/\./g, '__');
@@ -47,9 +49,14 @@ export function decodeToolName(name: string): string {
  *     merge into a single user message (matching the framework's
  *     dispatch-tools handler which appends one tool message per call
  *     after an assistant `tool_use` turn).
+ *
+ * `systemParts` keeps the system messages apart, in order, so each can be
+ * its own block: the first (the agent's prompt) is the stable one a cache
+ * breakpoint goes on (`withPromptCache`).
  */
 export function toAnthropicMessages(messages: readonly ModelMessage[]): {
   readonly system: string | undefined;
+  readonly systemParts: readonly string[];
   readonly messages: readonly Anthropic.MessageParam[];
 } {
   const systemParts: string[] = [];
@@ -100,6 +107,7 @@ export function toAnthropicMessages(messages: readonly ModelMessage[]): {
 
   return {
     system: systemParts.length > 0 ? systemParts.join('\n\n') : undefined,
+    systemParts,
     messages: out,
   };
 }
@@ -142,7 +150,10 @@ export function toAnthropicTools(tools: readonly ModelToolDefinition[]): readonl
  * blocks become `toolCalls`. Thinking blocks are ignored (the
  * framework has no thinking field on `ModelMessage`).
  */
-export function fromAnthropicResponse(response: Anthropic.Message): ModelMessage {
+export function fromAnthropicResponse(
+  response: Anthropic.Message,
+  toolIdOf: (name: string) => string = decodeToolName,
+): ModelMessage {
   const textParts: string[] = [];
   const toolCalls: ModelToolCall[] = [];
 
@@ -152,9 +163,9 @@ export function fromAnthropicResponse(response: Anthropic.Message): ModelMessage
     } else if (block.type === 'tool_use') {
       toolCalls.push({
         id: block.id,
-        // Decode: Anthropic returns the encoded name (`weather__forecast`);
-        // the rest of the framework expects the canonical dotted form.
-        name: decodeToolName(block.name),
+        // Anthropic returns the name it was sent (`weather__forecast`);
+        // the rest of the framework expects the tool's id.
+        name: toolIdOf(block.name),
         arguments: (block.input ?? {}) as Readonly<Record<string, unknown>>,
       });
     }

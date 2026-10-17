@@ -5,9 +5,8 @@ import {
   type Agent,
   type AgentId,
   type AgentPins,
-  MODEL_SETTINGS_SCHEMA,
+  modelSettingsIssues,
   pinsDigest,
-  settingsSchemaIssues,
 } from '@kindgi/agents';
 import type { TupleEnqueueHook } from '@kindgi/authz';
 import { latestVersion, nextVersion } from '@kindgi/tools';
@@ -36,6 +35,8 @@ export interface DeriveAgentVersionInput {
   readonly label?: string;
   /** Who derived it (`user:<id>`). */
   readonly by?: string;
+  /** The improvement proposal it's derived for, recorded in `derivedFrom`. */
+  readonly proposalId?: string;
   /** The project, when the store doesn't record one on the version. */
   readonly projectId?: ProjectId;
   /** The authorization tuples for the new version, in the project it lands in. */
@@ -48,14 +49,17 @@ export interface SwapIssue {
 }
 
 export type DeriveAgentVersionOutcome =
-  | { readonly kind: 'ok'; readonly agent: Agent }
+  /** The new version, in the project it was published to. */
+  | { readonly kind: 'ok'; readonly agent: AgentVersionRecord }
   /** An active version already has this definition and these pins: that one, unchanged. */
-  | { readonly kind: 'reused'; readonly agent: Agent }
+  | { readonly kind: 'reused'; readonly agent: AgentVersionRecord }
   | { readonly kind: 'not-found' }
   | { readonly kind: 'unpinned' }
   | { readonly kind: 'invalid'; readonly issues: readonly SwapIssue[] }
   | { readonly kind: 'no-project' }
-  | { readonly kind: 'project-not-found'; readonly projectId: ProjectId };
+  | { readonly kind: 'project-not-found'; readonly projectId: ProjectId }
+  /** The agent belongs to another project than the one given (`projectId`): nothing is written. */
+  | { readonly kind: 'project-mismatch'; readonly projectId: ProjectId };
 
 /** How many numbers after the highest a derive tries before it gives up. */
 const MAX_TRIES = 100;
@@ -108,6 +112,7 @@ export async function deriveAgentVersion(
       reason: 'edited',
       ...(input.label !== undefined && { label: input.label }),
       ...(input.by !== undefined && { by: input.by }),
+      ...(input.proposalId !== undefined && { proposalId: input.proposalId }),
     },
   });
 }
@@ -137,8 +142,11 @@ async function publishNextFree(
       agent,
       enqueueTuples: input.tuplesFor(projectId),
     });
-    if (outcome.kind === 'ok') return { kind: 'ok', agent };
+    if (outcome.kind === 'ok') return { kind: 'ok', agent: { ...agent, projectId } };
     if (outcome.kind === 'project-not-found') return { kind: 'project-not-found', projectId };
+    if (outcome.kind === 'project-mismatch') {
+      return { kind: 'project-mismatch', projectId: outcome.projectId };
+    }
     candidate = nextVersion(candidate);
   }
   throw new Error(`agent "${agentId as unknown as string}": no free version after ${highest}`);
@@ -187,7 +195,7 @@ async function blockProblem(
   const wanted = kind === 'prompts' ? 'prompt' : 'settings';
   if (block.kind !== wanted) return `${what} is a ${block.kind} block, not ${wanted}`;
   if (block.kind === 'settings' && from.modelSettings?.id === id) {
-    const issues = settingsSchemaIssues(block.content.values, MODEL_SETTINGS_SCHEMA);
+    const issues = modelSettingsIssues(block.content.values);
     if (issues.length > 0) {
       return `${what} isn't model settings: ${issues.map((i) => `${i.path} ${i.message}`).join('; ')}`;
     }

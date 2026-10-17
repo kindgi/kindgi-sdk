@@ -2,7 +2,15 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { Scope } from '@kindgi/platform';
-import type { ArtifactId, Cursor, Result, RunId, TenantId, Timestamp } from '@kindgi/types';
+import type {
+  ArtifactId,
+  Cursor,
+  ProjectId,
+  Result,
+  RunId,
+  TenantId,
+  Timestamp,
+} from '@kindgi/types';
 
 /**
  * Caller-plugged surface for artifact (blob) storage. Same pattern as
@@ -246,6 +254,16 @@ export interface BlobPutInput {
   /** Optional back-ref to the run that produced this blob. Filter target on `list`. */
   readonly ownerRunId?: RunId;
   /**
+   * The project the blob belongs to, which decides who may read and
+   * delete it. The API resolves it before calling `put`: the owner run's
+   * project, else the upload's `projectId`, the caller key's project, or
+   * the tenant's default project. Bindings store it and return it on
+   * `BlobMeta`.
+   */
+  readonly projectId?: ProjectId;
+  /** Who uploaded it: `user:<id>` or `service_account:<id>`. */
+  readonly createdBy?: string;
+  /**
    * Caller-computed hash for dedup + integrity. `sha256`, hex-encoded,
    * lowercase. When set, bindings MUST reject on mismatch with
    * `blob-hash-mismatch`; when omitted, the binding computes and returns
@@ -264,6 +282,10 @@ export interface BlobMeta {
   readonly hash: string;
   readonly tags: Readonly<Record<string, string>>;
   readonly ownerRunId?: RunId;
+  /** The project it belongs to. Absent on blobs stored before projects were recorded. */
+  readonly projectId?: ProjectId;
+  /** Who uploaded it: `user:<id>` or `service_account:<id>`. */
+  readonly createdBy?: string;
   readonly createdAt: Timestamp;
   /**
    * S3-compat address. Every persisted blob carries a `(bucket, key)`

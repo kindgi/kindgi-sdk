@@ -146,6 +146,12 @@ export type PromotionErrorCode =
    * its own pin; this guards scopes gated before that rule.)
    */
   | 'gate-policy-descendant-unpinned'
+  /**
+   * Promote: the gate wants an approval, and the tenant's approvals waiting
+   * for a decision are at its limit (the runtime's operator sets it).
+   * Nothing is recorded.
+   */
+  | 'approvals-pending-limit'
   | 'persistence-error';
 
 export interface PromotionError {
@@ -257,6 +263,14 @@ export interface PromotionBinding {
     readonly data: readonly Promotion[];
     readonly nextCursor?: Cursor;
   }>;
+  /**
+   * Whether `cursor` is one this binding issued for `list` (`'promotions'`:
+   * a `list` page's `nextCursor`). Optional: without it, the route passes any
+   * cursor to the list, as before. With it, a cursor the binding didn't
+   * issue answers `400 bad-input` before the list is read, so a client
+   * paging until done is never sent back to the first page.
+   */
+  issuedCursor?(list: 'promotions', cursor: Cursor): boolean;
   get(tenantId: TenantId, promotionId: string): Promise<Promotion | null>;
 }
 

@@ -7,7 +7,7 @@ import type { Scope } from '@kindgi/platform';
 import type { EnvName, TenantId } from '@kindgi/types';
 import { makeEnvName } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { EnvBinding, EnvRecord, RunHandlerBinding, TokenResolver } from '../src/index.js';

@@ -3,6 +3,7 @@
 
 import { type KindgiClient, createClient } from '@kindgi/client';
 
+import { ownAddressKeyRefusal } from './api-address.js';
 import type { BuildRunners } from './build/runners.js';
 import type { RegistryAuthSeam } from './commands/auth.js';
 import type { DoctorSeam } from './commands/doctor.js';
@@ -12,9 +13,14 @@ import type { ResolvedConfig } from './config.js';
 import type { DeployRunners } from './deploy/runners.js';
 import type { DevRunners } from './dev/runners.js';
 import type { EnvRunners } from './env/runners.js';
+import type { ExportsSeam } from './exports/create.js';
+import type { FeedbackSeam } from './feedback/run.js';
 import type { KeyRunners } from './key/runners.js';
+import type { LicenseCommandDeps } from './license/renew.js';
+import type { OpenUrl } from './open-url.js';
 import type { PackageManager } from './package-manager.js';
 import type { GlobalFlags, OptionValue } from './parse.js';
+import type { RateLimitWaitSeam } from './rate-limit-wait.js';
 import type { TestRunners } from './test/runners.js';
 
 /**
@@ -36,13 +42,20 @@ export interface CommandContext {
   readonly positionals: readonly string[];
   readonly options: Readonly<Record<string, OptionValue>>;
   readonly config: ResolvedConfig;
-  /** Create an SDK client using the resolved config. Throws if apiUrl / token are missing. */
+  /**
+   * Create an SDK client using the resolved config. Throws if apiUrl / token
+   * are missing, or the token is a stored key that isn't for apiUrl.
+   */
   readonly client: () => KindgiClient;
   /** Create an SDK client bound to arbitrary apiUrl + token (used by `kindgi dev`). */
   readonly clientFor: (apiUrl: string, token: string) => KindgiClient;
   /** Base URL, if resolved — used by non-SDK direct fetch (health, whoami). */
   readonly apiUrl: () => string;
-  /** Bearer token, if resolved — used by non-SDK direct fetch. */
+  /**
+   * Bearer token, if resolved — used by non-SDK direct fetch to `apiUrl()`.
+   * Throws when it's a stored key that isn't for that address
+   * (api-address.ts): before anything is sent.
+   */
   readonly token: () => string;
   /** fetch impl (injectable for tests). */
   readonly fetch: typeof fetch;
@@ -120,6 +133,10 @@ export interface CommandContext {
    * lazy-loads `key/defaults.ts` on dispatch.
    */
   readonly keyRunners: KeyRunners | undefined;
+  /** Injectable seams for `kindgi license renew` (its clock, its fetch): tests only. */
+  readonly licenseDeps?: LicenseCommandDeps;
+  /** Injectable seams for `kindgi feedback` (its clock, the doctor, the platform, the prompt): tests only. */
+  readonly feedbackSeam?: FeedbackSeam;
   /**
    * Injectable value-input seams for `kindgi secrets set` /
    * `rotate`. Tests pass fixtures so the TTY prompt / stdin reader /
@@ -151,6 +168,19 @@ export interface CommandContext {
    * presets. Tests inject them; production leaves this undefined.
    */
   readonly doctorSeam: DoctorSeam | undefined;
+  /**
+   * Opens a URL in the browser (`kindgi console`, `kindgi dev --open`).
+   * Tests inject it; production leaves it undefined (the system's opener).
+   */
+  readonly openUrl: OpenUrl | undefined;
+  /**
+   * The sleep, clock and output the publishing commands wait out the
+   * server's rate limits with (`rate-limit-wait.ts`). Tests inject them;
+   * production leaves this undefined (a timer, the clock, stderr).
+   */
+  readonly rateLimitWaits?: RateLimitWaitSeam;
+  /** `kindgi exports create`'s output, clock and pauses. Tests inject them; production leaves this undefined. */
+  readonly exportsSeam?: ExportsSeam;
 }
 
 export interface InitSeam {
@@ -164,6 +194,8 @@ export interface BuildContextInputs {
   readonly positionals: readonly string[];
   readonly options: Readonly<Record<string, OptionValue>>;
   readonly config: ResolvedConfig;
+  /** The command as typed (`kindgi runs list`), for a refusal to name. Default: `kindgi`. */
+  readonly commandLabel?: string;
   readonly fetchImpl?: typeof fetch;
   readonly clientFactory?: (apiUrl: string, token: string) => KindgiClient;
   readonly home?: string;
@@ -177,11 +209,16 @@ export interface BuildContextInputs {
   readonly testRunners?: TestRunners;
   readonly envRunners?: EnvRunners;
   readonly keyRunners?: KeyRunners;
+  readonly licenseDeps?: LicenseCommandDeps;
+  readonly feedbackSeam?: FeedbackSeam;
   readonly secretsInputSeam?: SecretsValueInputSeam;
   readonly envInitInputSeam?: EnvInitInputSeam;
   readonly registryAuthSeam?: RegistryAuthSeam;
   readonly initSeam?: InitSeam;
   readonly doctorSeam?: DoctorSeam;
+  readonly openUrl?: OpenUrl;
+  readonly rateLimitWaits?: RateLimitWaitSeam;
+  readonly exportsSeam?: ExportsSeam;
 }
 
 export function buildContext(inputs: BuildContextInputs): CommandContext {
@@ -199,6 +236,9 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
         'API token not configured. Set KINDGI_API_TOKEN, pass --token=..., or run `kindgi auth login`.',
       );
     }
+    // A stored key goes only to the address stored with it.
+    const refusal = ownAddressKeyRefusal(inputs.commandLabel ?? 'kindgi', inputs.config);
+    if (refusal !== undefined) throw new Error(refusal);
     return inputs.config.token;
   };
   const factory =
@@ -226,10 +266,15 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     testRunners: inputs.testRunners,
     envRunners: inputs.envRunners,
     keyRunners: inputs.keyRunners,
+    ...(inputs.licenseDeps !== undefined && { licenseDeps: inputs.licenseDeps }),
+    ...(inputs.feedbackSeam !== undefined && { feedbackSeam: inputs.feedbackSeam }),
     secretsInputSeam: inputs.secretsInputSeam,
     envInitInputSeam: inputs.envInitInputSeam,
     registryAuthSeam: inputs.registryAuthSeam,
     initSeam: inputs.initSeam,
     doctorSeam: inputs.doctorSeam,
+    openUrl: inputs.openUrl,
+    ...(inputs.rateLimitWaits !== undefined && { rateLimitWaits: inputs.rateLimitWaits }),
+    ...(inputs.exportsSeam !== undefined && { exportsSeam: inputs.exportsSeam }),
   };
 }

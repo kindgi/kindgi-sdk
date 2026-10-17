@@ -4,14 +4,27 @@
 import { Hono } from 'hono';
 
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
-import { type Guardrail, validateGuardrailSpec } from '@kindgi/guardrails';
+import {
+  type Guardrail,
+  type GuardrailConfigProblem,
+  createCheckRegistry,
+  describeGuardrailConfigProblems,
+  validateGuardrailSpec,
+} from '@kindgi/guardrails';
 import type { Cursor, GuardrailId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
-import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
+import type { GuardrailRecord, GuardrailRegistryBinding } from '../guardrail-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
+import {
+  type ReferenceScopeBinding,
+  outOfScopeResponse,
+  referencesOutOfScope,
+} from '../reference-scope.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { AppEnv } from '../types.js';
+import { guardrailOutcomesHandler } from './guardrail-outcomes.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
 
@@ -28,6 +41,9 @@ import { parseScopeParams } from './scope-params.js';
  * guardrails whose check code is already bundled server-side. Check
  * code is not uploaded over this surface.
  */
+/** The built-in checks, for the config of a guardrail naming one. */
+const builtInChecks = createCheckRegistry();
+
 /**
  * Optional side-effect callback fired after a successful write
  * (register, unregister) to a guardrail. Lets an in-process
@@ -42,12 +58,32 @@ export type GuardrailWriteHook = (params: {
   readonly kind: 'register' | 'unregister';
 }) => void | Promise<void>;
 
+/**
+ * Checks a guardrail being registered against the check it names: every
+ * way its `config` breaks that check's `configSchema` (a pack check's,
+ * from its deployment), via `guardrailConfigProblems`. Any problem
+ * refuses the registration with `422 guardrail-config-invalid`
+ * (`details.issues`). Absent, or nothing to check against (an unknown
+ * check, a check without a schema): no problems. A guardrail naming a
+ * built-in check is checked by the route itself, against the built-in's
+ * schema, whatever the runtime passes here.
+ */
+export type GuardrailConfigCheck = (input: {
+  readonly tenantId: TenantId;
+  readonly guardrail: Guardrail;
+}) => Promise<readonly GuardrailConfigProblem[]>;
+
 export function guardrailsRouter(
   binding: GuardrailRegistryBinding,
   authorizer?: Authorizer,
   onWrite?: GuardrailWriteHook,
+  checkConfig?: GuardrailConfigCheck,
+  /** What a guardrail's project may run (`reference-scope.ts`); absent → as named. */
+  referenceScope?: ReferenceScopeBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // Every schema a publish compiles counts against its tenant's budget.
+  const publishCompiles = publishCompilesMiddleware();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
   // every write before anything else runs.
   r.use(
@@ -127,12 +163,22 @@ export function guardrailsRouter(
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
     });
+    // Only what the caller may read (T243 A), as `GET …/:id` asks.
+    const visible =
+      authorizer === undefined
+        ? page.data
+        : await authorizer.filterByCan(c, 'read', page.data, (a) =>
+            ref('guardrail', a.id as unknown as string),
+          );
     return c.json({
-      data: page.data.map(serializeGuardrail),
+      data: visible.map(serializeGuardrail),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
   });
+
+  // ---------- GET /:guardrailId/outcomes ----------
+  r.get('/:guardrailId/outcomes', guardrailOutcomesHandler(binding, authorizer));
 
   // ---------- GET /:guardrailId ----------
   r.get('/:guardrailId', async (c) => {
@@ -158,7 +204,7 @@ export function guardrailsRouter(
   });
 
   // ---------- POST / (register) ----------
-  r.post('/', async (c) => {
+  r.post('/', publishCompiles, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
 
@@ -204,6 +250,42 @@ export function guardrailsRouter(
             code: 'validation-failed',
             message: validated.error.message,
             issues: validated.error.issues as unknown as Record<string, unknown>[],
+          },
+          requestId,
+        ),
+      );
+    }
+
+    // A pack check it names must be its project's to reach
+    // (`reference-scope.ts`); a built-in check is every project's.
+    if (builtInChecks.get(validated.value.check) === undefined) {
+      const outOfScope = await referencesOutOfScope(referenceScope, tenantId, projectId, [
+        { path: '/check', kind: 'check', id: validated.value.check },
+      ]);
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    }
+
+    // A built-in check's config is the route's to check (its schema ships with
+    // `@kindgi/guardrails`); any other check's, the runtime's.
+    const builtIn = builtInChecks.get(validated.value.check);
+    const problems =
+      builtIn?.configProblems !== undefined
+        ? builtIn.configProblems(validated.value.config)
+        : await checkConfig?.({ tenantId, guardrail: validated.value });
+    if (problems !== undefined && problems.length > 0) {
+      c.status(statusFor('guardrail-config-invalid') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'guardrail-config-invalid',
+            message: describeGuardrailConfigProblems(
+              {
+                guardrailId: validated.value.id as unknown as string,
+                check: validated.value.check,
+              },
+              problems,
+            ),
+            issues: problems as unknown as Record<string, unknown>[],
           },
           requestId,
         ),
@@ -310,9 +392,10 @@ export function guardrailsRouter(
   return r;
 }
 
-function serializeGuardrail(i: Guardrail): Record<string, unknown> {
+function serializeGuardrail(i: GuardrailRecord): Record<string, unknown> {
   return {
     id: i.id as unknown as string,
+    ...(i.projectId !== undefined && { projectId: i.projectId as unknown as string }),
     ...(i.name !== undefined && { name: i.name }),
     ...(i.description !== undefined && { description: i.description }),
     kind: i.kind,

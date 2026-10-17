@@ -1,0 +1,22 @@
+package {{JAVA_PACKAGE}}.tools;
+
+import com.kindgi.pack.Tool;
+import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
+import java.time.Instant;
+
+/** {{PACK_ID}}.echo — echoes the message back with a UTC timestamp and its length. */
+public final class Echo {
+  public record Input(@Size(min = 1, max = 500) String message) {}
+
+  public record Output(String echo, Instant echoedAt, @PositiveOrZero int characterCount) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("{{PACK_ID}}.echo")
+      .description("Echoes the caller-provided message with a UTC timestamp and character count.")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .handler((input, ctx) -> new Output(input.message(), Instant.now(), input.message().length()));
+
+  private Echo() {}
+}

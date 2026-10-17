@@ -8,7 +8,7 @@ import { describe, expect, test } from 'vitest';
 import type { ProviderMetadata } from '@kindgi/capabilities';
 import type { Cursor, TenantId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
@@ -519,6 +519,54 @@ describe('API — providers register + get', () => {
     expect(bad.status).toBe(400);
     const body = (await bad.json()) as { error: { details?: { reason?: string } } };
     expect(body.error.details?.reason).toBe('invalid-thinking');
+  });
+
+  test("a model's cost keeps its adapter's rates through register + get; a bad one → 400 invalid-cost", async () => {
+    const { app } = makeApp();
+    const spec = providerSpec({ id: 'rated' });
+    const cost = {
+      promptUsdPer1kTokens: 0.0001,
+      completionUsdPer1kTokens: 0.0005,
+      promptCacheReadMultiplier: 0.1,
+      longContext: {
+        thresholdTokens: 100000,
+        promptUsdPer1kTokens: 0.0005,
+        completionUsdPer1kTokens: 0.0025,
+      },
+    };
+    const models = spec.models.map((m, i) => (i === 0 ? { ...m, cost } : m));
+    const register = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ metadata: { ...spec, models }, adapter_id: TEST_ADAPTER_ID }),
+    });
+    expect(register.status).toBe(201);
+    const get = await app.request('/v1/providers/rated', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(((await get.json()) as { models: { cost: unknown }[] }).models[0]?.cost).toEqual(cost);
+    for (const bad of [
+      { ...cost, longContext: { thresholdTokens: -1 } },
+      { ...cost, longContext: {} },
+      { ...cost, promptCacheReadMultiplier: 'cheap' },
+      { ...cost, tiers: [0.1] },
+      { ...cost, longContext: { nested: { deeper: 1 } } },
+    ]) {
+      const res = await app.request('/v1/providers', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          metadata: {
+            ...providerSpec({ id: 'bad-rates' }),
+            models: spec.models.map((m) => ({ ...m, cost: bad })),
+          },
+          adapter_id: TEST_ADAPTER_ID,
+        }),
+      });
+      expect(res.status, JSON.stringify(bad)).toBe(400);
+      const body = (await res.json()) as { error: { details?: { reason?: string } } };
+      expect(body.error.details?.reason).toBe('invalid-cost');
+    }
   });
 
   test('validation failure (non-boolean fallback) → 400 invalid-provider', async () => {

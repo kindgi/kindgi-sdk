@@ -163,6 +163,126 @@ def confirm_order(input: ConfirmInput) -> Confirmed:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/tools/GetOrder.java
+package acme.tools;
+
+import com.kindgi.pack.Tool;
+import jakarta.validation.constraints.Size;
+import java.util.List;
+import java.util.Map;
+
+public final class GetOrder {
+  public record Input(@Size(min = 1) String orderId) {}
+
+  public record Item(String sku, int quantity) {}
+
+  public record Order(String orderId, String customer, double total, List<Item> items) {}
+
+  private static final Map<String, Order> ORDERS = Map.of(
+      "A-100", new Order("A-100", "ada@example.com", 42.5, List.of(new Item("mug", 2))),
+      "A-200", new Order("A-200", "grace@example.com", 1250,
+          List.of(new Item("desk", 1), new Item("lamp", 2))));
+
+  public static final Tool<Input, Order> TOOL = Tool.define("acme.get-order")
+      .description("Looks up an order by id.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Order.class)
+      .mutating(false) // only reads
+      .handler((input, ctx) -> {
+        Order order = ORDERS.get(input.orderId());
+        if (order == null) throw new IllegalArgumentException("No order " + input.orderId());
+        return order;
+      });
+
+  private GetOrder() {}
+}
+```
+
+```java
+// src/main/java/acme/tools/ConfirmOrder.java
+package acme.tools;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.kindgi.pack.Tool;
+import org.jspecify.annotations.Nullable;
+
+public final class ConfirmOrder {
+  public record Input(String orderId, @Nullable String note) {}
+
+  public enum Status {
+    @JsonProperty("confirmed") CONFIRMED
+  }
+
+  public record Confirmed(String orderId, Status status, @Nullable String note) {}
+
+  public static final Tool<Input, Confirmed> TOOL = Tool.define("acme.confirm-order")
+      .description("Confirms an order and emails the customer.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Confirmed.class)
+      // no mutating(false): it changes something
+      .handler((input, ctx) -> new Confirmed(input.orderId(), Status.CONFIRMED, input.note()));
+
+  private ConfirmOrder() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/tools/GetOrder.scala
+package acme.tools
+
+import com.kindgi.pack.scaladsl._
+import jakarta.validation.constraints.Size
+
+object GetOrder {
+  final case class Input(@Size(min = 1) orderId: String)
+  final case class Item(sku: String, quantity: Int)
+  final case class Order(orderId: String, customer: String, total: Double, items: Seq[Item])
+
+  private val orders = Map(
+    "A-100" -> Order("A-100", "ada@example.com", 42.5, Seq(Item("mug", 2))),
+    "A-200" -> Order("A-200", "grace@example.com", 1250, Seq(Item("desk", 1), Item("lamp", 2))))
+
+  val tool: Tool[Input, Order] = Tool[Input, Order]("acme.get-order")
+    .description("Looks up an order by id.")
+    .version("0.1.0")
+    .readOnly // only reads
+    .handler((in, _) =>
+      orders.getOrElse(in.orderId, throw new NoSuchElementException(s"No order ${in.orderId}")))
+}
+```
+
+```scala
+// src/main/scala/acme/tools/ConfirmOrder.scala
+package acme.tools
+
+import com.kindgi.pack.scaladsl._
+
+object ConfirmOrder {
+  final case class Input(orderId: String, note: Option[String])
+
+  enum Status {
+    case confirmed
+  }
+
+  final case class Confirmed(orderId: String, status: Status, note: Option[String])
+
+  val tool: Tool[Input, Confirmed] = Tool[Input, Confirmed]("acme.confirm-order")
+    .description("Confirms an order and emails the customer.")
+    .version("0.1.0")
+    // no readOnly: it changes something
+    .handler((in, _) => Confirmed(in.orderId, Status.confirmed, in.note))
+}
+```
+
+</TabItem>
 </Tabs>
 
 ## The agent
@@ -217,6 +337,54 @@ note_writer = Agent(
     capabilities=[{"needs": [{"feature": "tool-use"}]}],
     budget={"maxSteps": 2, "maxCostUsd": 0.05, "maxWallMs": 30_000},
 )
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/agents/NoteWriter.java
+package acme.agents;
+
+import com.kindgi.pack.Agent;
+import java.util.List;
+import java.util.Map;
+
+public final class NoteWriter {
+  public static final Agent AGENT = Agent.define("acme.note-writer")
+      .version("0.1.0")
+      .name("Note writer")
+      .description("Writes a one-sentence thank-you note for an order.")
+      .instructions("Write a one-sentence thank-you note to {{ input.customer }} for their order of "
+          + "{{ input.total }} USD. Answer with the note only.")
+      .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
+      .set("budget", Map.of("maxSteps", 2, "maxCostUsd", 0.05, "maxWallMs", 30_000))
+      .build();
+
+  private NoteWriter() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/agents/NoteWriter.scala
+package acme.agents
+
+import com.kindgi.pack.scaladsl._
+
+object NoteWriter {
+  val agent: Agent = Agent("acme.note-writer")
+    .version("0.1.0")
+    .name("Note writer")
+    .description("Writes a one-sentence thank-you note for an order.")
+    .instructions("Write a one-sentence thank-you note to {{ input.customer }} for their order of " +
+      "{{ input.total }} USD. Answer with the note only.")
+    .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
+    .set("budget", Map("maxSteps" -> 2, "maxCostUsd" -> 0.05, "maxWallMs" -> 30000))
+    .build()
+}
 ```
 
 </TabItem>
@@ -323,11 +491,104 @@ process_order = Flow(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/flows/ProcessOrder.java
+package acme.flows;
+
+import acme.agents.NoteWriter;
+import acme.tools.ConfirmOrder;
+import acme.tools.GetOrder;
+import com.kindgi.pack.Flow;
+import java.util.Map;
+
+public final class ProcessOrder {
+  public static final Flow FLOW = Flow.define("acme.process-order")
+      .version("0.1.0")
+      .set("name", "Process an order")
+      .set("description", "Looks up an order, writes a thank-you note, and confirms the order with it.")
+      .node(Map.of(
+          "id", "order",
+          "kind", "tool",
+          "ref", GetOrder.TOOL,
+          "inputMapping", Map.of("orderId", Map.of("path", "runInput.orderId"))))
+      .node(Map.of(
+          "id", "note",
+          "kind", "agent",
+          "ref", NoteWriter.AGENT,
+          "inputMapping", Map.of(
+              "customer", Map.of("path", "nodeOutputs.order.customer"),
+              "total", Map.of("path", "nodeOutputs.order.total"))))
+      .node(Map.of(
+          "id", "confirm",
+          "kind", "tool",
+          "ref", ConfirmOrder.TOOL,
+          "inputMapping", Map.of(
+              "orderId", Map.of("path", "runInput.orderId"),
+              "note", Map.of("path", "nodeOutputs.note.text"))))
+      .edge("e1", "$start", "order")
+      .edge("e2", "order", "note")
+      .edge("e3", "note", "confirm")
+      .edge("e4", "confirm", "$end")
+      .build();
+
+  private ProcessOrder() {}
+}
+```
+
+A step with no `inputMapping` can be shorter: `.toolNode("order", GetOrder.TOOL)`
+or `.agentNode("note", NoteWriter.AGENT)`.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/flows/ProcessOrder.scala
+package acme.flows
+
+import acme.agents.NoteWriter
+import acme.tools.{ConfirmOrder, GetOrder}
+import com.kindgi.pack.scaladsl._
+
+object ProcessOrder {
+  val flow: Flow = Flow("acme.process-order")
+    .version("0.1.0")
+    .set("name", "Process an order")
+    .set("description", "Looks up an order, writes a thank-you note, and confirms the order with it.")
+    .node(Map(
+      "id" -> "order",
+      "kind" -> "tool",
+      "ref" -> GetOrder.tool,
+      "inputMapping" -> Map("orderId" -> Map("path" -> "runInput.orderId"))))
+    .node(Map(
+      "id" -> "note",
+      "kind" -> "agent",
+      "ref" -> NoteWriter.agent,
+      "inputMapping" -> Map(
+        "customer" -> Map("path" -> "nodeOutputs.order.customer"),
+        "total" -> Map("path" -> "nodeOutputs.order.total"))))
+    .node(Map(
+      "id" -> "confirm",
+      "kind" -> "tool",
+      "ref" -> ConfirmOrder.tool,
+      "inputMapping" -> Map(
+        "orderId" -> Map("path" -> "runInput.orderId"),
+        "note" -> Map("path" -> "nodeOutputs.note.text"))))
+    .edge("e1", "$start", "order")
+    .edge("e2", "order", "note")
+    .edge("e3", "note", "confirm")
+    .edge("e4", "confirm", "$end")
+    .build()
+}
+```
+
+</TabItem>
 </Tabs>
 
 - **`nodes`** are the steps. Each has an `id` (unique in the flow), a `kind`
-  and a `ref`: the id of the tool or agent it runs. In Python, `ref` can also
-  be the `Tool` or `Agent` object you import.
+  and a `ref`: the id of the tool or agent it runs. In Python, Java and Scala,
+  `ref` can also be the tool or agent itself.
 - **`edges`** connect them. `$start` and `$end` are where the run enters and
   leaves; an edge without a condition fires when its source step completes.
 - **`inputMapping`** builds each step's input from the run's input
@@ -386,6 +647,49 @@ declares a typed answer, plus the turn's `runId`. Without a model provider,
 Save a file and `kindgi dev` loads the new version; the next run uses it, with
 no restart. A run already in flight keeps the version it started on. Change
 `version` when what callers send or get back changes, not on every save.
+
+## In the console
+
+A project's **Flows** page lists its flows, each at its latest live version:
+"2 flows.", and for each its name, its latest version, its steps in words
+("3 steps: 2 agents, 1 loop") and what it pins ("Pins 1 agent").
+
+![The Flows page: "2 flows.", Refunds (acme.refunds, "Triage, check each item, then answer.") at 2.0.0 with 3 steps: 2 agents, 1 loop, and acme.single at 1.0.0 with 2 steps: 2 agents, each pinning 1 agent.](../../../../assets/flows/flows-list.png)
+
+A flow's page draws the version as a graph, from Start to End: each step
+with what it runs and at which version ("demo.echo-agent, pinned at
+1.0.0"), and a loop in words ("For each item of runInput.items, at most 50
+times: demo.echo-agent, pinned at 1.0.0"). Below it:
+- **What 2.0.0 runs:** the agents and tools at the versions "Fixed when this
+  version was published: every run of it uses these versions."
+- **Versions:** the live ones, the latest marked, with what each runs: "3
+  live; runs that name no version use the latest, 2.0.0. Unregistered
+  versions aren't listed: open one by its number."
+- **Its runs →** and **Runs of 2.0.0 →**, the runs list filtered.
+
+![Refunds' page at 2.0.0: the graph Start, triage, a loop over runInput.items, answer, End; What 2.0.0 runs (demo.echo-agent 1.0.0); and Versions: 2.0.0 (latest), 1.1.0 and 1.0.0, each with Unregister.](../../../../assets/flows/flow-page.png)
+
+For flow admins, each version has **Unregister**. Its dialog says what
+changes:
+
+```text
+Unregister 1.0.0?
+Runs that name no version keep using 2.0.0.
+Runs that name 1.0.0 are refused, a schedule's included; runs already going finish. It's no longer listed here; it can be reinstated from its own page.
+```
+
+While the dialog is still open, **Reinstate it** undoes it. Later, the
+version opened by its number says "1.0.0 is unregistered", since when, and
+"Runs that name it are refused, runs that name no version don't use it, and
+it isn't listed.", with **Reinstate**.
+
+![Version 1.0.0 opened by its number: "1.0.0 is unregistered", since when, that runs naming it are refused, and Reinstate, above its graph.](../../../../assets/flows/flow-unregistered-version.png)
+
+Unregistering a flow's only live version takes it off the list, and its
+page says "No version of this flow is live": "Every version is
+unregistered, so it isn't listed and runs that name no version are
+refused. Open a version by its number to reinstate it, or publish a new
+one."
 
 ## Next
 

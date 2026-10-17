@@ -7,6 +7,7 @@ import type { Context } from 'hono';
 import type { Cursor, TenantId, TriggerId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import type {
   EventTriggerRecord,
   RegisterEventTriggerInput,
@@ -15,6 +16,7 @@ import type {
 } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { triggerAccess } from './trigger-access.js';
 
 /**
  * Event triggers — fire a flow run when a matching event arrives on
@@ -22,9 +24,16 @@ import { clampLimit } from './pagination.js';
  *
  * Seven routes, mirroring the schedules surface. This surface registers
  * triggers; it does not publish events.
+ *
+ * With an authorizer (T243 A), the trigger's flow decides who may see or
+ * change it (`trigger-access.ts`).
  */
-export function eventTriggersRouter(binding: TriggerRegistryBinding): Hono<AppEnv> {
+export function eventTriggersRouter(
+  binding: TriggerRegistryBinding,
+  authorizer?: Authorizer,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  const access = triggerAccess(binding, 'event', authorizer);
 
   // ---------- POST / (register) ----------
   r.post('/', async (c) => {
@@ -37,10 +46,13 @@ export function eventTriggersRouter(binding: TriggerRegistryBinding): Hono<AppEn
 
     const flowId = requireString(body, 'flowId');
     const flowVersion = requireString(body, 'flowVersion');
-    const eventKind = requireString(body.config, 'config.eventKind');
+    const eventKind = requireString(body, 'config.eventKind');
     if (flowId.kind === 'err') return bad(c, requestId, flowId.message);
     if (flowVersion.kind === 'err') return bad(c, requestId, flowVersion.message);
     if (eventKind.kind === 'err') return bad(c, requestId, eventKind.message);
+
+    const refused = await access.onRegister(c, flowId.value);
+    if (refused !== undefined) return refused;
 
     const rawConfig = (body.config ?? {}) as Record<string, unknown>;
     const registerInput: RegisterEventTriggerInput = {
@@ -84,7 +96,9 @@ export function eventTriggersRouter(binding: TriggerRegistryBinding): Hono<AppEn
       ...(statusFilter !== undefined && { status: statusFilter }),
     });
     return c.json({
-      data: page.data.map((row) => serializeEventTrigger(row as EventTriggerRecord)),
+      data: (await access.visible(c, page.data as readonly EventTriggerRecord[])).map(
+        serializeEventTrigger,
+      ),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -95,6 +109,8 @@ export function eventTriggersRouter(binding: TriggerRegistryBinding): Hono<AppEn
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const triggerId = c.req.param('triggerId') as TriggerId;
+    const refused = await access.onTrigger(c, triggerId, ['read']);
+    if (refused !== undefined) return refused;
 
     const rec = await binding.get({ tenantId, triggerId });
     if (rec === null || rec.kind !== 'event') return notFound(c, requestId, triggerId);
@@ -106,6 +122,8 @@ export function eventTriggersRouter(binding: TriggerRegistryBinding): Hono<AppEn
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const triggerId = c.req.param('triggerId') as TriggerId;
+    const refused = await access.onTrigger(c, triggerId, ['write', 'execute']);
+    if (refused !== undefined) return refused;
 
     const parsed = await parseJsonObject(c, requestId);
     if (parsed.kind === 'err') return parsed.response;
@@ -149,6 +167,8 @@ export function eventTriggersRouter(binding: TriggerRegistryBinding): Hono<AppEn
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const triggerId = c.req.param('triggerId') as TriggerId;
+    const refused = await access.onTrigger(c, triggerId, ['write']);
+    if (refused !== undefined) return refused;
     const result = await binding.pause({ tenantId, triggerId });
     if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
     return c.json(serializeEventTrigger(result.value as EventTriggerRecord));
@@ -159,6 +179,8 @@ export function eventTriggersRouter(binding: TriggerRegistryBinding): Hono<AppEn
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const triggerId = c.req.param('triggerId') as TriggerId;
+    const refused = await access.onTrigger(c, triggerId, ['write']);
+    if (refused !== undefined) return refused;
     const result = await binding.resume({ tenantId, triggerId });
     if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
     return c.json(serializeEventTrigger(result.value as EventTriggerRecord));
@@ -168,6 +190,8 @@ export function eventTriggersRouter(binding: TriggerRegistryBinding): Hono<AppEn
   r.post('/:triggerId/unregister', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const triggerId = c.req.param('triggerId') as TriggerId;
+    const refused = await access.onTrigger(c, triggerId, ['write']);
+    if (refused !== undefined) return refused;
     const outcome = await binding.unregister({ tenantId, triggerId });
     return c.json({
       eventTriggerId: triggerId as unknown as string,

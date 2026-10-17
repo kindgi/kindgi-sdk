@@ -382,3 +382,22 @@ describe("thinking: 'lowest'", () => {
     }
   });
 });
+
+describe('a long prompt', () => {
+  test("prices at the registration's long-context rates", async () => {
+    const client = fakeClient({
+      ...OK_ANSWER,
+      usageMetadata: { promptTokenCount: 300_000, candidatesTokenCount: 1000 },
+    });
+    const provider = createGeminiProvider({
+      metadata: METADATA,
+      vertex: { project: 'acme-dev', location: 'global' },
+      client,
+    });
+    const result = await provider.invoke({
+      model: 'gemini-2.5-pro',
+      messages: [{ role: 'user', content: 'Summarize the attached corpus.' }],
+    });
+    expect(result.costUsd).toBeCloseTo((300_000 * 0.0025 + 1000 * 0.015) / 1000, 10);
+  });
+});

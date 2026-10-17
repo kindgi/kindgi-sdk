@@ -16,7 +16,8 @@
 //
 // The runtime resolves the secret on every call from its secrets
 // store, in the env the ref names — under `kindgi dev`, env `local`
-// is your `.env` / `.env.local`. A secret it can't find fails the
+// is your `.env` / `.env.local`, then Kindgi's own `.kindgi/secrets.env`
+// (where `kindgi secrets set` writes). A secret it can't find fails the
 // call with `secret-unavailable`, naming it.
 
 import { defineTool } from '@kindgi/sdk/define';

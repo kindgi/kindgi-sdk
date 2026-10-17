@@ -56,6 +56,9 @@ jobs:
       - name: References (docs exist in this repository; no internal process notes)
         run: pnpm run check:refs
 
+      - name: No package dependency cycles
+        run: pnpm run check:cycles
+
       - name: README package table
         run: pnpm run check:readme
 
@@ -64,14 +67,38 @@ jobs:
       - name: Python SDK version in step with the npm packages
         run: pnpm run check:python-version
 
+      # So do the JVM SDKs (sdks/java, and sdks/scala's version.sbt):
+      # scripts/sync-jvm-version.mjs. A Version Packages PR whose poms lag
+      # fails here, before it merges.
+      - name: JVM SDKs' version in step with the npm packages
+        run: pnpm run check:jvm-version
+
       # Before 1.0, and while release candidates are out, a minor or major
       # changeset needs a `Release-decision:` line:
       # scripts/check-changeset-bumps.mjs.
       - name: Changesets move the release only by decision
         run: pnpm run check:changeset-bumps
 
+      # design/tokens.json is the one source for the website, the docs and the
+      # console: tokens.css is written from it, and every checked pair meets its
+      # contrast (WCAG AA) in light and dark. scripts/check-tokens.mjs.
+      - name: Design tokens current, and their contrast
+        run: pnpm run check:tokens
+
+      # parseEvent's shapes (@kindgi/sdk/webhooks) are generated from the API's
+      # WebhookEvent schema: scripts/gen-webhook-event-shapes.mjs. A schema
+      # change without a regeneration fails here.
+      - name: Webhook event shapes current with the API schema
+        run: pnpm run check:webhook-shapes
+
       - name: Validate JSON Schemas (@kindgi/specs)
         run: pnpm run spec:validate
+
+      # The Java pack service's JSON Schema validator answers as Ajv does:
+      # sdks/java/kindgi-pack/src/test/resources/ajv/oracle.json holds Ajv's
+      # verdicts on the corpus, and the Java tests require the same.
+      - name: Java pack service — the Ajv oracle is current
+        run: node sdks/java/kindgi-pack/scripts/ajv-oracle.mjs --check
 
       - name: Docs ship with the change
         if: github.event_name == 'pull_request'
@@ -85,6 +112,17 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v5
+      # Java 17, before pnpm install: setup-java's two cache keys (the Maven
+      # repository's and the Maven wrapper's) each hash a glob from the repo
+      # root, and with node_modules installed each walked it for 6 to 9
+      # minutes, as setup-uv's default glob did (below). The Maven key hashes
+      # the Java SDK's poms only.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: sdks/java/**/pom.xml
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
@@ -104,12 +142,37 @@ jobs:
           cache-dependency-glob: sdks/python/uv.lock
       - name: Python SDK environment (for the pack conformance suite)
         run: uv sync --project sdks/python --frozen
+      # ...and against the Java SDK's (sdks/java/kindgi-pack): the suite
+      # compiles its fixture pack against the module's classes. Under CI that
+      # target fails rather than skip when they're missing. Installed, so the
+      # CLI's real Java pack build (tests/java-pack-code.test.ts) finds
+      # kindgi-pack in the local Maven repository too. (Java is set up before
+      # pnpm install, above.)
+      - name: Java pack service (for the pack conformance suite and the CLI's Java builds)
+        working-directory: sdks/java
+        run: ./mvnw -B -ntp -pl kindgi-pack -am install -DskipTests
       - name: Build (prod-dependency topological order)
         run: pnpm run build
       - name: Typecheck
         run: pnpm run typecheck:all
+      # kindgi dev's sandbox on Linux (packages/cli/tests/dev-sandbox-live.test.ts,
+      # which fails rather than skips with KINDGI_DEV_SANDBOX_LIVE set): bubblewrap,
+      # and on Ubuntu 23.10 and later the AppArmor permission it needs to make user
+      # namespaces.
+      - name: bubblewrap (for kindgi dev's sandbox test)
+        run: |
+          # The same commands guides/secrets/dev-sandbox.mdx gives a reader.
+          sudo apt-get update -qq
+          sudo apt-get install bubblewrap
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
+            printf 'profile bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n}\n' | sudo tee /etc/apparmor.d/bwrap
+            sudo systemctl reload apparmor
+          fi
+          bwrap --ro-bind / / true
       - name: Test
         run: pnpm run test:all
+        env:
+          KINDGI_DEV_SANDBOX_LIVE: required
       # The release scripts' own tests (node:test); the Python version sync's
       # run uv, set up above.
       - name: Release scripts
@@ -128,12 +191,31 @@ jobs:
           KINDGI_CONFORMANCE_PYTHON=/tmp/kindgi-floors/bin/python pnpm --filter @kindgi/pack-conformance exec vitest run tests/python.test.ts tests/python-supervisor.test.ts
       - name: Publish-readiness (publint + attw on publishable packages)
         run: pnpm run check:publish
+      # The site's build scripts' own tests (node:test, site/scripts): which
+      # versions build and from where, the version fixes, the agents'
+      # Markdown, the pinned tutorials, the samples check. Before the build.
+      # The samples check's end-to-end test makes fresh packs and adds
+      # libraries to them with uv and pnpm, so it needs the network.
+      - name: Docs site scripts
+        run: pnpm run docs:test-scripts
       # The documentation site (docs.kindgi.com) builds, with its link check
       # and search index, from the workspace built above.
       - name: Docs site
         run: pnpm run docs:build
-      # Every sample that is a whole file compiles (TypeScript) or indexes
-      # (Python).
+      # The Java SDK, for the docs' Java samples: they compile against it (on the
+      # Java 17 set up above). It's installed too, so the Scala layer and the
+      # Scala samples resolve kindgi-pack.
+      - name: The Java SDK (for the docs' Java and Scala samples)
+        working-directory: sdks/java
+        run: ./mvnw -B -ntp install -DskipTests
+      # The Scala layer, published locally, for the docs' Scala samples: a fresh
+      # Scala pack compiles them against it.
+      - uses: sbt/setup-sbt@v1
+      - name: The Scala layer (for the docs' Scala samples)
+        working-directory: sdks/scala
+        run: sbt -batch publishLocal
+      # Every sample that is a whole file compiles (TypeScript, Java, Scala) or
+      # indexes (Python, Java, Scala).
       - name: Docs samples
         run: pnpm run docs:samples
 
@@ -171,8 +253,19 @@ jobs:
         if: matrix.python == '3.11'
         run: |
           uv venv /tmp/kindgi-floors
-          uv pip install --python /tmp/kindgi-floors --resolution lowest-direct -e . "pytest>=8"
+          # With the `verify` extra, so kindgi.exports is tested at its cryptography floor.
+          uv pip install --python /tmp/kindgi-floors --resolution lowest-direct -e ".[verify]" "pytest>=8"
           /tmp/kindgi-floors/bin/python -m pytest -p no:cacheprovider -k "not in_step_with_openapi"
+      # The newest cryptography: the `verify` extra has no upper cap (a cap held
+      # apps below its security fixes), so a breaking release shows here before
+      # an app that upgrades meets it.
+      - name: Pytest at the newest cryptography
+        if: matrix.python == '3.13'
+        run: |
+          uv venv /tmp/kindgi-newest
+          uv pip install --python /tmp/kindgi-newest --upgrade -e ".[verify]" "pytest>=8" cryptography
+          /tmp/kindgi-newest/bin/python -c "import cryptography; print('cryptography', cryptography.__version__)"
+          /tmp/kindgi-newest/bin/python -m pytest -p no:cacheprovider tests/test_exports.py
       - name: Generated client in step with openapi.json
         run: uv run python scripts/gen_client.py --check
       - name: Build the distribution (not published)
@@ -182,3 +275,52 @@ jobs:
       - name: The wheel's core metadata is 2.3
         run: |
           unzip -p dist/*.whl '*.dist-info/METADATA' | grep -qx 'Metadata-Version: 2.3'
+
+  wordpress:
+    name: WordPress plugin (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    strategy:
+      fail-fast: false
+      matrix:
+        # The plugin's floor (its header's `Requires PHP`), and a current PHP.
+        php: ["7.4", "8.3"]
+    defaults:
+      run:
+        working-directory: integrations/wordpress/kindgi
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: sodium, mbstring
+          tools: none
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          # Only `node --test` runs here: no pnpm, so no package-manager cache.
+          package-manager-cache: false
+      - name: PHP syntax
+        run: find . -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: The plugin's tests
+        run: php tests/run.php
+      - name: A statement the plugin signs verifies as Kindgi checks it
+        run: node --test tests/statement.test.mjs
+
+  wordpress-sodium-compat:
+    name: WordPress plugin (sodium_compat)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    # Some hosts have no ext/sodium; WordPress then loads the sodium_compat it
+    # bundles. WordPress's own image loads ext/sodium as a shared extension,
+    # so `php -n` runs without it, on that bundled sodium_compat.
+    container: wordpress:php8.3
+    defaults:
+      run:
+        working-directory: integrations/wordpress/kindgi
+    steps:
+      - uses: actions/checkout@v5
+      - name: The plugin's tests, without ext/sodium
+        env:
+          KINDGI_SODIUM_COMPAT: /usr/src/wordpress/wp-includes/sodium_compat/autoload.php
+        run: php -n tests/run.php

@@ -19,7 +19,7 @@
  *         edited that way (Poetry 1, dynamic dependencies) gets the command
  *         to run instead.
  *   - `kindgi/{tools,guardrails,agents,flows}/.gitkeep`
- *   - `.claude/skills/` — the skills written for Python packs
+ *   - `.claude/skills/` and `.agents/skills/` — the skills written for Python packs
  *   - `.gitignore` — Kindgi's local-state patterns
  *
  * The app's own code, env files, lockfile and virtualenv are left alone:
@@ -36,7 +36,9 @@ import { syncSkills } from '../commands/skills.js';
 import type { CommandResult } from '../commands/types.js';
 import { renderJson } from '../output.js';
 import { type BinRunner, binDisplay } from '../package-manager.js';
+import { MODELS_GUIDE } from '../providers/models-guide.js';
 import { CLI_VERSION } from '../version-info.js';
+import { agentAccessRows, patchAgentAccess } from './agent-access.js';
 import {
   type KindgiPythonSource,
   kindgiCliRequirement,
@@ -62,6 +64,8 @@ export type PythonInstaller = 'uv' | 'poetry' | 'pip';
 
 export interface RunInitPythonAugmentInputs {
   readonly targetDir: string;
+  /** The CLI's home folder: a repository rooted there gets no settings from init (`agent-access.ts`). */
+  readonly home?: string;
   readonly skillsRoot?: string;
   readonly packIdOverride?: string;
   /** Overwrite locally edited skills. */
@@ -126,7 +130,7 @@ export async function runInitPythonAugment(
       dryRun: false,
     });
     for (const o of report.outcomes) {
-      const target = join(inputs.targetDir, '.claude', 'skills', o.name, 'SKILL.md');
+      const target = join(inputs.targetDir, o.folder, o.name, 'SKILL.md');
       if (o.status === 'added' || o.status === 'updated') created.push(target);
       else if (o.status !== 'local-only') skipped.push(target);
     }
@@ -139,6 +143,15 @@ export async function runInitPythonAugment(
   if (gitignore.kind === 'patched') {
     created.push(`${gitignorePath} (patched: +${gitignore.appended.join(', +')})`);
   }
+  // Keep the coding agent out of the files that hold keys (`agent-access.ts`).
+  const access = agentAccessRows(
+    inputs.targetDir,
+    await patchAgentAccess(inputs.targetDir, {
+      ...(inputs.home !== undefined && { home: inputs.home }),
+    }),
+  );
+  created.push(...access.created);
+  skipped.push(...access.skipped);
 
   const nextSteps = [
     ...pythonAugmentNextSteps(
@@ -160,6 +173,7 @@ export async function runInitPythonAugment(
     kindgi: source,
     created,
     skipped,
+    warnings: access.warnings,
     nextSteps,
   };
   return {
@@ -171,6 +185,8 @@ export async function runInitPythonAugment(
         `  Kindgi added to ${inputs.targetDir} (a Python pack in the app).`,
         `  Pack id: ${packId.id}    Version: ${version}`,
         `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
+        ...access.outside.map((line) => `  ✓ ${line}`),
+        ...access.warnings.map((warning) => `  ⚠ ${warning}`),
         '',
         '  Next steps:',
         ...nextSteps.map((step) => `    ${step}`),
@@ -388,9 +404,9 @@ export function pythonAugmentNextSteps(
     install,
     ...addCli,
     `Boot the dev server: ${binDisplay(runner, 'kindgi', ['dev'])}`,
-    'Write tools, guardrails and agents under kindgi/ — see .claude/skills/kindgi-python-getting-started/SKILL.md',
+    'Write tools, guardrails and agents under kindgi/ — see the kindgi-python-getting-started skill (in .claude/skills/ and .agents/skills/)',
     'Secrets: kindgi dev reads your .env and .env.local; tools read them from os.environ',
-    `Model provider: agents answer with the dev-echo fallback until you register one — e.g. ${binDisplay(runner, 'kindgi', ['providers', 'register', '--preset=anthropic'])} (ANTHROPIC_API_KEY in .env)`,
+    `Models: under kindgi dev, agents give placeholder replies until you connect a model: ${MODELS_GUIDE}`,
   ];
 }
 

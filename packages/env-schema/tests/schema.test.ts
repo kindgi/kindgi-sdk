@@ -15,7 +15,9 @@
 
 import { describe, expect, test } from 'vitest';
 
+import * as envSchema from '../src/index.js';
 import {
+  AUTH_INVITE_EMAIL_DAILY_CAP_VAR,
   type EnvTarget,
   type EnvVarSpec,
   KINDGI_ENV_SCHEMA,
@@ -65,6 +67,89 @@ describe('envVarsForTarget', () => {
     }
   });
 
+  test('backend=secret-manager: the manager is required, and no KMS or AAD key applies', () => {
+    const target = { secretsBackend: 'secret-manager' } as const;
+    const byName = new Map(envVarsForTarget(target).map((v) => [v.name, v]));
+    expect(byName.get('KINDGI_SECRETS_MANAGER')?.required).toBe(true);
+    expect(byName.get('KINDGI_SECRETS_MANAGER')?.allowedValues).toEqual([
+      'azure',
+      'gcp',
+      'aws',
+      'vault',
+    ]);
+    expect(byName.has('KINDGI_SECRETS_BACKEND_KMS')).toBe(false);
+    expect(byName.has('KINDGI_SECRETS_AAD_KEY')).toBe(false);
+    expect(validateEnvForTarget({ KINDGI_SECRETS_BACKEND: 'secret-manager' }, target)).toEqual({
+      ok: false,
+      missing: ['KINDGI_SECRETS_MANAGER'],
+    });
+  });
+
+  test.each([
+    ['azure', 'KINDGI_SECRETS_AZURE_VAULT_URL'],
+    ['gcp', 'KINDGI_SECRETS_GCP_PROJECT_ID'],
+    ['aws', 'KINDGI_SECRETS_AWS_REGION'],
+    ['vault', 'KINDGI_SECRETS_VAULT_ADDR'],
+  ] as const)('secret-manager + %s needs %s, and nothing of the KMS', (manager, needed) => {
+    const vars = envVarsForTarget({ secretsBackend: 'secret-manager', secretsManager: manager });
+    const byName = new Map(vars.map((v) => [v.name, v]));
+    expect(byName.get(needed)?.required).toBe(true);
+    for (const kmsOnly of [
+      'KINDGI_SECRETS_GCP_LOCATION_ID',
+      'KINDGI_SECRETS_GCP_KEY_RING_ID',
+      'KINDGI_SECRETS_GCP_KEY_ID',
+      'KINDGI_SECRETS_AZURE_KEY_ID',
+    ]) {
+      expect(byName.has(kmsOnly)).toBe(false);
+    }
+    // Each manager's setting is its own.
+    for (const other of [
+      'KINDGI_SECRETS_AZURE_VAULT_URL',
+      'KINDGI_SECRETS_GCP_PROJECT_ID',
+      'KINDGI_SECRETS_AWS_REGION',
+    ]) {
+      if (other !== needed) expect(byName.has(other)).toBe(false);
+    }
+  });
+
+  test('the GCP project id serves both the gcp KMS and the gcp secret manager', () => {
+    const kms = envVarsForTarget({ secretsBackend: 'postgres', secretsBackendKms: 'gcp' });
+    expect(kms.map((v) => v.name)).toContain('KINDGI_SECRETS_GCP_PROJECT_ID');
+    const postgresAzure = envVarsForTarget({
+      secretsBackend: 'postgres',
+      secretsBackendKms: 'azure',
+    });
+    expect(postgresAzure.map((v) => v.name)).not.toContain('KINDGI_SECRETS_GCP_PROJECT_ID');
+    expect(postgresAzure.map((v) => v.name)).not.toContain('KINDGI_SECRETS_AZURE_VAULT_URL');
+  });
+
+  test('backend=postgres + kms=azure: the Key Vault key (required), the identity (optional), no GCP vars', () => {
+    const target = { secretsBackend: 'postgres', secretsBackendKms: 'azure' } as const;
+    const byName = new Map(envVarsForTarget(target).map((v) => [v.name, v]));
+    expect(byName.get('KINDGI_SECRETS_AZURE_KEY_ID')?.required).toBe(true);
+    expect(byName.get('KINDGI_SECRETS_AZURE_KEY_ID')?.group).toBe('azure');
+    expect(byName.get('KINDGI_AZURE_CLIENT_ID')?.required).toBe(false);
+    expect(byName.has('KINDGI_SECRETS_AAD_KEY')).toBe(true);
+    expect(byName.has('KINDGI_SECRETS_GCP_PROJECT_ID')).toBe(false);
+    expect(byName.get('KINDGI_SECRETS_BACKEND_KMS')?.allowedValues).toContain('azure');
+    expect(
+      validateEnvForTarget(
+        { KINDGI_SECRETS_BACKEND: 'postgres', KINDGI_SECRETS_BACKEND_KMS: 'azure' },
+        target,
+      ),
+    ).toEqual({ ok: false, missing: ['KINDGI_SECRETS_AZURE_KEY_ID'] });
+    // The Key Vault key is azure's alone.
+    const gcp = envVarsForTarget({ secretsBackend: 'postgres', secretsBackendKms: 'gcp' });
+    expect(gcp.map((v) => v.name)).not.toContain('KINDGI_SECRETS_AZURE_KEY_ID');
+  });
+
+  test("the server's Azure identity applies to every server target; the pack service doesn't read it", () => {
+    expect(envVarsForTarget({}).map((v) => v.name)).toContain('KINDGI_AZURE_CLIENT_ID');
+    expect(envVarsForTarget({ component: 'pack-service' }).map((v) => v.name)).not.toContain(
+      'KINDGI_AZURE_CLIENT_ID',
+    );
+  });
+
   test('backend=postgres + kms=libsodium: the local key, its acknowledgement (required), no GCP vars', () => {
     const target = { secretsBackend: 'postgres', secretsBackendKms: 'libsodium' } as const;
     const byName = new Map(envVarsForTarget(target).map((v) => [v.name, v]));
@@ -103,14 +188,23 @@ describe('envVarsForTarget', () => {
     expect(dev?.required).toBe(false);
   });
 
-  test('KINDGI_TENANT_HOST_ACCESS: the server only, optional, local or deployed', () => {
+  test('KINDGI_TENANT_HOST_ACCESS: the server only, optional, local, deployed or isolated', () => {
     const access = envVarsForTarget({}).find((v) => v.name === 'KINDGI_TENANT_HOST_ACCESS');
     expect(access).toMatchObject({ group: 'core', required: false });
-    expect(access?.allowedValues).toEqual(['local', 'deployed']);
+    expect(access?.allowedValues).toEqual(['local', 'deployed', 'isolated']);
     expect(
       envVarsForTarget({ component: 'pack-service' }).some(
         (v) => v.name === 'KINDGI_TENANT_HOST_ACCESS',
       ),
+    ).toBe(false);
+  });
+
+  test('KINDGI_TENANCY: the server only, optional, single or multi', () => {
+    const tenancy = envVarsForTarget({}).find((v) => v.name === 'KINDGI_TENANCY');
+    expect(tenancy).toMatchObject({ group: 'core', required: false });
+    expect(tenancy?.allowedValues).toEqual(['single', 'multi']);
+    expect(
+      envVarsForTarget({ component: 'pack-service' }).some((v) => v.name === 'KINDGI_TENANCY'),
     ).toBe(false);
   });
 
@@ -194,9 +288,32 @@ describe('envVarsForTarget — the executor lease', () => {
       group: 'core',
       example: '60000',
     });
+    expect(server.get('KINDGI_RUN_ENDED_CHECK_MS')).toMatchObject({
+      required: false,
+      group: 'core',
+      example: '5000',
+    });
     const packService = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
     expect(packService).not.toContain('KINDGI_RUN_LEASE_MS');
     expect(packService).not.toContain('KINDGI_RUN_SWEEP_INTERVAL_MS');
+    expect(packService).not.toContain('KINDGI_RUN_ENDED_CHECK_MS');
+  });
+});
+
+describe('envVarsForTarget — invitation emails', () => {
+  test("the deployment's daily backstop is the server's, optional, in core, and says its range and default", () => {
+    const cap = envVarsForTarget({ component: 'server' }).find(
+      (v) => v.name === AUTH_INVITE_EMAIL_DAILY_CAP_VAR,
+    );
+    expect(AUTH_INVITE_EMAIL_DAILY_CAP_VAR).toBe('KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP');
+    expect(cap).toMatchObject({ required: false, group: 'core', example: '500' });
+    expect(cap?.description).toContain('Default 500, a whole number from 1 to 100000');
+    expect(cap?.description).toContain('KINDGI_AUTH_EMAIL_SMTP_URL');
+    expect(
+      envVarsForTarget({ component: 'pack-service' }).some(
+        (v) => v.name === AUTH_INVITE_EMAIL_DAILY_CAP_VAR,
+      ),
+    ).toBe(false);
   });
 });
 
@@ -247,6 +364,9 @@ describe('envVarsForTarget — the pack service', () => {
     'KINDGI_PACK_INDEX',
     'KINDGI_PACK_SERVICE_MAX_CONCURRENCY',
     'KINDGI_PACK_ENV_CHECK',
+    'KINDGI_PACK_ENV_FILTER',
+    'KINDGI_PACK_ENV_DECLARED',
+    'KINDGI_PACK_TENANT_ID',
   ];
 
   test("component=pack-service is the pack service's vars and none of the server's", () => {
@@ -261,6 +381,20 @@ describe('envVarsForTarget — the pack service', () => {
       expect(names).not.toContain('KINDGI_PACK_SERVICE_TOKEN');
       expect(names).not.toContain('KINDGI_PACK_CALL_TIMEOUT_MS');
       expect(names).not.toContain('KINDGI_PACK_INDEX');
+    }
+  });
+
+  test("the per-deployment routing settings are the server's, offered whatever its transport", () => {
+    for (const target of [
+      {},
+      { component: 'server' as const },
+      { packTransport: 'http' as const },
+    ]) {
+      const names = envVarsForTarget(target).map((v) => v.name);
+      expect(names).toEqual(
+        expect.arrayContaining(['KINDGI_PACK_ROUTING', 'KINDGI_PACK_ENDPOINT_HOSTS']),
+      );
+      expect(names).not.toContain('KINDGI_PACK_TENANT_ID');
     }
   });
 
@@ -374,7 +508,14 @@ describe('validateEnvForTarget', () => {
     ]);
     expect(envVarsForTarget({}).map((v) => v.name)).not.toContain('KINDGI_PACK_SERVICE_AUTH');
     const server = new Map(envVarsForTarget({}).map((v) => [v.name, v]));
-    expect(server.get('KINDGI_IMAGE_REGISTRY_AUTH')?.allowedValues).toEqual(['static', 'google']);
+    expect(server.get('KINDGI_OPENFGA_AUTH')?.allowedValues).toEqual(['none', 'google-id-token']);
+    expect(server.get('KINDGI_OPENFGA_PRESHARED_KEY')?.required).toBe(false);
+    expect(server.get('KINDGI_OPENFGA_PRESHARED_KEY')?.example).toBe('');
+    expect(server.get('KINDGI_IMAGE_REGISTRY_AUTH')?.allowedValues).toEqual([
+      'static',
+      'google',
+      'azure',
+    ]);
   });
 
   test('empty string is treated as missing', () => {
@@ -443,6 +584,16 @@ describe('KINDGI_ENV_SCHEMA — integrity', () => {
     const names = KINDGI_ENV_SCHEMA.map((v) => v.name);
     const set = new Set(names);
     expect(set.size).toBe(names.length);
+  });
+
+  test("every exported name (`*_VAR`) is a variable in the schema, so a reader and the docs can't drift", () => {
+    const names = new Set(KINDGI_ENV_SCHEMA.map((v) => v.name));
+    const exported = Object.entries(envSchema as Record<string, unknown>).filter(
+      (entry): entry is [string, string] =>
+        entry[0].endsWith('_VAR') && typeof entry[1] === 'string',
+    );
+    expect(exported.length).toBeGreaterThan(40);
+    expect(exported.filter(([, name]) => !names.has(name))).toEqual([]);
   });
 
   test('every var has a non-empty name + description', () => {

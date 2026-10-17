@@ -29,7 +29,9 @@ import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
-import type { HandlerError } from '../handler-runner.js';
+import { type Logger, childSpan, noopLogger, parseTraceparent } from '@kindgi/log';
+
+import type { HandlerContext, HandlerError } from '../handler-runner.js';
 import { runCheck, runHandler } from '../handler-runner.js';
 import type { Index, IndexedGuardrail, IndexedTool } from '../kindgi-index.js';
 import { type PackEnvCheck, missingPackEnv } from '../pack-env.js';
@@ -37,6 +39,7 @@ import {
   type CheckInvokeMessage,
   PACK_HEADERS,
   PACK_PROTOCOL_VERSION,
+  type PackCallContext,
   type PackErrorCode,
   type PackErrorMessage,
   type PackResponse,
@@ -60,6 +63,12 @@ export interface PackServiceOptions {
   readonly defaultTimeoutMs?: number;
   readonly logger?: (event: PackServiceLogEvent) => void;
   /**
+   * Where the service's records go (`@kindgi/log`, subsystem `pack`): a
+   * record per call, with the call's ids and trace, and each handler's
+   * `ctx.log` beneath it. Default: none. `logger` still gets its events.
+   */
+  readonly log?: Logger;
+  /**
    * The process environment the index's `env.required` names are checked
    * against, once, at creation. Default `process.env`.
    */
@@ -72,6 +81,16 @@ export interface PackServiceOptions {
   readonly envCheck?: PackEnvCheck;
   /** Test seam: how a module is loaded from its absolute path. */
   readonly importModule?: (absolutePath: string) => Promise<unknown>;
+  /**
+   * The one tenant this service serves (`KINDGI_PACK_TENANT_ID`). Set: a call
+   * to `/v1/invoke` or `/v1/info` whose `kindgi-tenant-id` header is missing
+   * or names another tenant, or a tool call whose context names another, is
+   * refused with 421 before any pack code runs. A backstop for a misrouted
+   * call: the server's routing is the boundary.
+   */
+  readonly tenantId?: string;
+  /** `sha256:<hex>` of the index file's bytes, reported by `/v1/info`. */
+  readonly indexHash?: string;
 }
 
 export type PackServiceLogEvent =
@@ -94,6 +113,11 @@ export type PackServiceLogEvent =
       readonly kind: 'missing-env';
       readonly check: PackEnvCheck;
       readonly names: readonly string[];
+    }
+  | {
+      /** A call for another tenant, refused with 421 (`KINDGI_PACK_TENANT_ID`). */
+      readonly kind: 'tenant-mismatch';
+      readonly via: 'header' | 'context';
     };
 
 export interface PackService {
@@ -107,6 +131,9 @@ export interface PackService {
 }
 
 const DEFAULT_MAX_CONCURRENCY = 32;
+
+/** `dispatch`'s answer for a tool call whose context names another tenant. */
+const MISDIRECTED = Symbol('misdirected');
 const DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 120_000;
 
@@ -115,9 +142,13 @@ export function createPackService(options: PackServiceOptions): PackService {
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
   const defaultTimeoutMs = options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
   const logger = options.logger ?? (() => undefined);
+  const log = options.log ?? noopLogger;
   const importModule =
     options.importModule ?? ((p: string) => import(pathToFileURL(p).href) as Promise<unknown>);
   const expectedToken = Buffer.from(options.token);
+  // Tenant ids are UUIDs: compared without regard to case, so an orchestrator
+  // that sets one in capitals doesn't refuse every call.
+  const pinnedTenant = options.tenantId?.toLowerCase();
 
   // Every version of a tool the pack holds, side by side: one agent version
   // may pin tool@1 while another pins tool@2 (keyed by id and version).
@@ -138,7 +169,13 @@ export function createPackService(options: PackServiceOptions): PackService {
 
   const envCheck = options.envCheck ?? 'strict';
   const missingEnv = missingPackEnv(options.index.env, options.env ?? process.env);
-  if (missingEnv.length > 0) logger({ kind: 'missing-env', check: envCheck, names: missingEnv });
+  if (missingEnv.length > 0) {
+    logger({ kind: 'missing-env', check: envCheck, names: missingEnv });
+    log.warn(
+      `The pack's env.required ${missingEnv.length === 1 ? 'name has' : 'names have'} no value: ${missingEnv.join(', ')}`,
+      { event: 'missing-env', kind: 'missing-env', check: envCheck, names: missingEnv },
+    );
+  }
 
   /** Why the service can't take calls now, or `undefined` when it can. */
   function notReady(): Reply | undefined {
@@ -196,6 +233,7 @@ export function createPackService(options: PackServiceOptions): PackService {
       packId: options.index.packId,
       packVersion: options.index.packVersion,
       artifactVersion: options.index.artifactVersion,
+      ...(options.indexHash !== undefined && { indexHash: options.indexHash }),
       tools: [...tools.values()].map((t) => ({
         id: t.id,
         ...(t.version && { version: t.version }),
@@ -239,7 +277,11 @@ export function createPackService(options: PackServiceOptions): PackService {
     };
   }
 
-  function callTool(message: ToolInvokeMessage, signal: AbortSignal): Promise<PackResponse> {
+  function callTool(
+    message: ToolInvokeMessage,
+    signal: AbortSignal,
+    callLog: Logger,
+  ): Promise<PackResponse> {
     const found = toolFor(message.tool);
     if ('refused' in found) return Promise.resolve(found.refused);
     const { tool } = found;
@@ -251,7 +293,7 @@ export function createPackService(options: PackServiceOptions): PackService {
         outputSchema: tool.output,
       },
       input: message.input,
-      ctx: { ...message.ctx, abortSignal: signal },
+      ctx: handlerContext(message.ctx, signal, callLog),
       importHandler: (p) => importModule(p) as never,
     }).then((r) =>
       r.kind === 'ok'
@@ -270,7 +312,11 @@ export function createPackService(options: PackServiceOptions): PackService {
       );
     }
     return runCheck({
-      check: { id: message.check.id, modulePath: options.resolveModule(guardrail.checkModulePath) },
+      check: {
+        id: message.check.id,
+        modulePath: options.resolveModule(guardrail.checkModulePath),
+        ...(guardrail.configSchema !== undefined && { configSchema: guardrail.configSchema }),
+      },
       config: message.config,
       trace: message.trace,
       abortSignal: signal,
@@ -305,6 +351,10 @@ export function createPackService(options: PackServiceOptions): PackService {
       const body = await readBody(req, maxBodyBytes);
       const response = body === undefined ? undefined : await dispatch(req, res, body);
       if (res.writableEnded || res.destroyed) return;
+      if (response === MISDIRECTED) {
+        reply(res, misdirected('context'));
+        return;
+      }
       reply(
         res,
         response === undefined
@@ -327,7 +377,7 @@ export function createPackService(options: PackServiceOptions): PackService {
     req: IncomingMessage,
     res: ServerResponse,
     body: string,
-  ): Promise<PackResponse> {
+  ): Promise<PackResponse | typeof MISDIRECTED> {
     let json: unknown;
     try {
       json = JSON.parse(body);
@@ -337,6 +387,14 @@ export function createPackService(options: PackServiceOptions): PackService {
     const parsed = parsePackRequest(json);
     if (parsed.kind === 'err') return parsed.error;
     const message = parsed.value;
+    // The header matched (refuseRequest); a tool call's own context must too.
+    if (
+      pinnedTenant !== undefined &&
+      message.kind === 'invoke' &&
+      String(message.ctx.tenantId).toLowerCase() !== pinnedTenant
+    ) {
+      return MISDIRECTED;
+    }
     const target = message.kind === 'invoke' ? 'tool' : 'check';
     const id = message.kind === 'invoke' ? message.tool.id : message.check.id;
 
@@ -349,24 +407,38 @@ export function createPackService(options: PackServiceOptions): PackService {
     });
 
     const started = Date.now();
+    // The call's ids and trace, on its record and on the handler's `ctx.log`.
+    const call = log.child({
+      ...callIds(message.kind === 'invoke' ? message.ctx : undefined),
+      ...callTrace(req.headers[PACK_HEADERS.traceparent]),
+      target,
+      ...(message.kind === 'invoke' ? { toolId: id } : { checkId: id }),
+    });
     const work =
       message.kind === 'invoke'
-        ? callTool(message, controller.signal)
+        ? callTool(message, controller.signal, call.child({ subsystem: `pack.${target}` }))
         : callCheck(message, controller.signal);
     const outcome = await Promise.race([work, aborted(controller.signal, id, target)]);
     clearTimeout(timer);
     if (controller.signal.aborted) {
-      void work.then(() =>
-        logger({ kind: 'handler-finished-late', target, id, afterMs: Date.now() - started }),
-      );
+      void work.then(() => {
+        const afterMs = Date.now() - started;
+        logger({ kind: 'handler-finished-late', target, id, afterMs });
+        call.warn(`${target} ${id} finished ${afterMs} ms after its call ended`, {
+          event: 'handler-finished-late',
+          kind: 'handler-finished-late',
+          afterMs,
+        });
+      });
     }
-    logger({
-      kind: 'call',
-      target,
-      id,
-      durationMs: Date.now() - started,
-      outcome: outcome.kind === 'error' ? outcome.code : 'ok',
-    });
+    const durationMs = Date.now() - started;
+    const result = outcome.kind === 'error' ? outcome.code : 'ok';
+    logger({ kind: 'call', target, id, durationMs, outcome: result });
+    call[result === 'ok' ? 'info' : 'warn'](
+      `${target} ${id} ${result} ${durationMs}ms`,
+      { event: 'call', kind: 'call', id, outcome: result, durationMs },
+      { inMessage: ['target', 'id', 'outcome', 'durationMs'] },
+    );
     return outcome;
   }
 
@@ -375,7 +447,36 @@ export function createPackService(options: PackServiceOptions): PackService {
     if (route === undefined) return { status: 404, body: { error: `No route ${req.url ?? '/'}` } };
     if (req.method !== route.method) return { status: 405, body: { error: `Use ${route.method}` } };
     if (route.auth && !authorized(req)) return { status: 401, body: { error: 'Bad pack token' } };
+    // Every route the token opens (`/v1/invoke`, `/v1/info`): a misrouted
+    // call gets nothing, not even what the pack holds. The probes stay open.
+    if (route.auth && pinnedTenant !== undefined) {
+      const named = req.headers[PACK_HEADERS.tenantId];
+      if (typeof named !== 'string' || named.toLowerCase() !== pinnedTenant) {
+        return misdirected('header');
+      }
+    }
     return undefined;
+  }
+
+  /**
+   * A call for another tenant: 421 Misdirected Request ("not the server for
+   * this request"), so the caller can tell it from the platform's 403. It
+   * names neither tenant.
+   */
+  function misdirected(via: 'header' | 'context'): Reply {
+    logger({ kind: 'tenant-mismatch', via });
+    log.warn('A call for another tenant was refused', {
+      event: 'tenant-mismatch',
+      kind: 'tenant-mismatch',
+      via,
+    });
+    return {
+      status: 421,
+      body: {
+        error: 'This pack service serves another tenant',
+        code: 'pack-tenant-mismatch',
+      },
+    };
   }
 
   function probe(name: Route['name']): Reply {
@@ -508,4 +609,46 @@ function describe(cause: unknown): string {
 /** A tool's key in the pack: its id and version (an unversioned tool, by id alone). */
 function toolKey(id: string, version: string | undefined): string {
   return version === undefined ? id : `${id}@${version}`;
+}
+
+/**
+ * The context a handler gets: the call's own (`PackCallContext`) and its
+ * abort signal, with `log` and `secrets` there but not enumerable, so
+ * printing, spreading or serializing a context never shows a secret.
+ */
+function handlerContext(wire: PackCallContext, signal: AbortSignal, log: Logger): HandlerContext {
+  const { secrets, ...rest } = wire;
+  const ctx = { ...rest, abortSignal: signal };
+  if (secrets !== undefined) {
+    Object.defineProperty(ctx, 'secrets', { value: secrets, enumerable: false });
+  }
+  Object.defineProperty(ctx, 'log', { value: log, enumerable: false });
+  return ctx as HandlerContext;
+}
+
+/** The ids a call's records carry, from its context. */
+function callIds(ctx: PackCallContext | undefined): Record<string, string> {
+  if (ctx === undefined) return {};
+  const ids: Record<string, string> = {};
+  for (const key of ['tenantId', 'projectId', 'orgId', 'runId', 'requestId'] as const) {
+    const value: unknown = ctx[key];
+    if (typeof value === 'string' && value !== '') ids[key] = value;
+  }
+  return ids;
+}
+
+/**
+ * The call's trace: the caller's trace id, and a span of this call's own
+ * whose parent is the caller's. None when the caller sent no
+ * `traceparent` (an older runtime): a fresh trace would join nothing.
+ */
+function callTrace(header: string | string[] | undefined): Record<string, string> {
+  const incoming = parseTraceparent(Array.isArray(header) ? header[0] : header);
+  if (incoming === undefined) return {};
+  const span = childSpan({
+    traceId: incoming.traceId,
+    spanId: incoming.parentSpanId,
+    flags: incoming.flags,
+  });
+  return { traceId: span.traceId, spanId: span.spanId };
 }

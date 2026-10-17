@@ -12,6 +12,9 @@ Most API tests exercise one route family and never touch the others.
 app with no database and no runtime — and any code path that reaches an
 unprovided binding fails loudly instead of silently returning nothing.
 
+The helpers are defined in `@kindgi/api/testing` and re-exported here
+unchanged; import from either.
+
 ## Exports
 
 | Export | Kind | Description |

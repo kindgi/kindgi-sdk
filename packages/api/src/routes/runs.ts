@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
-import type { KernelRunRecord, ListRunsInput, RunBinding } from '@kindgi/runtime';
+import type { KernelRunRecord, ListRunsInput, RunBinding, RunStatus } from '@kindgi/runtime';
 import type {
   FlowId,
   ListScope,
@@ -13,11 +13,13 @@ import type {
   ScopeSegment,
   Semver,
   TenantId,
+  Timestamp,
+  TriggerId,
 } from '@kindgi/types';
 
-import { ref } from '@kindgi/authz';
+import { type Principal, denyPayload, ref } from '@kindgi/authz';
 
-import { type WireErrorBody, statusFor, toWireError } from '../errors.js';
+import { type WireErrorBody, retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type { EventBusBinding, EventPayload, Subscription } from '../event-bus-binding.js';
 import type {
   RunHandlerBinding,
@@ -25,19 +27,33 @@ import type {
   RunHandlerOutcome,
   RunTrace,
 } from '../handler-binding.js';
+import type { HitlBinding } from '../hitl-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
+import {
+  type ReferenceScopeBinding,
+  outOfScopeResponse,
+  referencesOutOfScope,
+} from '../reference-scope.js';
+import { type RunFailure, runFailure } from '../run-failure.js';
+import { runWaitingFor } from '../run-waiting-for.js';
 import type { AppEnv } from '../types.js';
+import { deniedBy } from './denied.js';
 import { liveScopeToWire } from './live-scope-wire.js';
 import type { DecodedCursor } from './pagination.js';
-import { clampLimit, decodeCursor } from './pagination.js';
+import { clampLimit, decodeCursor, isCursorTime } from './pagination.js';
+import { participantRefusal } from './participant-access.js';
+import { runFailuresHandler } from './run-failures.js';
 import { parseListScope } from './scope-params.js';
 import { parseSegmentsBody } from './segments.js';
 import {
   formatSseFrame,
   isTerminalWireKind,
   parseLastEventId,
+  pause,
   projectJournalEntry,
+  readingOf,
   toRunProgressEvent,
 } from './sse.js';
 import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
@@ -46,6 +62,11 @@ const KERNEL_RUN_CHANNEL_PREFIX = 'kernel:run:';
 
 /** Options for `runsRouter`. */
 export interface RunsRouterOptions {
+  /**
+   * The approvals, for a suspended run's `waitingFor` (the approvals linked
+   * to its open waits). Absent: those waits are `unattributed`.
+   */
+  readonly hitl?: HitlBinding;
   /**
    * Optional push-based event bus. When present, `GET /:runId/stream`
    * subscribes on `kernel:run:<runId>` and delivers events
@@ -60,6 +81,39 @@ export interface RunsRouterOptions {
   readonly publicRunTokens?: {
     readonly mint: (tenantId: TenantId, runIds: readonly RunId[]) => MintPublicRunTokenResult;
   };
+  /**
+   * Whether the tenant has the agent or flow a run names. With an
+   * authorizer, starting a run needs `execute` on an existing target; one
+   * that doesn't exist is left to the run handler's 404. Absent: the
+   * check always runs.
+   */
+  readonly targetExists?: (
+    tenantId: TenantId,
+    target: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  ) => Promise<boolean>;
+  /**
+   * What a run filed under a named project may run (`reference-scope.ts`):
+   * an agent or flow that project doesn't reach is refused with
+   * `reference-out-of-scope`. Absent: as named.
+   */
+  readonly referenceScope?: ReferenceScopeBinding;
+  /**
+   * A conversation's stored participant and project: a turn posted into it
+   * runs as that participant, whatever the body names, so who may post it
+   * is checked against them (`participantRefusal`). `null`: no such
+   * conversation (the run handler answers it). Any other failure throws, so
+   * the turn never runs unchecked. Required, as `targetProject` is: a
+   * router without them would check no stored participant.
+   */
+  readonly conversationOf: (
+    tenantId: TenantId,
+    conversationId: string,
+  ) => Promise<{ readonly participantId?: string; readonly projectId?: string } | null>;
+  /** The project a target is registered in: the agent's or flow's own. */
+  readonly targetProject: (
+    tenantId: TenantId,
+    target: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  ) => Promise<string | undefined>;
 }
 
 /** How far up the parent chain a public token's grant reaches. */
@@ -78,7 +132,7 @@ const refuseMalformedRunId = refuseMalformedUuidParam('runId', 'a run id');
 export function runsRouter(
   binding: RunHandlerBinding,
   runBinding: RunBinding,
-  options: RunsRouterOptions = {},
+  options: RunsRouterOptions,
   authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
@@ -88,58 +142,55 @@ export function runsRouter(
   // Each check resolves the run's project (by run id) and asks the
   // authorizer about that project:
   //
-  // POST /              — no route-level check; `execute` on the agent
-  //                       or flow is up to the run handler binding.
+  // POST /              — execute on the agent or flow it names (an
+  //                       existing one; a missing one is the handler's 404)
   // GET /:runId         — read on the run's project
   // POST /:runId/cancel — write on the run's project
-  // POST /:runId/resume — execute on the run's project
+  // POST /:runId/resume — write on the run's project
   // GET /:runId/journal — read on the run's project
   // GET /:runId/stream  — read on the run's project
-  // GET /               — list; tenant-scoped, the scope filter narrows
-  //                       further (rows are not filtered per permission)
+  // GET /               — list; rows filtered to `read` on their project
   if (authorizer !== undefined) {
+    // A run that isn't there is the handler's 404: `read` on the tenant
+    // (which every reader has) lets it through without masking it. An id
+    // that isn't a run id is never looked up (its uuid cast would fail
+    // the query as a 500): the route's own 400 answers it.
     const projectFromRun = async (c: import('hono').Context<AppEnv>) => {
       const tenantId = c.get('tenantId') as TenantId;
       const runId = c.req.param('runId') ?? '';
-      if (runId.length === 0) return ref('tenant', tenantId as unknown as string);
-      const row = await runBinding.getRun(tenantId, runId as RunId);
-      if (row === null) {
-        // Fall back to tenant so the underlying handler surfaces
-        // 404 rather than the middleware masking it as 403.
-        return ref('tenant', tenantId as unknown as string);
-      }
-      return ref('project', row.projectId as unknown as string);
+      const row = UUID_RE.test(runId) ? await runBinding.getRun(tenantId, runId as RunId) : null;
+      return row === null
+        ? ref('tenant', tenantId as unknown as string)
+        : ref('project', row.projectId as unknown as string);
     };
+    const onRunProject =
+      (action: 'read' | 'write') =>
+      async (c: import('hono').Context<AppEnv>, next: import('hono').Next) => {
+        const resource = await projectFromRun(c);
+        const mw = authorizer.authorize(
+          resource.type === 'tenant' ? 'read' : action,
+          () => resource,
+        );
+        return mw(c, next);
+      };
     r.use('/:runId', async (c, next) => {
       if (c.req.method !== 'GET') return next();
-      const mw = authorizer.authorize('read', projectFromRun);
-      return mw(c, next);
+      return onRunProject('read')(c, next);
     });
-    r.use('/:runId/journal', async (c, next) => {
-      const mw = authorizer.authorize('read', projectFromRun);
-      return mw(c, next);
-    });
-    r.use('/:runId/stream', async (c, next) => {
-      const mw = authorizer.authorize('read', projectFromRun);
-      return mw(c, next);
-    });
+    r.use('/:runId/journal', onRunProject('read'));
+    r.use('/:runId/stream', onRunProject('read'));
     // Progress: `read` for API tokens. A public run token has no
     // principal; the handlers check that its grant covers the run.
     const progressAuth = async (c: import('hono').Context<AppEnv>, next: import('hono').Next) => {
       if (c.get('tokenKind') === 'public-run') return next();
-      const mw = authorizer.authorize('read', projectFromRun);
-      return mw(c, next);
+      return onRunProject('read')(c, next);
     };
     r.use('/:runId/progress', progressAuth);
     r.use('/:runId/progress/stream', progressAuth);
-    r.use('/:runId/cancel', async (c, next) => {
-      const mw = authorizer.authorize('write', projectFromRun);
-      return mw(c, next);
-    });
-    r.use('/:runId/resume', async (c, next) => {
-      const mw = authorizer.authorize('execute', projectFromRun);
-      return mw(c, next);
-    });
+    r.use('/:runId/cancel', onRunProject('write'));
+    // As cancel: changing a run is `write` on its project (a project has
+    // no `execute`; asking for it refused everyone, T243 A).
+    r.use('/:runId/resume', onRunProject('write'));
   }
 
   // ---------- POST / (start a run — agent | flow) ----------
@@ -162,16 +213,95 @@ export function runsRouter(
       return c.json(toWireError(parsed.error, requestId));
     }
 
+    const target =
+      parsed.value.kind === 'agent'
+        ? { kind: 'agent' as const, id: parsed.value.agentId as unknown as string }
+        : { kind: 'flow' as const, id: parsed.value.flowId as unknown as string };
+    if ((await options.targetExists?.(tenantId, target)) !== false) {
+      const refused = await deniedBy(authorizer, c, 'execute', ref(target.kind, target.id));
+      if (refused !== undefined) return refused;
+    }
+    // A run filed under a project the caller names needs `write` on it:
+    // the run lands there, readable by that project's viewers (T307).
+    // Unnamed, the runtime files it under the conversation's, the agent's
+    // or the flow's own project, so a caller who may only run it needs no
+    // more, and the refusal says so.
+    if (authorizer !== undefined && parsed.value.projectId !== undefined) {
+      const named = ref('project', parsed.value.projectId as unknown as string);
+      const decision = await authorizer.check(c, 'write', named);
+      if (!decision.allowed) {
+        const deny = denyPayload('write', named.type, named.id, decision.reason);
+        c.status(403);
+        return c.json(
+          toWireError(
+            {
+              code: deny.code,
+              message: `Permission denied: naming project ${named.id} needs write on it; omit \`projectId\` to run in the ${target.kind}'s own project`,
+              action: deny.action,
+              resource: deny.resource,
+              reason: deny.reason,
+            },
+            requestId,
+          ),
+        );
+      }
+    }
+    // A run filed under a named project runs only what that project
+    // reaches (`reference-scope.ts`).
+    if (parsed.value.projectId !== undefined) {
+      const outOfScope = await referencesOutOfScope(
+        options.referenceScope,
+        tenantId,
+        parsed.value.projectId as ProjectId,
+        [{ path: `/${target.kind}`, kind: target.kind, id: target.id }],
+      );
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    }
+
+    // Whose memory the turn runs with: a conversation's stored participant
+    // (it wins, as the turn reads it), else the one the body names. Running
+    // as someone takes what reading their memory takes.
+    const turnInput =
+      typeof parsed.value.input === 'object' && parsed.value.input !== null
+        ? (parsed.value.input as Record<string, unknown>)
+        : {};
+    const named = typeof turnInput.participantId === 'string' ? turnInput.participantId : undefined;
+    const conversationId =
+      typeof turnInput.conversationId === 'string' ? turnInput.conversationId : undefined;
+    if (authorizer !== undefined && (named !== undefined || conversationId !== undefined)) {
+      // Conversation ids are uuids: another id names no conversation (the
+      // run handler answers it), so only the body's participant is checked.
+      const conversation =
+        conversationId === undefined || !UUID_RE.test(conversationId)
+          ? null
+          : await options.conversationOf(tenantId, conversationId);
+      const participantId = conversation?.participantId ?? named;
+      if (participantId !== undefined) {
+        const projectId =
+          conversation?.projectId ??
+          (parsed.value.projectId as unknown as string | undefined) ??
+          (await options.targetProject(tenantId, target));
+        const refusal = await participantRefusal(c, authorizer, {
+          participantId,
+          projectId,
+          ...(conversation !== null && { conversationId }),
+        });
+        if (refusal !== undefined) return refusal;
+      }
+    }
+
     const trace = c.get('trace');
     const invocation = await invokeFromBody(
       binding,
       tenantId,
       parsed.value,
+      c.get('principal') as Principal | undefined,
       trace !== undefined ? { traceId: trace.traceId, spanId: trace.spanId } : undefined,
     );
 
     if (invocation.kind === 'err') {
       c.status(statusFor(invocation.error.code) as never);
+      answerBudgetWait(c, invocation.error);
       return c.json(runFailureToWire(invocation.error, requestId));
     }
 
@@ -199,19 +329,33 @@ export function runsRouter(
     });
   });
 
+  // ---------- GET /failures ----------
+  // Before `/:runId`, which would read `failures` as a run id.
+  r.get('/failures', runFailuresHandler(runBinding, authorizer));
+
   // ---------- GET /:runId ----------
   r.get('/:runId', refuseMalformedRunId, async (c) => {
     const requestId = c.get('requestId');
     const runId = c.req.param('runId') as RunId;
 
-    const loaded = await runBinding.getRun(c.get('tenantId') as TenantId, runId);
+    const tenantId = c.get('tenantId') as TenantId;
+    const loaded = await runBinding.getRun(tenantId, runId);
     if (loaded === null) {
       c.status(statusFor('run-not-found') as never);
       return c.json(
         toWireError({ code: 'run-not-found', message: `No run with id ${runId}` }, requestId),
       );
     }
-    return c.json(serializeRun(loaded, { output: true }));
+    // A suspended run says what it waits for (left out when that can't be read).
+    const waitingFor = await runWaitingFor(
+      { runBinding, ...(options.hitl !== undefined && { hitl: options.hitl }) },
+      tenantId,
+      { id: loaded.runId, status: loaded.status },
+    );
+    return c.json({
+      ...serializeRun(loaded, { output: true }),
+      ...(waitingFor !== undefined && { waitingFor }),
+    });
   });
 
   // ---------- GET /:runId/progress ----------
@@ -245,7 +389,7 @@ export function runsRouter(
     const rawCursor = c.req.query('cursor');
     if (rawCursor !== undefined && rawCursor.length > 0) {
       const decoded = decodeCursor(rawCursor);
-      if (decoded === null) {
+      if (decoded === null || !isCursorTime(decoded.createdAt)) {
         c.status(statusFor('bad-input') as never);
         return c.json(
           toWireError({ code: 'bad-input', message: '`cursor` is malformed' }, requestId),
@@ -261,7 +405,7 @@ export function runsRouter(
         toWireError({ code: 'scope-invalid', message: scopeParsed.message }, requestId),
       );
     }
-    const listFilter = parseRunListFilter(c.req.query());
+    const listFilter = parseRunListFilter(c.req.query(), c.req.queries('status'));
     if (listFilter.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: listFilter.message }, requestId));
@@ -277,8 +421,14 @@ export function runsRouter(
         filter: listFilter.value,
       }),
     );
+    const visible =
+      authorizer === undefined
+        ? page.data
+        : await authorizer.filterByCan(c, 'read', page.data, (row) =>
+            ref('project', row.projectId as unknown as string),
+          );
     return c.json({
-      data: page.data.map((row) => serializeRun(row, { output: includeOutput })),
+      data: visible.map((row) => serializeRun(row, { output: includeOutput })),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -356,12 +506,35 @@ export function runsRouter(
       );
     }
 
+    const headers = {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Request-Id': requestId,
+    };
+    // Nobody will read this stream when the request is a HEAD (Hono answers a
+    // HEAD with this GET route and drops the body unread, and nothing cancels
+    // it) or when the client left during the read above (its request aborts,
+    // but the server cancels only a body it's writing). Then the route
+    // answers the stream's status and headers, before the stream exists, and
+    // starts none of its work.
+    if (c.req.method === 'HEAD' || c.req.raw.signal.aborted) {
+      return new Response(null, { status: 200, headers });
+    }
+
     const encoder = new TextEncoder();
     let lastEmittedSeq = since ?? -1;
     const POLL_MS = 200;
     const MAX_WAIT_MS = 5 * 60_000;
+    // Aborted when the client goes away: the reader cancels the stream, or
+    // the request aborts. The poll, the wait and the subscription below end
+    // on it at once.
+    const reading = readingOf(c.req.raw);
 
     const body = new ReadableStream<Uint8Array>({
+      cancel() {
+        reading.abort();
+      },
       async start(controller) {
         const startedAt = Date.now();
         let closed = false;
@@ -417,6 +590,12 @@ export function runsRouter(
         // whether we're on the push or poll path.
         if (eventBus !== undefined) {
           const abortCtrl = new AbortController();
+          const stop = (): void => abortCtrl.abort();
+          // `reading` can't have aborted yet: the route answers an aborted
+          // request without a stream, and `start()` runs inside the stream's
+          // constructor up to its first await, so no cancel or abort comes
+          // before this listener.
+          reading.signal.addEventListener('abort', stop, { once: true });
           let subscription: Subscription | null = null;
           let fallBackToPoll = false;
           try {
@@ -460,6 +639,7 @@ export function runsRouter(
               close();
               return;
             }
+            if (abortCtrl.signal.aborted) return;
             const subOutcome = await eventBus.subscribe(
               tenantId,
               `${KERNEL_RUN_CHANNEL_PREFIX}${runId}`,
@@ -498,19 +678,14 @@ export function runsRouter(
               fallBackToPoll = true;
             } else {
               subscription = subOutcome.value;
-              // Wait until close or max-wait window elapses. We rely
-              // on the subscription callback to write frames.
-              await new Promise<void>((resolve) => {
-                const timer = setTimeout(() => resolve(), MAX_WAIT_MS);
-                const onDone = (): void => {
-                  clearTimeout(timer);
-                  resolve();
-                };
-                abortCtrl.signal.addEventListener('abort', onDone, { once: true });
-              });
+              // Wait until a terminal entry, the reader's cancel or the
+              // max-wait window, whichever is first. We rely on the
+              // subscription callback to write frames.
+              await pause(MAX_WAIT_MS, abortCtrl.signal);
               return;
             }
           } finally {
+            reading.signal.removeEventListener('abort', stop);
             abortCtrl.abort();
             if (subscription !== null) {
               try {
@@ -558,13 +733,15 @@ export function runsRouter(
           return { terminal: sawTerminal };
         };
         try {
+          if (reading.signal.aborted) return;
           const first = await pollEmit();
           if (first.terminal) {
             close();
             return;
           }
           while (Date.now() - startedAt < MAX_WAIT_MS) {
-            await new Promise((r) => setTimeout(r, POLL_MS));
+            await pause(POLL_MS, reading.signal);
+            if (reading.signal.aborted) break;
             const step = await pollEmit();
             if (step.terminal) break;
           }
@@ -574,15 +751,7 @@ export function runsRouter(
       },
     });
 
-    return new Response(body, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'X-Request-Id': requestId,
-      },
-    });
+    return new Response(body, { status: 200, headers });
   };
   r.get('/:runId/stream', refuseMalformedRunId, (c) => streamRun(c, 'full'));
   r.get('/:runId/progress/stream', refuseMalformedRunId, (c) => streamRun(c, 'progress'));
@@ -594,21 +763,37 @@ export function runsRouter(
     const runId = c.req.param('runId') as RunId;
     const sinceRaw = c.req.query('since');
     const since = sinceRaw !== undefined ? Number.parseInt(sinceRaw, 10) : undefined;
+    // Paging is opt-in: with `limit`, at most that many entries after
+    // `cursor`; without it, the whole journal, as before paging.
+    const paging = parseJournalPaging(c.req.query('limit'), c.req.query('cursor'));
+    if (paging.kind === 'err') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: paging.message }, requestId));
+    }
+    const { limit, after } = paging;
 
     const journal = await runBinding.readJournal(tenantId, runId);
     if (journal.kind === 'err') {
       const err = journal.error;
+      const busy = databaseBusyAnswer(err, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(err.code) as never);
       return c.json(toWireError(err as never, requestId));
     }
 
-    const filtered =
-      since !== undefined && Number.isFinite(since)
-        ? journal.value.filter((e) => e.sequence > since)
-        : journal.value;
+    // `readJournal` gives the entries in sequence order.
+    const filtered = journal.value.filter(
+      (e) =>
+        (since === undefined || !Number.isFinite(since) || e.sequence > since) &&
+        (after === undefined || e.sequence > after),
+    );
+    const page = limit !== undefined ? filtered.slice(0, limit) : filtered;
+    // The page's last entry, when more remain after it.
+    const endsBefore = page.length < filtered.length ? page.at(-1) : undefined;
     return c.json({
-      data: filtered,
-      hasMore: false,
+      data: page,
+      hasMore: endsBefore !== undefined,
+      ...(endsBefore !== undefined && { nextCursor: encodeJournalCursor(endsBefore.sequence) }),
     });
   });
 
@@ -623,7 +808,30 @@ export function runsRouter(
  */
 function runFailureToWire(failure: RunHandlerFailure, requestId: string): WireErrorBody {
   const { details, ...rest } = failure as RunHandlerFailure & Readonly<Record<string, unknown>>;
-  return toWireError({ ...details, ...rest }, requestId);
+  // A budget's wait is answered in `Retry-After` (`budgetWaitOf`), not in the body.
+  const { retryAfterMs: _answered, ...withoutWait } = details ?? {};
+  const shown = budgetWaitOf(failure) === undefined ? details : withoutWait;
+  return toWireError({ ...shown, ...rest }, requestId);
+}
+
+/**
+ * `Retry-After` for a turn refused by a budget kept per tenant
+ * (`budgetWaitOf`), as the API's own refusal by that budget answers it.
+ */
+function answerBudgetWait(c: Context<AppEnv>, failure: RunHandlerFailure): void {
+  const wait = budgetWaitOf(failure);
+  if (wait !== undefined) c.header('Retry-After', String(retryAfterSeconds(wait)));
+}
+
+/**
+ * The wait of a turn refused by a budget kept per tenant
+ * (`rate-limit-exceeded`, `details.retryAfterMs`): answered in
+ * `Retry-After`, as the API's own refusal by that budget is, with
+ * `details.limit` and `details.budgetMs` in the body.
+ */
+function budgetWaitOf(failure: RunHandlerFailure): number | undefined {
+  const wait = failure.details?.retryAfterMs;
+  return failure.code === 'rate-limit-exceeded' && typeof wait === 'number' ? wait : undefined;
 }
 
 /** Hand a parsed start body to the binding: an agent turn or a flow run. */
@@ -631,10 +839,13 @@ function invokeFromBody(
   binding: RunHandlerBinding,
   tenantId: TenantId,
   body: ParsedStartRunBody,
+  principal: Principal | undefined,
   trace?: RunTrace,
 ): Promise<RunHandlerOutcome> {
   const common = {
     tenantId,
+    // Whom the run acts for: the authenticated caller, never the body.
+    ...(principal !== undefined && { principal }),
     ...(trace !== undefined && { trace }),
     ...(body.projectId !== undefined && { projectId: body.projectId }),
     input: body.input,
@@ -678,6 +889,7 @@ function serializeRun(
     updatedAt: row.updatedAt as unknown as string,
     completedAt: row.completedAt ?? undefined,
     failureMessage: row.failureMessage ?? undefined,
+    ...withFailure(row),
     ...(opts.output && row.output !== undefined && { output: row.output }),
     ...(row.parentRunId != null && { parentRunId: row.parentRunId as unknown as string }),
     ...(row.parentNodeId != null && { parentNodeId: row.parentNodeId as unknown as string }),
@@ -694,13 +906,32 @@ function serializeRun(
     }),
     ...(row.replayOf != null && { replayOf: row.replayOf as unknown as string }),
     ...(row.evalRunId != null && { evalRunId: row.evalRunId }),
+    ...(row.trigger !== undefined && {
+      trigger: {
+        triggerId: row.trigger.triggerId as unknown as string,
+        kind: row.trigger.kind,
+        fireId: row.trigger.fireId,
+        ...(row.trigger.scheduledFor !== undefined && {
+          scheduledFor: row.trigger.scheduledFor as unknown as string,
+        }),
+      },
+    }),
     ...(row.versions != null && { versions: row.versions }),
+    ...(row.contentErasedAt !== undefined && {
+      contentErasedAt: row.contentErasedAt as unknown as string,
+    }),
     ...(row.segments !== undefined &&
       row.segments.length > 0 && {
         segments: row.segments.map(({ key, value }) => ({ key, value })),
       }),
     ...(row.traceId != null && { traceId: row.traceId }),
   };
+}
+
+/** `failure` on a failed run's wire row: its error, decoded once, here. */
+function withFailure(row: KernelRunRecord): { readonly failure?: RunFailure } {
+  const failure = runFailure(row);
+  return failure !== undefined ? { failure } : {};
 }
 
 /** A run's progress: status and timing, no data. */
@@ -762,6 +993,13 @@ function listRunsInput(input: {
     ...(filter.agentId !== undefined && { agentId: filter.agentId }),
     replays: filter.replays,
     ...(filter.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
+    ...(filter.triggerId !== undefined && { triggerId: filter.triggerId }),
+    ...(filter.statuses !== undefined && { statuses: filter.statuses }),
+    ...(filter.createdAfter !== undefined && { createdAfter: filter.createdAfter }),
+    ...(filter.createdBefore !== undefined && { createdBefore: filter.createdBefore }),
+    ...(filter.agentVersion !== undefined && { agentVersion: filter.agentVersion }),
+    ...(filter.flowId !== undefined && { flowId: filter.flowId }),
+    ...(filter.flowVersion !== undefined && { flowVersion: filter.flowVersion }),
   };
 }
 
@@ -771,19 +1009,128 @@ interface RunListFilter {
   readonly agentId?: string;
   readonly replays: 'exclude' | 'include' | 'only';
   readonly evalRunId?: string;
+  readonly triggerId?: TriggerId;
+  readonly statuses?: readonly RunStatus[];
+  readonly createdAfter?: Timestamp;
+  readonly createdBefore?: Timestamp;
+  readonly agentVersion?: string;
+  readonly flowId?: string;
+  readonly flowVersion?: string;
   readonly includeOutput: boolean;
+}
+
+/** Every run status: a `Record` over the type, so a new status fails the build here. */
+const RUN_STATUSES: Readonly<Record<RunStatus, true>> = {
+  pending: true,
+  running: true,
+  suspended: true,
+  completed: true,
+  failed: true,
+  cancelled: true,
+};
+
+type Parsed<T> = { kind: 'ok'; value: T } | { kind: 'err'; message: string };
+
+/** `?status=`, repeated or comma-separated (`status=failed&status=cancelled`, `status=failed,cancelled`), de-duplicated. */
+function parseStatuses(raw: readonly string[] | undefined): Parsed<RunStatus[] | undefined> {
+  if (raw === undefined || raw.length === 0) return { kind: 'ok', value: undefined };
+  const given = raw.flatMap((v) => v.split(',')).map((s) => s.trim());
+  const unknown = given.filter((s) => !Object.hasOwn(RUN_STATUSES, s));
+  if (unknown.length > 0) {
+    const named = unknown.join(', ') || '(empty)';
+    return {
+      kind: 'err',
+      message: `Unknown \`status\` value(s): ${named}. Expected one or more of: ${Object.keys(RUN_STATUSES).join(', ')}`,
+    };
+  }
+  return { kind: 'ok', value: [...new Set(given as RunStatus[])] };
+}
+
+/** `?createdAfter=` / `?createdBefore=`: strict bounds, as ISO times, after before before. */
+function parseCreatedBounds(
+  createdAfter: string | undefined,
+  createdBefore: string | undefined,
+): Parsed<{ readonly createdAfter?: Timestamp; readonly createdBefore?: Timestamp }> {
+  const iso = (raw: string | undefined) =>
+    raw === undefined || Number.isNaN(Date.parse(raw))
+      ? undefined
+      : (new Date(Date.parse(raw)).toISOString() as Timestamp);
+  const after = iso(createdAfter);
+  const before = iso(createdBefore);
+  if (createdAfter !== undefined && after === undefined) {
+    return { kind: 'err', message: '`createdAfter` must be a date-time' };
+  }
+  if (createdBefore !== undefined && before === undefined) {
+    return { kind: 'err', message: '`createdBefore` must be a date-time' };
+  }
+  if (after !== undefined && before !== undefined && after >= before) {
+    return { kind: 'err', message: '`createdAfter` must be earlier than `createdBefore`' };
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...(after !== undefined && { createdAfter: after }),
+      ...(before !== undefined && { createdBefore: before }),
+    },
+  };
+}
+
+/** The narrowing filters: `status`, the creation bounds, the agent's version, and the flow with its version. */
+function parseRunNarrowing(
+  query: Readonly<Record<string, string>>,
+  status: readonly string[] | undefined,
+): Parsed<
+  Pick<
+    RunListFilter,
+    'statuses' | 'createdAfter' | 'createdBefore' | 'agentVersion' | 'flowId' | 'flowVersion'
+  >
+> {
+  const { agentId, agentVersion, flowId, flowVersion } = query;
+  const statuses = parseStatuses(status);
+  if (statuses.kind === 'err') return statuses;
+  const bounds = parseCreatedBounds(query.createdAfter, query.createdBefore);
+  if (bounds.kind === 'err') return bounds;
+  const empty = (
+    [
+      ['agentVersion', agentVersion],
+      ['flowId', flowId],
+      ['flowVersion', flowVersion],
+    ] as const
+  ).find(([, value]) => value !== undefined && value.trim() === '');
+  if (empty !== undefined) return { kind: 'err', message: `\`${empty[0]}\` must not be empty` };
+  if (agentVersion !== undefined && agentId === undefined) {
+    return { kind: 'err', message: '`agentVersion` needs `agentId`' };
+  }
+  if (flowVersion !== undefined && flowId === undefined) {
+    return { kind: 'err', message: '`flowVersion` needs `flowId`' };
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...(statuses.value !== undefined && { statuses: statuses.value }),
+      ...bounds.value,
+      ...(agentVersion !== undefined && { agentVersion }),
+      ...(flowId !== undefined && { flowId }),
+      ...(flowVersion !== undefined && { flowVersion }),
+    },
+  };
 }
 
 /**
  * `?parentRunId=` (children of a run), `?topLevel=true`, `?agentId=` (an
  * agent's turns), `?replays=exclude|include|only` (default `exclude`),
  * `?evalRunId=` (one eval run's replays; implies they are included),
- * `?include=output`.
+ * `?triggerId=` (the runs a trigger started), `?include=output`, and the
+ * narrowing in `parseRunNarrowing`.
  */
 function parseRunListFilter(
   query: Readonly<Record<string, string>>,
+  status?: readonly string[],
 ): { kind: 'ok'; value: RunListFilter } | { kind: 'err'; message: string } {
-  const { parentRunId, topLevel, agentId, replays, evalRunId, include } = query;
+  const { parentRunId, topLevel, agentId, replays, evalRunId, triggerId, include } = query;
+  if (triggerId !== undefined && !UUID_RE.test(triggerId)) {
+    return { kind: 'err', message: '`triggerId` must be a trigger id (a UUID)' };
+  }
   if (agentId !== undefined && agentId.trim() === '') {
     return { kind: 'err', message: '`agentId` must not be empty' };
   }
@@ -816,14 +1163,18 @@ function parseRunListFilter(
   if (unknown.length > 0) {
     return { kind: 'err', message: `Unknown \`include\` value(s): ${unknown.join(', ')}` };
   }
+  const narrowing = parseRunNarrowing(query, status);
+  if (narrowing.kind === 'err') return narrowing;
   return {
     kind: 'ok',
     value: {
+      ...narrowing.value,
       ...(parentRunId !== undefined && { parentRunId: parentRunId as RunId }),
       topLevelOnly,
       ...(agentId !== undefined && { agentId }),
       replays: replays ?? (evalRunId !== undefined ? 'include' : 'exclude'),
       ...(evalRunId !== undefined && { evalRunId }),
+      ...(triggerId !== undefined && { triggerId: triggerId as TriggerId }),
       includeOutput: includes.includes('output'),
     },
   };
@@ -970,4 +1321,55 @@ function parseStartRunBody(
       ...(wait !== undefined && { wait }),
     },
   };
+}
+
+/**
+ * A journal read's paging: at most `limit` entries (a whole number from 1;
+ * more than 100 gives 100), after the sequence `cursor` names. An empty
+ * one is none. One that isn't one is refused, never read as a default.
+ */
+function parseJournalPaging(
+  limitRaw: string | undefined,
+  cursorRaw: string | undefined,
+):
+  | { readonly kind: 'ok'; readonly limit: number | undefined; readonly after: number | undefined }
+  | { readonly kind: 'err'; readonly message: string } {
+  let limit: number | undefined;
+  if (limitRaw !== undefined && limitRaw !== '') {
+    if (!/^[1-9][0-9]*$/.test(limitRaw)) {
+      return {
+        kind: 'err',
+        message: '`limit` must be a whole number, 1 or more (a page holds at most 100)',
+      };
+    }
+    limit = clampLimit(limitRaw);
+  }
+  let after: number | undefined;
+  if (cursorRaw !== undefined && cursorRaw !== '') {
+    const decoded = decodeJournalCursor(cursorRaw);
+    if (decoded === null) return { kind: 'err', message: '`cursor` is malformed' };
+    after = decoded;
+  }
+  return { kind: 'ok', limit, after };
+}
+
+/**
+ * A journal page's cursor: url-safe base64 of `{ sequence }`, the last
+ * entry the page gave. The next page starts after it.
+ */
+function encodeJournalCursor(sequence: number): string {
+  return Buffer.from(JSON.stringify({ sequence }), 'utf8').toString('base64url');
+}
+
+/** The sequence a journal cursor names, or `null` for one that isn't (answered `400 bad-input`). */
+function decodeJournalCursor(raw: string): number | null {
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown;
+    const sequence = (parsed as { sequence?: unknown } | null)?.sequence;
+    return typeof sequence === 'number' && Number.isSafeInteger(sequence) && sequence >= 0
+      ? sequence
+      : null;
+  } catch {
+    return null;
+  }
 }

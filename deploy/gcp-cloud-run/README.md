@@ -4,7 +4,7 @@ A Terraform root module that runs Kindgi in one GCP project:
 - the runtime (the API, agent and flow execution) as a Cloud Run service;
 - your pack's code as a second, IAM-protected Cloud Run service;
 - Kindgi's own Cloud SQL (Postgres 16) instance;
-- everything they stand on: service accounts, an Artifact Registry repository, a KMS key for the runtime's secrets, and Secret Manager containers.
+- everything they stand on: service accounts, an Artifact Registry repository, a KMS key for the runtime's secrets (unless `secrets_backend = "none"`, below), and Secret Manager containers.
 
 **Two network shapes** (`network_mode`):
 
@@ -26,7 +26,7 @@ The `connector` shape is the same resources wired to an existing connector.
 
 ## Before you start
 
-- Terraform ≥ 1.6, `gcloud`, Docker, `openssl`, and your pack's `kindgi` CLI (0.1.2 or later, for `kindgi key trust`).
+- Terraform ≥ 1.6, `gcloud`, Docker, `openssl`, `curl`, `jq`, and your pack's `kindgi` CLI (0.1.2 or later, for `kindgi key trust`).
 - **Permission to create the resources:** an Owner, or Editor plus Security Admin and Secret Manager Admin.
 - **Pull access to the runtime image** `quay.io/kindgi/runtime` (`kindgi auth registry`).
 - **A license key** from Kindgi (`KINDGI_LICENSE_KEY`; a non-production key for a pilot).
@@ -70,6 +70,12 @@ terraform apply -var-file=dev.tfvars \
 
 Cloud Run pulls from Artifact Registry. Copy the runtime's **whole multi-platform index** by digest. A `docker pull` / `push` from an arm64 machine would copy only arm64, and Cloud Run needs amd64.
 
+**An existing repository instead of the module's own (`image_repository`).**
+- **Setting it:** `image_repository = { project, location, repository }` uses a repository you already have. The module then creates none.
+- **What it grants:** the server's service account gets `roles/artifactregistry.reader` on it, to read deployed pack images. A repository in another project also grants this project's Cloud Run service agent the same role, so it can pull the images.
+- **Check its cleanup policies first.** A policy that deletes tags or images by age can delete the digest a running revision pins, and the next instance start then fails. Keep Kindgi's images out of such a policy, or use the module's own repository.
+- **Where images go:** `terraform output image_repository` names where they go, in either case.
+
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker <region>-docker.pkg.dev
@@ -79,17 +85,29 @@ kindgi build --local --push --env dev      # the pack image, signed; writes .kin
 
 The mirrored runtime keeps the release's digest. Set `server_image` and `pack_image` to the two digests (`…@sha256:…`).
 
+With `tenancy = "multi"` (see "Many tenants") there's no `pack_image` and no pack service: each deployment is a Cloud Run service of its own.
+
 ## 3. Secret values
 
-Each value is piped straight into Secret Manager. None goes on disk or into Terraform's state. `N` is your `name_prefix`.
+Each value is piped straight into Secret Manager. None goes on disk, into Terraform's state or into a command's arguments, which other processes can read and gcloud writes to its log file. `N` is your `name_prefix`. The commands are for bash or zsh.
 
 ```sh
 CONN=$(terraform output -raw sql_connection_name)
+P=$(gcloud config get-value project)
 
 # Kindgi's database user: a built-in user (it gets CREATEROLE; not an IAM user).
+# Made through the Cloud SQL Admin API rather than `gcloud sql users create --password`:
+# the body goes in on stdin and the token in a header from a pipe.
+# Each step runs only if the one before it worked, so the secret never holds
+# a password the user wasn't given.
 DBPW=$(openssl rand -hex 24)
-gcloud sql users create kindgi --instance=$N --password="$DBPW"
-printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
+OP=$(printf '{"name":"kindgi","password":"%s"}' "$DBPW" \
+  | curl -sS -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud auth print-access-token)") \
+      -H 'Content-Type: application/json' --data-binary @- \
+      "https://sqladmin.googleapis.com/v1/projects/$P/instances/$N/users" \
+  | jq -r '.name // error(.error.message)') && [ -n "$OP" ] \
+  && gcloud sql operations wait "$OP" --project=$P \
+  && printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
   | gcloud secrets versions add $N-database-url --data-file=-
 unset DBPW
 
@@ -100,10 +118,15 @@ openssl rand -hex 32 | tr -d '\n' | gcloud secrets versions add $N-pack-service-
 printf 'kgi_bt_%s' "$(openssl rand -hex 32)" | gcloud secrets versions add $N-api-token --data-file=-
 
 # The key for secrets stored in Postgres: 32 bytes, base64, the same on every replica.
+# Its first version is the one `secrets_aad_key_version` pins ("1").
+# Not with secrets_backend = "none": there is no such secret then.
 openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data-file=-
 
 # The key that signs public run tokens: Ed25519, PKCS#8 PEM, base64.
 openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-public-token-key --data-file=-
+
+# Only with export_signing = "secret": the key that signs exports (audit bundles, provenance, evidence).
+openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-export-signing-key --data-file=-
 
 # The license key: paste it; it never goes in a file.
 read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | gcloud secrets versions add $N-license-key --data-file=- && unset LICENSE_KEY
@@ -113,6 +136,12 @@ With `database_private_network` set, the URL is `postgres://kindgi:<password>@<p
 
 **Your pack's own secrets** (`secret_env` in `kindgi env plan --env dev`): create each one and add its value, then list it in `pack_secret_env`. The pack service gets read access to exactly those.
 
+**Without a KMS key (`secrets_backend = "none"`).** By default (`"postgres"`), secrets set through Kindgi's API are envelope-encrypted in its database under a Cloud KMS key this module creates. With `"none"`:
+- **Not created:** the KMS key ring, the key and its grants, and the `<prefix>-secrets-aad-key` secret. `secrets_aad_key_version` isn't needed.
+- **The server stores no secrets of its own.** `/v1/secrets` isn't served (it answers 404 `route-not-found`), and nothing can be stored through Kindgi's API. The boot record has no KMS probe line.
+- **Who it fits:** a deployment whose pack secrets all come by reference (`pack_secret_env`) and whose model uses the service's own identity, Gemini on Vertex AI (`vertex_ai = true`). A provider that needs an API key stored in Kindgi doesn't fit it.
+- **Changing an existing deployment from `"postgres"`:** the key's `prevent_destroy` stops the plan. That's on purpose: secrets stored under the key would become unreadable. Move them out first, then take the key out of state, as in "Taking it down".
+
 ## 4. The pack's env
 
 ```sh
@@ -120,26 +149,47 @@ kindgi env plan --env=dev > pack-env.json      # exits 1 if a required name has 
 jq '{pack_env: .env, pack_secret_env: .secret_env}' pack-env.json > dev.pack-env.auto.tfvars.json
 ```
 
+**A Cloud Run service the pack's code calls (`pack_run_invokers`).** When a tool calls one of your app's IAM-protected Cloud Run services, list it as `{ project, location, service }`, with the service's name, not its URL. The pack's service account gets `roles/run.invoker` on it. The grant is added beside the service's other members, and nothing else of the service changes.
+- **The token:** the pack's code fetches a Google ID token for the service's URL from the metadata server and sends it as `Authorization: Bearer`. In Node that's google-auth-library's `getIdTokenClient(url)`; in Python, `google.oauth2.id_token.fetch_id_token`.
+- **The ingress:** the call leaves through the pack's own egress. In `direct` that's Cloud Run's internet egress; in `connector`, the connector carries private ranges only. A service with ingress `all` takes the call, with IAM as the guard. A service with internal ingress refuses it, with a 404 (Google's "Page not found" page, not a 403): Cloud Run counts a call from another service as internal only when the caller sends all its traffic through a VPC, and the pack doesn't in either shape.
+
 ## 5. The services
 
 ```sh
 terraform apply -var-file=dev.tfvars
 ```
 
-The server's boot lines name what it reached:
+The server's boot lines name what it reached. On Cloud Run the runtime logs JSON, so they're the `lines` of one record, `Kindgi runtime ready`:
+
+```sh
+gcloud logging read 'resource.labels.service_name="'$N'-server" AND jsonPayload.message="Kindgi runtime ready"' \
+  --limit=1 --format=json | jq -r '.[0].jsonPayload.lines[]'
+```
 
 ```
-KMS probe OK (gcp-cloud-kms): …
 Background work: tenant <seed tenant id>
 Pack service: https://<pack service> — <pack id> (artifact …), protocol 2, 3 tools, 1 check
 Pack service auth: a Google ID token per call (KINDGI_PACK_SERVICE_AUTH)
 ```
 
+With the KMS key (`secrets_backend = "postgres"`), the key's check is its own record, logged just before:
+
+```sh
+gcloud logging read 'resource.labels.service_name="'$N'-server" AND textPayload:"KMS probe"' \
+  --limit=1 --format='value(textPayload)'
+```
+
+```
+KMS probe OK (gcp-cloud-kms): gcp-cloud-kms v1 (encrypt/decrypt round trip, key version 1) (170ms)
+```
+
+**On the first apply** the pack service line can read `⚠ Pack service at https://… isn't answering (pack-service-unauthorized: The platform in front of the pack service refused the call: …)`. The server's invoker grant on the pack service is seconds old then, and IAM is still propagating it. Calls work once it has, without a restart (in our run, the first tool call, 3½ minutes after the warning, worked). If tool calls still fail after that, check that the server's service account has `roles/run.invoker` on the pack service.
+
 The runtime's KMS key needs `roles/cloudkms.cryptoKeyEncrypterDecrypter`. A runtime before 0.1.3 also needs `roles/cloudkms.viewer`, because its boot probe reads the key; from 0.1.3 the probe is an encrypt/decrypt round trip. The module grants both.
 
 ## 6. Register the pack
 
-Trust the pack's signing key on the runtime, then deploy:
+Trust the pack's signing key on the runtime, then deploy. With `tenancy = "multi"`, `<api token>` here and after is a key of the tenant, not the API token, and the tools answer once your orchestrator has recorded the deployment's endpoint ("Many tenants").
 
 ```sh
 URL=$(terraform output -raw server_url)
@@ -153,17 +203,181 @@ A deploy that was refused (say, before the key was trusted) is answered the same
 
 Then `kindgi health`, `kindgi tools list` and a run, with `--url "$URL" --token <api token>`.
 
+## 7. Turn on sign-in
+
+**Nobody can sign in to the console until you turn sign-in on.** The API takes API tokens either way. Since runtime 0.1.5, console sign-in is off by default outside `kindgi dev`, and the server's boot lines say so: `⚠ Console sign-in: nobody can sign in to the console. …`
+
+The server's own settings go in two variables, as the pack's do:
+- `server_env`: plain values;
+- `server_secret_env`: Secret Manager references, read with the server's identity. You create each secret, and the server gets read access to exactly those (a secret in another project is granted there).
+
+The plan refuses a name the module sets itself (its own variables cover those, such as `public_url` below), `KINDGI_DEV`, and a secret given as a plain value.
+
+**With the API token,** which the console's sign-in page takes:
+
+```hcl
+server_env = {
+  KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+}
+```
+
+**With an emailed link.** It needs the server's sign-in secret, an SMTP server and `public_url`:
+
+```sh
+# The sign-in secret: 32 bytes, base64.
+openssl rand 32 | base64 | gcloud secrets create $N-auth-secret --data-file=-
+# The SMTP URL, password included: paste it; it never goes in a file.
+read -rs SMTP_URL && printf '%s' "$SMTP_URL" | gcloud secrets create $N-smtp-url --data-file=- && unset SMTP_URL
+```
+
+```hcl
+public_url = "https://kindgi-dev-server-abc123-pd.a.run.app" # terraform output -raw server_url
+server_env = {
+  KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+  KINDGI_AUTH_EMAIL_FROM       = "kindgi@acme.example"
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET         = { secret = "kindgi-dev-auth-secret", version = "1" }
+  KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "kindgi-dev-smtp-url", version = "1" }
+}
+```
+
+Pin each secret to a version, as above, rather than `latest`: a new version then reaches the server only when you change `version` here.
+
+- **`public_url`** (`KINDGI_PUBLIC_URL`) is the URL people open the console at. On a new deployment that's `terraform output -raw server_url` after the first apply, so the emailed link comes with a second apply. With your own domain in front, it's that domain.
+  - Console sessions are then accepted from that origin only, so open the console there.
+  - The plan refuses `KINDGI_AUTH_SECRET` without it, because the server wouldn't start.
+- **Continue with Google, Microsoft or GitHub, verified domains, and Turnstile** go the same way:
+  - in `server_env`: each provider's client id, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
+  - in `server_secret_env`: each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET`.
+  - The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
+
+## Many tenants (`tenancy`)
+
+By default (`tenancy = "single"`) the server serves one tenant, `seed_tenant_id`'s, and calls one pack service (`pack_image`). With `"multi"`, on runtime 0.1.8 or later, it serves every tenant created through `POST /v1/system/tenants`, and takes each request's tenant from its key or session. Each deployment is then a Cloud Run service of its own: your orchestrator creates it and records its endpoint through the runtime's `/v1/system/…` deployment routes. This module doesn't.
+
+```hcl
+tenancy         = "multi"
+openfga_api_url = "https://openfga-…a.run.app"
+# no seed_tenant_id, seed_user_id or pack_image; secrets_backend stays "postgres"
+server_env = {
+  KINDGI_TENANT_HOST_ACCESS  = "isolated"
+  KINDGI_PACK_ROUTING        = "per-deployment"
+  KINDGI_PACK_ENDPOINT_HOSTS = "*-<project number>.<region>.run.app" # the deployments' services
+}
+server_secret_env = {
+  KINDGI_OPENFGA_PRESHARED_KEY = { secret = "<a key OpenFGA accepts>", version = "1" }
+}
+```
+
+- **What the plan needs, and names when it's missing:** `openfga_api_url` (without an authorization store no tenant would have an admin), `KINDGI_OPENFGA_PRESHARED_KEY` in `server_secret_env`, `KINDGI_TENANT_HOST_ACCESS = "isolated"`, `KINDGI_PACK_ROUTING = "per-deployment"` and `KINDGI_PACK_ENDPOINT_HOSTS` in `server_env`, and `secrets_backend = "postgres"` (each endpoint's token is sealed under the secrets' key). The server won't start without them.
+- **What the plan refuses:** `seed_tenant_id`, `seed_user_id`, `pack_image`, and what the pack service would run with: `pack_env`, `pack_secret_env`, `pack_cloud_sql_instances`, `pack_bucket_readers` and `pack_run_invokers`. The pack service's other settings do nothing without it.
+- **Each deployment's service** (your orchestrator's):
+  - **Its host** matches `KINDGI_PACK_ENDPOINT_HOSTS`. On Cloud Run, `*-<project number>.<region>.run.app` admits only one project's services; `*.run.app` and `*.<region>.run.app` are refused at start. Record its endpoint by that URL: Cloud Run's other URL for the service, the one ending in `.a.run.app`, doesn't match.
+  - **The server calls it with its own identity** when the endpoint's auth is a Google ID token, so the service grants `roles/run.invoker` to the server's account (`terraform output service_accounts`).
+  - **In `connector` mode its ingress is all traffic,** with IAM as the guard: the server's connector carries private ranges only. In `direct` mode it can be internal when it runs in the server's project (or inside a VPC Service Controls perimeter with it), as the module's own pack service does ([Cloud Run: ingress](https://docs.cloud.google.com/run/docs/securing/ingress)).
+- **What the module sets:** `KINDGI_TENANCY=multi`, and none of `KINDGI_TENANT_ID`, `KINDGI_SEED_USER_ID`, `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` or `KINDGI_PACK_SERVICE_AUTH`. It creates no pack service, pack account or pack grants, and no shared pack token. `pack_call_timeout_ms` still caps each call.
+- **The API token** (`$N-api-token`) is the operator's: it reaches only `/v1/system/*`, in no tenant. So step 6 and everything after it use a tenant's key instead:
+  - **A tenant:** `POST /v1/system/tenants` with the API token. Without `firstAdmin`, the answer carries the first admin's key, sent once.
+  - **Its image repository:** the create's `imagePrefix`, or `PUT /v1/system/tenants/{tenantId}/image-prefix`, before its first deploy. Without it, a deploy is refused with `409 image-prefix-unset`.
+  - **Its tools answer once your orchestrator has run the deployment's service and recorded its endpoint.** Until then, a run that calls one fails with `pack-endpoint-pending`: "The pack service of the deployment shipping … isn't ready yet."
+- **An existing deployment** keeps its tenant, with its data, keys and people, as the first of many at the first `"multi"` boot. Before the switch:
+  - **OpenFGA first:** if it has no `openfga_api_url` yet, add it (and the key) in a single-tenant apply. That boot makes the tenant's authorization store, with the seed user as its admin. Switching in the same apply leaves the tenant without one, and none can be made afterwards without naming its first admin.
+  - **A key of the tenant** for anything that deploys or calls with `$N-api-token`: after the switch, that token no longer reaches the tenant.
+  - **Its deployments' services:** the switch removes the one pack service, so each deployment needs a service and a recorded endpoint of its own, as any tenant's does.
+  - Then, in one apply: `tenancy = "multi"`, without `seed_tenant_id`, `seed_user_id` and `pack_image`, with the settings above.
+- **After an upgrade that adds a step per tenant,** `kindgi-runtime tenants repair --all` has to run once: a server serving many tenants sets nothing up per tenant at boot. This module runs no such job.
+- **An earlier runtime** ignores `KINDGI_TENANCY`. With no tenant id it would seed a new tenant at every start, so upgrade the runtime first.
+- **`"single"`** sets no `KINDGI_TENANCY` and keeps the pack service: a deployment that keeps it plans no change (`moved.tf` gives the pack service, its account and the server's invoker grant their new addresses).
+
+## Testing the module
+
+`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, the server's own settings (sign-in), the tenancy: `single` with its pack service, `multi` with each setting it needs, and what each refuses; and `database_instance`: the server's volume, URL secret and grants on another instance, the module's own instance and grant kept, and each refusal.
+
+## Upgrading
+
+- **To runtime 0.1.5: add `KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"` to `server_env` first, or nobody can sign in to the console.** Up to 0.1.4 the console's sign-in page took the API token on its own. From 0.1.5 that's off by default outside `kindgi dev`. The API keeps taking tokens either way, and "7. Turn on sign-in" has the other ways in.
+- **The module turns Cloud Resource Manager on** (`cloudresourcemanager.googleapis.com`). Its own calls to it are billed to the caller's project, but another root on the same project that reads the project with its calls billed there (the provider's `user_project_override`) needs it on, and couldn't turn it on before that read. A deployment made with an earlier copy of the module gets it at its next apply: one `google_project_service` to add.
+- **Upgrades roll forward:** migrations only go forward, so an older runtime can break on a database a newer one migrated. Deploy a new runtime revision at 100% traffic, keep a database backup from before, and roll back by restoring it.
+
 ## Operating it
 
+- **Client addresses:** the server trusts one proxy, Cloud Run's front end, which appends the caller to `X-Forwarded-For` (`trusted_proxies = "1"`, `KINDGI_TRUSTED_PROXIES`), so rate limits and audit records see the caller. With an external Application Load Balancer in front, set `"2"`: it appends the client and then its own address ([Google: the X-Forwarded-For header](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
 - **One server instance** (`server_max_instances = 1`) until several replicas are verified. Migrations run at boot and need a direct database connection (the socket or a private IP, not a transaction pooler).
-- **Upgrades roll forward:** migrations only go forward, so an older runtime can break on a database a newer one migrated. Deploy a new runtime revision at 100% traffic, keep a database backup from before, and roll back by restoring it.
-- **Rotating a secret:** add a version, then roll a new revision of each service that reads it (`gcloud run services update <service> --update-labels=rotated=$(date +%s)`). Never rotate the AAD key this way: every secret stored in Postgres is bound to it.
+- **Rotating a secret:** add a version, then roll a new revision of each service that reads it (`gcloud run services update <service> --update-labels=rotated=$(date +%s)`).
+- **The AAD key is pinned, never rotated this way.** The server reads the version `secrets_aad_key_version` names, not `latest`. Every secret stored in Postgres is bound to it: a new version is a key change that needs every stored secret re-encrypted, and a version added by mistake must not reach the server.
+  - **Upgrading from a module copy before this variable:** set it to the version your server reads now. `gcloud secrets versions list $N-secrets-aad-key` shows it; normally `1`.
 - **Slow tools:** the runtime waits `KINDGI_PACK_CALL_TIMEOUT_MS` (default 120 s, `pack_call_timeout_ms`) for a tool call. Keep the pack service's `pack_timeout` above it.
+
+## Serving from a restored instance
+
+A point-in-time recovery always makes a new instance ([Google: point-in-time recovery](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/pitr)). A backup can go into a new one too ([Google: restoring](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/restoring)); restored into the instance that serves, it overwrites everything on it. `database_instance` moves the server onto the new instance and leaves the module's own as it is. Public-IP mode only: the server reaches whichever instance it serves from through its `/cloudsql` volume.
+
+1. **Restore into a new instance in this project.** `S` is the instance the server serves from: `$N`, or `database_instance.name` after an earlier restore, since writes made since that switch are only there. `R` is the new one's name, such as `$N-r20261023`:
+
+   ```sh
+   S=$N
+   R=$N-r<yyyymmdd>
+   gcloud sql instances clone $S $R --point-in-time='<yyyy-mm-ddThh:mm:ss.000Z>'
+   ```
+
+   It needs a public IP, as the module's own has. The plan refuses an instance without one.
+2. **Its URL, in a secret of its own,** with a new password for the database user. The restored user has the old one. The password goes through the Cloud SQL Admin API (`users.update`), as in "3. Secret values": the body on stdin and the token in a header from a pipe, never in a command's arguments. Each step runs only if the one before it worked.
+
+   ```sh
+   gcloud secrets create $R-database-url --replication-policy=user-managed --locations=<region>
+   CONN=$(gcloud sql instances describe $R --format='value(connectionName)')
+   P=$(gcloud config get-value project)
+   DBPW=$(openssl rand -hex 24)
+   OP=$(printf '{"password":"%s"}' "$DBPW" \
+     | curl -sS -X PUT -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud auth print-access-token)") \
+         -H 'Content-Type: application/json' --data-binary @- \
+         "https://sqladmin.googleapis.com/v1/projects/$P/instances/$R/users?name=kindgi" \
+     | jq -r '.name // error(.error.message)') && [ -n "$OP" ] \
+     && gcloud sql operations wait "$OP" --project=$P \
+     && printf 'postgres://kindgi:%s@/kindgi?host=/cloudsql/%s' "$DBPW" "$CONN" \
+     | gcloud secrets versions add $R-database-url --data-file=-
+   unset DBPW
+   ```
+
+3. **Let the server read it:**
+
+   ```sh
+   gcloud secrets add-iam-policy-binding $R-database-url --role=roles/secretmanager.secretAccessor \
+     --member="serviceAccount:$(terraform output -json service_accounts | jq -r .server)"
+   ```
+
+   The module doesn't grant this one, since the secret isn't the module's. If a Terraform root of yours makes the secret, that root makes the grant too. When two roots hold the same grant, the first to remove it takes it away from the other.
+4. **Replay the erasure ledger on it before it serves.** A restore brings back what an erasure cleared. The runtime image's `erasures replay` does it, with the server's settings, `KINDGI_DATABASE_URL` from `$R-database-url`, and this instance at `/cloudsql`: a Cloud Run job, say. The docs' "Back up and restore" page has the command, under Erasures and backups.
+5. **Switch,** in your tfvars, then `terraform apply`:
+
+   ```hcl
+   database_instance = {
+     name       = "kindgi-prod-r20261023"
+     url_secret = "kindgi-prod-r20261023-database-url"
+   }
+   ```
+
+   - **What the apply changes:**
+     - the server's `/cloudsql` volume names the new instance alone;
+     - `KINDGI_DATABASE_URL` reads `url_secret`;
+     - the server's account gets `roles/cloudsql.client`, conditioned on the new instance, before the new revision starts.
+   - **The new revision applies the image's migrations** at boot, as on any start, and takes the traffic once it's ready. The old revision keeps its grant on the module's instance for the requests it still has.
+   - **The plan refuses:**
+     - private-IP mode;
+     - the module's own instance or its `$N-database-url`;
+     - an instance without a public IP;
+     - a connection name for `name`, or a path for `url_secret`.
+6. **The module's own instance stays,** with its deletion protection. The `sql_connection_name` output still names it. Writes made since the restore point are on it alone.
+
+**Anything else on the instance** comes back with it: another database there, an OpenFGA store's, say. That moves on your side, in the same window.
+
+**Going back:** set `database_instance` to null and apply. The server's revision changes first, and only then does the grant on the restored instance go: the module removes it only after the server's new revision is in. Writes made since the switch stay on the restored instance.
 
 ## Taking it down
 
 ```sh
-terraform state rm google_kms_crypto_key.secrets google_kms_key_ring.kindgi   # GCP never deletes key rings or keys
+terraform state rm 'google_kms_crypto_key.secrets[0]' 'google_kms_key_ring.kindgi[0]'   # GCP never deletes key rings or keys (none with secrets_backend = "none")
 terraform destroy -var-file=dev.tfvars
 gcloud kms keys versions destroy 1 --key=$N-secrets --keyring=$N --location=<region>   # scheduled, 30 days
 ```

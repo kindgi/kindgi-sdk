@@ -10,7 +10,13 @@
 
 import { connect, createServer } from 'node:net';
 
-import { docker, runtimeContainerName } from './runtime-container.js';
+import { LocalPortsRefused, listenRefusal } from './blocked.js';
+import {
+  type DockerRunner,
+  docker,
+  removeReplaceableRuntimeContainer,
+  runtimeContainerName,
+} from './runtime-container.js';
 
 const HOST = '127.0.0.1';
 
@@ -23,7 +29,8 @@ export const PORT_SEARCH_SPAN = 100;
 /**
  * Whether something holds `port` on `127.0.0.1`: it accepts a connection
  * (a listener on any address, Docker's published ports included), or the
- * port can't be bound.
+ * port can't be bound. Rejects with `LocalPortsRefused` when no port can
+ * be (`listen EPERM`, a sandbox's): every one would read as taken.
  */
 export async function portInUse(port: number): Promise<boolean> {
   return (await accepts(port)) || !(await canListen(port));
@@ -43,9 +50,13 @@ function accepts(port: number, timeoutMs = 300): Promise<boolean> {
 }
 
 function canListen(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const server = createServer();
-    server.once('error', () => resolve(false));
+    server.once('error', (err) => {
+      const refused = listenRefusal(err, port);
+      if (refused === undefined) resolve(false);
+      else reject(new LocalPortsRefused(port, refused));
+    });
     server.listen({ host: HOST, port, exclusive: true }, () => {
       server.close(() => resolve(true));
     });
@@ -70,12 +81,21 @@ export async function firstFreePort(
  * {@link portInUse} for the runtime of the pack at `packDir`. This pack's
  * runtime container from an earlier boot (a crashed session) is removed
  * first: starting the runtime replaces it anyway, so the port it holds
- * is this boot's.
+ * is this boot's. One another live `kindgi dev` owns isn't:
+ * `RuntimeOwnedElsewhere`. `run` is `docker`, or a fake in tests.
  */
-export async function runtimePortInUseReal(input: {
-  readonly packDir: string;
-  readonly port: number;
-}): Promise<boolean> {
-  await docker(['rm', '--force', runtimeContainerName(input.packDir)]);
+export async function runtimePortInUseReal(
+  input: {
+    readonly packDir: string;
+    readonly port: number;
+    readonly owner?: string;
+    readonly ownerIsLive?: (owner: string) => Promise<boolean>;
+  },
+  run: DockerRunner = docker,
+): Promise<boolean> {
+  await removeReplaceableRuntimeContainer(runtimeContainerName(input.packDir), {
+    ...input,
+    docker: run,
+  });
   return portInUse(input.port);
 }

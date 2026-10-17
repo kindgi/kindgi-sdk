@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.4"
+version: "0.1.6"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -139,7 +139,9 @@ brief_writer = Agent(
   messages loaded; `hitl` configures approval gates. Absent = the full
   history, no gates. A tenant's `hitl` policy can tighten the gates
   (shorter timeout, higher reviewer role, stricter per tool), never
-  loosen them.
+  loosen them. `"separateApprover"` in `hitl` (`True`, or
+  `{"overrides": {"<tool id>": True}}`) makes a tool's approval need
+  someone other than whoever asked.
 - **`budget`** — per turn: `maxSteps` (model calls, default 8),
   `maxCostUsd`, `maxWallMs` (default 120 000). Steps or cost exceeded
   fails the turn (`budget-exceeded`); out of wall time aborts it. Leave
@@ -158,7 +160,29 @@ brief_writer = Agent(
   the call. Default kinds are `invalid-arguments` and `unknown-tool`
   (nothing ran); add `tool-error` only when retrying the tool is safe.
   Each retry costs a step.
-- **`retrieval`** — memory retrieval declarations; usually `[]`.
+- **`retrieval`** — what the agent reads from memory before each turn;
+  empty = no memory. Each intent is a dict with the API's keys:
+  `{"types": ["acme.preference"], "scope": "same-user", "mode": "both",
+  "limit": 5}`. `scope` is `same-user`, `same-conversation`,
+  `same-project` or `tenant`; `mode` absent (newest first), `keyword`,
+  `semantic` or `both`. Facts reach the model as data in a `<memory>`
+  block, never as instructions. `semantic`/`both` need embeddings on the
+  runtime (`KINDGI_MEMORY_EMBEDDINGS`); without them a `semantic` intent
+  fails the turn (`semantic-unavailable`). `{"source": "conversations",
+  "scope": "same-user"}` recalls this agent's earlier conversations: the
+  people's own words only, unless `"roles": ["user", "agent"]`.
+  `same-user` memory (facts, recall or `remember`) is the run's end user's:
+  pass `participantId` on every run. A run without one reads and keeps
+  none (its result warns `memory-needs-participant`), never the memory of
+  the user a key acts for, who may serve many people.
+- **`memory`** — `{"remember": {"types": ["acme.preference"], "scope":
+  "same-user", "keepDays": 30}}` gives the turn the built-in tool
+  `kindgi_remember` (name it exactly so in the instructions). The model
+  picks type, text, `key` and expiry, never the scope; a fact wider than
+  one person, or instruction-like text, waits for a person's approval.
+  Use a model with reliable tool calling. `{"instructionTypes":
+  ["acme.policy"]}` makes a retrieved, verified fact of those types an
+  instruction. See https://docs.kindgi.com/v0.1/guides/agents/give-an-agent-memory/.
 
 ## Which model answers
 

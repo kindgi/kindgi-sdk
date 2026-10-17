@@ -1,0 +1,91 @@
+name: Java SDK
+
+# The Java SDK (sdks/java): the code generator, kindgi-models, kindgi-client and kindgi-pack, built
+# and tested on Java 17, then the client inside Spring Boot 3 and 4 apps. It reports on every pull
+# request and merge-queue group, so it can be a required check, and does its work only when the
+# Java SDK, the API document the client is generated from, the specs kindgi-pack bundles, or a
+# file its tests read change (the `changes` job). (The pack conformance suite runs kindgi-pack in ci.yml.) What would go to
+# Maven Central is staged unsigned and checked as the release checks it (scripts/check-jars.mjs).
+on:
+  push:
+    branches: [main]
+  pull_request:
+    # `ready_for_review` fires when a draft is marked ready; the job's `if:` skips drafts.
+    types: [opened, synchronize, reopened, ready_for_review]
+  # The merge queue: each queued pull request is checked on top of main and the ones ahead of it.
+  merge_group:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Whether this run's changes touch what this workflow checks (scripts/changed-paths.mjs).
+  changes:
+    name: Java SDK paths
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.paths.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: paths
+        # VersionOrderTest holds Maven to the version spelling sync-jvm-version.mjs writes; what
+        # goes to Maven Central is checked here (check-jars and its libraries). The tests read the
+        # built-in checks and the log vectors too, and scripts/jvm-test-reads.test.mjs fails when
+        # a file a test reads isn't here.
+        run: >-
+          node scripts/changed-paths.mjs
+          'sdks/java/**' packages/api/openapi.json 'packages/specs/schemas/**'
+          packages/guardrails/src/checks.ts packages/log/tests/vectors/records.json
+          .github/workflows/java.yml scripts/changed-paths.mjs scripts/sync-jvm-version.mjs
+          scripts/check-jars.mjs scripts/lib/zip.mjs scripts/lib/pom-xml.mjs scripts/text-scan.mjs
+          scripts/forbidden-names.json
+
+  java:
+    name: Java SDK (17)
+    needs: changes
+    # Skipped, which a required check counts as passing, for a draft or when nothing this workflow
+    # checks changed. It runs when `changes` didn't succeed, so a diff that couldn't be made never
+    # passes the check.
+    if: >-
+      !cancelled() &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
+      (needs.changes.result != 'success' || needs.changes.outputs.changed == 'true')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/java
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      # `deploy` with the release profile also stages what would go to Maven Central, unsigned,
+      # in target/central-staging (and installs, for the steps below).
+      - name: Build and test (generator golden tests, models, client, operation coverage, pack)
+        run: ./mvnw -B -ntp -P release -Dgpg.skip=true deploy
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          # Plain Node for check-jars: no install, so no package-manager cache (it would look for
+          # pnpm, which this job never sets up).
+          package-manager-cache: false
+      - name: What would go to Maven Central (check-jars)
+        working-directory: .
+        run: node scripts/check-jars.mjs sdks/java/target/central-staging
+      - name: The client in Spring Boot apps (3.2, 3.5, 4.0, 4.1)
+        run: |
+          set -e
+          for boot in 3:3.2.12 3:3.5.16 4:4.0.8 4:4.1.1; do
+            echo "::group::Spring Boot ${boot#*:}"
+            ./mvnw -B -ntp -Pcompat -pl "compat/spring-boot-${boot%%:*}" verify -Dspring-boot.version="${boot#*:}"
+            echo "::endgroup::"
+          done

@@ -18,9 +18,11 @@ import type {
 import type { Cursor, OrgId, TeamId, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
+import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import {
+  membershipExistsError,
   membershipNotKeptInStepError,
   orgNotFoundError,
   slugConflictError,
@@ -59,6 +61,11 @@ export function teamsRouter(
   membershipBinding: TeamMembershipBinding,
   tenantHierarchy: TenantHierarchyBinding,
   authorizer?: Authorizer,
+  /**
+   * Optional. The tenant's people: a member added to a team must be one of
+   * them, as a project's (`projectsRouter`). Without it, an id is taken as given.
+   */
+  directory?: IdentityDirectoryBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -74,7 +81,10 @@ export function teamsRouter(
     role: TeamRole,
   ): Promise<
     | { readonly kind: 'done'; readonly outcome: TeamMembershipUpdateRoleOutcome }
-    | { readonly kind: 'refused'; readonly error: ReturnType<typeof membershipNotKeptInStepError> }
+    | {
+        readonly kind: 'refused';
+        readonly error: { readonly code: string; readonly message: string };
+      }
   > {
     if (authorizer === undefined) {
       return {
@@ -86,6 +96,9 @@ export function teamsRouter(
       return { kind: 'refused', error: membershipNotKeptInStepError('updateTeamMemberRole') };
     }
     const res = await tenantHierarchy.updateTeamMemberRole({ tenantId, teamId, userId, role });
+    if (res.kind === 'err' && res.error.code === 'site-person-grants-managed') {
+      return { kind: 'refused', error: { code: res.error.code, message: res.error.message } };
+    }
     if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
     return { kind: 'done', outcome: res.value };
   }
@@ -118,16 +131,16 @@ export function teamsRouter(
       const mw = authorizer.authorize(action, () => ref('team', teamId));
       return mw(c, next);
     });
+    // Who's in a team is for its admins (and tenant admins), reading as
+    // well as changing: a plain member sees the team, not the others in it.
     r.use('/:teamId/memberships', async (c, next) => {
       const teamId = c.req.param('teamId');
-      const action = c.req.method === 'GET' ? 'read' : 'admin';
-      const mw = authorizer.authorize(action, () => ref('team', teamId));
+      const mw = authorizer.authorize('admin', () => ref('team', teamId));
       return mw(c, next);
     });
     r.use('/:teamId/memberships/:userId', async (c, next) => {
       const teamId = c.req.param('teamId');
-      const action = c.req.method === 'GET' ? 'read' : 'admin';
-      const mw = authorizer.authorize(action, () => ref('team', teamId));
+      const mw = authorizer.authorize('admin', () => ref('team', teamId));
       return mw(c, next);
     });
   }
@@ -350,6 +363,32 @@ export function teamsRouter(
         ),
       );
     }
+    // The person named must be one of the tenant's, still here, as for a
+    // project's member: an unknown or malformed id is refused, never added.
+    if (directory !== undefined) {
+      const user = await directory.getUser({ tenantId, userId: b.userId as unknown as UserId });
+      if (user === null || user.unregisteredAt !== undefined) {
+        c.status(statusFor('identity-user-not-found') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'identity-user-not-found',
+              message: `User "${b.userId}" is not a member of this tenant`,
+              userId: b.userId,
+            },
+            requestId,
+          ),
+        );
+      }
+    }
+    const exists = (role: string) => {
+      c.status(statusFor('membership-exists') as never);
+      return c.json(toWireError(membershipExistsError(role), requestId));
+    };
+    const managed = (message: string) => {
+      c.status(statusFor('site-person-grants-managed') as never);
+      return c.json(toWireError({ code: 'site-person-grants-managed', message }, requestId));
+    };
     // Racy — the team can be deleted between the preliminary get and the add.
     const teamGone = () => {
       c.status(statusFor('team-not-found') as never);
@@ -373,6 +412,8 @@ export function teamsRouter(
       });
       if (res.kind === 'err') {
         if (res.error.code === 'team-not-found') return teamGone();
+        if (res.error.code === 'membership-exists') return exists(res.error.role);
+        if (res.error.code === 'site-person-grants-managed') return managed(res.error.message);
         throw new Error(res.error.message, { cause: res.error });
       }
     } else {
@@ -382,6 +423,7 @@ export function teamsRouter(
         role: b.role,
       });
       if (outcome.kind === 'team-not-found') return teamGone();
+      if (outcome.kind === 'membership-exists') return exists(outcome.role);
     }
     c.status(201);
     return c.json({
@@ -405,6 +447,12 @@ export function teamsRouter(
         return c.json(toWireError(refusal, c.get('requestId')));
       }
       const res = await tenantHierarchy.removeTeamMember({ tenantId, teamId, userId });
+      if (res.kind === 'err' && res.error.code === 'site-person-grants-managed') {
+        c.status(statusFor(res.error.code) as never);
+        return c.json(
+          toWireError({ code: res.error.code, message: res.error.message }, c.get('requestId')),
+        );
+      }
       if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
     } else {
       await membershipBinding.remove(tenantId, teamId, userId);
@@ -613,7 +661,19 @@ export function teamsRouter(
   r.delete('/:teamId', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const teamId = c.req.param('teamId') as TeamId;
-    await binding.delete(tenantId, teamId);
+    // With an authorizer, the team's tuples go with it (its members' roles
+    // and its project grants), or nobody would lose the access it gave.
+    if (authorizer !== undefined) {
+      const deleteTeam = tenantHierarchy.deleteTeam?.bind(tenantHierarchy);
+      if (deleteTeam === undefined) {
+        c.status(statusFor('authz-membership-unsupported') as never);
+        return c.json(toWireError(membershipNotKeptInStepError('deleteTeam'), c.get('requestId')));
+      }
+      const res = await deleteTeam({ tenantId, teamId });
+      if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
+    } else {
+      await binding.delete(tenantId, teamId);
+    }
     c.status(204);
     return c.body(null);
   });

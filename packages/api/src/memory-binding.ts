@@ -1,9 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Fact, MemoryScope, Retention } from '@kindgi/memory';
+import type {
+  Fact,
+  FactAttribution,
+  FactSubject,
+  MemoryReaders,
+  MemoryScope,
+  Retention,
+} from '@kindgi/memory';
 import type { Scope as PlatformScope } from '@kindgi/platform';
-import type { Cursor, FactId, TenantId } from '@kindgi/types';
+import type { Cursor, FactId, TenantId, Timestamp } from '@kindgi/types';
 
 /**
  * Caller-plugged surface for the memory resource. Same shape as
@@ -21,12 +28,36 @@ import type { Cursor, FactId, TenantId } from '@kindgi/types';
  * ISO timestamp, `id@version`, whatever). The API layer only validates
  * that a cursor round-trips as a string; it never inspects the payload.
  *
- * Supersession, not delete: facts are append-only. `supersedeFact`
- * writes a new revision that supersedes the target; the historical row
- * remains readable until retention sweeps it. There is no hard delete;
- * the retention sweep handles physical removal.
+ * A fact keeps its id across revisions. `supersedeFact` writes the next
+ * revision and closes the current one; `deleteFact` tombstones the fact
+ * (the retention sweep removes it later); `verifyFact` writes a revision
+ * marked verified. Reads see each fact's current revision unless they
+ * ask for history (`asOf`, `listRevisions`).
+ *
+ * Every read and write names what the caller may see (`readers`), worked
+ * out by the route from the principal: the binding applies it inside its
+ * query, before any limit, and treats what it can't see as not found.
  */
 export interface MemoryBinding {
+  /**
+   * Whether this memory can search by meaning (an embedding model is
+   * configured). Absent: unknown. When `false`, publishing an agent whose
+   * retrieval searches by meaning warns, and a semantic retrieval answers
+   * `422 semantic-unavailable`.
+   */
+  readonly semanticSearch?: boolean;
+  /**
+   * Whether agent turns can store what an agent remembers (an agent's
+   * `memory.remember`). Absent: unknown. When `false`, publishing an agent
+   * that remembers warns `remember-unavailable`.
+   */
+  readonly agentRemember?: boolean;
+  /**
+   * Whether agent turns can recall earlier conversations (an intent with
+   * `source: 'conversations'`). Absent: unknown. When `false`, publishing
+   * such an agent warns `recall-unavailable`.
+   */
+  readonly conversationRecall?: boolean;
   /**
    * Cursor-paginated list of facts under the tenant. Filters:
    *   - `type` — exact fact-type match.
@@ -37,10 +68,9 @@ export interface MemoryBinding {
    */
   listFacts(input: MemoryListFactsInput): Promise<MemoryFactPage>;
   /**
-   * The fact with the given id, or `null` if unknown. Latest version
-   * by default; bindings MAY accept a `version` in the input to select
-   * a specific historical revision (not exposed on the route today).
-   * The route surfaces `null` as `404 fact-not-found`.
+   * The fact with the given id: its current revision, or the one at
+   * `version`, or the one current at `asOf`; `null` when there's none
+   * the caller may see. The route surfaces `null` as `404 fact-not-found`.
    */
   getFact(input: MemoryGetFactInput): Promise<Fact | null>;
   /**
@@ -54,13 +84,29 @@ export interface MemoryBinding {
    */
   writeFact(input: MemoryWriteFactInput): Promise<MemoryWriteFactOutcome>;
   /**
-   * Mark a fact as superseded. The binding writes a superseding
-   * revision (or flags the row, depending on its runtime semantics).
-   * Idempotent — superseding an already-superseded fact returns
-   * `{ superseded: true }` without error. When the fact id is unknown,
-   * returns `{ superseded: false }` and the route flips that to `404`.
+   * Write the fact's next revision (new content, the same id) and close
+   * the current one, atomically. With `expectVersion`, only when that is
+   * still the current revision (`fact-changed` otherwise). Legal hold
+   * refuses it.
    */
   supersedeFact(input: MemorySupersedeFactInput): Promise<MemorySupersedeFactOutcome>;
+  /**
+   * Tombstone the fact: its current revision is closed as `deleted`, and
+   * reads no longer see it (history still does, until the retention sweep
+   * removes it). Legal hold refuses it. Optional: without it, the route
+   * answers `501 memory-operation-unsupported`.
+   */
+  deleteFact?(input: MemoryDeleteFactInput): Promise<MemoryFactChangeOutcome>;
+  /**
+   * Mark the fact verified: a revision with the same content and
+   * `trust: verified`, by the caller. Optional (`501` without it).
+   */
+  verifyFact?(input: MemoryVerifyFactInput): Promise<MemoryFactChangeOutcome>;
+  /**
+   * Every revision of the fact, newest first; `null` when there's none
+   * the caller may see. Optional (`501` without it).
+   */
+  listRevisions?(input: MemoryGetFactInput): Promise<readonly Fact[] | null>;
   /**
    * Cross-history retrieval. The `intent` mirrors the shape agents use
    * for declarative retrieval (`packages/agents/src/retrieval.ts`):
@@ -83,6 +129,10 @@ export interface MemoryBinding {
 
 export interface MemoryListFactsInput {
   readonly tenantId: TenantId;
+  /** What the caller may see: applied in the query, before the limit. */
+  readonly readers: MemoryReaders;
+  /** Each fact's revision current at this time, instead of now. */
+  readonly asOf?: Timestamp;
   readonly limit: number;
   readonly cursor?: Cursor;
   /** Exact match on `Fact.type`. Undefined = no type filter. */
@@ -133,6 +183,11 @@ export interface MemoryFactPage {
 export interface MemoryGetFactInput {
   readonly tenantId: TenantId;
   readonly factId: FactId;
+  readonly readers: MemoryReaders;
+  /** A given revision. */
+  readonly version?: number;
+  /** The revision current at this time. */
+  readonly asOf?: Timestamp;
 }
 
 // -------------------- write --------------------
@@ -150,6 +205,12 @@ export interface MemoryWriteFactInput {
   readonly content: unknown;
   readonly retention?: Retention;
   readonly contentHash?: string;
+  /** Who writes it: set by the route from the principal, never from the body. */
+  readonly attributedTo?: FactAttribution;
+  readonly subjects?: readonly FactSubject[];
+  readonly validFrom?: Timestamp;
+  readonly validUntil?: Timestamp;
+  readonly observedAt?: Timestamp;
 }
 
 export type MemoryWriteFactOutcome =
@@ -178,11 +239,52 @@ export type MemoryWriteFactOutcome =
 export interface MemorySupersedeFactInput {
   readonly tenantId: TenantId;
   readonly factId: FactId;
+  readonly readers: MemoryReaders;
+  /**
+   * The next revision's content; the fact's type and scope stay, and the
+   * fields below keep the current revision's values when absent.
+   */
+  readonly content: unknown;
+  readonly retention?: Retention;
+  readonly subjects?: readonly FactSubject[];
+  readonly validFrom?: Timestamp;
+  readonly validUntil?: Timestamp;
+  readonly observedAt?: Timestamp;
+  /** Only when this is still the current revision. */
+  readonly expectVersion?: number;
+  readonly attributedTo?: FactAttribution;
 }
 
-export interface MemorySupersedeFactOutcome {
-  readonly superseded: boolean;
+export type MemorySupersedeFactOutcome = MemoryFactChangeOutcome;
+
+export interface MemoryDeleteFactInput {
+  readonly tenantId: TenantId;
+  readonly factId: FactId;
+  readonly readers: MemoryReaders;
+  /** `user:<id>` or `service:<id>`. */
+  readonly by: string;
+  readonly expectVersion?: number;
 }
+
+export interface MemoryVerifyFactInput {
+  readonly tenantId: TenantId;
+  readonly factId: FactId;
+  readonly readers: MemoryReaders;
+  /** `user:<id>` or `service:<id>`. */
+  readonly by: string;
+  readonly expectVersion?: number;
+}
+
+/** What changing a fact (supersede, delete, verify) came to. */
+export type MemoryFactChangeOutcome =
+  /** The fact's revision now current (for a delete: the tombstoned one). */
+  | { readonly kind: 'ok'; readonly fact: Fact }
+  | { readonly kind: 'not-found' }
+  /** `expectVersion` isn't the current revision any more. */
+  | { readonly kind: 'fact-changed'; readonly current: Fact }
+  /** The fact is under legal hold. */
+  | { readonly kind: 'legal-hold'; readonly message: string }
+  | { readonly kind: 'error'; readonly code: string; readonly message: string };
 
 // -------------------- retrieve --------------------
 
@@ -215,6 +317,8 @@ export interface MemoryRetrieveIntent {
 export interface MemoryRetrieveInput {
   readonly tenantId: TenantId;
   readonly intent: MemoryRetrieveIntent;
+  /** What the caller may see: applied in the query, before any limit. */
+  readonly readers: MemoryReaders;
 }
 
 export interface MemoryRetrievalHit {

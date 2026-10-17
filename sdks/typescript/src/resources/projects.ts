@@ -11,15 +11,29 @@
 import type {
   AddProjectMembershipBody,
   AddProjectMembershipResult,
+  AssignableProjectRole as AssignableProjectRoleWire,
   CreateResourceResult,
+  ProjectAccessPage as ProjectAccessPageWire,
+  ProjectAccess as ProjectAccessWire,
   ProjectCollectionPage,
   ProjectMembershipCollectionPage,
   ProjectPatch as ProjectPatchBody,
+  ProjectProduction as ProjectProductionWire,
   ProjectRole as ProjectRoleWire,
   ProjectSpec as ProjectSpecBody,
   Project as ProjectWire,
+  TeamProjectGrantCollectionPage,
+  TeamProjectGrant as TeamProjectGrantWire,
+  TeamProjectRole as TeamProjectRoleWire,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
+import {
+  type JudgingQueueClient,
+  type JudgingRulesClient,
+  makeJudgingQueueClient,
+  makeJudgingRulesClient,
+} from './judging.js';
+import { type SitesClient, makeSitesClient } from './sites.js';
 
 export type ProjectShape = ProjectWire;
 export type ProjectRecordShape = ProjectShape;
@@ -29,7 +43,12 @@ export type UpdateProjectInput = ProjectPatchBody;
 export type ProjectMembershipPage = ProjectMembershipCollectionPage;
 export type AddProjectMembershipInput = AddProjectMembershipBody;
 export type AddProjectMembershipOutcome = AddProjectMembershipResult;
+/** A role on a project, as read: `member` only on one given before it was retired. */
+/** A project's production state: `productionSince` is `null` while it isn't in production. */
+export type ProjectProductionShape = ProjectProductionWire;
 export type ProjectRoleValue = ProjectRoleWire;
+/** A role to give on a project: `member` is refused, give `viewer`. */
+export type AssignableProjectRoleValue = AssignableProjectRoleWire;
 
 export interface ListProjectsFilter {
   readonly limit?: number;
@@ -39,6 +58,72 @@ export interface ListProjectsFilter {
 export interface ListProjectMembershipsFilter {
   readonly limit?: number;
   readonly cursor?: string;
+}
+
+/** Someone with access to a project: their effective role, and every way in. */
+export type ProjectAccessShape = ProjectAccessWire;
+export type ProjectAccessPage = ProjectAccessPageWire;
+
+export interface ListProjectAccessFilter {
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+/**
+ * Who has access to a project, and how: a direct role, a team's grant, an
+ * admin of its org, a tenant admin. Takes `write` on the project (its
+ * editors and admins); emails show to its admins only. `501
+ * project-access-unsupported` from a runtime without an authorization store.
+ */
+export interface ProjectAccessClient {
+  /** @wire GET /v1/projects/:projectId/access */
+  list(projectId: string, filter?: ListProjectAccessFilter): Promise<ProjectAccessPage>;
+}
+
+/** A team's role on a project, with the team's and the project's names. */
+export type TeamProjectGrantShape = TeamProjectGrantWire;
+export type TeamProjectGrantPage = TeamProjectGrantCollectionPage;
+/** `viewer`, `editor` or `admin`: a team never owns a project. */
+export type TeamProjectRoleValue = TeamProjectRoleWire;
+
+export interface ListTeamGrantsFilter {
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+/**
+ * The teams with a role on a project. Every member of a team holds it
+ * there. Reading takes `write` on the project (its editors and admins);
+ * changing takes `admin`.
+ */
+export interface ProjectTeamGrantsClient {
+  /** @wire GET /v1/projects/:projectId/team-grants */
+  list(projectId: string, filter?: ListTeamGrantsFilter): Promise<TeamProjectGrantPage>;
+  /**
+   * Give a team a role on the project. Takes `read` on the team too.
+   * A role the team already holds answers with the existing grant; another role is
+   * `409 team-grant-exists` (`details.role`): change it with `updateRole`.
+   *
+   * @wire POST /v1/projects/:projectId/team-grants
+   */
+  add(
+    projectId: string,
+    input: { readonly teamId: string; readonly role: TeamProjectRoleValue },
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<TeamProjectGrantShape>;
+  /** @wire PATCH /v1/projects/:projectId/team-grants/:teamId */
+  updateRole(
+    projectId: string,
+    teamId: string,
+    role: TeamProjectRoleValue,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<void>;
+  /** @wire DELETE /v1/projects/:projectId/team-grants/:teamId */
+  remove(
+    projectId: string,
+    teamId: string,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<void>;
 }
 
 export interface ProjectsClient {
@@ -61,13 +146,46 @@ export interface ProjectsClient {
   ): Promise<ProjectShape>;
   /** @wire DELETE /v1/projects/:projectId */
   delete(projectId: string): Promise<void>;
+  /**
+   * Put the project in production (`true`), or take it out (`false`). A run
+   * in a project in production is a production run; a run anywhere else is
+   * staging. For tenant admins. Setting what's already set changes
+   * nothing. With the runtime's production gate on, a tenant that isn't
+   * allowed is refused with `403 production-not-allowed`, whose
+   * `details.next` says where to go when the runtime names it. With the
+   * tenant's `projectsInProduction` limit set, another project is refused
+   * with `403 production-limit-reached` while the tenant has that many in
+   * production (`details.projectsInProduction`, `details.inProduction`);
+   * taking one out is never refused.
+   *
+   * @wire PUT /v1/projects/:projectId/production
+   */
+  setProduction(
+    projectId: string,
+    production: boolean,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<ProjectProductionShape>;
   readonly memberships: ProjectMembershipsClient;
+  /** Which of the project's runs to queue for a person's judgment. */
+  readonly judgingRules: JudgingRulesClient;
+  /** The runs queued for a person's judgment. */
+  readonly judgingQueue: JudgingQueueClient;
+  readonly teamGrants: ProjectTeamGrantsClient;
+  /** The sites that sign their own people in to the project (tenant admins). */
+  readonly sites: SitesClient;
+  readonly access: ProjectAccessClient;
 }
 
 export interface ProjectMembershipsClient {
   /** @wire GET /v1/projects/:projectId/memberships */
   list(projectId: string, filter?: ListProjectMembershipsFilter): Promise<ProjectMembershipPage>;
-  /** @wire POST /v1/projects/:projectId/memberships */
+  /**
+   * Add a person of the tenant, named by exactly one of `userId` and
+   * `email`; someone who isn't one is `404 identity-user-not-found`. The
+   * outcome has their `userId`.
+   *
+   * @wire POST /v1/projects/:projectId/memberships
+   */
   add(
     projectId: string,
     input: AddProjectMembershipInput,
@@ -77,7 +195,7 @@ export interface ProjectMembershipsClient {
   updateRole(
     projectId: string,
     userId: string,
-    role: ProjectRoleValue,
+    role: AssignableProjectRoleValue,
     options?: { readonly idempotencyKey?: string },
   ): Promise<void>;
   /** @wire DELETE /v1/projects/:projectId/memberships/:userId */
@@ -136,6 +254,17 @@ export function makeProjectsClient(transport: Transport): ProjectsClient {
         discardResponse: true,
       });
     },
+    async setProduction(projectId, production, options) {
+      return transport.request<ProjectProductionShape>({
+        method: 'PUT',
+        path: `/v1/projects/${seg(projectId)}/production`,
+        body: { production },
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+    judgingRules: makeJudgingRulesClient(transport),
+    judgingQueue: makeJudgingQueueClient(transport),
+    sites: makeSitesClient(transport),
     memberships: {
       async list(projectId, filter) {
         return transport.request<ProjectMembershipPage>({
@@ -168,6 +297,55 @@ export function makeProjectsClient(transport: Transport): ProjectsClient {
         return transport.request<void>({
           method: 'DELETE',
           path: `/v1/projects/${seg(projectId)}/memberships/${seg(userId)}`,
+          discardResponse: true,
+          ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+        });
+      },
+    },
+    access: {
+      async list(projectId, filter) {
+        return transport.request<ProjectAccessPage>({
+          method: 'GET',
+          path: `/v1/projects/${seg(projectId)}/access`,
+          query: {
+            ...(filter?.limit !== undefined && { limit: filter.limit }),
+            ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+          },
+        });
+      },
+    },
+    teamGrants: {
+      async list(projectId, filter) {
+        return transport.request<TeamProjectGrantPage>({
+          method: 'GET',
+          path: `/v1/projects/${seg(projectId)}/team-grants`,
+          query: {
+            ...(filter?.limit !== undefined && { limit: filter.limit }),
+            ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+          },
+        });
+      },
+      async add(projectId, input, options) {
+        return transport.request<TeamProjectGrantShape>({
+          method: 'POST',
+          path: `/v1/projects/${seg(projectId)}/team-grants`,
+          body: input,
+          ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+        });
+      },
+      async updateRole(projectId, teamId, role, options) {
+        return transport.request<void>({
+          method: 'PATCH',
+          path: `/v1/projects/${seg(projectId)}/team-grants/${seg(teamId)}`,
+          body: { role },
+          discardResponse: true,
+          ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+        });
+      },
+      async remove(projectId, teamId, options) {
+        return transport.request<void>({
+          method: 'DELETE',
+          path: `/v1/projects/${seg(projectId)}/team-grants/${seg(teamId)}`,
           discardResponse: true,
           ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
         });

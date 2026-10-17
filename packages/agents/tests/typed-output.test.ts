@@ -19,6 +19,7 @@ import type { NodeId, OrgId, ProjectId, RunId, TenantId } from '@kindgi/types';
 import { defineAgent } from '../src/define.js';
 import { buildRunTrace } from '../src/guardrails-gate.js';
 import { buildBudgetCheckHandler } from '../src/handlers/budget-check.js';
+import { buildBuildInitialMessagesHandler } from '../src/handlers/build-initial-messages.js';
 import { buildComposeResultHandler } from '../src/handlers/compose-result.js';
 import type { AgentTurnIterationOutput, TurnContext } from '../src/handlers/context.js';
 import { parseFailureMessage } from '../src/handlers/errors.js';
@@ -27,6 +28,7 @@ import type { InvokeAgentBindings, InvokeAgentInput } from '../src/handlers/publ
 import { writeRunSnapshot } from '../src/handlers/run-snapshot.js';
 import {
   outputChecker,
+  outputInstructions,
   parseJsonAnswer,
   repairMessage,
   repairsSoFar,
@@ -131,6 +133,73 @@ describe('reading and checking the answer', () => {
     expect(msg.content).toContain('the axes as JSON');
     expect(msg.content).toContain('- /remedy must be array');
     expect(repairsSoFar([{ role: 'user', content: 'go' }, msg])).toBe(1);
+  });
+});
+
+describe("the output, told from the turn's start", () => {
+  /** The system message the turn's first model call is sent. */
+  async function systemOf(a: Agent, toolNames: readonly string[] = []): Promise<string> {
+    const ctx = {
+      ...ctxFor(a),
+      bindings: {
+        conversationBinding: { readMessages: async () => ({ kind: 'ok', value: [] }) },
+      },
+      conversation: { id: conversationId, tenantId, projectId },
+      retrieved: [],
+      renderedPrompt: 'Read the grievance and list the remedies.',
+      userMessage: { sequence: 1, role: 'user', content: 'go' },
+      // The tools the model call offers, as setup resolves them.
+      tools: {
+        definitions: toolNames.map((name) => ({ name, description: name, inputSchema: {} })),
+        byName: new Map(),
+      },
+    } as unknown as TurnContext;
+    const out = (await buildBuildInitialMessagesHandler(ctx)(undefined, kctx())) as {
+      nextMessages: { role: string; content: string }[];
+    };
+    const [system] = out.nextMessages;
+    expect(system?.role).toBe('system');
+    return system?.content ?? '';
+  }
+
+  test("a typed agent's system message carries the output, in the words a repair uses", async () => {
+    const system = await systemOf(agent({ output: AXES }), ['acme.lookup']);
+    expect(system.startsWith('Read the grievance and list the remedies.')).toBe(true);
+    expect(system).toContain(outputInstructions(AXES));
+    expect(
+      system.endsWith(
+        'Call the tools you need first; then give your final answer as that JSON alone.',
+      ),
+    ).toBe(true);
+    expect(repairMessage(AXES, ['x']).content).toContain(outputInstructions(AXES));
+  });
+
+  test('with no tools offered, the model is told to answer, not to call tools first', async () => {
+    const system = await systemOf(agent({ output: AXES }));
+    expect(system).toContain(outputInstructions(AXES));
+    expect(system).not.toContain('tools');
+    expect(
+      system.endsWith(`${outputInstructions(AXES)}\nGive your final answer as that JSON alone.`),
+    ).toBe(true);
+  });
+
+  test('the schema goes as written, its descriptions included', async () => {
+    const described: AgentOutputSpec = {
+      name: 'verdict',
+      schema: {
+        type: 'object',
+        properties: { refund: { type: 'boolean', description: 'Whether the order is refunded' } },
+        required: ['refund'],
+      },
+    };
+    const system = await systemOf(agent({ output: described }));
+    expect(system).toContain('the verdict as JSON');
+    expect(system).toContain('"description":"Whether the order is refunded"');
+  });
+
+  test("an untyped agent's system message has no output part", async () => {
+    const system = await systemOf(agent());
+    expect(system).not.toContain('as JSON matching this JSON Schema');
   });
 });
 
@@ -248,6 +317,41 @@ describe('the turn result', () => {
     expect(await result(onProvider(false), kctx())).not.toHaveProperty('warnings');
   });
 
+  test('same-user memory in a run that names no end user carries memory-needs-participant', async () => {
+    const recalls = {
+      ...agent(),
+      retrieval: [{ source: 'conversations', scope: 'same-user' }],
+    } as unknown as Agent;
+    const remembers = {
+      ...agent(),
+      memory: { remember: { types: ['acme.note'], scope: 'same-user' } },
+    } as unknown as Agent;
+    for (const a of [recalls, remembers]) {
+      const got = (await result(composed(a, 'hi').handler, kctx())) as {
+        warnings: { code: string; message: string }[];
+      };
+      expect(got.warnings).toEqual([
+        {
+          code: 'memory-needs-participant',
+          message: expect.stringContaining("Pass the person's `participantId` on each run"),
+        },
+      ]);
+    }
+    // With the end user named, none.
+    const named = composed(recalls, 'hi');
+    named.ctx.conversation = {
+      turnCount: 2,
+      participantId: 'cus_ben',
+    } as NonNullable<TurnContext['conversation']>;
+    expect(await result(named.handler, kctx())).not.toHaveProperty('warnings');
+    // Memory that isn't per person: none either.
+    const project = {
+      ...agent(),
+      retrieval: [{ types: ['acme.note'], scope: 'same-project' }],
+    } as unknown as Agent;
+    expect(await result(composed(project, 'hi').handler, kctx())).not.toHaveProperty('warnings');
+  });
+
   test("a provider's own warnings follow, one per code (dev-echo's dev-echo-not-a-model)", async () => {
     const c = composed(agent(), 'hi');
     c.ctx.provider = {
@@ -297,6 +401,30 @@ describe('defineAgent output', () => {
       expect(r.error.issues.map((i) => i.path).sort()).toEqual([
         '/output/maxRepairs',
         '/output/schema',
+      ]);
+    }
+  });
+
+  test.each([
+    ['null', null],
+    ['a string', 'json'],
+    ['an array', [{ type: 'object' }]],
+  ])("an output that isn't an object (%s) is invalid at /output", (_what, output) => {
+    const r = defineAgent({
+      id: 'acme.bad',
+      version: '1.0.0',
+      name: 'Bad',
+      instructions: 'x',
+      capabilities: [{ needs: [{ feature: 'tool-use' }] }],
+      tools: [],
+      retrieval: [],
+      guardrails: [],
+      output: output as never,
+    });
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') {
+      expect(r.error.issues).toEqual([
+        { path: '/output', message: 'output must be an object { schema, name?, maxRepairs? }' },
       ]);
     }
   });

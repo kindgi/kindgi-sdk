@@ -25,10 +25,21 @@ export interface LogRecord {
   readonly projectId?: string;
   readonly runId?: string;
   readonly err?: SerializedError;
+  /**
+   * The fields the message already states (`LogOptions.inMessage`), when
+   * it states any: `GET /v1/runs 200 12ms` names `method`, `route`,
+   * `status` and `durationMs`. Renderers may leave them out of a line.
+   */
+  readonly inMessage?: readonly string[];
   readonly [field: string]: unknown;
 }
 
-/** An error, as a record carries it. `stack` at `error`, or when the logger is at `debug` or below. */
+/**
+ * An error, as a record carries it. `stack` at `error`, or when the logger
+ * is at `debug` or below. A plain object in an error's place (a storage
+ * error) carries its non-empty string name (else `Object`), code and
+ * message only: no stack, and its own cause isn't walked.
+ */
 export interface SerializedError {
   readonly name: string;
   readonly message: string;
@@ -44,7 +55,9 @@ export interface SerializedError {
  *     line `GET /v1/runs/:runId 200 12ms` states `method`, `route`,
  *     `status` and `durationMs`. The pretty format leaves them out, so
  *     a terminal line doesn't say everything twice; JSON keeps every
- *     field, for queries.
+ *     field, for queries, and lists the ones named here (those the
+ *     record has) as the record's `inMessage`, so a renderer reading
+ *     JSON leaves them out too.
  */
 export interface LogOptions {
   readonly inMessage?: readonly string[];

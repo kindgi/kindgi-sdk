@@ -50,6 +50,14 @@ export interface CostBinding {
    * every group is capped by the route.
    */
   aggregate(input: CostAggregateInput): Promise<CostAggregateResult>;
+  /**
+   * `true` when `aggregate` honours `CostAggregateInput.readableProjectIds`,
+   * counting only those projects' records. Without it, the route answers
+   * an aggregate across projects (no scope, or an org) only for a caller
+   * who may read every project in it, and refuses anyone else rather than
+   * count projects they can't read.
+   */
+  readonly aggregatesReadableProjects?: boolean;
 }
 
 // A binding throws when its store fails: the route answers 500. It never
@@ -108,6 +116,8 @@ export interface CostRecordFilter {
   readonly servedModel?: string;
   /** Every record of the run tree whose root is this run. */
   readonly rootRunId?: string;
+  /** Every record of the run trees whose root is a run of this flow (the record's `flowId`). */
+  readonly flowId?: string;
   /**
    * With `runId`: that run's records and those of every run it started,
    * at any depth.
@@ -198,6 +208,17 @@ export interface CostAggregateInput {
    * shape uniformity.
    */
   readonly inherit?: boolean;
+  /**
+   * Count only records in these projects, and records with no project
+   * (the tenant's own, which `/v1/cost/records` shows to anyone who may
+   * read the tenant), within `scope`. An org scope covers only the org's
+   * projects: a record with no project never counts there, and nor does a
+   * listed project outside the org. The route sets it when the caller
+   * may not read every project (`read` on each listed one); absent, every
+   * record in `scope` counts. Empty: no project's records count. A binding
+   * that applies it says so with `CostBinding.aggregatesReadableProjects`.
+   */
+  readonly readableProjectIds?: readonly string[];
   /**
    * The most groups the caller wants (`?limit=`, 1..`COST_AGGREGATE_MAX_LIMIT`,
    * default `COST_AGGREGATE_DEFAULT_LIMIT`): the most expensive ones. A

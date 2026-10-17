@@ -7,12 +7,16 @@ import { describe, expect, test } from 'vitest';
 
 import type { AgentRegistry } from '@kindgi/agents';
 import { createAgentRegistry, defineAgent } from '@kindgi/agents';
+import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
+import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { AgentRegistryBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';
+import { expectCompileBudgetRefused } from './support/compile-budget.js';
+import { inMemoryMemory } from './support/in-memory-memory.js';
 
 /**
  * Agents route tests.
@@ -284,6 +288,58 @@ describe('API — agents publish', () => {
     expect(body.error.details?.issues).toBeTruthy();
   });
 
+  test('a template with a partial → 400, naming it, and nothing stored', async () => {
+    const { app } = makeApp();
+    const res = await app.request('/v1/agents', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ...agentSpec(),
+        instructions: "Draft the document. {% include 'package.json' %}",
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; details?: { issues?: unknown[] } };
+    };
+    expect(body.error.code).toBe('validation-failed');
+    expect(body.error.details?.issues).toEqual([
+      { path: '/instructions', message: "templates can't use include, render or layout" },
+    ]);
+    const stored = await app.request('/v1/agents/acme.drafting', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(stored.status).toBe(404);
+  });
+
+  test.each([
+    ['null', null],
+    ['a string', 'json'],
+    ['an array', [{ type: 'object' }]],
+  ])(
+    "an output that isn't an object (%s) → 400 at /output, and nothing stored",
+    async (_what, output) => {
+      const { app } = makeApp();
+      const res = await app.request('/v1/agents', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ ...agentSpec(), output }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as {
+        error: { code: string; details?: { issues?: unknown[] } };
+      };
+      expect(body.error.code).toBe('validation-failed');
+      expect(body.error.details?.issues).toEqual([
+        { path: '/output', message: 'output must be an object { schema, name?, maxRepairs? }' },
+      ]);
+      const stored = await app.request('/v1/agents/acme.drafting', {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(stored.status).toBe(404);
+    },
+  );
+
   test('non-JSON body → 400 bad-input', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/agents', {
@@ -377,6 +433,37 @@ describe('API — agents publish', () => {
     const body = (await second.json()) as { agentId: string; version: string };
     expect(body.agentId).toBe('acme.drafting');
     expect(body.version).toBe('1.0.0');
+  });
+
+  test("its output schema's compile counts against the tenant's budget, the first one included: refused, nothing is stored", async () => {
+    const { app } = makeApp();
+    const publish = () =>
+      app.request('/v1/agents', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ...agentSpec(),
+          output: {
+            schema: {
+              type: 'object',
+              properties: { draft: { type: 'string' } },
+              required: ['draft'],
+            },
+          },
+        }),
+      });
+    const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
+    try {
+      const refused = await publish();
+      await expectCompileBudgetRefused(refused);
+      const listed = await app.request('/v1/agents', {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(((await listed.json()) as { data: unknown[] }).data).toEqual([]);
+    } finally {
+      restore();
+    }
+    expect((await publish()).status).toBe(201);
   });
 });
 
@@ -547,5 +634,170 @@ describe('API — agents scope filter', () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe('scope-invalid');
+  });
+});
+
+describe('API — publishing an agent that searches memory by meaning', () => {
+  function appWithMemory(semanticSearch: boolean | undefined) {
+    const registry = createAgentRegistry();
+    const memory = inMemoryMemory().binding;
+    return createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      agentRegistry: bindingFromRegistry(registry),
+      memory: { ...memory, ...(semanticSearch !== undefined && { semanticSearch }) },
+    });
+  }
+
+  async function publish(app: ReturnType<typeof appWithMemory>, body: unknown) {
+    const res = await app.request('/v1/agents', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, body: (await res.json()) as Record<string, any> };
+  }
+
+  const searching = {
+    ...agentSpec({ id: 'acme.searching' }),
+    retrieval: [
+      { types: ['acme.note'], scope: 'tenant' as const, mode: 'semantic' as const },
+      { types: ['acme.note'], scope: 'same-user' as const, mode: 'both' as const },
+      { types: ['acme.note'], scope: 'tenant' as const, mode: 'keyword' as const },
+    ],
+  };
+
+  test('without embeddings, each such intent is warned about at publish', async () => {
+    const res = await publish(appWithMemory(false), searching);
+    expect(res.status).toBe(201);
+    expect(res.body.warnings).toHaveLength(2);
+    expect(res.body.warnings[0]).toMatchObject({ code: 'semantic-unavailable' });
+    expect(res.body.warnings[0].message).toContain('Retrieval intent 0');
+    expect(res.body.warnings[1].message).toContain('Retrieval intent 1');
+    expect(res.body.warnings[1].message).toContain('keyword');
+  });
+
+  test('with embeddings, or when the deployment does not say, no warnings', async () => {
+    expect((await publish(appWithMemory(true), searching)).body.warnings).toBeUndefined();
+    expect((await publish(appWithMemory(undefined), searching)).body.warnings).toBeUndefined();
+  });
+
+  test('an agent that remembers, on a deployment that cannot store it, is warned about', async () => {
+    const registry = createAgentRegistry();
+    const app = (agentRemember: boolean | undefined) =>
+      createApp({
+        ...createStubAppBindings(),
+        resolveToken,
+        runHandler,
+        agentRegistry: bindingFromRegistry(registry),
+        memory: {
+          ...inMemoryMemory().binding,
+          ...(agentRemember !== undefined && { agentRemember }),
+        },
+      });
+    const remembering = (id: string) => ({
+      ...agentSpec({ id }),
+      memory: { remember: { types: ['acme.preference'], scope: 'same-user' } },
+    });
+    const off = await publish(app(false), remembering('acme.remembers-off'));
+    expect(off.status).toBe(201);
+    expect(off.body.warnings).toEqual([expect.objectContaining({ code: 'remember-unavailable' })]);
+    expect(
+      (await publish(app(true), remembering('acme.remembers-on'))).body.warnings,
+    ).toBeUndefined();
+    expect(
+      (await publish(app(undefined), remembering('acme.remembers-unknown'))).body.warnings,
+    ).toBeUndefined();
+  });
+
+  test("an agent's remember declaration is kept and read back; the built-in id is reserved", async () => {
+    const app = appWithMemory(true);
+    const declared = { types: ['acme.preference'], scope: 'same-user', keepDays: 14 };
+    expect(
+      (
+        await publish(app, {
+          ...agentSpec({ id: 'acme.remembers' }),
+          memory: { remember: declared },
+        })
+      ).status,
+    ).toBe(201);
+    const res = await app.request('/v1/agents/acme.remembers/versions/1.0.0', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(((await res.json()) as { memory?: unknown }).memory).toEqual({ remember: declared });
+    const reserved = await publish(app, {
+      ...agentSpec({ id: 'acme.reserved' }),
+      tools: [{ id: 'kindgi_remember', version: '1.0.0' }],
+      memory: { remember: declared },
+    });
+    expect(reserved.status).toBe(400);
+    expect(JSON.stringify(reserved.body)).toContain('a tool built into Kindgi');
+  });
+
+  test("recalling other people's conversations is said at publish; a runtime that can't recall says so", async () => {
+    const registry = createAgentRegistry();
+    const app = (conversationRecall: boolean | undefined) =>
+      createApp({
+        ...createStubAppBindings(),
+        resolveToken,
+        runHandler,
+        agentRegistry: bindingFromRegistry(registry),
+        memory: {
+          ...inMemoryMemory().binding,
+          ...(conversationRecall !== undefined && { conversationRecall }),
+        },
+      });
+    const recalling = (id: string) => ({
+      ...agentSpec({ id }),
+      retrieval: [
+        { source: 'conversations', scope: 'same-user' },
+        { source: 'conversations', scope: 'same-segment' },
+        { source: 'conversations', scope: 'same-project', mode: 'keyword' },
+      ],
+    });
+    const wide = await publish(app(true), recalling('acme.recalls-wide'));
+    expect(wide.status, JSON.stringify(wide.body)).toBe(201);
+    expect(wide.body.warnings.map((w: { code: string }) => w.code)).toEqual([
+      'recall-other-people',
+      'recall-other-people',
+    ]);
+    expect(wide.body.warnings[0].message).toContain(
+      "other users' conversations in the run's segment",
+    );
+    expect(wide.body.warnings[1].message).toContain("the run's project");
+    const answers = await publish(app(true), {
+      ...agentSpec({ id: 'acme.recalls-answers' }),
+      retrieval: [
+        { source: 'conversations', scope: 'same-user', roles: ['user', 'agent'] },
+        { source: 'conversations', scope: 'same-conversation', roles: ['agent'] },
+      ],
+    });
+    // Once per agent, naming the first intent that asks for them.
+    expect(answers.body.warnings).toEqual([
+      expect.objectContaining({ code: 'recall-agent-answers' }),
+    ]);
+    expect(answers.body.warnings[0].message).toContain('Retrieval intent 0');
+    const off = await publish(app(false), recalling('acme.recalls-off'));
+    expect(off.body.warnings.map((w: { code: string }) => w.code)).toEqual([
+      'recall-unavailable',
+      'recall-unavailable',
+      'recall-unavailable',
+    ]);
+  });
+
+  test("an agent's memory policy is kept and read back", async () => {
+    const app = appWithMemory(true);
+    const published = await publish(app, {
+      ...agentSpec({ id: 'acme.policies' }),
+      memory: { instructionTypes: ['acme.policy'] },
+    });
+    expect(published.status).toBe(201);
+    const res = await app.request('/v1/agents/acme.policies/versions/1.0.0', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(((await res.json()) as { memory?: unknown }).memory).toEqual({
+      instructionTypes: ['acme.policy'],
+    });
   });
 });

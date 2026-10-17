@@ -177,23 +177,62 @@ describe('subscribeToRun — the URL', () => {
   });
 });
 
-describe('runs.stream follows the run to its end', () => {
-  it('reconnects with Last-Event-Id when the server closes before the terminal event', async () => {
+describe('runs.follow and runs.followProgress follow the run to its end', () => {
+  const clientOn = (fetchImpl: typeof fetch) =>
+    createClient({
+      apiUrl: API,
+      auth: { kind: 'apiToken', token: 'kgi_bt_secret' },
+      fetch: fetchImpl,
+    });
+
+  it('follow: reconnects with Last-Event-Id when the server closes before the terminal event', async () => {
     const script = scriptedFetch([
       () => sse(frame(0, 'run.started')),
       () => sse(frame(1, 'run.failed')),
     ]);
-    const client = createClient({
-      apiUrl: API,
-      auth: { kind: 'apiToken', token: 'kgi_bt_secret' },
-      fetch: script.fetch,
-    });
-    const events = await collect(client.runs.stream(RUN as never));
+    const events = await collect(clientOn(script.fetch).runs.follow(RUN as never));
     expect(events.map((e) => e.kind)).toEqual(['run.started', 'run.failed']);
     expect(script.calls[1]).toEqual({
       authorization: 'Bearer kgi_bt_secret',
       lastEventId: `${RUN}:0`,
     });
+  });
+
+  it('followProgress: the progress stream, followed the same way', async () => {
+    const urls: string[] = [];
+    const script = scriptedFetch([
+      () => sse(frame(0, 'run.started')),
+      () => sse(frame(1, 'run.completed')),
+    ]);
+    const fetchImpl = (async (url: unknown, init?: RequestInit) => {
+      urls.push(String(url));
+      return script.fetch(url as never, init);
+    }) as typeof fetch;
+    const events = await collect(clientOn(fetchImpl).runs.followProgress(RUN as never));
+    expect(events.map((e) => e.kind)).toEqual(['run.started', 'run.completed']);
+    expect(urls).toEqual([
+      `${API}/v1/runs/${RUN}/progress/stream`,
+      `${API}/v1/runs/${RUN}/progress/stream`,
+    ]);
+    expect(script.calls[1]?.lastEventId).toBe(`${RUN}:0`);
+  });
+
+  it('the deprecated stream and streamProgress still follow, even called unbound', async () => {
+    const script = scriptedFetch([
+      () => sse(frame(0, 'run.started')),
+      () => sse(frame(1, 'run.completed')),
+      () => sse(frame(0, 'run.started')),
+      () => sse(frame(1, 'run.cancelled')),
+    ]);
+    const { stream, streamProgress } = clientOn(script.fetch).runs;
+    expect((await collect(stream(RUN as never))).map((e) => e.kind)).toEqual([
+      'run.started',
+      'run.completed',
+    ]);
+    expect((await collect(streamProgress(RUN as never))).map((e) => e.kind)).toEqual([
+      'run.started',
+      'run.cancelled',
+    ]);
   });
 });
 

@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/sdk",
-  "version": "0.1.4-rc.5",
+  "version": "0.1.8",
   "description": "@kindgi/sdk — the authoring SDK for Kindgi™. Facade over the individual @kindgi/* packages + @kindgi/client. Unifies pack authoring (defineTool / defineCheck / defineAgent / defineFlow) and client callsites (createClient) behind three sub-paths: /define, /client, /types. Re-export facade; zero behavior.",
   "license": "Apache-2.0",
   "repository": {
@@ -77,6 +77,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
+    "esbuild": "^0.24.0",
     "typedoc": "^0.28.20",
     "typedoc-plugin-markdown": "^4.13.1",
     "typescript": "^5.7.3",

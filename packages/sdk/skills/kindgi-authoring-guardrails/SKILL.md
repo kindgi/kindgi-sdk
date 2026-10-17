@@ -4,18 +4,20 @@ description: >
   Covers writing guardrails (safety checks) for a Kindgi pack: the check
   implementation via defineCheck from @kindgi/sdk/define, the guardrail
   declaration a pack file default-exports (the indexer's shape), the
-  three kinds (zero-llm / llm-judge / external), action semantics
-  (halt / retry / escalate / log-only / compensate), severity levels,
-  scope selectors, config schemas via Zod or JSON Schema, validating a
-  declaration with defineGuardrail from @kindgi/guardrails, and how
-  guardrails reach agents. Load this whenever you are authoring or
+  three kinds (zero-llm / llm-judge / external), actions, severity
+  levels, scope selectors, config schemas via Zod or JSON Schema,
+  validating a declaration with defineGuardrail from @kindgi/guardrails,
+  and how guardrails reach agents. In 0.1 only the halt action acts
+  (retry / escalate / compensate are only recorded: nothing runs the
+  turn again), and a check sees only the current turn: its user message
+  and tool results, not earlier turns'. Load this whenever you are authoring or
   editing code inside a pack's guardrails/ directory, defining a check,
   or wiring a guardrail onto an agent. Authoring tools is covered by
   kindgi-authoring-tools; authoring agents is covered by
   kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.6"
+version: "0.3.10"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -32,7 +34,7 @@ sources:
 
 > **Running `kindgi`:** the CLI is a devDependency of the project (`@kindgi/cli`),
 > not a global command. Run it through the project's package manager —
-> `pnpm exec kindgi …`, `npx --no kindgi …` (npm), `yarn kindgi …` or
+> `pnpm exec kindgi …`, `npx --no -- kindgi …` (npm), `yarn kindgi …` or
 > `bun run kindgi …`. Commands below are written `kindgi …` for brevity.
 
 A **guardrail** is a safety rule an agent turn must satisfy. It combines
@@ -41,6 +43,41 @@ a **check** (the function that inspects the turn's trace) with an
 lives at `guardrails/<name>/index.ts`. For an agent turn, the runtime
 evaluates every guardrail the agent lists once, on the final response,
 before the response is stored.
+
+## What a guardrail can do in 0.1
+
+Read this before you plan a guardrail. Three limits decide what can be
+built:
+
+- **Only `halt` acts.** A failed `halt` guardrail fails the turn with
+  `guardrail-violation`, and the response is not stored. `retry`,
+  `escalate` and `compensate` are recorded on the turn's violations, as
+  `log-only` is, and the turn completes: nothing runs the turn again,
+  escalates or calls a compensating tool. So "block the reply and make the
+  agent try again" can't be a guardrail. Use `halt`: the error names the
+  guardrail and the check's reason, and the message is sent again (by the
+  person, or by your app when it gets `guardrail-violation`).
+- **A check sees one turn.** The trace holds the current turn only: its
+  user message (`trace.userInput`), its tool calls and their results
+  (`trace.toolCalls`, `trace.toolResults`) and its response
+  (`trace.output`). Earlier turns' messages, tool results and responses
+  aren't in it. A check that every figure in the response comes from a
+  tool result or the user's message therefore blocks a response that
+  repeats a figure seen only in an earlier turn.
+- **A check's in-memory state doesn't last.** The check runs in the pack
+  service's process, so anything it keeps at module level (say, a record
+  per `trace.conversationId`) is lost when that process is replaced: under
+  `kindgi dev`, on every reload after a save and on a restart; in a
+  deployment, whenever an instance stops. With more than one instance,
+  each keeps its own copy, and one conversation's turns can land on
+  different instances. Don't keep a conversation's history this way.
+
+What works today for a check on figures: tell the agent, in its
+instructions, to call its tools again in every response that quotes a
+figure, so the figure is in that turn's tool results. It depends on the
+model following the instruction, and it doesn't cover figures the user
+typed in an earlier turn: `trace.userInput` is only the current turn's
+message, so a response that repeats them is still blocked.
 
 ## Mental model: guardrail vs check
 
@@ -55,7 +92,11 @@ before the response is stored.
 - **Built-in checks** (`BUILT_IN_CHECK_IDS` in `@kindgi/guardrails`):
   `must-cite`, `never-call-tool`, `max-tool-calls`, `output-matches`,
   `tool-order`, `required-substring`, `forbidden-substring`. A guardrail
-  can name one of these instead of shipping its own check.
+  can name one of these (`check: 'forbidden-substring'`) instead of
+  shipping its own check, and the runtime runs the built-in. Their ids
+  are reserved: a pack that ships its own check under one is refused
+  (`reserved-check-id`), so name yours `<pack>.checks.<name>`. See
+  "Using a built-in check" below for each one's `config`.
 
 `@kindgi/sdk` exports `defineCheck` but no helper for the guardrail
 itself: a pack file default-exports the declaration as a plain object.
@@ -119,6 +160,46 @@ How the pack tooling reads this file:
   declares no config gets them all), and a config that doesn't fit
   refused, naming where.
 
+## Using a built-in check
+
+Name the built-in as the guardrail's `check`, give its `config`, and ship
+no check implementation:
+
+```ts
+// guardrails/no-guarantees/index.ts
+export default {
+  id: 'acme.no-guarantees',
+  name: 'Never promise a guarantee',
+  kind: 'zero-llm',
+  check: 'forbidden-substring',
+  config: { patterns: ['guaranteed', 'we promise'] },
+  action: { 'on-violation': 'halt' },
+  severity: 'error',
+};
+```
+
+Each built-in's `config` (tool lists hold tool ids, as in
+`acme.fetch-precedent`; a setting without `?` is required):
+
+| Check | Fails when | `config` |
+| --- | --- | --- |
+| `must-cite` | the answer is empty, or has fewer than `minCitations` matches of `sourcePattern` | `minCitations?: integer ≥ 1` (1), `sourcePattern?: string` (a regex; `[…]`-style citations by default) |
+| `never-call-tool` | the turn called any tool in `tools` | `tools: (string \| { id, version? })[]`, one or more |
+| `max-tool-calls` | the turn made more than `max` tool calls | `max?: integer ≥ 0` (10) |
+| `output-matches` | the answer doesn't match `pattern` (with `negate: true`, it does) | `pattern: string` (a regex), `flags?: string` (letters `dgimsuyv`), `negate?: boolean` |
+| `tool-order` | the tools in `sequence` weren't called in that order (others may come between) | `sequence: string[]`, one or more |
+| `required-substring` | the answer is empty, or lacks any of `patterns` | `patterns: string[]`, one or more non-empty (plain text), `caseSensitive?: boolean` (false) |
+| `forbidden-substring` | the answer contains any of `patterns` | `patterns: string[]`, one or more non-empty (plain text), `caseSensitive?: boolean` (false) |
+
+A config the check doesn't take is refused: a required setting left out,
+the wrong type, a setting the check doesn't know, or a regex that doesn't
+compile. Registering it answers `422 guardrail-config-invalid` (each
+problem in `details.issues`); deploying a pack with one fails with
+`deployment-validation-failed`; one that still reaches a turn is a check
+that can't run (`invalid-check-config`), so a `halt` guardrail stops the
+turn. Each built-in's JSON Schema is its registered check's
+`configSchema`.
+
 ## Validating a declaration in-process
 
 `defineGuardrail(spec, checks)` from `@kindgi/guardrails` validates a
@@ -171,13 +252,14 @@ available to the runtime that evaluates it.
 - **`check`** — the id of a registered check (built-in, or one built
   with `defineCheck`). In a pack file it may also be the check object.
 - **`config`** — the check's parameters, validated against the check's
-  `configSchema` by `defineGuardrail`. In a pack, the declaration's
-  `config` goes into the index and the check runs with it; without one
-  it runs with `{}`. A declaration a pack file default-exports isn't run
-  through `defineGuardrail`, so nothing validates its `config`: keep it
-  valid against the schema yourself. `evaluate` receives the config as
-  declared —
-  schema defaults are not filled in — so handle absent optional fields.
+  `configSchema`: by `defineGuardrail`, and in a pack when the pack is
+  indexed (a config that doesn't fit is a file error naming where, and
+  `kindgi build` refuses the pack; see "How the pack tooling reads this
+  file"). In a pack, the declaration's `config` goes into the index and
+  the check runs with it; without one it runs with `{}`. A `defineCheck`
+  check's `evaluate` receives the config its schema resolves, with the
+  schema's defaults applied; a check written without `defineCheck` gets
+  the config as declared.
 - **`action.on-violation`** — `'halt'`, `'retry'` (with
   `retry.maxAttempts`, 1–10), `'escalate'` (with `escalateTo`),
   `'log-only'`, `'compensate'` (with `compensateWith`, a tool id). In an

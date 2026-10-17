@@ -55,6 +55,8 @@ class _Headers:
     request_id: Final = "kindgi-request-id"
     artifact_version: Final = "kindgi-artifact-version"
     duration_ms: Final = "kindgi-duration-ms"
+    traceparent: Final = "traceparent"
+    """The caller's W3C trace context (protocol 2.4.1)."""
 
 
 PACK_HEADERS: Final = _Headers()

@@ -32,8 +32,19 @@ export interface PackCallContext {
   readonly orgId?: string;
   /** The individual call — e.g. the model's tool-call id. */
   readonly requestId?: string;
+  /**
+   * The call's idempotency key: the same every time this call runs (a
+   * resume, a retry, a re-run after a crash), different for every other
+   * call (protocol 2.6.0). A pack service from before 2.6.0 ignores it.
+   */
+  readonly idempotencyKey?: string;
+  /**
+   * The env values the tool declares (`needsSpec.env`), resolved for this
+   * call: project, else org, else tenant (protocol 2.5.0). Strings.
+   */
   readonly env?: Readonly<Record<string, unknown>>;
   readonly secrets?: Readonly<Record<string, unknown>>;
+  /** Reserved: no runtime sends it yet. */
   readonly config?: Readonly<Record<string, unknown>>;
   /** The calling agent version's settings blocks' values, by block id (protocol 2.4.0). */
   readonly settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
@@ -223,4 +234,12 @@ export const PACK_HEADERS = {
    * it on every call; a pack service that doesn't read it ignores it.
    */
   traceparent: 'traceparent',
+  /**
+   * The tenant the call is for, set by the server from the deployment it
+   * routed the call to (never copied from a caller), on `/v1/invoke` and
+   * `/v1/info`. A pack service with `KINDGI_PACK_TENANT_ID` refuses a call
+   * whose header is missing or names another tenant, with 421. Optional: a
+   * pack service that doesn't read it ignores it.
+   */
+  tenantId: 'kindgi-tenant-id',
 } as const;

@@ -6,12 +6,12 @@
  * Workspace build orchestrator.
  *
  * Why: `pnpm -r run build` uses the FULL workspace graph (dependencies
- * + devDependencies) to compute topological order. Several packages
- * declare test-only devDeps that create cycles — e.g. `@kindgi/api`
- * devDeps `@kindgi/testing` (for tests), while `@kindgi/testing` prod-deps
- * `@kindgi/api`.
- * pnpm sees the cycle and runs those packages in arbitrary order; on a
- * fresh clone (CI) the wrong order surfaces as `Cannot find module`.
+ * + devDependencies) to compute topological order, and runs a cycle's
+ * packages in arbitrary order; on a fresh clone (CI) the wrong order
+ * surfaces as `Cannot find module`. `pnpm run check:cycles` keeps the
+ * workspace free of cycles (the last one, `@kindgi/api` ↔
+ * `@kindgi/testing`, went with `@kindgi/api/testing`), and this script
+ * still orders by production deps, deterministically.
  *
  * What this script does: topologically sort every workspace package by
  * PROD dependencies only (ignoring devDependencies), then invoke

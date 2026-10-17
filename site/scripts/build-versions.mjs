@@ -12,9 +12,18 @@
  *                (`/_redirects`)
  *   /next/       the newest pre-release (`@kindgi/sdk@0.1.4-rc.0`) while it's
  *                newer than every release: marked as a release candidate,
- *                never indexed, and gone once its release ships
+ *                never indexed, and gone once its release ships. Like a
+ *                release, it builds from its `release-docs/<version>` branch
+ *                when there is one.
  *   /versions.json   the list the version menu and the banner read: each build
  *                    with the exact release it's from (`0.1.3`, `0.1.4-rc.3`)
+ *   /tutorials/  a tutorial pinned to the release it was tested with
+ *                (`tested: 0.1.6`) is taken from `main` once that release is
+ *                out, whatever the newest release's own copy says; the
+ *                releases' and `/next/`'s copies redirect to it
+ *                (`tutorials-overlay.mjs`)
+ *   *.md         every page's Markdown, for coding agents, at the root and
+ *                under every version: never indexed, UTF-8 (`/_headers`)
  *
  * Only releases are public: readers install a release, so the site
  * describes what they have. What's merged but not released is checked in a
@@ -30,10 +39,17 @@
  * Needs git, pnpm and uv, and this checkout's workspace built (`pnpm run build`).
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { menu, plan, redirects } from './versions-plan.mjs';
+import { dirname, join, resolve } from 'node:path';
+import {
+  TUTORIALS,
+  missingImports,
+  pinnedPagePaths,
+  pinnedTutorials,
+  tutorialRedirects,
+} from './tutorials-overlay.mjs';
+import { LOCKFILE, docsSource, headers, menu, plan, redirects } from './versions-plan.mjs';
 
 const args = process.argv.slice(2);
 const option = (name) => {
@@ -81,6 +97,39 @@ if (releases.length === 0) {
   );
   process.exit(1);
 }
+/**
+ * The ref a release's (or the pre-release's) docs build from: its
+ * `release-docs/<version>` branch on origin when there is one (fetch first),
+ * else its tag. See `docsSource`.
+ */
+function releaseDocsRef(tag, version) {
+  const branch = `origin/release-docs/${version}`;
+  const exists = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${branch}^{commit}`], {
+    cwd: repo,
+  });
+  if (exists.status !== 0) return tag;
+  const startsAtTag =
+    spawnSync('git', ['merge-base', '--is-ancestor', tag, branch], { cwd: repo }).status === 0;
+  const changed = startsAtTag
+    ? execFileSync('git', ['diff', '--name-only', tag, branch], { cwd: repo, encoding: 'utf8' })
+        .split('\n')
+        .filter(Boolean)
+    : [];
+  // For the site-only lockfile guard: the lockfile at both, when it changed.
+  const lockfileAt = (ref) =>
+    execFileSync('git', ['show', `${ref}:${LOCKFILE}`], {
+      cwd: repo,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  const lockfiles = changed.includes(LOCKFILE)
+    ? { tag: lockfileAt(tag), branch: lockfileAt(branch) }
+    : undefined;
+  const source = docsSource({ tag, branch, startsAtTag, changed, lockfiles });
+  if ('error' in source) throw new Error(`build-versions: ${source.error}`);
+  return source.ref;
+}
+
 /** Checks out `tag` in a temporary worktree, builds its workspace, and runs `build` in it. */
 function atTag(tag, name, build) {
   const worktree = mkdtempSync(join(tmpdir(), `kindgi-docs-${name}-`));
@@ -93,17 +142,92 @@ function atTag(tag, name, build) {
     run('git', ['worktree', 'remove', '--force', worktree], repo);
   }
 }
+/** Every file under the tutorials folder on `origin/main` (fetch first), with each page's text. */
+function mainTutorials() {
+  const ls = spawnSync('git', ['ls-tree', '-r', '--name-only', 'origin/main', '--', TUTORIALS], {
+    cwd: repo,
+    encoding: 'utf8',
+  });
+  if (ls.status !== 0) return [];
+  return ls.stdout
+    .split('\n')
+    .filter(Boolean)
+    .map((file) => ({
+      path: file.slice(TUTORIALS.length),
+      source: /\.mdx?$/.test(file)
+        ? execFileSync('git', ['show', `origin/main:${file}`], { cwd: repo, encoding: 'utf8' })
+        : undefined,
+    }));
+}
+
+/**
+ * Puts `main`'s pinned tutorials (`overlay.take`) into the newest release's
+ * checkout, over its own copies. Stops when a pinned page imports what that
+ * release's site doesn't have.
+ */
+function overlayTutorials(worktree, overlay, files) {
+  const exists = (path) => existsSync(join(worktree, path));
+  for (const path of overlay.take) {
+    const file = `${TUTORIALS}${path}`;
+    const page = files.find((f) => f.path === path);
+    if (page?.source !== undefined) {
+      const missing = missingImports(page.source, file, exists);
+      if (missing.length > 0) {
+        throw new Error(
+          `build-versions: ${file} is pinned, but the newest release's site can't resolve its import${missing.length > 1 ? 's' : ''} ${missing.join(', ')}: a pinned tutorial may use only what that release's site has`,
+        );
+      }
+    }
+    const dest = join(worktree, file);
+    mkdirSync(dirname(dest), { recursive: true });
+    writeFileSync(dest, execFileSync('git', ['show', `origin/main:${file}`], { cwd: repo }));
+  }
+}
+
+/** Where a build's docs come from, for the log. */
+const from = (tag, ref) => (ref === tag ? tag : `${ref} (its docs fixed since ${tag})`);
+const tutorialFiles = mainTutorials();
+const overlay = pinnedTutorials(tutorialFiles, releases[0].parsed);
+for (const { path, pin } of overlay.later) {
+  console.log(
+    `build-versions: ${TUTORIALS}${path} is pinned to ${pin}, newer than v${releases[0].parsed.version}: not published yet`,
+  );
+}
 for (const [i, { tag, parsed }] of releases.entries()) {
-  console.log(`build-versions: v${parsed.version} from ${tag}`);
-  atTag(tag, parsed.version, (worktree) => {
-    if (i === 0) buildDocs(worktree, '/', tag, out);
+  const ref = releaseDocsRef(tag, parsed.version);
+  console.log(`build-versions: v${parsed.version} from ${from(tag, ref)}`);
+  atTag(ref, parsed.version, (worktree) => {
     buildDocs(worktree, `/v${parsed.version}/`, tag, join(out, `v${parsed.version}`));
+    if (i === 0) {
+      if (overlay.take.length > 0) {
+        console.log(
+          `build-versions: / takes ${overlay.take.length} pinned tutorial file(s) from origin/main`,
+        );
+        overlayTutorials(worktree, overlay, tutorialFiles);
+      }
+      buildDocs(worktree, '/', tag, out);
+    }
   });
 }
 if (next) {
-  console.log(`build-versions: next (v${next.parsed.version}) from ${next.tag}`);
-  atTag(next.tag, 'next', (worktree) => buildDocs(worktree, '/next/', next.tag, join(out, 'next')));
+  const ref = releaseDocsRef(next.tag, next.parsed.version);
+  console.log(`build-versions: next (v${next.parsed.version}) from ${from(next.tag, ref)}`);
+  atTag(ref, 'next', (worktree) => buildDocs(worktree, '/next/', next.tag, join(out, 'next')));
+}
+// A pinned tutorial lives under /tutorials/ only: the other builds' copies
+// go, their Markdown too, and both redirect there.
+const builds = [...releases.map(({ parsed }) => `v${parsed.version}`), ...(next ? ['next'] : [])];
+for (const build of builds) {
+  for (const slug of overlay.pages) {
+    for (const path of pinnedPagePaths(slug)) {
+      rmSync(join(out, build, ...path), { recursive: true, force: true });
+    }
+  }
 }
 writeFileSync(join(out, 'versions.json'), `${JSON.stringify(menu(planned), null, 2)}\n`);
-writeFileSync(join(out, '_redirects'), redirects(planned));
+writeFileSync(
+  join(out, '_redirects'),
+  redirects(planned) + tutorialRedirects(planned, overlay.pages),
+);
+writeFileSync(join(out, '_headers'), headers());
 console.log(`build-versions: ${out}`);

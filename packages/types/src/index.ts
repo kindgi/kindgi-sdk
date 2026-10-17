@@ -7,10 +7,16 @@ export type * from './ids.js';
 export type * from './live.js';
 export type * from './refs.js';
 export type * from './result.js';
+export type * from './secret-scope.js';
 export type * from './temporal.js';
 export type * from './version.js';
+export type * from './webhook.js';
 
 // Runtime factories on branded IDs (validated construction). Kept as a
 // separate value re-export so the `export type *` barrels above stay
 // pure-type — value exports live only where explicitly listed.
 export { makeEnvName } from './ids.js';
+
+// Whether fetch can send a value in a header: a secret is checked by its
+// header's name before fetch, whose own error would quote it.
+export { bearerValueProblem, headerValueProblem } from './header-value.js';

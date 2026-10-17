@@ -65,7 +65,7 @@ The SDK's `AuthConfig` (`sdks/typescript/src/auth.ts`) already emits this header
 The only fully-public routes are:
 - `GET /health` — liveness. No auth. Returns `{ ok: true }`.
 - `GET /v1/openapi.json` — the OpenAPI document.
-- Webhook receivers (`POST /v1/webhooks/:webhookId/deliver`) — authenticated via HMAC signature header, not Bearer token.
+- Inbound webhook receivers, when a deployment turns them on — authenticated by an HMAC signature header, not a Bearer token. There's no receiver route yet: `/v1/webhooks` only manages the webhook triggers.
 
 ### 2.3 Tenant scoping
 
@@ -95,9 +95,10 @@ Idempotency-Key: <caller-supplied-uuid>
 ```
 
 Semantics:
-- Server stores `(tenantId, route, key) → response` for 24h.
-- Retries with the same key return the original response byte-identical (including status code).
+- Server stores `(tenantId, route, key) → response` for 24h, for a response that took effect (a status below 400). A refusal (4xx) or a failure (5xx) isn't stored, so a retry after fixing the cause runs again.
+- Retries with the same key return the stored response byte-identical (including status code), marked `X-Idempotent-Replay: true`.
 - Retries with the same key but a different body → `409 conflict` with error `code: 'idempotency-key-body-mismatch'`.
+- A retry sent while the first request still runs → `409 conflict` with error `code: 'idempotency-key-in-flight'` and `Retry-After`, when the store holds keys (`IdempotencyStore.holds`; the runtime's does from 0.1.5). It doesn't run the operation again; retry after it, and you get the first request's answer. The hold lasts 30 s and is renewed while the request runs, so a crashed request's key frees within 30 s.
 - Applies to `POST`, `PUT`, `PATCH`, `DELETE`.
 
 `@kindgi/client` sends the `Idempotency-Key` header on mutating calls when the caller passes `idempotencyKey`.
@@ -151,6 +152,7 @@ The SDK's `fromWire(json)` (`sdks/typescript/src/errors.ts`) matches on `code`.
 | `not-found`, `run-not-found`, `agent-not-found`  | 404         |
 | `already-terminal`, `run-already-terminal`       | 409         |
 | `idempotency-key-body-mismatch`                  | 409         |
+| `idempotency-key-in-flight`                      | 409         |
 | `duplicate-*`                                    | 409         |
 | `slug-conflict`, `project-default-already-exists`| 409         |
 | `validation-failed`, `unknown-field`, `bad-input`| 400         |
@@ -162,7 +164,14 @@ The SDK's `fromWire(json)` (`sdks/typescript/src/errors.ts`) matches on `code`.
 | `auth-missing`, `auth-expired`, `auth-revoked`   | 401         |
 | `permission-denied`                              | 403         |
 | `rate-limit-exceeded`                            | 429         |
+| `database-busy` (a `GET` or `HEAD` only)         | 503         |
 | Anything else server-caused                      | 500         |
+
+A `429 rate-limit-exceeded` carries `Retry-After`, in whole seconds, when the limit is over a time window, as `schema-compile-time`, `template-render-time` and the request rate limits are; a limit that counts what's waiting, not time, carries none. When a tenant's limit refused the request, `details.limit` names it. `schema-compile-time` is the time the tenant's schemas spent compiling in the last 60 seconds, against `details.budgetMs`. It counts every compile in a request that publishes schemas, and a schema compiled again in any other request. A publish it refuses stores nothing. `template-render-time` is the time the tenant's instructions templates spent rendering in the last 60 seconds, against `details.budgetMs`. An agent turn whose work either budget refuses fails with `rate-limit-exceeded` and the same `details`: `POST /v1/runs` answers it as this 429, with `Retry-After` and `details.runId`, and the run reads as failed with that code.
+
+A `503 database-busy` answers a `GET` or `HEAD` that the database was too busy to answer in time: a lock or statement timeout ended its query, or no pooled connection came free within the wait. It carries `Retry-After` (5 seconds). A request with any other method that the database was too busy for answers a 500 (`internal-server-error`, or the code of the binding error that stopped it, such as `persistence-error`): a write can have saved part of its work before the timeout, and clients retry a 503 as an answer that nothing ran.
+
+The storage failure is marked `code: 'database-busy'`, on the error or down its `cause` chain. A thrown error reaches `mapThrownError`, which checks for the mark. A route that answers a binding's Result error at its code's status asks `databaseBusyAnswer(error, c)` (`middleware/error-mapper.ts`) first and returns its answer when it gives one. A binding that re-codes a storage failure under its own code keeps the failure as the error's `cause`, so the read answers the same whether the binding threw the failure or returned it.
 
 ---
 
@@ -175,9 +184,9 @@ Every list endpoint accepts:
 
 Response body:
 
-```json
+```json excerpt
 {
-  "data": [ ... ],
+  "data": [ … ],
   "nextCursor": "cursor-abc123",
   "hasMore": true
 }
@@ -185,6 +194,8 @@ Response body:
 
 - `nextCursor` is absent when `hasMore: false`.
 - Cursors are opaque — SDKs treat them as strings. Server encodes whatever it needs (page number, last-id, whatever).
+- A runtime with a cursor sealer (`cursorSealer`) seals every `nextCursor` at the edge (AES-256-GCM, `k1.<kid>.<nonce>.<body>`): it shows nothing of the row it points after, even one the list hid. A sealed cursor opens only for the same tenant, caller, list (the path) and filters (the query parameters other than `cursor` and `limit`, so the page size may change mid-scan), within a day; otherwise `400 bad-input`, and the client starts again without it. A plain cursor still passes as it is.
+- A page may be empty while `hasMore` is true (every row of a window was one the caller can't read): continue with `nextCursor`.
 - Filters go as query params: `?status=running&agentId=...`.
 - Sort order is fixed per endpoint (documented per route); no `?sort=` unless explicitly supported.
 
@@ -261,7 +272,7 @@ Domain errors are the ONLY response body shape for 4xx/5xx. Framework crashes (t
 
 Signed export routes (`POST /v1/provenance/:runId/export`, `POST /v1/approvals/:approvalId/audit-bundle`, any future signed export) MUST return the same wire envelope so SDK clients can share a single verification helper:
 
-```json
+```jsonc excerpt
 {
   "<resourceId>": "...",           // e.g. "runId" or "approvalId"
   "bundle": "base64-of-canonical-json",

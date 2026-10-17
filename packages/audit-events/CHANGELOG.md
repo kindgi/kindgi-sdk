@@ -1,5 +1,95 @@
 # @kindgi/audit-events
 
+## 0.1.8
+
+### Patch Changes
+
+- Updated dependencies [ebf405d]
+  - @kindgi/types@0.1.8
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- Updated dependencies [ebf405d]
+  - @kindgi/types@0.1.8-rc.0
+
+## 0.1.7
+
+### Patch Changes
+
+- b90e2c6: A person's sign-in history includes the events about them. From this release, when an admin ends someone's sessions, it shows on that person's history, saying who did it, and no longer on the admin's. Events recorded before keep their place (nothing is rewritten).
+  - **Audit events gain an optional `subject`:** the principal an event is about, when that isn't its actor (the person whose sessions an admin ended, or the person an anonymous request named). `AuditEventFilter.subject` matches events about a principal: `subject` where an event has one, else `actor`.
+  - **Bindings say whether they filter by it:** `AuditEventBinding.filtersBySubject`. The in-memory binding does. `GET /v1/audit/sign-ins?userId=` filters by `subject` with such a binding, and by `actor`, as before, with one that doesn't say so.
+  - **The sign-in event on the wire:** `userId` is the person the event is about, and the new `byUserId` is who acted, when that isn't them (the admin who ended their sessions).
+- Updated dependencies [b90e2c6]
+  - @kindgi/types@0.1.7
+
+## 0.1.7-rc.0
+
+### Patch Changes
+
+- b90e2c6: A person's sign-in history includes the events about them. From this release, when an admin ends someone's sessions, it shows on that person's history, saying who did it, and no longer on the admin's. Events recorded before keep their place (nothing is rewritten).
+  - **Audit events gain an optional `subject`:** the principal an event is about, when that isn't its actor (the person whose sessions an admin ended, or the person an anonymous request named). `AuditEventFilter.subject` matches events about a principal: `subject` where an event has one, else `actor`.
+  - **Bindings say whether they filter by it:** `AuditEventBinding.filtersBySubject`. The in-memory binding does. `GET /v1/audit/sign-ins?userId=` filters by `subject` with such a binding, and by `actor`, as before, with one that doesn't say so.
+  - **The sign-in event on the wire:** `userId` is the person the event is about, and the new `byUserId` is who acted, when that isn't them (the admin who ended their sessions).
+- Updated dependencies [b90e2c6]
+  - @kindgi/types@0.1.7-rc.0
+
+## 0.1.6
+
+### Patch Changes
+
+- Updated dependencies [b4bbd95]
+  - @kindgi/types@0.1.6
+
+## 0.1.6-rc.0
+
+### Patch Changes
+
+- Updated dependencies [b4bbd95]
+  - @kindgi/types@0.1.6-rc.0
+
+## 0.1.5
+
+### Patch Changes
+
+- Updated dependencies [eff6249]
+  - @kindgi/types@0.1.5
+
+## 0.1.5-rc.0
+
+### Patch Changes
+
+- Updated dependencies [eff6249]
+  - @kindgi/types@0.1.5-rc.0
+
+## 0.1.4
+
+### Patch Changes
+
+- 0b1f48d: `GET /v1/audit/authz` takes `?order=asc|desc`. `asc` (the default, as before) lists the oldest decisions first; `desc` lists the newest first, and `nextCursor` continues in the same order. Any other value is `400 bad-input`. The TypeScript client's `audit.authz.list({ order })` and the Python client's `audit.authz.list(order=…)` send it. `AuditEventBinding.query` takes an optional `order` (`AuditEventOrder`); the in-memory binding implements it, and a binding that doesn't pages oldest first.
+- 149a8c9: **`KINDGI_COMPLIANCE_CLASSIFIER` turns on the audit trail's compliance features**, off by default. Set it to `shipped` (the classifier the runtime ships) or to the absolute path of your own classifier JSON. When set, the runtime serves `/v1/compliance/*` and **purges audit events by kind, as the classifier says**.
+  
+  With `shipped`:
+  
+  | Audit events | Purged after |
+  |---|---|
+  | Authorization decisions | 90 days |
+  | Authorization denials | 365 days |
+  | Run outcomes and guardrail violations | 730 days |
+  | Secret changes and approval decisions | never (legal hold) |
+  | Kinds the classifier doesn't list | never |
+  
+  Unset: no `/v1/compliance/*`, and no audit event is ever purged.
+  
+  `AuditEventPurgeInput` gains optional `outcome` / `exceptOutcome`, so a kind's denials can be kept longer than the rest (a classifier's `onDenyDays`). The in-memory binding honors both.
+- Updated dependencies [fac7472]
+- Updated dependencies [26b2a23]
+- Updated dependencies [2040daf]
+- Updated dependencies [ae417f7]
+  - @kindgi/types@0.1.4
+
 ## 0.1.4-rc.5
 
 ### Patch Changes

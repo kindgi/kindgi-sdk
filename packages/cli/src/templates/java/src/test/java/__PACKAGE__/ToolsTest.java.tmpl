@@ -1,0 +1,30 @@
+package {{JAVA_PACKAGE}};
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+
+import {{JAVA_PACKAGE}}.tools.Echo;
+import {{JAVA_PACKAGE}}.tools.Greet;
+import com.kindgi.pack.ToolContext;
+import org.junit.jupiter.api.Test;
+
+/** The pack's tools, called directly — `./mvnw test`. */
+class ToolsTest {
+  @Test
+  void echoRoundTripsTheMessage() throws Exception {
+    Echo.Output out = Echo.TOOL.call(new Echo.Input("hello"), ToolContext.forTest());
+    assertEquals("hello", out.echo());
+    assertEquals(5, out.characterCount());
+  }
+
+  @Test
+  void greetUsesTheGreetingItIsGiven() throws Exception {
+    assertEquals("Hi, Ada!", Greet.TOOL.call(new Greet.Input("Ada", "Hi"), ToolContext.forTest()).message());
+  }
+
+  @Test
+  void theToolsSayTheyOnlyRead() {
+    assertFalse(Echo.TOOL.mutating());
+    assertFalse(Greet.TOOL.mutating());
+  }
+}

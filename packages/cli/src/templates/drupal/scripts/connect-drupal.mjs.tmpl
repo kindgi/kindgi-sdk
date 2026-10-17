@@ -1,0 +1,57 @@
+// Connects your Drupal site's MCP Server to Kindgi: registers it as the
+// MCP endpoint `drupal`, signing in with OAuth client credentials (the
+// client secret is a Kindgi secret, `DRUPAL_CLIENT_SECRET`, never in this
+// file), then lists the site tools Kindgi registered.
+//
+//   node scripts/connect-drupal.mjs https://cms.example.com [client-id]
+//
+// Run it with `kindgi dev` running (it finds that runtime), or with
+// KINDGI_API_URL and KINDGI_API_TOKEN set. Run it again after you change the
+// site's tools: it registers the endpoint again, which lists them again.
+// README.md, "Connect your site", has the Drupal side.
+
+import { createClient } from '@kindgi/sdk/client';
+
+const ENDPOINT = 'drupal'; // keep in step with DRUPAL_ENDPOINT in lib/drupal.ts
+const [site, clientId = 'kindgi'] = process.argv.slice(2);
+if (site === undefined || !/^https?:\/\//.test(site)) {
+  console.error('Usage: node scripts/connect-drupal.mjs <your site, like https://cms.example.com> [client-id]');
+  process.exit(2);
+}
+const base = site.replace(/\/+$/, '');
+
+const kindgi = createClient();
+
+const existing = await kindgi.mcp.endpoints.get(ENDPOINT).catch(() => undefined);
+if (existing !== undefined) await kindgi.mcp.endpoints.unregister(ENDPOINT);
+
+await kindgi.mcp.endpoints.register({
+  endpointId: ENDPOINT,
+  name: 'Drupal',
+  transport: 'streamable-http',
+  config: { transport: 'streamable-http', url: `${base}/mcp` },
+  auth: {
+    scheme: 'oauth2-client-credentials',
+    tokenUrl: `${base}/oauth/token`,
+    clientId,
+    scope: 'mcp_tools',
+    secretRef: { envName: 'local', name: 'DRUPAL_CLIENT_SECRET' },
+  },
+  scope: { kind: 'tenant' },
+});
+console.log(`${existing === undefined ? 'Registered' : 'Registered again'}: MCP endpoint "${ENDPOINT}" (${base}/mcp)`);
+
+// The runtime signs in and lists the site's tools as it registers them.
+let tools = [];
+for (let i = 0; i < 20 && tools.length === 0; i++) {
+  await new Promise((done) => setTimeout(done, 500));
+  const page = await kindgi.tools.list({ name: `${ENDPOINT}.`, limit: 100 });
+  tools = page.data;
+}
+if (tools.length === 0) {
+  console.error(
+    "No site tools yet. The kindgi dev terminal says why: a secret that isn't set (DRUPAL_CLIENT_SECRET), a client the site refused, or a site whose MCP Server lists no tools.",
+  );
+  process.exit(1);
+}
+for (const t of tools.sort((a, b) => a.id.localeCompare(b.id))) console.log(`  ${t.id}@${t.version}`);

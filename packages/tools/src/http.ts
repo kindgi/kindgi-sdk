@@ -1,8 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { bearerValueProblem, headerValueProblem } from '@kindgi/types';
+
 import { type ToolSpecSynthesizerOptions, registerToolSpecSynthesizer } from './spec-registry.js';
 import type { HttpAuthSpec, HttpRequestBodySpec, HttpToolSpec, ToolContext } from './types.js';
+
+/** What a synthesized handler reads of a response body when the runtime sets no cap. */
+const DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
+
+/** The most of a failed call's body read for its error message (which keeps 512 characters). */
+const ERROR_BODY_BYTES = 2048;
 
 /**
  * First-party synthesizer for `HttpToolSpec` (kind: 'http').
@@ -38,12 +46,14 @@ import type { HttpAuthSpec, HttpRequestBodySpec, HttpToolSpec, ToolContext } fro
  *          from input; send as `Content-Type: text/plain`.
  *   6. `fetch()` with an AbortController that inherits from
  *      `ctx.abortSignal` and adds a `timeoutMs` deadline (default
- *      30_000). Aborts propagate as `handler-error`.
+ *      30_000). The deadline and the signal cover reading the body
+ *      too. Aborts propagate as `handler-error`.
  *   7. Status is checked against `successStatus` (default 200-299).
  *      Failures throw with the response body as the message.
  *   8. Response body is parsed as JSON (default) or returned as
- *      text. Output JSON-Schema validation runs in the invoke
- *      pipeline; handler doesn't validate.
+ *      text. It's read up to `maxResponseBytes` (default 10 MiB);
+ *      a longer body fails the call. Output JSON-Schema validation
+ *      runs in the invoke pipeline; handler doesn't validate.
  */
 function buildHttpHandler(
   spec: HttpToolSpec,
@@ -51,13 +61,26 @@ function buildHttpHandler(
   options: ToolSpecSynthesizerOptions = {},
 ): (input: unknown, ctx: ToolContext) => Promise<unknown> {
   const doFetch = options.fetch ?? fetch;
+  const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+  if (!Number.isSafeInteger(maxResponseBytes) || maxResponseBytes < 1) {
+    throw new RangeError(
+      `http-tool "${toolId}": maxResponseBytes must be a positive whole number of bytes; got ${String(maxResponseBytes)}`,
+    );
+  }
   return async (input, ctx) => {
     const inputObj = coerceInputToObject(input, toolId);
     const { url, consumedKeys } = substituteUrl(spec.urlTemplate, inputObj, toolId);
 
     const headers: Record<string, string> = {};
     for (const h of spec.headers ?? []) {
-      headers[h.name] = substituteTemplate(h.value, inputObj);
+      const value = substituteTemplate(h.value, inputObj);
+      const problem = headerValueProblem(value);
+      if (problem !== undefined) {
+        throw new Error(
+          `http-tool "${toolId}": the header "${h.name}", filled from its input, has ${problem}, which a header can't carry`,
+        );
+      }
+      headers[h.name] = value;
     }
 
     if (spec.authorization !== undefined) {
@@ -90,42 +113,59 @@ function buildHttpHandler(
     }
     ctx.abortSignal.addEventListener('abort', upstreamAbort, { once: true });
 
-    let response: Response;
+    // The deadline and the caller's signal stay on until the body is
+    // read: a server that answers fast and then trickles its body
+    // would otherwise hold the call open past both.
     try {
-      response = await doFetch(url, {
+      const response = await doFetch(url, {
         method: spec.method,
         headers,
         ...(body !== undefined && { body }),
         signal: controller.signal,
       });
+      return await readResponse(response, spec, toolId, maxResponseBytes, controller.signal);
     } finally {
       clearTimeout(timeoutHandle);
       ctx.abortSignal.removeEventListener('abort', upstreamAbort);
     }
-
-    const successMin = spec.successStatus?.min ?? 200;
-    const successMax = spec.successStatus?.max ?? 299;
-    if (response.status < successMin || response.status > successMax) {
-      const text = await safeText(response);
-      throw new Error(
-        `http-tool "${toolId}" got status ${response.status} ${response.statusText || ''} — ${text.slice(0, 512)}`,
-      );
-    }
-
-    const parseJson = spec.parseJson ?? true;
-    if (!parseJson) {
-      return await response.text();
-    }
-    const rawText = await response.text();
-    if (rawText.length === 0) return null;
-    try {
-      return JSON.parse(rawText);
-    } catch (cause) {
-      throw new Error(
-        `http-tool "${toolId}" response was not valid JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
-      );
-    }
   };
+}
+
+/** Steps 7 and 8: the status, then the body, read while `signal` holds. */
+async function readResponse(
+  response: Response,
+  spec: HttpToolSpec,
+  toolId: string,
+  maxResponseBytes: number,
+  signal: AbortSignal,
+): Promise<unknown> {
+  const successMin = spec.successStatus?.min ?? 200;
+  const successMax = spec.successStatus?.max ?? 299;
+  if (response.status < successMin || response.status > successMax) {
+    const text = await safeText(response, signal);
+    throw new Error(
+      `http-tool "${toolId}" got status ${response.status} ${response.statusText || ''} — ${text.slice(0, 512)}`,
+    );
+  }
+
+  const read = await readBodyText(response, maxResponseBytes, signal);
+  if (read.truncated) {
+    throw new Error(
+      `http-tool "${toolId}": the response body is longer than ${maxResponseBytes} bytes, the most this tool reads`,
+    );
+  }
+  const parseJson = spec.parseJson ?? true;
+  if (!parseJson) {
+    return read.text;
+  }
+  if (read.text.length === 0) return null;
+  try {
+    return JSON.parse(read.text);
+  } catch (cause) {
+    throw new Error(
+      `http-tool "${toolId}" response was not valid JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+  }
 }
 
 // Register at module load. Framework barrel imports this module
@@ -214,9 +254,22 @@ function applyAuth(
   headers: Record<string, string>,
   auth: HttpAuthSpec,
   _ctx: ToolContext,
-  _toolId: string,
+  toolId: string,
   resolvedSecret: string,
 ): void {
+  // Checked by the header's name before fetch, whose own error would quote
+  // the secret into the call's failure message, and so into the run. As it's
+  // sent: after `Bearer `, a leading line break is an inner one.
+  const problem =
+    auth.kind === 'bearer'
+      ? bearerValueProblem(resolvedSecret)
+      : headerValueProblem(resolvedSecret);
+  if (problem !== undefined) {
+    const header = auth.kind === 'bearer' ? 'Authorization' : auth.headerName;
+    throw new Error(
+      `http-tool "${toolId}": its secret ${auth.secretRef.envName}/${auth.secretRef.name} for the header "${header}" has ${problem}, which a header can't carry: store the secret without it`,
+    );
+  }
   switch (auth.kind) {
     case 'bearer':
       headers.Authorization = `Bearer ${resolvedSecret}`;
@@ -259,10 +312,61 @@ function buildBody(
   return { body: substituteTemplate(template, input), contentType: 'text/plain' };
 }
 
-async function safeText(response: Response): Promise<string> {
+/**
+ * Reads a response body as UTF-8 text, as `response.text()` does, but
+ * at most `maxBytes` of it, and only while `signal` holds. Past
+ * `maxBytes` it cancels the body and returns what it read, marked
+ * truncated. When `signal` aborts it cancels the body and throws the
+ * signal's reason, whatever the `fetch` in use does with the signal.
+ */
+async function readBodyText(
+  response: Response,
+  maxBytes: number,
+  signal: AbortSignal,
+): Promise<{ readonly text: string; readonly truncated: boolean }> {
+  if (response.body === null) {
+    if (signal.aborted) throw signal.reason;
+    return { text: '', truncated: false };
+  }
+  const reader = response.body.getReader();
+  const cancel = (): void => {
+    reader.cancel(signal.reason).catch(() => undefined);
+  };
+  signal.addEventListener('abort', cancel, { once: true });
+  if (signal.aborted) cancel();
+  const decoder = new TextDecoder();
+  let text = '';
+  let bytes = 0;
   try {
-    return await response.text();
-  } catch {
+    for (;;) {
+      // A cancel ends a pending read as done, and some fetches error the
+      // body instead: either way, an aborted signal's reason is the error.
+      const chunk = await reader.read().catch((cause: unknown) => {
+        throw signal.aborted ? signal.reason : cause;
+      });
+      if (signal.aborted) throw signal.reason;
+      if (chunk.done) return { text: text + decoder.decode(), truncated: false };
+      const room = maxBytes - bytes;
+      if (chunk.value.byteLength > room) {
+        text += decoder.decode(chunk.value.subarray(0, room), { stream: true });
+        reader.cancel().catch(() => undefined);
+        return { text, truncated: true };
+      }
+      bytes += chunk.value.byteLength;
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+  } finally {
+    signal.removeEventListener('abort', cancel);
+  }
+}
+
+/** A failed call's body for its error message; a body that can't be read says so. */
+async function safeText(response: Response, signal: AbortSignal): Promise<string> {
+  try {
+    return (await readBodyText(response, ERROR_BODY_BYTES, signal)).text;
+  } catch (cause) {
+    // Past the deadline or cancelled, the call fails as that.
+    if (signal.aborted) throw cause;
     return '<no body>';
   }
 }

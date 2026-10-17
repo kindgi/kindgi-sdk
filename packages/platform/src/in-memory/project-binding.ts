@@ -28,6 +28,7 @@ import type {
   ProjectMembershipAddOutcome,
   ProjectMembershipBinding,
   ProjectMembershipUpdateRoleOutcome,
+  ProjectProductionOutcome,
   ProjectUpdateOutcome,
 } from '../project-binding.js';
 import type {
@@ -59,12 +60,17 @@ function grantKey(teamId: TeamId, projectId: ProjectId): string {
 }
 
 /**
- * `orgExists`: whether an org is the tenant's (live). Given, a project or
- * team created in or moved to another org is `org-not-found`, as the
- * durable bindings answer; absent, any `orgId` is taken as it is.
+ * - `orgExists`: whether an org is the tenant's (live). Given, a project or
+ *   team created in or moved to another org is `org-not-found`, as the
+ *   durable bindings answer; absent, any `orgId` is taken as it is.
+ * - `productionLimit`: the tenant's limit on projects in production
+ *   (`TenantLimits.projectsInProduction`), read where it's kept;
+ *   `undefined` for none. Read synchronously, so `setProduction` reads,
+ *   counts and changes in one step, as a database's lock makes it.
  */
 export interface InMemoryHierarchyOptions {
   readonly orgExists?: (tenantId: TenantId, orgId: OrgId) => boolean | Promise<boolean>;
+  readonly productionLimit?: (tenantId: TenantId) => number | undefined;
 }
 
 /**
@@ -87,6 +93,19 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
     const p = projectRows.get(projectId);
     if (p === undefined || p.tenantId !== tenantId) return undefined;
     return p;
+  }
+
+  /** `limit-reached` when the tenant's projects in production are at its limit or past it. */
+  function limitReached(tenantId: TenantId): ProjectProductionOutcome | undefined {
+    const limit = options.productionLimit?.(tenantId);
+    if (limit === undefined) return undefined;
+    let inProduction = 0;
+    for (const row of projectRows.values()) {
+      if (row.tenantId === tenantId && row.productionSince !== undefined) inProduction += 1;
+    }
+    return inProduction >= limit
+      ? { kind: 'limit-reached', projectsInProduction: limit, inProduction }
+      : undefined;
   }
 
   function tenantAlreadyHasDefault(tenantId: TenantId): boolean {
@@ -215,9 +234,28 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         updatedAt: nowTimestamp(),
         ...(nextOrgId !== undefined ? { orgId: nextOrgId } : {}),
         ...(nextDescription !== undefined ? { description: nextDescription } : {}),
+        ...(row.productionSince !== undefined ? { productionSince: row.productionSince } : {}),
       };
       projectRows.set(projectId, next);
       return { kind: 'ok' };
+    },
+
+    async setProduction(tenantId, projectId, production): Promise<ProjectProductionOutcome> {
+      const row = findProjectInTenant(tenantId, projectId);
+      if (row === undefined) return { kind: 'project-not-found' };
+      if ((row.productionSince !== undefined) === production) {
+        return { kind: 'ok', productionSince: row.productionSince ?? null, changed: false };
+      }
+      // Read, counted and changed with no await between: one step, as a database's lock makes it.
+      const refused = production ? limitReached(tenantId) : undefined;
+      if (refused !== undefined) return refused;
+      const now = nowTimestamp();
+      const { productionSince: _was, ...rest } = row;
+      const next: Project = production
+        ? { ...rest, productionSince: now, updatedAt: now }
+        : { ...rest, updatedAt: now };
+      projectRows.set(projectId, next);
+      return { kind: 'ok', productionSince: next.productionSince ?? null, changed: true };
     },
 
     async delete(tenantId, projectId): Promise<void> {
@@ -248,7 +286,13 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         return { kind: 'project-not-found' };
       }
       const key = projMembershipKey(input.projectId, input.userId);
-      if (membershipRows.has(key)) return { kind: 'ok' };
+      const held = membershipRows.get(key);
+      if (held !== undefined) {
+        // A member keeps the role they hold: a change is `updateRole`.
+        return held.role === input.role
+          ? { kind: 'ok' }
+          : { kind: 'membership-exists', role: held.role };
+      }
       const row: ProjectMembership = {
         projectId: input.projectId,
         userId: input.userId,
@@ -324,9 +368,15 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         teamId: input.teamId,
         projectId: input.projectId,
         role: input.role,
+        grantedAt: nowTimestamp(),
       };
       grantRows.set(key, row);
       grantOrder.push(key);
+    },
+
+    async get(tenantId, teamId, projectId): Promise<TeamProjectGrant | undefined> {
+      if (findProjectInTenant(tenantId, projectId) === undefined) return undefined;
+      return grantRows.get(grantKey(teamId, projectId));
     },
 
     async remove(tenantId, teamId, projectId): Promise<void> {

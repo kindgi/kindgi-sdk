@@ -5,6 +5,7 @@ import { type FlowRefs, type FlowVersionOverrides, overridableRefs } from '@kind
 import type { FlowId } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import {
   integerFlag,
   listFlag,
@@ -18,18 +19,18 @@ import type { Command, LeafCommand } from './types.js';
 const STATUSES = ['pending', 'running', 'completed', 'failed', 'cancelled'] as const;
 type Status = (typeof STATUSES)[number];
 
-const READS = ['recorded', 'live'] as const;
-const CLASS_WEIGHTS = ['as-recorded', 'restricted-only'] as const;
+export const READS = ['recorded', 'live'] as const;
+export const CLASS_WEIGHTS = ['as-recorded', 'restricted-only'] as const;
 
 /** A flag that takes one of `values`; `undefined` when absent. */
-function oneOfFlag<T extends string>(
+export function oneOfFlag<T extends string>(
   ctx: CommandContext,
   name: string,
   values: readonly T[],
 ): T | undefined {
   const raw = stringFlag(ctx, name);
   if (raw !== undefined && !(values as readonly string[]).includes(raw)) {
-    throw new Error(`--${name} must be one of ${values.join(', ')}, got "${raw}"`);
+    throw new UsageError(`--${name} must be one of ${values.join(', ')}, got "${raw}"`);
   }
   return raw as T | undefined;
 }
@@ -40,6 +41,10 @@ const IN_PROGRESS: ReadonlySet<string> = new Set(['pending', 'running']);
 export interface FollowEvalRunOptions<T> {
   /** Read the eval run by id (the client's `evalRuns.get`). */
   readonly get: (runId: string) => Promise<T>;
+  /** The statuses it waits through (default `pending` and `running`). */
+  readonly inProgress?: ReadonlySet<string>;
+  /** The command that shows it, for the message when it stops waiting (default `kindgi eval-runs show`). */
+  readonly showCommand?: string;
   /** The pause between reads (default 1 s). */
   readonly pollMs?: number;
   /** The longest it waits (default 30 minutes), counted in pauses. */
@@ -63,10 +68,10 @@ export async function followEvalRun<T extends { readonly status: string }>(
     await sleep(pollMs);
     waited += pollMs;
     const run = await options.get(runId);
-    if (!IN_PROGRESS.has(run.status)) return run;
+    if (!(options.inProgress ?? IN_PROGRESS).has(run.status)) return run;
     if (waited >= maxMs) {
       throw new Error(
-        `Still running after ${Math.round(maxMs / 60_000)} minutes: kindgi eval-runs show ${runId}`,
+        `Still running after ${Math.round(maxMs / 60_000)} minutes: ${options.showCommand ?? 'kindgi eval-runs show'} ${runId}`,
       );
     }
   }
@@ -88,10 +93,10 @@ function baselineFrom(ctx: CommandContext): Baseline | undefined {
   const project = stringFlag(ctx, 'baseline-project');
   const segments = segmentsFlag(ctx, 'baseline-segment');
   if (baseline !== 'live' && (project !== undefined || segments.length > 0)) {
-    throw new Error('--baseline-project and --baseline-segment need --baseline=live');
+    throw new UsageError('--baseline-project and --baseline-segment need --baseline=live');
   }
   if (segments.length > 0 && project === undefined) {
-    throw new Error(
+    throw new UsageError(
       '--baseline-segment is a segment path in a project: it needs --baseline-project',
     );
   }
@@ -106,7 +111,9 @@ function baselineFrom(ctx: CommandContext): Baseline | undefined {
   }
   const at = baseline.lastIndexOf('@');
   if (at < 1 || at === baseline.length - 1) {
-    throw new Error(`--baseline must be recorded, live or <agentId>@<version>, got "${baseline}"`);
+    throw new UsageError(
+      `--baseline must be recorded, live or <agentId>@<version>, got "${baseline}"`,
+    );
   }
   return { agentId: baseline.slice(0, at), version: baseline.slice(at + 1) };
 }
@@ -116,15 +123,15 @@ function targetFrom(ctx: CommandContext) {
   const agent = stringFlag(ctx, 'agent');
   const flow = stringFlag(ctx, 'flow');
   if ((agent === undefined) === (flow === undefined)) {
-    throw new Error('Give exactly one of --agent=<id> or --flow=<id>');
+    throw new UsageError('Give exactly one of --agent=<id> or --flow=<id>');
   }
   const agentVersion = stringFlag(ctx, 'agent-version');
   const flowVersion = stringFlag(ctx, 'flow-version');
   if (agentVersion !== undefined && agent === undefined) {
-    throw new Error('--agent-version needs --agent');
+    throw new UsageError('--agent-version needs --agent');
   }
   if (flowVersion !== undefined && flow === undefined) {
-    throw new Error('--flow-version needs --flow');
+    throw new UsageError('--flow-version needs --flow');
   }
   return agent !== undefined
     ? { agentRef: { agentId: agent, ...(agentVersion !== undefined && { version: agentVersion }) } }
@@ -140,7 +147,7 @@ function targetFrom(ctx: CommandContext) {
 function idAtVersion(entry: string): { readonly id: string; readonly version: string } {
   const at = entry.lastIndexOf('@');
   if (at < 1 || at === entry.length - 1) {
-    throw new Error(`--with must be <id>@<version>, got "${entry}"`);
+    throw new UsageError(`--with must be <id>@<version>, got "${entry}"`);
   }
   return { id: entry.slice(0, at), version: entry.slice(at + 1) };
 }
@@ -154,11 +161,11 @@ function splitVersions(
   const agents: Record<string, string> = {};
   const tools: Record<string, string> = {};
   for (const { id, version } of entries) {
-    if (id in agents || id in tools) throw new Error(`--with names ${id} twice`);
+    if (id in agents || id in tools) throw new UsageError(`--with names ${id} twice`);
     const agent = refs.agents.includes(id);
     const tool = refs.tools.includes(id);
-    if (agent && tool) throw new Error(`${id} is both an agent and a tool in flow ${label}`);
-    if (!agent && !tool) throw new Error(`flow ${label} doesn't use ${id}`);
+    if (agent && tool) throw new UsageError(`${id} is both an agent and a tool in flow ${label}`);
+    if (!agent && !tool) throw new UsageError(`flow ${label} doesn't use ${id}`);
     (agent ? agents : tools)[id] = version;
   }
   return {
@@ -178,7 +185,7 @@ async function versionsFrom(
   const entries = listFlag(ctx, 'with').map(idAtVersion);
   if (entries.length === 0) return undefined;
   if (!('flowRef' in target) || target.flowRef.version === undefined) {
-    throw new Error(
+    throw new UsageError(
       '--with needs --flow and --flow-version: it swaps versions into one flow version',
     );
   }
@@ -264,7 +271,7 @@ const start: LeafCommand = {
     runSdk(ctx, 'eval-runs start', async () => {
       const suiteId = requiredPositional(ctx, 0, 'suite-id');
       const projectId = stringFlag(ctx, 'project');
-      if (projectId === undefined) throw new Error('--project=<id> is required');
+      if (projectId === undefined) throw new UsageError('--project=<id> is required');
       const target = targetFrom(ctx);
       const reads = oneOfFlag(ctx, 'reads', READS);
       const classWeights = oneOfFlag(ctx, 'class-weights', CLASS_WEIGHTS);
@@ -318,7 +325,7 @@ const list: LeafCommand = {
     runSdk(ctx, 'eval-runs list', async () => {
       const status = stringFlag(ctx, 'status');
       if (status !== undefined && !(STATUSES as readonly string[]).includes(status)) {
-        throw new Error(`--status must be one of ${STATUSES.join(', ')}, got "${status}"`);
+        throw new UsageError(`--status must be one of ${STATUSES.join(', ')}, got "${status}"`);
       }
       const suiteId = stringFlag(ctx, 'suite');
       const agentId = stringFlag(ctx, 'agent');
@@ -347,10 +354,40 @@ const cancel: LeafCommand = {
     }),
 };
 
+const rescore: LeafCommand = {
+  kind: 'leaf',
+  name: 'rescore',
+  description:
+    "Rescore a completed comparison of a test set: a new eval run that replays nothing and scores the run's replays again, with what people judged on them since (judge a changed answer on its replay, then rescore). The run rescored stays as it was.",
+  usage: 'kindgi eval-runs rescore <run-id> [--project=<project-id>] [--wait]',
+  optionSpec: {
+    project: {
+      type: 'string',
+      description: "The run's project, only for a runtime that doesn't record it on the run.",
+    },
+    wait: {
+      type: 'boolean',
+      description: 'Wait until the rescore finishes, and show it.',
+    },
+  },
+  run: (ctx) =>
+    runSdk(ctx, 'eval-runs rescore', async () => {
+      const runId = requiredPositional(ctx, 0, 'run-id');
+      const project = stringFlag(ctx, 'project');
+      const client = ctx.client();
+      const started = await client.evalRuns.rescore(
+        runId,
+        project !== undefined ? { projectId: project } : undefined,
+      );
+      if (ctx.options.wait !== true) return started;
+      return await followEvalRun(started.runId, { get: (id) => client.evalRuns.get(id) });
+    }),
+};
+
 export const evalRunsCommand: Command = {
   kind: 'group',
   name: 'eval-runs',
   description:
-    'Eval runs: run an eval suite, or compare an agent version on a test set (start / show / list / cancel).',
-  subcommands: [start, show, list, cancel],
+    'Eval runs: run an eval suite, or compare an agent version on a test set (start / show / list / cancel / rescore).',
+  subcommands: [start, show, list, cancel, rescore],
 };

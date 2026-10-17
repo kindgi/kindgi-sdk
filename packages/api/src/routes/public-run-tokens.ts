@@ -9,6 +9,7 @@ import type { RunId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { withholdFromReplay } from '../middleware/idempotency.js';
 import { MAX_PUBLIC_RUN_TOKEN_RUNS, type MintPublicRunTokenResult } from '../public-run-token.js';
 import type { AppEnv } from '../types.js';
 
@@ -92,6 +93,8 @@ export function publicRunTokensRouter(
 
     const minted = issuer.mint(tenantId, unique, ttl as number);
     if (minted.kind === 'err') return error('token-mint-failed', minted.message);
+    // The token is shown once: an Idempotency-Key repeat doesn't get it.
+    withholdFromReplay(c);
     c.status(201);
     return c.json({
       token: minted.token,

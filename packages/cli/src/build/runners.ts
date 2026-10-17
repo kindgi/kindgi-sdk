@@ -25,6 +25,7 @@
  * looking at a failing stage can substitute only that field.
  */
 
+import type { JvmPackCode } from '../dev/pack-code.js';
 import type { IndexResult } from '../dev/runners.js';
 
 /**
@@ -143,6 +144,12 @@ export interface PostBuildOptions {
   readonly tarballSha256: string;
   readonly buildTarget: string;
   readonly registryPushCredsRef?: string;
+  /** `Bearer <API key>`: sent to the hosted build service only, never to a self-hosted one. */
+  readonly authorization?: string;
+  /** The pack's id, which the hosted build service checks the built index against. */
+  readonly packId?: string;
+  /** The project the build is for, by id: a label on the hosted build. */
+  readonly projectId?: string;
   readonly fetchImpl: typeof fetch;
 }
 
@@ -171,9 +178,13 @@ export interface TerminalPayload {
 export interface StreamBuildLogsOptions {
   readonly endpoint: string;
   readonly buildJobId: string;
+  /** As `PostBuildOptions.authorization`. */
+  readonly authorization?: string;
   readonly fetchImpl: typeof fetch;
   readonly onLog: (line: string) => void;
   readonly signal?: AbortSignal;
+  /** The wait before opening a cut stream again. Default: a timer, cut short by `signal`. */
+  readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
 
 export interface PullImageIndexOptions {
@@ -238,6 +249,47 @@ export interface PythonBuildRunners {
 }
 
 /**
+ * The steps that differ for a JVM pack (`kindgi.config.json`, Java or
+ * Scala): Maven or sbt compiles it and resolves its classpath (`prepare`),
+ * kindgi-pack's indexer runs with the pack's JDK, its own Containerfile,
+ * the pack root as the context.
+ */
+export interface JvmBuildRunners {
+  /** Compiles the pack and writes its classpath `@argfile` (the `kindgi dev` build, once). */
+  readonly prepare: (opts: {
+    readonly packDir: string;
+    readonly code: JvmPackCode;
+    readonly env: Readonly<Record<string, string>>;
+  }) => Promise<{ readonly kind: 'ok' } | { readonly kind: 'err'; readonly errors: readonly string[] }>;
+  readonly runLocalIndexer: (
+    opts: Omit<RunLocalIndexerOptions, 'bundleDir'> & {
+      readonly code: JvmPackCode;
+      readonly env: Readonly<Record<string, string>>;
+    },
+  ) => Promise<LocalIndexResult>;
+  readonly writeContainerfile: (opts: {
+    readonly language: JvmPackCode['language'];
+    readonly outputPath: string;
+    readonly artifactVersion: string;
+    readonly publishedAt: string;
+    readonly buildTarget: string;
+    readonly buildImageRef: string;
+    readonly runtimeImageRef: string;
+    /** Debian packages for the image, checked (`checkAptPackages`). */
+    readonly systemPackages: readonly string[];
+    /** The names the pack declares (`env.required`, `env.optional`), sorted. */
+    readonly declaredEnv: readonly string[];
+  }) => Promise<void>;
+  /** Writes the build context: `files` (pack-relative) and the Containerfile. */
+  readonly writeContext: (opts: {
+    readonly packDir: string;
+    readonly files: readonly string[];
+    readonly containerfilePath: string;
+    readonly contextDir: string;
+  }) => Promise<void>;
+}
+
+/**
  * Injected seams the `build` command consumes. Every side effect must
  * pass through one of these — no `import('esbuild')` / `import('tar')`
  * inside `commands/build.ts` and no direct docker or filesystem writes
@@ -279,6 +331,8 @@ export interface BuildRunners {
   readonly signEnvelope: (opts: SignOptions) => Promise<SignResult>;
   /** A Python pack's steps; absent → `kindgi build` refuses a Python pack. */
   readonly python?: PythonBuildRunners;
+  /** A JVM pack's steps (Java, Scala); absent → `kindgi build` refuses a JVM pack. */
+  readonly jvm?: JvmBuildRunners;
   /**
    * The pnpm version the host runs in `root` (`pnpm --version` there).
    * Rejects, with the reason, when it can't be read.

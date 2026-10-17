@@ -55,6 +55,14 @@ export type HandlerRegistry = ReadonlyMap<NodeId, NodeHandler>;
 export interface NodeContext {
   readonly runId: RunId;
   readonly nodeId: NodeId;
+  /**
+   * This step, the same every time it runs: its node id, a loop body's
+   * step with its iteration, or a fanout branch. `record` keeps its
+   * decisions under it, and a tool call's idempotency key is made from it
+   * (`toolIdempotencyKey`, `@kindgi/tools`). Treat it as opaque. Absent on
+   * a host that doesn't name its steps (a runtime before 0.1.6).
+   */
+  readonly stepScope?: string;
   /** The tenant this run belongs to — required for any tenant-scoped I/O. */
   readonly tenantId: TenantId;
   /**
@@ -110,11 +118,21 @@ export interface NodeContext {
    * No-op when the run was started without `authz` configured —
    * exists so handlers can be written uniformly for runs with and
    * without authorization.
+   *
+   * From runtime 0.1.8, the Kindgi runtime starts every run a person or
+   * a key starts with `authz`, so this, `can` and `check` are decided
+   * against the run's principal.
    */
   authorize(action: Action, resource: ResourceRef): Promise<void>;
-  /** Non-throwing check — returns a boolean. For conditional logic. */
+  /**
+   * Non-throwing check — returns a boolean. For conditional logic.
+   * Decided as `authorize` is.
+   */
   can(action: Action, resource: ResourceRef): Promise<boolean>;
-  /** Full Decision — for advanced cases needing reason/evidence. */
+  /**
+   * Full Decision — for advanced cases needing reason/evidence.
+   * Decided as `authorize` is.
+   */
   check(action: Action, resource: ResourceRef): Promise<Decision>;
   /**
    * Read the clock, as `record` does: each call journals `Date.now()`.

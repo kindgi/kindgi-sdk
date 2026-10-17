@@ -2,18 +2,28 @@
 title: Mark a tool read-only
 description: Declare which tools only read, so they run in a dry run and pass approval gates without asking.
 sidebar:
-  order: 4
+  order: 5
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide marks a tool that only reads, so dry runs run it and approval
+gates let it through.
+
+## Before you start
+
+- **A tool,** in the quickstarts' pack, `my-pack`, with `kindgi dev` running
+  and Kindgi 0.1's CLI.
+
+## Mark it read-only
+
 A tool declares whether it changes anything outside Kindgi. One that only
-reads (a lookup, a search, a calculation) says so:
+reads, such as a lookup, a search or a calculation, says so:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 // in tools/lookup-order/index.ts
 const defined = defineTool({
   id: 'my-pack.lookup-order' as ToolId,
@@ -27,7 +37,7 @@ const defined = defineTool({
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 # in tools/lookup_order.py
 @tool(id="my-pack.lookup-order", mutating=False)
 def lookup_order(ref: OrderRef, ctx: ToolContext) -> Order:
@@ -35,16 +45,39 @@ def lookup_order(ref: OrderRef, ctx: ToolContext) -> Order:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/mypack/tools/LookupOrder.java
+  public static final Tool<Input, Output> TOOL = Tool.define("my-pack.lookup-order")
+      // …
+      .mutating(false)
+      // …
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/mypack/tools/LookupOrder.scala
+  val tool: Tool[Input, Output] = Tool[Input, Output]("my-pack.lookup-order")
+    // …
+    .readOnly
+    // …
+```
+
+</TabItem>
 </Tabs>
 
 Leaving `mutating` out is the same as `mutating: true`. That's the safe
 default: a tool counts as one that changes things until it says otherwise.
-It decides two things.
+It decides two things: whether the tool runs in a dry run, and whether an
+approval gate asks before it.
 
 ## Dry runs
 
 `--dry-run` runs a flow without changing anything. A tool step runs only if
-the tool is read-only:
+the tool is read-only. `--flow` is the flow, and `--input` its input:
 
 ```sh
 kindgi runs start --flow=my-pack.check-order --input='{"orderId":"ord_1001"}' --dry-run
@@ -67,7 +100,7 @@ The first tool that isn't stops the run, before the tool is called:
 kindgi runs start --flow=my-pack.note-order --input='{"orderId":"ord_1001","text":"Customer called"}' --dry-run
 ```
 
-```json
+```json excerpt
   "status": "failed",
   "dryRun": true,
   "failureMessage": "dry-run-effectful-tool: tool \"my-pack.add-order-note\" is not declared read-only (mutating: false), so it does not run in a dry run",
@@ -107,10 +140,10 @@ A tool with a `writes`, `deletes`, `spawns-run`, `emits-event` or
 
 ## Approval gates
 
-An agent can make a person approve tool calls
-([Ask before a tool runs](../../approvals/ask-before-a-tool-runs/)). With its
-gates on and no rule for a tool, a read-only tool runs without asking, and
-any other tool waits for approval on its first use.
+An agent can make a person approve tool calls, as
+[Ask before a tool runs](../../approvals/ask-before-a-tool-runs/) shows. With
+its gates on and no rule for a tool, a read-only tool runs without asking.
+Any other tool waits for approval on its first use.
 
 ## Getting it right
 
@@ -120,3 +153,9 @@ any other tool waits for approval on its first use.
   then run it for real.
 - A tool from an [MCP server](../mcp-servers/) always counts as one that
   changes things: it doesn't run in a dry run.
+
+## Next
+
+- [Dry-run a flow](../../flows/dry-run-a-flow/)
+- [Ask before a tool runs](../../approvals/ask-before-a-tool-runs/)
+- [Use an MCP server's tools](../mcp-servers/)

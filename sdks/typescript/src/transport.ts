@@ -11,15 +11,15 @@
  *   - JSON body parsing on 2xx.
  *   - Error envelope (`{ error: {...} }`) hydration into `KindgiError` via
  *     `fromWire` — thrown as `KindgiApiError`.
- *   - Timeout with `AbortController` (default 30s; overridable per call
- *     via `TransportRequest.timeoutMs`).
+ *   - Timeout with `AbortController`: `ClientOptions.timeoutMs` (default
+ *     30 s), overridable per call via `TransportRequest.timeoutMs`.
  *
  * Deliberately does NOT retry. Callers layer their own retry policy; the
  * server's idempotency-key window already gives at-most-once semantics on
  * mutating verbs.
  */
 
-import { KindgiApiError, type NetworkError, fromWire } from './errors.js';
+import { KindgiApiError, type KindgiError, type NetworkError, fromWire } from './errors.js';
 import type { AuthConfig, ClientOptions } from './types.js';
 
 /** Signature the resource clients call into. */
@@ -29,7 +29,7 @@ export interface Transport {
   request<T>(input: TransportRequest): Promise<T>;
   /**
    * Fetch implementation the transport is bound to. Exposed so streaming
-   * callers (`runs.stream`, `evalRuns.events`, `adapters.prepare`, the
+   * callers (`runs.follow`, `evalRuns.events`, `adapters.prepare`, the
    * secrets rotation event stream) can hand it to `readSse` without
    * going through `request` (SSE is a `text/event-stream` body, not JSON).
    */
@@ -91,7 +91,10 @@ const MUTATING: ReadonlySet<TransportRequest['method']> = new Set([
 export function createTransport(options: ClientOptions): Transport {
   const apiUrl = options.apiUrl.replace(/\/+$/u, '');
   const fetchImpl = options.fetch ?? fetch;
-  const clientTimeoutMs = DEFAULT_TIMEOUT_MS;
+  const clientTimeoutMs = checkedTimeoutMs(
+    options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    'ClientOptions.timeoutMs',
+  );
 
   return {
     apiUrl,
@@ -102,13 +105,17 @@ export function createTransport(options: ClientOptions): Transport {
     async request<T>(input: TransportRequest): Promise<T> {
       const url = buildUrl(apiUrl, input.path, input.query);
       const headers = buildHeaders(input, options.auth);
-      const timeoutMs = input.timeoutMs ?? clientTimeoutMs;
+      const timeoutMs =
+        input.timeoutMs === undefined
+          ? clientTimeoutMs
+          : checkedTimeoutMs(input.timeoutMs, 'timeoutMs');
 
       const ac = new AbortController();
-      const timer: ReturnType<typeof setTimeout> = setTimeout(
-        () => ac.abort(new Error('timeout')),
-        timeoutMs,
-      );
+      let timedOut = false;
+      const timer: ReturnType<typeof setTimeout> = setTimeout(() => {
+        timedOut = true;
+        ac.abort(new Error('timeout'));
+      }, timeoutMs);
 
       let response: Response;
       try {
@@ -120,11 +127,18 @@ export function createTransport(options: ClientOptions): Transport {
         });
       } catch (cause) {
         clearTimeout(timer);
-        const err: NetworkError = {
-          code: 'network',
-          message: cause instanceof Error ? cause.message : 'network request failed',
-          cause,
-        };
+        const err: NetworkError = timedOut
+          ? {
+              code: 'network',
+              message: `No answer within ${seconds(timeoutMs)}, the client's timeout (timeoutMs).`,
+              cause,
+              timeoutMs,
+            }
+          : {
+              code: 'network',
+              message: cause instanceof Error ? cause.message : 'network request failed',
+              cause,
+            };
         throw new KindgiApiError(err);
       }
       clearTimeout(timer);
@@ -159,10 +173,46 @@ export function createTransport(options: ClientOptions): Transport {
         body = undefined;
       }
       throw new KindgiApiError(
-        fromWire(unwrapErrorEnvelope(body, response.status), response.status),
+        withRetryAfter(
+          fromWire(unwrapErrorEnvelope(body, response.status), response.status),
+          response.status,
+          response.headers.get('Retry-After'),
+        ),
       );
     },
   };
+}
+
+/**
+ * A rate-limited error's wait, or a 503's, from the response's
+ * `Retry-After` when the body gives none: whole seconds, or an HTTP date.
+ */
+function withRetryAfter(error: KindgiError, status: number, header: string | null): KindgiError {
+  const waits = error.code === 'rate-limited' || (error.code === 'server' && status === 503);
+  if (!waits || error.retryAfterSeconds !== undefined || header === null) {
+    return error;
+  }
+  const value = header.trim();
+  const at = Date.parse(value);
+  const seconds = /^\d+$/.test(value)
+    ? Number(value)
+    : Number.isNaN(at)
+      ? undefined
+      : Math.max(0, Math.ceil((at - Date.now()) / 1000));
+  return seconds === undefined ? error : { ...error, retryAfterSeconds: seconds };
+}
+
+/** A timeout must be a positive number of milliseconds. */
+function checkedTimeoutMs(value: number, name: string): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new TypeError(`${name} must be a positive number of milliseconds. Got ${String(value)}.`);
+  }
+  return value;
+}
+
+/** `30000` → `30 s`, `1500` → `1.5 s`. */
+export function seconds(ms: number): string {
+  return `${ms / 1000} s`;
 }
 
 function buildUrl(
@@ -214,7 +264,7 @@ function authTokenFor(auth: AuthConfig): string {
  * malformed still produce a synthetic entry so `fromWire` returns a
  * meaningful `ServerError`.
  */
-function unwrapErrorEnvelope(body: unknown, status: number): unknown {
+export function unwrapErrorEnvelope(body: unknown, status: number): unknown {
   if (body !== null && typeof body === 'object' && !Array.isArray(body)) {
     const inner = (body as Record<string, unknown>).error;
     if (inner !== null && typeof inner === 'object' && !Array.isArray(inner)) {

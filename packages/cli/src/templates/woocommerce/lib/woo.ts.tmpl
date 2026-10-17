@@ -1,0 +1,182 @@
+// The WooCommerce REST API (`/wp-json/wc/v3`), as this pack's tools call it.
+//
+// The tools sign in as a dedicated, low-privilege WordPress user (a Shop
+// Manager made for the agent, never your own account) with an Application
+// Password, which WordPress core has had since 5.6. It goes as HTTP Basic.
+// The store's address and the user's name come from the env; the password
+// is a secret, resolved by Kindgi on every call and handed to the tool in
+// `ctx.secrets`: it's never in this code, the config or the chat.
+
+/** What every store tool declares it needs (`needsSpec`). */
+export const WOO_NEEDS = {
+  env: {
+    /** The store's address, e.g. `https://shop.example.com` (or `http://localhost:8080` locally). */
+    WOO_STORE_URL: { type: 'string', pattern: '^https?://' },
+    /** The WordPress user the agent signs in as. */
+    WOO_USER: { type: 'string', minLength: 1 },
+  },
+  secrets: {
+    /** That user's Application Password (Users → Profile → Application Passwords). */
+    WOO_APP_PASSWORD: { type: 'string', minLength: 1 },
+  },
+} as const;
+
+/** What the refund tools declare: the store's, plus whether the gateway moves the money. */
+export const REFUND_NEEDS = {
+  env: {
+    ...WOO_NEEDS.env,
+    /** `true`: the payment gateway refunds the money (`api_refund`). Default `false`. */
+    WOO_REFUND_THROUGH_GATEWAY: { type: 'string', enum: ['true', 'false'], default: 'false' },
+  },
+  secrets: WOO_NEEDS.secrets,
+} as const;
+
+/** The part of a tool call's context the store client reads. */
+export interface WooContext {
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly secrets?: Readonly<Record<string, string | undefined>>;
+  /**
+   * The call's idempotency key (`ctx.idempotencyKey`): the same every time
+   * this call runs (its step resumed, retried or run again after a crash),
+   * and different for every other call. Absent outside a run.
+   */
+  readonly idempotencyKey?: string;
+}
+
+/** A call to the store that WooCommerce refused: its status and its own words. */
+export class WooError extends Error {
+  override readonly name = 'WooError';
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/** Call the WooCommerce REST API: `path` is under `/wp-json/wc/v3/`. */
+export async function woo<T>(
+  ctx: WooContext,
+  method: 'GET' | 'POST' | 'PUT',
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  const base = ctx.env?.WOO_STORE_URL;
+  const user = ctx.env?.WOO_USER;
+  const password = ctx.secrets?.WOO_APP_PASSWORD;
+  if (base === undefined || user === undefined || password === undefined) {
+    throw new Error('WOO_STORE_URL, WOO_USER and WOO_APP_PASSWORD must be set: see README.md');
+  }
+  // Relative to the store's address, so a store under a path (`/shop/`) works too.
+  const url = new URL(`wp-json/wc/v3/${path.replace(/^\/+/, '')}`, base.endsWith('/') ? base : `${base}/`);
+  const response = await fetch(url, {
+    method,
+    headers: {
+      authorization: `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`,
+      accept: 'application/json',
+      ...(body !== undefined && { 'content-type': 'application/json' }),
+    },
+    ...(body !== undefined && { body: JSON.stringify(body) }),
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    let reason = text.slice(0, 300);
+    try {
+      const parsed = JSON.parse(text) as { message?: unknown };
+      if (typeof parsed.message === 'string') reason = parsed.message;
+    } catch {
+      // Not JSON: keep the start of the body.
+    }
+    throw new WooError(response.status, `WooCommerce answered ${response.status} to ${method} ${url.pathname}: ${reason}`);
+  }
+  return (text === '' ? undefined : JSON.parse(text)) as T;
+}
+
+/** The order fields the tools read. */
+export interface WooOrder {
+  readonly id: number;
+  readonly number: string;
+  readonly status: string;
+  readonly currency: string;
+  readonly total: string;
+  readonly date_created: string;
+  readonly billing?: { readonly first_name?: string; readonly last_name?: string };
+  readonly refunds?: readonly { readonly id: number; readonly total: string }[];
+}
+
+/** What an order has been refunded already (WooCommerce lists refunds as negative totals). */
+export function refundedSoFar(order: WooOrder): number {
+  return (order.refunds ?? []).reduce((sum, r) => sum + Math.abs(Number(r.total) || 0), 0);
+}
+
+/** A refund, as `GET orders/<id>/refunds` lists it. */
+export interface WooRefund {
+  readonly id: number;
+  readonly amount: string;
+  readonly meta_data?: readonly { readonly key: string; readonly value: unknown }[];
+}
+
+/** The refund's meta key that holds the idempotency key of the call that made it. */
+export const IDEMPOTENCY_META_KEY = '_kindgi_idempotency_key';
+
+/** The refund on the order that a run of this call made, if any. */
+async function refundOfThisCall(ctx: WooContext, orderId: number, key: string): Promise<WooRefund | undefined> {
+  // An order has a handful of refunds; 100 is the API's largest page.
+  const refunds = await woo<readonly WooRefund[]>(ctx, 'GET', `orders/${orderId}/refunds?per_page=100`);
+  return refunds.find((r) => r.meta_data?.some((m) => m.key === IDEMPOTENCY_META_KEY && m.value === key));
+}
+
+/**
+ * Refund `amount` on an order, through WooCommerce's refunds API, once. With
+ * `WOO_REFUND_THROUGH_GATEWAY=true` the payment gateway moves the money
+ * (`api_refund`); otherwise WooCommerce records the refund and the money
+ * moves however your shop moves it (the default, and what a local store
+ * does).
+ *
+ * A run's step can run more than once: resumed after an approval, retried
+ * after a failure, or run again after a crash. WooCommerce takes no
+ * idempotency key, so the call's key goes on the refund (`meta_data`), and
+ * this looks for it:
+ *   - first: a refund this call made already is returned, not made again;
+ *   - after a POST that failed without WooCommerce saying no (no answer, or
+ *     a 5xx): the store may have made the refund anyway, so a retry would
+ *     refund twice. If it's there, it's returned as made.
+ * `check` runs in between, on the order, before anything is refunded (the
+ * refund tool's limit). Without a key (outside a run) nothing is looked for.
+ */
+export async function createRefund(
+  ctx: WooContext,
+  input: { readonly orderId: number; readonly amount: number; readonly reason: string },
+  check?: (order: WooOrder) => void,
+): Promise<{ readonly refundId: number; readonly orderId: number; readonly amount: string; readonly currency: string }> {
+  const key = ctx.idempotencyKey;
+  const order = await woo<WooOrder>(ctx, 'GET', `orders/${input.orderId}`);
+  const made = (refund: WooRefund) => ({
+    refundId: refund.id,
+    orderId: input.orderId,
+    amount: refund.amount,
+    currency: order.currency,
+  });
+  if (key !== undefined) {
+    const earlier = await refundOfThisCall(ctx, input.orderId, key);
+    if (earlier !== undefined) return made(earlier);
+  }
+  check?.(order);
+  try {
+    const refund = await woo<WooRefund>(ctx, 'POST', `orders/${input.orderId}/refunds`, {
+      amount: input.amount.toFixed(2),
+      reason: input.reason,
+      api_refund: ctx.env?.WOO_REFUND_THROUGH_GATEWAY === 'true',
+      ...(key !== undefined && { meta_data: [{ key: IDEMPOTENCY_META_KEY, value: key }] }),
+    });
+    return made(refund);
+  } catch (error) {
+    // A 4xx is WooCommerce saying no: nothing was refunded.
+    const refused = error instanceof WooError && error.status < 500;
+    if (key !== undefined && !refused) {
+      const after = await refundOfThisCall(ctx, input.orderId, key).catch(() => undefined);
+      if (after !== undefined) return made(after);
+    }
+    throw error;
+  }
+}

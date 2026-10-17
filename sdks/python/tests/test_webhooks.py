@@ -209,6 +209,24 @@ def test_parse_event_reads_run_finished() -> None:
     assert event.data.run.flow_id == "acme.order-review"
     assert event.data.run.status == "failed"
     assert event.created_at == datetime(2026, 10, 2, tzinfo=UTC)
+    assert event.data.run.failure is None
+
+
+def test_parse_event_reads_a_run_finished_failure_and_its_details() -> None:
+    run = {
+        **RUN_FINISHED["data"]["run"],
+        "failure": {
+            "code": "rate-limit-exceeded",
+            "message": "Template render budget reached for this tenant",
+            "details": {"limit": "template-render-time", "budgetMs": 5000},
+        },
+    }
+    event = webhooks.parse_event(json.dumps({**RUN_FINISHED, "data": {"run": run}}))
+    assert isinstance(event, models.RunFinishedEvent)
+    failure = event.data.run.failure
+    assert failure is not None
+    assert failure.code == "rate-limit-exceeded"
+    assert failure.details == {"limit": "template-render-time", "budgetMs": 5000}
 
 
 def test_parse_event_reads_the_test_event() -> None:
@@ -221,6 +239,68 @@ def test_parse_event_reads_the_test_event() -> None:
     event = webhooks.parse_event(json.dumps(body))
     assert isinstance(event, models.WebhookTestEvent)
     assert event.data.endpoint_id == "ep-1"
+
+
+def test_parse_event_reads_an_improvement_pass_finished() -> None:
+    body = {
+        "id": "evt-pass",
+        "type": "improvement-pass.finished",
+        "createdAt": "2026-10-07T12:00:00.000Z",
+        "data": {
+            "pass": {
+                "id": "8a1e9c4a-0000-4000-8000-000000000004",
+                "agentId": "acme.scorer",
+                "fromVersion": "1.0.0",
+                "scope": {"kind": "tenant"},
+                "suiteId": "acme.scorer.improve",
+                "tiers": ["settings"],
+                "objective": "weightedYesShare",
+                "classWeights": "restricted-only",
+                "budget": {"maxCostUsd": 5, "maxCandidates": 30},
+                "requestedBy": "service:schedule",
+                "status": "completed",
+                "candidatesEvaluated": 7,
+                "costUsd": "0.12",
+                "outcome": {
+                    "kind": "proposed",
+                    "proposalId": "9b2e9c4a-0000-4000-8000-000000000005",
+                },
+                "trigger": {
+                    "triggerId": "1c3e9c4a-0000-4000-8000-000000000006",
+                    "fireId": "2d4e9c4a-0000-4000-8000-000000000007",
+                },
+                "createdAt": "2026-10-07T11:00:00.000Z",
+                "updatedAt": "2026-10-07T12:00:00.000Z",
+                "finishedAt": "2026-10-07T12:00:00.000Z",
+            }
+        },
+    }
+    event = webhooks.parse_event(json.dumps(body))
+    assert isinstance(event, models.ImprovementPassFinishedEvent)
+    assert event.data.pass_.agent_id == "acme.scorer"
+    assert event.data.pass_.trigger is not None
+    assert event.data.pass_.trigger.trigger_id == "1c3e9c4a-0000-4000-8000-000000000006"
+
+
+def test_parse_event_reads_an_approval_requested() -> None:
+    body = {
+        "id": "evt-approval",
+        "type": "approval.requested",
+        "createdAt": "2026-10-09T12:00:00.000Z",
+        "data": {
+            "approval": {
+                "approvalId": "3e5e9c4a-0000-4000-8000-000000000008",
+                "projectId": "4f6e9c4a-0000-4000-8000-000000000009",
+                "requiredRole": "senior",
+                "title": "Refund over the limit",
+                "createdAt": "2026-10-09T12:00:00.000Z",
+                "url": "https://kindgi.example.com/console/approvals/3e5e9c4a-0000-4000-8000-000000000008",
+            }
+        },
+    }
+    event = webhooks.parse_event(json.dumps(body))
+    assert isinstance(event, models.ApprovalRequestedEvent)
+    assert event.data.approval.required_role == "senior"
 
 
 def test_parse_event_refuses_an_unknown_type() -> None:

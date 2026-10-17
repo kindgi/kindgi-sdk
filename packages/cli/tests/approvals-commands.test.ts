@@ -49,13 +49,57 @@ describe('kindgi approvals', () => {
       approvals: { list: rec('list', { data: [{ id: 'a-1' }] }) },
     });
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(calls).toEqual([['list', { status: 'pending', limit: 5, cursor: 'c1' }]]);
+    expect(calls).toEqual([['list', { status: ['pending'], limit: 5, cursor: 'c1' }]]);
     expect(JSON.parse(out.stdout)).toEqual({ data: [{ id: 'a-1' }] });
+  });
+
+  test('list: a reviewer inbox in one read (several statuses, --assigned-to=me, --order=asc)', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      [
+        'approvals',
+        'list',
+        '--status=pending,assigned,in_review',
+        '--assigned-to=me',
+        '--order=asc',
+      ],
+      { approvals: { list: rec('list', { data: [] }) } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['list', { status: ['pending', 'assigned', 'in_review'], assignedTo: 'me', order: 'asc' }],
+    ]);
+    for (const bad of [['--assigned-to=someone'], ['--order=oldest'], ['--status=pending,open']]) {
+      const refused = await run(['approvals', 'list', ...bad], { approvals: {} });
+      expect(refused.exitCode, bad.join(' ')).toBe(2);
+    }
+  });
+
+  test('list: --decided-by=me, the approvals you decided', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(['approvals', 'list', '--status=approved,rejected', '--decided-by=me'], {
+      approvals: { list: rec('list', { data: [], decidedBy: 'me' }) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['list', { status: ['approved', 'rejected'], decidedBy: 'me' }]]);
+    expect(JSON.parse(out.stdout)).toEqual({ data: [], decidedBy: 'me' });
+    const refused = await run(['approvals', 'list', '--decided-by=someone'], { approvals: {} });
+    expect(refused.exitCode).toBe(2);
+  });
+
+  test("list: --decided-by=me on a runtime that ignores it stops, and doesn't print everyone's", async () => {
+    const { rec } = recorder();
+    const out = await run(['approvals', 'list', '--decided-by=me'], {
+      approvals: { list: rec('list', { data: [{ id: 'a-1' }], hasMore: false }) },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toBe('Error: --decided-by needs a runtime on Kindgi 0.1.8.1 or later.\n');
   });
 
   test('list refuses an unknown status', async () => {
     const out = await run(['approvals', 'list', '--status=open'], { approvals: {} });
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('--status must be one of pending');
   });
 
@@ -79,10 +123,10 @@ describe('kindgi approvals', () => {
 
   test('complete needs a known --decision', async () => {
     const missing = await run(['approvals', 'complete', 'a-1'], { approvals: {} });
-    expect(missing.exitCode).toBe(1);
+    expect(missing.exitCode).toBe(2);
     expect(missing.stderr).toContain('--decision=approve|reject|escalate|withdraw is required');
     const wrong = await run(['approvals', 'complete', 'a-1', '--decision=yes'], { approvals: {} });
-    expect(wrong.exitCode).toBe(1);
+    expect(wrong.exitCode).toBe(2);
     expect(wrong.stderr).toContain('--decision must be one of approve');
   });
 });
@@ -111,7 +155,7 @@ describe('kindgi reviewers', () => {
 
   test('register needs a role', async () => {
     const out = await run(['reviewers', 'register', '--spec={}'], { approvals: { reviewers: {} } });
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('`role`');
   });
 

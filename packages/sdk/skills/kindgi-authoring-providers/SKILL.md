@@ -5,31 +5,33 @@ description: >
   can actually call a real model. Covers four paths — hosted via
   Anthropic native adapter, Gemini on Vertex AI (Google Application
   Default Credentials, no API key), hosted via the OpenAI-compat adapter
-  (works with OpenAI + Groq + Together + Fireworks + OpenRouter +
-  Ollama + vLLM + any other OpenAI-compatible endpoint), and local
+  (works with OpenAI, Groq, self-hosted vLLM and Ollama, and any other
+  OpenAI-compatible endpoint, a hosted gateway such as OpenRouter
+  included), and local
   via the in-process ONNX adapter — plus the credential flow (in
-  `kindgi dev` the key lives in the project's env files — `.env`, then
-  `.env.local` — added by hand or with `kindgi secrets set`'s no-echo
-  prompt; the Kindgi runtime reads it through the dotenv secret binding
-  at agent-turn time). One provider row exposes one
+  `kindgi dev` the key lives in Kindgi's own `.kindgi/secrets.env`, set
+  with `kindgi secrets set`'s no-echo prompt, or in the project's env files
+  (`.env`, `.env.local`); the Kindgi runtime reads it through the dotenv
+  secret binding at agent-turn time). One provider row exposes one
   connection with one or more models under `metadata.models[]`; the
   router picks the (provider, model) tuple per invocation. Load this
   when the user asks to "register a provider", "use Claude / GPT /
-  Groq / Llama / Gemini", "wire Anthropic", "use Vertex", "set up an API key for the agent",
+  Groq / Llama / Gemini", "wire Anthropic", "use Vertex", "use Bedrock", "set up an API key for the agent",
   or when an agent has been authored but the pack has no provider
   registered yet. Authoring agents themselves is covered by
   kindgi-authoring-agents; getting-started is covered by
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.6"
+version: "0.9.15"
 sdk_version: "0.0.0"
-pack_languages: [node, python]
+pack_languages: [node, python, java, scala]
 sources:
   - packages/adapters/model-anthropic/src/provider.ts
   - packages/adapters/model-gemini/src/provider.ts
   - packages/adapters/model-openai-compat/src/provider.ts
   - packages/adapters/model-in-process/src/provider.ts
+  - packages/adapters/model-bedrock/src/config.ts
   - packages/api/src/routes/providers.ts
   - packages/secrets-dotenv/src/index.ts
 ---
@@ -38,9 +40,10 @@ sources:
 
 > **Running `kindgi`:** in a Node project the CLI is a devDependency
 > (`@kindgi/cli`), not a global command. Run it through the project's
-> package manager — `pnpm exec kindgi …`, `npx --no kindgi …` (npm),
+> package manager — `pnpm exec kindgi …`, `npx --no -- kindgi …` (npm),
 > `yarn kindgi …` or `bun run kindgi …`. A Python pack (`[tool.kindgi]` in
-> `pyproject.toml`) has no Node project: run the `kindgi` on `PATH`.
+> `pyproject.toml`) has no Node project: run the `kindgi` on `PATH`. A Java
+> or Scala pack (`kindgi.config.json`) runs the CLI it pins: `./kindgiw …`.
 > Commands below are written `kindgi …` for brevity.
 
 An **agent** is a versioned declaration; it needs a **provider** to run.
@@ -75,12 +78,17 @@ Three moving parts:
 1. **API key on disk** — in `kindgi dev` (environment `local`) the dotenv
    secret binding reads the project's own env files: `.env`, then
    `.env.local` on top (change the list with `dev.envFiles` in
-   `kindgi.config.ts`, or `envFiles` under `[tool.kindgi.dev]` in a Python
-   pack's `pyproject.toml`). A key already in the app's `.env` just works.
-   `kindgi secrets set` (interactive, no-echo) writes `.env.local`. For
-   non-sensitive values (log levels, region names, feature flags),
-   `kindgi env set NAME VALUE --env=local` writes the same file with a
-   positional value — never route real secrets through it. `KINDGI_*`
+   `kindgi.config.ts`, `envFiles` under `[tool.kindgi.dev]` in a Python
+   pack's `pyproject.toml`, or `dev.envFiles` in a Java or Scala pack's
+   `kindgi.config.json`), then Kindgi's own `.kindgi/secrets.env` on top.
+   A key already in the app's `.env` just works. `kindgi secrets set`
+   (interactive, no-echo) writes `.kindgi/secrets.env`, a file the app
+   doesn't load (a framework loads `.env.local` into every route); `--app`
+   writes the app's file instead, for a value the app reads too (a webhook
+   signing secret). For non-sensitive values (log levels, region names,
+   feature flags), `kindgi env set NAME VALUE --env=local` writes the app's
+   `.env.local` with a positional value — never route real secrets
+   through it. `KINDGI_*`
    names configure Kindgi itself and are never resolvable as secrets.
 2. **Provider registration** — `kindgi providers register --spec=@provider.json` (`POST /v1/providers`)
 3. **Agent's `capabilities.needs`** — matched at the (provider, model) tuple level at turn time
@@ -117,24 +125,35 @@ then parse, check against the schema and repair, on every provider.
 kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
 # Prompts interactively (echo disabled). Paste the key, press enter.
 ```
-Writes to `.env.local` at the pack root via the dotenv secret binding —
-or add `ANTHROPIC_API_KEY=…` to `.env` / `.env.local` yourself; `kindgi
-dev` reads both. If the pack lives inside an app whose `.env` already
-has the key, there is nothing to do. Keep env files gitignored. For pipelines/CI, pipe the value with
+Writes to `.kindgi/secrets.env` at the pack root via the dotenv secret
+binding — or add `ANTHROPIC_API_KEY=…` to that file yourself; `kindgi dev`
+also reads the app's `.env` / `.env.local`. If the pack lives inside an app
+whose env file already has the key, it works as it is; `kindgi secrets copy`
+gives Kindgi its own copy and never edits the app's files (the app may use
+the key itself: leave removing it to the person). Keep env files gitignored. For pipelines/CI, pipe the value with
 `echo -n "$KEY" | kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant --from-stdin`,
 or read from a mode-0600 file with `--from-file <path>`. Never pass a
 credential on argv.
 
 **Step 2 — register it, from the preset:**
 ```sh
-kindgi providers register --preset=anthropic                          # Opus 5.5, Sonnet 5.5, Haiku 4.5
+kindgi providers register --preset=anthropic                          # Opus 5.5, Sonnet 5.5 (default), Haiku 5.5, Haiku 4.5
 kindgi providers register --preset=anthropic --models=claude-sonnet-5-5  # just one
 ```
-Don't pin `claude-haiku-4-5`: Anthropic retires it on or after 2026-10-15,
-and a turn routed to it then fails.
-The preset carries the models, context windows, output limits and current
-prices (`kindgi providers presets` lists the presets and when their prices
-were checked); `--max-output-tokens=<n>` sets another output limit. In a pack it refuses until the key is in the pack's env files —
+Before pinning a Claude model, check its status on Anthropic's model
+deprecations page (https://platform.claude.com/docs/en/about-claude/model-deprecations): a turn routed to a retired model fails. Prefer the
+preset's default. Each
+preset names a default model (`metadata.defaultModel`, marked `(default)`
+when it registers), which an agent with no preference gets. A preset
+registered before 0.1.4 has none: unregister it and register it again.
+The Claude 5.5 and GPT-6 models take no `temperature` (`"sampling": false`:
+the call goes without it, with a `sampling-unsupported` warning), and a
+model's `thinking` says how it thinks; thinking counts against
+`maxOutputTokens` and bills as output.
+The preset carries the models, context windows, default output caps (what
+a call asks for when its agent sets no `maxOutputTokens`; not the model's own
+limit) and current prices (`kindgi providers presets` lists the presets and
+when their prices were checked); `--max-output-tokens=<n>` sets another cap. In a pack it refuses until the key is in the pack's env files —
 step 1. That's all for Anthropic; go to step 4. The rest of this path is
 the same registration by hand, for a spec of your own.
 
@@ -156,16 +175,25 @@ providers: [
 preset = "anthropic"
 models = ["claude-sonnet-5-5"]
 ```
-- A preset entry takes `models`, `project`, `secret` (the key's name, in place
-  of the preset's) and `maxOutputTokens`, spelled the same in `pyproject.toml`;
+In a Java or Scala pack's `kindgi.config.json`, the same keys:
+`"providers": [{"preset": "anthropic", "models": ["claude-sonnet-5-5"]}]`.
+- A preset entry takes `models`, the settings its preset asks for (`project`
+  for `gemini`; `resourceName` and `deployments` for `azure-openai`; `region`
+  for `bedrock`), `secret` (the key's name, in place of the preset's) and
+  `maxOutputTokens`, spelled the same in `pyproject.toml` and
+  `kindgi.config.json`. Its own settings are required and another preset's
+  are refused. `deployments` is a map of model to deployment
+  (`{ "gpt-6.1-sol": "gpt-6-1-sol" }`, a `[tool.kindgi.providers.deployments]`
+  table in `pyproject.toml`, model names quoted), not the `--deployments` flag's
+  `model=deployment,…`, and it names exactly the models the entry registers;
   a `spec` entry is a `--spec` body. A
   key is always a secret's name (`secret_ref`); a credential in
   `adapter_config` is refused.
-- Each boot prints `Providers from kindgi.config.ts:` with one line each:
+- Each boot prints `Providers from kindgi.config.ts:` (the pack's config file) with one line each:
   `registered`, `unchanged`, `registered again (changed in kindgi.config.ts)`,
   `unregistered (no longer in kindgi.config.ts)`, or ⚠ `not registered: <KEY>
-  is not in .env, .env.local` (set the key, then restart: the config isn't
-  watched).
+  is not in .env, .env.local, .kindgi/secrets.env` (set the key, then
+  restart: the config isn't watched).
 - A provider with that id that `kindgi dev` didn't register is left as it is;
   if its region or models differ, a ⚠ line names the
   `kindgi providers unregister` that lets the config's version apply.
@@ -257,9 +285,9 @@ Works with **any** OpenAI-compatible endpoint. Same adapter, different
 | Groq | `https://api.groq.com/openai/v1` |
 | Together | `https://api.together.xyz/v1` |
 | Fireworks | `https://api.fireworks.ai/inference/v1` |
-| OpenRouter | `https://openrouter.ai/api/v1` |
 | DeepSeek | `https://api.deepseek.com/v1` |
 | LiteLLM proxy | `http://localhost:4000/v1` |
+| OpenRouter (a hosted gateway) | `https://openrouter.ai/api/v1` |
 
 The connection carries the `baseURL` (in `adapter_config`);
 each endpoint is a separate provider row because each has its own API
@@ -471,7 +499,9 @@ The account (locally) or the service account (deployed) needs the
 **Vertex AI User** role (`roles/aiplatform.user`) in the project. Running
 outside Google Cloud: put a service-account key (its JSON) in a secret
 (`kindgi secrets set GEMINI_SA_KEY --env=local --scope=tenant`) and add
-`"secret_ref": { "envName": "local", "name": "GEMINI_SA_KEY" }`.
+`"secret_ref": { "envName": "local", "name": "GEMINI_SA_KEY" }`. A runtime
+with `KINDGI_TENANT_HOST_ACCESS=isolated` requires that key: it doesn't lend
+its own credentials to tenant configuration.
 
 **Step 2 — `provider.json`:**
 ```json
@@ -527,7 +557,73 @@ Or skip step 2: `kindgi providers register --preset=gemini --project=<your-gcp-p
 registers both models above.
 Then pin it from an agent with `preferredProvider: 'gemini'` (and a model
 with `preferredModel`; in Python, `preferred_provider="gemini"` and
-`preferred_model=…`), or let the router pick by capability.
+`preferred_model=…`; in Java, `.set("preferredProvider", "gemini")`), or let
+the router pick by capability.
+
+## Amazon Bedrock
+
+Nova, Claude and GPT on Amazon Bedrock. The `bedrock` preset signs in as the
+runtime's own AWS identity (`KINDGI_AWS_IDENTITY` says where it comes from),
+so it takes no key:
+```sh
+kindgi providers register --preset=bedrock --region=us-east-2
+kindgi providers register --preset=bedrock --region=us-east-2 \
+  --models=us.anthropic.claude-haiku-4-5-20251001-v1:0   # Claude, not Nova Pro
+```
+`--region` is the US Region the account uses Bedrock in: the preset's models
+are US cross-region inference profiles. Its default model is Amazon Nova Pro
+(`us.amazon.nova-pro-v1:0`). Claude and GPT also need the AWS account's
+access to their vendor's models
+(https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html).
+
+**On a runtime with `KINDGI_TENANT_HOST_ACCESS=isolated`, use a Bedrock API
+key.** That runtime doesn't lend its own credentials to tenant configuration,
+so it refuses the preset at registration and stores nothing:
+```text
+  ✗ /adapter_config/auth: adapter_config.auth = aws-identity (the default) signs in as the runtime's own AWS identity, which this deployment doesn't let tenant configuration use (KINDGI_TENANT_HOST_ACCESS). Set auth = api-key, with secret_ref naming a Bedrock API key.
+```
+`--secret` doesn't change that: the preset still signs in as the runtime.
+Register from a spec whose `adapter_config.auth` is `api-key` and whose
+`secret_ref` names the key:
+
+1. **A long-term Bedrock API key**, made in the Region the provider uses. A
+   short-term key lasts 12 hours at most, so a registration can't keep one,
+   and a key works only in the Region it was made in. AWS recommends
+   long-term keys for exploration only: tell the person so, with AWS's page
+   (https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html).
+2. **Stored as a tenant secret**, with the no-echo prompt:
+   `kindgi secrets set BEDROCK_API_KEY --env=production --scope=tenant`.
+3. **Registered:** `kindgi providers register --spec=@bedrock.json`, with
+   ```json
+   {
+     "adapter_id": "@kindgi/adapter-model-bedrock",
+     "adapter_config": { "auth": "api-key" },
+     "secret_ref": { "envName": "production", "name": "BEDROCK_API_KEY" },
+     "metadata": {
+       "id": "bedrock",
+       "region": "us-east-2",
+       "models": [
+         { "name": "us.anthropic.claude-haiku-4-5-20251001-v1:0", "contextWindow": 200000,
+           "maxOutputTokens": 16000, "features": ["tool-use", "parallel-tool-use"],
+           "cost": { "promptUsdPer1kTokens": 0.0011, "completionUsdPer1kTokens": 0.0055 } }
+       ]
+     }
+   }
+   ```
+
+One provider is one Region and one key: another Region is another provider,
+with a key made there. The key is read when a turn calls the model, not at
+registration.
+
+The same holds for the other providers that can sign in as the runtime on
+`isolated`. Gemini on Vertex AI takes a service-account key in `secret_ref`
+(Path D). Azure OpenAI's `auth: entra` is refused: use the `azure-openai`
+preset, with the resource's key. A provider registered before the runtime
+moved to `isolated` that signs in as the runtime isn't used there: a turn
+that needs it fails with `422 capability-routing-failed`. Unregister it, and
+register it again with a key.
+
+Docs: https://docs.kindgi.com/v0.1/guides/models/#with-a-bedrock-api-key
 
 ## How the router picks between multiple providers + models
 
@@ -542,13 +638,16 @@ tenant policy), then sorts survivors in this order:
      - Only `preferredModel` set → promote any provider exposing that model.
      - Only `preferredProvider` set → promote every model of that provider.
    `defineAgent` takes both (`preferredProvider`, `preferredModel`), and
-   so does a Python `Agent` (`preferred_provider=`, `preferred_model=`).
+   so does a Python `Agent` (`preferred_provider=`, `preferred_model=`) and
+   a Java `Agent.define(…)` (`set("preferredProvider", …)`).
 2. **`capability.prefer[]` weights.** If the agent's capability
    declares `prefer: [{feature: 'thinking', weight: 3}, ...]`, tuples
    with matching model features (or provider attributes) get higher
    scores. Sorted by summed score, descending.
-3. **Deterministic lexical tiebreak.** When scores tie, tuples sort by
-   `(providerId, modelName)` alphabetically — replay-safe and stable.
+3. **Deterministic tiebreak.** When scores tie, tuples sort by provider
+   id, then the provider's `defaultModel` before its other models, then
+   model name — replay-safe and stable. A provider without a
+   `defaultModel` falls back to its first model by name.
 
 **Practical rule:** preferences are soft — they rank, they don't
 exclude. To guarantee which model runs, make it a hard requirement in
@@ -639,9 +738,11 @@ defineAgent({
    be the FULL npm package name of the adapter — `"@kindgi/adapter-model-anthropic"`,
    NOT `"anthropic"`. Adapters are registered with the runtime under
    their full package names, and a short name matches none of them, so
-   the registration fails. The model adapters are
+   registering is refused: the runtime has no adapter by that name
+   (`✗ /adapter_id: …`). The model adapters are
    `@kindgi/adapter-model-anthropic`, `@kindgi/adapter-model-gemini`,
-   `@kindgi/adapter-model-openai-compat` and
+   `@kindgi/adapter-model-openai-compat`,
+   `@kindgi/adapter-model-azure-openai`, `@kindgi/adapter-model-bedrock` and
    `@kindgi/adapter-model-in-process`; `kindgi providers presets` shows
    the id each preset uses.
 
@@ -676,8 +777,9 @@ defineAgent({
    Then re-register.
 
 6. **Key not found by the runtime.** `kindgi dev` reads the env files
-   at the PACK ROOT (the directory with `kindgi.config.ts`, or a Python
-   pack's `pyproject.toml` with `[tool.kindgi]`) — `.env` and
+   at the PACK ROOT (the directory with `kindgi.config.ts`, a Python
+   pack's `pyproject.toml` with `[tool.kindgi]`, or a Java or Scala pack's
+   `kindgi.config.json`) — `.env` and
    `.env.local`, or whatever `dev.envFiles` lists; the boot log prints
    which files it found. A `KINDGI_`-prefixed name is Kindgi runtime
    config and never resolves as a secret. Outside `kindgi dev`, the
@@ -705,6 +807,21 @@ defineAgent({
    `capabilities.needs` (mistake 2), a `models` / `providers` allow-list
    that names nothing registered, and the tenant's policy. `kindgi
    providers list` shows what is registered.
+
+10. **A setting the adapter can't use.** Registering checks the spec
+    against its adapter (no network call, no key read) and refuses what
+    it can't use: `422 provider-config-invalid`, nothing stored, one line
+    per problem with its JSON-pointer path:
+    ```text
+    Error [invalid-request]: Provider "ollama" doesn't fit adapter @kindgi/adapter-model-openai-compat: adapter_config.api must be one of responses, chat-completions.
+      ✗ /adapter_config/api: adapter_config.api must be one of responses, chat-completions.
+    ```
+    Fix each `✗` line's setting and register again. A key the adapter
+    needs is checked too (`✗ /secret_ref: …`); whether the key works, or
+    the endpoint answers, isn't (the first turn finds out). A
+    registration stored before 0.1.5 wasn't checked: `kindgi doctor`
+    names its problems (`GET /v1/providers/<id>/check`); unregister it
+    and register it again.
 
 ## Verifying end-to-end
 
@@ -737,6 +854,7 @@ completes with dev-echo's canned reply, see mistake 9.
 - `packages/adapters/model-anthropic/src/provider.ts` — Anthropic adapter
 - `packages/adapters/model-openai-compat/src/provider.ts` — Universal adapter, full list of tested endpoints in header comment
 - `packages/adapters/model-in-process/src/provider.ts` — Local ONNX adapter
+- `packages/adapters/model-bedrock/src/config.ts` — Amazon Bedrock's settings, and how it signs in
 - `packages/api/src/routes/providers.ts` — `POST /v1/providers` route
 - `packages/secrets-dotenv/src/index.ts` — Dev-mode secret binding
 

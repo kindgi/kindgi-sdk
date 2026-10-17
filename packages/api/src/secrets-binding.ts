@@ -3,7 +3,7 @@
 
 import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
-import type { Cursor, EnvName, Result } from '@kindgi/types';
+import type { Cursor, EnvName, Result, TenantId } from '@kindgi/types';
 
 /**
  * Secret names starting with this prefix are reserved for framework-internal
@@ -18,7 +18,9 @@ export const RESERVED_SECRET_NAME_PREFIX = 'kindgi.';
  * every secret-lifecycle op. Every method is scope + env-scoped, where
  * `scope` is the discriminated primitive from `@kindgi/platform`
  * (Tenant / Org / Project). Writes declare the scope explicitly; reads
- * resolve via most-specific-wins walk across the scope hierarchy.
+ * resolve via most-specific-wins walk across the scope hierarchy, or at
+ * the given scope only when the read is `exact`. A custom store must
+ * honour `exact` and report the scope it read (`SecretResolveOutcome.scope`).
  *
  * Callers (routes, runtime dispatch, SDK clients) speak this interface
  * ONLY. Concrete storage — envelope-encrypted bytes in a database,
@@ -40,7 +42,10 @@ export const RESERVED_SECRET_NAME_PREFIX = 'kindgi.';
 export interface SecretBinding {
   // -------------------- read --------------------
 
-  /** Cursor-paginated list of secret metadata. Never returns `value`. */
+  /**
+   * Cursor-paginated list of secret metadata, in name order. Never returns
+   * `value`. At most `limit` records, with a `nextCursor` while more remain.
+   */
   list(input: SecretListInput): Promise<SecretListPage>;
 
   /** Fetch metadata for a single secret. `null` when unknown. */
@@ -59,8 +64,21 @@ export interface SecretBinding {
   /** Metadata for a specific version. */
   getVersion(input: SecretGetVersionInput): Promise<SecretVersionRecord | null>;
 
-  /** List all versions for a secret. Metadata only. */
+  /**
+   * Cursor-paginated list of a secret's versions, oldest first. Metadata
+   * only. At most `limit` versions, with a `nextCursor` while more remain.
+   */
   listVersions(input: SecretListVersionsInput): Promise<SecretVersionPage>;
+
+  /**
+   * Whether `cursor` is one this binding issued for `list` (`'secrets'`: a
+   * `list` page's `nextCursor`; `'versions'`: a `listVersions` page's).
+   * Optional: without it, the routes pass any cursor to the store, as
+   * before. With it, a cursor the binding didn't issue answers `400
+   * bad-input` before the list is read, so a client paging until done is
+   * never sent back to the first page.
+   */
+  issuedCursor?(list: 'secrets' | 'versions', cursor: Cursor): boolean;
 
   // -------------------- write --------------------
 
@@ -86,6 +104,151 @@ export interface SecretBinding {
    * destroy for GDPR right-to-erasure. Emits a `secret-revoked` event.
    */
   revoke(input: SecretRevokeInput): Promise<Result<SecretRevokeOutcome, SecretError>>;
+
+  /**
+   * `true` for a binding that keeps secrets in the pack's env files
+   * (`kindgi dev`): its `set` honors `appEnvFile`. Any other binding
+   * leaves it unset, and `POST /v1/secrets` refuses `appEnvFile`.
+   */
+  readonly writesAppEnvFiles?: boolean;
+
+  /**
+   * Why this store can't write a secret named `name`, or `undefined` when it
+   * can. `set` refuses the same names with the same code. A route that
+   * stores something before the secret (a webhook trigger with
+   * `generateSecret`) asks first, so the name is the caller's `400` and
+   * nothing is stored. Reads may still find such a name (the dev store reads
+   * a key typed into `.env` by hand), so nothing that only reads asks.
+   * Unset: `set` alone says.
+   */
+  nameRefusal?(name: string): SecretNameRefusal | undefined;
+
+  /**
+   * The env names this store holds a secret under, at any scope of the
+   * tenant; a revoked secret doesn't count. Each name once, in byte order,
+   * after `input.after`, at most `input.limit`. `GET /v1/environments`
+   * reads it; with a store that leaves it unset, that route answers
+   * `501 environments-unsupported`. A store that can't read throws, and the
+   * route answers `500`.
+   */
+  listEnvNames?(input: EnvNamesInput): Promise<readonly EnvName[]>;
+}
+
+/** Which of a tenant's env names a store gives ({@link SecretBinding.listEnvNames}, {@link EnvBinding.listEnvNames}). */
+export interface EnvNamesInput {
+  readonly tenantId: TenantId;
+  /** At most this many. */
+  readonly limit: number;
+  /** Only the names after this one, in byte order. */
+  readonly after?: EnvName;
+}
+
+/** A name a store can't write, and why ({@link SecretBinding.nameRefusal}). */
+export interface SecretNameRefusal {
+  /**
+   * `reserved-name-prefix`: the name starts with {@link RESERVED_SECRET_NAME_PREFIX}.
+   * `secret-name-invalid`: it breaks another of the store's rules.
+   */
+  readonly code: 'reserved-name-prefix' | 'secret-name-invalid';
+  /** The store's rule, said to the caller. */
+  readonly message: string;
+}
+
+// -------------------- observing writes --------------------
+
+/** A secret a write went to (`set`, `rotate` or `revoke`). */
+export interface SecretWritten {
+  readonly scope: Scope;
+  readonly envName: EnvName;
+  readonly name: string;
+}
+
+/** Hears of each write through the binding {@link observeSecretWrites} made. */
+export interface SecretWrites {
+  /** `listener` hears of each write from now on; the returned function stops it. */
+  subscribe(listener: (written: SecretWritten) => void): () => void;
+}
+
+/**
+ * Every member of {@link SecretBinding}, by how a wrapper passes it on. A
+ * member added to the interface (optional ones too) fails the typecheck
+ * here until it's listed, and a test holds {@link observeSecretWrites} to
+ * the list, so no wrapper drops one unseen.
+ */
+export const SECRET_BINDING_MEMBERS: Readonly<
+  Record<keyof SecretBinding, 'read' | 'write' | 'flag'>
+> = {
+  list: 'read',
+  get: 'read',
+  resolve: 'read',
+  getVersion: 'read',
+  listVersions: 'read',
+  issuedCursor: 'read',
+  set: 'write',
+  rotate: 'write',
+  revoke: 'write',
+  writesAppEnvFiles: 'flag',
+  nameRefusal: 'read',
+  listEnvNames: 'read',
+};
+
+/**
+ * `binding`, with each write through it (`set`, `rotate`, `revoke`) told to
+ * the listeners once it returns or throws, whatever its outcome: a listener
+ * drops what it kept of that secret, and a needless drop costs one read. A
+ * listener that throws is skipped, never the write.
+ */
+export function observeSecretWrites(binding: SecretBinding): {
+  readonly binding: SecretBinding;
+  readonly writes: SecretWrites;
+} {
+  const listeners = new Set<(written: SecretWritten) => void>();
+  const told = async <T>(input: SecretWritten, write: () => Promise<T>): Promise<T> => {
+    try {
+      return await write();
+    } finally {
+      const written = { scope: input.scope, envName: input.envName, name: input.name };
+      for (const listener of listeners) {
+        try {
+          listener(written);
+        } catch {
+          // A listener's own failure is its own.
+        }
+      }
+    }
+  };
+  return {
+    binding: {
+      list: (input) => binding.list(input),
+      get: (input) => binding.get(input),
+      resolve: (input) => binding.resolve(input),
+      getVersion: (input) => binding.getVersion(input),
+      listVersions: (input) => binding.listVersions(input),
+      ...(binding.issuedCursor !== undefined && {
+        issuedCursor: binding.issuedCursor.bind(binding),
+      }),
+      set: (input) => told(input, () => binding.set(input)),
+      rotate: (input) => told(input, () => binding.rotate(input)),
+      revoke: (input) => told(input, () => binding.revoke(input)),
+      ...(binding.writesAppEnvFiles !== undefined && {
+        writesAppEnvFiles: binding.writesAppEnvFiles,
+      }),
+      ...(binding.nameRefusal !== undefined && {
+        nameRefusal: (name: string) => binding.nameRefusal?.(name),
+      }),
+      ...(binding.listEnvNames !== undefined && {
+        listEnvNames: binding.listEnvNames.bind(binding),
+      }),
+    },
+    writes: {
+      subscribe(listener) {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    },
+  };
 }
 
 // -------------------- record types --------------------
@@ -122,15 +285,19 @@ export interface SecretVersionRecord {
 export interface SecretListInput {
   readonly scope: Scope;
   readonly envName: EnvName;
+  /** The most records in the page. */
   readonly limit: number;
+  /** Where the previous page ended: its `nextCursor`, as the store gave it. */
   readonly cursor?: Cursor;
   readonly namePrefix?: string;
   readonly tagFilter?: Readonly<Record<string, string>>;
+  /** Revoked secrets too, with `revokedAt` and `revokeReason`: metadata only, never a value. */
   readonly includeRevoked?: boolean;
 }
 
 export interface SecretListPage {
   readonly data: readonly SecretRecord[];
+  /** Set while more records remain after this page; absent on the last. */
   readonly nextCursor?: Cursor;
 }
 
@@ -146,6 +313,14 @@ export interface SecretResolveInput {
   readonly name: string;
   readonly version?: number;
   readonly resolveContext: ResolveContext;
+  /**
+   * Read at `scope` only: no walk to a broader scope. A secret not set
+   * there is `secret-not-found`, whatever broader scopes have. Every
+   * store must honour it: an item's secret is read where it was recorded
+   * when the item was registered, and nowhere else (`resolveAtScope`).
+   * Absent: the most-specific-wins walk.
+   */
+  readonly exact?: true;
 }
 
 /**
@@ -161,13 +336,20 @@ export interface ResolveContext {
   readonly runId?: string;
   readonly deploymentId?: string;
   readonly nodeId?: string;
-  readonly caller: 'dispatch' | 'deploy-sync' | 'admin-cli' | 'boot-bridge';
+  readonly caller: 'dispatch' | 'deploy-sync' | 'admin-cli' | 'boot-bridge' | 'webhook-receiver';
 }
 
 export interface SecretResolveOutcome {
   readonly name: string;
   readonly versionId: number;
   readonly value: string;
+  /**
+   * The scope the value was read at: the one asked for, or a broader one
+   * the walk reached. A custom store must report the scope it read: every
+   * in-tree store does, and `resolveAtScope` refuses a value read at
+   * another scope than it asked for, or without one.
+   */
+  readonly scope?: Scope;
 }
 
 export interface SecretGetVersionInput {
@@ -200,6 +382,20 @@ export interface SecretSetInput {
   readonly rotationDueAt?: string;
   readonly ifVersion?: number;
   /**
+   * Only for a binding with `writesAppEnvFiles` (`kindgi dev`'s env files):
+   * write the app's own env file instead of Kindgi's secrets file, for a
+   * value the app reads too (a webhook signing secret).
+   */
+  readonly appEnvFile?: boolean;
+  /**
+   * The request's `Idempotency-Key`, when it had one. A binding that
+   * writes to an external store in a second step (the secret-manager
+   * backend) uses it to finish a retried write instead of starting a new
+   * version: a retry with the same key completes the version the first
+   * attempt began. Bindings that write in one transaction may ignore it.
+   */
+  readonly idempotencyKey?: string;
+  /**
    * REQUIRED. Called inside the binding's write tx on FRESH insert
    * (writeMode: 'create-new' → new secret identity). Receives the new
    * secret's id as the FGA subject id. Returns tuples for
@@ -212,7 +408,17 @@ export interface SecretSetInput {
 }
 
 export type SecretSetOutcome =
-  | { readonly kind: 'ok'; readonly record: SecretRecord; readonly versionId: number }
+  | {
+      readonly kind: 'ok';
+      readonly record: SecretRecord;
+      readonly versionId: number;
+      /**
+       * Setting a revoked secret again deleted its revoked values for good,
+       * ending the backend's recovery window early (AWS Secrets Manager:
+       * `SecretProviderPutOutput.revokedValuesPurged`). Absent otherwise.
+       */
+      readonly revokedValuesPurged?: true;
+    }
   | { readonly kind: 'already-exists'; readonly record: SecretRecord }
   | { readonly kind: 'version-conflict'; readonly currentVersion: number }
   | { readonly kind: 'error'; readonly code: string; readonly message: string };
@@ -223,6 +429,8 @@ export interface SecretRotateInput {
   readonly name: string;
   readonly newValue?: string;
   readonly revokeOldAfterMs?: number;
+  /** The request's `Idempotency-Key`, when it had one: as `SecretSetInput.idempotencyKey`. */
+  readonly idempotencyKey?: string;
 }
 
 /**
@@ -267,7 +475,17 @@ export interface SecretRevokeOutcome {
 }
 
 export type SecretError =
-  | { readonly code: 'secret-not-found'; readonly message: string; readonly name: string }
+  | {
+      readonly code: 'secret-not-found';
+      readonly message: string;
+      readonly name: string;
+      /**
+       * Why it isn't there, when it's more than "never stored": `deleted-at-provider` when the
+       * secret is mapped but its provider has no value for it (deleted there). Absent: it was
+       * never stored. A tool's optional secret is "not set" only when it was never stored.
+       */
+      readonly reason?: 'deleted-at-provider';
+    }
   | { readonly code: 'secret-revoked'; readonly message: string; readonly name: string }
   | {
       readonly code: 'secret-version-not-found';
@@ -306,8 +524,32 @@ export type SecretError =
       readonly currentVersion: number;
     }
   /**
+   * A write the store refuses for its name or its value, with the code `set`
+   * gives it: the caller's `400`, the message saying the store's rule. A
+   * store that rotates by setting a new version answers a rotation's new
+   * value the same way.
+   */
+  | {
+      readonly code:
+        | 'reserved-name-prefix'
+        | 'secret-name-invalid'
+        | 'secret-value-too-large'
+        | 'secret-value-invalid';
+      readonly message: string;
+    }
+  /**
    * The store doesn't do this by design (the dev store keeps no versions to
    * rotate and no revocation): the message says what to do instead.
    */
   | { readonly code: 'secret-operation-unsupported'; readonly message: string }
-  | { readonly code: 'secret-store-error'; readonly message: string; readonly cause?: unknown };
+  | { readonly code: 'secret-store-error'; readonly message: string; readonly cause?: unknown }
+  /**
+   * A model provider's key, asked for by something that isn't its provider
+   * (`guardProviderKeys`): a tool, an MCP endpoint or a webhook endpoint.
+   */
+  | {
+      readonly code: 'provider-key-refused';
+      readonly message: string;
+      readonly name: string;
+      readonly providerId: string;
+    };

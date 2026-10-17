@@ -53,15 +53,81 @@ const CORRELATION = [
 ] as const;
 
 const FIXED: ReadonlySet<string> = new Set(['time', 'level', 'severity', 'subsystem', 'message']);
+/** Names a field can't take: the fixed five and `inMessage`, the record's own. */
+const RESERVED: ReadonlySet<string> = new Set([...FIXED, 'inMessage']);
+
+/** `err[key]`, or undefined when reading it throws (a getter, a revoked proxy). */
+function fieldOf(err: object, key: 'name' | 'message' | 'code'): unknown {
+  try {
+    return (err as Readonly<Record<string, unknown>>)[key];
+  } catch {
+    return undefined;
+  }
+}
+
+/** A string or numeric `code`, as a string. */
+function codeOf(err: object): { readonly code?: string } {
+  const code = fieldOf(err, 'code');
+  return typeof code === 'string' || typeof code === 'number' ? { code: String(code) } : {};
+}
+
+/** `err instanceof Error`, and false where asking throws (a revoked proxy). */
+function isError(err: unknown): err is Error {
+  try {
+    return err instanceof Error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `String(value)`, for a value that isn't an error. One that can't be made
+ * a string (no prototype, a throwing `toString`) is its
+ * `Object.prototype.toString` tag, and a revoked proxy `[unreadable]`:
+ * logging it never throws.
+ */
+function textOf(value: unknown): string {
+  try {
+    return String(value);
+  } catch {
+    try {
+      return Object.prototype.toString.call(value);
+    } catch {
+      return '[unreadable]';
+    }
+  }
+}
+
+/**
+ * A plain object in an error's place (a storage error is
+ * `{ code, message, cause }`): its name when that's a non-empty string
+ * (else `Object`), its code and its message, and nothing else. Its own
+ * cause isn't walked: a storage error's is the database driver's, whose
+ * text can carry the query and the values it was bound to. With neither a
+ * code nor a message, it's `String(err)`. A field that throws when read
+ * counts as missing.
+ */
+function serializePlain(err: object): SerializedError | string {
+  const name = fieldOf(err, 'name');
+  const message = fieldOf(err, 'message');
+  const code = codeOf(err);
+  if (typeof message !== 'string' && code.code === undefined) return scrubText(textOf(err));
+  return {
+    name: typeof name === 'string' && name !== '' ? name : 'Object',
+    message: typeof message === 'string' ? scrubText(message) : '',
+    ...code,
+  };
+}
 
 function serializeError(err: unknown, withStack: boolean, depth = 0): SerializedError | string {
-  if (!(err instanceof Error)) return scrubText(String(err));
-  const code = (err as { readonly code?: unknown }).code;
+  if (!isError(err)) {
+    return typeof err === 'object' && err !== null ? serializePlain(err) : scrubText(textOf(err));
+  }
   const cause = (err as { readonly cause?: unknown }).cause;
   return {
     name: err.name,
     message: scrubText(err.message),
-    ...(typeof code === 'string' || typeof code === 'number' ? { code: String(code) } : {}),
+    ...codeOf(err),
     ...(withStack && err.stack !== undefined && { stack: scrubText(err.stack) }),
     ...(cause !== undefined && depth < 3 && { cause: serializeError(cause, withStack, depth + 1) }),
   };
@@ -70,8 +136,8 @@ function serializeError(err: unknown, withStack: boolean, depth = 0): Serialized
 /**
  * Copy a record's own fields into `out`, after the fixed five and the
  * correlation ones; an `Error` among them is serialized. A field named
- * like one of the fixed five can't replace it: it comes back to be kept
- * under `fields`.
+ * like one of the fixed five (or `inMessage`) can't replace it: it comes
+ * back to be kept under `fields`.
  */
 function copyFields(
   out: Record<string, unknown>,
@@ -82,7 +148,7 @@ function copyFields(
   for (const [key, value] of Object.entries(merged)) {
     if (value === undefined || key === 'subsystem' || key === 'err') continue;
     if ((CORRELATION as readonly string[]).includes(key)) continue;
-    if (FIXED.has(key)) reserved[key] = value;
+    if (RESERVED.has(key)) reserved[key] = value;
     else out[key] = value instanceof Error ? serializeError(value, level === 'error') : value;
   }
   return reserved;
@@ -104,7 +170,12 @@ function build(shared: Shared, bindings: LogFields): Logger {
   const threshold = levelFor(subsystem, shared.levels, shared.threshold);
   const extra = shared.options.redact ?? [];
 
-  function record(level: LogLevel, message: string, fields: LogFields | undefined): LogRecord {
+  function record(
+    level: LogLevel,
+    message: string,
+    fields: LogFields | undefined,
+    how: LogOptions | undefined,
+  ): LogRecord {
     const merged: Record<string, unknown> = { ...bindings, ...fields };
     const out: Record<string, unknown> = {
       time: shared.now().toISOString(),
@@ -125,18 +196,21 @@ function build(shared: Shared, bindings: LogFields): Logger {
       const withStack = level === 'error' || levelEnabled('debug', threshold);
       redacted.err = serializeError(merged.err, withStack);
     }
+    // The fields the message states, of those the record has: a renderer
+    // (the pretty format, `kindgi dev`) leaves them out of the line.
+    const stated = (how?.inMessage ?? []).filter(
+      (key) => !RESERVED.has(key) && key !== 'err' && key in redacted,
+    );
+    if (stated.length > 0) redacted.inMessage = stated;
     return redacted as LogRecord;
   }
 
   function write(level: LogLevel, message: string, fields?: LogFields, how?: LogOptions): void {
     if (!levelEnabled(level, threshold)) return;
-    const rec = record(level, message, fields);
+    const rec = record(level, message, fields, how);
     const line =
       shared.format === 'pretty'
-        ? formatPretty(rec, {
-            color: shared.options.color === true,
-            ...(how?.inMessage !== undefined && { omit: how.inMessage }),
-          })
+        ? formatPretty(rec, { color: shared.options.color === true })
         : formatJson(rec);
     try {
       shared.options.write(line);

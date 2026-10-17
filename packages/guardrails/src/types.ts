@@ -20,6 +20,7 @@ import type {
   Timestamp,
   ToolId,
 } from '@kindgi/types';
+import type { GuardrailConfigProblem } from './config-problems.js';
 
 /**
  * How a guardrail is checked. Open string — the engine dispatches
@@ -65,9 +66,20 @@ export type BuiltInOnViolation = (typeof BUILT_IN_ON_VIOLATIONS)[number];
 export type ScopeWhen = 'always' | 'ci-only' | 'runtime-only';
 
 export interface Action {
+  /**
+   * What a failed check does to the agent turn. In 0.1 the runtime acts
+   * only on `'halt'`: the turn fails with `guardrail-violation` and its
+   * response is not stored. Any other action, `'retry'`, `'escalate'` and
+   * `'compensate'` included, is recorded on the turn's `violations`, as
+   * `'log-only'` is, and the turn completes: nothing runs the turn again,
+   * escalates or calls a compensating tool.
+   */
   readonly 'on-violation': OnViolation;
+  /** The attempts a `'retry'` asks for. In 0.1 nothing acts on it: there's no second attempt. */
   readonly retry?: { readonly maxAttempts: number };
+  /** Where an `'escalate'` goes. In 0.1 nothing escalates. */
   readonly escalateTo?: string;
+  /** The tool id a `'compensate'` names. In 0.1 that tool isn't called. */
   readonly compensateWith?: string;
 }
 
@@ -262,6 +274,20 @@ export interface Guardrail {
    * check handler bytes. Absent for in-process declarations.
    */
   readonly codeArtifactRef?: CodeArtifactRef;
+  /**
+   * Set by the CLI on a guardrail that names a built-in check without shipping a check of its
+   * own (its `codeArtifactRef` is only the file it's declared in). A runtime warns about a
+   * guardrail naming a built-in, with a code artifact and without it (built by an older CLI).
+   */
+  readonly checkBuiltIn?: true;
+  /**
+   * JSON Schema of the check's `config`, for a check that is pack code:
+   * the pack index's `configSchema`, kept by a deployment on the
+   * guardrails it registers. A runtime checks any guardrail naming this
+   * check against it at registration (`guardrailConfigProblems`), as the
+   * pack service does on every call.
+   */
+  readonly configSchema?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -316,6 +342,12 @@ export interface RunTrace {
    */
   readonly orgId?: OrgId;
   readonly agentId?: AgentId;
+  /**
+   * The flow whose step started the run, which a guardrail scoped to
+   * flows (`scope.flows`) applies by. An agent turn's trace names it only
+   * when one of the turn's guardrails is scoped to flows, and never for a
+   * turn outside any flow.
+   */
   readonly flowId?: FlowId;
   /** Final assistant output text. Present when the run produced text. */
   readonly output?: string;
@@ -456,6 +488,13 @@ export interface RegisteredCheck {
   readonly kind: GuardrailKind;
   readonly evaluate: CheckFunction;
   readonly validateConfig?: (config: unknown) => string | undefined;
+  /** The check's config as JSON Schema (Draft 2020-12), when it publishes one (the built-ins do). */
+  readonly configSchema?: Readonly<Record<string, unknown>>;
+  /**
+   * Every way a guardrail's `config` doesn't fit this check, as an API answer's issues (paths
+   * under `/config`): what registration refuses up front. `validateConfig` words the first.
+   */
+  readonly configProblems?: (config: unknown) => readonly GuardrailConfigProblem[];
 }
 
 /**

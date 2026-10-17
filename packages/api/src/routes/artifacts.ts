@@ -1,14 +1,57 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
-
-import type { ArtifactId, Cursor, RunId, TenantId } from '@kindgi/types';
-
+import { type ResourceRef, ref } from '@kindgi/authz';
 import type { BlobFilter, BlobMeta, BlobPutInput, BlobStorageBinding } from '@kindgi/blob-binding';
+import type { ProjectBinding, Scope } from '@kindgi/platform';
+import type { RunBinding } from '@kindgi/runtime';
+import type { ArtifactId, Cursor, ProjectId, RunId, TenantId } from '@kindgi/types';
+import type { Context, MiddlewareHandler } from 'hono';
+import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { statusFor, toWireError } from '../errors.js';
+import type { Authorizer } from '../middleware/authorize.js';
+import { databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { takeBody } from '../middleware/request-body.js';
 import type { AppEnv } from '../types.js';
+import { refused } from './denied.js';
 import { clampLimit } from './pagination.js';
+
+/** The default upload cap: 100 MiB. */
+export const DEFAULT_ARTIFACT_MAX_BYTES = 100 * 1024 * 1024;
+
+export interface ArtifactsRouterDeps {
+  /** Resolves an upload's owner run, whose project the artifact belongs to. */
+  readonly runBinding?: RunBinding;
+  /** The tenant's default project, for an upload that names neither run nor project. */
+  readonly projectBinding?: ProjectBinding;
+  /** Reads need `read` on the artifact's project; uploads and deletes need `write`. */
+  readonly authorizer?: Authorizer;
+}
+
+/**
+ * An upload's size limit: more than `maxBytes` (default 100 MiB) is
+ * `413 artifact-too-large`. The app checks it before the body is read
+ * (`readBodyOnce`), once the caller is known.
+ */
+export function artifactUploadLimit(maxBytes: number): MiddlewareHandler<AppEnv> {
+  return bodyLimit({
+    maxSize: maxBytes,
+    onError: (c) => {
+      c.status(statusFor('artifact-too-large') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'artifact-too-large',
+            message: `An artifact may be at most ${maxBytes} bytes`,
+            maxBytes,
+          },
+          c.get('requestId'),
+        ),
+      );
+    },
+  });
+}
 
 /**
  * Artifacts resource routes over the caller-plugged, tenant-scoped
@@ -28,10 +71,31 @@ import { clampLimit } from './pagination.js';
  * that run's project is the authoritative scope anchor, so scope
  * filtering goes through runs rather than a field on the blob metadata.
  * Callers who want scope-narrowed artifacts should first list runs at
- * the desired scope, then list artifacts by `?ownerRunId=`.
+ * the desired scope, then list artifacts by `?ownerRunId=`, or by
+ * `?projectId=`.
+ *
+ * Every artifact belongs to a project: its owner run's, else the
+ * upload's `projectId`, else the project the caller's API key is limited
+ * to, else the tenant's default project. A key limited to a project
+ * uploads only into that project: any other is `403 key-project-mismatch`.
+ * With an authorizer, listing and downloading need `read` there (an
+ * artifact the caller can't read is `404`, as if absent), and uploading
+ * and deleting need `write`. An upload's size limit is
+ * `artifactUploadLimit`'s.
  */
-export function artifactsRouter(binding: BlobStorageBinding): Hono<AppEnv> {
+export function artifactsRouter(
+  binding: BlobStorageBinding,
+  deps: ArtifactsRouterDeps = {},
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  const { authorizer } = deps;
+  /** The artifact's project; a blob stored before projects were recorded answers to the tenant. */
+  const scopeOf = (c: Context<AppEnv>, m: BlobMeta): ResourceRef =>
+    m.projectId !== undefined
+      ? ref('project', m.projectId as unknown as string)
+      : ref('tenant', c.get('tenantId') as unknown as string);
+  const may = async (c: Context<AppEnv>, action: 'read' | 'write', m: BlobMeta) =>
+    authorizer === undefined || (await authorizer.can(c, action, scopeOf(c, m)));
 
   // ---------- GET / (list, cursor-paginated metadata) ----------
   r.get('/', async (c) => {
@@ -39,7 +103,7 @@ export function artifactsRouter(binding: BlobStorageBinding): Hono<AppEnv> {
     const tenantId = c.get('tenantId') as TenantId;
     const limit = clampLimit(c.req.query('limit'));
 
-    const filter = decodeListFilter(new URL(c.req.url).searchParams);
+    const filter = decodeListFilter(new URL(c.req.url).searchParams, tenantId);
     if (filter.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: filter.message }, requestId));
@@ -53,11 +117,17 @@ export function artifactsRouter(binding: BlobStorageBinding): Hono<AppEnv> {
       limit,
     );
     if (page.kind === 'err') {
+      const busy = databaseBusyAnswer(page.error, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(page.error.code) as never);
       return c.json(toWireError(page.error as never, requestId));
     }
+    const visible =
+      authorizer === undefined
+        ? page.value.data
+        : await authorizer.filterByCan(c, 'read', page.value.data, (m) => scopeOf(c, m));
     return c.json({
-      data: page.value.data.map(serializeMeta),
+      data: visible.map(serializeMeta),
       hasMore: page.value.nextCursor !== undefined,
       ...(page.value.nextCursor !== undefined && {
         nextCursor: page.value.nextCursor as unknown as string,
@@ -86,7 +156,10 @@ export function artifactsRouter(binding: BlobStorageBinding): Hono<AppEnv> {
 
     let form: FormData;
     try {
-      form = await c.req.raw.formData();
+      // From the body `readBodyOnce` kept, handed over whole to the parser.
+      form = await new Response(takeBody(c), {
+        headers: { 'content-type': contentType },
+      }).formData();
     } catch {
       c.status(statusFor('bad-input') as never);
       return c.json(
@@ -99,7 +172,47 @@ export function artifactsRouter(binding: BlobStorageBinding): Hono<AppEnv> {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: validated.message }, requestId));
     }
-    const input = validated.value;
+    const project = await uploadProject(c, deps, validated.value);
+    if (project.kind === 'err') {
+      c.status(statusFor(project.code) as never);
+      return c.json(toWireError({ code: project.code, message: project.message }, requestId));
+    }
+    const keyProject = c.get('tokenProjectId');
+    if (keyProject !== undefined && project.projectId !== keyProject) {
+      const named = project.projectId as unknown as string;
+      return refused(c, authorizer, {
+        action: 'write',
+        resource: ref('project', named),
+        message: `This API key is limited to project ${keyProject}; the upload belongs to project ${named}`,
+        failing: 'scope',
+        code: 'key-project-mismatch',
+        details: { keyProjectId: keyProject, projectId: named },
+      });
+    }
+    if (
+      authorizer !== undefined &&
+      !(await authorizer.can(
+        c,
+        'write',
+        project.projectId !== undefined
+          ? ref('project', project.projectId as unknown as string)
+          : ref('tenant', tenantId as unknown as string),
+      ))
+    ) {
+      c.status(statusFor('permission-denied') as never);
+      return c.json(
+        toWireError(
+          { code: 'permission-denied', message: 'Not allowed to add artifacts to this project' },
+          requestId,
+        ),
+      );
+    }
+    const userId = c.get('userId') as unknown as string | undefined;
+    const input: BlobPutInput = {
+      ...validated.value,
+      ...(project.projectId !== undefined && { projectId: project.projectId }),
+      ...(userId !== undefined && { createdBy: `user:${userId}` }),
+    };
 
     const outcome = await binding.put(tenantId, input);
     if (outcome.kind === 'err') {
@@ -110,12 +223,20 @@ export function artifactsRouter(binding: BlobStorageBinding): Hono<AppEnv> {
     return c.json(serializeMeta(outcome.value));
   });
 
-  // ---------- GET /:blobId (stream download) ----------
+  // ---------- GET /:blobId (stream download), and HEAD /:blobId ----------
   r.get('/:blobId', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const blobId = c.req.param('blobId') as ArtifactId;
 
+    const found = await binding.head(tenantId, blobId);
+    if (found === null || !(await may(c, 'read', found))) return notFound(c, blobId);
+    // Hono answers a HEAD with this GET route and drops the body. So a HEAD
+    // answers the GET's headers from the metadata and never opens the blob:
+    // a blob opened and never read stays open (a file handle, a connection).
+    if (c.req.method === 'HEAD') {
+      return new Response(null, { status: 200, headers: downloadHeaders(found, requestId) });
+    }
     const outcome = await binding.get(tenantId, blobId);
     if (outcome.kind === 'err') {
       c.status(statusFor(outcome.error.code) as never);
@@ -128,31 +249,25 @@ export function artifactsRouter(binding: BlobStorageBinding): Hono<AppEnv> {
     });
   });
 
-  // ---------- HEAD /:blobId (metadata-only) ----------
-  r.on('HEAD', '/:blobId', async (c) => {
-    const requestId = c.get('requestId');
-    const tenantId = c.get('tenantId') as TenantId;
-    const blobId = c.req.param('blobId') as ArtifactId;
-
-    const meta = await binding.head(tenantId, blobId);
-    if (meta === null) {
-      return new Response(null, {
-        status: 404,
-        headers: { 'X-Request-Id': requestId },
-      });
-    }
-    return new Response(null, {
-      status: 200,
-      headers: downloadHeaders(meta, requestId),
-    });
-  });
-
   // ---------- DELETE /:blobId ----------
   r.delete('/:blobId', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const blobId = c.req.param('blobId') as ArtifactId;
 
+    const found = await binding.head(tenantId, blobId);
+    if (found !== null) {
+      if (!(await may(c, 'read', found))) return notFound(c, blobId);
+      if (!(await may(c, 'write', found))) {
+        c.status(statusFor('permission-denied') as never);
+        return c.json(
+          toWireError(
+            { code: 'permission-denied', message: `Not allowed to delete artifact "${blobId}"` },
+            requestId,
+          ),
+        );
+      }
+    }
     const outcome = await binding.delete(tenantId, blobId);
     if (outcome.kind === 'err') {
       c.status(statusFor(outcome.error.code) as never);
@@ -167,6 +282,59 @@ export function artifactsRouter(binding: BlobStorageBinding): Hono<AppEnv> {
   return r;
 }
 
+function notFound(c: Context<AppEnv>, blobId: string) {
+  c.status(statusFor('blob-not-found') as never);
+  return c.json(
+    toWireError(
+      { code: 'blob-not-found', message: `No artifact "${blobId}"`, blobId },
+      c.get('requestId'),
+    ),
+  );
+}
+
+type UploadProject =
+  | { readonly kind: 'ok'; readonly projectId?: ProjectId }
+  | { readonly kind: 'err'; readonly code: string; readonly message: string };
+
+/**
+ * The project an upload belongs to: its owner run's (the upload's
+ * `projectId`, if any, must agree), else the upload's `projectId`, else
+ * the project the caller's API key is limited to, else the tenant's
+ * default project.
+ */
+async function uploadProject(
+  c: Context<AppEnv>,
+  deps: ArtifactsRouterDeps,
+  input: BlobPutInput,
+): Promise<UploadProject> {
+  const tenantId = c.get('tenantId') as TenantId;
+  const named = input.projectId;
+  if (input.ownerRunId !== undefined && deps.runBinding !== undefined) {
+    const run = await deps.runBinding.getRun(tenantId, input.ownerRunId);
+    if (run === null) {
+      return {
+        kind: 'err',
+        code: 'run-not-found',
+        message: `No run "${input.ownerRunId as unknown as string}"`,
+      };
+    }
+    const runProject = run.projectId as unknown as ProjectId;
+    if (named !== undefined && named !== runProject) {
+      return {
+        kind: 'err',
+        code: 'bad-input',
+        message: `\`projectId\` must be the owner run's project ("${runProject as unknown as string}"), or absent`,
+      };
+    }
+    return { kind: 'ok', projectId: runProject };
+  }
+  if (named !== undefined) return { kind: 'ok', projectId: named };
+  const keyProject = c.get('tokenProjectId');
+  if (keyProject !== undefined) return { kind: 'ok', projectId: keyProject as ProjectId };
+  const fallback = (await deps.projectBinding?.getDefault(tenantId))?.id;
+  return { kind: 'ok', ...(fallback !== undefined && { projectId: fallback }) };
+}
+
 // -------------------- serialization --------------------
 
 function serializeMeta(m: BlobMeta): Record<string, unknown> {
@@ -179,6 +347,8 @@ function serializeMeta(m: BlobMeta): Record<string, unknown> {
     hash: m.hash,
     tags: m.tags,
     ...(m.ownerRunId !== undefined && { ownerRunId: m.ownerRunId as unknown as string }),
+    ...(m.projectId !== undefined && { projectId: m.projectId as unknown as string }),
+    ...(m.createdBy !== undefined && { createdBy: m.createdBy }),
     createdAt: m.createdAt as unknown as string,
     ...(m.bucket !== undefined && { bucket: m.bucket }),
     ...(m.key !== undefined && { key: m.key }),
@@ -260,6 +430,12 @@ function validateMultipart(form: FormData): ValidationResult<BlobPutInput> {
     ownerRunId = ownerField as RunId;
   }
 
+  let projectId: ProjectId | undefined;
+  const projectField = form.get('projectId');
+  if (typeof projectField === 'string' && projectField.length > 0) {
+    projectId = projectField as ProjectId;
+  }
+
   let expectedHash: string | undefined;
   const hashField = form.get('expectedHash');
   if (typeof hashField === 'string' && hashField.length > 0) {
@@ -281,16 +457,21 @@ function validateMultipart(form: FormData): ValidationResult<BlobPutInput> {
       size: file.size,
       ...(tags !== undefined && { tags }),
       ...(ownerRunId !== undefined && { ownerRunId }),
+      ...(projectId !== undefined && { projectId }),
       ...(expectedHash !== undefined && { expectedHash }),
     },
   };
 }
 
-function decodeListFilter(params: URLSearchParams): ValidationResult<BlobFilter> {
+function decodeListFilter(
+  params: URLSearchParams,
+  tenantId: TenantId,
+): ValidationResult<BlobFilter> {
   const filter: {
     ownerRunId?: RunId;
     contentType?: string;
     tags?: Record<string, string>;
+    scope?: Scope;
   } = {};
   const rawTags: Record<string, string> = {};
   for (const [key, value] of params.entries()) {
@@ -301,6 +482,10 @@ function decodeListFilter(params: URLSearchParams): ValidationResult<BlobFilter>
     }
     if (key === 'contentType') {
       filter.contentType = value;
+      continue;
+    }
+    if (key === 'projectId') {
+      filter.scope = { kind: 'project', tenantId, projectId: value as ProjectId };
       continue;
     }
     if (key.startsWith('tag.')) {

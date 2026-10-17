@@ -13,8 +13,8 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
-import { createStubAppBindings } from '@kindgi/testing';
 import type { LiveScope, ProjectId, Semver, TenantId, Timestamp, UserId } from '@kindgi/types';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
@@ -414,6 +414,21 @@ describe('POST /v1/agents/:agentId/promotions, through the gate', () => {
     state.requestError = { code: 'promotion-superseded', message: 'moved' };
     const res = await app.request(`/v1/agents/${AGENT}/promotions`, promote());
     expect(res.status).toBe(409);
+  });
+
+  test("the gate wants an approval past the tenant's limit on approvals waiting → 429, naming it", async () => {
+    const { app, state } = setup();
+    state.policy = policy({ ...PASSING, approvals: {} });
+    state.evalRun = evalRun(summary());
+    state.requestError = {
+      code: 'approvals-pending-limit',
+      message: "This tenant's limit on approvals waiting for a decision (5) is reached.",
+    };
+    const res = await app.request(`/v1/agents/${AGENT}/promotions`, promote());
+    expect(res.status).toBe(429);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'approvals-pending-limit',
+    );
   });
 });
 

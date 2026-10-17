@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
+import { UsageError } from '../errors.js';
+import { filterIgnored, integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 const STATUSES = ['open', 'closed'] as const;
@@ -15,7 +16,7 @@ function oneOf<T extends string>(
 ): T | undefined {
   if (value === undefined) return undefined;
   if (!(allowed as readonly string[]).includes(value)) {
-    throw new Error(`--${flag} must be one of ${allowed.join(', ')}, got "${value}"`);
+    throw new UsageError(`--${flag} must be one of ${allowed.join(', ')}, got "${value}"`);
   }
   return value as T;
 }
@@ -25,11 +26,15 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List conversations, newest first.',
   usage:
-    'kindgi conversations list [--status=open|closed] [--replays=exclude|include|only] [--limit=<n>] [--cursor=<c>]',
+    'kindgi conversations list [--status=open|closed] [--opened-by=me] [--replays=exclude|include|only] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     status: {
       type: 'string',
       description: 'Only the conversations with this status: `open` or `closed`.',
+    },
+    'opened-by': {
+      type: 'string',
+      description: '`me`: only the conversations you opened.',
     },
     replays: {
       type: 'string',
@@ -46,14 +51,20 @@ const list: LeafCommand = {
     runSdk(ctx, 'conversations list', async () => {
       const status = oneOf('status', stringFlag(ctx, 'status'), STATUSES);
       const replays = oneOf('replays', stringFlag(ctx, 'replays'), REPLAYS);
+      const openedBy = oneOf('opened-by', stringFlag(ctx, 'opened-by'), ['me'] as const);
       const limit = integerFlag(ctx, 'limit');
       const cursor = stringFlag(ctx, 'cursor');
-      return await ctx.client().conversations.list({
+      const page = await ctx.client().conversations.list({
         ...(status !== undefined && { status }),
         ...(replays !== undefined && { replays }),
+        ...(openedBy !== undefined && { openedBy }),
         ...(limit !== undefined && { limit }),
         ...(cursor !== undefined && { cursor: cursor as never }),
       });
+      if (openedBy !== undefined && page.openedBy !== 'me') {
+        throw filterIgnored('opened-by', '0.1.8.1');
+      }
+      return page;
     }),
 };
 
@@ -84,7 +95,7 @@ const open: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "The project the conversation is in (`kindgi projects list`). Default: the tenant's Default project.",
+        "The project the conversation is in (`kindgi projects list`). Default: the agent's own project.",
     },
     participant: {
       type: 'string',
@@ -121,6 +132,19 @@ const close: LeafCommand = {
     }),
 };
 
+const unregister: LeafCommand = {
+  kind: 'leaf',
+  name: 'unregister',
+  description:
+    'Unregister a conversation: reads, lists and recall no longer return it, and it takes no more turns. The retention sweep removes it later.',
+  usage: 'kindgi conversations unregister <conversation-id>',
+  run: (ctx) =>
+    runSdk(ctx, 'conversations unregister', async () => {
+      const id = requiredPositional(ctx, 0, 'conversation-id');
+      return await ctx.client().conversations.unregister(id as never);
+    }),
+};
+
 const messages: LeafCommand = {
   kind: 'leaf',
   name: 'messages',
@@ -150,5 +174,5 @@ export const conversationsCommand: Command = {
   name: 'conversations',
   description:
     'Conversations: multi-turn threads with one agent version (list / get / open / close / messages).',
-  subcommands: [list, get, open, close, messages],
+  subcommands: [list, get, open, close, unregister, messages],
 };

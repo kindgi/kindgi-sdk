@@ -29,8 +29,14 @@
  * the files are the source, the environment only fills gaps. Nothing
  * reads `process.env` implicitly — callers pass what they mean.
  *
+ * A key that refers to itself (`KEY=${KEY}`, `PATH=$PATH:/extra`) takes
+ * the name from `options.env`, the habit docker compose and both
+ * `dotenv-expand` versions share: a self-reference names the
+ * environment's value, not a loop. Only a longer loop is a cycle.
+ *
  * Undefined references expand to `''` and cycles (`A=$B`, `B=$A`) are
- * cut at the repeated name; both are reported in `diagnostics`.
+ * cut at the repeated name; both are reported in `diagnostics`. A
+ * self-reference the environment doesn't have is `unresolved`.
  */
 
 export interface ExpandOptions {
@@ -66,16 +72,21 @@ export function expandEnv(
   const diagnostics: ExpandDiagnostic[] = [];
   const has = (name: string): boolean => Object.prototype.hasOwnProperty.call(values, name);
 
+  function fromEnv(name: string): string | undefined {
+    const value = env[name];
+    return typeof value === 'string' ? value : undefined;
+  }
+
   function lookup(name: string, fromKey: string): string | undefined {
-    if (has(name)) {
+    if (has(name) && name !== fromKey) {
       if (stack.includes(name)) {
         diagnostics.push({ kind: 'cycle', key: fromKey, ref: name });
         return undefined;
       }
       return resolve(name);
     }
-    const fromEnv = env[name];
-    return typeof fromEnv === 'string' ? fromEnv : undefined;
+    // A name no file defines, or the key's own name: the environment's.
+    return fromEnv(name);
   }
 
   function resolve(key: string): string {

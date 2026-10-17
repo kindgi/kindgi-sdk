@@ -14,7 +14,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { Cursor, EnvName, TenantId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
@@ -144,5 +144,36 @@ describe('GET /v1/tenant/config — paging across env + secrets', () => {
     });
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe('bad-input');
+  });
+});
+
+describe('PATCH /v1/tenant/config — a secret write the store refuses', () => {
+  test.each([
+    ['secret-name-invalid', 400],
+    ['reserved-name-prefix', 400],
+    ['secret-value-too-large', 400],
+    ['secret-value-invalid', 400],
+    ['secret-provider-rate-limited', 429],
+    ['secret-provider-unauthorized', 502],
+    ['secret-provider-unavailable', 503],
+    ['secret-store-error', 500],
+  ])('%s answers %i, as on POST /v1/secrets', async (code, status) => {
+    const secretsBinding = {
+      get: async () => null,
+      set: async () => ({ kind: 'error', code, message: 'the store says why' }),
+    } as unknown as SecretBinding;
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler: {} as RunHandlerBinding,
+      secretsBinding,
+    });
+    const res = await app.request('/v1/tenant/config', {
+      method: 'PATCH',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'secret', key: 'acme-key', value: 'v' }),
+    });
+    expect(res.status).toBe(status);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(code);
   });
 });

@@ -8,7 +8,8 @@
  * reads the ✓/✗ lines. Any failed check exits 1.
  *
  * The checks, in order: Node, npm, Python and uv (a Python project's),
- * Docker, pull access to the pinned runtime image, the project, its
+ * Docker, pull access to the pinned runtime image, console sign-in and MCP
+ * endpoint headers on the runtime the CLI points at, the project, its
  * dependencies, a model key in its env files (never its value), the
  * runtime `kindgi dev` runs, and a provider registered there. Outside a
  * project the project's checks are skipped, saying why; a check that
@@ -25,15 +26,47 @@
 
 import { spawn } from 'node:child_process';
 import { readFile, readdir, stat } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 
-import { findKindgiConfig } from '@kindgi/handler-runtime';
-import { LOCAL_ENV_NAME, displayEnvPath, readPackEnv } from '@kindgi/secrets-dotenv';
+import { KINDGI_CONFIG_FILENAMES, findKindgiConfig } from '@kindgi/handler-runtime';
+import {
+  LOCAL_ENV_NAME,
+  describeUnreadable,
+  displayEnvPath,
+  readPackEnv,
+} from '@kindgi/secrets-dotenv';
 
+import type { KindgiClient, McpEndpoint } from '@kindgi/client';
+import type { Cursor } from '@kindgi/types';
+
+import { ownAddressKeyElsewhere } from '../api-address.js';
+import type { ResolvedConfig } from '../config.js';
 import type { CommandContext } from '../context.js';
+import {
+  DEV_GOOGLE_CREDENTIALS_VAR,
+  VERTEX_PROVIDER_ID,
+  resolveDevGoogleCredentials,
+  vertexCredentialsHint,
+} from '../dev/google-credentials.js';
+import { javaMajor } from '../dev/pack-code.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE, registryOf } from '../dev/runtime-image.js';
 import { checkDocker, checkImageAccess, credentialHelperHint } from '../dev/runtime-registry.js';
+import { probeReal } from '../dev/sandbox/detect.js';
+import {
+  DEV_SANDBOX_DOCS,
+  DEV_SANDBOX_VAR,
+  type SandboxAvailability,
+  detectDevSandbox,
+  sandboxLabel,
+} from '../dev/sandbox/index.js';
+import { loadLocalEnvSettings } from '../env/project-env.js';
+import { extractKindgiError } from '../errors.js';
+import { LICENSE_GRACE_DAYS, renewAdvice, standingOf } from '../license/expiry.js';
+import { checkLicenseKey } from '../license/license-key.js';
+import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
+import { secretStoreFor } from '../license/stores.js';
+import { MIN_NODE, MIN_NODE_MAJOR, atLeast } from '../node-version.js';
 import { renderJson } from '../output.js';
 import {
   type PackageManager,
@@ -44,8 +77,13 @@ import {
   pythonBinRunner,
   usablePackageManager,
 } from '../package-manager.js';
-import { type ProviderPreset, loadProviderPresets } from '../providers/preset-loader.js';
+import {
+  type ProviderPreset,
+  loadProviderPresets,
+  presetSettingFlag,
+} from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
+import { probeConsole } from './console.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 /**
@@ -54,23 +92,34 @@ import type { CommandResult, LeafCommand } from './types.js';
  */
 const DEV_ECHO_PROVIDER_ID = 'dev-echo';
 
-/** The Node the CLI needs (`engines.node` in its package.json). */
-export const MIN_NODE = '22.12.0';
 /** The Python a Python project needs (`requires-python` in its pyproject.toml). */
 export const MIN_PYTHON = '3.11.0';
+/** The JDK a Java or Scala project needs (kindgi-pack's baseline). */
+export const MIN_JAVA = 17;
+
+type ProjectLanguage = 'node' | 'python' | 'java' | 'scala';
 
 export type DoctorCheckId =
   | 'node'
   | 'npm'
   | 'python'
   | 'uv'
+  | 'java'
+  | 'maven'
+  | 'sbt'
   | 'docker'
+  | 'dev-sandbox'
   | 'registry'
   | 'project'
   | 'dependencies'
   | 'model-key'
   | 'runtime'
-  | 'provider';
+  | 'provider'
+  | 'api-key'
+  | 'console-sign-in'
+  | 'license'
+  | 'mcp-headers'
+  | 'erasures';
 
 export interface DoctorCheck {
   readonly id: DoctorCheckId;
@@ -80,6 +129,12 @@ export interface DoctorCheck {
   readonly message: string;
   /** The exact command or step that fixes it: on every failure and warning, and on some skips. */
   readonly fix?: string;
+  /**
+   * One line per problem the message sums up (each registered provider's
+   * configuration problem: `<provider>: <path>: <message>`). The text output
+   * prints each under the check, marked ✗.
+   */
+  readonly details?: readonly string[];
 }
 
 /** What `kindgi doctor --json` prints. */
@@ -88,7 +143,9 @@ export interface DoctorReport {
   readonly ok: boolean;
   readonly cliVersion: string;
   /** The Kindgi project in the folder checked, or `null` outside one. */
-  readonly project: { readonly dir: string; readonly language: 'node' | 'python' } | null;
+  readonly project: { readonly dir: string; readonly language: ProjectLanguage } | null;
+  /** The console of the runtime `kindgi dev` runs, when it answers and serves one. */
+  readonly consoleUrl?: string;
   readonly checks: readonly DoctorCheck[];
 }
 
@@ -109,6 +166,12 @@ export interface DoctorSeam {
   /** The image the registry check pulls. Default: the one `kindgi dev` runs. */
   readonly image?: string;
   readonly presets?: () => Promise<Readonly<Record<string, ProviderPreset>>>;
+  /** Milliseconds since the epoch, for the license key's dates. Default: now. */
+  readonly now?: () => number;
+  /** The license signing keys trusted (tests). Default: those a released runtime trusts. */
+  readonly licensePublicKeys?: Readonly<Record<string, string>>;
+  /** Whether `kindgi dev` can sandbox the pack service here. Default: tried, as `kindgi dev` does. */
+  readonly sandbox?: () => Promise<SandboxAvailability>;
 }
 
 const TITLES: Readonly<Record<DoctorCheckId, string>> = {
@@ -116,13 +179,22 @@ const TITLES: Readonly<Record<DoctorCheckId, string>> = {
   npm: 'npm',
   python: 'Python',
   uv: 'uv',
+  java: 'Java',
+  maven: 'Maven',
+  sbt: 'sbt',
   docker: 'Docker',
+  'dev-sandbox': 'Dev sandbox',
   registry: 'Runtime image',
   project: 'Project',
   dependencies: 'Dependencies',
   'model-key': 'Model key',
   runtime: 'Runtime',
   provider: 'Provider',
+  'api-key': 'API key',
+  'console-sign-in': 'Console sign-in',
+  license: 'License key',
+  'mcp-headers': 'MCP endpoint headers',
+  erasures: 'Erasures',
 };
 
 export const doctorCommand: LeafCommand = {
@@ -156,13 +228,20 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
   const checks: DoctorCheck[] = [];
 
   const config = await findKindgiConfig(dir);
-  const language =
-    config === undefined ? undefined : config.format === 'pyproject' ? 'python' : 'node';
+  const language: ProjectLanguage | undefined =
+    config === undefined
+      ? undefined
+      : config.format === 'pyproject'
+        ? 'python'
+        : config.format === 'json'
+          ? await jvmLanguageOf(config.path)
+          : 'node';
   const pypi = cliInstall(ctx.env) === 'pypi';
   const kindgi = await kindgiCommand(dir, language, pypi, tool);
 
   checks.push(...(await nodeChecks(seam.nodeVersion ?? process.versions.node, tool, pypi)));
   checks.push(...(await pythonChecks(tool, language)));
+  checks.push(...(await jvmChecks(tool, language, dir, ctx.env)));
   const dockerCheck = await checkDockerRunning(run);
   checks.push(dockerCheck);
   checks.push(
@@ -170,32 +249,50 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
       ? await registryCheck(run, seam.image ?? DEFAULT_RUNTIME_IMAGE, kindgi)
       : skip('registry', 'Not checked: it needs Docker running.'),
   );
+  checks.push(
+    await devSandboxCheck(
+      ctx.env,
+      seam.sandbox ?? (() => detectDevSandbox(process.platform, probeReal)),
+    ),
+  );
+  const apiKey = apiKeyCheck(ctx.config);
+  checks.push(apiKey);
+  // A stored key that isn't for the CLI's address isn't sent (api-key above).
+  const keyElsewhere = apiKey.status === 'fail';
+  checks.push(await consoleSignInCheck(ctx, keyElsewhere));
+  checks.push(await licenseKeyCheck(ctx.env, dir, ctx.cwd, seam));
+  checks.push(await mcpHeadersCheck(ctx, keyElsewhere));
 
   if (config === undefined || language === undefined) {
     checks.push({
       id: 'project',
       status: 'skip',
-      message: `No Kindgi project in ${dir}: no kindgi.config.ts, and no pyproject.toml with [tool.kindgi].`,
+      message: `No Kindgi project in ${dir}: no ${KINDGI_CONFIG_FILENAMES.join(', ')}, no pyproject.toml with [tool.kindgi], and no kindgi.config.json.`,
       fix: createProjectFix(kindgi, pypi),
     });
-    for (const id of ['dependencies', 'model-key', 'runtime', 'provider'] as const) {
+    for (const id of ['dependencies', 'model-key', 'runtime', 'provider', 'erasures'] as const) {
       checks.push(skip(id, 'Not checked: it needs a project.'));
     }
     return report(checks, null);
   }
 
   const rc = await readKindgirc(dir);
-  checks.push(projectCheck(dir, language, rc));
+  checks.push(projectCheck(dir, language, basename(config.path), rc));
   checks.push(await dependenciesCheck(dir, language, tool));
-  checks.push(await modelKeyCheck(dir, seam, ctx.env, kindgi));
+  checks.push(await modelKeyCheck(ctx, dir, seam, kindgi));
   const runtime = await runtimeCheck(ctx, rc, kindgi);
   checks.push(runtime.check);
   checks.push(
     runtime.check.status === 'pass' && runtime.url !== undefined && rc.token !== undefined
-      ? await providerCheck(ctx, runtime.url, rc.token, kindgi, seam)
+      ? await providerCheck(ctx, runtime.url, rc.token, kindgi, seam, dir)
       : skip('provider', `Not checked: it needs the runtime running (${kindgi('dev')}).`),
   );
-  return report(checks, { dir, language });
+  checks.push(
+    runtime.check.status === 'pass' && runtime.url !== undefined
+      ? await erasuresCheck(ctx, runtime.url)
+      : skip('erasures', `Not checked: it needs the runtime running (${kindgi('dev')}).`),
+  );
+  return report(checks, { dir, language }, runtime.consoleUrl);
 }
 
 /** The report as ✓/✗ lines, each failure with its fix. */
@@ -204,6 +301,7 @@ export function doctorText(report: DoctorReport): string {
   for (const check of report.checks) {
     const mark = MARKS[check.status];
     lines.push(`  ${mark} ${TITLES[check.id]}: ${check.message}`);
+    for (const detail of check.details ?? []) lines.push(`      ✗ ${detail}`);
     if (check.fix !== undefined && check.status !== 'pass') lines.push(`      Fix: ${check.fix}`);
   }
   const failed = report.checks.filter((c) => c.status === 'fail').length;
@@ -226,11 +324,16 @@ const MARKS: Readonly<Record<DoctorCheck['status'], string>> = {
   skip: '–',
 };
 
-function report(checks: readonly DoctorCheck[], project: DoctorReport['project']): DoctorReport {
+function report(
+  checks: readonly DoctorCheck[],
+  project: DoctorReport['project'],
+  consoleUrl?: string,
+): DoctorReport {
   return {
     ok: checks.every((c) => c.status !== 'fail'),
     cliVersion: CLI_VERSION,
     project,
+    ...(consoleUrl !== undefined && { consoleUrl }),
     checks,
   };
 }
@@ -255,6 +358,107 @@ const skip = (id: DoctorCheckId, message: string, fix?: string): DoctorCheck => 
   ...(fix !== undefined && { fix }),
 });
 
+// ---------- the license key ----------
+
+/** `word` as one shell word: as it is when it's plain, else single-quoted. */
+function shellWord(word: string): string {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
+}
+
+/**
+ * The license key a runtime started here would use: `KINDGI_LICENSE_KEY`,
+ * or the one in this folder's `kindgi.env`. Checked offline, as the runtime
+ * checks it; from 30 days before it expires, the exact way to the next one.
+ * No key is fine: `kindgi dev` needs none.
+ */
+async function licenseKeyCheck(
+  env: Readonly<Record<string, string | undefined>>,
+  dir: string,
+  cwd: string,
+  seam: DoctorSeam,
+): Promise<DoctorCheck> {
+  const fromEnv = env.KINDGI_LICENSE_KEY?.trim();
+  const envFile = join(dir, 'kindgi.env');
+  /** A setting from the environment, else from this folder's `kindgi.env`. */
+  const setting = async (name: string): Promise<string | undefined> => {
+    const value =
+      env[name]?.trim() ||
+      (await secretStoreFor(`env-file:${envFile}#${name}`)
+        .read()
+        .catch(() => undefined));
+    return value === undefined || value === '' ? undefined : value;
+  };
+  const key =
+    fromEnv !== undefined && fromEnv !== '' ? fromEnv : await setting('KINDGI_LICENSE_KEY');
+  if (key === undefined) {
+    return skip(
+      'license',
+      'No license key here (KINDGI_LICENSE_KEY, or kindgi.env in this folder): kindgi dev needs none. A runtime outside development reads KINDGI_LICENSE_KEY.',
+    );
+  }
+  const where = fromEnv !== undefined && fromEnv !== '' ? 'KINDGI_LICENSE_KEY' : envFile;
+  // The exact command, from where the deployment says its key and renewer
+  // are kept (`KINDGI_LICENSE_KEY_REF`, `KINDGI_LICENSE_RENEWER_REF`, as the
+  // runtime's banner reads them); a placeholder only for one that isn't set.
+  const ref = async (name: string, placeholder: string) => {
+    const value = await setting(name);
+    return value === undefined ? placeholder : shellWord(value);
+  };
+  const renewer = await ref('KINDGI_LICENSE_RENEWER_REF', '<its renewer key>');
+  const keyArg =
+    where === 'KINDGI_LICENSE_KEY'
+      ? `--key ${await ref('KINDGI_LICENSE_KEY_REF', '<where KINDGI_LICENSE_KEY is kept>')}`
+      : `--env-file ${shellWord(relative(cwd, envFile) || 'kindgi.env')}`;
+  const renew = `kindgi license renew ${keyArg} --renewer ${renewer}`;
+  const checked =
+    seam.licensePublicKeys !== undefined
+      ? checkLicenseKey(key, seam.licensePublicKeys)
+      : checkLicenseKey(key);
+  if (checked.kind === 'err') {
+    return checked.reason === 'unknown-key'
+      ? warn(
+          'license',
+          `The key in ${where} is signed with a key this CLI doesn't know yet.`,
+          'Update the Kindgi CLI, then run kindgi doctor again.',
+        )
+      : fail(
+          'license',
+          `The value in ${where} isn't a Kindgi license key (${checked.reason}).`,
+          'Paste the whole key, starting kgi_lk_: from access.kindgi.com, or the one Kindgi sent you.',
+        );
+  }
+  const { claims } = checked;
+  const what = `${claims.name}'s ${claims.use} key`;
+  const standing = standingOf(claims, (seam.now ?? Date.now)());
+  const day = (d: Date) => d.toISOString().slice(0, 10);
+  const advice = renewAdvice(claims, renew);
+  switch (standing.kind) {
+    case 'valid':
+      return pass(
+        'license',
+        `${what}, until ${day(claims.expiresAt)} (${standing.daysLeft} days).`,
+      );
+    case 'expiring':
+      return warn(
+        'license',
+        `${what} expires in ${standing.daysLeft} days (${day(claims.expiresAt)}).`,
+        advice,
+      );
+    case 'grace':
+      return warn(
+        'license',
+        `${what} expired on ${day(claims.expiresAt)}: the runtime starts with it until ${day(standing.lastStart)}.`,
+        advice,
+      );
+    case 'expired':
+      return fail(
+        'license',
+        `${what} expired on ${day(claims.expiresAt)}, more than ${LICENSE_GRACE_DAYS} days ago: the runtime won't start with it.`,
+        advice,
+      );
+  }
+}
+
 // ---------- tools ----------
 
 /** Node and npm. Under kindgi-cli, Node is the one the wheel brings and npm isn't needed. */
@@ -277,7 +481,7 @@ async function nodeChecks(
 function createProjectFix(kindgi: Kindgi, pypi: boolean): string {
   return pypi
     ? `Create one: ${kindgi('init', '<name>', '--template=python')}, then run doctor in its folder.`
-    : `Create one: ${kindgi('init', '<name>')} (TypeScript; add --template=python for Python), then run doctor in its folder.`;
+    : `Create one: ${kindgi('init', '<name>')} (TypeScript; add --template=python for Python, --template=java for Java), then run doctor in its folder.`;
 }
 
 function nodeCheck(version: string, pypi: boolean): DoctorCheck {
@@ -286,7 +490,7 @@ function nodeCheck(version: string, pypi: boolean): DoctorCheck {
     : fail(
         'node',
         `Node ${version}; Kindgi needs ${MIN_NODE} or later.`,
-        `Install Node ${MIN_NODE} or later from https://nodejs.org (or: nvm install 22).`,
+        `Install Node ${MIN_NODE} or later from https://nodejs.org (or: nvm install ${MIN_NODE_MAJOR}).`,
       );
 }
 
@@ -304,7 +508,7 @@ async function npmCheck(tool: NonNullable<DoctorSeam['tool']>): Promise<DoctorCh
 /** Python and uv: needed by a Python project; elsewhere, what's installed (for choosing a template). */
 async function pythonChecks(
   tool: NonNullable<DoctorSeam['tool']>,
-  language: 'node' | 'python' | undefined,
+  language: ProjectLanguage | undefined,
 ): Promise<DoctorCheck[]> {
   const python = await pythonVersion(tool);
   const uv = await tool('uv', ['--version']);
@@ -319,7 +523,7 @@ async function pythonChecks(
   const uvFix =
     'Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh (or: brew install uv).';
   if (language !== 'python') {
-    const why = language === 'node' ? 'a TypeScript project' : 'no project yet';
+    const why = projectKind(language);
     return [
       skip(
         'python',
@@ -347,6 +551,142 @@ async function pythonChecks(
   ];
 }
 
+/** Why a language's tools aren't needed: the project's kind, or no project. */
+function projectKind(language: ProjectLanguage | undefined): string {
+  return language === 'node'
+    ? 'a TypeScript project'
+    : language === 'python'
+      ? 'a Python project'
+      : language === 'java'
+        ? 'a Java project'
+        : language === 'scala'
+          ? 'a Scala project'
+          : 'no project yet';
+}
+
+/** A `kindgi.config.json`'s language: `scala` when it says so, else `java`. */
+async function jvmLanguageOf(path: string): Promise<'java' | 'scala'> {
+  try {
+    return (JSON.parse(await readFile(path, 'utf8')) as { language?: unknown }).language === 'scala'
+      ? 'scala'
+      : 'java';
+  } catch {
+    return 'java';
+  }
+}
+
+/**
+ * A JDK 17+, and Maven or sbt: needed by a Java project (the JDK, Maven) or a
+ * Scala one (the JDK, sbt); elsewhere, what's installed (for choosing a
+ * template). The JDK is `JAVA_HOME`'s, else the `java` on PATH, as `kindgi
+ * dev` finds it; Maven is the project's wrapper (`mvnw`), else `mvn`; sbt is
+ * the `sbt` on PATH.
+ */
+async function jvmChecks(
+  tool: NonNullable<DoctorSeam['tool']>,
+  language: ProjectLanguage | undefined,
+  dir: string,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<DoctorCheck[]> {
+  return [
+    await jdkCheck(tool, language, env),
+    await mavenCheck(tool, language, dir),
+    await sbtCheck(tool, language),
+  ];
+}
+
+async function jdkCheck(
+  tool: NonNullable<DoctorSeam['tool']>,
+  language: ProjectLanguage | undefined,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<DoctorCheck> {
+  const home = env.JAVA_HOME !== undefined && env.JAVA_HOME !== '' ? env.JAVA_HOME : undefined;
+  const got = await tool(home === undefined ? 'java' : join(home, 'bin', 'java'), ['-version']);
+  const version =
+    got.code === null ? undefined : /version "([^"]+)"/.exec(`${got.stderr}\n${got.stdout}`)?.[1];
+  if (language !== 'java' && language !== 'scala') return jdkNotNeeded(language, version);
+  const javaFix = `Install a JDK ${MIN_JAVA} or later (e.g. Eclipse Temurin, https://adoptium.net) and set JAVA_HOME to it.`;
+  const where = home === undefined ? 'the java on your PATH' : `JAVA_HOME, ${home}`;
+  if (version === undefined) return fail('java', `No JDK: ${where} doesn't run.`, javaFix);
+  const name = language === 'java' ? 'Java' : 'Scala';
+  return (javaMajor(version) ?? 0) >= MIN_JAVA
+    ? pass('java', `Java ${version} (${where}).`)
+    : fail(
+        'java',
+        `Java ${version} (${where}); a Kindgi ${name} project needs ${MIN_JAVA} or later.`,
+        javaFix,
+      );
+}
+
+/** The JDK outside a JVM project: what's installed, for choosing a template. */
+function jdkNotNeeded(
+  language: ProjectLanguage | undefined,
+  version: string | undefined,
+): DoctorCheck {
+  const installed = version !== undefined ? `Java ${version} is installed` : "Java isn't installed";
+  return skip(
+    'java',
+    `Not needed (${projectKind(language)}); ${installed}, for a Java or Scala project (kindgi init --template=java or scala).`,
+  );
+}
+
+async function mavenCheck(
+  tool: NonNullable<DoctorSeam['tool']>,
+  language: ProjectLanguage | undefined,
+  dir: string,
+): Promise<DoctorCheck> {
+  const wrapper = await isFile(join(dir, 'mvnw'));
+  const mvn = wrapper ? undefined : await tool('mvn', ['--version']);
+  const mvnVersion = mvn?.code === 0 ? /Apache Maven (\S+)/.exec(mvn.stdout)?.[1] : undefined;
+  if (language !== 'java') {
+    return skip(
+      'maven',
+      `Not needed (${projectKind(language)}); ${mvnVersion !== undefined ? `Maven ${mvnVersion} is installed` : "Maven isn't installed"}, for a Java project.`,
+    );
+  }
+  if (wrapper) return pass('maven', 'The project has the Maven wrapper (mvnw).');
+  return mvnVersion !== undefined
+    ? pass('maven', `Maven ${mvnVersion}.`)
+    : fail(
+        'maven',
+        "Maven isn't installed, and the project has no Maven wrapper (mvnw).",
+        'Add the Maven wrapper to the project (mvn wrapper:wrapper), or install Maven 3.9 or later (https://maven.apache.org/install.html).',
+      );
+}
+
+async function sbtCheck(
+  tool: NonNullable<DoctorSeam['tool']>,
+  language: ProjectLanguage | undefined,
+): Promise<DoctorCheck> {
+  // `--script-version` answers from the launcher script, without starting a JVM.
+  const got = await tool('sbt', ['--script-version']);
+  const version = got.code === 0 ? /(\d+\.\d+\.\d+\S*)/.exec(got.stdout)?.[1] : undefined;
+  if (language !== 'scala') {
+    return skip(
+      'sbt',
+      `Not needed (${projectKind(language)}); ${version !== undefined ? `sbt ${version} is installed` : "sbt isn't installed"}, for a Scala project.`,
+    );
+  }
+  return version !== undefined
+    ? pass(
+        'sbt',
+        `sbt ${version} (the launcher; the project's own sbt is project/build.properties').`,
+      )
+    : fail(
+        'sbt',
+        "sbt isn't installed: a Kindgi Scala project builds with it.",
+        'Install sbt 1.10 or later (https://www.scala-sbt.org/download).',
+      );
+}
+
+async function isFile(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile();
+  } catch {
+    return false;
+  }
+}
+
 async function pythonVersion(tool: NonNullable<DoctorSeam['tool']>): Promise<string | undefined> {
   for (const command of ['python3', 'python']) {
     const got = await tool(command, ['--version']);
@@ -358,8 +698,30 @@ async function pythonVersion(tool: NonNullable<DoctorSeam['tool']>): Promise<str
 
 // ---------- Docker and the runtime image ----------
 
+/** Whether `kindgi dev` runs the pack service sandboxed here, or why not. */
+async function devSandboxCheck(
+  env: Readonly<Record<string, string | undefined>>,
+  detect: () => Promise<SandboxAvailability>,
+): Promise<DoctorCheck> {
+  if (env[DEV_SANDBOX_VAR] === 'off') {
+    return skip('dev-sandbox', `Not checked: ${DEV_SANDBOX_VAR}=off.`);
+  }
+  const availability = await detect();
+  if (availability.kind === 'available') {
+    return pass(
+      'dev-sandbox',
+      `kindgi dev runs your tools' code sandboxed (${sandboxLabel(availability.engine)}): it can't read your keys or reach Docker.`,
+    );
+  }
+  return warn(
+    'dev-sandbox',
+    `kindgi dev would run your tools' code without the sandbox: ${availability.reason}. It can then read your files and keys.`,
+    `${availability.fix} (${DEV_SANDBOX_DOCS})`,
+  );
+}
+
 async function checkDockerRunning(run: DockerRunner): Promise<DoctorCheck> {
-  const ready = await checkDocker(run);
+  const ready = await checkDocker(run, 'kindgi doctor');
   if (ready.kind === 'ok') return pass('docker', 'Docker is running.');
   const [message = ready.message, ...rest] = ready.message.split('\n');
   return fail('docker', message, rest.map((l) => l.trim()).join(' '));
@@ -372,7 +734,7 @@ async function registryCheck(
 ): Promise<DoctorCheck> {
   const access = await checkImageAccess(run, image);
   const host = registryOf(image);
-  const login = `${kindgi('auth', 'registry', '--username', '<robot name>', '--password-stdin')} (the robot name and token come from access.kindgi.com; pipe the token in, never paste it into a chat)`;
+  const login = `${kindgi('auth', 'registry', '--username', '<your robot name>', '--password-stdin')} (the robot name and the token are on ${KINDGI_ACCESS_ORIGIN} once you sign in with GitHub; pipe the token in, never paste it into a chat)`;
   switch (access.kind) {
     case 'ok':
       return pass('registry', `Docker can pull the runtime image (${image}).`);
@@ -439,11 +801,24 @@ async function readKindgirc(dir: string): Promise<Kindgirc> {
   }
 }
 
-function projectCheck(dir: string, language: 'node' | 'python', rc: Kindgirc): DoctorCheck {
-  const kind =
+/** The project check, naming the config file `findKindgiConfig` found (`kindgi.config.mts`, …). */
+function projectCheck(
+  dir: string,
+  language: ProjectLanguage,
+  configFile: string,
+  rc: Kindgirc,
+): DoctorCheck {
+  const name =
     language === 'python'
-      ? 'A Python project (pyproject.toml)'
-      : 'A TypeScript project (kindgi.config.ts)';
+      ? 'Python'
+      : language === 'java'
+        ? 'Java'
+        : language === 'scala'
+          ? 'Scala'
+          : /\.m?ts$/.test(configFile)
+            ? 'TypeScript'
+            : 'JavaScript';
+  const kind = `A ${name} project (${configFile})`;
   if (rc.malformed !== undefined) {
     return fail(
       'project',
@@ -457,11 +832,69 @@ function projectCheck(dir: string, language: 'node' | 'python', rc: Kindgirc): D
   );
 }
 
+/**
+ * A Scala project's build declares kindgi-pack-scala: in `build.sbt`, or a
+ * `project/*.scala` file it reads its dependencies from.
+ */
+async function scalaDependenciesCheck(dir: string): Promise<DoctorCheck> {
+  let build: string;
+  try {
+    build = await readFile(join(dir, 'build.sbt'), 'utf8');
+  } catch {
+    return fail(
+      'dependencies',
+      'No build.sbt: a Kindgi Scala project builds with sbt.',
+      'Create one with the kindgi-pack-scala dependency (kindgi init --template=scala writes one).',
+    );
+  }
+  const projectDir = join(dir, 'project');
+  const projectFiles = await readdir(projectDir).catch(() => [] as string[]);
+  const sources = [build];
+  for (const name of projectFiles.filter((f) => f.endsWith('.scala'))) {
+    sources.push(await readFile(join(projectDir, name), 'utf8').catch(() => ''));
+  }
+  return sources.some((text) => /"com\.kindgi"\s*%%\s*"kindgi-pack-scala"/.test(text))
+    ? pass(
+        'dependencies',
+        'The build has "com.kindgi" %% "kindgi-pack-scala" (sbt downloads it on the first build).',
+      )
+    : fail(
+        'dependencies',
+        'The build doesn\'t have "com.kindgi" %% "kindgi-pack-scala".',
+        'Add "com.kindgi" %% "kindgi-pack-scala" % "<version>" to libraryDependencies in build.sbt.',
+      );
+}
+
 async function dependenciesCheck(
   dir: string,
-  language: 'node' | 'python',
+  language: ProjectLanguage,
   tool: NonNullable<DoctorSeam['tool']>,
 ): Promise<DoctorCheck> {
+  if (language === 'java') {
+    let pom: string;
+    try {
+      pom = await readFile(join(dir, 'pom.xml'), 'utf8');
+    } catch {
+      return fail(
+        'dependencies',
+        'No pom.xml: a Kindgi Java project builds with Maven.',
+        'Create one with the com.kindgi:kindgi-pack dependency (kindgi init --template=java writes one).',
+      );
+    }
+    return /<groupId>\s*com\.kindgi\s*<\/groupId>\s*<artifactId>\s*kindgi-pack\s*<\/artifactId>/.test(
+      pom,
+    )
+      ? pass(
+          'dependencies',
+          'pom.xml has com.kindgi:kindgi-pack (Maven downloads it on the first build).',
+        )
+      : fail(
+          'dependencies',
+          "pom.xml doesn't have com.kindgi:kindgi-pack.",
+          'Add the com.kindgi:kindgi-pack dependency to pom.xml.',
+        );
+  }
+  if (language === 'scala') return scalaDependenciesCheck(dir);
   if (language === 'python') {
     return (await pythonPackageInstalled(dir))
       ? pass('dependencies', 'The kindgi package is installed in .venv.')
@@ -516,32 +949,70 @@ function orList(items: readonly string[]): string {
     : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
 }
 
-/** The presets that take an LLM provider key, with the key's name, in preset order. */
-async function keyedPresets(
-  seam: DoctorSeam,
-): Promise<readonly { readonly name: string; readonly secret: string }[]> {
+/**
+ * The presets that take an LLM provider key, with the key's name and the
+ * settings the preset asks for besides (as flags), in preset order.
+ */
+async function keyedPresets(seam: DoctorSeam): Promise<
+  readonly {
+    readonly name: string;
+    readonly secret: string;
+    readonly settings: readonly string[];
+  }[]
+> {
   const presets = await (seam.presets ?? (() => loadProviderPresets()))();
   return Object.values(presets).flatMap((p) =>
-    p.secret !== undefined ? [{ name: p.name, secret: p.secret }] : [],
+    p.secret !== undefined
+      ? [{ name: p.name, secret: p.secret, settings: presetSettingFlags(p) }]
+      : [],
   );
 }
 
-/** A model key the presets name, set in the project's env files. Its value is never read out. */
+/** A preset's settings as `register` takes them, to fill in: `--resource-name=<resourceName>`. */
+function presetSettingFlags(preset: ProviderPreset): readonly string[] {
+  return (preset.adapterConfig ?? []).map((s) => `${presetSettingFlag(s.key)}=<${s.key}>`);
+}
+
+/**
+ * A model key the presets name, set in the project's env files. Its value is
+ * never read out. A key Kindgi borrows from a file the app loads too is said;
+ * a file that can't be read (a coding agent's read guard) skips the check
+ * rather than failing it.
+ */
 async function modelKeyCheck(
+  ctx: CommandContext,
   dir: string,
   seam: DoctorSeam,
-  hostEnv: Readonly<Record<string, string | undefined>>,
   kindgi: Kindgi,
 ): Promise<DoctorCheck> {
+  const hostEnv = ctx.env;
   const names = [...new Set((await keyedPresets(seam)).map((p) => p.secret))];
-  const env = await readPackEnv({ packDir: dir, envName: LOCAL_ENV_NAME });
+  const settings = await loadLocalEnvSettings(ctx, dir);
+  const localEnvFiles = settings.kind === 'ok' ? settings.localEnvFiles : undefined;
+  const env = await readPackEnv({
+    packDir: dir,
+    envName: LOCAL_ENV_NAME,
+    ...(localEnvFiles !== undefined && { localEnvFiles }),
+  });
   const files = env.files.read.map((f) => displayEnvPath(dir, f)).join(' or ');
   const found = names.find((name) => (env.values[name] ?? '').trim() !== '');
   if (found !== undefined) {
     const origin = env.origin[found];
-    return pass(
+    const where = origin !== undefined ? ` in ${displayEnvPath(dir, origin)}` : '';
+    if (origin !== undefined && env.files.kindgi !== undefined && origin !== env.files.kindgi) {
+      return warn(
+        'model-key',
+        `${found} is set${where}, which your app loads too: its routes, and a coding agent working in it, can read it.`,
+        `Give Kindgi its own copy in ${displayEnvPath(dir, env.files.kindgi)}, which it reads first: ${kindgi('secrets', 'copy')} (it never edits your app's files). If your app uses ${found} itself, keep it there; you can give Kindgi a key of its own instead.`,
+      );
+    }
+    return pass('model-key', `${found} is set${where}.`);
+  }
+  if (env.unreadable.length > 0) {
+    return skip(
       'model-key',
-      `${found} is set${origin !== undefined ? ` in ${displayEnvPath(dir, origin)}` : ''}.`,
+      `Not checked: couldn't read ${describeUnreadable(dir, env.unreadable)}.`,
+      'Run kindgi doctor in a terminal of your own, where the env files can be read.',
     );
   }
   const inShell = names.find((name) => (hostEnv[name] ?? '').trim() !== '');
@@ -554,13 +1025,46 @@ async function modelKeyCheck(
   );
 }
 
+// ---------- erasures ----------
+
+/**
+ * Whether the runtime can replay erasures after a backup restore: it
+ * needs the erasure ledger key, which `kindgi dev` doesn't set (fine for
+ * development), so this check never fails: it passes, or says why not.
+ */
+async function erasuresCheck(ctx: CommandContext, url: string): Promise<DoctorCheck> {
+  let said: unknown;
+  try {
+    const res = await ctx.fetch(`${url.replace(/\/+$/, '')}/ready`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(5000),
+    });
+    said = ((await res.json()) as { erasures?: unknown }).erasures;
+  } catch {
+    said = undefined;
+  }
+  if (said === 'replayable') {
+    return pass(
+      'erasures',
+      'Erasures can be replayed after a backup restore: the runtime has the erasure ledger key.',
+    );
+  }
+  if (said === 'unreplayable') {
+    return skip(
+      'erasures',
+      "Erasures run, but a replay after a backup restore can't find whom they erased: the runtime has no KINDGI_ERASURE_LEDGER_KEY. Fine for development; set it where you run in production.",
+    );
+  }
+  return skip('erasures', "Not checked: this runtime doesn't say (it's from before 0.1.5).");
+}
+
 // ---------- the runtime ----------
 
 async function runtimeCheck(
   ctx: CommandContext,
   rc: Kindgirc,
   kindgi: Kindgi,
-): Promise<{ readonly check: DoctorCheck; readonly url?: string }> {
+): Promise<{ readonly check: DoctorCheck; readonly url?: string; readonly consoleUrl?: string }> {
   const start = `Start it: ${kindgi('dev')} (it keeps running; stop it with Ctrl+C).`;
   const restart = `Restart kindgi dev (Ctrl+C, then ${kindgi('dev')})`;
   if (rc.apiUrl === undefined) {
@@ -571,8 +1075,26 @@ async function runtimeCheck(
   const url = `${rc.apiUrl.replace(/\/+$/, '')}/health`;
   try {
     const res = await ctx.fetch(url, { method: 'GET', signal: AbortSignal.timeout(5000) });
-    if (res.ok)
-      return { check: pass('runtime', `The runtime answers at ${rc.apiUrl}.`), url: rc.apiUrl };
+    if (res.ok) {
+      // Where to open it: the console, when the runtime serves one (T374).
+      const consoleProbe = await probeConsole(ctx.fetch, rc.apiUrl);
+      return consoleProbe.kind === 'served'
+        ? {
+            check: pass(
+              'runtime',
+              `The runtime answers at ${rc.apiUrl}; its console is at ${consoleProbe.url}.`,
+            ),
+            url: rc.apiUrl,
+            consoleUrl: consoleProbe.url,
+          }
+        : {
+            check: pass(
+              'runtime',
+              `The runtime answers at ${rc.apiUrl}${consoleProbe.kind === 'not-served' ? ' (it serves no console)' : ''}.`,
+            ),
+            url: rc.apiUrl,
+          };
+    }
     return {
       check: fail(
         'runtime',
@@ -596,36 +1118,275 @@ async function runtimeCheck(
   }
 }
 
+/**
+ * Whether anyone can sign in to the console of the runtime the CLI points
+ * at (`--url`, `KINDGI_API_URL`, `kindgi auth login`). Since 0.1.5,
+ * signing in with an API token is off by default outside `kindgi dev`: a
+ * deployment that relied on it, with no identity provider, has no way in.
+ */
+/**
+ * The CLI's API key and the address it goes to. A stored key goes only to
+ * the address stored with it (api-address.ts), so when it isn't for the
+ * CLI's address every command that needs the key refuses, and this fails.
+ */
+function apiKeyCheck(config: ResolvedConfig): DoctorCheck {
+  const url = config.apiUrl;
+  if (config.token === undefined || config.token === '') {
+    return skip(
+      'api-key',
+      'No API key is set: commands that call the API need one (kindgi auth login, KINDGI_API_TOKEN or --token).',
+    );
+  }
+  if (url === undefined || url === '') {
+    return skip(
+      'api-key',
+      'Not checked: no API address is set (kindgi auth login, KINDGI_API_URL or --url).',
+    );
+  }
+  if (config.source.token !== 'file') {
+    const given = config.source.token === 'flag' ? '--token' : 'KINDGI_API_TOKEN';
+    return pass('api-key', `The API key is given with ${given}, and goes to ${url}.`);
+  }
+  const elsewhere = ownAddressKeyElsewhere(config);
+  if (elsewhere === undefined) {
+    const file = config.files?.token;
+    return pass(
+      'api-key',
+      `The API key stored${file === undefined ? '' : ` in ${file.path}`} is for ${url}, the address commands go to.`,
+    );
+  }
+  return fail(
+    'api-key',
+    `Every command that needs the API key refuses: it would send ${elsewhere.sends}. ${elsewhere.stored}`.trimEnd(),
+    elsewhere.fix,
+  );
+}
+
+async function consoleSignInCheck(
+  ctx: CommandContext,
+  keyElsewhere: boolean,
+): Promise<DoctorCheck> {
+  const apiUrl = ctx.config.apiUrl?.replace(/\/+$/, '');
+  if (apiUrl === undefined) {
+    return skip(
+      'console-sign-in',
+      'Not checked: no runtime to ask (set KINDGI_API_URL, or run kindgi auth login).',
+    );
+  }
+  const TOKEN_ON =
+    'Set KINDGI_CONSOLE_TOKEN_SIGN_IN=on on the runtime and restart it, to keep signing in to the console with an API token';
+  let methods: { identityProviders?: unknown; apiToken?: unknown } | undefined;
+  try {
+    const res = await ctx.fetch(`${apiUrl}/v1/auth/sign-in-options`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      return skip(
+        'console-sign-in',
+        `Not checked: the runtime at ${apiUrl} doesn't say how people sign in (older than 0.1.5).`,
+      );
+    }
+    methods = ((await res.json()) as { methods?: typeof methods }).methods;
+  } catch {
+    return skip('console-sign-in', `Not checked: nothing answers at ${apiUrl}.`);
+  }
+  if (methods === undefined) {
+    return skip(
+      'console-sign-in',
+      `Not checked: the runtime at ${apiUrl} doesn't say how people sign in (older than 0.1.5).`,
+    );
+  }
+  if (methods.apiToken === true) {
+    return pass(
+      'console-sign-in',
+      methods.identityProviders === true
+        ? 'People can sign in to the console with an API token or an identity provider.'
+        : 'People can sign in to the console with an API token.',
+    );
+  }
+  if (methods.identityProviders !== true) {
+    return warn(
+      'console-sign-in',
+      `Nobody can sign in to the console at ${apiUrl}: signing in with an API token is off (the default outside kindgi dev since 0.1.5), and no identity provider is set up.`,
+      `${TOKEN_ON}; or set up sign-in with your identity provider (KINDGI_AUTH_SECRET_PATH, then kindgi sso providers start).`,
+    );
+  }
+  if (keyElsewhere) {
+    return skip(
+      'console-sign-in',
+      `Sign-in with an identity provider is on at ${apiUrl}. Not checked whether one is registered: the API key isn't for ${apiUrl} (API key, above).`,
+    );
+  }
+  const token = ctx.config.token;
+  if (token === undefined) {
+    return pass('console-sign-in', 'People sign in to the console with an identity provider.');
+  }
+  try {
+    const res = await ctx.fetch(`${apiUrl}/v1/auth/providers`, {
+      method: 'GET',
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      const providers = ((await res.json()) as { data?: unknown[] }).data ?? [];
+      if (providers.length === 0) {
+        return warn(
+          'console-sign-in',
+          `Sign-in with an identity provider is on at ${apiUrl}, but none is registered, and signing in with an API token is off: nobody can sign in to the console.`,
+          `Register one (kindgi sso providers start <id> --idp=google|entra|okta|keycloak); or ${TOKEN_ON.charAt(0).toLowerCase()}${TOKEN_ON.slice(1)}.`,
+        );
+      }
+    }
+  } catch {
+    // The providers couldn't be listed: the sign-in options already said it's on.
+  }
+  return pass('console-sign-in', 'People sign in to the console with an identity provider.');
+}
+
+/**
+ * What the API answers for a credential header's value in an MCP endpoint's
+ * `config.headers` (`MCPEndpoint` in the API's schema), so the value is never
+ * read back.
+ */
+const REDACTED_HEADER_VALUE = '[redacted]';
+
+/**
+ * MCP endpoints, on the runtime the CLI points at, that keep a credential in
+ * plaintext `config.headers`. They were registered before the API refused
+ * that, and they keep working, but the value is stored as given, not as a
+ * secret. The API answers each such value as `[redacted]`, so its name is
+ * all this reads (and a runtime that redacts never sends them on a redirect).
+ */
+async function mcpHeadersCheck(ctx: CommandContext, keyElsewhere: boolean): Promise<DoctorCheck> {
+  const apiUrl = ctx.config.apiUrl?.replace(/\/+$/, '');
+  const token = ctx.config.token;
+  if (keyElsewhere && apiUrl !== undefined) {
+    return skip('mcp-headers', `Not checked: the API key isn't for ${apiUrl} (API key, above).`);
+  }
+  if (apiUrl === undefined || token === undefined) {
+    return skip(
+      'mcp-headers',
+      'Not checked: no runtime to ask (set KINDGI_API_URL and KINDGI_API_TOKEN, or run kindgi auth login).',
+    );
+  }
+  let endpoints: readonly McpEndpoint[];
+  try {
+    endpoints = await allMcpEndpoints(ctx.clientFor(apiUrl, token));
+  } catch (err) {
+    return skip(
+      'mcp-headers',
+      `Not checked: the MCP endpoints at ${apiUrl} couldn't be listed (${firstLine((err as Error).message)}).`,
+    );
+  }
+  const found = endpoints.flatMap((e) => {
+    const headers = e.config.transport === 'stdio' ? undefined : e.config.headers;
+    const names = Object.entries(headers ?? {})
+      .filter(([, value]) => value === REDACTED_HEADER_VALUE)
+      .map(([name]) => name);
+    return names.length === 0 ? [] : [`${e.endpointId}: ${names.join(', ')}`];
+  });
+  if (found.length === 0) {
+    return pass(
+      'mcp-headers',
+      endpoints.length === 0
+        ? 'No MCP endpoint is registered.'
+        : `No MCP endpoint keeps a credential in config.headers (${endpoints.length} checked).`,
+    );
+  }
+  return {
+    ...warn(
+      'mcp-headers',
+      found.length === 1
+        ? 'An MCP endpoint keeps a credential in plaintext config.headers, from before that was refused. It still works, but the value is stored as given, not as a secret.'
+        : `${found.length} MCP endpoints keep a credential in plaintext config.headers, from before that was refused. They still work, but each value is stored as given, not as a secret.`,
+      'Store each value as a secret (kindgi secrets set <NAME> --env=<name> --scope=tenant), then unregister the endpoint and register it again with the header in auth: { scheme: "header", headers: [{ name: "<header>", secretRef: { envName, name } }] }.',
+    ),
+    details: found,
+  };
+}
+
+/** Every MCP endpoint, page by page. */
+async function allMcpEndpoints(client: KindgiClient): Promise<readonly McpEndpoint[]> {
+  const all: McpEndpoint[] = [];
+  let cursor: Cursor | undefined;
+  do {
+    const page = await client.mcp.endpoints.list({
+      limit: 100,
+      ...(cursor !== undefined && { cursor }),
+    });
+    all.push(...page.data);
+    cursor = page.hasMore ? page.nextCursor : undefined;
+  } while (cursor !== undefined);
+  return all;
+}
+
 async function providerCheck(
   ctx: CommandContext,
   apiUrl: string,
   token: string,
   kindgi: Kindgi,
   seam: DoctorSeam,
+  dir: string,
 ): Promise<DoctorCheck> {
   try {
     const page = await ctx.clientFor(apiUrl, token).providers.list();
     const listed = page.data as readonly ListedProvider[];
     const ids = listed.map((p) => p.id ?? '?');
     const models = ids.filter((id) => id !== DEV_ECHO_PROVIDER_ID);
-    const presets = (await keyedPresets(seam)).map((p) => p.name);
+    const keyed = await keyedPresets(seam);
+    // A preset that asks for settings says which: `azure-openai (with --resource-name=<…> …)`.
+    const presets = keyed.map((p) =>
+      p.settings.length > 0 ? `${p.name} (with ${p.settings.join(' ')})` : p.name,
+    );
+    const only = keyed[0];
     const register =
       presets.length > 1
         ? `Register the provider whose key you set: ${kindgi('providers', 'register', '--preset=<preset>')}, where <preset> is ${orList(presets)} (see Model key).`
-        : `Register one: ${kindgi('providers', 'register', `--preset=${presets[0] ?? 'anthropic'}`)} (its key must be set first; see Model key).`;
+        : `Register one: ${kindgi('providers', 'register', `--preset=${only?.name ?? 'anthropic'}`, ...(only?.settings ?? []))} (its key must be set first; see Model key).`;
     if (models.length > 0) {
       const registered = `${models.length === 1 ? 'A provider is' : `${models.length} providers are`} registered: ${models.join(', ')}.`;
-      const stale = staleDefaults(
-        listed,
-        await (seam.presets ?? (() => loadProviderPresets()))(),
-        kindgi,
-      );
-      return stale.length === 0
+      const allPresets = await (seam.presets ?? (() => loadProviderPresets()))();
+      const stale = staleDefaults(listed, allPresets, kindgi);
+      const google = await vertexCredentials(ids, dir, ctx.env);
+      const notes = [...stale, ...(google === undefined ? [] : [google])];
+      const broken = await configIssues(ctx.clientFor(apiUrl, token), models);
+      if (broken !== undefined && broken.size > 0) {
+        const details = [...broken].flatMap(([id, issues]) =>
+          issues.map((i) => `${id}: ${i.path}: ${i.message}`),
+        );
+        const fix = [...broken.keys()]
+          .map((id) => reRegister(id, presetFor(id, allPresets), kindgi))
+          .join(' ');
+        const names = [...broken.keys()].join(', ');
+        if (broken.size === models.length) {
+          return {
+            ...fail(
+              'provider',
+              `No usable provider: the runtime can't build ${broken.size === 1 ? names : `any of ${names}`} from ${broken.size === 1 ? 'its' : 'their'} registration, so an agent has no model to call.`,
+              fix,
+            ),
+            details,
+          };
+        }
+        return {
+          ...warn(
+            'provider',
+            [
+              `${registered} The runtime can't build ${names} from ${broken.size === 1 ? 'its' : 'their'} registration, so agents only get the others.`,
+              ...notes.map((s) => s.message),
+            ].join(' '),
+            [fix, ...notes.map((s) => s.fix)].join(' '),
+          ),
+          details,
+        };
+      }
+      return notes.length === 0
         ? pass('provider', registered)
         : warn(
             'provider',
-            [registered, ...stale.map((s) => s.message)].join(' '),
-            stale.map((s) => s.fix).join(' '),
+            [registered, ...notes.map((s) => s.message)].join(' '),
+            notes.map((s) => s.fix).join(' '),
           );
     }
     return ids.length > 0
@@ -645,6 +1406,30 @@ async function providerCheck(
 }
 
 /** A registered provider as `providers.list` answers it; a runtime before 0.1.4 sends no `defaultModel`. */
+/**
+ * A Vertex provider (the `gemini` preset) with no Google credentials in
+ * `kindgi dev`: `KINDGI_DEV_GOOGLE_CREDENTIALS` unset, `off`, or not
+ * usable. `undefined` when there's no Vertex provider, or it has them.
+ */
+async function vertexCredentials(
+  ids: readonly string[],
+  dir: string,
+  hostEnv: Readonly<Record<string, string | undefined>>,
+): Promise<{ readonly message: string; readonly fix: string } | undefined> {
+  const vertex = ids.filter((id) => id === VERTEX_PROVIDER_ID);
+  if (vertex.length === 0) return undefined;
+  const env = await readPackEnv({ packDir: dir, envName: LOCAL_ENV_NAME });
+  const setting = hostEnv[DEV_GOOGLE_CREDENTIALS_VAR] ?? env.values[DEV_GOOGLE_CREDENTIALS_VAR];
+  const resolved = resolveDevGoogleCredentials(setting, hostEnv);
+  if (resolved.kind === 'ok' && resolved.credentials !== undefined) return undefined;
+  return resolved.kind === 'error'
+    ? { message: resolved.message, fix: vertexCredentialsHint(vertex, hostEnv) }
+    : {
+        message: `${vertex.join(', ')} is Vertex AI, and kindgi dev gives the runtime no Google credentials (${DEV_GOOGLE_CREDENTIALS_VAR} is ${setting === undefined || setting.trim() === '' ? 'unset' : 'off'}).`,
+        fix: vertexCredentialsHint(vertex, hostEnv),
+      };
+}
+
 interface ListedProvider {
   readonly id?: string;
   readonly models?: readonly { readonly name: string }[];
@@ -676,13 +1461,13 @@ function staleDefaults(
       'providers',
       'register',
       `--preset=${preset.name}`,
-      ...(preset.adapterConfig ?? []).map((s) => `--${s.key}=<${s.key}>`),
+      ...presetSettingFlags(preset),
     );
     if (!preset.metadata.models.some((m) => m.name === lands)) {
       return [
         {
           message: `On ${p.id}, an agent that names no model gets ${lands}, which the ${preset.name} preset no longer lists.`,
-          fix: `Re-register ${p.id} for the preset's current models: ${register}. Or name a model on your agents (preferredModel).`,
+          fix: `${reRegisterSteps(p.id as string, register, kindgi)} Or name a model on your agents (preferredModel).`,
         },
       ];
     }
@@ -696,12 +1481,64 @@ function staleDefaults(
       return [
         {
           message: `On ${p.id}, an agent that names no model gets ${lands}, the first by name: ${p.id} has no default model, and the ${preset.name} preset's is ${wanted}.`,
-          fix: `Re-register ${p.id}: ${register}. A runtime older than 0.1.4 doesn't keep a default model: there, name a model on your agents (preferredModel).`,
+          fix: `${reRegisterSteps(p.id as string, register, kindgi)} A runtime older than 0.1.4 doesn't keep a default model: there, name a model on your agents (preferredModel).`,
         },
       ];
     }
     return [];
   });
+}
+
+/** A configuration problem `GET /v1/providers/{id}/check` reports. */
+interface ConfigIssue {
+  readonly path: string;
+  readonly message: string;
+}
+
+/**
+ * Each provider's configuration problems by its adapter's own static check
+ * (`GET /v1/providers/{id}/check`, T362): only the providers with any.
+ * `undefined` when the runtime has no such route (older than 0.1.5): the
+ * check is skipped. A provider the check can't read (gone meanwhile) is
+ * left out.
+ */
+async function configIssues(
+  client: ReturnType<CommandContext['clientFor']>,
+  ids: readonly string[],
+): Promise<ReadonlyMap<string, readonly ConfigIssue[]> | undefined> {
+  const out = new Map<string, readonly ConfigIssue[]>();
+  for (const id of ids) {
+    try {
+      const result = await client.providers.check(id);
+      if (result.issues.length > 0) out.set(id, result.issues);
+    } catch (err) {
+      const wire = extractKindgiError(err);
+      if (wire?.code === 'not-found' && wire.serverCode === 'route-not-found') return undefined;
+    }
+  }
+  return out;
+}
+
+/** The preset a provider id was registered from, if one has that id. */
+function presetFor(
+  id: string,
+  presets: Readonly<Record<string, ProviderPreset>>,
+): ProviderPreset | undefined {
+  return Object.values(presets).find((p) => p.metadata.id === id);
+}
+
+/** How to fix a registration: unregister it, then register it again with the setting fixed. */
+function reRegister(id: string, preset: ProviderPreset | undefined, kindgi: Kindgi): string {
+  const register =
+    preset !== undefined
+      ? kindgi('providers', 'register', `--preset=${preset.name}`, ...presetSettingFlags(preset))
+      : kindgi('providers', 'register', '--spec=@<file>');
+  return `${reRegisterSteps(id, register, kindgi)}${preset === undefined ? ' (its spec with the setting fixed)' : ''}`;
+}
+
+/** A provider's id is taken while it's registered: unregister it first. */
+function reRegisterSteps(id: string, register: string, kindgi: Kindgi): string {
+  return `Unregister ${id} (${kindgi('providers', 'unregister', id)}), then register it again: ${register}.`;
 }
 
 // ---------- helpers ----------
@@ -711,18 +1548,19 @@ type Kindgi = (...args: string[]) => string;
 
 /**
  * In a TypeScript project, its own CLI (`pnpm exec kindgi …`,
- * `npx --no kindgi …`); in a Python project or outside one, the
+ * `npx --no -- kindgi …`); in a Python project or outside one, the
  * published CLI of this version through npx.
  */
 async function kindgiCommand(
   dir: string,
-  language: 'node' | 'python' | undefined,
+  language: ProjectLanguage | undefined,
   pypi: boolean,
   tool: NonNullable<DoctorSeam['tool']>,
 ): Promise<Kindgi> {
   if (pypi) {
-    // The PyPI build runs from the project's own environment; outside one, uvx.
-    if (language === undefined) {
+    // The PyPI build runs from the project's own environment; outside one (or in a
+    // Java or Scala project, which has none), uvx.
+    if (language === undefined || language === 'java' || language === 'scala') {
       return (...args) => ['uvx', '--from', 'kindgi-cli', 'kindgi', ...args].join(' ');
     }
     const runner = await pythonBinRunner(dir, { KINDGI_CLI_INSTALL: 'pypi' });
@@ -778,22 +1616,6 @@ function runTool(command: string, args: readonly string[]): Promise<ToolOutcome>
       done({ code: code ?? 1, stdout, stderr });
     });
   });
-}
-
-/** `a` ≥ `b`, comparing `major.minor.patch`. */
-export function atLeast(a: string, b: string): boolean {
-  const parse = (v: string) =>
-    v
-      .replace(/^v/, '')
-      .split(/[.-]/)
-      .slice(0, 3)
-      .map((n) => Number.parseInt(n, 10) || 0);
-  const [x, y] = [parse(a), parse(b)];
-  for (let i = 0; i < 3; i += 1) {
-    const d = (x[i] ?? 0) - (y[i] ?? 0);
-    if (d !== 0) return d > 0;
-  }
-  return true;
 }
 
 async function isDirectory(path: string): Promise<boolean> {

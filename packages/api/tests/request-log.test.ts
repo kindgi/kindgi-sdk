@@ -16,7 +16,7 @@ import { type LogLevel, createLogger } from '@kindgi/log';
 import type { RunBinding } from '@kindgi/runtime';
 import type { RunId, TenantId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { InvokeAgentBindingInput, RunHandlerBinding, TokenResolver } from '../src/index.js';
@@ -116,6 +116,16 @@ describe('the access line', () => {
     await h.send('GET', '/health');
     await h.send('GET', '/v1/runs');
     expect(h.records()).toEqual([]);
+  });
+
+  test("a 501 (something this runtime doesn't support) is info like a 4xx, not an error: nothing failed", async () => {
+    const h = harness();
+    const res = await h.send('GET', '/v1/identity/me/permissions');
+    expect(res.status).toBe(501);
+    expect(access(h.records()).map((r) => [r.method, r.route, r.status, r.level])).toEqual([
+      ['GET', '/v1/identity/me/permissions', 501, 'info'],
+    ]);
+    expect(h.records().filter((r) => r.level === 'error')).toEqual([]);
   });
 
   test('a 500 is an error line, and the error itself is logged, scrubbed', async () => {

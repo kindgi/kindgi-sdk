@@ -1,0 +1,9 @@
+target/
+.kindgi/
+.kindgirc.json
+.env
+.env.*
+!.env.example
+.idea/
+*.iml
+.vscode/

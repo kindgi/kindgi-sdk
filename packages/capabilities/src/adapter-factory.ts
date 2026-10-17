@@ -45,6 +45,93 @@ export interface AdapterFactoryEntry {
    * in-process).
    */
   readonly prepare?: (params?: Readonly<Record<string, unknown>>) => AsyncIterable<PrepareEvent>;
+  /**
+   * What's wrong with a provider registration for this adapter, read
+   * statically: its `adapter_config`, its metadata, and whether it names a
+   * secret. No network, no secret resolution (a registration's secret may
+   * be set after it registers), no client built. An empty list means the
+   * factory will take it.
+   *
+   * The runtime runs it when a provider registers (a problem refuses the
+   * registration, naming the field) and when someone checks a registered
+   * provider. It must agree with `factory`: build both from the same
+   * functions, so a registration the check passes is one the factory
+   * accepts, and each problem's message is the error the factory throws.
+   * Absent: the adapter has no check, and registration takes any flat
+   * `adapter_config`.
+   */
+  readonly checkConfig?: (input: AdapterConfigCheckInput) => readonly AdapterConfigProblem[];
+}
+
+/** What `AdapterFactoryEntry.checkConfig` reads: a registration, without its secret. */
+export interface AdapterConfigCheckInput {
+  readonly metadata: ProviderMetadata;
+  readonly config?: AdapterConfig;
+  /** Whether the registration names a secret (`secret_ref`). Its value is never read here. */
+  readonly hasSecretRef: boolean;
+  /**
+   * Which of its own cloud identities the runtime has (`AdapterFactoryInput.identities`), so a
+   * registration that signs in as one the runtime lacks is refused when it registers, not
+   * when it's first used. A registry made with `identities` fills it. Absent: not known, and
+   * the factory refuses instead.
+   */
+  readonly identities?: AdapterIdentitiesPresent;
+  /**
+   * Whether the registration may sign in as the server: with credentials its
+   * environment holds (Google's Application Default Credentials, for Gemini
+   * on Vertex AI) or as the runtime's own cloud identities (`identities`:
+   * Azure OpenAI `auth: entra`, Bedrock `auth: aws-identity`). `false` under
+   * `KINDGI_TENANT_HOST_ACCESS=isolated`: such a registration is refused,
+   * naming what it needs instead. Absent: allowed.
+   */
+  readonly serverCredentials?: boolean;
+}
+
+/**
+ * Which of `AdapterIdentities` a runtime has, as a check reads them: `true` for each it can
+ * sign in as, `false` for each it can't. A missing key means the runtime didn't say (an older
+ * one), so a check refuses only on `false`; optional, so a new kind of identity stays additive.
+ */
+export type AdapterIdentitiesPresent = { readonly [K in keyof AdapterIdentities]?: boolean };
+
+/** `identities`, as the check input names them: which are there. */
+export function identitiesPresent(
+  identities: AdapterIdentities | undefined,
+): AdapterIdentitiesPresent {
+  return { azure: identities?.azure !== undefined, aws: identities?.aws !== undefined };
+}
+
+/**
+ * One thing wrong with a registration (`AdapterFactoryEntry.checkConfig`),
+ * in the shape of the API's validation issues (`{ path, message }`).
+ */
+export interface AdapterConfigProblem {
+  /**
+   * The setting at fault, as a JSON pointer into the registration:
+   * `/adapter_config/<key>`, `/secret_ref`, `/metadata/region`,
+   * `/metadata/models/<i>/name`.
+   */
+  readonly path: string;
+  /**
+   * What's wrong with that setting and what it takes, without the adapter
+   * or provider (e.g. `adapter_config.api must be one of responses,
+   * chat-completions.`): the API lists it under its own sentence. The
+   * factory throws it as `adapterConfigError` words it.
+   */
+  readonly message: string;
+}
+
+/**
+ * The error an adapter's factory throws for a problem its `checkConfig`
+ * reports: `<adapterId>: provider "<providerId>": <message>`. Both read the
+ * registration through the same functions, so they say the same thing.
+ */
+export function adapterConfigError(
+  adapterId: string,
+  providerId: string,
+  problem: AdapterConfigProblem,
+): Error {
+  return new Error(`${adapterId}: provider "${providerId}": ${problem.message}`);
 }
 
 /**
@@ -100,7 +187,56 @@ export interface AdapterFactoryInput {
    * server's own host). Absent: the global `fetch`.
    */
   readonly fetch?: typeof fetch;
+  /**
+   * The runtime's own cloud identities, for a registration that signs in as
+   * the server rather than with a key (Azure OpenAI `auth: entra`; Bedrock
+   * `auth: aws-identity`). The runtime fills each from settings that name it
+   * explicitly (`KINDGI_AZURE_CLIENT_ID`, `KINDGI_AWS_IDENTITY`), never from
+   * whatever ambient credentials the environment holds. Absent: the runtime
+   * has none; an adapter that needs one refuses, naming the setting.
+   */
+  readonly identities?: AdapterIdentities;
+  /**
+   * Whether the registration may sign in as the server: with credentials its
+   * environment holds (Google's Application Default Credentials, for Gemini
+   * on Vertex AI) or as the runtime's own cloud identities (`identities`:
+   * Azure OpenAI `auth: entra`, Bedrock `auth: aws-identity`). `false` under
+   * `KINDGI_TENANT_HOST_ACCESS=isolated`: such a registration is refused,
+   * naming what it needs instead. Absent: allowed.
+   */
+  readonly serverCredentials?: boolean;
 }
+
+/** The runtime's cloud identities an adapter may sign in with (`AdapterFactoryInput.identities`). */
+export interface AdapterIdentities {
+  readonly azure?: AzureTokenClient;
+  readonly aws?: AwsCredentialClient;
+}
+
+/**
+ * An Entra (Azure AD) token source. An `@azure/identity` `TokenCredential`
+ * satisfies it; adapters depend on this shape, not on that library.
+ */
+export interface AzureTokenClient {
+  getToken(
+    scopes: string | string[],
+    options?: { readonly abortSignal?: AbortSignal },
+  ): Promise<{ readonly token: string } | null>;
+}
+
+/** Short-lived AWS credentials, as an AWS SDK credential provider resolves them. */
+export interface AwsCredentials {
+  readonly accessKeyId: string;
+  readonly secretAccessKey: string;
+  readonly sessionToken?: string;
+  readonly expiration?: Date;
+}
+
+/**
+ * An AWS credential provider that refreshes: call it for every request (it
+ * caches and renews itself), never keep what it returns.
+ */
+export type AwsCredentialClient = () => Promise<AwsCredentials>;
 
 /** An adapter's connection settings: flat, non-secret values. */
 export type AdapterConfig = Readonly<Record<string, string | number | boolean>>;
@@ -112,6 +248,25 @@ export interface AdapterFactoryRegistry {
   get(adapterId: string): AdapterFactoryEntry | undefined;
   has(adapterId: string): boolean;
   list(): readonly AdapterFactoryEntry[];
+}
+
+/** How a runtime makes its `AdapterFactoryRegistry`. */
+export interface AdapterFactoryRegistryOptions {
+  /**
+   * The runtime's own cloud identities. Each entry's factory gets them as
+   * `AdapterFactoryInput.identities` (unless its input names its own), and
+   * its `checkConfig` learns which are there (`AdapterConfigCheckInput.identities`),
+   * so the two agree: a registration needing one the runtime lacks is refused
+   * when it registers.
+   */
+  readonly identities?: AdapterIdentities;
+  /**
+   * `false`: no registration may sign in as the server
+   * (`AdapterFactoryInput.serverCredentials`). Each entry's factory and check
+   * are told; `identities` is withheld, so each check learns there are none;
+   * and an input can't turn either back on.
+   */
+  readonly serverCredentials?: false;
 }
 
 /**
@@ -126,8 +281,10 @@ export interface AdapterFactoryRegistry {
  */
 export function createAdapterFactoryRegistry(
   seed: readonly AdapterFactoryEntry[] = [],
+  options: AdapterFactoryRegistryOptions = {},
 ): AdapterFactoryRegistry {
   const entries = new Map<string, AdapterFactoryEntry>();
+  const { identities, serverCredentials } = options;
 
   function register(entry: AdapterFactoryEntry): void {
     if (entries.has(entry.adapterId)) {
@@ -135,7 +292,14 @@ export function createAdapterFactoryRegistry(
         `AdapterFactoryRegistry: "${entry.adapterId}" is already registered. Duplicate adapter registration at boot indicates a wiring bug.`,
       );
     }
-    entries.set(entry.adapterId, entry);
+    entries.set(
+      entry.adapterId,
+      serverCredentials === false
+        ? withoutServerCredentials(entry)
+        : identities === undefined
+          ? entry
+          : withIdentities(entry, identities),
+    );
   }
 
   for (const entry of seed) register(entry);
@@ -151,5 +315,35 @@ export function createAdapterFactoryRegistry(
     list(): readonly AdapterFactoryEntry[] {
       return [...entries.values()];
     },
+  };
+}
+
+/** An entry whose factory and check may not sign in as the server: told so, and given no identities. */
+function withoutServerCredentials(entry: AdapterFactoryEntry): AdapterFactoryEntry {
+  const none = identitiesPresent(undefined);
+  const { checkConfig } = entry;
+  return {
+    ...entry,
+    factory: ({ identities: _withheld, ...input }) =>
+      entry.factory({ ...input, serverCredentials: false }),
+    ...(checkConfig !== undefined && {
+      checkConfig: (input) => checkConfig({ ...input, identities: none, serverCredentials: false }),
+    }),
+  };
+}
+
+/** An entry whose factory and check know the runtime's identities. */
+function withIdentities(
+  entry: AdapterFactoryEntry,
+  identities: AdapterIdentities,
+): AdapterFactoryEntry {
+  const present = identitiesPresent(identities);
+  const { checkConfig } = entry;
+  return {
+    ...entry,
+    factory: (input) => entry.factory({ ...input, identities: input.identities ?? identities }),
+    ...(checkConfig !== undefined && {
+      checkConfig: (input) => checkConfig({ ...input, identities: input.identities ?? present }),
+    }),
   };
 }

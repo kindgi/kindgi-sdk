@@ -273,7 +273,7 @@ describe('the Containerfile with image extensions', () => {
     expect(generate).toBeGreaterThan(files);
     expect(prune).toBeGreaterThan(generate);
     expect(render({ manager: 'npm' }, false, image)).toContain(
-      'cd /app && npx --no prisma generate',
+      'cd /app && npx --no -- prisma generate',
     );
   });
 

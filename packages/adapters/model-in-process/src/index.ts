@@ -8,5 +8,11 @@ export {
 } from './provider.js';
 export type { InProcessProviderOptions, LocalModel, ModelSpec } from './provider.js';
 export { prepareInProcessModel } from './prepare.js';
+export {
+  IN_PROCESS_ADAPTER_ID,
+  inProcessAdapterEntry,
+  inProcessAdapterFactory,
+  inProcessCheckConfig,
+} from './entry.js';
 export type { PrepareInProcessParams } from './prepare.js';
 export type { ModelProvider, PrepareEvent } from '@kindgi/capabilities';

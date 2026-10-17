@@ -17,7 +17,15 @@
 import type { OrgId, ProjectId, Result, TeamId, TenantId, UserId } from '@kindgi/types';
 import type { ProjectMembershipUpdateRoleOutcome } from './project-binding.js';
 import type { TeamMembershipUpdateRoleOutcome } from './team-binding.js';
-import type { OrgSpec, ProjectRole, ProjectSpec, TeamRole, TeamSpec } from './types.js';
+import type { TeamProjectGrant } from './team-project-grant-binding.js';
+import type {
+  OrgSpec,
+  ProjectRole,
+  ProjectSpec,
+  TeamProjectRole,
+  TeamRole,
+  TeamSpec,
+} from './types.js';
 
 export interface CreateOrgParams {
   readonly tenantId: TenantId;
@@ -74,12 +82,40 @@ export type AddTeamMemberError =
       readonly code: 'team-not-found';
       readonly message: string;
     }
+  | {
+      /** A member already, with another role: kept, and nothing written. */
+      readonly code: 'membership-exists';
+      readonly message: string;
+      readonly role: TeamRole;
+    }
+  | {
+      /**
+       * A person a site signs in (`createdBy: site:<id>`): they hold only
+       * the grants their site's sign-in writes, never one given here.
+       */
+      readonly code: 'site-person-grants-managed';
+      readonly message: string;
+    }
   | { readonly code: 'add-failed'; readonly message: string; readonly cause?: unknown };
 
 export type AddProjectMemberError =
   | {
       /** No project with this id in the tenant. */
       readonly code: 'project-not-found';
+      readonly message: string;
+    }
+  | {
+      /** A member already, with another role: kept, and nothing written. */
+      readonly code: 'membership-exists';
+      readonly message: string;
+      readonly role: ProjectRole;
+    }
+  | {
+      /**
+       * A person a site signs in (`createdBy: site:<id>`): they hold only
+       * the grants their site's sign-in writes, never one given here.
+       */
+      readonly code: 'site-person-grants-managed';
       readonly message: string;
     }
   | { readonly code: 'add-failed'; readonly message: string; readonly cause?: unknown };
@@ -106,9 +142,51 @@ export interface UpdateProjectMemberRoleParams extends RemoveProjectMemberParams
   readonly role: ProjectRole;
 }
 
+/** A team's role on a project, given or changed. */
+export interface TeamProjectGrantParams {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly teamId: TeamId;
+  readonly role: TeamProjectRole;
+}
+
+/** Which team's grant on a project to remove. */
+export interface RemoveTeamProjectGrantParams {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly teamId: TeamId;
+}
+
+export type AddTeamProjectGrantError =
+  | { readonly code: 'project-not-found'; readonly message: string }
+  | { readonly code: 'team-not-found'; readonly message: string }
+  | { readonly code: 'write-failed'; readonly message: string; readonly cause?: unknown };
+
+/** The grant added, or the one the team already held there (`created: false`: nothing written). */
+export interface AddTeamProjectGrantResult {
+  readonly created: boolean;
+  readonly grant: TeamProjectGrant;
+}
+
+export type TeamProjectGrantUpdateRoleOutcome =
+  | { readonly kind: 'ok'; readonly grant: TeamProjectGrant }
+  | { readonly kind: 'project-not-found' }
+  | { readonly kind: 'team-grant-not-found' };
+
+/** Which team to delete. */
+export interface DeleteTeamParams {
+  readonly tenantId: TenantId;
+  readonly teamId: TeamId;
+}
+
 /** A membership change that couldn't be written (the row and its tuple both left as they were). */
 export interface MembershipWriteError {
-  readonly code: 'write-failed';
+  /**
+   * `write-failed`: the row and its tuple couldn't be changed together.
+   * `site-person-grants-managed`: the person is one a site signs in, who
+   * holds only the grants their site's sign-in writes.
+   */
+  readonly code: 'write-failed' | 'site-person-grants-managed';
   readonly message: string;
   readonly cause?: unknown;
 }
@@ -125,6 +203,47 @@ export interface TenantSummary {
   readonly slug: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /**
+   * Whether the tenant may put projects in production. Absent means
+   * allowed: a runtime that doesn't gate production leaves it out. The
+   * production route checks it only when its gate is on.
+   */
+  readonly productionAllowed?: boolean;
+  /** The tenant's limits that are set. Absent when none is. */
+  readonly limits?: TenantLimits;
+  /**
+   * Where the tenant stands, on a runtime serving many tenants: `closing`
+   * (readable and exportable for its window, nothing runs) or `suspended`
+   * (the same, reversibly). `closing` wins. Absent: active.
+   */
+  readonly state?: 'active' | 'suspended' | 'closing';
+}
+
+/**
+ * A tenant's limits, each absent while it isn't set (and then not
+ * enforced). Set per tenant by the system API; a self-hosted runtime
+ * sets none unless its operator does.
+ */
+export interface TenantLimits {
+  /** API requests a minute, as a token bucket. Past it: 429 `rate-limit-exceeded`. */
+  readonly apiRequestsPerMinute?: number;
+  /** Webhook deliveries received a minute, across the tenant's triggers. Past it: 429. */
+  readonly webhookReceivesPerMinute?: number;
+  /** Runs executing at once. Past it, a new run waits as `pending`. */
+  readonly runsAtOnce?: number;
+  /** Runs waiting as `pending`. Past it, a new run is refused with 429. */
+  readonly runsPending?: number;
+  /** Tool calls in flight to the tenant's pack services. Past it, a call waits for a slot. */
+  readonly toolCallsInFlight?: number;
+  /** Approvals waiting for a decision. Past it, the step that asks fails, naming the limit. */
+  readonly approvalsPending?: number;
+  /**
+   * Projects in production at once. Past it, putting another project in
+   * production is refused with 403 `production-limit-reached`. Lowering it
+   * takes no project out of production: with more in production than the
+   * limit, the next one waits until enough come out.
+   */
+  readonly projectsInProduction?: number;
 }
 
 /**
@@ -164,6 +283,34 @@ export interface TenantHierarchyBinding {
   updateProjectMemberRole?(
     params: UpdateProjectMemberRoleParams,
   ): Promise<Result<ProjectMembershipUpdateRoleOutcome, MembershipWriteError>>;
+  /**
+   * Give a team a role on a project: the grant's row and its tuple
+   * together. A team that already holds a role there keeps it, and nothing
+   * is written (`created: false`, with the grant it holds). With an
+   * authorizer, the team-grant routes need this, `updateTeamProjectGrantRole`
+   * and `removeTeamProjectGrant`; without them they refuse the change.
+   */
+  addTeamProjectGrant?(
+    params: TeamProjectGrantParams,
+  ): Promise<Result<AddTeamProjectGrantResult, AddTeamProjectGrantError>>;
+  /** Change a team's role on a project, row and tuples together. */
+  updateTeamProjectGrantRole?(
+    params: TeamProjectGrantParams,
+  ): Promise<Result<TeamProjectGrantUpdateRoleOutcome, MembershipWriteError>>;
+  /** Remove a team's role on a project and its tuples together. No-op when it has none. */
+  removeTeamProjectGrant?(
+    params: RemoveTeamProjectGrantParams,
+  ): Promise<Result<void, MembershipWriteError>>;
+  /**
+   * Delete a team with every tuple it holds or gives (its parent, its
+   * members' roles, its project grants), in one transaction, so nobody
+   * keeps access through a team that's gone. With an authorizer, the team
+   * delete route needs it, and refuses without it. `deleted: false` when
+   * there was no such team.
+   */
+  deleteTeam?(
+    params: DeleteTeamParams,
+  ): Promise<Result<{ readonly deleted: boolean }, MembershipWriteError>>;
   /**
    * Look up a tenant by id. Returns `null` when no tenant exists.
    * Not itself tenant-scoped: it is how a caller finds out which

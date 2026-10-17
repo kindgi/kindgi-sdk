@@ -14,7 +14,7 @@ description: >
   kindgi-python-authoring-agents; models by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.7"
+version: "0.1.8"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -61,6 +61,11 @@ uv run pytest
 uv run kindgi dev  # boots Kindgi locally and runs this pack, reloading on save
 ```
 
+One `kindgi dev` per pack. When one is already running (the person's
+terminal, say), `kindgi dev` exits with code 3 and prints where it is
+(its pid, the console and the API): use that one. Don't start another,
+and don't stop theirs.
+
 `kindgi dev` needs Postgres: it starts one in Docker unless
 `KINDGI_DATABASE_URL` points at yours. It runs the pack with
 `.venv/bin/python` (or `dev.python` in `[tool.kindgi]`, e.g.
@@ -92,8 +97,10 @@ The pack root is on `sys.path`, so tools import the app's own packages by
 name (`from acme.text import normalize`); inside `kindgi/`, import the pack's
 modules relatively. Don't add an `__init__.py` to `kindgi/` — the folder
 would then shadow the `kindgi` package. `kindgi dev` reads the app's `.env`
-/ `.env.local` — keys already there reach the tools as environment
-variables. A package a tool imports must be in the app's main dependencies,
+/ `.env.local` — values already there reach the tools as environment
+variables; a secret stored with `kindgi secrets set` doesn't (a tool reads
+it from `ctx.secrets`), and neither does a model provider's key, which no tool
+gets. A package a tool imports must be in the app's main dependencies,
 not a dev group: the deployed pack installs without dev dependencies (see
 `kindgi-python-authoring-tools`).
 
@@ -108,7 +115,8 @@ my-pack/
 ├── flows/echo_flow.py                 # Flow(...)
 ├── tests/test_tools.py                # the tools and the check, called directly
 ├── README.md
-└── .claude/skills/                    # these skills (`kindgi skills sync` refreshes them)
+├── .claude/skills/                    # these skills (`kindgi skills sync` refreshes them)
+└── .agents/skills/                    # the same skills, where Codex and Gemini CLI look
 ```
 
 The `[tool.kindgi]` keys are the ones `kindgi.config.ts` takes —
@@ -189,7 +197,7 @@ from kindgi.client import Kindgi
 client = Kindgi()  # KINDGI_API_URL + KINDGI_API_TOKEN, or Kindgi(url, token=…)
 run = client.runs.start(agent="my-pack.echo-agent", input={"userMessage": "Ada"})
 print(run.status, run.output["response"]["content"])
-for event in client.runs.stream(str(run.id)):
+for event in client.runs.follow(run.id):  # to the run's end, reconnecting
     print(event.kind)
 ```
 
@@ -277,7 +285,8 @@ system-packages = ["tesseract-ocr", "poppler-utils"]   # names, or name=version
 
 The variables the code reads from `os.environ` (a database URL, a bucket)
 are declared too, names only. A deployed pack service missing a `required`
-one isn't ready, and its `/readyz` names it:
+one isn't ready, and its `/readyz` names it; one the pack doesn't declare is
+dropped before the code loads (`kindgi dev` keeps it):
 
 ```toml
 [tool.kindgi.env]
@@ -294,6 +303,51 @@ build before anything uploads, with the range to use.
   every primitive (`<pack-id>.<name>`); pick it once.
 - **Model credentials.** Ask for the key; never invent or hard-code one.
 
+## Commands for the person's own terminal
+
+Two commands are always the person's to run, in their own terminal, since
+they ask for a secret:
+
+- `kindgi secrets set`, which asks for the value without echoing it;
+- `kindgi auth registry`, which logs Docker in to the runtime image's registry.
+
+Others need what a coding agent's sandbox often blocks: `kindgi dev` and any dev
+server of the app (they keep running), and `kindgi build` or anything else that
+needs Docker. When your sandbox blocks a command (a process it can't start,
+`spawn EPERM`; Docker's socket denied; `localhost` refused; a folder it keeps
+read-only, as Codex's keeps `.agents/`, which `kindgi skills sync` writes),
+don't work around it: don't turn your sandbox off, and don't start the command
+in the background. Give the person the exact command, the folder to run it in
+and what they'll see, then wait for them. Once they say `kindgi dev` is running,
+starting it yourself exits 3 and says where theirs runs: use that one.
+
+A tool's own `EPERM` while it runs under `kindgi dev` is something else:
+Kindgi's dev sandbox (see the tools skill). Never turn that one off either.
+
+## Keys and tokens: hands off
+
+Never open, read, grep, `cat`, copy or print the files that hold keys and
+tokens, in any folder of the repository (not only the pack's), and never
+print their values (`env`, `printenv`, or code that echoes the process
+environment):
+
+- `.env`, `.env.local` and any other `.env.*`: the app's settings, and any key
+  put there by hand;
+- `.kindgi/secrets.env`: Kindgi's own secrets, where `kindgi secrets set` writes;
+- `.kindgi/dev/runtime.env`: the dev runtime's token and database URL;
+- a self-hosted deployment's `kindgi.env` or `pack.env`.
+
+A value you read lands in your context and in every later request to the
+model provider. To see which secrets exist, run
+`kindgi secrets list --env=local --scope=tenant` (names only). To store one,
+ask the person to run `kindgi secrets set NAME --env=local --scope=tenant`
+themselves: it prompts without echoing. Never put a value on a command line.
+`kindgi init` adds these files to the deny rules in `.claude/settings.json`
+(Claude Code); in a monorepo, also to the repository root's, under the pack's
+path. It adds them to `.cursorignore`, `.geminiignore` or `.aiderignore` too
+when the project has one. Nothing `kindgi init` writes binds Codex. Whichever
+agent you are, keep to the rule above yourself.
+
 ## Next
 
 - A tool → `kindgi-python-authoring-tools`.
@@ -306,9 +360,9 @@ build before anything uploads, with the range to use.
 
 ## Keeping skills up to date
 
-`kindgi skills sync` refreshes `.claude/skills/` from the CLI's copy
-(local edits are kept unless `--force`); `kindgi dev` says when they are
-out of date.
+`kindgi skills sync` refreshes `.claude/skills/` and `.agents/skills/` from
+the CLI's copy (local edits are kept unless `--force`); `kindgi dev` says
+when they are out of date.
 
 ## When the framework itself is the problem
 

@@ -16,6 +16,8 @@
  *                   to the module root (`kindgi build` writes
  *                   `dist/bundle-map.json`): modules load from the bundles
  *   - token:        `KINDGI_PACK_SERVICE_TOKEN` (required)
+ *   - tenant pin:   `KINDGI_PACK_TENANT_ID` (optional): the one tenant it
+ *                   serves; a call for another is refused with 421
  *   - concurrency:  `KINDGI_PACK_SERVICE_MAX_CONCURRENCY` (default 32)
  *   - env check:    `KINDGI_PACK_ENV_CHECK`, `strict` (default) | `warn`:
  *                   whether a required env name the index declares and the
@@ -30,20 +32,39 @@
  * broken build never becomes ready. SIGTERM drains in-flight calls
  * (readyz answers 503 meanwhile) and exits 0.
  *
- * Logs are JSON lines on stderr. The `listening` line carries the bound
- * port, for callers that start it with `PORT=0`.
+ * Logs are `@kindgi/log` records on stderr (subsystem `pack`), at
+ * `KINDGI_LOG_LEVEL` / `KINDGI_LOG_LEVELS`, in `KINDGI_LOG_FORMAT` (`auto`:
+ * JSON unless stderr is a terminal): a record per call, and the
+ * lifecycle (`listening`, `boot-failed`, `draining`, …) whatever the
+ * levels (`./records.ts`). The `listening` record carries the bound port,
+ * for callers that start it with `PORT=0`.
  */
 
+import { createHash } from 'node:crypto';
 import { access, readFile } from 'node:fs/promises';
 import { type Server, createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { dirname, isAbsolute, resolve } from 'node:path';
-import { PACK_SERVICE_TOKEN_VAR, parsePackServiceToken } from '@kindgi/env-schema';
+import {
+  PACK_SERVICE_TOKEN_VAR,
+  PACK_TENANT_ID_VAR,
+  parsePackServiceToken,
+  parsePackTenantId,
+} from '@kindgi/env-schema';
 
 import { isProcessEntrypoint } from '../entrypoint.js';
 import type { Index } from '../kindgi-index.js';
 import { INDEX_ENVELOPE_VERSION, readBundleMap } from '../kindgi-index.js';
-import { PACK_ENV_CHECK_VAR, type PackEnvCheck, parsePackEnvCheck } from '../pack-env.js';
+import {
+  PACK_ENV_CHECK_VAR,
+  PACK_ENV_FILTER_VAR,
+  type PackEnvCheck,
+  type PackEnvFilter,
+  parsePackEnvCheck,
+  parsePackEnvFilter,
+  undeclaredPackEnv,
+} from '../pack-env.js';
+import { type PackServiceLogs, defaultPackServiceLogs, packServiceLogs } from './records.js';
 import { type PackService, type PackServiceLogEvent, createPackService } from './service.js';
 
 export interface PackServiceConfig {
@@ -58,6 +79,16 @@ export interface PackServiceConfig {
   readonly maxConcurrency?: number;
   /** Default `strict`. */
   readonly envCheck?: PackEnvCheck;
+  /**
+   * `on`: before the pack's code loads, drop from this process's environment
+   * every name the pack doesn't declare (but `KINDGI_*` and the platform's,
+   * `undeclaredPackEnv`). The process entry sets it from
+   * `KINDGI_PACK_ENV_FILTER` (default `on`); absent, nothing is dropped, so
+   * an in-process caller's environment is left alone.
+   */
+  readonly envFilter?: PackEnvFilter;
+  /** The one tenant this service serves (`KINDGI_PACK_TENANT_ID`). Absent: no pin. */
+  readonly tenantId?: string;
 }
 
 type ConfigOutcome =
@@ -99,7 +130,20 @@ export function readPackServiceConfig(
   }
   const envCheck = parsePackEnvCheck(env[PACK_ENV_CHECK_VAR]);
   if (envCheck.kind === 'err') problems.push(envCheck.message);
-  if (problems.length > 0 || envCheck.kind === 'err' || token === undefined) {
+  const envFilter = parsePackEnvFilter(env[PACK_ENV_FILTER_VAR]);
+  if (envFilter.kind === 'err') problems.push(envFilter.message);
+  let tenantId: string | undefined;
+  try {
+    tenantId = parsePackTenantId(env[PACK_TENANT_ID_VAR]);
+  } catch (err) {
+    problems.push((err as Error).message);
+  }
+  if (
+    problems.length > 0 ||
+    envCheck.kind === 'err' ||
+    envFilter.kind === 'err' ||
+    token === undefined
+  ) {
     return { kind: 'err', problems };
   }
   return {
@@ -113,6 +157,8 @@ export function readPackServiceConfig(
       ...(host && { host }),
       ...(maxConcurrency !== undefined && { maxConcurrency }),
       envCheck: envCheck.value,
+      envFilter: envFilter.value,
+      ...(tenantId !== undefined && { tenantId }),
     },
   };
 }
@@ -132,14 +178,27 @@ type StartOutcome =
   | { readonly kind: 'ok'; readonly value: RunningPackService }
   | { readonly kind: 'err'; readonly problems: readonly string[] };
 
-/** Load the index, check and prewarm every module, then listen. */
+/**
+ * Load the index, check and prewarm every module, then listen. `logs`:
+ * where its records go (default: stderr, at the default levels). A
+ * function instead gets the service's events as before records, and no
+ * records are written.
+ */
 export async function startPackService(
   config: PackServiceConfig,
-  logger: (event: PackServiceLogEvent | Record<string, unknown>) => void = logJson,
+  logs:
+    | PackServiceLogs
+    | ((event: PackServiceLogEvent | Record<string, unknown>) => void) = defaultPackServiceLogs(),
 ): Promise<StartOutcome> {
+  const legacy = typeof logs === 'function' ? logs : undefined;
+  const records = typeof logs === 'function' ? undefined : logs;
   let index: Index;
+  let indexHash: string;
   try {
-    index = JSON.parse(await readFile(config.indexPath, 'utf8')) as Index;
+    const bytes = await readFile(config.indexPath);
+    // The hash a deployment signs (`indexHash`): of the file's bytes, as built.
+    indexHash = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+    index = JSON.parse(bytes.toString('utf8')) as Index;
   } catch (cause) {
     return { kind: 'err', problems: [`Cannot read the pack index: ${describe(cause)}`] };
   }
@@ -171,13 +230,20 @@ export async function startPackService(
   }
   if (missing.length > 0) return { kind: 'err', problems: missing };
 
+  dropUndeclaredEnv(config.envFilter, index, logs);
+
   const service = createPackService({
     index,
     resolveModule,
     token: config.token,
+    indexHash,
+    ...(config.tenantId !== undefined && { tenantId: config.tenantId }),
     ...(config.maxConcurrency !== undefined && { maxConcurrency: config.maxConcurrency }),
     ...(config.envCheck !== undefined && { envCheck: config.envCheck }),
-    logger,
+    ...(legacy !== undefined && { logger: legacy }),
+    ...(records !== undefined && {
+      log: records.log.child({ packId: index.packId, artifactVersion: index.artifactVersion }),
+    }),
   });
   const failures = await service.prewarm();
   if (failures.length > 0) return { kind: 'err', problems: failures.map((f) => f.message) };
@@ -189,12 +255,9 @@ export async function startPackService(
       : server.listen(config.port, config.host, ready),
   );
   const port = (server.address() as AddressInfo).port;
-  logger({
-    kind: 'listening',
-    port,
-    packId: index.packId,
-    artifactVersion: index.artifactVersion,
-  });
+  const listening = { port, packId: index.packId, artifactVersion: index.artifactVersion };
+  legacy?.({ kind: 'listening', ...listening });
+  records?.event('listening', `Listening on port ${port}`, listening);
   return {
     kind: 'ok',
     value: {
@@ -219,32 +282,65 @@ export async function main(
   argv: readonly string[] = process.argv.slice(2),
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<number> {
+  const built = packServiceLogs({ env, isTTY: process.stderr.isTTY === true });
+  if (built.kind === 'err') {
+    defaultPackServiceLogs().event('config-invalid', built.message, { problems: [built.message] });
+    return 1;
+  }
+  const logs = built.logs;
+  for (const problem of built.problems) logs.log.warn(problem);
   const config = readPackServiceConfig(argv, env);
   if (config.kind === 'err') {
-    logJson({ kind: 'config-invalid', problems: config.problems });
+    logs.event('config-invalid', 'The pack service configuration is invalid', {
+      problems: config.problems,
+    });
     return 1;
   }
   // The token is for the service's callers. The pack's code, loaded
   // next, runs in this process and has no use for it — and a dependency
   // that read it could call the pack's tools around the runtime.
   Reflect.deleteProperty(process.env, 'KINDGI_PACK_SERVICE_TOKEN');
-  const started = await startPackService(config.value);
+  const started = await startPackService(config.value, logs);
   if (started.kind === 'err') {
-    logJson({ kind: 'boot-failed', problems: started.problems });
+    logs.event('boot-failed', 'The pack service failed to boot', { problems: started.problems });
     return 1;
   }
   await new Promise<void>((stopped) => {
     process.once('SIGTERM', () => {
-      logJson({ kind: 'draining' });
+      logs.event('draining', 'Draining: finishing the calls in flight');
       void started.value.stop().then(stopped);
     });
   });
-  logJson({ kind: 'stopped' });
+  logs.event('stopped', 'Stopped');
   return 0;
 }
 
-function logJson(event: PackServiceLogEvent | Record<string, unknown>): void {
-  process.stderr.write(`${JSON.stringify(event)}\n`);
+/**
+ * Before the pack's code loads: keep only the names it declares (and
+ * Kindgi's and the platform's). A variable meant for something else, a
+ * model key in a self-hosted `--env-file`, never reaches a tool. Removing
+ * it from `process.env` unsets it, so a process a tool starts doesn't
+ * inherit it either. Says which it dropped, never a value. Only when the
+ * filter is `on`: an in-process caller that sets none keeps its environment.
+ */
+function dropUndeclaredEnv(
+  filter: PackEnvFilter | undefined,
+  index: Index,
+  logs: PackServiceLogs | ((event: Record<string, unknown>) => void),
+): void {
+  if (filter !== 'on') return;
+  const dropped = undeclaredPackEnv(index.env, process.env);
+  for (const name of dropped) Reflect.deleteProperty(process.env, name);
+  if (dropped.length === 0) return;
+  if (typeof logs === 'function') {
+    logs({ kind: 'env-dropped', names: dropped });
+    return;
+  }
+  const count = dropped.length === 1 ? 'a variable' : `${dropped.length} variables`;
+  logs.log.warn(
+    `Dropped ${count} the pack doesn't declare: ${dropped.join(', ')} (declare them in the pack's env, or set ${PACK_ENV_FILTER_VAR}=off)`,
+    { event: 'env-dropped', kind: 'env-dropped', names: dropped },
+  );
 }
 
 function describe(cause: unknown): string {

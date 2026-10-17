@@ -1,0 +1,27 @@
+package {{JAVA_PACKAGE}}.agents;
+
+import {{JAVA_PACKAGE}}.guardrails.ResponseNotEmpty;
+import {{JAVA_PACKAGE}}.tools.Echo;
+import {{JAVA_PACKAGE}}.tools.Greet;
+import com.kindgi.pack.Agent;
+import java.util.List;
+import java.util.Map;
+
+/** {{PACK_ID}}.echo-agent — uses both tools; the response-not-empty guardrail guards its answer. */
+public final class EchoAgent {
+  public static final Agent AGENT = Agent.define("{{PACK_ID}}.echo-agent")
+      .version("{{PACK_VERSION}}")
+      .name("Echo Agent")
+      .description("Uses the pack's echo and greet tools; the response-not-empty guardrail guards the output.")
+      .instructions("For each user message: if the user sends a name, greet them with the greet tool. "
+          + "Otherwise echo their message with the echo tool. Quote the tool result verbatim.")
+      .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
+      .tool(Echo.TOOL)
+      .tool(Greet.TOOL)
+      .guardrail(ResponseNotEmpty.GUARDRAIL)
+      .set("conversationPolicy", Map.of("historyLimit", 10))
+      .set("budget", Map.of("maxSteps", 4, "maxCostUsd", 0.1, "maxWallMs", 60_000))
+      .build();
+
+  private EchoAgent() {}
+}

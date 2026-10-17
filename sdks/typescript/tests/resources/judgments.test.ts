@@ -67,7 +67,9 @@ describe('judgments.create', () => {
     const stub = errorFetch(409, { code: 'run-not-finished', message: 'Run has no output yet.' });
     await expect(
       clientFor(stub).judgments.create({ runId: 'run-1', item: { key: 'c1' }, verdict: 'yes' }),
-    ).rejects.toMatchObject({ error: { code: 'server', serverCode: 'run-not-finished' } });
+    ).rejects.toMatchObject({
+      error: { code: 'conflict', reason: 'run-not-finished', serverCode: 'run-not-finished' },
+    });
   });
 });
 

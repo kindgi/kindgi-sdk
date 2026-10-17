@@ -9,14 +9,19 @@ import {
   type ThinkingLevel,
 } from '@google/genai';
 import type {
+  AdapterConfigCheckInput,
+  AdapterConfigProblem,
   AdapterFactory,
+  AdapterFactoryEntry,
+  AdapterFactoryInput,
   ModelCallInput,
   ModelCallResult,
   ModelProvider,
   ProviderMetadata,
 } from '@kindgi/capabilities';
-import { samplingFor } from '@kindgi/capabilities';
+import { adapterConfigError, samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
+import { headerValueProblem } from '@kindgi/types';
 
 import { type GeminiModelInfo, computeCostUsd, toFrameworkUsage } from './cost.js';
 import { fromGeminiResponse, toGeminiFunctions, toGeminiRequest } from './translate.js';
@@ -65,6 +70,41 @@ export interface GeminiProviderOptions {
 const CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 
 /**
+ * The Gemini Developer API host. Given explicitly in `httpOptions.baseUrl` so
+ * the adapter takes its host from configuration, not from `GOOGLE_GEMINI_BASE_URL`
+ * in the server's environment: left unset, `@google/genai` reads that variable
+ * (its `getBaseUrl`).
+ */
+const GEMINI_DEVELOPER_BASE_URL = 'https://generativelanguage.googleapis.com/';
+
+/** The SDK's multi-regional Vertex locations: each has its own host. */
+const VERTEX_MULTI_REGIONAL = new Set(['us', 'eu']);
+
+/**
+ * The Vertex AI host for a location, given explicitly in `httpOptions.baseUrl`
+ * so the adapter takes its host from configuration, not from `GOOGLE_VERTEX_BASE_URL`
+ * in the server's environment (left unset, `@google/genai` reads that variable).
+ * Mirrors the SDK's own construction: `global` and the multi-regional locations
+ * each get a dedicated host, every other location a regional one.
+ */
+export function vertexBaseUrl(location: string): string {
+  if (location === 'global') return 'https://aiplatform.googleapis.com/';
+  if (VERTEX_MULTI_REGIONAL.has(location)) {
+    return `https://aiplatform.${location}.rep.googleapis.com/`;
+  }
+  return `https://${location}-aiplatform.googleapis.com/`;
+}
+
+/**
+ * The SDK retries a call only when it's given `retryOptions`: three
+ * attempts on a transient status (408, 429, 500, 502, 503, 504), backing
+ * off from a second, with jitter, the OpenAI and Anthropic SDKs' default
+ * count. Unlike theirs, it doesn't retry a failed connection (Node's
+ * `fetch failed`).
+ */
+const RETRY_ATTEMPTS = 3;
+
+/**
  * A Gemini `ModelProvider`, on Vertex AI (`vertex`) or the Gemini
  * Developer API (`apiKey`). Non-streaming, tool-use enabled: one
  * `generateContent` call per `invoke`.
@@ -90,8 +130,27 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
           `${GEMINI_ADAPTER_ID}: provider "${metadata.id}"'s Gemini API key is empty.`,
         );
       }
+      // Checked before the SDK sends it: fetch's own error for a key it can't
+      // send (a line break inside) quotes the key, into the call's failure.
+      const problem = headerValueProblem(key);
+      if (problem !== undefined) {
+        throw new Error(
+          `${GEMINI_ADAPTER_ID}: provider "${metadata.id}": its API key has ${problem}, which a header can't carry: store the secret without it`,
+        );
+      }
       if (cached?.key === key) return cached.client;
-      const client = new GoogleGenAI({ apiKey: key, httpOptions: { fetch: attempts.fetch } });
+      const client = new GoogleGenAI({
+        apiKey: key,
+        // Given, so GOOGLE_GENAI_USE_VERTEXAI / _ENTERPRISE in the server's environment can't
+        // move a Developer API provider to Vertex AI (the server's project and credentials).
+        vertexai: false,
+        httpOptions: {
+          // Given, so GOOGLE_GEMINI_BASE_URL in the server's environment can't move the call.
+          baseUrl: GEMINI_DEVELOPER_BASE_URL,
+          fetch: attempts.fetch,
+          retryOptions: { attempts: RETRY_ATTEMPTS },
+        },
+      });
       cached = { key, client };
       return client;
     }
@@ -102,7 +161,12 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
       vertexai: true,
       project: vertex.project,
       location: vertex.location,
-      httpOptions: { fetch: attempts.fetch },
+      httpOptions: {
+        // Given, so GOOGLE_VERTEX_BASE_URL in the server's environment can't move the call.
+        baseUrl: vertexBaseUrl(vertex.location),
+        fetch: attempts.fetch,
+        retryOptions: { attempts: RETRY_ATTEMPTS },
+      },
       ...(key !== '' && {
         googleAuthOptions: {
           credentials: parseServiceAccountKey(key),
@@ -146,6 +210,11 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
           }),
         ...(maxOutputTokens !== undefined && { maxOutputTokens }),
         ...(input.abortSignal !== undefined && { abortSignal: input.abortSignal }),
+        // A header on this request only, when the caller sets it (the
+        // provider's registration opted in); merged into the client's.
+        ...(input.traceparent !== undefined && {
+          httpOptions: { headers: { traceparent: input.traceparent } },
+        }),
       };
 
       const client = await resolveClient();
@@ -231,26 +300,25 @@ export function parseServiceAccountKey(key: string): Record<string, string> {
  *   - `metadata.region` — the Vertex location (`global`, `us-central1`,
  *     `northamerica-northeast1`, …); `'unspecified'` means `global`;
  *   - `secret_ref` (optional) — a service-account key. Without one the
- *     adapter uses Application Default Credentials.
+ *     adapter uses Application Default Credentials, the server's own,
+ *     unless the deployment refuses those to tenant configuration
+ *     (`serverCredentials: false`, `KINDGI_TENANT_HOST_ACCESS=isolated`):
+ *     then it's required.
  *
  * On the Gemini Developer API (`api: "developer"`):
  *   - `secret_ref` (required) — a Gemini API key from Google AI Studio.
  */
 export const geminiAdapterFactory: AdapterFactory = (input) => {
   const metadata = input.metadata as GeminiProviderOptions['metadata'];
-  const api = input.config?.api ?? 'vertex';
-  if (api === 'developer') {
-    if (input.resolveApiKey === undefined) {
-      throw new Error(
-        `${GEMINI_ADAPTER_ID}: provider "${input.metadata.id}" uses the Gemini Developer API (adapter_config.api "developer") and needs secret_ref: its Gemini API key.`,
-      );
-    }
-    return createGeminiProvider({ metadata, apiKey: input.resolveApiKey });
-  }
-  if (api !== 'vertex') {
-    throw new Error(
-      `${GEMINI_ADAPTER_ID}: provider "${input.metadata.id}" adapter_config.api must be "vertex" or "developer", got ${JSON.stringify(api)}.`,
-    );
+  const hasSecretRef = input.resolveApiKey !== undefined;
+  throwIf(
+    input.metadata.id,
+    apiProblem(input) ??
+      developerKeyProblem(input, hasSecretRef) ??
+      serverCredentialsProblem(input, hasSecretRef),
+  );
+  if (apiOf(input) === 'developer') {
+    return createGeminiProvider({ metadata, apiKey: input.resolveApiKey as () => Promise<string> });
   }
   return createGeminiProvider({
     metadata,
@@ -259,22 +327,105 @@ export const geminiAdapterFactory: AdapterFactory = (input) => {
   });
 };
 
+/**
+ * What's wrong with a registration for this adapter, read without building
+ * it (`AdapterFactoryEntry.checkConfig`): its API, its Gemini API key on
+ * the Developer API, its Vertex project and location. Each problem's
+ * message is the error the factory throws for it: both read the
+ * registration through the same functions.
+ */
+export function geminiCheckConfig(input: AdapterConfigCheckInput): readonly AdapterConfigProblem[] {
+  const api = apiProblem(input);
+  if (api !== undefined) return [api];
+  if (apiOf(input) === 'developer') {
+    const key = developerKeyProblem(input, input.hasSecretRef);
+    return key !== undefined ? [key] : [];
+  }
+  const server = serverCredentialsProblem(input, input.hasSecretRef);
+  return [...vertexTargetProblems(input), ...(server !== undefined ? [server] : [])];
+}
+
+/** The entry a runtime registers: the factory, and its static check. */
+export const geminiAdapterEntry: AdapterFactoryEntry = {
+  adapterId: GEMINI_ADAPTER_ID,
+  capabilityKind: 'llm-inference',
+  factory: geminiAdapterFactory,
+  checkConfig: geminiCheckConfig,
+};
+
+/** What the checks read of a registration. */
+type Registration = Pick<AdapterFactoryInput, 'metadata' | 'config' | 'serverCredentials'>;
+
+function throwIf(providerId: string, problem: AdapterConfigProblem | undefined): void {
+  if (problem !== undefined) throw adapterConfigError(GEMINI_ADAPTER_ID, providerId, problem);
+}
+
+function apiOf(input: Registration): unknown {
+  return input.config?.api ?? 'vertex';
+}
+
+function apiProblem(input: Registration): AdapterConfigProblem | undefined {
+  const api = apiOf(input);
+  if (api === 'vertex' || api === 'developer') return undefined;
+  return {
+    path: '/adapter_config/api',
+    message: `adapter_config.api must be "vertex" or "developer", got ${JSON.stringify(api)}.`,
+  };
+}
+
+function developerKeyProblem(
+  input: Registration,
+  hasSecretRef: boolean,
+): AdapterConfigProblem | undefined {
+  if (apiOf(input) !== 'developer' || hasSecretRef) return undefined;
+  return {
+    path: '/secret_ref',
+    message:
+      'uses the Gemini Developer API (adapter_config.api "developer") and needs secret_ref: its Gemini API key.',
+  };
+}
+
+/** Vertex AI with no key signs in as the server: refused where the deployment says so. */
+function serverCredentialsProblem(
+  input: Registration,
+  hasSecretRef: boolean,
+): AdapterConfigProblem | undefined {
+  if (apiOf(input) !== 'vertex' || hasSecretRef || input.serverCredentials !== false) {
+    return undefined;
+  }
+  return {
+    path: '/secret_ref',
+    message:
+      "uses Vertex AI without secret_ref, which signs in with the server's own Google credentials (Application Default Credentials); this deployment doesn't let tenant configuration use them (KINDGI_TENANT_HOST_ACCESS). Name a service-account key in secret_ref.",
+  };
+}
+
 /** The Vertex project and location a registration names (see `geminiAdapterFactory`). */
 export function vertexTarget(
   input: Parameters<AdapterFactory>[0],
 ): NonNullable<GeminiProviderOptions['vertex']> {
+  throwIf(input.metadata.id, vertexTargetProblems(input)[0]);
+  return {
+    project: input.config?.project as string,
+    location: locationOf(input),
+  };
+}
+
+function locationOf(input: Registration): string {
+  return input.metadata.region === 'unspecified' ? 'global' : input.metadata.region;
+}
+
+function vertexTargetProblems(input: Registration): AdapterConfigProblem[] {
   const project = input.config?.project;
   if (typeof project !== 'string' || project.length === 0) {
-    throw new Error(
-      `${GEMINI_ADAPTER_ID}: provider "${input.metadata.id}" needs adapter_config.project (the Vertex AI project).`,
-    );
+    return [
+      {
+        path: '/adapter_config/project',
+        message: 'needs adapter_config.project (the Vertex AI project).',
+      },
+    ];
   }
-  const target = {
-    project,
-    location: input.metadata.region === 'unspecified' ? 'global' : input.metadata.region,
-  };
-  checkVertexTarget(input.metadata.id, target);
-  return target;
+  return vertexTargetProblemsOf({ project, location: locationOf(input) });
 }
 
 /** A provider names exactly one target: Vertex AI, or a Gemini API key. */
@@ -284,29 +435,32 @@ function checkTarget(providerId: string, options: GeminiProviderOptions): void {
       `${GEMINI_ADAPTER_ID}: provider "${providerId}" needs exactly one of vertex (a Vertex AI project) or apiKey (a Gemini Developer API key).`,
     );
   }
-  if (options.vertex !== undefined) checkVertexTarget(providerId, options.vertex);
+  if (options.vertex !== undefined) throwIf(providerId, vertexTargetProblemsOf(options.vertex)[0]);
 }
 
 /**
- * The SDK puts the project in the request path and builds the hostname
- * from the location (`https://<location>-aiplatform.googleapis.com/`):
- * anything but a project id and one DNS label could move the request,
- * with the server's credentials, to another host.
+ * The project goes in the request path and the location into the host that
+ * `vertexBaseUrl` builds, so each is held to one safe shape before it reaches
+ * a request URL: the project a Google Cloud project id or number, the location
+ * a single DNS label.
  */
-function checkVertexTarget(
-  providerId: string,
+function vertexTargetProblemsOf(
   vertex: NonNullable<GeminiProviderOptions['vertex']>,
-): void {
+): AdapterConfigProblem[] {
+  const problems: AdapterConfigProblem[] = [];
   if (!VERTEX_PROJECT.test(vertex.project)) {
-    throw new Error(
-      `${GEMINI_ADAPTER_ID}: provider "${providerId}" adapter_config.project must be a Google Cloud project id or number.`,
-    );
+    problems.push({
+      path: '/adapter_config/project',
+      message: 'adapter_config.project must be a Google Cloud project id or number.',
+    });
   }
   if (!VERTEX_LOCATION.test(vertex.location)) {
-    throw new Error(
-      `${GEMINI_ADAPTER_ID}: provider "${providerId}" metadata.region must be a Vertex AI location (one DNS label, e.g. us-central1).`,
-    );
+    problems.push({
+      path: '/metadata/region',
+      message: 'metadata.region must be a Vertex AI location (one DNS label, e.g. us-central1).',
+    });
   }
+  return problems;
 }
 
 /** A Google Cloud project id (6–30: lowercase, digits, hyphens) or project number. */

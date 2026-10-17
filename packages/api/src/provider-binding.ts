@@ -131,6 +131,14 @@ export interface ProviderRegisterInput {
    * to the runtime, never returned by `list` / `get`.
    */
   readonly adapterConfig?: AdapterConfig;
+  /**
+   * Whether the runtime sends each model call's W3C `traceparent` to this
+   * provider (as a header; ids only, never content), so the vendor's
+   * request logs can be matched to the run. Opt-in: absent or `false`
+   * sends none. The runtime enforces it, not the adapter: it sets
+   * `ModelCallInput.traceparent` only for a provider that opted in.
+   */
+  readonly sendTraceparent?: boolean;
 }
 
 export interface ProviderSecretRef {
@@ -152,6 +160,8 @@ export interface ProviderRuntimeEntry {
   readonly adapterId: string;
   readonly secretRef?: ProviderSecretRef;
   readonly adapterConfig?: AdapterConfig;
+  /** `ProviderRegisterInput.sendTraceparent`: absent is `false`. */
+  readonly sendTraceparent?: boolean;
 }
 
 export interface ProviderResolveForRuntimeInput {

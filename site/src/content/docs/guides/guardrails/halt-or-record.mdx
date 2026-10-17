@@ -7,6 +7,19 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide chooses what a failed guardrail does to an agent's turn: stop
+it, or let it finish and record the failure.
+
+## Before you start
+
+- **The answer-length guardrail** from
+  [Write a guardrail](../write-a-guardrail/), in the pack `my-pack`, with
+  `kindgi dev` running and Kindgi 0.1's CLI.
+- **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell, to count a
+  guardrail's outcomes: your runtime's URL and its API token.
+
+## Choose the action
+
 A guardrail's action decides what a failed check does to the turn:
 
 - **`halt`** stops it. The turn fails with `guardrail-violation`, and the run
@@ -17,7 +30,7 @@ A guardrail's action decides what a failed check does to the turn:
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 // in guardrails/answer-length/index.ts
 action: { 'on-violation': 'log-only' },
 ```
@@ -25,7 +38,7 @@ action: { 'on-violation': 'log-only' },
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 # in guardrails/answer_length.py
 @guardrail(
     id="my-pack.answer-length",
@@ -37,25 +50,46 @@ action: { 'on-violation': 'log-only' },
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/mypack/guardrails/AnswerLength.java
+      .onViolation("log-only")
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/mypack/guardrails/AnswerLength.scala
+    .onViolation("log-only")
+```
+
+</TabItem>
 </Tabs>
 
 ## A halted turn
 
-With `halt`, the command fails with the check's reason:
+With `halt`, starting a run fails with the check's reason:
 
 ```sh
 kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
 ```
 
+`--agent` is the agent the guardrail is on, and `--input` its input.
+
 ```text
 Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.answer-length': The answer is 243 characters; the limit is 60.
 ```
 
-The run is `failed`, and its `failureMessage` carries the violation:
+The run is `failed`, and its `failureMessage` carries the violation. Get
+the run:
 
 ```sh
 kindgi runs get <run-id>
 ```
+
+`<run-id>` is the failed run's id. `kindgi runs list` shows it first.
 
 ```json
 {
@@ -67,6 +101,12 @@ kindgi runs get <run-id>
   "failureMessage": "{\"__agent_turn_failure__\":true,\"error\":{\"code\":\"guardrail-violation\",\"message\":\"Turn blocked by guardrail 'my-pack.answer-length': The answer is 243 characters; the limit is 60.\",\"violations\":[{\"guardrailId\":\"my-pack.answer-length\",\"result\":{\"passed\":false,\"reason\":\"The answer is 243 characters; the limit is 60.\"},\"action\":\"halt\",\"severity\":\"error\",\"at\":\"2026-10-03T20:10:37.910Z\"}],\"evaluationErrors\":[]}}"
 }
 ```
+
+In the console, the run's page keeps the answer the model wrote in view,
+muted, under **Blocked by a guardrail, not sent: the answer the model
+wrote**, with the guardrail under **Which guardrail**. A turn that failed
+for another reason after its answer says **Not sent: the turn failed after
+the model wrote this answer**.
 
 Use `halt` for a rule whose failure makes the answer unusable or unsafe to
 show.
@@ -110,6 +150,32 @@ The guardrail schema also accepts `retry`, `escalate` and `compensate`. In
 them: there's no second attempt, escalation or compensating tool call.
 :::
 
+## When the check can't run
+
+A guardrail whose check can't run at all never counts as passed. A check
+can't run when:
+
+- no check by that name is registered;
+- its configuration is invalid;
+- an `llm-judge` guardrail's judge can't be routed to a model;
+- the check throws, because pack code crashed or a pack service couldn't be
+  reached.
+
+What happens next depends on the action:
+
+- With `halt`, the turn fails with `guardrail-violation`. Its `violations`
+  is empty, `evaluationErrors` names the guardrail, and the message says
+  why. Here a guardrail names a pack check that nothing deployed:
+
+  ```text
+  Error [guardrail-violation]: Turn blocked: guardrail 'acme.pack-only' couldn't run its check (unknown-check: Guardrail "acme.pack-only" references unregistered check "acme.checks.not-deployed")
+  ```
+- With any other action, the turn completes.
+
+Either way, the error is recorded in two places. The run's provenance has
+the guardrail's node, with `evaluated: false`. The run journal's
+`evaluate-guardrails` step has it under `errors`.
+
 ## Severity
 
 `severity` is `info`, `warn`, `error` or `critical`. It's recorded with each
@@ -124,7 +190,7 @@ that:
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 // in guardrails/answer-length/index.ts
 scope: { when: 'always', agents: ['my-pack.echo-agent'] },
 ```
@@ -132,9 +198,25 @@ scope: { when: 'always', agents: ['my-pack.echo-agent'] },
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 # in guardrails/answer_length.py
 scope={"when": "always", "agents": ["my-pack.echo-agent"]},
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/mypack/guardrails/AnswerLength.java
+      .set("scope", Map.of("when", "always", "agents", List.of("my-pack.echo-agent")))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/mypack/guardrails/AnswerLength.scala
+    .set("scope", Map("when" -> "always", "agents" -> Seq("my-pack.echo-agent")))
 ```
 
 </TabItem>
@@ -142,5 +224,146 @@ scope={"when": "always", "agents": ["my-pack.echo-agent"]},
 
 - `agents` lists the agents the guardrail applies to. An agent that lists
   the guardrail but isn't in its scope isn't checked.
+- `flows` lists flows, by id. The guardrail then checks only the turns a
+  step of one of those flows starts, and replays of those turns: an agent's
+  turn in another flow's step, or outside any flow, isn't checked. With
+  `agents` as well, a turn must match both. To find a turn's flow, the
+  runtime reads the turn's runs, and only for a turn with a guardrail that
+  lists `flows`. If it can't read them, or the run a replay replays is
+  gone, the turn fails with `persistence-error` rather than go unchecked.
 - `when` is `always`, `runtime-only` or `ci-only`. A `ci-only` guardrail
   doesn't run in an agent's turn.
+
+A turn the scope leaves out isn't counted in the guardrail's
+[outcomes](#how-a-guardrail-is-doing) either.
+
+## How a guardrail is doing
+
+Every check a guardrail runs on an agent's turn is recorded with its
+outcome. One request counts them over a window, for a project. The console
+shows the same counts.
+
+### From the API
+
+Here `acme.no-secret` halts on `SECRET`, on an agent at versions 2.0.0 and
+2.1.0. Each version answered two questions and was asked for the secret
+once. Count its outcomes:
+
+```sh
+curl -s -H "authorization: Bearer $KINDGI_API_TOKEN" \
+  "$KINDGI_API_URL/v1/guardrails/acme.no-secret/outcomes?projectId=a1e2b238-ae0b-4f03-b012-07875b9e5ee0&from=2026-10-11T06:02:19Z&to=2026-10-11T06:05:22Z"
+```
+
+- `acme.no-secret` is the guardrail's id.
+- `projectId` is the project whose turns are counted.
+- `from` and `to` are the window, at most 90 days apart.
+- `recent`, left out here, is how many blocked turns to name: 0 to 50, 10
+  by default.
+
+Reading it takes `read` on the guardrail and on the project. The clients call
+it `guardrails.outcomes`. It answers:
+
+```json
+{
+  "guardrailId": "acme.no-secret",
+  "from": "2026-10-11T06:02:19.000Z",
+  "to": "2026-10-11T06:05:22.000Z",
+  "counts": {
+    "passed": 4,
+    "violated": 0,
+    "blocked": 2,
+    "errored": 0
+  },
+  "byAgentVersion": [
+    {
+      "agentId": "acme.desk",
+      "agentVersion": "2.0.0",
+      "passed": 2,
+      "violated": 0,
+      "blocked": 1,
+      "errored": 0
+    },
+    {
+      "agentId": "acme.desk",
+      "agentVersion": "2.1.0",
+      "passed": 2,
+      "violated": 0,
+      "blocked": 1,
+      "errored": 0
+    }
+  ],
+  "recentBlocked": [
+    {
+      "runId": "4566d55d-6d49-43d2-be14-2b1419611f71",
+      "at": "2026-10-11T06:04:20.202Z",
+      "agentId": "acme.desk",
+      "agentVersion": "2.1.0"
+    },
+    {
+      "runId": "2e462cfd-7597-4c72-9fb7-1152141e46ee",
+      "at": "2026-10-11T06:04:05.906Z",
+      "agentId": "acme.desk",
+      "agentVersion": "2.0.0"
+    }
+  ],
+  "recordedSince": "2026-10-11T06:03:57.454Z"
+}
+```
+
+### What each outcome means
+
+- **`passed`:** the check ran and found nothing.
+- **`violated`:** the check found something, and the answer went through:
+  `log-only`, `noop`, or an action handed back. See
+  [A recorded violation](#a-recorded-violation).
+- **`blocked`:** the check found something, and its `halt` failed the turn.
+  See [A halted turn](#a-halted-turn).
+- **`errored`:** the check couldn't run, as
+  [When the check can't run](#when-the-check-cant-run) lists. A `halt`
+  guardrail's error fails the turn too, and is counted here, not as
+  `blocked`.
+
+A turn the guardrail's [scope](#which-agents-it-covers) didn't cover wasn't
+checked, so it isn't counted. Neither are replays and dry runs.
+
+### By agent version
+
+`byAgentVersion` has the same counts for each version of each agent, up to
+100 versions, the most checked first. It shows whether a new version trips
+the guardrail more or less than the last. `recentBlocked` names the latest
+blocked turns, newest first, by run id and time only: a blocked answer stays
+behind its run's page.
+
+Outcomes go with their run's retention. `recordedSince` is the earliest one
+kept for the guardrail in the project, so a window that starts before it
+holds fewer than you asked for. A guardrail that's no longer registered keeps
+its outcomes.
+
+### In the console
+
+Open **Guardrails**, then the guardrail. Its page has **What it caught**:
+the same counts, for the project you're in, over the last 24 hours, 7 days,
+30 days or 90 days. 7 days is the default. The window goes in the page's
+address, as `?period=30d`. So do the table's sort and columns, so a link
+opens the page the same way.
+
+![The page of No secrets in answers (acme.no-secrets), with What it caught: "In the last 7 days it checked 14 answers: 11 passed, 3 blocked the answer (the turn failed).", "Counted from 2026-10-11 12:22 UTC, …", the four windows with Last 7 days chosen, the Columns menu, a row for each of acme.guarded 1.0.0 (6 passed, 0 let through, 2 blocked, 0 couldn't run, "2 of 8 blocked (25%)") and 1.1.0 (5, 0, 1, 0, "1 of 6 blocked (16.7%)"), and the three runs it blocked, newest first.](../../../../assets/guardrails/what-it-caught.png)
+
+- **The sentence** counts the answers it checked in the window, by outcome:
+  "passed", "found something without stopping the turn" (`violated`),
+  "blocked the answer (the turn failed)" and "couldn't run" (`errored`).
+- **By agent version:** a row for each version, with **Let through** for
+  `violated` and **Couldn't run** for `errored`, and the blocked share.
+  The agent's name opens its page. The table sorts by a column's header,
+  and **Columns** chooses which columns it shows.
+- **The latest runs it blocked:** each time opens that run's page, where
+  the blocked answer stays withheld.
+- **When outcomes start later than the window**, it says from when it
+  counted ("Counted from 2026-10-11 12:22 UTC, the earliest outcome kept for
+  it here: outcomes go with their runs."), as `recordedSince` does.
+
+## Next
+
+- [Configure a guardrail](../configure-a-guardrail/)
+- [Use a built-in check](../use-a-built-in-check/)
+- [List runs](../../runs/list-runs/)

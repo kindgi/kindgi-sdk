@@ -24,12 +24,20 @@
  *   - `signEnvelope` — returns a canned signature.
  */
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
+import type { KindgiClient } from '@kindgi/client';
+
+import { BuildServiceRefusal, PACK_IMAGE_DOCS_URL } from '../src/build/hosted.js';
+import {
+  DEFAULT_JAVA_BUILD_IMAGE_REF,
+  DEFAULT_JAVA_RUNTIME_IMAGE_REF,
+  JAVA_PACK_SERVICE_COMMAND,
+} from '../src/build/java-image.js';
 import { DEFAULT_UV_IMAGE_REF, PYTHON_PACK_SERVICE_COMMAND } from '../src/build/python-image.js';
 import type {
   BuildRunners,
@@ -42,7 +50,13 @@ import type {
   TarPackResult,
   TerminalPayload,
 } from '../src/build/runners.js';
+import {
+  DEFAULT_SCALA_BUILD_IMAGE_REF,
+  SCALA_PACK_SERVICE_COMMAND,
+} from '../src/build/scala-image.js';
+import { buildTimeDefaults } from '../src/commands/build.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
+import { fakeRateLimitWaits } from './rate-limit-waits.js';
 
 let cwd: string;
 let home: string;
@@ -155,7 +169,12 @@ interface Fixtures {
       endpoint: string;
       buildTarget: string;
       tarballSha256: string;
+      authorization?: string | undefined;
+      packId?: string | undefined;
+      projectId?: string | undefined;
     };
+    /** The `authorization` each stream was opened with. */
+    streamAuthorizations: (string | undefined)[];
     capturedSignedMessage?: Uint8Array;
     onLogLines: string[];
   };
@@ -173,6 +192,12 @@ interface FixtureOptions {
   readonly omitPullRunner?: boolean;
   /** What the host's `pnpm --version` gives (default 10.28.0), or why it fails. */
   readonly hostPnpm?: string | Error;
+  /** Thrown by the first `postBuild` calls, in order; later calls answer as usual. */
+  readonly postThrows?: readonly unknown[];
+  /** Thrown by `streamBuildLogs`. */
+  readonly streamThrows?: unknown;
+  /** The packed pack's size, in bytes (default: a few bytes). */
+  readonly tarballSize?: number;
 }
 
 function makeFixtures(opts: FixtureOptions = {}): Fixtures {
@@ -192,6 +217,7 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
     pullCalls: 0,
     signCalls: 0,
     onLogLines: [],
+    streamAuthorizations: [],
   };
   const indexOutcome: LocalIndexResult =
     opts.indexOutcome ??
@@ -254,7 +280,10 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
     },
     tarPack: async (o) => {
       state.tarCalls += 1;
-      const bytes = new TextEncoder().encode('fake-tarball-bytes');
+      const bytes =
+        opts.tarballSize !== undefined
+          ? new Uint8Array(opts.tarballSize)
+          : new TextEncoder().encode('fake-tarball-bytes');
       await writeFile(o.outputPath, bytes);
       const res: TarPackResult = { path: o.outputPath, bytes, size: bytes.length };
       return res;
@@ -265,8 +294,13 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
         endpoint: o.endpoint,
         buildTarget: o.buildTarget,
         tarballSha256: o.tarballSha256,
+        authorization: o.authorization,
+        packId: o.packId,
+        projectId: o.projectId,
       };
       state.capturedFetchImpl = o.fetchImpl;
+      const thrown = opts.postThrows?.[state.postCalls - 1];
+      if (thrown !== undefined) throw thrown;
       if (opts.postOutcome !== undefined) return opts.postOutcome;
       const res: PostBuildResult = opts.postReplay
         ? {
@@ -284,6 +318,8 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
     },
     streamBuildLogs: async (o) => {
       state.streamCalls += 1;
+      state.streamAuthorizations.push(o.authorization);
+      if (opts.streamThrows !== undefined) throw opts.streamThrows;
       o.onLog('docker buildx running');
       o.onLog('pushing image');
       return defaultTerminal;
@@ -418,6 +454,403 @@ describe('kindgi build — argument resolution', () => {
     ) as { tenantId: string };
     expect(envelope.tenantId).toBe('via-env-var');
   });
+
+  test('--out inside the pack root is accepted', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', '--out=inside-out', `--path=${packDir}`],
+    });
+    expect(out.stderr).not.toContain('outside the pack root');
+    expect(out.exitCode).toBe(0);
+  });
+
+  test('--out outside the pack root is refused', async () => {
+    const fixtures = makeFixtures();
+    const outside = join(cwd, 'outside-out');
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', `--out=${outside}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('outside the pack root');
+  });
+
+  test('--out via an in-pack symlink that escapes the pack root is refused', async () => {
+    const fixtures = makeFixtures();
+    const target = join(cwd, 'symlink-target');
+    await mkdir(target, { recursive: true });
+    const link = join(packDir, 'escape');
+    await symlink(target, link);
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      // `escape` is lexically inside packDir; only resolving the symlink
+      // reveals it points outside — a lexical-only check would accept it.
+      argv: ['build', '--env=staging', `--out=${link}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('outside the pack root');
+  });
+
+  test('--out via a dangling in-pack symlink pointing outside the pack root is refused', async () => {
+    const fixtures = makeFixtures();
+    // A symlink inside the pack whose target does NOT exist and points
+    // outside: realpath can't resolve it, so only reading the link (not an
+    // opaque ENOENT, not a lexical in-pack check) reveals the escape.
+    const link = join(packDir, 'dangle');
+    await symlink(join(cwd, 'dangling-target'), link);
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', `--out=${link}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('outside the pack root');
+  });
+
+  test('--out equal to the pack root is refused', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', `--out=${packDir}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('is the pack root');
+  });
+});
+
+describe('kindgi build --hosted', () => {
+  const API = 'https://platform.example.com';
+  const KEY = 'kgi_tk_test-key';
+  /** The CLI's API URL and key, as `kindgi auth login` or the env gives them. */
+  const loggedIn = { KINDGI_API_URL: API, KINDGI_API_TOKEN: KEY };
+  /** A Kindgi Cloud env block: no `endpoint`, as the API is the CLI's own address. */
+  const cloud = (): Record<string, unknown> => ({
+    environments: {
+      staging: { signingKey: join(home, 'signing-key.pem'), tenantId: 'tenant-acme-staging' },
+    },
+  });
+  /** A client whose `whoami` names the key's tenant. */
+  const whoamiClient =
+    (calls: { url: string; token: string }[]) => (url: string, token: string) => {
+      calls.push({ url, token });
+      return {
+        identity: { whoami: async () => ({ tenantId: 'tenant-of-the-key', userId: 'u-1' }) },
+      } as unknown as KindgiClient;
+    };
+
+  test("builds at the API's /cloud with the key, the pack's id and the project label, checked by hash", async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: { ...loggedIn, KINDGI_TENANT_ID: 'env-tenant' } }, cloud()),
+      argv: ['build', '--hosted', '--project=p-1', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    // The CLI's own address is the API.
+    expect(fixtures.state.capturedPostBody).toMatchObject({
+      endpoint: `${API}/cloud`,
+      authorization: `Bearer ${KEY}`,
+      packId: 'my-pack',
+      projectId: 'p-1',
+    });
+    expect(fixtures.state.streamAuthorizations).toEqual([`Bearer ${KEY}`]);
+    // The image stays in the workspace's repository: no pull.
+    expect(fixtures.state.pullCalls).toBe(0);
+    expect(out.stderr).toContain(`Build:       hosted (${API}/cloud)`);
+  });
+
+  test("the env block's `build: 'hosted'` is the same; a self-hosted build server never gets the key", async () => {
+    const hosted = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(
+        hosted,
+        { env: loggedIn },
+        {
+          environments: {
+            staging: {
+              endpoint: API,
+              build: 'hosted',
+              signingKey: join(home, 'signing-key.pem'),
+              tenantId: 't-1',
+            },
+          },
+        },
+      ),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(hosted.state.capturedPostBody).toMatchObject({
+      endpoint: `${API}/cloud`,
+      authorization: `Bearer ${KEY}`,
+    });
+
+    const selfHosted = makeFixtures();
+    const plain = await runCli({
+      ...baseInputs(selfHosted, { env: loggedIn }),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(plain.exitCode, plain.stderr).toBe(0);
+    expect(selfHosted.state.capturedPostBody).toMatchObject({
+      endpoint: 'https://build.staging.example.com',
+      authorization: undefined,
+      packId: undefined,
+    });
+    expect(selfHosted.state.streamAuthorizations).toEqual([undefined]);
+  });
+
+  test("an env block's `endpoint` other than the CLI's own address is refused, naming both; nothing is built", async () => {
+    const STAGING = 'https://api.staging.example.com';
+    for (const [env, flags, from] of [
+      [loggedIn, [], 'from KINDGI_API_URL'],
+      [{ KINDGI_API_TOKEN: KEY }, [`--url=${API}`], 'from --url'],
+    ] as const) {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures, { env }),
+        argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`, ...flags],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `kindgi build --hosted sends your API key to ${API}, the address it's for (${from}), and environments.staging.endpoint names another: ${STAGING}. The key goes only to its own address: remove environments.staging.endpoint (Kindgi Cloud needs none), or sign in to ${STAGING} with \`kindgi auth login --url ${STAGING} --token <its key>\`.`,
+      );
+      expect(fixtures.state.esbuildCalls).toBe(0);
+      expect(fixtures.state.postCalls).toBe(0);
+    }
+  });
+
+  test.each([
+    'https://PLATFORM.Example.com',
+    'https://platform.example.com:443',
+    'https://platform.example.com/',
+  ])('an env block `endpoint` of %s is the same address: built there', async (endpoint) => {
+    const fixtures = makeFixtures();
+    const block = { endpoint, signingKey: join(home, 'signing-key.pem'), tenantId: 't-1' };
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: loggedIn }, { environments: { staging: block } }),
+      argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.capturedPostBody?.endpoint).toBe(`${API}/cloud`);
+  });
+
+  test("with no API address set it stops before building; the env block's `endpoint` isn't taken for one", async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: { KINDGI_API_TOKEN: KEY } }),
+      argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      'kindgi build --hosted goes to the API your key is for, and no API address is set. Run `kindgi auth login --url <url> --token <its key>`, export KINDGI_API_URL, or pass --url <url>.',
+    );
+    expect(fixtures.state.esbuildCalls).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test.each([
+    [
+      [],
+      'prod',
+      'pass --signing-key ~/.kindgi/keys/<id>.pem, or set signingKey in an env block of kindgi.config.ts and pick that block with --env=<name> (with no --env, the block is `staging`)',
+    ],
+    [
+      ['--env=prod'],
+      'prod',
+      'set environments.prod.signingKey to ~/.kindgi/keys/<id>.pem in kindgi.config.ts, or pass --signing-key ~/.kindgi/keys/<id>.pem',
+    ],
+    [
+      [],
+      'staging',
+      'set environments.staging.signingKey to ~/.kindgi/keys/<id>.pem in kindgi.config.ts, or pass --signing-key ~/.kindgi/keys/<id>.pem',
+    ],
+  ])(
+    "no key, flags %j, and only a `%s` block: the hint names the block picked, never one that isn't there",
+    async (flags, block, hint) => {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(
+          fixtures,
+          { env: { ...loggedIn, KINDGI_TENANT_ID: 'env-tenant' } },
+          { environments: { [block]: { build: 'hosted', tenantId: 't-1' } } },
+        ),
+        argv: ['build', '--hosted', ...flags, `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(`(once). Then ${hint}. (--skip-sign`);
+      expect(fixtures.state.postCalls).toBe(0);
+    },
+  );
+
+  describe('with a stored key', () => {
+    const STORED = 'kgi_tk_stored';
+    const OTHER = 'https://other.example.com';
+    const homeFile = () => join(home, '.kindgi/config.json');
+    const folderFile = () => join(cwd, '.kindgirc.json');
+    async function store(path: string, saved: Record<string, unknown>) {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, JSON.stringify(saved), 'utf8');
+    }
+    const hostedBuild = (fixtures: Fixtures, env: Record<string, string>, ...flags: string[]) =>
+      runCli({
+        ...baseInputs(fixtures, { env: { KINDGI_TENANT_ID: 'env-tenant', ...env } }, cloud()),
+        argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`, ...flags],
+      });
+
+    test.each([
+      [{ KINDGI_API_URL: OTHER }, [], 'KINDGI_API_URL', undefined],
+      [{}, [`--url=${OTHER}`], '--url', undefined],
+      [{}, [], 'the apiUrl in <folder>', { apiUrl: OTHER }],
+    ] as const)(
+      "the CLI address elsewhere than the key's (%j %j) is refused, naming both; nothing is built",
+      async (env, flags, named, folder) => {
+        await store(homeFile(), { apiUrl: API, token: STORED });
+        if (folder !== undefined) await store(folderFile(), folder);
+        const where = named.replace('<folder>', folderFile());
+        const fixtures = makeFixtures();
+        const out = await hostedBuild(fixtures, env, ...flags);
+        expect(out.exitCode).toBe(1);
+        expect(out.stderr).toContain(
+          `kindgi build --hosted would send the API key stored in ${homeFile()}, which is for ${API}, to ${OTHER}, which ${where} names. The key goes only to its own address: point ${where} at ${API}, or sign in to ${OTHER} with \`kindgi auth login --url ${OTHER} --token <its key>\`.`,
+        );
+        expect(fixtures.state.esbuildCalls).toBe(0);
+        expect(fixtures.state.postCalls).toBe(0);
+      },
+    );
+
+    test.each([
+      { apiUrl: 'http://127.0.0.1:4000', token: 'kgi_tk_dev' },
+      {
+        apiUrl: 'http://192.168.1.20:4000',
+        token: 'kgi_tk_dev',
+        packServicePort: 4100,
+        packServiceToken: 'kgi_ps_dev',
+      },
+    ])(
+      "a `kindgi dev` runtime's .kindgirc.json (%j) isn't read: built at the signed-in address, with its key",
+      async (devFile) => {
+        await store(homeFile(), { apiUrl: API, token: STORED });
+        await store(folderFile(), devFile);
+        const fixtures = makeFixtures();
+        const out = await hostedBuild(fixtures, {});
+        expect(out.exitCode, out.stderr).toBe(0);
+        expect(fixtures.state.capturedPostBody).toMatchObject({
+          endpoint: `${API}/cloud`,
+          authorization: `Bearer ${STORED}`,
+        });
+      },
+    );
+  });
+
+  test("with no tenant set, the signature names the key's own tenant (whoami)", async () => {
+    const fixtures = makeFixtures();
+    const calls: { url: string; token: string }[] = [];
+    const out = await runCli({
+      ...baseInputs(
+        fixtures,
+        { env: loggedIn, clientFactory: whoamiClient(calls) },
+        {
+          environments: { staging: { endpoint: API, signingKey: join(home, 'signing-key.pem') } },
+        },
+      ),
+      argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([{ url: API, token: KEY }]);
+    expect(out.stderr).toContain('Tenant:      tenant-of-the-key');
+  });
+
+  test.each([
+    [['--local'], '--local builds with this machine'],
+    [['--endpoint=https://build.example.com'], '--endpoint names another build server'],
+    [['--registry-push-creds=ref'], '--registry-push-creds is for a build server'],
+  ])('--hosted with %s is refused, saying why', async (extra, why) => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: loggedIn }),
+      argv: ['build', '--hosted', ...extra, '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(why);
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('--project without --hosted is refused', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: loggedIn }),
+      argv: ['build', '--project=p-1', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('--project goes with --hosted');
+  });
+
+  test('without an API key it stops before building', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: { KINDGI_API_URL: API } }, cloud()),
+      argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('sends your API key to the build service, and none is set');
+    expect(fixtures.state.tarCalls).toBe(0);
+  });
+
+  test('a pack over 30 MiB packed is never sent, and the message links what the image needs', async () => {
+    const fixtures = makeFixtures({ tarballSize: 30 * 1024 * 1024 + 1 });
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: loggedIn }, cloud()),
+      argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "over the 30 MiB the hosted build service takes, so it wasn't sent",
+    );
+    expect(out.stderr).toContain(PACK_IMAGE_DOCS_URL);
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('a 429 with Retry-After is waited out and the build sent again', async () => {
+    const fixtures = makeFixtures({
+      postThrows: [new BuildServiceRefusal(429, 'rate-limit-exceeded', 'One build at a time.', 10)],
+    });
+    const waits = fakeRateLimitWaits();
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: loggedIn, rateLimitWaits: waits.seam }, cloud()),
+      argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.postCalls).toBe(2);
+    expect(waits.sleeps).toEqual([10_000]);
+  });
+
+  test('any other refusal is printed plainly: its message, its code and the wait it asks', async () => {
+    const fixtures = makeFixtures({
+      postThrows: [
+        new BuildServiceRefusal(503, 'build-queue-busy', 'The build queue is full.', 30),
+      ],
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: loggedIn }, cloud()),
+      argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      'The build service refused the build (HTTP 503, build-queue-busy): The build queue is full. Try again in 30 s.',
+    );
+  });
+
+  test("a refusal while following the build's log is printed the same way", async () => {
+    const fixtures = makeFixtures({
+      streamThrows: new BuildServiceRefusal(403, 'tenant-suspended', 'The workspace is suspended.'),
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: loggedIn }, cloud()),
+      argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      'The build service refused the build (HTTP 403, tenant-suspended): The workspace is suspended.',
+    );
+  });
 });
 
 describe('kindgi build — pipeline stages fire in order', () => {
@@ -454,7 +887,8 @@ describe('kindgi build — pipeline stages fire in order', () => {
     expect(parsed.$schema).toBe('kindgi-deploy-envelope/v1');
     expect(parsed.imageRef).toContain('ghcr.io/acme/');
     expect(parsed.signature).toBeTruthy();
-    expect(parsed.signerKeyId).toBeTruthy();
+    // No --signer-key-id and no `signerKeyId` in the env block: the key file's name.
+    expect(parsed.signerKeyId).toBe('signing-key');
     expect(parsed.tenantId).toBe('tenant-acme-staging');
   });
 
@@ -539,10 +973,16 @@ describe('kindgi build — integrity gate', () => {
 describe('kindgi build — signing surface', () => {
   test('signs the canonicalised body (sorted-key JSON, five fields)', async () => {
     const fixtures = makeFixtures();
-    await runCli({
-      ...baseInputs(fixtures),
-      argv: ['build', '--env=staging', `--path=${packDir}`],
-    });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-08T09:05:03.042Z'));
+    try {
+      await runCli({
+        ...baseInputs(fixtures),
+        argv: ['build', '--env=staging', `--path=${packDir}`],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
     expect(fixtures.state.capturedSignedMessage).toBeDefined();
     const text = new TextDecoder().decode(fixtures.state.capturedSignedMessage);
     // Sorted keys: artifactVersion, imageDigest, indexHash, publishedAt, tenantId.
@@ -555,7 +995,9 @@ describe('kindgi build — signing surface', () => {
       'tenantId',
     ]);
     expect(parsed.tenantId).toBe('tenant-acme-staging');
-    expect(parsed.publishedAt).toBe('1970-01-01T00:00:00.000Z');
+    // Unpinned, the build server's build signs the build time too.
+    expect(parsed.artifactVersion).toBe('20261008.090503');
+    expect(parsed.publishedAt).toBe('2026-10-08T09:05:03.042Z');
     // Key order in the raw string is sorted (canonical stringify).
     expect(text.indexOf('artifactVersion')).toBeLessThan(text.indexOf('imageDigest'));
     expect(text.indexOf('imageDigest')).toBeLessThan(text.indexOf('indexHash'));
@@ -577,6 +1019,90 @@ describe('kindgi build — signing surface', () => {
     ) as { signature?: string; signerKeyId?: string };
     expect(envelope.signature).toBeUndefined();
     expect(envelope.signerKeyId).toBeUndefined();
+  });
+
+  test('no key set: refused before anything is built, saying how to make and trust one; --skip-sign needs none', async () => {
+    const noKey = {
+      environments: {
+        staging: {
+          build: 'https://build.staging.example.com',
+          registry: 'ghcr.io/acme',
+          tenantId: 'tenant-acme-staging',
+        },
+      },
+    };
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, noKey),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "No signing key is set. Make a key with `kindgi key create <id>`, and add it to the runtime's trust list with `kindgi key trust <id>` (once). Then set environments.staging.signingKey to ~/.kindgi/keys/<id>.pem in kindgi.config.ts, or pass --signing-key ~/.kindgi/keys/<id>.pem.",
+    );
+    expect(fixtures.state.esbuildCalls).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+
+    const skipped = makeFixtures();
+    const unsigned = await runCli({
+      ...baseInputs(skipped, {}, noKey),
+      argv: ['build', '--env=staging', '--skip-sign', `--path=${packDir}`],
+    });
+    expect(unsigned.exitCode, unsigned.stderr).toBe(0);
+  });
+
+  test.each([
+    [[], 'environments.staging.signingKey', () => join(home, 'signing-key.pem')],
+    [
+      ['--signing-key=~/.kindgi/keys/acme-agency.pem'],
+      '--signing-key',
+      () => join(home, '.kindgi/keys/acme-agency.pem'),
+    ],
+    [['--local', '--push'], 'environments.staging.signingKey', () => join(home, 'signing-key.pem')],
+  ])(
+    "a key file that isn't there (%s): refused before anything is built, naming it",
+    async (flags, from, path) => {
+      await rm(join(home, 'signing-key.pem'));
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['build', '--env=staging', ...flags, `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `The signing key ${path()} (${from}) isn't there. Make a key with \`kindgi key create <id>\``,
+      );
+      expect(fixtures.state.esbuildCalls).toBe(0);
+      expect(fixtures.state.postCalls).toBe(0);
+      expect(fixtures.state.dockerBuilds).toHaveLength(0);
+    },
+  );
+
+  test("a key path that isn't a file is refused before anything is built, naming it", async () => {
+    const dir = join(home, '.kindgi/keys');
+    await mkdir(dir, { recursive: true });
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', `--signing-key=${dir}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      `The signing key ${dir} (--signing-key) isn't a file. Name the key's .pem file, as \`kindgi key create <id>\` writes it: ~/.kindgi/keys/<id>.pem.`,
+    );
+    expect(fixtures.state.esbuildCalls).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test("--local without --push signs nothing, so a missing key file doesn't stop it", async () => {
+    await rm(join(home, 'signing-key.pem'));
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--local', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.signCalls).toBe(0);
   });
 });
 
@@ -732,6 +1258,34 @@ describe('kindgi build — a Python pack', () => {
     expect(fixtures.state.signCalls).toBe(1);
   });
 
+  test('--out outside the pack root is accepted (the Python indexer takes the pack dir, not <out>/dist)', async () => {
+    await pythonPack();
+    const fixtures = makeFixtures();
+    withPython(fixtures);
+    const outside = join(cwd, 'outside-py');
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, { language: 'python', dev: { python: ['/opt/py/bin/python'] } }),
+      argv: ['build', '--env=staging', `--out=${outside}`, `--path=${packDir}`],
+    });
+    expect(out.stderr).not.toContain('outside the pack root');
+    expect(out.exitCode).toBe(0);
+  });
+
+  test('--out that contains the pack root is refused (a Python pack too, not only TypeScript)', async () => {
+    await pythonPack();
+    const fixtures = makeFixtures();
+    withPython(fixtures);
+    // cwd is the parent of packDir; building here would write dist/, the
+    // Containerfile and context/ beside the pack. A Python pack has no
+    // outside-root rule, so only the contains-the-pack-root guard refuses it.
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, { language: 'python', dev: { python: ['/opt/py/bin/python'] } }),
+      argv: ['build', '--env=staging', `--out=${cwd}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('contains the pack root');
+  });
+
   test('without uv.lock the build stops before uploading', async () => {
     await pythonPack(false);
     const fixtures = makeFixtures();
@@ -810,6 +1364,272 @@ describe('kindgi build — a Python pack', () => {
       indexHash: SAMPLE_INDEX_HASH_HEX,
     });
     expect(envelope.signature).toBeTruthy();
+  });
+});
+
+/** The JVM build runners, recording what they're called with (Java and Scala packs). */
+function withJvm(fixtures: Fixtures, compileErrors?: readonly string[], indexEnv?: unknown) {
+  const calls = {
+    prepared: [] as unknown[],
+    indexed: [] as unknown[],
+    images: [] as (readonly string[])[],
+    languages: [] as string[],
+    declared: [] as (readonly string[])[],
+    files: [] as (readonly string[])[],
+  };
+  fixtures.runners = {
+    ...fixtures.runners,
+    jvm: {
+      prepare: async (o) => {
+        calls.prepared.push(o.code);
+        return compileErrors === undefined
+          ? { kind: 'ok' }
+          : { kind: 'err', errors: compileErrors };
+      },
+      runLocalIndexer: async (o) => {
+        calls.indexed.push(o.code);
+        await writeFile(
+          o.outputPath,
+          indexEnv === undefined
+            ? SAMPLE_INDEX_BYTES
+            : JSON.stringify({ ...SAMPLE_INDEX, env: indexEnv }),
+        );
+        return {
+          kind: 'ok',
+          packId: 'my-pack',
+          packVersion: '0.1.0',
+          counts: { tools: 1, guardrails: 0, agents: 0, flows: 0 },
+          fileErrors: [],
+          index: SAMPLE_INDEX,
+        };
+      },
+      writeContainerfile: async (o) => {
+        calls.images.push([o.buildImageRef, o.runtimeImageRef]);
+        calls.languages.push(o.language);
+        calls.declared.push(o.declaredEnv);
+        await writeFile(o.outputPath, `# ${o.language} containerfile\n`, 'utf8');
+      },
+      writeContext: async (o) => {
+        calls.files.push(o.files);
+      },
+    },
+  };
+  return calls;
+}
+
+describe('kindgi build — a Java pack', () => {
+  async function javaPack(withPom = true): Promise<void> {
+    await rm(join(packDir, 'kindgi.config.ts'));
+    await rm(join(packDir, 'package.json'));
+    await rm(join(packDir, 'package-lock.json'));
+    await writeFile(
+      join(packDir, 'kindgi.config.json'),
+      JSON.stringify({ language: 'java', pack: { id: 'my-pack', version: '0.1.0' } }),
+      'utf8',
+    );
+    if (withPom) await writeFile(join(packDir, 'pom.xml'), '<project/>\n', 'utf8');
+    await mkdir(join(packDir, 'src', 'main', 'java', 'acme', 'tools'), { recursive: true });
+    await writeFile(
+      join(packDir, 'src', 'main', 'java', 'acme', 'tools', 'Echo.java'),
+      'x',
+      'utf8',
+    );
+    await mkdir(join(packDir, 'target', 'classes'), { recursive: true });
+    await writeFile(join(packDir, 'target', 'classes', 'Echo.class'), 'x', 'utf8');
+    await writeFile(join(packDir, '.env'), 'SECRET=1\n', 'utf8');
+  }
+
+  function withJava(fixtures: Fixtures, compileErrors?: readonly string[]) {
+    return withJvm(fixtures, compileErrors);
+  }
+
+  const JAVA_CONFIG = { language: 'java', dev: { javaHome: '/opt/jdk-17', maven: ['mvn'] } };
+
+  test("compiles and indexes with the pack's JDK, ships the pack root, then builds, checks and signs", async () => {
+    await javaPack();
+    const fixtures = makeFixtures();
+    const calls = withJava(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, JAVA_CONFIG),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    const code = {
+      language: 'java',
+      java: '/opt/jdk-17/bin/java',
+      javaHome: '/opt/jdk-17',
+      maven: ['mvn'],
+      workDir: join(packDir, '.kindgi/build/java'),
+    };
+    expect(calls.prepared).toEqual([code]);
+    expect(calls.indexed).toEqual([code]);
+    expect(calls.images).toEqual([[DEFAULT_JAVA_BUILD_IMAGE_REF, DEFAULT_JAVA_RUNTIME_IMAGE_REF]]);
+    expect(calls.declared).toEqual([[]]);
+    expect(calls.files).toEqual([
+      ['kindgi.config.json', 'pom.xml', 'src/main/java/acme/tools/Echo.java'],
+    ]);
+    expect(fixtures.state.esbuildCalls).toBe(0);
+    expect(fixtures.state.tarCalls).toBe(1);
+    expect(fixtures.state.postCalls).toBe(1);
+    expect(fixtures.state.signCalls).toBe(1);
+  });
+
+  test('--out outside the pack root is accepted (the JVM indexer compiles into <out>/java with an explicit classpath)', async () => {
+    await javaPack();
+    const fixtures = makeFixtures();
+    withJava(fixtures);
+    const outside = join(cwd, 'outside-java');
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, JAVA_CONFIG),
+      argv: ['build', '--env=staging', `--out=${outside}`, `--path=${packDir}`],
+    });
+    expect(out.stderr).not.toContain('outside the pack root');
+    expect(out.exitCode, out.stderr).toBe(0);
+  });
+
+  test("the image's launcher keeps the names the index declares, required and optional", async () => {
+    await javaPack();
+    const env = { optional: ['CACHE_DIR'], required: ['A_URL', 'B_KEY'] };
+    // The image's index is the local one (the integrity gate).
+    const fixtures = makeFixtures({
+      serverIndexBytes: new TextEncoder().encode(JSON.stringify({ ...SAMPLE_INDEX, env })),
+    });
+    const calls = withJvm(fixtures, undefined, env);
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { ...JAVA_CONFIG, environments: {} }),
+      argv: ['build', '--local', '--artifact-version=20261007.1', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls.declared).toEqual([['A_URL', 'B_KEY', 'CACHE_DIR']]);
+  });
+
+  test("a pack that doesn't compile stops before indexing, with javac's located errors", async () => {
+    await javaPack();
+    const fixtures = makeFixtures();
+    const calls = withJava(fixtures, ['src/main/java/acme/tools/Echo.java:3:1: class expected']);
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, JAVA_CONFIG),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain("The pack didn't compile");
+    expect(out.stderr).toContain('src/main/java/acme/tools/Echo.java:3:1: class expected');
+    expect(calls.indexed).toEqual([]);
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('without pom.xml the build stops before uploading', async () => {
+    await javaPack(false);
+    const fixtures = makeFixtures();
+    withJava(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, JAVA_CONFIG),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('No pom.xml');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('--local builds with Docker and names the pack service it runs', async () => {
+    await javaPack();
+    const fixtures = makeFixtures();
+    withJava(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { ...JAVA_CONFIG, environments: {} }),
+      argv: ['build', '--local', '--artifact-version=20261007.1', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.dockerBuilds[0]).toMatchObject({ tag: 'kindgi-pack/my-pack:20261007.1' });
+    expect(out.stderr).toContain(`(the pack service: ${JAVA_PACK_SERVICE_COMMAND.join(' ')})`);
+  });
+});
+
+describe('kindgi build — a Scala pack', () => {
+  async function scalaPack(withBuild = true): Promise<void> {
+    await rm(join(packDir, 'kindgi.config.ts'));
+    await rm(join(packDir, 'package.json'));
+    await rm(join(packDir, 'package-lock.json'));
+    await writeFile(
+      join(packDir, 'kindgi.config.json'),
+      JSON.stringify({ language: 'scala', pack: { id: 'my-pack', version: '0.1.0' } }),
+      'utf8',
+    );
+    if (withBuild) await writeFile(join(packDir, 'build.sbt'), 'scalaVersion := "3.3.8"\n', 'utf8');
+    const files: Record<string, string> = {
+      'project/build.properties': 'sbt.version=1.12.15\n',
+      'src/main/scala/acme/tools/Echo.scala': 'object Echo',
+      // Build output, build-server state and credentials stay out of the image.
+      'target/scala-3.3.8/classes/acme/tools/Echo$.class': 'x',
+      'project/target/active.json': '{}',
+      'project/project/target/x': 'x',
+      '.bsp/sbt.json': '{}',
+      'credentials.sbt': 'credentials += ???',
+      '.env': 'SECRET=1\n',
+    };
+    for (const [rel, text] of Object.entries(files)) {
+      await mkdir(dirname(join(packDir, rel)), { recursive: true });
+      await writeFile(join(packDir, rel), text, 'utf8');
+    }
+  }
+
+  const SCALA_CONFIG = { language: 'scala', dev: { javaHome: '/opt/jdk-17' } };
+
+  test("compiles and indexes with the pack's JDK and sbt, ships the pack root, builds with the sbt image", async () => {
+    await scalaPack();
+    const fixtures = makeFixtures();
+    const calls = withJvm(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, SCALA_CONFIG),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    const code = {
+      language: 'scala',
+      java: '/opt/jdk-17/bin/java',
+      javaHome: '/opt/jdk-17',
+      sbt: ['sbt'],
+      workDir: join(packDir, '.kindgi/build/scala'),
+    };
+    expect(calls.prepared).toEqual([code]);
+    expect(calls.indexed).toEqual([code]);
+    expect(calls.languages).toEqual(['scala']);
+    expect(calls.images).toEqual([[DEFAULT_SCALA_BUILD_IMAGE_REF, DEFAULT_JAVA_RUNTIME_IMAGE_REF]]);
+    expect(calls.files).toEqual([
+      [
+        'build.sbt',
+        'kindgi.config.json',
+        'project/build.properties',
+        'src/main/scala/acme/tools/Echo.scala',
+      ],
+    ]);
+    expect(out.stderr).toContain('Indexing (Scala — /opt/jdk-17; sbt)');
+    expect(out.stderr).toContain('classes and dependencies from build.sbt');
+  });
+
+  test('without build.sbt the build stops before uploading', async () => {
+    await scalaPack(false);
+    const fixtures = makeFixtures();
+    withJvm(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, SCALA_CONFIG),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('No build.sbt');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('--local names the pack service the image runs', async () => {
+    await scalaPack();
+    const fixtures = makeFixtures();
+    withJvm(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { ...SCALA_CONFIG, environments: {} }),
+      argv: ['build', '--local', '--artifact-version=20261008.1', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain(`(the pack service: ${SCALA_PACK_SERVICE_COMMAND.join(' ')})`);
   });
 });
 
@@ -893,6 +1713,29 @@ describe('kindgi build --local', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('[file-import-failed] Failed to import tools/echo/index.ts');
     expect(fixtures.state.dockerBuilds).toHaveLength(0);
+  });
+
+  test('an indexer warning is printed and the pack still builds', async () => {
+    const message =
+      'guardrails/cites.ts: check "cites" doesn\'t start with this pack\'s id ("my-pack."). Name it "my-pack.checks.<name>" so it can\'t collide with another pack\'s check in the same tenant. The pack builds as it is.';
+    const fixtures = makeFixtures({
+      indexOutcome: {
+        kind: 'ok',
+        packId: 'my-pack',
+        packVersion: '0.1.0',
+        counts: { tools: 1, guardrails: 1, agents: 0, flows: 0 },
+        fileErrors: [],
+        warnings: [{ code: 'check-id-unprefixed', message, filePath: 'guardrails/cites.ts' }],
+        index: SAMPLE_INDEX,
+      } as LocalIndexResult,
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { environments: {} }),
+      argv: ['build', '--local', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(`${out.stdout}${out.stderr}`).toContain(`⚠ ${message}`);
+    expect(fixtures.state.dockerBuilds).toHaveLength(1);
   });
 
   test("the app's registry config reaches the install as a build secret", async () => {
@@ -1157,5 +2000,147 @@ describe('kindgi build --local --push', () => {
     expect(fixtures.state.dockerBuilds[0]).not.toHaveProperty('push');
     expect(fixtures.state.dockerBuilds[0]).not.toHaveProperty('platform');
     expect(fixtures.state.signCalls).toBe(0);
+  });
+});
+
+describe('kindgi build — the artifact version and publish time', () => {
+  // What the runtime's deploy route accepts.
+  const ARTIFACT_VERSION_RE = /^\d{8}\.\d+$/;
+
+  test('default to the build time: YYYYMMDD.HHMMSS and the ISO time, both UTC', () => {
+    expect(buildTimeDefaults(new Date('2026-10-08T09:05:03.042Z'))).toEqual({
+      artifactVersion: '20261008.090503',
+      publishedAt: '2026-10-08T09:05:03.042Z',
+    });
+    expect(buildTimeDefaults(new Date('2026-01-02T03:04:05.006Z')).artifactVersion).toBe(
+      '20260102.030405',
+    );
+    for (const at of ['2026-10-08T00:00:00.000Z', '2026-10-08T23:59:59.999Z']) {
+      expect(buildTimeDefaults(new Date(at)).artifactVersion).toMatch(ARTIFACT_VERSION_RE);
+    }
+  });
+
+  test('sort in build order within a day, and across midnight', () => {
+    const times = [
+      '2026-10-08T00:00:00.000Z',
+      '2026-10-08T00:00:01.000Z',
+      '2026-10-08T00:59:59.999Z',
+      '2026-10-08T09:59:59.000Z',
+      '2026-10-08T10:00:00.000Z',
+      '2026-10-08T23:59:59.999Z',
+      '2026-10-09T00:00:00.000Z',
+    ];
+    const versions = times.map((at) => buildTimeDefaults(new Date(at)).artifactVersion);
+    expect(new Set(versions).size).toBe(versions.length);
+    expect([...versions].sort()).toEqual(versions);
+    const sameDay = versions.slice(0, -1).map((v) => Number(v.split('.')[1]));
+    expect([...sameDay].sort((a, b) => a - b)).toEqual(sameDay);
+  });
+
+  test('two unpinned builds the same day get their own versions, tags and publish times', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const builds = [];
+      for (const at of ['2026-10-08T09:05:03.042Z', '2026-10-08T09:05:04.510Z']) {
+        vi.setSystemTime(new Date(at));
+        const fixtures = makeFixtures();
+        const seen: { artifactVersion: string; publishedAt: string }[] = [];
+        const runners: BuildRunners = {
+          ...fixtures.runners,
+          runLocalIndexer: async (o) => {
+            seen.push({ artifactVersion: o.artifactVersion, publishedAt: o.publishedAt });
+            return fixtures.runners.runLocalIndexer(o);
+          },
+          writeContainerfile: async (o) => {
+            seen.push({ artifactVersion: o.artifactVersion, publishedAt: o.publishedAt });
+            return fixtures.runners.writeContainerfile(o);
+          },
+        };
+        const out = await runCli({
+          ...baseInputs({ ...fixtures, runners }),
+          argv: ['build', '--local', '--push', '--env=staging', `--path=${packDir}`],
+        });
+        expect(out.exitCode, out.stderr).toBe(0);
+        const envelope = JSON.parse(
+          await readFile(join(packDir, '.kindgi/build/deploy-envelope.json'), 'utf8'),
+        ) as Record<string, unknown>;
+        builds.push({ tag: fixtures.state.dockerBuilds[0]?.tag, envelope, seen });
+      }
+      expect(builds.map((b) => b.tag)).toEqual([
+        'ghcr.io/acme/my-pack:20261008.090503',
+        'ghcr.io/acme/my-pack:20261008.090504',
+      ]);
+      expect(builds.map((b) => b.envelope)).toMatchObject([
+        { artifactVersion: '20261008.090503', publishedAt: '2026-10-08T09:05:03.042Z' },
+        { artifactVersion: '20261008.090504', publishedAt: '2026-10-08T09:05:04.510Z' },
+      ]);
+      // The local index, the image and the signature get the same values.
+      for (const { envelope, seen } of builds) {
+        expect(seen).toHaveLength(2);
+        for (const values of seen) {
+          expect(values).toEqual({
+            artifactVersion: envelope.artifactVersion,
+            publishedAt: envelope.publishedAt,
+          });
+        }
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a pinned build uses both flags as given, whenever it runs', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const envelopes = [];
+      for (const at of ['2026-10-08T09:05:03.042Z', '2026-10-09T17:00:00.000Z']) {
+        vi.setSystemTime(new Date(at));
+        const fixtures = makeFixtures();
+        const out = await runCli({
+          ...baseInputs(fixtures),
+          argv: [
+            'build',
+            '--local',
+            '--push',
+            '--env=staging',
+            '--artifact-version=20261008.7',
+            '--published-at=2026-10-08T12:00:00.000Z',
+            `--path=${packDir}`,
+          ],
+        });
+        expect(out.exitCode, out.stderr).toBe(0);
+        expect(fixtures.state.dockerBuilds[0]?.tag).toBe('ghcr.io/acme/my-pack:20261008.7');
+        envelopes.push(
+          JSON.parse(await readFile(join(packDir, '.kindgi/build/deploy-envelope.json'), 'utf8')),
+        );
+      }
+      expect(envelopes[0]).toMatchObject({
+        artifactVersion: '20261008.7',
+        publishedAt: '2026-10-08T12:00:00.000Z',
+      });
+      expect(envelopes[1]).toEqual(envelopes[0]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('--published-at as a date is its start in UTC, as deploy takes it; a loose one is refused', async () => {
+    const fixtures = makeFixtures();
+    const argv = ['build', '--local', '--push', '--env=staging', `--path=${packDir}`];
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: [...argv, '--published-at=2026-10-08'],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    const envelope = JSON.parse(
+      await readFile(join(packDir, '.kindgi/build/deploy-envelope.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(envelope.publishedAt).toBe('2026-10-08T00:00:00.000Z');
+
+    const refused = makeFixtures();
+    const loose = await runCli({ ...baseInputs(refused), argv: [...argv, '--published-at=Oct 8'] });
+    expect(loose.exitCode).toBe(2);
+    expect(loose.stderr).toContain('--published-at must be an ISO 8601 time with a zone');
+    expect(refused.state.dockerBuilds).toEqual([]);
   });
 });

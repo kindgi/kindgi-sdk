@@ -52,16 +52,23 @@ export type {
 export type {
   Classification,
   ComplianceClassifierFile,
+  ComplianceClassifierSource,
   LoadedClassifier,
 } from './classifier.js';
 
 // ============ Generator interface + pure transform ============
 export type { ComplianceEvidenceGenerator } from './generator.js';
 export { auditEventToEvidence } from './generator.js';
+export {
+  EVIDENCE_EXPORT_PAGE_SIZE,
+  collectEvidence,
+  evidenceFilterToAuditFilter,
+} from './collect.js';
 
 // ============ Resolve + lifecycle event emitters ============
-export { emitLifecycleEvent, emitResolveEvent } from './resolve-emit.js';
+export { emitAuditEvent, emitLifecycleEvent, emitResolveEvent } from './resolve-emit.js';
 export type {
+  EmitAuditEventInput,
   EmitLifecycleEventInput,
   EmitResolveEventInput,
   ResolveContext,

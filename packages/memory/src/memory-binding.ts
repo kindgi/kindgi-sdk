@@ -7,10 +7,12 @@ import type {
   LogEntry,
   LogKind,
   MemoryError,
+  MemoryReaders,
   MemoryScope,
   RetrievalHit,
 } from '@kindgi/memory';
 import type { Result, RunId, TenantId } from '@kindgi/types';
+import type { RecallHit, SearchConversationsInput } from './recall.js';
 
 /**
  * Caller-plugged data-access surface for the memory subsystem. Agent
@@ -32,7 +34,9 @@ import type { Result, RunId, TenantId } from '@kindgi/types';
 export interface MemoryQueryBinding {
   /**
    * List facts filtered by tenant, type, and scope, capped by `limit`
-   * (no pagination cursor). Default: latest version per `(type, id)`.
+   * (no pagination cursor): each fact's current revision, never one
+   * pending review, and only what `readers` may see (the guard, applied
+   * in the query before the limit).
    */
   listFacts<TContent = unknown>(
     input: ListFactsInput,
@@ -57,6 +61,21 @@ export interface MemoryQueryBinding {
   ): Promise<Result<readonly RetrievalHit<TContent>[], MemoryError>>;
 
   /**
+   * Recall messages of earlier conversations (a retrieval intent with
+   * `source: 'conversations'`): what `readers` may recall
+   * (`isRecallReadableBy`), narrowed by `selections`, newest first
+   * (`list`), by full-text rank (`keyword`) or by meaning (`semantic`).
+   * Never a comparison's replay conversation (an eval run's replay turn
+   * opens one): its messages are no one's earlier conversation.
+   * Optional: without it, such an intent recalls nothing and its turn
+   * journals why. `semantic` without embeddings answers
+   * `embedding-unavailable`, as fact search does.
+   */
+  searchConversations?(
+    input: SearchConversationsInput,
+  ): Promise<Result<readonly RecallHit[], MemoryError>>;
+
+  /**
    * Append one entry to the run's hash-chained log. The implementation
    * assigns `sequence` and `prevHash` / `entryHash` atomically; the
    * returned `LogEntry` is the entry as stored.
@@ -75,8 +94,15 @@ export interface MemoryQueryBinding {
 export interface ListFactsInput {
   readonly tenantId: TenantId;
   readonly type?: string;
+  /** Narrows within what `readers` may see: every given key must match. */
   readonly scope?: Partial<MemoryScope>;
+  /**
+   * What the reader may see (the scope guard), applied inside the query
+   * before any limit. Absent: only tenant-wide facts.
+   */
+  readonly readers?: MemoryReaders;
   readonly limit?: number;
+  /** Ignored: a list holds each fact's current revision. */
   readonly latestOnly?: boolean;
 }
 
@@ -85,6 +111,11 @@ export interface SearchByKeywordInput {
   readonly query: string;
   readonly type?: string;
   readonly scope?: Partial<MemoryScope>;
+  /**
+   * What the reader may see (the scope guard), applied inside the query
+   * before any limit. Absent: only tenant-wide facts.
+   */
+  readonly readers?: MemoryReaders;
   readonly topK?: number;
 }
 
@@ -99,6 +130,11 @@ export interface SearchBySemanticInput {
   readonly embeddingModel?: string;
   readonly type?: string;
   readonly scope?: Partial<MemoryScope>;
+  /**
+   * What the reader may see (the scope guard), applied inside the query
+   * before any limit. Absent: only tenant-wide facts.
+   */
+  readonly readers?: MemoryReaders;
   readonly topK?: number;
 }
 

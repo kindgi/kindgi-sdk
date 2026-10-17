@@ -10,13 +10,21 @@ repository). Two files are written, both generated — never edit them:
 
 - `src/kindgi/client/_models.py`: pydantic v2 models for every component
   schema (datamodel-code-generator). Inline request and response schemas are
-  first hoisted into components named after their operation, so every class
-  name is stable.
+  first hoisted into components named after their operation. So are an
+  inline object whose own name would be a component's (`JudgedRunContext`'s
+  `flow` is `JudgedRunContextFlow`), and each member of a union component
+  with a discriminator (`Scope`'s `ScopeTenant`, `ScopeOrg`, `ScopeProject`).
 - `src/kindgi/client/_resources.py`: the resource tree, sync and async. An
   operation id `approvals.reviewers.list` becomes
   `client.approvals.reviewers.list(...)`: path parameters positional, query
   and header parameters keyword-only, a JSON body as a model or a mapping (or
   its fields as keywords), the success response parsed into its model.
+
+`scripts/model_names.json`, written beside them, holds where each model sits:
+a component's own model at the component, any other at the fields that lead
+to it from one. Generation fails when a model named after a component isn't
+generated from it, or when a name listed there would move wholly to another
+place or vanish, so no model name changes meaning without an edit to it.
 
 `--check` regenerates in a temporary directory and fails when the committed
 files differ (the drift test runs it).
@@ -25,6 +33,7 @@ files differ (the drift test runs it).
 from __future__ import annotations
 
 import argparse
+import ast
 import copy
 import json
 import keyword
@@ -36,11 +45,14 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+import inflect
+
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OPENAPI = ROOT.parent.parent / "packages" / "api" / "openapi.json"
 OUT_DIR = ROOT / "src" / "kindgi" / "client"
 MODELS = "_models.py"
 RESOURCES = "_resources.py"
+MODEL_NAMES = ROOT / "scripts" / "model_names.json"
 METHODS = ("get", "post", "put", "patch", "delete")
 
 HEADER = """# SPDX-License-Identifier: Apache-2.0
@@ -93,6 +105,10 @@ class Operation:
     response: str | None  # model class name
     response_kind: str  # json | sse | binary | empty
     status: int
+    # When the 2xx answers carry different models: each status's model
+    # class name (`secrets.rotate`: 201 sync, 202 async). Empty otherwise.
+    responses: dict[int, str] = field(default_factory=dict)
+    follow: bool = False  # a FOLLOWS method: `_follow`, not `_stream`
 
     @property
     def resource(self) -> tuple[str, ...]:
@@ -129,8 +145,10 @@ def param_annotation(doc: dict[str, Any], schema: dict[str, Any], name: str = ""
         return "Literal[" + ", ".join(json.dumps(v) for v in resolved["enum"]) + "]"
     kind = resolved.get("type")
     if kind == "array":
-        # A repeated query parameter (`segment=a&segment=b`): httpx repeats a list's key.
-        return f"list[{param_annotation(doc, resolved.get('items', {}), name)}]"
+        # A repeated query parameter (`segment=a&segment=b`): httpx repeats a list's
+        # key. One value is one too, so a parameter that took one before still does.
+        item = param_annotation(doc, resolved.get("items", {}), name)
+        return f"{item} | list[{item}]"
     if kind == "string" and (resolved.get("format") == "uuid" or ID_PARAM.search(name)):
         # An id: the models carry ids as `UUID` (`format: uuid`), so a model's
         # id passes straight back in (`client.runs.get(run.id)`); it's sent as text.
@@ -158,6 +176,54 @@ ALIASES: dict[str, tuple[str, ...]] = {
     "evalSuites.versions.unregister": ("evalSuites.unregister",),
 }
 
+# A run stream's follow method, generated beside it: the same call, through
+# to the run's terminal event. The server ends a run's stream after 5 minutes
+# while the run goes on; `_follow` reconnects after the last event. Named as
+# the Java client names them (`runs().follow`, `runs().followProgress`).
+FOLLOWS: dict[str, tuple[str, str]] = {
+    "runs.stream": ("runs.follow", "Follow a run's events to its end"),
+    "runs.progressStream": ("runs.followProgress", "Follow a run's progress to its end"),
+}
+FOLLOW_DESCRIPTION = (
+    "`{stream}`, through to the run's terminal event (`run.completed`, `run.failed` or "
+    "`run.cancelled`), each event once. The server ends a run's stream after 5 minutes "
+    "while the run goes on; this reconnects with `Last-Event-Id` and goes on. A dropped "
+    "connection, a 429 or a 502-504 is retried with backoff; any other error is raised. "
+    "Ends after the terminal event."
+)
+
+
+# Operations a patch release removed from the API: each stays a method that
+# raises, naming its replacement, until the next minor (`id: (release,
+# replacement)`). Old calls still import and fail with a clear message.
+REMOVED: dict[str, tuple[str, str]] = {
+    "proposals.draft": ("0.1.5", "proposals.create"),
+    "proposals.dryRun": ("0.1.5", "proposals.evaluate"),
+    "proposals.submitReview": ("0.1.5", "proposals.request"),
+    "proposals.apply": ("0.1.5", "proposals.request"),
+}
+
+
+def removed_stubs(node: Resource, asynchronous: bool) -> list[str]:
+    out: list[str] = []
+    for op_id, (release, replacement) in REMOVED.items():
+        *resource, method = op_id.split(".")
+        if tuple(resource) != node.path:
+            continue
+        name = snake(method)
+        message = (
+            f"{'.'.join(snake(p) for p in resource)}.{name} was removed in {release}: "
+            f"use client.{'.'.join(snake(p) for p in replacement.split('.'))}"
+        )
+        prefix = "async def" if asynchronous else "def"
+        out += [
+            "",
+            f"    {prefix} {name}(self, *args: Any, **kwargs: Any) -> NoReturn:",
+            f'        """Removed in {release}: use `client.{replacement}`."""',
+            f'        raise InvalidRequestError("{message}", issues=[])',
+        ]
+    return out
+
 
 def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]:
     doc = copy.deepcopy(source)
@@ -168,6 +234,9 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
             if op is None:
                 continue
             op_id: str = op["operationId"]
+            if op.get("x-kindgi-sender-only"):
+                # An outside sender's path (the inbound webhook receiver), not a client's.
+                continue
             params: list[Param] = []
             for raw in [*item.get("parameters", []), *op.get("parameters", [])]:
                 p = deref(doc, raw) if "$ref" in raw else raw
@@ -234,6 +303,19 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                 elif content:
                     response_kind = "binary"
                 break
+            # The client picks the model by status when the 2xx answers differ,
+            # as the Java client does; otherwise every 2xx is the first's model.
+            responses: dict[int, str] = {}
+            if response_kind == "json":
+                answers = op.get("responses", {})
+                first = answers[str(status)]["content"]["application/json"]["schema"]
+                for code, answer in sorted(answers.items()):
+                    schema = answer.get("content", {}).get("application/json", {}).get("schema")
+                    if code.startswith("2") and int(code) != status and schema not in (None, first):
+                        responses[int(code)] = hoist(doc, schema, f"{pascal(op_id)}Response{code}")
+                if responses:
+                    assert response is not None
+                    responses = {status: response, **responses}
             ops.append(
                 Operation(
                     id=op_id,
@@ -247,10 +329,27 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                     response=response,
                     response_kind=response_kind,
                     status=status,
+                    responses=responses,
                 )
             )
     ops += [replace(op, id=alias) for op in list(ops) for alias in ALIASES.get(op.id, ())]
+    ops += [
+        replace(
+            op,
+            id=FOLLOWS[op.id][0],
+            follow=True,
+            summary=FOLLOWS[op.id][1],
+            description=FOLLOW_DESCRIPTION.format(stream=snake_path(op.id)),
+        )
+        for op in list(ops)
+        if op.id in FOLLOWS
+    ]
     return doc, ops
+
+
+def snake_path(op_id: str) -> str:
+    """`runs.progressStream` → `runs.progress_stream`, as the client names it."""
+    return ".".join(snake(part) for part in op_id.split("."))
 
 
 def tree(ops: list[Operation]) -> Resource:
@@ -301,7 +400,9 @@ def signature(op: Operation, asynchronous: bool) -> str:
     if op.body_kind == "json":
         parts.append("**fields: Any")
     returns = {
-        "json": f"_models.{op.response}",
+        "json": " | ".join(f"_models.{m}" for m in dict.fromkeys(op.responses.values()))
+        if op.responses
+        else f"_models.{op.response}",
         "empty": "None",
         "binary": "bytes",
         "sse": f"{'AsyncIterator' if asynchronous else 'Iterator'}[_models.{op.response}]",
@@ -326,12 +427,15 @@ def call(op: Operation, asynchronous: bool) -> str:
     if op.body_kind == "multipart":
         args.append("files=files")
         args.append("data=data")
-    if op.response_kind in ("json", "sse"):
+    if op.responses:
+        by_status = ", ".join(f"{code}: _models.{m}" for code, m in op.responses.items())
+        args.append(f"response={{{by_status}}}")
+    elif op.response_kind in ("json", "sse"):
         args.append(f"response=_models.{op.response}")
     args.append("timeout=timeout")
     inner = ", ".join(args)
     if op.response_kind == "sse":
-        return f"        return self._client._stream({inner})"
+        return f"        return self._client._{'follow' if op.follow else 'stream'}({inner})"
     keyword_await = "await " if asynchronous else ""
     return f"        return {keyword_await}self._client._request({inner})"
 
@@ -359,6 +463,7 @@ def render_resource(node: Resource, asynchronous: bool) -> list[str]:
         )
     for op in node.operations:
         out += ["", signature(op, asynchronous), docstring(op, "        "), call(op, asynchronous)]
+    out += removed_stubs(node, asynchronous)
     return out
 
 
@@ -372,11 +477,12 @@ def render_resources(root: Resource, ops: list[Operation]) -> str:
         "from __future__ import annotations",
         "",
         "from collections.abc import AsyncIterator, Iterator, Mapping, Sequence",
-        "from typing import Any, Literal, cast",
+        "from typing import Any, Literal, NoReturn, cast",
         "from uuid import UUID",
         "",
         "from . import _models",
         "from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments",
+        "from ._errors import InvalidRequestError",
         "",
         '__all__ = ["OPERATIONS", "AsyncResources", "Resources"]',
         "",
@@ -457,7 +563,311 @@ def render_models(doc: dict[str, Any], out: Path) -> None:
         )
 
 
-def generate_into(openapi: Path, out_dir: Path) -> list[Path]:
+# ---------------------------------------------------------------------------
+# Model names
+# ---------------------------------------------------------------------------
+#
+# datamodel-code-generator names an inline object after the property that
+# holds it (an array's items in the singular), first come first served, and
+# numbers the later ones. So an inline object could take a component's name
+# (an inline `flow` took `Flow`, and the flow graph became `Flow1`), and an
+# inline object added ahead of others of its name renumbers them. Before
+# codegen, the inline objects that would take a component's name, and the
+# members of a union component with a discriminator, become components of
+# their own. After it, each component's model must be generated from that
+# component, and each model must still sit where MODEL_NAMES says it did.
+
+_inflect = inflect.engine()
+
+
+def inline_object(schema: Any) -> bool:
+    return isinstance(schema, dict) and "$ref" not in schema and bool(schema.get("properties"))
+
+
+def natural_name(prop: str, item: bool) -> str:
+    """The name codegen gives an inline object under `prop` (`item`: in an array)."""
+    if not item:
+        return pascal(prop)
+    singular = _inflect.singular_noun(prop)
+    return pascal(singular) if singular else pascal(prop) + "Item"
+
+
+def single_value(schema: Any) -> str | None:
+    if not isinstance(schema, dict):
+        return None
+    if isinstance(schema.get("const"), str):
+        return schema["const"]
+    enum = schema.get("enum")
+    if isinstance(enum, list) and len(enum) == 1 and isinstance(enum[0], str):
+        return enum[0]
+    return None
+
+
+def discriminator(members: list[Any]) -> str | None:
+    """The property each inline object member holds to its own single value."""
+    objects = [m for m in members if inline_object(m)]
+    if not objects:
+        return None
+    for prop in sorted(set.intersection(*(set(m["properties"]) for m in objects))):
+        values = [single_value(m["properties"][prop]) for m in objects]
+        if None not in values and len(set(values)) == len(values):
+            return prop
+    return None
+
+
+def name_variants(doc: dict[str, Any]) -> None:
+    """A union component's inline members, named by their discriminator (`ScopeTenant`)."""
+    components = doc["components"]["schemas"]
+    for name, schema in list(components.items()):
+        key = "oneOf" if "oneOf" in schema else "anyOf" if "anyOf" in schema else None
+        prop = discriminator(schema[key]) if key else None
+        if key is None or prop is None:
+            continue
+        for i, member in enumerate(schema[key]):
+            if not inline_object(member):
+                continue
+            value = single_value(member["properties"][prop])
+            assert value is not None
+            variant = name + pascal(value)
+            if not variant.isidentifier():
+                raise SystemExit(f"gen_client: {name}'s member {variant!r} is no Python name")
+            # Inline, a member took the union's description as its docstring.
+            if "description" not in member and "description" in schema:
+                member = {**member, "description": schema["description"]}
+            schema[key][i] = {"$ref": f"#/components/schemas/{hoist(doc, member, variant)}"}
+
+
+def name_owned(doc: dict[str, Any]) -> None:
+    """An inline object whose natural name is a component's, named after its owner too."""
+    components = doc["components"]["schemas"]
+
+    def walk(owner: str, schema: dict[str, Any]) -> None:
+        for key in ("allOf", "oneOf", "anyOf"):
+            for member in schema.get(key) or []:
+                if inline_object(member):
+                    walk(owner, member)
+        for prop, value in list((schema.get("properties") or {}).items()):
+            item = (
+                isinstance(value, dict)
+                and value.get("type") == "array"
+                and isinstance(value.get("items"), dict)
+            )
+            target = value["items"] if item else value
+            if not inline_object(target):
+                continue
+            natural = natural_name(prop, item)
+            if natural not in components:
+                walk(owner + natural, target)
+                continue
+            name = hoist(doc, target, owner + natural)
+            ref = {"$ref": f"#/components/schemas/{name}"}
+            if item:
+                value["items"] = ref
+            else:
+                # The property keeps the object's description, as its field's docstring.
+                described = target.get("description")
+                schema["properties"][prop] = {**ref, "description": described} if described else ref
+            walk(name, target)
+
+    for name in list(components):
+        walk(name, components[name])
+
+
+def wire_name(stmt: ast.AnnAssign) -> str:
+    assert isinstance(stmt.target, ast.Name)
+    for node in ast.walk(stmt.annotation):
+        if isinstance(node, ast.keyword) and node.arg == "alias":
+            assert isinstance(node.value, ast.Constant)
+            return str(node.value.value)
+    return stmt.target.id
+
+
+def model_fields(tree: ast.Module) -> dict[str, list[tuple[str, ast.expr]]]:
+    """Each model of a generated module (class or type alias): its fields' wire names and types."""
+    models: dict[str, list[tuple[str, ast.expr]]] = {}
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            models[node.name] = [
+                (wire_name(stmt), stmt.annotation)
+                for stmt in node.body
+                if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)
+            ]
+        elif (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id[:1].isupper()
+        ):
+            models[node.targets[0].id] = [("=", node.value)]
+    return models
+
+
+def literal_value(annotation: ast.expr) -> str | None:
+    """The one string a field's type allows (`Literal["ok"]`), if it allows only one."""
+    node = annotation
+    if (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "Annotated"
+        and isinstance(node.slice, ast.Tuple)
+    ):
+        node = node.slice.elts[0]
+    if (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "Literal"
+        and isinstance(node.slice, ast.Constant)
+        and isinstance(node.slice.value, str)
+    ):
+        return node.slice.value
+    return None
+
+
+def member_keys(
+    field: str,
+    names: list[str],
+    models: dict[str, list[tuple[str, ast.expr]]],
+    components: dict[str, Any],
+) -> dict[str, str]:
+    """How a field tells apart the models its type names: alone, by nothing; in a union, by
+    the value of its discriminator (`[kind=ok]`), else by their properties (`{code,kind}`).
+    A component sits at its own name, so only the other members' keys must differ."""
+    if len(names) == 1:
+        return {names[0]: ""}
+    # Each as the schema it was generated from: its properties, a `Literal` one's value.
+    members = {
+        name: {
+            "properties": {
+                wire: {"const": value} if (value := literal_value(annotation)) else {}
+                for wire, annotation in models[name]
+            }
+        }
+        for name in names
+    }
+    prop = discriminator(list(members.values()))
+    keys = {}
+    for name, member in members.items():
+        value = member["properties"].get(prop, {}).get("const") if prop else None
+        keys[name] = (
+            f"[{prop}={value}]"
+            if value is not None
+            else "{" + ",".join(sorted(member["properties"])) + "}"
+        )
+    own = [keys[name] for name in names if name not in components]
+    alike = sorted(name for name in names if name not in components and own.count(keys[name]) > 1)
+    if alike:
+        raise SystemExit(
+            f"gen_client: {field}: {', '.join(alike)} have the same properties and no"
+            " discriminator, so nothing tells their places apart. Name them in the API."
+        )
+    return keys
+
+
+def generated_from(schema: dict[str, Any], fields: list[tuple[str, ast.expr]]) -> bool:
+    """Whether a model named after a component was generated from it."""
+    # Its own properties: an `allOf`'s inline members' too (the `$ref`s are its bases).
+    own = set(schema.get("properties") or {})
+    for member in schema.get("allOf") or []:
+        if isinstance(member, dict) and "$ref" not in member:
+            own |= set(member.get("properties") or {})
+    if own:
+        return {wire for wire, _ in fields} == own
+    # Codegen collapses a union, and makes an alias or a root model of anything
+    # else that isn't an object: none has fields of its own.
+    return all(wire in ("=", "root") for wire, _ in fields)
+
+
+def model_locations(doc: dict[str, Any], tree: ast.Module) -> dict[str, list[str]]:
+    """Where each model sits. A component's own model sits at its name; any other at each chain
+    of fields from one, a field by its wire name and, in a union, by its member
+    (`member_keys`): `JudgedComparisonResult.cases.tool`, `CompleteApprovalResult.resume[kind=ok]`.
+    """
+    models = model_fields(tree)
+    components = doc["components"]["schemas"]
+    wrong = sorted(
+        name
+        for name in models
+        if name in components and not generated_from(components[name], models[name])
+    )
+    if wrong:
+        raise SystemExit(
+            f"gen_client: {', '.join(wrong)} not generated from the component of that name: an"
+            " inline object took the name. Name the object here (name_owned) or in the API."
+        )
+    parents: dict[str, list[tuple[str, str]]] = {}
+    for owner, fields in models.items():
+        for wire, annotation in fields:
+            named = sorted(
+                {n.id for n in ast.walk(annotation) if isinstance(n, ast.Name) and n.id in models}
+            )
+            if not named:
+                continue
+            keys = member_keys(f"{owner}.{wire}", named, models, components)
+            for name in named:
+                parents.setdefault(name, []).append((owner, f"{wire}{keys[name]}"))
+
+    found: dict[str, set[str]] = {}
+
+    def chains(name: str, seen: frozenset[str]) -> set[str]:
+        if name in components:
+            return {name}
+        if name not in found:
+            found[name] = {
+                f"{chain}.{step}"
+                for owner, step in parents.get(name, [])
+                if owner not in seen
+                for chain in chains(owner, seen | {name})
+            }
+        return found[name]
+
+    locations = {name: sorted(chains(name, frozenset())) for name in models}
+    unplaced = sorted(name for name, at in locations.items() if not at)
+    if unplaced:
+        raise SystemExit(f"gen_client: no component leads to {', '.join(unplaced)}")
+    return locations
+
+
+def check_model_names(locations: dict[str, list[str]], pinned: dict[str, list[str]]) -> None:
+    """A pinned model name may gain or lose places, but never move wholly or vanish."""
+    gone = sorted(set(pinned) - set(locations))
+    moved = sorted(
+        name
+        for name in pinned
+        if name in locations and not set(pinned[name]) & set(locations[name])
+    )
+    if not gone and not moved:
+        return
+    lines = [f"  {name}: gone, was at {', '.join(pinned[name])}" for name in gone]
+    lines += [
+        f"  {name}: was at {', '.join(pinned[name])}, now at {', '.join(locations[name])}"
+        for name in moved
+    ]
+    raise SystemExit(
+        "gen_client: these model names would change meaning:\n"
+        + "\n".join(lines)
+        + "\nA name moves when a new inline object takes it, or its number, first. A union's member"
+        " moves when its discriminator's value changes or, in a union without one, when it gains"
+        " or loses a property. Check what each name names now. Where it's still the same model,"
+        f" edit its line in {MODEL_NAMES.relative_to(ROOT)}. Where it's another, name the new"
+        " object in the API, or, when the rename is meant, list it in CHANGELOG.md and edit the"
+        " line."
+    )
+
+
+def render_model_names(locations: dict[str, list[str]]) -> str:
+    """As the repository's JSON formatter lays it out: a list on one line when it fits in 100."""
+    rows = []
+    for name, at in sorted(locations.items()):
+        row = f"  {json.dumps(name)}: {json.dumps(at)}"
+        if len(row) + 1 > 100:
+            items = ",\n".join(f"    {json.dumps(a)}" for a in at)
+            row = f"  {json.dumps(name)}: [\n{items}\n  ]"
+        rows.append(row)
+    return "{\n" + ",\n".join(rows) + "\n}\n"
+
+
+def generate_into(openapi: Path, out_dir: Path, names: Path = MODEL_NAMES) -> dict[Path, Path]:
+    """Generate into `out_dir`; each written file by the committed file it stands for."""
     source = json.loads(openapi.read_text("utf-8"))
     doc, ops = operations(source)
     seen: set[str] = set()
@@ -465,9 +875,15 @@ def generate_into(openapi: Path, out_dir: Path) -> list[Path]:
         if op.id in seen:
             raise SystemExit(f"gen_client: duplicate operationId {op.id}")
         seen.add(op.id)
+    name_variants(doc)
+    name_owned(doc)
     out_dir.mkdir(parents=True, exist_ok=True)
     models = out_dir / MODELS
     render_models(doc, models)
+    locations = model_locations(doc, ast.parse(models.read_text("utf-8")))
+    check_model_names(locations, json.loads(names.read_text("utf-8")) if names.is_file() else {})
+    pins = out_dir / names.name
+    pins.write_text(render_model_names(locations), "utf-8")
     resources = out_dir / RESOURCES
     resources.write_text(render_resources(tree(ops), ops), "utf-8")
     files = [models, resources]
@@ -479,7 +895,7 @@ def generate_into(openapi: Path, out_dir: Path) -> list[Path]:
         cwd=ROOT,
     )
     subprocess.run([str(ruff), "format", "--quiet", *map(str, files)], check=True, cwd=ROOT)
-    return files
+    return {OUT_DIR / MODELS: models, OUT_DIR / RESOURCES: resources, names: pins}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -487,17 +903,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--openapi", type=Path, default=DEFAULT_OPENAPI)
     parser.add_argument("--check", action="store_true", help="fail when the committed files differ")
     args = parser.parse_args(argv)
-    if not args.check:
-        for path in generate_into(args.openapi, OUT_DIR):
-            print(f"wrote {path.relative_to(ROOT)}")
-        return 0
     # Under ROOT, so ruff finds this project's line length, as it does in OUT_DIR.
     with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-        stale = []
-        for path in generate_into(args.openapi, Path(tmp)):
-            committed = OUT_DIR / path.name
-            if not committed.is_file() or committed.read_text("utf-8") != path.read_text("utf-8"):
-                stale.append(path.name)
+        files = generate_into(args.openapi, Path(tmp))
+        if not args.check:
+            for committed, path in files.items():
+                committed.write_text(path.read_text("utf-8"), "utf-8")
+                print(f"wrote {committed.relative_to(ROOT)}")
+            return 0
+        stale = [
+            committed.name
+            for committed, path in files.items()
+            if not committed.is_file() or committed.read_text("utf-8") != path.read_text("utf-8")
+        ]
         if stale:
             print(
                 f"stale: {', '.join(stale)} — run `uv run python scripts/gen_client.py`",

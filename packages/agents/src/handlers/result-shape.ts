@@ -5,7 +5,12 @@ import type { EvaluationResult } from '@kindgi/guardrails';
 import type { Provenance } from '@kindgi/provenance';
 import type { RunId } from '@kindgi/types';
 
-import type { ConversationId, ConversationMessage, RetrievedFact } from '../types.js';
+import type {
+  ConversationId,
+  ConversationMessage,
+  RecalledMemory,
+  RetrievedFact,
+} from '../types.js';
 
 import type { ReplayTurnReport } from './replay.js';
 
@@ -31,11 +36,18 @@ export interface AgentTurnUsage {
  */
 export interface AgentTurnWarning {
   /**
-   * `fallback-provider`: a fallback provider answered. Any other code is a
-   * provider's own warning about its answers (`ModelCallResult.warnings`),
-   * such as dev-echo's `dev-echo-not-a-model`.
+   * `fallback-provider`: a fallback provider answered.
+   * `memory-needs-participant`: the agent keeps memory per end user
+   * (`same-user`), but the run named none (`participantId`), so it read and
+   * kept none.
+   * Any other code is a provider's own warning about its answers
+   * (`ModelCallResult.warnings`), such as dev-echo's `dev-echo-not-a-model`.
    */
-  readonly code: 'fallback-provider' | 'dev-echo-not-a-model' | (string & {});
+  readonly code:
+    | 'fallback-provider'
+    | 'memory-needs-participant'
+    | 'dev-echo-not-a-model'
+    | (string & {});
   readonly message: string;
 }
 
@@ -47,6 +59,8 @@ export interface AgentTurnResult {
   readonly appended: readonly ConversationMessage[];
   readonly response: ConversationMessage;
   readonly retrieved: readonly RetrievedFact[];
+  /** Messages of earlier conversations the turn recalled (intents over conversations). */
+  readonly recalled?: readonly RecalledMemory[];
   readonly violations: readonly EvaluationResult[];
   readonly usage: AgentTurnUsage;
   readonly provider: { readonly id: string; readonly model: string };

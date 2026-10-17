@@ -1,22 +1,32 @@
 ---
 title: Webhooks
-description: Get a signed run.finished request when a run ends, verify it in your app, and test and replay deliveries.
+description: Webhooks both ways. Get a signed run.finished request when a run ends; and start runs from signed webhooks that WooCommerce, Drupal or any sender posts to Kindgi.
 sidebar:
   order: 0
   label: Overview
 ---
 
-Instead of polling a run, let Kindgi tell your app when it ends. Register a
+Webhooks go both ways, and the two don't share a setup.
+
+**Kindgi starts runs from your systems' webhooks.** Register a **webhook
+trigger**, and a signed request from WooCommerce, Drupal's Webhooks module,
+GitHub, Shopify or any Standard Webhooks sender starts a run of your flow:
+[Start runs from WooCommerce, Drupal or any signed
+webhook](start-runs-from-webhooks/).
+
+**Kindgi tells your app when a run ends.** Instead of polling a run, register a
 **webhook endpoint**, a URL in your app, and Kindgi sends it a signed
 `run.finished` request each time a run you started completes, fails or is
 cancelled.
 
-- [Get a webhook when a run finishes](receive-run-finished/): the signing
-  secret, registering the endpoint, and what each request carries.
+- [Get a webhook when a run finishes](receive-run-finished/): store the
+  signing secret, register the endpoint, and answer each request.
 - [Verify a webhook](verify-a-webhook/): check the signature in TypeScript
   or Python, and deduplicate retries.
 - [Test and replay deliveries](test-and-replay/): send a test event, see
   what was delivered, and send a failed delivery again.
+- [Webhook events and deliveries](webhook-events/): every event and what it
+  carries, how deliveries are retried, and the console's Webhooks page.
 
 Requests are signed in the [Standard Webhooks](https://www.standardwebhooks.com)
 format, so a receiver in another language can use any Standard Webhooks

@@ -16,11 +16,17 @@ export type {
   RunSnapshotRecord,
   RunSnapshotWriteInput,
 } from './run-snapshot-binding.js';
+export { DRAFTED_TEMPLATE_MAX, checkDraftedTemplate } from './drafted-template.js';
+export type { DraftedTemplateContext } from './drafted-template.js';
+export { templateProblem } from './liquid.js';
 export { defineAgent } from './define.js';
 export {
   BLOCK_KINDS,
   MODEL_SETTINGS_SCHEMA,
+  TUNABLE_MARKER,
+  modelSettingsIssues,
   settingsSchemaIssues,
+  tunableKeys,
   validateBlock,
 } from './blocks.js';
 export type {
@@ -32,24 +38,28 @@ export type {
   ModelSettings,
   PromptBlockContent,
   SettingsBlockContent,
+  TunableKey,
 } from './blocks.js';
 export type { DefineAgentSpec } from './define.js';
 export { resolveEffectiveHitlPolicy } from './hitl-policy.js';
 export {
   AGENT_GATE_SUBJECTS,
+  APPROVAL_WITHDRAWN_REASON,
   SESSION_GATE_SUBJECT,
   TOOL_CALL_GATE_SUBJECT,
   readGateDecision,
+  withdrawnGateFailure,
 } from './handlers/gate-decision.js';
 export type { GateDecision, GateDecisionValue } from './handlers/gate-decision.js';
 export type { EffectiveHitlPolicy } from './hitl-policy.js';
 export { agentStepOutput, invokeAgent, resumeAgentTurn } from './invoke.js';
 export { parseFailureMessage, turnFailureMessage } from './handlers/errors.js';
-export { isReadOnlyTool } from './handlers/replay.js';
+export { isComputeOnlyTool, isReadOnlyTool } from './handlers/replay.js';
 export { SESSION_GATE_RECORD } from './handlers/setup.js';
 export type {
   ReplayApproval,
   ReplayBinding,
+  ReplayOverrides,
   ReplayToolDecision,
   ReplayToolInput,
   ReplayToolTrace,
@@ -65,13 +75,20 @@ export type {
   BudgetExceededError,
   CapabilityRoutingError,
   InvokeAgentBindings,
+  ToolCallAuthorization,
   InvokeAgentError,
   InvokeAgentInput,
   ModelInvocationError,
   OutputSchemaViolationError,
+  RateLimitExceededError,
   ResumeAgentTurnInput,
   RunSnapshotError,
+  SemanticUnavailableError,
+  ApprovalsPendingLimitError,
   ToolInvocationError,
+  TurnMemoryBinding,
+  TurnMemoryCharge,
+  TurnMemoryLimitReachedError,
   UnresolvedToolError,
 } from './invoke.js';
 export {
@@ -92,6 +109,7 @@ export { persistProvenance } from './provenance-emit.js';
 export type { ProvenanceBindings } from './provenance-emit.js';
 export type {
   AgentMessageEvent,
+  GuardrailErrorEvent,
   GuardrailViolatedEvent,
   ModelCallCompletedEvent,
   ModelCallStartedEvent,
@@ -106,13 +124,40 @@ export type {
   TurnStartedEvent,
 } from './streaming.js';
 export { AUTO_INJECTED_VARS, renderInstructions } from './prompt.js';
-export { formatRetrievedForPrompt, runRetrievals } from './retrieval.js';
+export { TemplateRenderBudgetError } from './render-budget.js';
+export { TemplateRenderError } from './template-renderer.js';
+export type {
+  TemplateRenderErrorInit,
+  TemplateRenderInput,
+  TemplateRenderer,
+} from './template-renderer.js';
+export {
+  EARLIER_ANSWER_NOTE,
+  MEMORY_DATA_RULE,
+  RECALL_DEFAULT_ROLES,
+  formatPoliciesForPrompt,
+  formatRetrievedForPrompt,
+  isPolicyFact,
+  retrieveForTurn,
+  runMemoryReaders,
+  runRetrievals,
+} from './retrieval.js';
+export type { DegradedIntent, RetrievalPass, RetrievalRun } from './retrieval.js';
+export {
+  DEFAULT_REMEMBER_DAYS,
+  MAX_REMEMBER_DAYS,
+  REMEMBER_TOOL_ID,
+  REMEMBER_TOOL_VERSION,
+  looksLikeInstruction,
+} from './remember.js';
+export type { RememberToolOutput } from './handlers/remember-tool.js';
 export type { RetrievalBindings } from './retrieval.js';
 export type {
   MissingParameterError,
   PromptRenderError,
   RenderContext,
   RenderFailureError,
+  RenderInstructionsResult,
   RenderResult,
 } from './prompt.js';
 export { pinChanges, pinsDigest } from './pins.js';
@@ -140,6 +185,7 @@ export type {
   Agent,
   AgentBindings,
   AgentId,
+  AgentMemoryPolicy,
   AgentOutputSpec,
   BlockRef,
   Conversation,
@@ -149,6 +195,9 @@ export type {
   MessageRole,
   PromptParameter,
   PromptRef,
+  RecalledMemory,
+  RememberPolicy,
+  RememberScope,
   RetrievalIntent,
   RetrievedFact,
   ToolRef,
@@ -174,7 +223,6 @@ export type {
   MalformedEnvelopeError,
   UnsupportedPayloadVersionError,
 } from './versioning.js';
-export { AGENTS_MIGRATIONS_DIR } from './migrations-dir.js';
 
 // ============ Built-in agent-turn flow ============
 // The flow every agent turn runs on, plus its node IDs — the same IDs

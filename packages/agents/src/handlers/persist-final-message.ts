@@ -11,6 +11,7 @@ import type { ConversationMessage } from '../types.js';
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
 import { finalIteration } from './final-iteration.js';
+import { recallOf } from './history.js';
 
 /**
  * Persist the turn's terminal assistant message (non-intermediate —
@@ -47,6 +48,7 @@ export function buildPersistFinalMessageHandler(ctx: TurnContext): NodeHandler {
         role: 'agent',
         content: assistantMsg.content ?? '',
         actor: ctx.input.agent.id,
+        recall: recallOf(ctx),
       });
       if (persist.kind === 'err') throwAgentTurnFailure(persist.error);
       finalMessage = persist.value;

@@ -20,6 +20,7 @@ import type {
   StartRunError,
   StartRunParams,
 } from './inputs.js';
+import type { FailureGroups, FailureGroupsInput } from './run-failures.js';
 import type { KernelRunRecord, ListRunsInput, ListRunsPage } from './runs.js';
 import type { TriggerRegistryBinding } from './schedulers/registry.js';
 import type { JournalEntry, RunResult } from './types.js';
@@ -106,7 +107,16 @@ export interface RunBinding {
    * `wait: false` answering `202`, subgraph child dispatch); the run
    * is then executed with `runGraph({ ..., runId })`.
    */
-  startRun(params: StartRunParams): Promise<Result<{ readonly runId: RunId }, StartRunError>>;
+  startRun(params: StartRunParams): Promise<
+    Result<
+      {
+        readonly runId: RunId;
+        /** Set when `params.idempotencyKey` named a run that already exists: nothing new started. */
+        readonly existing?: true;
+      },
+      StartRunError
+    >
+  >;
 
   /**
    * Delete a run + its journal + waitpoints. Retention path;
@@ -132,6 +142,15 @@ export interface RunBinding {
    * one agent's turns (`KernelRunRecord.agent`).
    */
   listRuns(input: ListRunsInput): Promise<ListRunsPage>;
+
+  /**
+   * A project's failed runs over a window, grouped by cause (`failure.code`)
+   * and version: counts, first and last seen, and the latest run of each
+   * group. Replays, eval runs' runs and dry runs aren't counted; a child
+   * run counts under its own agent or flow. Optional: without it, the
+   * failures route answers `run-failures-not-supported`.
+   */
+  failureGroups?(input: FailureGroupsInput): Promise<FailureGroups>;
 }
 
 /**
@@ -149,14 +168,6 @@ export interface SchedulerBinding {
 
   /** Start the event-trigger scheduler process. */
   startEventTriggerScheduler(options: EventTriggerSchedulerOptions): EventTriggerSchedulerHandle;
-
-  /**
-   * Fire a specific webhook trigger by its webhookId. Called by a
-   * webhook receiver AFTER it has verified the request's HMAC
-   * signature. The scheduler resolves the trigger, dispatches the
-   * flow, and journals the fire.
-   */
-  fireByWebhookId(input: FireByWebhookIdInput): Promise<Result<{ readonly runId: RunId }, unknown>>;
 
   /**
    * Compute the initial `nextFireAt` for a cron config. Called at
@@ -186,13 +197,6 @@ export interface EventTriggerSchedulerOptions {
 
 export interface EventTriggerSchedulerHandle {
   stop(): Promise<void>;
-}
-
-export interface FireByWebhookIdInput {
-  readonly tenantId: TenantId;
-  readonly webhookId: string;
-  readonly runFlowBinding: unknown;
-  readonly requestBody: unknown;
 }
 
 /**

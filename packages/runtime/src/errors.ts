@@ -10,7 +10,8 @@ export type KernelError =
   | WaitpointError
   | HandlerMissingError
   | StuckRunError
-  | RunLeaseLostError;
+  | RunLeaseLostError
+  | RunExecutingError;
 
 export interface RunNotFoundError {
   readonly code: 'run-not-found';
@@ -87,6 +88,17 @@ export interface StuckRunError {
  */
 export interface RunLeaseLostError {
   readonly code: 'run-lease-lost';
+  readonly message: string;
+  readonly runId: string;
+}
+
+/**
+ * The run is executing (an executor holds its lease), and the caller asked
+ * to end it only if it isn't: an erasure cancels a person's waiting turn,
+ * never one under a live executor, and tries again later.
+ */
+export interface RunExecutingError {
+  readonly code: 'run-executing';
   readonly message: string;
   readonly runId: string;
 }

@@ -1,0 +1,29 @@
+{
+  "description": "A signed export (an audit bundle) signed with ecdsa-p256-sha256. \"valid\" checks out against \"publicKeyPem\"; \"tampered\" changed one byte of the bundle and must fail.",
+  "algorithm": "ecdsa-p256-sha256",
+  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXSMY38HR/vZgqsd9R2OPPMO1DfwC\nLoEHSSlI9nVFat5K8kmrIHIaix0KlpiOQHJ4094yY968Wz7c9bsu4jeGPQ==\n-----END PUBLIC KEY-----\n",
+  "valid": {
+    "approvalId": "0b6e3c1e-2f4f-4a51-9d0e-7a1f2c3d4e5f",
+    "kind": "audit-bundle",
+    "bundle": "eyJhcHByb3ZhbElkIjoiMGI2ZTNjMWUtMmY0Zi00YTUxLTlkMGUtN2ExZjJjM2Q0ZTVmIiwiYnVuZGxlU2NoZW1hVmVyc2lvbiI6IjIuMC4wIiwiZGVjaXNpb24iOnsiZGVjaWRlZEF0IjoiMjAyNi0xMC0wN1QxMTo1OTowMC4wMDBaIiwiZGVjaXNpb24iOiJyZWplY3QiLCJyZXZpZXdlcklkIjoicmV2LTEifSwiZXhwb3J0ZWRBdCI6IjIwMjYtMTAtMDdUMTI6MDA6MDAuMDAwWiJ9",
+    "bundleSchemaVersion": "2.0.0",
+    "algorithm": "ecdsa-p256-sha256",
+    "signingKeyId": "ex_sD1K1gmwO-S3BJxR",
+    "signature": "k2iNRtXxE31ctj0xbvRYuAmFMHVXCIWl0W+mMFLGBXXvGFnTJVSmUS5EelSTW+AQ2Lt1jzO0VWVgTyJTI5TlTQ==",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXSMY38HR/vZgqsd9R2OPPMO1DfwC\nLoEHSSlI9nVFat5K8kmrIHIaix0KlpiOQHJ4094yY968Wz7c9bsu4jeGPQ==\n-----END PUBLIC KEY-----\n",
+    "canonicalization": "sorted-key-json",
+    "exportedAt": "2026-10-07T12:00:00.000Z"
+  },
+  "tampered": {
+    "approvalId": "0b6e3c1e-2f4f-4a51-9d0e-7a1f2c3d4e5f",
+    "kind": "audit-bundle",
+    "bundle": "eyJhcHByb3ZhbElkIjoiMGI2ZTNjMWUtMmY0Zi00YTUxLTlkMGUtN2ExZjJjM2Q0ZTVmIiwiYnVuZGxlU2NoZW1hVmVyc2lvbiI6IjIuMC4wIiwiZGVjaXNpb24iOnsiZGVjaWRlZEF0IjoiMjAyNi0xMC0wN1QxMTo1OTowMC4wMDBaIiwiZGVjaXNpb24iOiJSZWplY3QiLCJyZXZpZXdlcklkIjoicmV2LTEifSwiZXhwb3J0ZWRBdCI6IjIwMjYtMTAtMDdUMTI6MDA6MDAuMDAwWiJ9",
+    "bundleSchemaVersion": "2.0.0",
+    "algorithm": "ecdsa-p256-sha256",
+    "signingKeyId": "ex_sD1K1gmwO-S3BJxR",
+    "signature": "k2iNRtXxE31ctj0xbvRYuAmFMHVXCIWl0W+mMFLGBXXvGFnTJVSmUS5EelSTW+AQ2Lt1jzO0VWVgTyJTI5TlTQ==",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXSMY38HR/vZgqsd9R2OPPMO1DfwC\nLoEHSSlI9nVFat5K8kmrIHIaix0KlpiOQHJ4094yY968Wz7c9bsu4jeGPQ==\n-----END PUBLIC KEY-----\n",
+    "canonicalization": "sorted-key-json",
+    "exportedAt": "2026-10-07T12:00:00.000Z"
+  }
+}

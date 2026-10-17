@@ -42,7 +42,7 @@ Schemas reference each other by `$id` (e.g. `pack.schema.json` →
 | Schema | Purpose |
 |---|---|
 | `agent.schema.json` | Agent — instructions + capabilities + tools + memory, declaratively composed |
-| `audit-bundle.schema.json` | HITL audit bundle — signed export of approvals + decisions + provenance refs |
+| `audit-bundle.schema.json` | Audit bundle — the signed body of an approval's audit bundle: who decided, when, why, and the evidence |
 | `capability.schema.json` | Capability declaration — model requirements as constraints |
 | `compliance-evidence.schema.json` | Compliance evidence record emitted by the runtime |
 | `discoverable.schema.json` | Discoverable entity marker — cross-history retrieval |
@@ -57,6 +57,7 @@ Schemas reference each other by `$id` (e.g. `pack.schema.json` →
 | `policy.schema.json` | Tenant policy — access control and scope rules |
 | `provenance.schema.json` | Causal DAG — signed, portable, verifiable outside the runtime |
 | `run-event.schema.json` | Kernel run lifecycle events (SSE stream) |
+| `signed-export.schema.json` | Signed export — the envelope of every signed export (audit bundle, provenance, compliance evidence): the signed bytes, the signature, the key |
 | `tool.schema.json` | Tool definition — MCP-compatible, transport-agnostic |
 
 ## Rules

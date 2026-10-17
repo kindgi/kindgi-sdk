@@ -13,12 +13,16 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
+import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
+import { createLogger } from '@kindgi/log';
 import type { OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
+import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -50,8 +54,10 @@ function decision(authz: Authz, action: Action, resource: ResourceRef): Decision
 
 function harness(authz?: Authz) {
   const binding = inMemoryBlocks([projectA, projectB], { [projectA]: orgA });
+  const logLines: string[] = [];
   const app = createApp({
     ...createStubAppBindings(),
+    logger: createLogger({ write: (line) => logLines.push(line) }),
     resolveToken,
     runHandler: {} as RunHandlerBinding,
     blockRegistry: binding,
@@ -75,9 +81,15 @@ function harness(authz?: Authz) {
       },
       ...(body !== undefined && { body: JSON.stringify(body) }),
     });
-    return { status: res.status, body: (await res.json()) as Record<string, any> };
+    const text = await res.text();
+    return {
+      status: res.status,
+      headers: res.headers,
+      text,
+      body: JSON.parse(text) as Record<string, any>,
+    };
   };
-  return { call, binding };
+  return { call, binding, logLines };
 }
 
 const prompt = (version: string, template = 'Sort the request for {{ firm }}.') => ({
@@ -152,6 +164,22 @@ describe('/v1/blocks: publish and read', () => {
       '/version',
       '/content/template',
     ]);
+  });
+
+  test('a template with a partial is refused, and nothing is stored', async () => {
+    const { call } = harness();
+    const bad = await call('POST', '/v1/blocks', {
+      projectId: projectA,
+      id: 'acme.intake-prompt',
+      version: '1.0.0',
+      kind: 'prompt',
+      content: { template: "Sort the request. {% render 'package.json' %}" },
+    });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error.details.issues).toEqual([
+      { path: '/content/template', message: "templates can't use include, render or layout" },
+    ]);
+    expect((await call('GET', '/v1/blocks/acme.intake-prompt')).status).toBe(404);
   });
 
   test("settings values must satisfy their schema, and the latest version's", async () => {
@@ -252,6 +280,20 @@ describe('/v1/blocks: publish and read', () => {
     expect(moved.body.error.code).toBe('block-project-mismatch');
   });
 
+  test("another project's block: 409, and the answer doesn't name the project it belongs to (the log does)", async () => {
+    const { call, logLines } = harness();
+    expect((await call('POST', '/v1/blocks', prompt('1.0.0'))).status).toBe(201);
+    const moved = await call('POST', '/v1/blocks', { ...prompt('2.0.0'), projectId: projectB });
+    expect(moved.status).toBe(409);
+    expect(moved.body.error.code).toBe('block-project-mismatch');
+    expect(moved.body.error.message).toBe(
+      'Block "acme.intake-prompt" belongs to another project; publish its versions there',
+    );
+    expect(moved.body.error.details).toEqual({ blockId: 'acme.intake-prompt' });
+    expect(moved.text).not.toContain(projectA);
+    expect(logLines.some((l) => l.includes(`"ownerProjectId":"${projectA}"`))).toBe(true);
+  });
+
   test('unregister is soft: GET still reads the version, with unregisteredAt; reinstate brings it back', async () => {
     const { call } = harness();
     await call('POST', '/v1/blocks', prompt('1.0.0'));
@@ -269,6 +311,53 @@ describe('/v1/blocks: publish and read', () => {
       wasTombstoned: true,
     });
     expect((await call('GET', '/v1/blocks/acme.intake-prompt')).body.version).toBe('1.1.0');
+  });
+
+  test("its schema's compile counts against the tenant's budget, the first one included: refused, nothing is stored", async () => {
+    const { call } = harness();
+    const publish = () =>
+      call('POST', '/v1/blocks', weights('1.0.0', { recency: 0.3, relevance: 0.7 }, weightsSchema));
+    const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
+    try {
+      await expectCompileBudgetRefused(await publish());
+      expect((await call('GET', '/v1/blocks')).body.data).toEqual([]);
+    } finally {
+      restore();
+    }
+    expect((await publish()).status).toBe(201);
+  });
+});
+
+describe('/v1/blocks/{id}/versions: the cursor is checked', () => {
+  const enc = (v: string) => Buffer.from(v, 'utf8').toString('base64url');
+  test.each([
+    [
+      'a position',
+      enc(
+        JSON.stringify({
+          p: '2026-10-09 12:00:00.123456+00',
+          i: '6f1c2a4e-3b5d-4c7e-8f90-1a2b3c4d5e6f',
+        }),
+      ),
+    ],
+    ['a bare time, from before', enc('2026-10-09T12:00:00.123Z')],
+  ])('%s: answered', async (_name, cursor) => {
+    const { call } = harness();
+    expect((await call('POST', '/v1/blocks', prompt('1.0.0'))).status).toBe(201);
+    const res = await call('GET', `/v1/blocks/acme.intake-prompt/versions?cursor=${cursor}`);
+    expect(res.status).toBe(200);
+  });
+
+  test.each([
+    ['not base64 of anything', 'not-a-cursor'],
+    ['a position whose time and id are not', enc(JSON.stringify({ p: 'x', i: 'y' }))],
+    ['broken JSON', enc('{"p":')],
+  ])('%s: 400 bad-input, never the first page again', async (_name, cursor) => {
+    const { call } = harness();
+    expect((await call('POST', '/v1/blocks', prompt('1.0.0'))).status).toBe(201);
+    const res = await call('GET', `/v1/blocks/acme.intake-prompt/versions?cursor=${cursor}`);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('bad-input');
   });
 });
 

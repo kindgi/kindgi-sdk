@@ -5,7 +5,7 @@
  * SSE (Server-Sent Events) streaming primitive.
  *
  * Streaming is pull-model: a streaming resource method (for example
- * `client.runs.stream(runId)`) returns an `AsyncIterable` over SSE
+ * `client.runs.follow(runId)`) returns an `AsyncIterable` over SSE
  * events. No closure is passed by the client; the closure is on the
  * server. SSE serves browsers and non-bidirectional consumers
  * (universal support, simpler than WebSocket); the reader retries with
@@ -135,7 +135,7 @@ export interface SseEvent<T> {
  * Adapt a `readSse` iterable (frames with SSE envelope) into a bare
  * data-only iterable. Callers that don't need the SSE `event:` name or
  * `id:` field use this to expose a clean typed data stream — the SDK's
- * streaming resource methods (`runs.stream`, `evalRuns.events`,
+ * streaming resource methods (`runs.follow`, `evalRuns.events`,
  * `adapters.prepare`, the secrets rotation event stream) all go through
  * this shim.
  *

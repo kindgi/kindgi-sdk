@@ -1,0 +1,13 @@
+target/
+project/target/
+project/project/
+.bsp/
+.metals/
+.bloop/
+.kindgi/
+.kindgirc.json
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/

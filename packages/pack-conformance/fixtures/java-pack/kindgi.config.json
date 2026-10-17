@@ -1,0 +1,8 @@
+{
+  "$comment": "The conformance fixture pack (see ../../FIXTURE.md), in Java.",
+  "language": "java",
+  "pack": {
+    "id": "conformance",
+    "version": "1.0.0"
+  }
+}

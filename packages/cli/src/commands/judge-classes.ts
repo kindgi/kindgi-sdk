@@ -4,6 +4,7 @@
 import type { JudgeClassAssertableBy, JudgeClassScope } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import { integerFlag, listFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -22,16 +23,16 @@ function scopeFromFlags(ctx: CommandContext, required: boolean): JudgeClassScope
   const projectId = stringFlag(ctx, 'project');
   const agentId = stringFlag(ctx, 'agent');
   if (tenant && (projectId !== undefined || agentId !== undefined)) {
-    throw new Error('--tenant cannot be combined with --project or --agent');
+    throw new UsageError('--tenant cannot be combined with --project or --agent');
   }
   if (tenant) return { kind: 'tenant' };
   if (agentId !== undefined) {
-    if (projectId === undefined) throw new Error('--agent needs --project');
+    if (projectId === undefined) throw new UsageError('--agent needs --project');
     return { kind: 'agent', projectId, agentId };
   }
   if (projectId !== undefined) return { kind: 'project', projectId };
   if (required)
-    throw new Error('Give a scope: --tenant, --project=<id>, or --agent=<id> --project=<id>');
+    throw new UsageError('Give a scope: --tenant, --project=<id>, or --agent=<id> --project=<id>');
   return undefined;
 }
 
@@ -65,14 +66,14 @@ const ASSERTABLE_USAGE =
 function assertableByFromFlags(ctx: CommandContext): JudgeClassAssertableBy | undefined {
   const role = stringFlag(ctx, 'min-reviewer-role');
   if (role !== undefined && !(REVIEWER_ROLES as readonly string[]).includes(role)) {
-    throw new Error(
+    throw new UsageError(
       `--min-reviewer-role must be one of ${REVIEWER_ROLES.join(', ')}, got "${role}"`,
     );
   }
   const kinds = listFlag(ctx, 'principal-kind');
   for (const kind of kinds) {
     if (!(PRINCIPAL_KINDS as readonly string[]).includes(kind)) {
-      throw new Error(`--principal-kind must be user or service, got "${kind}"`);
+      throw new UsageError(`--principal-kind must be user or service, got "${kind}"`);
     }
   }
   const ids = listFlag(ctx, 'principal-id');
@@ -91,7 +92,7 @@ function weightFlag(ctx: CommandContext): number | undefined {
   if (raw === undefined) return undefined;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0)
-    throw new Error(`--weight must be a number of 0 or more, got '${raw}'`);
+    throw new UsageError(`--weight must be a number of 0 or more, got '${raw}'`);
   return n;
 }
 
@@ -141,9 +142,9 @@ const add: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'judge-classes add', async () => {
       const name = stringFlag(ctx, 'name');
-      if (name === undefined) throw new Error('--name=<name> is required');
+      if (name === undefined) throw new UsageError('--name=<name> is required');
       const weight = weightFlag(ctx);
-      if (weight === undefined) throw new Error('--weight=<w> is required');
+      if (weight === undefined) throw new UsageError('--weight=<w> is required');
       const scope = scopeFromFlags(ctx, true) as JudgeClassScope;
       const description = stringFlag(ctx, 'description');
       const assertableBy = assertableByFromFlags(ctx);
@@ -180,11 +181,11 @@ const set: LeafCommand = {
       const restricted = assertableByFromFlags(ctx);
       const unrestricted = ctx.options.unrestricted === true;
       if (restricted !== undefined && unrestricted) {
-        throw new Error('--unrestricted cannot be combined with the restriction flags');
+        throw new UsageError('--unrestricted cannot be combined with the restriction flags');
       }
       const assertableBy = unrestricted ? null : restricted;
       if (weight === undefined && description === undefined && assertableBy === undefined) {
-        throw new Error('Give --weight, --description, a restriction flag, or --unrestricted');
+        throw new UsageError('Give --weight, --description, a restriction flag, or --unrestricted');
       }
       return await ctx.client().judgeClasses.update(id, {
         ...(weight !== undefined && { weight }),

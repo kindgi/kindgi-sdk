@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Literal, cast
 
+from ..log import Logger, noop_logger
+
 __all__ = ["CallCancelled", "CancelReason", "Cancellation", "ToolContext"]
 
 CancelReason = Literal["deadline-exceeded", "cancelled"]
@@ -93,7 +95,8 @@ class ToolContext:
     run_id: str
     """The kernel run this call belongs to (an agent turn or a flow step)."""
     request_id: str | None = None
-    """This call — e.g. the model's tool-call id. Useful for logs and idempotency."""
+    """This call — e.g. the model's tool-call id. Useful for logs; to dedupe a side effect, use
+    `idempotency_key` (a model's call id is only unique within one of its answers)."""
     project_id: str | None = None
     """The run's project. The runtime sets it from the run, never from the run's input or a
     model's arguments, so a tool can check an id in its input against it."""
@@ -101,17 +104,35 @@ class ToolContext:
     """The project's org, when it belongs to one: set by the runtime from the project, never
     from input. `None` when the project has no org."""
     env: Mapping[str, Any] = field(default_factory=_empty)
-    """Environment the runtime resolves for the call — none yet (empty): read `os.environ`."""
-    secrets: Mapping[str, Any] = field(default_factory=_empty)
-    """The secrets the tool declares (`needs_spec["secrets"]`), resolved for this call's tenant."""
+    """The env values the tool declares (`needs_spec["env"]`), by name, resolved for this call:
+    the project's value, else its org's, else the tenant's (a schema `default` when no scope sets
+    one). Strings. Empty when the tool declares none, and from an older runtime (protocol 2.5.0).
+    The pack service's own environment stays in `os.environ`."""
+    secrets: Mapping[str, Any] = field(default_factory=_empty, repr=False)
+    """The secrets the tool declares (`needs_spec["secrets"]`), resolved for this call's tenant.
+    An optional one (its schema names null: `{"type": ["string", "null"]}`) is absent when the
+    env doesn't have it, or has it empty: read it with `.get` (runtime 0.1.6 or later; an older
+    runtime requires it). Never in the context's `repr`, so printing a context never prints a
+    secret."""
     config: Mapping[str, Any] = field(default_factory=_empty)
-    """Configuration the runtime resolves for the call — none yet (empty)."""
+    """Reserved: no runtime sends it yet (empty)."""
     settings: Mapping[str, Mapping[str, Any]] = field(default_factory=_empty)
     """The settings blocks the calling agent version pins, by block id:
     `ctx.settings["acme.weights"]["recency"]`. Empty when it pins none, and from an older
     runtime (protocol 2.4.0)."""
     cancellation: Cancellation = field(default_factory=Cancellation)
     """Fires when the caller gives up on the call."""
+    log: Logger = field(default=noop_logger, repr=False, compare=False)
+    """A logger bound to this call: its records carry the run's ids and the caller's trace id
+    (`ctx.log.info("looked up order", order_id=…)`). The pack service sets it; in a test it
+    writes nothing unless you pass one. Never put a secret's value in a field."""
+    idempotency_key: str | None = None
+    """A key for this call's side effects: the same every time this call runs (its step resumed
+    after a wait, retried after a failure, or run again after a crash), different for every other
+    call. A step can run more than once, so a tool that changes something passes it to the system
+    it writes to (an `Idempotency-Key` header, a client reference, a unique column), or looks for
+    it there first. A UUID. `None` from a runtime that can't name its steps (before protocol
+    2.6.0): the call can't be deduped on it then."""
 
     @classmethod
     def for_test(
@@ -121,7 +142,9 @@ class ToolContext:
         return cls(tenant_id=tenant_id, run_id=run_id, **kwargs)
 
     @classmethod
-    def from_wire(cls, ctx: Mapping[str, Any], cancellation: Cancellation) -> ToolContext:
+    def from_wire(
+        cls, ctx: Mapping[str, Any], cancellation: Cancellation, log: Logger = noop_logger
+    ) -> ToolContext:
         """The context for a protocol v2 `ctx` (`tenantId`, `runId`, …)."""
 
         def mapping(key: str) -> Mapping[str, Any]:
@@ -138,6 +161,7 @@ class ToolContext:
             tenant_id=str(ctx["tenantId"]),
             run_id=str(ctx["runId"]),
             request_id=text("requestId"),
+            idempotency_key=text("idempotencyKey"),
             project_id=text("projectId"),
             org_id=text("orgId"),
             env=mapping("env"),
@@ -145,4 +169,5 @@ class ToolContext:
             config=mapping("config"),
             settings=mapping("settings"),
             cancellation=cancellation,
+            log=log,
         )

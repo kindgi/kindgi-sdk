@@ -3,16 +3,26 @@
 
 import type { Provider, ProviderPage, RegisterProviderInput } from '@kindgi/client';
 import { type KindgiConfig, packLanguage } from '@kindgi/handler-runtime';
-import { LOCAL_ENV_NAME, displayEnvPath, packValues, readPackEnv } from '@kindgi/secrets-dotenv';
+import {
+  KINDGI_SECRETS_FILE,
+  LOCAL_ENV_NAME,
+  displayEnvPath,
+  packValues,
+  readPackEnv,
+} from '@kindgi/secrets-dotenv';
+import type { EnvName } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
 import { loadLocalEnvSettings } from '../env/project-env.js';
+import { UsageError } from '../errors.js';
 import { renderJson } from '../output.js';
 import { binDisplay, detectBinRunner } from '../package-manager.js';
 import {
+  PRESET_SETTINGS,
   type ProviderPreset,
   loadProviderPresets,
   presetRegistration,
+  presetSettingFlag,
 } from '../providers/preset-loader.js';
 import {
   type TableSpec,
@@ -64,7 +74,7 @@ const list: LeafCommand = {
         const limitStr = stringFlag(ctx, 'limit');
         const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
         if (limit !== undefined && Number.isNaN(limit)) {
-          throw new Error(`--limit must be an integer, got "${limitStr}"`);
+          throw new UsageError(`--limit must be an integer, got "${limitStr}"`);
         }
         return await ctx.client().providers.list({
           ...(feature !== undefined && { feature }),
@@ -92,8 +102,11 @@ const register: LeafCommand = {
   kind: 'leaf',
   name: 'register',
   description: 'Register a model provider — from a spec, or a preset (`kindgi providers presets`).',
-  usage:
-    'kindgi providers register (--spec=<json-or-@file> | --preset=<name> [--models=<a,b>] [--project=<id>] [--secret=<NAME>] [--env=<name>] [--max-output-tokens=<n>])',
+  usage: `kindgi providers register (--spec=<json-or-@file> | --preset=<name> [--models=<a,b>] ${Object.values(
+    PRESET_SETTINGS,
+  )
+    .map((s) => `[--${s.flag}=<…>]`)
+    .join(' ')} [--secret=<NAME>] [--env=<name>] [--max-output-tokens=<n>])`,
   optionSpec: {
     spec: {
       type: 'string',
@@ -114,11 +127,13 @@ const register: LeafCommand = {
       description:
         'With `--preset`, register only these of its models, comma-separated (default: all).',
     },
-    project: {
-      type: 'string',
-      description:
-        'For a preset that needs one (`gemini`), the Google Cloud project Vertex AI runs and bills in.',
-    },
+    // The settings a preset can ask for, one flag each (PRESET_SETTINGS).
+    ...Object.fromEntries(
+      Object.values(PRESET_SETTINGS).map((s) => [
+        s.flag,
+        { type: 'string' as const, description: s.description },
+      ]),
+    ),
     secret: {
       type: 'string',
       description:
@@ -135,7 +150,7 @@ const register: LeafCommand = {
       const specText = stringFlag(ctx, 'spec');
       const presetName = stringFlag(ctx, 'preset');
       if ((specText === undefined) === (presetName === undefined)) {
-        throw new Error('one of --spec=<json-or-@file> or --preset=<name> is required');
+        throw new UsageError('one of --spec=<json-or-@file> or --preset=<name> is required');
       }
       if (specText !== undefined) {
         const spec = (await readJsonInput(specText)) as RegisterProviderInput;
@@ -214,15 +229,18 @@ async function presetInput(ctx: CommandContext, name: string): Promise<RegisterP
   const presets = await loadProviderPresets();
   const preset = presets[name];
   if (preset === undefined) {
-    throw new Error(`no provider preset "${name}" — available: ${Object.keys(presets).join(', ')}`);
+    throw new UsageError(
+      `no provider preset "${name}" — available: ${Object.keys(presets).join(', ')}`,
+    );
   }
   const modelsFlag = stringFlag(ctx, 'models');
-  const project = stringFlag(ctx, 'project');
   const secret = stringFlag(ctx, 'secret');
   const envName = stringFlag(ctx, 'env') ?? LOCAL_ENV_NAME;
   const maxOutput = stringFlag(ctx, 'max-output-tokens');
   if (maxOutput !== undefined && !/^[1-9]\d*$/.test(maxOutput)) {
-    throw new Error(`--max-output-tokens must be a whole number of at least 1, got "${maxOutput}"`);
+    throw new UsageError(
+      `--max-output-tokens must be a whole number of at least 1, got "${maxOutput}"`,
+    );
   }
   const built = presetRegistration(preset, {
     ...(modelsFlag !== undefined && {
@@ -233,10 +251,12 @@ async function presetInput(ctx: CommandContext, name: string): Promise<RegisterP
     }),
     ...(secret !== undefined && { secret }),
     envName,
-    settings: { project },
+    settings: Object.fromEntries(
+      Object.entries(PRESET_SETTINGS).map(([key, s]) => [key, stringFlag(ctx, s.flag)]),
+    ),
     ...(maxOutput !== undefined && { maxOutputTokens: Number(maxOutput) }),
   });
-  if (built.kind === 'err') throw new Error(built.message);
+  if (built.kind === 'err') throw new UsageError(built.message);
   const ref = built.input.secret_ref;
   if (ref !== undefined && ref.envName === LOCAL_ENV_NAME) {
     const missing = await missingPackSecret(ctx, ref.name, preset);
@@ -260,6 +280,21 @@ async function missingPackSecret(
     env: ctx.env,
   });
   if (Object.hasOwn(packValues(env.values), name)) return undefined;
+  if (env.unreadable.length > 0) {
+    // A file this process can't read (a coding agent's read guard): ask the
+    // runtime, which reads the env files itself, by name only. Unreachable,
+    // the key is left for the runtime to resolve when the provider is used.
+    try {
+      const held = await ctx.client().secrets.get({
+        scope: { kind: 'tenant' },
+        envName: LOCAL_ENV_NAME as unknown as EnvName,
+        name,
+      });
+      if (held !== null) return undefined;
+    } catch {
+      return undefined;
+    }
+  }
   const runner = await detectBinRunner(
     ctx.cwd,
     packLanguage(settings.config as KindgiConfig),
@@ -270,7 +305,8 @@ async function missingPackSecret(
   return [
     `${name} (the ${preset.name} key) is not in ${files}. Set it first, then register again:`,
     `  ${binDisplay(runner, 'kindgi', ['secrets', 'set', name, `--env=${LOCAL_ENV_NAME}`, '--scope=tenant'])}   # a no-echo prompt`,
-    `or add ${name}=… to .env yourself.`,
+    `or add ${name}=… to ${KINDGI_SECRETS_FILE} yourself (Kindgi's own file; your app doesn't load it).`,
+    `If the runtime already holds ${name} in another environment (a deployed runtime's, for example), name it: ${binDisplay(runner, 'kindgi', ['providers', 'register', `--preset=${preset.name}`, '--env=<that environment>'])}. Without --env, the preset reads ${LOCAL_ENV_NAME}, the pack's own env files.`,
   ].join('\n');
 }
 
@@ -289,7 +325,7 @@ const presets: LeafCommand = {
         models: p.metadata.models.map((m) => m.name),
         ...(p.secret !== undefined && { secret: p.secret }),
         ...(p.adapterConfig !== undefined && {
-          needs: p.adapterConfig.map((s) => `--${s.key}`),
+          needs: p.adapterConfig.map((s) => presetSettingFlag(s.key)),
         }),
         pricesCheckedAt: p.pricesCheckedAt,
       }));

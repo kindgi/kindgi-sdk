@@ -18,7 +18,7 @@ You need Node 22.12 or later and Docker.
 npx @kindgi/cli init my-pack        # a new pack; in an existing app: npx @kindgi/cli init
 cd my-pack
 pnpm install
-pnpm exec kindgi dev                 # npm: npx --no kindgi dev
+pnpm exec kindgi dev                 # npm: npx --no -- kindgi dev
 ```
 
 `kindgi dev` runs the Kindgi runtime as a container and your pack's code on
@@ -54,17 +54,21 @@ All `@kindgi/*` packages share one version.
 | Package | Description |
 |---|---|
 | [`@kindgi/adapter-model-anthropic`](./packages/adapters/model-anthropic) | Anthropic ModelProvider for @kindgi/capabilities. |
+| [`@kindgi/adapter-model-azure-openai`](./packages/adapters/model-azure-openai) | Azure OpenAI ModelProvider for @kindgi/capabilities: your Azure OpenAI deployments (Responses or Chat Completions) by API key or the runtime's Entra identity. |
+| [`@kindgi/adapter-model-bedrock`](./packages/adapters/model-bedrock) | Amazon Bedrock ModelProvider for @kindgi/capabilities: Claude, Nova, Llama, Mistral and OpenAI's models on Bedrock's Converse API, by the runtime's AWS identity or a Bedrock API key. |
 | [`@kindgi/adapter-model-gemini`](./packages/adapters/model-gemini) | Gemini ModelProvider for @kindgi/capabilities, on Vertex AI. |
 | [`@kindgi/adapter-model-in-process`](./packages/adapters/model-in-process) | In-process ModelProvider for @kindgi/capabilities. |
 | [`@kindgi/adapter-model-openai-compat`](./packages/adapters/model-openai-compat) | OpenAI-compatible ModelProvider for @kindgi/capabilities. |
+| [`@kindgi/adapter-model-shared`](./packages/adapters/model-shared) | Shared plumbing for Kindgi's model adapters: retries with counted attempts, typed errors, the reasoning state across a pause, usage onto Kindgi's counters. |
 | [`@kindgi/agents`](./packages/agents) | Agent primitive for Kindgi. |
 | [`@kindgi/api`](./packages/api) | REST + SSE HTTP surface for Kindgi™. |
 | [`@kindgi/audit-events`](./packages/audit-events) | Kindgi™ audit events contract. |
 | [`@kindgi/audit-events-inmemory`](./packages/audit-events-inmemory) | Reference in-memory `AuditEventBinding` adapter for dev + tests. |
 | [`@kindgi/authz`](./packages/authz) | Kindgi™ authorization shape. |
 | [`@kindgi/blob-binding`](./packages/blob-binding) | Kindgi™ blob storage binding contract. |
+| [`@kindgi/bounds`](./packages/bounds) | The limits a Kindgi server puts on what a tenant sends it: pattern length and engine (V8, or linear-time RE2 when hosted), schema size and depth, template limits, and the size and idle time of bodies read from tenant-named endpoints. |
 | [`@kindgi/capabilities`](./packages/capabilities) | Capability declarations + provider router for Kindgi™. |
-| [`@kindgi/cli`](./packages/cli) | Command-line interface for Kindgi™ — the sovereign AI OS. |
+| [`@kindgi/cli`](./packages/cli) | Command-line interface for Kindgi™. |
 | [`@kindgi/compliance`](./packages/compliance) | Kindgi™ compliance evidence contract. |
 | [`@kindgi/crypto`](./packages/crypto) | Kindgi™ cryptographic primitives. |
 | [`@kindgi/dev-echo-provider`](./packages/dev-echo-provider) | Deterministic dev-only ModelProvider — no LLM key, no network, no cost. |
@@ -86,12 +90,12 @@ All `@kindgi/*` packages share one version.
 | [`@kindgi/sandbox`](./packages/sandbox) | Kindgi™ sandbox contract and wire protocol. |
 | [`@kindgi/schema`](./packages/schema) | JSON Schema utilities for Kindgi. |
 | [`@kindgi/sdk`](./packages/sdk) | @kindgi/sdk — the authoring SDK for Kindgi™. |
-| [`@kindgi/secrets-dotenv`](./packages/secrets-dotenv) | Dev-mode `SecretBinding` over the project's own env files (`.env`, then `.env.local`, or `dev.envFiles`) — the same files, parsed the same way, as the app beside the pack — plus the one definition of which env files belong to a pack environment. |
+| [`@kindgi/secrets-dotenv`](./packages/secrets-dotenv) | Dev-mode `SecretBinding` over the project's own env files (`.env`, then `.env.local`, or `dev.envFiles`) — the same files, parsed the same way, as the app beside the pack — and Kindgi's own `.kindgi/secrets.env`, read last and written, plus the one definition of which env files belong to a pack environment. |
 | [`@kindgi/specs`](./packages/specs) | Canonical JSON Schemas (Draft 2020-12) for every Kindgi artifact kind — flow, agent, tool, capability, guardrail, policy, event, run event, memory, provenance, pack, compliance evidence, audit bundle, eval suite, discoverable entity. |
 | [`@kindgi/testing`](./packages/testing) | Test helpers for Kindgi apps and packages. |
 | [`@kindgi/tools`](./packages/tools) | Tool authoring shape + registry + invocation for Kindgi. |
 | [`@kindgi/types`](./packages/types) | Foundational TypeScript types shared across Kindgi. |
-| [`@kindgi/client`](./sdks/typescript) | TypeScript client SDK for Kindgi™ — the sovereign AI OS. |
+| [`@kindgi/client`](./sdks/typescript) | TypeScript client SDK for Kindgi™. |
 <!-- packages:end -->
 
 ## Python
@@ -104,6 +108,21 @@ speaks the same pack protocol as the Node one, and both pass
 [`kindgi-cli`](./sdks/python-cli) (on PyPI from 0.1.4: `uv add --dev kindgi-cli`) — the
 Kindgi CLI for Python developers: `@kindgi/cli` with Node from a wheel, so
 `uv run kindgi dev` needs no Node install.
+
+## Java
+
+[`kindgi-client`](./sdks/java) (Java 17+, preview) — the
+Kindgi API from a Java app: generated from the OpenAPI document at build time, with
+typed models and errors, paging, streaming and retries. It works beside an app's
+own Jackson, Spring Boot 3 and 4 included.
+
+[`kindgi-pack`](./sdks/java/kindgi-pack) (Java 17+, preview) — a pack's tools and
+guardrail checks in Java: records for schemas, the indexer, and a pack service that
+passes the same conformance suite as the TypeScript and Python ones.
+
+[`kindgi-pack-scala`](./sdks/scala) (Scala 2.13 and 3, preview) — the same in Scala:
+case classes for schemas, `Future`s for async work, on kindgi-pack's indexer and
+pack service.
 
 ## Specs
 

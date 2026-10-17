@@ -48,6 +48,7 @@ const COMPLETION = {
 interface Seen {
   readonly url: string;
   readonly authorization: string | null;
+  readonly traceparent: string | null;
   readonly body: {
     readonly messages?: unknown;
     readonly temperature?: unknown;
@@ -63,6 +64,7 @@ function fakeEndpoint(): { readonly seen: Seen[]; readonly fetch: typeof fetch }
     seen.push({
       url: String(url),
       authorization: new Headers(init?.headers).get('authorization'),
+      traceparent: new Headers(init?.headers).get('traceparent'),
       body: JSON.parse(String(init?.body)) as Seen['body'],
     });
     return new Response(JSON.stringify(COMPLETION), {
@@ -96,7 +98,7 @@ describe('openAICompatAdapterFactory', () => {
       { baseURL: 42 },
     ]) {
       expect(() => openAICompatAdapterFactory({ metadata, ...(config && { config }) })).toThrow(
-        `${OPENAI_COMPAT_ADAPTER_ID}: provider "openai" needs adapter_config.baseURL, an http(s) URL`,
+        `${OPENAI_COMPAT_ADAPTER_ID}: provider "openai": needs adapter_config.baseURL, an http(s) URL`,
       );
     }
   });
@@ -150,6 +152,21 @@ describe('invoke', () => {
     });
     await provider.invoke(call);
     expect(endpoint.seen[0]?.authorization).toBe('Bearer unused');
+  });
+
+  test('a call with a traceparent sends it as a header, never in the body; without, none', async () => {
+    const endpoint = fakeEndpoint();
+    const provider = createOpenAICompatModelProvider({
+      baseURL: 'http://llm.test/v1',
+      apiKey: 'k',
+      metadata,
+      clientOptions: { fetch: endpoint.fetch, maxRetries: 0 },
+    });
+    const traceparent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+    await provider.invoke({ ...call, traceparent });
+    await provider.invoke(call);
+    expect(endpoint.seen.map((s) => s.traceparent)).toEqual([traceparent, null]);
+    expect(JSON.stringify(endpoint.seen[0]?.body)).not.toContain('traceparent');
   });
 
   test("the turn's abort signal reaches the request", async () => {
@@ -293,7 +310,7 @@ describe('adapter_config extraBody.* keys', () => {
 });
 
 describe('what the endpoint says about the call', () => {
-  test("served model, request id, cached and reasoning tokens, raw usage, and the attempts its SDK's retries took", async () => {
+  test('served model, request id, cached and reasoning tokens, raw usage, and the attempts a retried 429 took', async () => {
     let requests = 0;
     const flaky = (async () => {
       requests += 1;
@@ -371,10 +388,11 @@ describe('what the endpoint says about the call', () => {
     expect(unreported.usage).toEqual({ promptTokens: 30, completionTokens: 20 });
   });
 
-  test('a body that stalls past the timeout is retried by the SDK, and both attempts are counted', async () => {
-    // The real SDK over real HTTP: the first answer sends its headers and
-    // part of its body, then stalls; the SDK times the body out and
-    // retries from inside its lazy promise.
+  test('a body that stalls past the timeout is retried, and both attempts are counted', async () => {
+    // The real SDK over real HTTP: the first answer sends its headers and part
+    // of its body, then stalls; the SDK times the body out, and the adapter
+    // retries (the SDK's own retries are off). The caller's maxRetries becomes
+    // the adapter's attempt budget, so the second attempt succeeds.
     let requests = 0;
     const server: Server = createServer((_req, res) => {
       requests += 1;

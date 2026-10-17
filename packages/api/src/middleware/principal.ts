@@ -28,6 +28,7 @@ export function principalMiddleware(): MiddlewareHandler<AppEnv> {
     const userId = c.get('userId');
     const tokenId = c.get('tokenId');
     const sessionId = c.get('sessionId');
+    const keyServiceAccount = c.get('serviceAccountId');
 
     if (tenantId === undefined) {
       // Bearer middleware didn't populate — either the route is
@@ -37,12 +38,15 @@ export function principalMiddleware(): MiddlewareHandler<AppEnv> {
       return next();
     }
 
-    // A user when the token names one; otherwise a service account: a
-    // durable API key's id, or else the session id (which uniquely
-    // identifies the token record). With none of them, leave `principal`
-    // unset; `authorize()` treats that as "no principal" and 403s cleanly.
+    // A user when the token names one; otherwise a service account: the
+    // one an API key acts for, else the key's own id (a store built before
+    // principals), else the session id (which uniquely identifies the
+    // token record). With none of them, leave `principal` unset;
+    // `authorize()` treats that as "no principal" and 403s cleanly.
     const serviceAccountId =
-      (tokenId as unknown as string | undefined) ?? (sessionId as unknown as string | undefined);
+      keyServiceAccount ??
+      (tokenId as unknown as string | undefined) ??
+      (sessionId as unknown as string | undefined);
     if (userId === undefined && serviceAccountId === undefined) {
       return next();
     }

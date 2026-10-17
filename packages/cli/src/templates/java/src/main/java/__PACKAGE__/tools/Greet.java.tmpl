@@ -1,0 +1,23 @@
+package {{JAVA_PACKAGE}}.tools;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.kindgi.pack.Tool;
+import jakarta.validation.constraints.Size;
+
+/** {{PACK_ID}}.greet — greets a named recipient. */
+public final class Greet {
+  public record Input(
+      @Size(min = 1, max = 100) String name,
+      @JsonProperty(defaultValue = "Hello") @Size(min = 1, max = 50) String greeting) {}
+
+  public record Output(String message) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("{{PACK_ID}}.greet")
+      .description("Formats a greeting for the named recipient.")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .handler((input, ctx) -> new Output(input.greeting() + ", " + input.name() + "!"));
+
+  private Greet() {}
+}

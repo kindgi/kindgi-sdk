@@ -9,18 +9,24 @@ import {
   loadZodConverterSync,
   toJSONSchemaSync,
 } from '@kindgi/schema';
-import { pickVersion } from '@kindgi/tools';
+import { BUILT_IN_TOOL_PREFIX, pickVersion } from '@kindgi/tools';
 import type { Result, Semver } from '@kindgi/types';
 
 import type { InvalidAgentError } from './errors.js';
+import { templateProblem } from './liquid.js';
+import { AUTO_INJECTED_VARS } from './prompt.js';
+import { MAX_REMEMBER_DAYS, REMEMBER_TOOL_ID } from './remember.js';
 import type {
   Agent,
   AgentId,
+  AgentMemoryPolicy,
   AgentOutputSpec,
   BlockRef,
   ConversationPolicy,
   PromptParameter,
   PromptRef,
+  RememberPolicy,
+  RememberScope,
   RetrievalIntent,
   ToolRef,
   TurnBudget,
@@ -32,7 +38,7 @@ type Issue = { path: string; message: string };
  * Public API to construct an agent definition. Validates every field,
  * brands ids, and returns a `Result` — no throws.
  *
- * ```ts
+ * ```ts excerpt
  * const agent = defineAgent({
  *   id: 'acme.citation-verifier',
  *   version: '1.0.0',
@@ -54,9 +60,10 @@ export function defineAgent(spec: DefineAgentSpec): Result<Agent, InvalidAgentEr
     ...validateBlockRefs(spec),
     ...validateArrays(spec),
     ...validateRetrieval(spec),
+    ...validateMemoryPolicy(spec),
     ...validatePromptParameters(spec.parameters),
     ...validateBudget(spec.budget),
-    ...validateConversationPolicy(spec.conversationPolicy),
+    ...validateConversationPolicy(spec.conversationPolicy, toolIdsOf(spec.tools)),
     ...validateToolErrors(spec.toolErrors),
   ];
   const output = resolveOutput(spec.output);
@@ -93,7 +100,7 @@ export function defineAgent(spec: DefineAgentSpec): Result<Agent, InvalidAgentEr
  * run start via `semver.maxSatisfying`.
  *
  * @example
- * ```ts
+ * ```ts excerpt
  * const agent = defineAgent({
  *   id: 'my-pack.summarizer',
  *   version: '1.0.0',
@@ -172,6 +179,12 @@ export interface DefineAgentSpec {
    */
   readonly retrieval: readonly RetrievalIntent[];
   /**
+   * How the agent uses what it retrieves: `instructionTypes` lists fact
+   * types whose verified facts are policies (in the system message).
+   * Absent: every retrieved fact is data.
+   */
+  readonly memory?: AgentMemoryPolicy;
+  /**
    * Guardrail IDs that guard this agent's turns. Each id must
    * resolve among the guardrails bound for the run, or the turn fails
    * with `unresolved-guardrail`. Guardrails are evaluated once per
@@ -196,8 +209,8 @@ export interface DefineAgentSpec {
    * A/B'ing agents across providers without churning registrations:
    * register several, pin the agent to the one you want to test.
    *
-   * The value is a `ProviderMetadata.id` string (e.g.
-   * `'anthropic-claude-sonnet-4-6'`). Unset = capability-match only.
+   * The value is a `ProviderMetadata.id` string (e.g. `'anthropic'`, what
+   * the `anthropic` preset registers). Unset = capability-match only.
    */
   readonly preferredProvider?: string;
   /**
@@ -275,6 +288,9 @@ function validateContent(spec: DefineAgentSpec): Issue[] {
       path: '/instructions',
       message: 'instructions must be a non-empty string, or a prompt block { prompt, version }',
     });
+  } else {
+    const problem = templateProblem(spec.instructions);
+    if (problem !== undefined) out.push({ path: '/instructions', message: problem });
   }
   if (!Array.isArray(spec.capabilities) || spec.capabilities.length === 0) {
     out.push({
@@ -364,6 +380,11 @@ function validateToolRef(ref: unknown, i: number): Issue[] {
   const obj = ref as Record<string, unknown>;
   if (typeof obj.id !== 'string' || obj.id.trim().length === 0) {
     out.push({ path: `/tools/${i}/id`, message: 'tool id must be a non-empty string' });
+  } else if (obj.id.startsWith(BUILT_IN_TOOL_PREFIX)) {
+    out.push({
+      path: `/tools/${i}/id`,
+      message: `"${obj.id}" is a tool built into Kindgi (the "${BUILT_IN_TOOL_PREFIX}" prefix): an agent gets it from its declaration (memory.remember for ${REMEMBER_TOOL_ID}), not from tools`,
+    });
   }
   if (typeof obj.version !== 'string' || obj.version.trim().length === 0) {
     out.push({
@@ -386,30 +407,141 @@ function validateRetrieval(spec: DefineAgentSpec): Issue[] {
 
 function validateIntent(intent: RetrievalIntent, i: number): Issue[] {
   const out: Issue[] = [];
-  if (!Array.isArray(intent.types) || intent.types.length === 0) {
+  const source = intent.source ?? 'facts';
+  if (source !== 'facts' && source !== 'conversations') {
+    out.push({
+      path: `/retrieval/${i}/source`,
+      message: 'source must be facts or conversations (or absent: facts)',
+    });
+    return out;
+  }
+  if (source === 'facts' && (!Array.isArray(intent.types) || intent.types.length === 0)) {
     out.push({
       path: `/retrieval/${i}/types`,
-      message: 'each retrieval intent must declare at least one type',
+      message: 'each retrieval intent over facts must declare at least one type',
     });
   }
-  if (
-    intent.scope !== 'same-conversation' &&
-    intent.scope !== 'same-project' &&
-    intent.scope !== 'tenant'
-  ) {
+  if (source === 'conversations' && intent.types !== undefined) {
+    out.push({
+      path: `/retrieval/${i}/types`,
+      message: 'an intent over conversations has no types: it recalls messages',
+    });
+  }
+  if (intent.roles !== undefined) {
+    const roles = intent.roles as readonly unknown[];
+    if (source !== 'conversations') {
+      out.push({
+        path: `/retrieval/${i}/roles`,
+        message: 'roles are for an intent over conversations',
+      });
+    } else if (
+      !Array.isArray(roles) ||
+      roles.length === 0 ||
+      roles.some((r) => r !== 'user' && r !== 'agent')
+    ) {
+      out.push({
+        path: `/retrieval/${i}/roles`,
+        message: "roles must list 'user', 'agent' or both (absent: 'user', the people's own words)",
+      });
+    }
+  }
+  const scopes = source === 'facts' ? RETRIEVAL_SCOPES : RECALL_SCOPES;
+  if (!scopes.includes(intent.scope)) {
     out.push({
       path: `/retrieval/${i}/scope`,
-      message: 'scope must be same-conversation, same-project, or tenant',
+      message: `scope for ${source} must be one of ${scopes.join(', ')}`,
     });
   }
   if (intent.limit !== undefined && (!Number.isInteger(intent.limit) || intent.limit <= 0)) {
     out.push({ path: `/retrieval/${i}/limit`, message: 'limit must be a positive integer' });
   }
+  if (intent.mode !== undefined && !RETRIEVAL_MODES.includes(intent.mode)) {
+    out.push({
+      path: `/retrieval/${i}/mode`,
+      message: `mode must be one of ${RETRIEVAL_MODES.join(', ')} (or absent: the newest facts)`,
+    });
+  }
   return out;
 }
 
+const RETRIEVAL_SCOPES: readonly RetrievalIntent['scope'][] = [
+  'same-conversation',
+  'same-user',
+  'same-project',
+  'tenant',
+];
+const RECALL_SCOPES: readonly RetrievalIntent['scope'][] = [
+  'same-user',
+  'same-conversation',
+  'same-segment',
+  'same-project',
+];
+const RETRIEVAL_MODES: readonly NonNullable<RetrievalIntent['mode']>[] = [
+  'keyword',
+  'semantic',
+  'both',
+];
+
+const REMEMBER_SCOPES: readonly RememberScope[] = [
+  'same-user',
+  'same-conversation',
+  'same-project',
+  'tenant',
+];
+
+function validateMemoryPolicy(spec: DefineAgentSpec): Issue[] {
+  const memory = spec.memory;
+  if (memory === undefined) return [];
+  if (memory === null || typeof memory !== 'object' || Array.isArray(memory)) {
+    return [{ path: '/memory', message: 'memory must be an object' }];
+  }
+  const out: Issue[] = [];
+  const types = memory.instructionTypes;
+  if (types !== undefined && !isTypeList(types)) {
+    out.push({
+      path: '/memory/instructionTypes',
+      message: 'instructionTypes must be a list of fact type names',
+    });
+  }
+  if (memory.remember !== undefined) out.push(...validateRemember(memory.remember));
+  return out;
+}
+
+function validateRemember(remember: RememberPolicy): Issue[] {
+  if (remember === null || typeof remember !== 'object' || Array.isArray(remember)) {
+    return [{ path: '/memory/remember', message: 'remember must be an object' }];
+  }
+  const out: Issue[] = [];
+  if (!isTypeList(remember.types) || remember.types.length === 0) {
+    out.push({
+      path: '/memory/remember/types',
+      message: 'remember.types must list at least one fact type name',
+    });
+  }
+  if (!REMEMBER_SCOPES.includes(remember.scope)) {
+    out.push({
+      path: '/memory/remember/scope',
+      message: `remember.scope must be one of: ${REMEMBER_SCOPES.join(', ')}`,
+    });
+  }
+  const days = remember.keepDays;
+  if (days !== undefined && (!Number.isInteger(days) || days < 1 || days > MAX_REMEMBER_DAYS)) {
+    out.push({
+      path: '/memory/remember/keepDays',
+      message: `remember.keepDays must be a whole number of days from 1 to ${MAX_REMEMBER_DAYS}`,
+    });
+  }
+  return out;
+}
+
+function isTypeList(types: unknown): types is readonly string[] {
+  return Array.isArray(types) && types.every((t) => typeof t === 'string' && t.trim().length > 0);
+}
+
 const VALID_PARAM_TYPES = new Set(['string', 'number', 'boolean', 'date']);
-const AUTO_INJECTED_NAMES = new Set(['today', 'now', 'agent', 'conversation', 'settings']);
+// Every variable the render fills in (`AUTO_INJECTED_VARS`): a parameter of the
+// same name would be replaced at render, so declaring one is refused.
+const AUTO_INJECTED_NAMES: ReadonlySet<string> = new Set(AUTO_INJECTED_VARS);
 
 /** An agent's or a prompt block's declared parameters: the problems, none when they're valid. */
 export function validatePromptParameters(parameters?: readonly PromptParameter[]): Issue[] {
@@ -478,7 +610,22 @@ function validateToolErrors(toolErrors: DefineAgentSpec['toolErrors']): Issue[] 
     : checked.issues.map((i) => ({ path: `/toolErrors${i.path}`, message: i.message }));
 }
 
-function validateConversationPolicy(policy?: ConversationPolicy): Issue[] {
+/** The agent's tool ids, when its `tools` is a list of refs (else nothing to check keys against). */
+function toolIdsOf(tools: unknown): ReadonlySet<string> | undefined {
+  if (!Array.isArray(tools)) return undefined;
+  return new Set(
+    tools
+      .map((ref) =>
+        ref !== null && typeof ref === 'object' ? (ref as { id?: unknown }).id : undefined,
+      )
+      .filter((id): id is string => typeof id === 'string'),
+  );
+}
+
+function validateConversationPolicy(
+  policy?: ConversationPolicy,
+  toolIds?: ReadonlySet<string>,
+): Issue[] {
   if (policy === undefined) return [];
   const out: Issue[] = [];
   if (
@@ -535,6 +682,7 @@ function validateConversationPolicy(policy?: ConversationPolicy): Issue[] {
         message: 'hitl.defaultReviewerRole must be one of: standard, senior, admin',
       });
     }
+    out.push(...validateSeparateApprover(h.separateApprover, toolIds));
     const MODES: ReadonlySet<string> = new Set(['never_ask', 'ask_on_first_use', 'always_ask']);
     if (h.tools?.default !== undefined && !MODES.has(h.tools.default)) {
       out.push({
@@ -568,6 +716,59 @@ function validateConversationPolicy(policy?: ConversationPolicy): Issue[] {
 }
 
 /**
+ * `hitl.separateApprover`: a boolean, or `{ default?: boolean, overrides?:
+ * { [toolId]: boolean } }`. An override names one of the agent's tools: a
+ * mistyped id would leave the real tool without four eyes, silently.
+ */
+function validateSeparateApprover(value: unknown, toolIds?: ReadonlySet<string>): Issue[] {
+  if (value === undefined || typeof value === 'boolean') return [];
+  const at = '/conversationPolicy/hitl/separateApprover';
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return [
+      { path: at, message: 'hitl.separateApprover must be true, false, or { default, overrides }' },
+    ];
+  }
+  const out: Issue[] = [];
+  const { default: all, overrides, ...rest } = value as Record<string, unknown>;
+  for (const key of Object.keys(rest)) {
+    out.push({
+      path: `${at}/${key}`,
+      message: 'hitl.separateApprover takes only default and overrides',
+    });
+  }
+  if (all !== undefined && typeof all !== 'boolean') {
+    out.push({
+      path: `${at}/default`,
+      message: 'hitl.separateApprover.default must be true or false',
+    });
+  }
+  if (overrides !== undefined) {
+    if (overrides === null || typeof overrides !== 'object' || Array.isArray(overrides)) {
+      out.push({
+        path: `${at}/overrides`,
+        message: 'hitl.separateApprover.overrides maps tool ids to true or false',
+      });
+    } else {
+      for (const [toolId, four] of Object.entries(overrides)) {
+        if (toolIds !== undefined && !toolIds.has(toolId)) {
+          out.push({
+            path: `${at}/overrides/${toolId}`,
+            message: `hitl.separateApprover names ${toolId}, which isn't one of this agent's tools`,
+          });
+        }
+        if (typeof four !== 'boolean') {
+          out.push({
+            path: `${at}/overrides/${toolId}`,
+            message: 'a separateApprover override must be true or false',
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * `hitl.onTimeout`: only `'escalate'`, what the runtime does when an
  * approval's time runs out. `'auto-approve'` / `'auto-reject'` aren't
  * implemented, so they're refused instead of accepted and ignored.
@@ -591,9 +792,8 @@ type OutputOutcome =
   | { readonly kind: 'ok'; readonly value: AgentOutputSpec }
   | { readonly kind: 'err'; readonly issues: readonly Issue[] };
 
-/** The output spec in its wire form: JSON Schema that compiles, and a valid repair count. */
-function resolveOutput(output: DefineAgentSpec['output']): OutputOutcome {
-  if (output === undefined) return { kind: 'none' };
+/** An output spec's `maxRepairs` and `name`, when it sets them. */
+function outputFieldIssues(output: NonNullable<DefineAgentSpec['output']>): Issue[] {
   const issues: Issue[] = [];
   if (
     output.maxRepairs !== undefined &&
@@ -607,6 +807,22 @@ function resolveOutput(output: DefineAgentSpec['output']): OutputOutcome {
   if (output.name !== undefined && (typeof output.name !== 'string' || output.name.length === 0)) {
     issues.push({ path: '/output/name', message: 'name must be a non-empty string' });
   }
+  return issues;
+}
+
+/** The output spec in its wire form: JSON Schema that compiles, and a valid repair count. */
+function resolveOutput(output: DefineAgentSpec['output']): OutputOutcome {
+  if (output === undefined) return { kind: 'none' };
+  // A spec off the wire (`POST /v1/agents`) can carry anything here.
+  if (typeof output !== 'object' || output === null || Array.isArray(output)) {
+    return {
+      kind: 'err',
+      issues: [
+        { path: '/output', message: 'output must be an object { schema, name?, maxRepairs? }' },
+      ],
+    };
+  }
+  const issues = outputFieldIssues(output);
   let schema: Readonly<Record<string, unknown>>;
   if (isZodSchema(output.schema)) {
     // The output side: downstream steps read every field, defaulted ones included.
@@ -649,6 +865,16 @@ function buildAgent(spec: DefineAgentSpec, output: AgentOutputSpec | undefined):
     capabilities: spec.capabilities.map((c) => ({ ...c })),
     tools: [...spec.tools],
     retrieval: spec.retrieval.map((r) => ({ ...r })),
+    ...(spec.memory !== undefined && {
+      memory: {
+        ...(spec.memory.instructionTypes !== undefined && {
+          instructionTypes: [...spec.memory.instructionTypes],
+        }),
+        ...(spec.memory.remember !== undefined && {
+          remember: { ...spec.memory.remember, types: [...spec.memory.remember.types] },
+        }),
+      },
+    }),
     guardrails: [...spec.guardrails],
     ...(spec.parameters !== undefined && {
       parameters: spec.parameters.map((p) => ({ ...p })),

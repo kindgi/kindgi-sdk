@@ -3,11 +3,12 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
-import type { Cursor, TenantId } from '@kindgi/types';
+import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import type { Cursor, ProjectId, TenantId, UserId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
@@ -17,6 +18,7 @@ import type {
   EvalRunBinding,
   EvalRunPage,
   EvalRunStatus,
+  EvalRunSubjectInvokeOutcome,
   EvalSubjectInvoker,
   EvalSuite,
   EvalSuiteRegistryBinding,
@@ -50,6 +52,10 @@ const resolveToken: TokenResolver = async (token) => {
   if (token === TOKEN) return { tenantId };
   return null;
 };
+
+/** The same token as a person, for the suites that check authorization. */
+const resolveUserToken: TokenResolver = async (token) =>
+  token === TOKEN ? { tenantId, userId: 'user-editor' as UserId } : null;
 
 const runHandler: RunHandlerBinding = {
   invokeAgent: async () => ({
@@ -207,6 +213,9 @@ function makeApp(
     behavior?: 'pass' | 'fail' | 'mixed';
     kinds?: readonly EvalKind[];
     subject?: EvalSubjectInvoker;
+    /** With authorization on: what the caller holds, as `<action> <type>:<id>`. */
+    grants?: readonly string[];
+    projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
   } = {},
 ): AppSetup {
   const registry = makeInMemoryRegistry();
@@ -223,12 +232,38 @@ function makeApp(
   });
   const app = createApp({
     ...createStubAppBindings(),
-    resolveToken,
+    resolveToken: options.grants === undefined ? resolveToken : resolveUserToken,
     runHandler,
     evalSuiteRegistry: registry,
     evalRunBinding: binding,
+    ...(options.grants !== undefined && { authz: grantsAuthz(options.grants) }),
+    ...(options.projectSuspended !== undefined && { projectSuspended: options.projectSuspended }),
   });
   return { app, registry, binding };
+}
+
+/** An authorizer that allows exactly `grants` (`<action> <type>:<id>`). */
+function grantsAuthz(grants: readonly string[]) {
+  const decision = (action: Action, resource: ResourceRef): Decision => {
+    const allowed = grants.includes(`${action} ${resource.type}:${resource.id}`);
+    return {
+      allowed,
+      reason: allowed ? 'test: granted' : 'test: not granted',
+      evidence: {
+        action,
+        relation: '',
+        resource: `${resource.type}:${resource.id}`,
+        actorSubject: '',
+      },
+    };
+  };
+  return {
+    fgaApiUrl: 'http://fga.invalid',
+    authzCheckBinding: {
+      check: async (_p, action, resource) => decision(action, resource),
+      checkBatch: async (_p, action, resources) => resources.map((r) => decision(action, r)),
+    } satisfies AuthzCheckBinding,
+  };
 }
 
 async function waitForRun(
@@ -258,6 +293,98 @@ const accuracySpec: Readonly<Record<string, unknown>> = {
   ],
   grader: { adapterId: 'stub:eq' },
 };
+
+describe('API — eval-runs start: who may start one', () => {
+  // An editor of the project (write on it, execute on the agent and on the
+  // suite) runs the test set: the improve loop's step. Starting a run
+  // doesn't change the suite, so it doesn't need admin on it.
+  const editor = (suiteId: string) => [
+    `read eval_suite:${suiteId}`,
+    `execute eval_suite:${suiteId}`,
+    `read project:${TEST_PROJECT_ID}`,
+    `write project:${TEST_PROJECT_ID}`,
+    'execute agent:acme.drafting',
+  ];
+  const start = (
+    app: ReturnType<typeof createApp>,
+    suiteId: string,
+    projectId: string = TEST_PROJECT_ID,
+  ) =>
+    app.request(`/v1/eval-suites/${suiteId}/runs`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId,
+        agentRef: { agentId: 'acme.drafting', version: '1.0.0' },
+      }),
+    });
+
+  test('a project editor starts a run: 201, without admin on the suite', async () => {
+    const { app, registry } = makeApp({ grants: editor('acme.editor-run') });
+    await seedSuite(registry, { id: 'acme.editor-run', kind: 'accuracy', spec: accuracySpec });
+    const res = await start(app, 'acme.editor-run');
+    expect(res.status, await res.text()).toBe(201);
+  });
+
+  test("without execute on the agent: 403, the route's own check", async () => {
+    const grants = editor('acme.no-exec').filter((g) => !g.startsWith('execute agent'));
+    const { app, registry } = makeApp({ grants });
+    await seedSuite(registry, { id: 'acme.no-exec', kind: 'accuracy', spec: accuracySpec });
+    const res = await start(app, 'acme.no-exec');
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain('agent:acme.drafting');
+  });
+
+  test('a viewer (read only) is refused: 403', async () => {
+    const grants = ['read eval_suite:acme.viewer', `read project:${TEST_PROJECT_ID}`];
+    const { app, registry } = makeApp({ grants });
+    await seedSuite(registry, { id: 'acme.viewer', kind: 'accuracy', spec: accuracySpec });
+    const res = await start(app, 'acme.viewer');
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain('eval_suite:acme.viewer');
+  });
+
+  test("a suite's viewer who edits another project can't run it into that one: 403", async () => {
+    // Read on the suite (a viewer of its project), write on project B and
+    // execute on the agent: the run would land in B, so it needs `execute`
+    // on the suite itself.
+    const other = randomUUID();
+    const grants = [
+      'read eval_suite:acme.cross',
+      `read project:${TEST_PROJECT_ID}`,
+      `read project:${other}`,
+      `write project:${other}`,
+      'execute agent:acme.drafting',
+    ];
+    const { app, registry } = makeApp({ grants });
+    await seedSuite(registry, { id: 'acme.cross', kind: 'accuracy', spec: accuracySpec });
+    const res = await start(app, 'acme.cross', other);
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain('eval_suite:acme.cross');
+  });
+
+  test('only `POST /:suiteId/runs` itself skips the suite admin check', async () => {
+    const { app, registry } = makeApp({ grants: editor('acme.deeper') });
+    await seedSuite(registry, { id: 'acme.deeper', kind: 'accuracy', spec: accuracySpec });
+    const res = await app.request('/v1/eval-suites/acme.deeper/versions/acme.deeper/runs', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain('"action":"admin"');
+  });
+
+  test('changing the suite still needs admin on it: an editor unregistering a version gets 403', async () => {
+    const { app, registry } = makeApp({ grants: editor('acme.editor-unreg') });
+    await seedSuite(registry, { id: 'acme.editor-unreg', kind: 'accuracy', spec: accuracySpec });
+    const res = await app.request('/v1/eval-suites/acme.editor-unreg/versions/1.0.0/unregister', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain('"action":"admin"');
+  });
+});
 
 describe('API — eval-runs start (accuracy happy path)', () => {
   test('POST /v1/eval-suites/:suiteId/runs → 201, runId; run completes with aggregate result', async () => {
@@ -312,6 +439,95 @@ describe('API — eval-runs start (accuracy happy path)', () => {
     const result = final.result as { passCount: number; totalCount: number };
     expect(result.passCount).toBe(1);
     expect(result.totalCount).toBe(2);
+  });
+});
+
+describe('API — eval-runs and a suspended project', () => {
+  const threeCases: Readonly<Record<string, unknown>> = {
+    ...accuracySpec,
+    cases: [
+      ...(accuracySpec.cases as unknown[]),
+      { id: 'c3', input: { prompt: 'c', expected: 'C' }, expected: 'C' },
+    ],
+  };
+  const start = (app: AppSetup['app'], suiteId: string) =>
+    app.request(`/v1/eval-suites/${suiteId}/runs`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: TEST_PROJECT_ID,
+        agentRef: { agentId: 'acme.drafting', version: '1.0.0' },
+      }),
+    });
+  /** The second case's start is refused (`refused`), the others answer what they expect. */
+  const refusingSecond = (refused: EvalRunSubjectInvokeOutcome) => {
+    const calls = { n: 0 };
+    const subject: EvalSubjectInvoker = {
+      async invoke({ input }) {
+        calls.n += 1;
+        if (calls.n === 2) return refused;
+        return { output: (input as { expected: unknown }).expected };
+      },
+    };
+    return { calls, subject };
+  };
+
+  test('no run starts in it: 409 project-suspended, and nothing runs; restored, it starts', async () => {
+    let suspended = true;
+    const asked: string[] = [];
+    const { calls, subject } = refusingSecond({ output: 'unused' });
+    const { app, registry } = makeApp({
+      subject,
+      projectSuspended: async (_tenantId, projectId) => {
+        asked.push(projectId as unknown as string);
+        return suspended;
+      },
+    });
+    await seedSuite(registry, { id: 'acme.suspended', kind: 'accuracy', spec: accuracySpec });
+    const refused = await start(app, 'acme.suspended');
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe(
+      'project-suspended',
+    );
+    expect(asked).toEqual([TEST_PROJECT_ID]);
+    expect(calls.n).toBe(0);
+    suspended = false;
+    expect((await start(app, 'acme.suspended')).status).toBe(201);
+  });
+
+  test('a case it refuses to start stops the run there: cancelled, with the reason, and the cases before it', async () => {
+    const { calls, subject } = refusingSecond({
+      halt: { reason: 'project-suspended', message: 'The project is suspended' },
+    });
+    const { app, registry, binding } = makeApp({ subject });
+    await seedSuite(registry, { id: 'acme.halted', kind: 'accuracy', spec: threeCases });
+    const res = await start(app, 'acme.halted');
+    const { runId } = (await res.json()) as { runId: string };
+    const final = await waitForRun(binding, runId, (r) => r.status === 'cancelled');
+    expect(final.cancelReason).toBe('project-suspended');
+    expect(final.error).toBeUndefined();
+    expect(calls.n).toBe(2);
+    expect(final.result).toMatchObject({ passCount: 1, totalCount: 3, cancelled: true });
+    expect((final.result as { perCase: unknown[] }).perCase).toHaveLength(1);
+    const read = await app.request(`/v1/eval-runs/${runId}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(await read.json()).toMatchObject({
+      status: 'cancelled',
+      cancelReason: 'project-suspended',
+    });
+  });
+
+  test("a case's error isn't a halt: the run goes on to the end", async () => {
+    const { calls, subject } = refusingSecond({ error: 'pack-suspended: the pack is suspended' });
+    const { app, registry, binding } = makeApp({ subject });
+    await seedSuite(registry, { id: 'acme.errored', kind: 'accuracy', spec: threeCases });
+    const res = await start(app, 'acme.errored');
+    const { runId } = (await res.json()) as { runId: string };
+    const final = await waitForRun(binding, runId, (r) => r.status === 'completed');
+    expect(final.cancelReason).toBeUndefined();
+    expect(calls.n).toBe(3);
+    expect(final.result).toMatchObject({ passCount: 2, totalCount: 3 });
   });
 });
 
@@ -733,6 +949,159 @@ describe('API — eval-runs SSE events', () => {
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe('eval-run-not-found');
+  });
+
+  /** A run that stays running, one case in; each read of it counted. */
+  function runningRunApp() {
+    const counted = { reads: 0 };
+    const runId = randomUUID();
+    const running = {
+      runId,
+      tenantId,
+      suiteId: 'acme.sse',
+      suiteVersion: '1.0.0',
+      kind: 'accuracy',
+      status: 'running',
+      dryRun: false,
+      startedAt: '2026-10-16T00:00:00.000Z',
+      result: { perCase: [{ pass: true }] },
+    } as unknown as EvalRun;
+    let hold: { entered: () => void; released: Promise<void> } | undefined;
+    /** Holds each read of the run until `release`; `waiting` resolves once one waits. */
+    const holdReads = () => {
+      let release = (): void => undefined;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const waiting = new Promise<void>((entered) => {
+        hold = { entered, released };
+      });
+      return { waiting, release };
+    };
+    const evalRunBinding = {
+      get: async ({ runId: id }: { runId: string }) => {
+        counted.reads += 1;
+        if (hold !== undefined) {
+          hold.entered();
+          await hold.released;
+        }
+        return id === runId ? running : null;
+      },
+    } as unknown as EvalRunBinding;
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      evalRunBinding,
+    });
+    const call = (
+      method: 'GET' | 'HEAD',
+      { id = runId, signal }: { id?: string; signal?: AbortSignal } = {},
+    ) =>
+      app.request(`/v1/eval-runs/${id}/events`, {
+        method,
+        headers: { authorization: `Bearer ${TOKEN}`, 'x-request-id': 'req-events' },
+        ...(signal !== undefined && { signal }),
+      });
+    return { call, counted, holdReads };
+  }
+
+  test('a reader that cancels: no read of the run and no timer after the cancel', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const { call, counted } = runningRunApp();
+      const res = await call('GET');
+      expect(res.status).toBe(200);
+      const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+      const first = await reader.read();
+      expect(new TextDecoder().decode(first.value)).toContain('event: eval-run.case-completed');
+      await vi.advanceTimersByTimeAsync(1_000);
+      const polled = counted.reads;
+      // It polls while it's read: the route's read, the stream's first, then one every 100 ms.
+      expect(polled).toBeGreaterThan(2);
+      await reader.cancel();
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(counted.reads).toBe(polled);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a HEAD answers the stream's status and headers and starts none of its work", async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const { call, counted } = runningRunApp();
+      const head = await call('HEAD');
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      // The route's one read, to find the run; no poll and no timer: the stream never started.
+      expect(counted.reads).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(head.body).toBeNull();
+      const get = await call('GET');
+      await get.body?.cancel();
+      expect([head.status, get.status]).toEqual([200, 200]);
+      // Each request answers its own span; every other header is the same.
+      const { traceresponse: headSpan, ...headHeaders } = Object.fromEntries(head.headers);
+      const { traceresponse: getSpan, ...getHeaders } = Object.fromEntries(get.headers);
+      expect([headSpan, getSpan]).toEqual([expect.any(String), expect.any(String)]);
+      expect(headHeaders).toEqual(getHeaders);
+      expect(headHeaders['content-type']).toBe('text/event-stream; charset=utf-8');
+      // A run that isn't there: the GET's 404.
+      const absent = randomUUID();
+      const [headMissing, getMissing] = [
+        await call('HEAD', { id: absent }),
+        await call('GET', { id: absent }),
+      ];
+      expect([headMissing.status, getMissing.status, headMissing.body]).toEqual([404, 404, null]);
+      expect(Object.fromEntries(headMissing.headers)).toEqual({
+        ...Object.fromEntries(getMissing.headers),
+        traceresponse: expect.any(String),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a client that leaves during the read check: the stream never starts', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const { call, counted, holdReads } = runningRunApp();
+      const { waiting, release } = holdReads();
+      const client = new AbortController();
+      const answered = call('GET', { signal: client.signal });
+      await waiting;
+      client.abort();
+      release();
+      const res = await answered;
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      // The route's one read, to find the run; no poll and no timer. The body is never touched.
+      expect(counted.reads).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
+      expect([res.status, res.body]).toEqual([200, null]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a client that leaves after the answer, its body never read: the polls stop', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const { call, counted } = runningRunApp();
+      const client = new AbortController();
+      const res = await call('GET', { signal: client.signal });
+      expect(res.status).toBe(200);
+      await vi.advanceTimersByTimeAsync(1_000);
+      const polled = counted.reads;
+      // It polls while the client is there: the route's read, the stream's first, then one every 100 ms.
+      expect(polled).toBeGreaterThan(2);
+      client.abort();
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(counted.reads).toBe(polled);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

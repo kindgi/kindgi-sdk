@@ -89,6 +89,21 @@ export interface EvalRunSubjectInvokeOutcome {
     readonly arguments: unknown;
     readonly reason?: string;
   };
+  /**
+   * The past run was erased after the case was read (a person's words
+   * were removed): nothing was replayed. Not an error: the dispatcher
+   * leaves the case out and counts it, like a case erased before. A
+   * runtime that predates erasure never sets it.
+   */
+  readonly erased?: true;
+  /**
+   * The case couldn't start: its project or tenant takes no new runs
+   * (`project-suspended`, `tenant-suspended`, `tenant-closing`, as a run
+   * start is refused). Not the case's error: the dispatcher stops at it,
+   * counting it nowhere, and the eval run ends `cancelled` with `reason`
+   * as its `cancelReason`. A runtime that refuses no starts never sets it.
+   */
+  readonly halt?: { readonly reason: string; readonly message: string };
 }
 
 /**
@@ -142,6 +157,8 @@ export interface DispatchContext {
 export interface DispatchResult {
   readonly result: Readonly<Record<string, unknown>>;
   readonly error?: string;
+  /** With `error: 'cancelled'`: why it stopped when nobody cancelled it (a case's `halt`). */
+  readonly cancelReason?: string;
 }
 
 export interface EvalRunDispatcher {
@@ -207,19 +224,20 @@ export function createAccuracyDispatcher(options: AccuracyDispatcherOptions): Ev
       const perCase: Record<string, unknown>[] = [];
       let passCount = 0;
       let scoreSum = 0;
+      // Cancelled, or halted (`cancelReason`): the cases so far.
+      const cancelled = (cancelReason?: string): DispatchResult => ({
+        result: {
+          passCount,
+          totalCount: cases.length,
+          meanScore: perCase.length > 0 ? scoreSum / perCase.length : 0,
+          perCase,
+          cancelled: true,
+        },
+        error: 'cancelled',
+        ...(cancelReason !== undefined && { cancelReason }),
+      });
       for (let i = 0; i < cases.length; i++) {
-        if (ctx.abortSignal.aborted) {
-          return {
-            result: {
-              passCount,
-              totalCount: cases.length,
-              meanScore: perCase.length > 0 ? scoreSum / perCase.length : 0,
-              perCase,
-              cancelled: true,
-            },
-            error: 'cancelled',
-          };
-        }
+        if (ctx.abortSignal.aborted) return cancelled();
         const c = cases[i];
         if (c === undefined) continue;
         const expected = extractExpected(c);
@@ -230,6 +248,7 @@ export function createAccuracyDispatcher(options: AccuracyDispatcherOptions): Ev
           dryRun: ctx.dryRun,
           abortSignal: ctx.abortSignal,
         });
+        if (invocation.halt !== undefined) return cancelled(invocation.halt.reason);
         if (invocation.error !== undefined) {
           const entry = {
             caseIndex: i,
@@ -329,10 +348,14 @@ export function createInProcessEvalRunBinding(
 
   return {
     async start(input: EvalRunStartInput): Promise<EvalRunStartOutcome> {
-      const suite = await options.suiteRegistry.get({
-        tenantId: input.tenantId,
-        suiteId: input.suiteId,
-      });
+      const suite =
+        input.suiteVersion === undefined
+          ? await options.suiteRegistry.get({ tenantId: input.tenantId, suiteId: input.suiteId })
+          : await options.suiteRegistry.getVersion({
+              tenantId: input.tenantId,
+              suiteId: input.suiteId,
+              version: input.suiteVersion,
+            });
       if (suite === null) {
         return { kind: 'suite-not-found', suiteId: input.suiteId };
       }
@@ -429,6 +452,8 @@ export function createInProcessEvalRunBinding(
             outcome.error !== 'cancelled' && {
               error: outcome.error,
             }),
+          ...(status === 'cancelled' &&
+            outcome.cancelReason !== undefined && { cancelReason: outcome.cancelReason }),
         });
       })();
 
@@ -530,6 +555,7 @@ function newRunRecord(input: EvalRunStartInput, suite: EvalSuite, runId: RunId, 
     startedAt: at.toISOString() as unknown as Timestamp,
     ...(input.correlationId !== undefined && { correlationId: input.correlationId }),
     ...(input.comparison !== undefined && { comparison: input.comparison }),
+    projectId: input.projectId,
   };
 }
 

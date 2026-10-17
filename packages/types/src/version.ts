@@ -30,10 +30,12 @@ export type SchemaMajor = Brand<number, 'SchemaMajor'>;
  * semver, so replays and audit trails always know which version was in force.
  *
  * @example
+ * ```ts excerpt
  * const flowRef: VersionedRef<FlowId> = {
  *   id: 'acme.contract-review' as FlowId,
  *   version: '1.2.3' as Semver,
  * };
+ * ```
  */
 export interface VersionedRef<Id extends string> {
   readonly id: Id;
@@ -52,7 +54,8 @@ export interface VersionedRef<Id extends string> {
  *   existed, so it has none;
  * - `version-taken`: the definition's version holds another definition;
  * - `edited`: derived from an existing version with some data-block pins
- *   swapped (an expert's edit), not from a definition at all.
+ *   swapped (an expert's edit, or an improvement proposal's candidate:
+ *   `proposalId`), not from a definition at all.
  */
 export type VersionDerivationReason = 'pins-changed' | 'unpinned' | 'version-taken' | 'edited';
 
@@ -65,4 +68,9 @@ export interface VersionDerivation {
   readonly label?: string;
   /** For an edit: who made it (`user:<id>`, or the token for a key). */
   readonly by?: string;
+  /**
+   * For an edit made to evaluate an improvement proposal: the proposal.
+   * Such a version serves no scope until a promotion makes it live.
+   */
+  readonly proposalId?: string;
 }

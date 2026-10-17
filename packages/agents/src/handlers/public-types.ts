@@ -4,9 +4,16 @@
 import type { Principal } from '@kindgi/authz';
 import type { ProviderRegistry, TenantPolicy, UsageSink } from '@kindgi/capabilities';
 import type { EmbeddingProviderRegistry } from '@kindgi/embedding';
-import type { MemoryQueryBinding } from '@kindgi/memory';
+import type { GuardrailOutcomeSink } from '@kindgi/guardrails';
+import type { MemoryQueryBinding, MemoryRememberBinding } from '@kindgi/memory';
 import type { PolicyRegistry } from '@kindgi/policy-contract';
-import type { ParentRunRef, RunBinding, RunReplayRef } from '@kindgi/runtime';
+import type {
+  ParentRunRef,
+  RunBinding,
+  RunIdempotencyKey,
+  RunReplayRef,
+  RunTriggerRef,
+} from '@kindgi/runtime';
 import type { ToolRegistry, ToolSecretRef } from '@kindgi/tools';
 import type {
   AgentVersionVia,
@@ -26,9 +33,11 @@ import type { GuardrailsBindings } from '../guardrails-gate.js';
 import type { ProvenanceBindings } from '../provenance-emit.js';
 import type { RunSnapshotBinding } from '../run-snapshot-binding.js';
 import type { OnTurnEvent } from '../streaming.js';
+import type { TemplateRenderer } from '../template-renderer.js';
 import type { Agent, ConversationId } from '../types.js';
 
 import type { ReplayBinding } from './replay.js';
+import type { TurnMemoryBinding } from './turn-memory.js';
 
 /**
  * The user-facing input to `invokeAgent`. Split out from `invoke.ts` so
@@ -80,6 +89,10 @@ export interface InvokeAgentInput {
    * is refused when that isn't wired), and only a read-only tool can run.
    */
   readonly replay?: RunReplayRef;
+  /** Start the turn's run at most once per key (`RunIdempotencyKey`). */
+  readonly idempotencyKey?: RunIdempotencyKey;
+  /** Set when a trigger starts the turn; its run records it (`RunTriggerRef`). */
+  readonly trigger?: RunTriggerRef;
   readonly participantId?: string;
   readonly abortSignal?: AbortSignal;
   /**
@@ -94,20 +107,16 @@ export interface InvokeAgentInput {
   readonly dryRun?: boolean;
   /**
    * Authorization — the Principal on whose authority this agent turn
-   * runs. When set together with `authz`, the underlying run checks
-   * every tool invocation (and subgraph dispatch, if any) against this
-   * principal at its enforcement point.
-   *
-   * Typical caller construction:
-   *   principal = delegate(
-   *     { kind: 'agent', id: input.agent.id, tenantId },
-   *     userPrincipalFromSession
-   *   )
-   * — establishes the confused-deputy-safe intersection semantic.
-   *
-   * Absent = tool invocations are not authorization-checked.
+   * runs. From runtime 0.1.8, the Kindgi runtime checks each of the
+   * turn's tool calls against it (`InvokeAgentBindings.authorizeToolCall`)
+   * for every turn a person or a key starts.
    */
   readonly principal?: Principal;
+  /**
+   * Where authorization is decided: OpenFGA's URL, never a credential (it's
+   * stored with the turn's snapshot). From runtime 0.1.8, the Kindgi
+   * runtime sets it on every turn a person or a key starts.
+   */
   readonly authz?: {
     readonly fgaApiUrl: string;
   };
@@ -142,6 +151,12 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    * touches a database client directly for memory operations.
    */
   readonly memoryBinding: MemoryQueryBinding;
+  /**
+   * Where an agent that declares `memory.remember` stores what it
+   * remembers (the `kindgi_remember` tool). Absent: the tool still
+   * shows, and a call answers that this host can't remember.
+   */
+  readonly memoryWriter?: MemoryRememberBinding;
   /**
    * Caller-plugged conversation store. Every open / get / list /
    * close / delete / appendMessage / readMessages inside the agent
@@ -183,7 +198,9 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    * `policyRegistry.evaluate('model-routing', {tenantId})` and merges
    * the result with `tenantPolicy` before routing. Without a registry
    * (or without an executor for that kind), `tenantPolicy` applies
-   * alone.
+   * alone. The turn reads `hitl` and `tool-errors` through it too; an
+   * evaluation of any of the three that throws fails the turn with
+   * `tenant-policy-unavailable`.
    */
   readonly policyRegistry?: PolicyRegistry;
   readonly embeddingRegistry?: EmbeddingProviderRegistry;
@@ -198,6 +215,20 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    */
   readonly usage?: UsageSink;
   /**
+   * What the turn holds in memory, charged by size before each model call
+   * (a runtime's limit, per tenant and in all, as Kindgi Cloud sets). Bound per turn; the
+   * runtime releases the charge when the turn settles. Refused, the turn
+   * fails with `turn-memory-limit-reached`. Absent: nothing is charged.
+   */
+  readonly turnMemory?: TurnMemoryBinding;
+  /**
+   * Where the turn records what each guardrail's check came to (passed,
+   * violated, blocked or errored), before it acts on them: a blocked turn
+   * is recorded before it fails. Replays and dry runs aren't recorded.
+   * Absent: outcomes aren't recorded.
+   */
+  readonly guardrailOutcomes?: GuardrailOutcomeSink;
+  /**
    * Declarative HTTP tools: optional secret resolver populated
    * from the deployment's tenant-scoped `SecretBinding`. When present,
    * `dispatch-tools` threads it into every `ToolContext` so
@@ -208,13 +239,55 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    */
   readonly resolveSecret?: (ref: ToolSecretRef) => Promise<string>;
   /**
+   * Whether the turn's principal may call a tool, asked before each call,
+   * before any approval. A denied call runs nothing and asks no reviewer:
+   * its result tells the model it wasn't allowed (`{ status: 'denied',
+   * reason }`), and the turn goes on. The model sees `reason`, so write it
+   * as a plain sentence for whoever reads the conversation.
+   *
+   * - **An approved call is asked again** right before it runs: access can
+   *   change while it waits. Denied then, it runs nothing, and the
+   *   reviewer's decision stays as it was.
+   * - **Each decision is recorded with the call,** so a resumed turn keeps
+   *   it. A throw records nothing and fails the step: a call never runs
+   *   without an answer.
+   * - **A built-in tool** (`kindgi_<verb>`) is asked only when what it
+   *   touches reaches beyond the turn's project: `kindgi_remember` for a
+   *   tenant-scope fact.
+   * - **`principal` is absent** for a turn that has none. The authorizer
+   *   decides what that gets.
+   *
+   * The Kindgi runtime checks `invoke` on the tool for the turn's
+   * principal. Absent: every call is allowed.
+   */
+  readonly authorizeToolCall?: (input: {
+    readonly tenantId: TenantId;
+    readonly projectId: ProjectId;
+    readonly principal?: Principal;
+    readonly toolId: string;
+  }) => Promise<ToolCallAuthorization>;
+  /**
    * How replay turns (`InvokeAgentInput.replay`) decide their tool calls,
    * retrievals and session approval. Consulted only for a replay turn.
    */
   readonly replay?: ReplayBinding;
+  /**
+   * Where the turn renders its instructions, off the thread that runs it:
+   * `createWorkerTemplateRenderer` (`@kindgi/agents/render-worker`)
+   * renders in child processes, so a template can't hold up the server's
+   * other work. Absent: the turn renders them in-process.
+   */
+  readonly templateRenderer?: TemplateRenderer;
 }
 
 export interface HitlBindings {
+  /**
+   * Open the approval a gate asks for. A binding refuses one past the
+   * tenant's limit on approvals waiting by throwing an error with
+   * `code: 'approvals-pending-limit'` (and `approvalsPending`, the limit):
+   * the step then fails with that code, naming the limit. Any other throw
+   * is soft: the gate still waits.
+   */
   readonly enqueue: (input: HitlEnqueueInput) => Promise<HitlEnqueueResult>;
 }
 
@@ -225,6 +298,18 @@ export interface HitlEnqueueInput {
   readonly subjectKind: string;
   readonly subjectRef: Readonly<Record<string, unknown>>;
   readonly requiredRole?: 'standard' | 'senior' | 'admin';
+  /**
+   * Who asked: the person the turn runs for (`user:<id>`,
+   * `service_account:<id>` or `system:<id>`), the same when another
+   * person's decision resumes it. Absent when the turn runs for no one.
+   */
+  readonly requestedBy?: string;
+  /**
+   * Four eyes: the person who asked (`requestedBy`) may not approve it.
+   * From the agent's `conversationPolicy.hitl.separateApprover`; absent =
+   * `false`.
+   */
+  readonly separateApprover?: boolean;
   readonly title?: string;
   readonly description?: string;
   readonly context?: Readonly<Record<string, unknown>>;
@@ -258,3 +343,8 @@ export interface HitlEnqueueInput {
 export interface HitlEnqueueResult {
   readonly approvalId: string;
 }
+
+/** `InvokeAgentBindings.authorizeToolCall`'s answer. */
+export type ToolCallAuthorization =
+  | { readonly allowed: true }
+  | { readonly allowed: false; readonly reason: string };

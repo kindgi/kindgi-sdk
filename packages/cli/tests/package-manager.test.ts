@@ -70,7 +70,7 @@ describe('detectPackageManager', () => {
 describe('binCommand — runs the project-local bin, never downloads', () => {
   test.each([
     ['pnpm', 'pnpm', ['exec', 'kindgi', 'dev']],
-    ['npm', 'npx', ['--no', 'kindgi', 'dev']],
+    ['npm', 'npx', ['--no', '--', 'kindgi', 'dev']],
     ['yarn', 'yarn', ['kindgi', 'dev']],
     ['bun', 'bun', ['run', 'kindgi', 'dev']],
   ] as const)('%s', (pm, command, args) => {
@@ -131,6 +131,18 @@ describe('usablePackageManager (T280)', () => {
 describe('detectBinRunner', () => {
   test('a Python pack runs the kindgi on PATH, whatever lockfiles sit above it', async () => {
     expect(await detectBinRunner('/app', 'python', io({ '/app/pnpm-lock.yaml': '' }))).toBe('path');
+  });
+
+  test('a Java pack runs its kindgiw, else the published CLI: it has no npm or Python environment', async () => {
+    expect(await detectBinRunner('/app', 'java', io({ '/app/pnpm-lock.yaml': '' }))).toBe('path');
+    expect(await detectBinRunner('/app', 'java', io({}), { KINDGI_CLI_INSTALL: 'pypi' })).toBe(
+      'path',
+    );
+    // With its wrapper, the CLI version the pack pins.
+    expect(await detectBinRunner('/app', 'java', io({ '/app/kindgiw': '' }))).toBe('kindgiw');
+    expect(await detectBinRunner('/app', 'scala', io({ '/app/kindgiw': '' }))).toBe('kindgiw');
+    expect(await detectBinRunner('/app', 'scala', io({}))).toBe('path');
+    expect(binDisplay('kindgiw', 'kindgi', ['dev'])).toBe('./kindgiw dev');
   });
 
   test('a Node pack runs it through its package manager', async () => {

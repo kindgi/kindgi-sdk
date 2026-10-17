@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { TenantBudgetError } from '@kindgi/bounds';
 import type { HandlerRegistry, NodeHandler } from '@kindgi/handler';
 import type { NodeId } from '@kindgi/types';
 
@@ -25,6 +26,7 @@ import { buildBuildInitialMessagesHandler } from './build-initial-messages.js';
 import { buildComposeResultHandler } from './compose-result.js';
 import type { TurnContext } from './context.js';
 import { buildDispatchToolsHandler } from './dispatch-tools.js';
+import { budgetRefusal, throwAgentTurnFailure } from './errors.js';
 import { buildEvaluateGuardrailsHandler } from './evaluate-guardrails.js';
 import { buildModelCallHandler } from './model-call.js';
 import { buildPersistFinalMessageHandler } from './persist-final-message.js';
@@ -57,7 +59,50 @@ export function buildHandlers(ctx: TurnContext): HandlerRegistry {
   if (entries.some(([id]) => id === (AGENT_LOOP_NODE as NodeId))) {
     throw new Error('agent-loop must not have a handler — it is dispatched by the kernel');
   }
-  return new Map(entries);
+  return new Map(
+    entries.map(([id, handler]) => [id, followingTheRun(ctx, refusalsAnswered(handler))]),
+  );
 }
 
 export type { TurnContext };
+
+/**
+ * The handler, with the turn stopping when its run is stopped: the kernel
+ * aborts a node's `abortSignal` when the run ends from outside (a cancel,
+ * a shutdown), and the turn's own work (a model call, a tool call)
+ * listens to the turn's abort. Linked as each node starts, once.
+ */
+function followingTheRun(ctx: TurnContext, handler: NodeHandler): NodeHandler {
+  return (input, kctx) => {
+    const run = kctx.abortSignal;
+    if (run !== undefined && !ctx.turnAbort.signal.aborted) {
+      const stop = (): void => {
+        ctx.abortReason ??= 'external';
+        ctx.turnAbort.abort(run.reason);
+      };
+      if (run.aborted) stop();
+      else run.addEventListener('abort', stop, { once: true });
+    }
+    return handler(input, kctx);
+  };
+}
+
+/**
+ * The handler, with a budget kept per tenant answered for: where a
+ * node's work refused by one (a template render, a schema compile;
+ * `TenantBudgetError`) becomes the turn's failure (`budgetRefusal`).
+ * Every node's work passes through here, and the catches inside a node
+ * pass the refusal on, so it never reads as the model's failure or the
+ * template's. A resumed turn's rebuild, which runs before any node,
+ * answers the same way.
+ */
+function refusalsAnswered(handler: NodeHandler): NodeHandler {
+  return async (input, kctx) => {
+    try {
+      return await handler(input, kctx);
+    } catch (cause) {
+      if (!(cause instanceof TenantBudgetError)) throw cause;
+      return throwAgentTurnFailure(budgetRefusal(cause));
+    }
+  };
+}

@@ -5,6 +5,8 @@ import type { Principal, ReviewerRole } from '@kindgi/authz';
 import type { Logger, TraceContext } from '@kindgi/log';
 import type { ApiTokenId, RunId, SessionId, TenantId, UserId } from '@kindgi/types';
 
+import type { SystemPrincipal } from './system.js';
+
 /**
  * Hono environment shape — variables the middleware chain populates
  * and route handlers consume via `c.get(...)`.
@@ -42,6 +44,22 @@ export interface AppEnv {
      * account.
      */
     tokenId?: ApiTokenId;
+    /** The service account an API key acts for. */
+    serviceAccountId?: string;
+    /**
+     * Set by a route whose answer carries a secret (`withholdFromReplay`):
+     * the Idempotency-Key middleware keeps that the request succeeded, not
+     * its answer.
+     */
+    idempotencyWithhold?: boolean;
+    /** An API key's role ceiling (`member` keys can't administer the tenant). */
+    tokenRole?: 'admin' | 'member';
+    /** The project an API key is narrowed to. */
+    tokenProjectId?: string;
+    /** A write's body as it came, read once by `readBodyOnce`. */
+    requestBody?: Uint8Array;
+    /** When the API token the request came with expires, if it does. */
+    tokenExpiresAt?: Date;
     /**
      * Set by `bearerAuthMiddleware` when the caller presented a
      * framework-issued OAuth session token (`kgi_sk_*`).
@@ -49,6 +67,10 @@ export interface AppEnv {
      * revoke without a second lookup. Absent for static bearer tokens.
      */
     sessionId?: SessionId;
+    /** Set when the session token came from a cookie (not a header): that cookie's name. */
+    sessionCookieName?: string;
+    /** With `sessionCookieName`: whether that cookie is `Secure`. */
+    sessionCookieSecure?: boolean;
     /** Identity-provider id behind a session token. Absent for bearer. */
     providerId?: string;
     /** Set by `sigv4Middleware` on `/s3/*`: the bucket the credential may access. */
@@ -65,6 +87,17 @@ export interface AppEnv {
      */
     capabilities?: readonly string[];
     /**
+     * Set by `bearerAuthMiddleware` when the token is the deployment's
+     * operator's, acting in no tenant (a system key, `kgi_sy_…`). Such a
+     * request's `tenantId` is `SYSTEM_TENANT_ID`, and `systemPrincipalFence`
+     * keeps it to `/v1/system/*`.
+     */
+    systemPrincipal?: SystemPrincipal;
+    /** The system scope the route checked, for the access record. */
+    systemScopeUsed?: string;
+    /** The tenant a system request acts in (`*` across tenants), for the access record. */
+    systemTargetTenant?: string;
+    /**
      * Composite authz Principal built by `principalMiddleware` from
      * the token resolution. Present on every route mounted BELOW that
      * middleware (i.e. all `/v1/*` routes). Consumed by the
@@ -72,6 +105,11 @@ export interface AppEnv {
      * needs to make conditional authz checks.
      */
     principal?: Principal;
+    /**
+     * Set when the app seals page cursors (`cursorSealer`): a list may then
+     * continue after a row it hid, since the cursor won't show it.
+     */
+    cursorsSealed?: boolean;
     /**
      * Set when the request authenticated with a public run token
      * (`kgi_pt_…`): such a request may only read the runs in

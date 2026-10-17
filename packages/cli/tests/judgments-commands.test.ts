@@ -89,10 +89,10 @@ describe('kindgi judgments', () => {
   test('add needs exactly one of --yes and --no, a run and an item', async () => {
     const client = { judgments: {} };
     const both = await run(['judgments', 'add', '--run=r', '--item=c', '--yes', '--no'], client);
-    expect(both.exitCode).toBe(1);
+    expect(both.exitCode).toBe(2);
     expect(both.stderr).toContain('exactly one of --yes or --no');
     const neither = await run(['judgments', 'add', '--run=r', '--item=c'], client);
-    expect(neither.exitCode).toBe(1);
+    expect(neither.exitCode).toBe(2);
     const noRun = await run(['judgments', 'add', '--item=c', '--yes'], client);
     expect(noRun.stderr).toContain('--run');
     const noItem = await run(['judgments', 'add', '--run=r', '--yes'], client);
@@ -296,7 +296,7 @@ describe('kindgi judge-classes', () => {
       },
     };
     expect((await run(['judge-classes', 'set', 'jc-1', '--weight=0'], client)).exitCode).toBe(0);
-    expect((await run(['judge-classes', 'set', 'jc-1'], client)).exitCode).toBe(1);
+    expect((await run(['judge-classes', 'set', 'jc-1'], client)).exitCode).toBe(2);
     const removed = await run(['judge-classes', 'remove', 'jc-1'], client);
     expect(removed.exitCode, removed.stderr).toBe(0);
     expect(calls).toEqual([

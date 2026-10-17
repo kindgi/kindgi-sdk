@@ -9,8 +9,9 @@
  *     `pnpm-workspace.yaml`, `agents/`, `tools/`, etc.). The
  *     historical `kindgi init <pack-name>` shape.
  *   - **augment** — adds Kindgi files alongside an existing project: a
- *     Node.js app (`kindgi.config.ts`, `kindgi/**`, `.claude/skills/`, the
- *     existing `package.json` patched — "add Kindgi to my Next.js app")
+ *     Node.js app (`kindgi.config.ts`, `kindgi/**`, `.claude/skills/` and
+ *     `.agents/skills/`, the existing `package.json` patched — "add Kindgi
+ *     to my Next.js app")
  *     or a Python app (`[tool.kindgi]` appended to its `pyproject.toml`,
  *     `kindgi/**`, the Python-pack skills).
  *
@@ -48,7 +49,7 @@ export interface DetectInputs {
    * scaffold a standalone pack in a nested subdir.
    */
   readonly newRepoFlag: boolean;
-  /** `--template=<name>` — `python` picks the Python app when both project files exist. */
+  /** `--template=<name>` — `python` or `java` picks that app when several project files exist. */
   readonly templateFlag?: string;
   /** Test injection point. */
   readonly fileExists?: (path: string) => Promise<boolean>;
@@ -66,7 +67,7 @@ export type DetectResult =
       readonly mode: 'augment';
       readonly targetDir: string;
       /** The app's language — the pack's. */
-      readonly language: 'node' | 'python';
+      readonly language: 'node' | 'python' | 'java' | 'scala';
     }
   | {
       readonly kind: 'err';
@@ -132,6 +133,21 @@ export async function detectInitMode(inputs: DetectInputs): Promise<DetectResult
 
   const hasPackageJson = await fileExists(`${augmentTargetDir}/package.json`);
   const hasPyproject = await fileExists(`${augmentTargetDir}/pyproject.toml`);
+  const hasPom = await fileExists(`${augmentTargetDir}/pom.xml`);
+  const hasBuildSbt = await fileExists(`${augmentTargetDir}/build.sbt`);
+
+  // An sbt app: alone, or picked with --template=scala.
+  if (
+    hasBuildSbt &&
+    ((!hasPackageJson && !hasPyproject && !hasPom) || inputs.templateFlag === 'scala')
+  ) {
+    return { kind: 'ok', mode: 'augment', targetDir: augmentTargetDir, language: 'scala' };
+  }
+
+  // A Maven app: alone, or picked with --template=java.
+  if (hasPom && ((!hasPackageJson && !hasPyproject) || inputs.templateFlag === 'java')) {
+    return { kind: 'ok', mode: 'augment', targetDir: augmentTargetDir, language: 'java' };
+  }
 
   // Cases 3 and 4: no positional + a project file → augment, in its language.
   if (hasPyproject && (!hasPackageJson || inputs.templateFlag === 'python')) {
@@ -144,7 +160,7 @@ export async function detectInitMode(inputs: DetectInputs): Promise<DetectResult
   // Case 5: no positional + neither → error.
   return {
     kind: 'err',
-    message: `No pack-name provided and no package.json or pyproject.toml at ${augmentTargetDir}.\n  - To scaffold a new pack:      kindgi init <pack-name> [--template=python]\n  - To add Kindgi to existing:   run inside a directory with package.json (Node) or pyproject.toml (Python)\n`,
+    message: `No pack-name provided and no package.json, pyproject.toml, pom.xml or build.sbt at ${augmentTargetDir}.\n  - To scaffold a new pack:      kindgi init <pack-name> [--template=python|java|scala]\n  - To add Kindgi to existing:   run inside a directory with package.json (Node), pyproject.toml (Python), pom.xml (Java, Maven) or build.sbt (Scala, sbt)\n`,
   };
 }
 

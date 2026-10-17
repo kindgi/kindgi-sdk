@@ -62,7 +62,7 @@ describe('kindgi provenance (T238)', () => {
       'list',
       '--run=run-1',
       '--agent=acme.helper',
-      '--created-after=2026-10-01T00:00:00Z',
+      '--created-after=2026-10-01',
       '--project=p-1',
       '--limit=5',
       '--cursor=c-1',
@@ -75,7 +75,7 @@ describe('kindgi provenance (T238)', () => {
           scope: { kind: 'project', projectId: 'p-1' },
           runId: 'run-1',
           agentId: 'acme.helper',
-          createdAfter: '2026-10-01T00:00:00Z',
+          createdAfter: '2026-10-01T00:00:00.000Z',
           limit: 5,
           cursor: 'c-1',
         },
@@ -119,9 +119,12 @@ describe('kindgi provenance (T238)', () => {
     expect(plain.calls).toEqual([['export', { runId: 'run-1', signingKeyId: 'k-1' }]]);
   });
 
-  test('export without --signing-key, and get/export without the run: usage errors', async () => {
-    const noKey = await provenance(['export', 'run-1']);
-    expect(noKey.out.stderr).toContain('--signing-key=<key-id> is required');
+  test('export without --signing-key signs with the active key: the call names none', async () => {
+    const { calls } = await provenance(['export', 'run-1']);
+    expect(calls).toEqual([['export', { runId: 'run-1' }]]);
+  });
+
+  test('get/export without the run: usage errors', async () => {
     for (const command of ['get', 'export']) {
       const { out, calls } = await provenance([command]);
       expect(out.exitCode).not.toBe(0);

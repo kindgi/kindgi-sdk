@@ -17,18 +17,26 @@
 
 import { type ChildProcess, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { type Readable, finished } from 'node:stream';
 
+import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
+import { dockerUnreachable } from './blocked.js';
+import { lineReader } from './lines.js';
+import { parseRecord, textLines } from './log-view.js';
 import {
+  RUNTIME_EXPORT_SIGNING_KEY,
   RUNTIME_GOOGLE_CREDENTIALS,
   RUNTIME_PACK_DIR,
   RUNTIME_PUBLIC_TOKEN_KEY,
 } from './runtime-env.js';
+import { registryOf } from './runtime-image.js';
 import {
   credentialHelperFailure,
   credentialHelperHint,
   isRegistryAuthFailure,
   registryLoginCommand,
 } from './runtime-registry.js';
+import { NO_START_PHASES, type StartPhases, formatSize } from './start-phases.js';
 
 export type RuntimeNetwork = 'alias' | 'host-network';
 
@@ -40,6 +48,8 @@ export interface DockerOutcome {
   readonly code: number | null;
   readonly stdout: string;
   readonly stderr: string;
+  /** Why it couldn't be spawned, when it couldn't: the error's code (`ENOENT`, `EPERM`). */
+  readonly errorCode?: string;
 }
 
 export interface DockerRunOptions {
@@ -48,6 +58,10 @@ export interface DockerRunOptions {
    * registry token) goes here, never in the arguments or the environment.
    */
   readonly stdin?: string;
+  /** Each line as it comes, from either stream (a pull's progress). */
+  readonly onLine?: (line: string) => void;
+  /** Ends the command (a registry that doesn't answer); it then reports no exit code. */
+  readonly signal?: AbortSignal;
 }
 
 /** Runs one `docker` command to completion: `docker` below, or a fake in tests. */
@@ -64,17 +78,34 @@ export function docker(
   return new Promise((resolve) => {
     const child = spawn('docker', args, {
       stdio: [options.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+      ...(options.signal !== undefined && { signal: options.signal }),
     });
     let stdout = '';
     let stderr = '';
+    const onLine = options.onLine;
+    const outLines = onLine === undefined ? undefined : lineReader(onLine);
+    const errLines = onLine === undefined ? undefined : lineReader(onLine);
     child.stdout?.on('data', (chunk: Buffer) => {
       stdout += chunk.toString();
+      outLines?.push(chunk.toString());
     });
     child.stderr?.on('data', (chunk: Buffer) => {
       stderr += chunk.toString();
+      errLines?.push(chunk.toString());
     });
-    child.once('error', (err) => resolve({ code: null, stdout, stderr: err.message }));
-    child.once('close', (code) => resolve({ code, stdout, stderr }));
+    child.once('error', (err: NodeJS.ErrnoException) =>
+      resolve({
+        code: null,
+        stdout,
+        stderr: err.message,
+        ...(typeof err.code === 'string' && { errorCode: err.code }),
+      }),
+    );
+    child.once('close', (code) => {
+      outLines?.end();
+      errLines?.end();
+      resolve({ code, stdout, stderr });
+    });
     if (options.stdin !== undefined) {
       // `docker` may exit without reading it (a bad flag, or no `docker`
       // at all): the write's EPIPE is reported by the exit, not thrown.
@@ -86,6 +117,28 @@ export function docker(
 
 function lastLines(text: string, n = 5): string {
   return text.trim().split('\n').slice(-n).join('\n');
+}
+
+/**
+ * A pull's progress, as `docker pull` and a pulling `docker run` print it
+ * (a layer's status, the image being pulled, its digest and the outcome),
+ * and docker's generic "Run 'docker run --help'" line.
+ */
+const PULL_PROGRESS =
+  /^(?:[0-9a-f]{12}: (?:Pulling fs layer|Waiting|Downloading|Verifying Checksum|Download complete|Extracting|Pull complete|Already exists|Retrying.*)|\S+: Pulling from \S+|Digest: sha256:[0-9a-f]+|Status: .*|Unable to find image '.*' locally|Run 'docker \S+ --help' for more information)\s*$/;
+
+/**
+ * Why a docker command failed, from its stderr: the last lines once a
+ * pull's progress is left out. A pull prints its progress after the error
+ * that stopped it (`cannot overwrite digest`, an auth or disk-full error),
+ * so the plain tail can be all progress.
+ */
+export function dockerFailureDetail(stderr: string, n = 5): string {
+  const lines = stderr
+    .split('\n')
+    .map((line) => line.replace(/^.*\r/, '').trimEnd())
+    .filter((line) => line !== '' && !PULL_PROGRESS.test(line));
+  return lines.length > 0 ? lines.slice(-n).join('\n') : lastLines(stderr, n);
 }
 
 /**
@@ -105,30 +158,171 @@ export function runtimeContainerName(packDir: string): string {
 }
 
 /**
- * Make sure the image is here, pulling it if not. A private image needs
- * a registry login first (`kindgi auth registry`); the error says so.
+ * Make sure the image is here, pulling it if not: the pull is a phase,
+ * said at once, with how much has come as each layer arrives. The image's
+ * size comes from its manifest, read beside the pull (it never waits on
+ * the registry's answer) and given up when the pull ends. A private image
+ * needs a registry login first (`kindgi auth registry`); the error says so.
  */
 export async function ensureRuntimeImage(
   image: string,
-  onProgress: (line: string) => void,
+  phases: StartPhases = NO_START_PHASES,
 ): Promise<{ readonly kind: 'ok' } | { readonly kind: 'error'; readonly message: string }> {
   const present = await docker(['image', 'inspect', '--format', '{{.Id}}', image]);
   if (present.code === 0) return { kind: 'ok' };
-  if (present.code === null) {
-    return { kind: 'error', message: `Docker isn't available: ${present.stderr}` };
+  // Docker out of reach is said as such: a pull would fail the same way,
+  // and read as the registry's fault.
+  const unreachable = dockerUnreachable(present, 'kindgi dev');
+  if (unreachable !== undefined) return { kind: 'error', message: unreachable };
+  phases.begin('pull', `${image} (first run only)`);
+  const progress = pullProgress();
+  const manifestRead = new AbortController();
+  void imageLayers(image, manifestRead.signal)
+    .then((layers) => {
+      if (layers !== undefined && !manifestRead.signal.aborted) {
+        phases.progress('pull', progress.sized(layers));
+      }
+    })
+    // It can't reject today (`docker` reports, never throws); an unhandled rejection would end the CLI.
+    .catch(() => undefined);
+  const pulled = await docker(['pull', image], {
+    onLine: (line) => {
+      const note = progress.take(line);
+      if (note !== undefined) phases.progress('pull', note);
+    },
+  });
+  manifestRead.abort();
+  if (pulled.code === 0) {
+    const total = progress.totalBytes();
+    phases.end('pull', total > 0 ? formatSize(total) : undefined);
+    return { kind: 'ok' };
   }
-  onProgress(`Pulling the Kindgi runtime image ${image} (first run only)...`);
-  const pulled = await docker(['pull', image]);
-  if (pulled.code === 0) return { kind: 'ok' };
-  const detail = lastLines(pulled.stderr);
+  const detail = dockerFailureDetail(pulled.stderr);
   const helper = credentialHelperFailure(pulled.stderr);
   const auth =
     helper !== undefined
       ? `\n  ${credentialHelperHint(helper.helper)}`
       : isRegistryAuthFailure(pulled.stderr)
-        ? `\n  The runtime image is in private preview: request access at contact@kindgi.com, log in with the pull credentials you receive (${registryLoginCommand(image)}), then run kindgi dev again.`
+        ? `\n  The runtime image needs a pull credential: sign in with GitHub at ${KINDGI_ACCESS_ORIGIN} for one, log in (${registryLoginCommand(image)}), then run kindgi dev again.`
         : '';
   return { kind: 'error', message: `Couldn't pull ${image}: ${detail}${auth}` };
+}
+
+/** A layer of an image, as its manifest lists it. */
+export interface ImageLayer {
+  readonly digest: string;
+  readonly size: number;
+}
+
+/** How long a registry gets to answer for the image's manifest (the pull goes on meanwhile). */
+const MANIFEST_TIMEOUT_MS = 15_000;
+
+/**
+ * The layers `docker pull` will fetch for this machine, from the image's
+ * manifest (`docker manifest inspect --verbose`, a registry read that
+ * stores nothing); `undefined` when the registry doesn't say, or for a
+ * Docker Hub image, whose manifest reads count against its pull limit.
+ */
+async function imageLayers(
+  image: string,
+  stop: AbortSignal,
+): Promise<readonly ImageLayer[] | undefined> {
+  if (registryOf(image) === 'docker.io') return undefined;
+  const signal = AbortSignal.any([stop, AbortSignal.timeout(MANIFEST_TIMEOUT_MS)]);
+  const platform = await docker(['version', '--format', '{{.Server.Os}}/{{.Server.Arch}}'], {
+    signal,
+  });
+  if (platform.code !== 0) return undefined;
+  const manifest = await docker(['manifest', 'inspect', '--verbose', image], { signal });
+  if (manifest.code !== 0) return undefined;
+  return manifestLayers(manifest.stdout, platform.stdout.trim());
+}
+
+/**
+ * The layers for `platform` (`linux/arm64`) in `docker manifest inspect
+ * --verbose`'s output: one entry per platform for an index (attestations,
+ * `unknown/unknown`, are skipped), or one manifest.
+ */
+export function manifestLayers(json: string, platform: string): readonly ImageLayer[] | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return undefined;
+  }
+  const entries = (Array.isArray(parsed) ? parsed : [parsed]).filter(isObject);
+  const [os, architecture] = platform.split('/');
+  // One manifest is this machine's; an index's entries name theirs.
+  const entry =
+    entries.length === 1
+      ? entries[0]
+      : entries.find((e) => {
+          const p =
+            isObject(e.Descriptor) && isObject(e.Descriptor.platform) ? e.Descriptor.platform : {};
+          return p.os === os && p.architecture === architecture;
+        });
+  return entry === undefined ? undefined : layersOf(entry);
+}
+
+/** A verbose manifest entry's layers, when each has a digest and a size. */
+function layersOf(entry: Readonly<Record<string, unknown>>): readonly ImageLayer[] | undefined {
+  const manifest = entry.SchemaV2Manifest ?? entry.OCIManifest;
+  const layers = isObject(manifest) ? manifest.layers : undefined;
+  if (!Array.isArray(layers) || layers.length === 0) return undefined;
+  const out: ImageLayer[] = [];
+  for (const layer of layers) {
+    if (!isObject(layer) || typeof layer.digest !== 'string' || typeof layer.size !== 'number') {
+      return undefined;
+    }
+    out.push({ digest: layer.digest, size: layer.size });
+  }
+  return out;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** A pull's line saying a layer is in: its 12-character id. */
+const LAYER_IN = /^([0-9a-f]{12}): (?:Download complete|Pull complete|Already exists)\s*$/;
+
+/**
+ * A pull's progress from its lines: without a terminal, `docker pull`
+ * prints no byte counts, only a line as each layer arrives, so the bytes
+ * so far are the sizes of the layers in, once the manifest has said them
+ * (until then, layers are counted). `take` answers a line that moved it,
+ * and `sized` the manifest's layers, with the progress as words.
+ */
+export function pullProgress(): {
+  take(line: string): string | undefined;
+  sized(layers: readonly ImageLayer[]): string;
+  totalBytes(): number;
+} {
+  const sizes = new Map<string, number>();
+  const done = new Set<string>();
+  const total = (): number => [...sizes.values()].reduce((sum, n) => sum + n, 0);
+  const note = (): string => {
+    if (sizes.size === 0) return `${done.size} ${done.size === 1 ? 'layer' : 'layers'} in`;
+    if (done.size === 0) return `${formatSize(total())} in ${sizes.size} layers`;
+    let bytes = 0;
+    for (const d of done) bytes += sizes.get(d) ?? 0;
+    return `${formatSize(bytes)} of ${formatSize(total())}, ${Math.min(done.size, sizes.size)} of ${sizes.size} layers`;
+  };
+  return {
+    take(line) {
+      const id = LAYER_IN.exec(line.replace(/^.*\r/, ''))?.[1];
+      if (id === undefined || done.has(id)) return undefined;
+      done.add(id);
+      return note();
+    },
+    sized(layers) {
+      for (const layer of layers) {
+        sizes.set(layer.digest.replace(/^sha256:/, '').slice(0, 12), layer.size);
+      }
+      return note();
+    },
+    totalBytes: total,
+  };
 }
 
 export interface RuntimeContainerOptions {
@@ -143,14 +337,91 @@ export interface RuntimeContainerOptions {
   /** Credential files mounted read-only, by host path. */
   readonly googleCredentials?: string;
   readonly publicTokenKey?: string;
-  /** Every line the runtime writes. */
-  readonly onLog: (line: string) => void;
+  readonly exportSigningKey?: string;
+  /** Every line the runtime writes, with the stream it came on. */
+  readonly onLog: (line: string, stream: 'stdout' | 'stderr') => void;
   /** A stop while it starts: the container is stopped and removed, and the wait throws `RuntimeStartStopped`. */
   readonly signal?: AbortSignal;
+  /** Where the start's phases are told: the container, migrating, waiting for it to serve. */
+  readonly phases?: StartPhases;
+  /**
+   * The `kindgi dev` starting it (`<pid>@<process start>`, its lock's
+   * owner): the container is labeled with it, and a container another
+   * live `kindgi dev` owns is never removed (`ownerIsLive`).
+   */
+  readonly owner?: string;
+  readonly ownerIsLive?: (owner: string) => Promise<boolean>;
+  /** Runs the docker commands that check, replace, start and stop it: `docker`, or a fake in tests. */
+  readonly docker?: DockerRunner;
+}
+
+/** The label naming the `kindgi dev` that started a runtime container. */
+export const RUNTIME_OWNER_LABEL = 'kindgi.dev.owner';
+
+/**
+ * The owner named by an existing container's label when it's another
+ * `kindgi dev` that is still alive, whether the container runs or not
+ * (it's stopped between its create and start, and while its owner reads
+ * why it stopped: no `--rm`); `undefined` when it may be replaced:
+ * unlabeled (an older CLI's), this `kindgi dev`'s own, or its owner gone.
+ */
+export async function ownedElsewhere(
+  label: string,
+  self: Pick<RuntimeContainerOptions, 'owner' | 'ownerIsLive'>,
+): Promise<string | undefined> {
+  // Whole: the owner holds the process's start time, which has spaces.
+  const owner = label.trim();
+  if (owner === '' || owner === '<no value>' || owner === self.owner) return undefined;
+  return (await self.ownerIsLive?.(owner)) === true ? owner : undefined;
+}
+
+/**
+ * Clear the way for this pack's runtime container: one left by an earlier
+ * `kindgi dev` of this pack (a crashed session) is removed, but never one
+ * another live `kindgi dev` owns (its lock was skipped: an older CLI, a
+ * lock removed by hand), which throws `RuntimeOwnedElsewhere` and is left
+ * as it is. The port check and the start both go through here. It removes
+ * by the id it checked, never by the name, which another could reuse.
+ */
+export async function removeReplaceableRuntimeContainer(
+  name: string,
+  self: Pick<RuntimeContainerOptions, 'owner' | 'ownerIsLive' | 'docker'>,
+): Promise<void> {
+  const run = self.docker ?? docker;
+  const existing = await run([
+    'inspect',
+    '--format',
+    `{{.Id}} {{index .Config.Labels "${RUNTIME_OWNER_LABEL}"}}`,
+    name,
+  ]);
+  if (existing.code !== 0) return;
+  // The id has no spaces; the rest is the label, whole.
+  const line = existing.stdout.trim();
+  const space = line.indexOf(' ');
+  const id = space === -1 ? line : line.slice(0, space);
+  const owner = await ownedElsewhere(space === -1 ? '' : line.slice(space + 1), self);
+  if (owner !== undefined) throw new RuntimeOwnedElsewhere(name, owner);
+  await run(['rm', '--force', id]);
+}
+
+/** This pack's runtime container runs for another `kindgi dev`, still alive: it isn't touched. */
+export class RuntimeOwnedElsewhere extends Error {
+  constructor(
+    readonly container: string,
+    readonly owner: string,
+  ) {
+    const pid = owner.split('@')[0];
+    super(
+      `this pack's runtime container (${container}) belongs to another kindgi dev (pid ${pid}), still running`,
+    );
+    this.name = 'RuntimeOwnedElsewhere';
+  }
 }
 
 export interface RunningRuntimeContainer {
   readonly name: string;
+  /** Its id: what `stop` and every later command use, never the name. */
+  readonly id: string;
   readonly baseUrl: string;
   /** What the runtime printed until it served: its banner. */
   readonly banner: string;
@@ -162,12 +433,16 @@ export function runtimeRunArgs(name: string, options: RuntimeContainerOptions): 
   // No --rm: a container that stops while starting is read (its logs, how
   // it exited) before kindgi dev removes it; `stop` removes it too.
   const args = ['run', '--detach', '--name', name, '--env-file', options.envFile];
+  if (options.owner !== undefined) args.push('--label', `${RUNTIME_OWNER_LABEL}=${options.owner}`);
   args.push('--volume', `${options.packDir}:${RUNTIME_PACK_DIR}`);
   if (options.googleCredentials !== undefined) {
     args.push('--volume', `${options.googleCredentials}:${RUNTIME_GOOGLE_CREDENTIALS}:ro`);
   }
   if (options.publicTokenKey !== undefined) {
     args.push('--volume', `${options.publicTokenKey}:${RUNTIME_PUBLIC_TOKEN_KEY}:ro`);
+  }
+  if (options.exportSigningKey !== undefined) {
+    args.push('--volume', `${options.exportSigningKey}:${RUNTIME_EXPORT_SIGNING_KEY}:ro`);
   }
   if (options.network === 'host-network') {
     args.push('--network', 'host');
@@ -186,10 +461,13 @@ export function runtimeRunArgs(name: string, options: RuntimeContainerOptions): 
 }
 
 /** The banner ended (its `Env:` line) without the pack line: an image older than the dev settings. */
-function predatesDevSettings(lines: readonly string[]): boolean {
-  return (
-    lines.some((l) => l.startsWith('  Env: ')) && !lines.some((l) => l.startsWith(PACK_DIR_BANNER))
-  );
+function predatesDevSettings(log: readonly LogLineText[]): boolean {
+  return logHas(log, '  Env: ') && !logHas(log, PACK_DIR_BANNER);
+}
+
+/** Whether a line of the runtime's log, as text, starts with `prefix`. */
+function logHas(log: readonly LogLineText[], prefix: string): boolean {
+  return log.some((text) => text.some((l) => l.startsWith(prefix)));
 }
 
 /** `kindgi dev` was stopped (Ctrl+C, SIGTERM) while it waited for the runtime. */
@@ -220,6 +498,16 @@ export function pauseUnlessStopped(ms: number, signal: AbortSignal | undefined):
 /** The runtime lines kept in memory (`startRuntimeContainer`): the boot banner and a failure's tail. */
 export const KEPT_LINES = 200;
 
+/**
+ * One line of the runtime's log as a person reads it (`textLines`): a
+ * record's text, which for one with an error is its line, then the
+ * error's frames and its causes; any other line as it is.
+ */
+export type LogLineText = readonly string[];
+
+/** The most lines of text an error shows of the runtime's log. */
+const TAIL_LINES = 15;
+
 /** How the docker CLI starts its own error lines. */
 const DOCKER_DAEMON_ERROR = 'Error response from daemon: ';
 
@@ -234,32 +522,58 @@ export async function startRuntimeContainer(
   options: RuntimeContainerOptions,
   wait: { readonly timeoutMs?: number; readonly fetch?: typeof fetch } = {},
 ): Promise<RunningRuntimeContainer> {
+  const run = options.docker ?? docker;
   const name = runtimeContainerName(options.packDir);
-  await docker(['rm', '--force', name]);
-  const started = await docker(runtimeRunArgs(name, options));
+  const phases = options.phases ?? NO_START_PHASES;
+  phases.begin('container');
+  await removeReplaceableRuntimeContainer(name, options);
+  const started = await run(runtimeRunArgs(name, options));
   if (started.code !== 0) {
-    throw new Error(`docker run failed: ${lastLines(started.stderr)}`);
+    throw new Error(`docker run failed: ${dockerFailureDetail(started.stderr)}`);
   }
+  // From here on, the container this run started, by its id (`--detach`
+  // prints it): never the name, which another kindgi dev could reuse for
+  // a container of its own.
+  const id = started.stdout.trim().split('\n').pop()?.trim() ?? '';
+  if (!/^[0-9a-f]{12,64}$/.test(id)) {
+    throw new Error(`docker run printed no container id: ${lastLines(started.stdout)}`);
+  }
+  phases.end('container');
+  phases.begin('serve');
 
-  // The runtime's latest lines, enough for the boot wait and a failure's
-  // tail: a long session's lines aren't kept (they're printed as they come).
-  const lines: string[] = [];
-  let logs: ChildProcess | undefined = spawn('docker', ['logs', '--follow', name], {
+  // The runtime's latest lines as text (a record as its pretty line, the
+  // JSON boot record as its banner lines), enough for the boot wait and a
+  // failure's tail: a long session's lines aren't kept (they're shown as
+  // they come).
+  const log: LogLineText[] = [];
+  let logs: ChildProcess | undefined = spawn('docker', ['logs', '--follow', id], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  const onChunk = (chunk: Buffer) => {
-    for (const line of chunk.toString().split('\n')) {
+  const reader = (stream: 'stdout' | 'stderr') =>
+    lineReader((line) => {
       // `docker logs` prints its own errors on the same stream as the
       // container's stderr: a container that already exited gets "can not
       // get logs from container which is dead…". They aren't the runtime's.
-      if (line === '' || line.startsWith(DOCKER_DAEMON_ERROR)) continue;
-      lines.push(line);
-      if (lines.length > KEPT_LINES) lines.splice(0, lines.length - KEPT_LINES);
-      options.onLog(line);
-    }
-  };
-  logs.stdout?.on('data', onChunk);
-  logs.stderr?.on('data', onChunk);
+      if (line.startsWith(DOCKER_DAEMON_ERROR)) return;
+      const text = textLines(line);
+      // A record with no text (a boot record with no lines) is nothing to show.
+      if (text.length > 0) log.push(text);
+      if (log.length > KEPT_LINES) log.splice(0, log.length - KEPT_LINES);
+      // The runtime's migration records are the migrating phase's start and end.
+      const stage = migrationStage(line);
+      if (stage === undefined) options.onLog(line, stream);
+      else migrationPhase(stage, phases);
+    });
+  const out = reader('stdout');
+  const err = reader('stderr');
+  logs.stdout?.setEncoding('utf8');
+  logs.stderr?.setEncoding('utf8');
+  logs.stdout?.on('data', (chunk: string) => out.push(chunk));
+  logs.stderr?.on('data', (chunk: string) => err.push(chunk));
+  // A follower that can't start is only no lines: the boot wait reads the
+  // runtime's health, and a failure reads its logs again. Unheard, its
+  // 'error' would end the CLI.
+  logs.once('error', () => undefined);
 
   // Stop following: listeners off first, so the follower's last output
   // (`docker logs --follow` can panic once its container is gone) is never
@@ -273,8 +587,8 @@ export async function startRuntimeContainer(
 
   const stop = async () => {
     stopFollowing();
-    await docker(['stop', '--time', '10', name]);
-    await docker(['rm', '--force', name]);
+    await run(['stop', '--time', '10', id]);
+    await run(['rm', '--force', id]);
   };
 
   const baseUrl = `http://127.0.0.1:${options.hostPort}`;
@@ -284,46 +598,61 @@ export async function startRuntimeContainer(
     if (options.signal?.aborted === true) {
       // It hasn't served anything: removed at once, not stopped gracefully.
       stopFollowing();
-      await docker(['rm', '--force', name]);
+      await run(['rm', '--force', id]);
       throw new RuntimeStartStopped();
     }
     const healthy = await doFetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(2_000) })
       .then((r) => r.ok)
       .catch(() => false);
     // Serving, and its banner printed (the pack line comes after the URL).
-    if (healthy && lines.some((l) => l.startsWith(PACK_DIR_BANNER))) break;
-    const running = await docker(['inspect', '--format', '{{.State.Running}}', name]);
+    if (healthy && logHas(log, PACK_DIR_BANNER)) break;
+    const running = await run(['inspect', '--format', '{{.State.Running}}', id]);
     if (running.code !== 0 || running.stdout.trim() !== 'true') {
       stopFollowing();
-      throw await startupFailure(name, lines);
+      throw await startupFailure(id, log, run);
     }
-    const hopeless = waitingWontHelp(options.image, lines, deadline);
+    const hopeless = waitingWontHelp(options.image, log, deadline);
     if (hopeless !== undefined) {
       await stop();
       throw hopeless;
     }
     await pauseUnlessStopped(250, options.signal);
   }
-  return { name, baseUrl, banner: lines.join('\n'), stop };
+  return { name, id, baseUrl, banner: log.flat().join('\n'), stop };
+}
+
+/**
+ * Whether a runtime line is one of its migration records: `start` before
+ * it applies the database's migrations, `done` after. A runtime that
+ * writes none (older images) never shows a migrating phase.
+ */
+export function migrationStage(line: string): 'start' | 'done' | undefined {
+  const record = parseRecord(line);
+  if (record?.subsystem !== 'migrations') return undefined;
+  return record.stage === 'start' || record.stage === 'done' ? record.stage : undefined;
+}
+
+/** Migrating begins at its `start` record; its `done` ends it, and waiting for it to serve goes on. */
+function migrationPhase(stage: 'start' | 'done', phases: StartPhases): void {
+  if (stage === 'start') phases.begin('migrate');
+  else if (phases.end('migrate')) phases.begin('serve');
 }
 
 /** Why waiting longer for a running container won't help, if it won't. */
 function waitingWontHelp(
   image: string,
-  lines: readonly string[],
+  log: readonly LogLineText[],
   deadline: number,
 ): Error | undefined {
   // The banner ends with the `Env:` line, after the pack line. Without
   // the pack line, the image predates the runtime's development settings.
-  if (predatesDevSettings(lines)) {
+  if (predatesDevSettings(log)) {
     return new Error(
       `${image} can't run a kindgi dev pack: it predates the runtime's development settings. Use a newer image (--runtime-image).`,
     );
   }
   if (Date.now() > deadline) {
-    return new Error(
-      `the Kindgi runtime didn't start serving in time:\n${lines.slice(-15).join('\n')}`,
-    );
+    return new Error(`the Kindgi runtime didn't start serving in time:\n${logTail(log)}`);
   }
   return undefined;
 }
@@ -333,11 +662,15 @@ function waitingWontHelp(
  * (one that exits at once can stop before `docker logs --follow`
  * attaches), then removed.
  */
-async function startupFailure(name: string, followed: readonly string[]): Promise<Error> {
-  const stopped = await stoppedContainer(name);
-  await docker(['rm', '--force', name]);
+async function startupFailure(
+  id: string,
+  followed: readonly LogLineText[],
+  run: DockerRunner,
+): Promise<Error> {
+  const stopped = await stoppedContainer(id, run);
+  await run(['rm', '--force', id]);
   return new Error(
-    describeStartupStop(stopped.lines.length > 0 ? stopped.lines : followed, stopped.exit),
+    describeStartupStop(stopped.log.length > 0 ? stopped.log : followed, stopped.exit),
   );
 }
 
@@ -351,15 +684,47 @@ export interface ContainerExit {
 
 /**
  * Why the runtime container stopped before it served: how it exited, and
- * its last log lines. One that stopped before printing anything is said
- * to have done so, never an empty reason.
+ * the end of its log (`logTail`). One that stopped before printing
+ * anything is said to have done so, never an empty reason.
  */
-export function describeStartupStop(lines: readonly string[], exit: ContainerExit): string {
+export function describeStartupStop(log: readonly LogLineText[], exit: ContainerExit): string {
   const how = describeExit(exit);
-  if (lines.length === 0) {
+  if (log.length === 0) {
     return `the Kindgi runtime container stopped while starting, before it printed anything${how}.`;
   }
-  return `the Kindgi runtime container stopped while starting${how}:\n${lines.slice(-15).join('\n')}`;
+  return `the Kindgi runtime container stopped while starting${how}:\n${logTail(log)}`;
+}
+
+/**
+ * The end of the runtime's log as text, for an error: its last lines,
+ * up to `TAIL_LINES` lines of text, each from its first line, the one
+ * that says what went wrong (a record with an error is its line, then
+ * the frames and causes). The last line is kept whole even when its text
+ * alone is longer; an earlier one that doesn't fit shows its first lines
+ * and how many more it has, and the tail ends there.
+ */
+export function logTail(log: readonly LogLineText[]): string {
+  const shown: (readonly string[])[] = [];
+  let left = TAIL_LINES;
+  for (let i = log.length - 1; i >= 0; i -= 1) {
+    const text = log[i] ?? [];
+    if (i === log.length - 1 || text.length <= left) {
+      shown.unshift(text);
+      left -= text.length;
+      if (left <= 0) break;
+      continue;
+    }
+    // Room for its first line at least; with more, a line saying what's
+    // cut (it never fit, so that's always two lines or more).
+    const head = Math.max(1, left - 1);
+    shown.unshift(
+      left > 1
+        ? [...text.slice(0, head), `  … (${text.length - head} more lines)`]
+        : text.slice(0, head),
+    );
+    break;
+  }
+  return shown.flat().join('\n');
 }
 
 function describeExit(exit: ContainerExit): string {
@@ -377,34 +742,63 @@ function describeExit(exit: ContainerExit): string {
   return ` (exit code ${exit.code}${meaning}${error})`;
 }
 
-/** A stopped container's whole log, in the order it was written, and how it exited. */
-async function stoppedContainer(
-  name: string,
-): Promise<{ readonly lines: readonly string[]; readonly exit: ContainerExit }> {
-  const logLines = await new Promise<string[]>((resolve) => {
-    const out: string[] = [];
-    const child = spawn('docker', ['logs', name], { stdio: ['ignore', 'pipe', 'pipe'] });
-    const onChunk = (chunk: Buffer) => {
-      for (const line of chunk.toString().split('\n')) {
-        if (line !== '' && !line.startsWith(DOCKER_DAEMON_ERROR)) out.push(line);
-      }
-    };
-    child.stdout?.on('data', onChunk);
-    child.stderr?.on('data', onChunk);
-    child.on('error', () => resolve(out));
-    child.on('close', () => resolve(out));
+/**
+ * A stopped container's whole log (`docker logs`' two streams) as text,
+ * in the order it was written, once both streams end: whole lines only
+ * (a chunk can end mid-record, or mid-character), each record as its
+ * text (`textLines`), and none of `docker logs`' own errors. A runtime
+ * that logs JSON says why it stopped in a `boot` record, which a person
+ * reads as its pretty line, never raw.
+ */
+export function readStoppedLog(
+  stdout: Readable | null,
+  stderr: Readable | null,
+): Promise<LogLineText[]> {
+  return new Promise((resolve) => {
+    const log: LogLineText[] = [];
+    const streams = [stdout, stderr].filter((s): s is Readable => s !== null);
+    let open = streams.length;
+    if (open === 0) resolve(log);
+    for (const stream of streams) {
+      // A reader per stream: each has its own line in progress.
+      const lines = lineReader((line) => {
+        if (line.startsWith(DOCKER_DAEMON_ERROR)) return;
+        const text = textLines(line);
+        if (text.length > 0) log.push(text);
+      });
+      stream.setEncoding('utf8');
+      stream.on('data', (chunk: string) => lines.push(chunk));
+      // Ended, or failed: either way, what it wrote is all there is.
+      finished(stream, () => {
+        lines.end();
+        open -= 1;
+        if (open === 0) resolve(log);
+      });
+    }
   });
-  const state = await docker([
+}
+
+/** A stopped container's whole log as text (`readStoppedLog`), and how it exited. */
+async function stoppedContainer(
+  id: string,
+  run: DockerRunner,
+): Promise<{ readonly log: readonly LogLineText[]; readonly exit: ContainerExit }> {
+  const child = spawn('docker', ['logs', id], { stdio: ['ignore', 'pipe', 'pipe'] });
+  // A `docker logs` that can't start is only no lines (its streams end at
+  // once). Unheard, its 'error' would end the CLI.
+  child.once('error', () => undefined);
+  const log = await readStoppedLog(child.stdout, child.stderr);
+  const state = await run([
     'inspect',
     '--format',
     '{{.State.ExitCode}}|{{.State.OOMKilled}}|{{.State.Error}}',
-    name,
+    id,
   ]);
-  if (state.code !== 0) return { lines: logLines, exit: {} };
+  if (state.code !== 0) return { log, exit: {} };
   const [code, oom, ...error] = state.stdout.trim().split('|');
   const parsed = Number.parseInt(code ?? '', 10);
   return {
-    lines: logLines,
+    log,
     exit: {
       ...(!Number.isNaN(parsed) && { code: parsed }),
       oomKilled: oom === 'true',

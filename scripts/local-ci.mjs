@@ -113,6 +113,8 @@ const steps = [
   ['docs ship with the change', 'pnpm', ['run', 'check:docs-ship']],
   ['README package table', 'pnpm', ['run', 'check:readme']],
   ['Python SDK version in step with the npm packages', 'pnpm', ['run', 'check:python-version']],
+  ["JVM SDKs' version in step with the npm packages", 'pnpm', ['run', 'check:jvm-version']],
+  ['Webhook event shapes current with the API schema', 'pnpm', ['run', 'check:webhook-shapes']],
   ['JSON Schemas', 'pnpm', ['run', 'spec:validate']],
   // "Build + typecheck + test + publish checks"
   ['Python SDK environment', 'uv', ['sync', '--project', 'sdks/python', '--frozen']],
@@ -129,6 +131,8 @@ const steps = [
     ],
   ],
   ['publish readiness', 'pnpm', ['run', 'check:publish']],
+  // The site's build scripts' own tests (node:test, site/scripts).
+  ['docs site scripts', 'pnpm', ['run', 'docs:test-scripts']],
   // The documentation site (docs.kindgi.com) builds, with its search index.
   ['docs site', 'pnpm', ['run', 'docs:build']],
   // Every sample that is a whole file compiles (TypeScript) or indexes (Python).

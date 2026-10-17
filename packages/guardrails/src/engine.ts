@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { TenantBudgetError } from '@kindgi/bounds';
 import type { Timestamp } from '@kindgi/types';
 
 import type { GuardrailError, JudgeMissingError, ScopeMismatchError } from './errors.js';
@@ -99,7 +100,25 @@ export async function evaluateGuardrail(
       },
     };
   }
-  const strategyOutcome = await strategy.evaluate(guardrail, checks, trace, bindings);
+  let strategyOutcome: Awaited<ReturnType<typeof strategy.evaluate>>;
+  try {
+    strategyOutcome = await strategy.evaluate(guardrail, checks, trace, bindings);
+  } catch (thrown) {
+    // The turn was cancelled: that propagates as it is, as does work a budget kept per tenant
+    // refused (a schema compile), which isn't the check's failure and is retried as the
+    // turn's. Anything else the check threw is the check failing, which the caller treats
+    // as a check that couldn't run (a `halt` guardrail fails closed), never as a pass and
+    // never as the turn's own error.
+    if (bindings.abortSignal?.aborted === true || thrown instanceof TenantBudgetError) throw thrown;
+    return {
+      kind: 'err',
+      error: {
+        code: 'check-failed',
+        message: `guardrail "${guardrail.id}": its check threw: ${thrownMessage(thrown)}`,
+        guardrailId: guardrail.id,
+      },
+    };
+  }
   if (strategyOutcome.kind === 'err') {
     const err = strategyOutcome.error;
     return {
@@ -185,6 +204,14 @@ export async function evaluateGuardrail(
 
   return { kind: 'ok', value: evaluation };
 }
+
+/** What a check threw, as one bounded line: the message, never the stack. */
+function thrownMessage(thrown: unknown): string {
+  const raw = thrown instanceof Error ? thrown.message : String(thrown);
+  const line = raw.replace(/\s+/g, ' ').trim();
+  return line.length > THROWN_MESSAGE_MAX ? `${line.slice(0, THROWN_MESSAGE_MAX)}…` : line;
+}
+const THROWN_MESSAGE_MAX = 500;
 
 /**
  * Evaluate every guardrail in the list against a trace. Order-independent —

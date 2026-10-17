@@ -1,0 +1,33 @@
+#!/bin/sh
+# kindgiw: runs the Kindgi CLI this pack pins ("cli" in kindgi.config.json),
+# as mvnw runs the Maven it pins. Written by `kindgi init`; `kindgi upgrade`
+# moves the pin.
+#
+#   ./kindgiw dev
+#   ./kindgiw runs start --agent=<id> --input='{"userMessage":"hi"}'
+#
+# It runs the CLI from npm (npx) when Node is installed, else from PyPI
+# (uvx; kindgi-cli brings its own Node), else says how to get one of them.
+set -eu
+dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+config="$dir/kindgi.config.json"
+version=$(sed -n 's/^[[:space:]]*"cli"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$config" 2>/dev/null | head -n 1)
+if [ -z "$version" ]; then
+  echo "kindgiw: no \"cli\" version in $config (kindgi upgrade writes it)." >&2
+  exit 1
+fi
+if command -v node >/dev/null 2>&1 && command -v npx >/dev/null 2>&1; then
+  exec npx --yes "@kindgi/cli@$version" "$@"
+fi
+# PyPI spells pre-releases PEP 440's way: 0.1.6-rc.2 is 0.1.6rc2.
+pep440=$(printf '%s' "$version" | sed -e 's/-alpha\./a/' -e 's/-beta\./b/' -e 's/-rc\./rc/')
+if command -v uvx >/dev/null 2>&1; then
+  exec uvx --from "kindgi-cli==$pep440" kindgi "$@"
+fi
+if command -v uv >/dev/null 2>&1; then
+  exec uv tool run --from "kindgi-cli==$pep440" kindgi "$@"
+fi
+echo "kindgiw: the Kindgi CLI $version runs with Node 22.12 or later (https://nodejs.org)," >&2
+echo "  or with uv (https://docs.astral.sh/uv/getting-started/installation/), which needs no Node." >&2
+echo "  Install either one, then run ./kindgiw again." >&2
+exit 1

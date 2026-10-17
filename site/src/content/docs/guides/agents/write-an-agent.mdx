@@ -81,6 +81,64 @@ def lookup_order(input: OrderQuery) -> Order:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/tools/LookupOrder.java
+package acme.tools;
+
+import com.kindgi.pack.Tool;
+import java.util.Map;
+import org.jspecify.annotations.Nullable;
+
+public final class LookupOrder {
+  public record Input(String orderId) {}
+
+  public record Output(String orderId, String status, @Nullable String eta) {}
+
+  private static final Map<String, Output> ORDERS = Map.of(
+      "A-1001", new Output("A-1001", "shipped", "2026-10-06"),
+      "A-1002", new Output("A-1002", "processing", null));
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme.lookup-order")
+      .description("Looks up an order by its id (like A-1001): its status and expected delivery date.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .handler((input, ctx) ->
+          ORDERS.getOrDefault(input.orderId(), new Output(input.orderId(), "not-found", null)));
+
+  private LookupOrder() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/tools/LookupOrder.scala
+package acme.tools
+
+import com.kindgi.pack.scaladsl._
+
+object LookupOrder {
+  final case class Input(orderId: String)
+  final case class Output(orderId: String, status: String, eta: Option[String])
+
+  private val orders = Map(
+    "A-1001" -> Output("A-1001", "shipped", Some("2026-10-06")),
+    "A-1002" -> Output("A-1002", "processing", None))
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme.lookup-order")
+    .description("Looks up an order by its id (like A-1001): its status and expected delivery date.")
+    .version("0.1.0")
+    .readOnly
+    .handler((in, _) => orders.getOrElse(in.orderId, Output(in.orderId, "not-found", None)))
+}
+```
+
+</TabItem>
 </Tabs>
 
 The model sees the tool's id, its description and its input schema. The
@@ -157,6 +215,78 @@ found. The keys inside the dicts (`maxSteps`, `feature`) keep the API's
 camelCase; only the keyword arguments are snake_case.
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/agents/OrderDesk.java
+package acme.agents;
+
+import acme.guardrails.ResponseNotEmpty;
+import acme.tools.LookupOrder;
+import com.kindgi.pack.Agent;
+import java.util.List;
+import java.util.Map;
+
+public final class OrderDesk {
+  public static final Agent AGENT = Agent.define("acme.order-desk")
+      .version("0.1.0")
+      .name("Order desk")
+      .description("Answers customers' questions about their orders.")
+      .instructions(String.join("\n",
+          "You answer customer questions about Acme orders. Today is {{ today }}.",
+          "Look an order up with the lookup-order tool before you say anything about it.",
+          "If the customer gives no order id, ask for it. Never guess a status or a date.",
+          "Answer in two sentences at most."))
+      .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
+      .tool(LookupOrder.TOOL)
+      .guardrail(ResponseNotEmpty.GUARDRAIL)
+      .set("budget", Map.of("maxSteps", 6, "maxCostUsd", 0.05, "maxWallMs", 60_000))
+      .build();
+
+  private OrderDesk() {}
+}
+```
+
+An agent is a `public static final` field of a class under `agents/`.
+`build()` refuses one with no version, name or instructions, and the indexer
+names the file (`agent acme.order-desk: name is required`). Any other field
+of an agent (`budget` here, `parameters`, `retrieval`, …) goes in with
+`set(field, value)`, as the API names it.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/agents/OrderDesk.scala
+package acme.agents
+
+import acme.guardrails.ResponseNotEmpty
+import acme.tools.LookupOrder
+import com.kindgi.pack.scaladsl._
+
+object OrderDesk {
+  val agent: Agent = Agent("acme.order-desk")
+    .version("0.1.0")
+    .name("Order desk")
+    .description("Answers customers' questions about their orders.")
+    .instructions(Seq(
+      "You answer customer questions about Acme orders. Today is {{ today }}.",
+      "Look an order up with the lookup-order tool before you say anything about it.",
+      "If the customer gives no order id, ask for it. Never guess a status or a date.",
+      "Answer in two sentences at most.").mkString("\n"))
+    .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
+    .tool(LookupOrder.tool)
+    .guardrail(ResponseNotEmpty.guardrail)
+    .set("budget", Map("maxSteps" -> 6, "maxCostUsd" -> 0.05, "maxWallMs" -> 60000))
+    .build()
+}
+```
+
+An agent is a `val` of an object named like its file, under `agents/`. The
+maps and lists are Scala's; `set(field, value)` takes any other field of an
+agent, as in Java.
+
+</TabItem>
 </Tabs>
 
 - **`id`** is `<pack>.<name>`; **`version`** is an exact semver.
@@ -186,28 +316,28 @@ kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my o
 
 ```json
 {
-  "id": "0ae4c417-c373-4523-962e-75c296c188fe",
+  "id": "f3835200-e4c6-4579-a3fc-4b70f7444333",
   …
   "status": "completed",
   …
   "output": {
     …
-    "usage": { "steps": 2, "durationMs": 2291, "promptTokens": 1449, "totalCostUsd": 0.001889, "completionTokens": 88 },
+    "usage": { "steps": 2, "durationMs": 3701, "promptTokens": 1119, "totalCostUsd": 0.004328, "completionTokens": 209 },
     "appended": [
       { "role": "user", "content": "Where is my order A-1001?", "sequence": 0, … },
       { "role": "agent", "actor": "acme.order-desk",
-        "content": { "text": "", "toolCalls": [{ "id": "toolu_01XP…", "name": "acme.lookup-order", "arguments": { "orderId": "A-1001" } }] },
+        "content": { "text": "", "toolCalls": [{ "id": "toolu_01…", "name": "acme.lookup-order", "arguments": { "orderId": "A-1001" } }] },
         "sequence": 1, … },
       { "role": "tool", "content": { "eta": "2026-10-06", "status": "shipped", "orderId": "A-1001" }, "sequence": 2, … },
       { "role": "agent", "actor": "acme.order-desk",
-        "content": "Your order A-1001 has been shipped and is expected to arrive on October 6, 2026.", "sequence": 3, … }
+        "content": "Order A-1001 shows as shipped, and its expected delivery date was October 6, 2026. That date has passed and I can't see any newer tracking details, so the order is running late.", "sequence": 3, … }
     ],
-    "provider": { "id": "anthropic", "model": "claude-haiku-4-5" },
-    "response": { "role": "agent", "content": "Your order A-1001 has been shipped and is expected to arrive on October 6, 2026.", … },
+    "provider": { "id": "anthropic", "model": "claude-sonnet-5-5" },
+    "response": { "role": "agent", "content": "Order A-1001 shows as shipped, and its expected delivery date was October 6, 2026. That date has passed and I can't see any newer tracking details, so the order is running late.", … },
     …
     "turnNumber": 1,
     "violations": [],
-    "conversationId": "49cd02f6-6cc7-40e5-b5ff-6d3bf1f4fb0f"
+    "conversationId": "936af311-f1c8-4260-a1ed-973876b4ac71"
   }
 }
 ```
@@ -216,16 +346,20 @@ The turn took two steps: the model asked for `acme.lookup-order`, the tool
 ran, and the model answered with its result. `response.content` is the
 answer; `appended` is everything the turn added to its conversation. The rest
 of the result is on [Give an agent its input](../give-an-agent-input/#what-a-turn-returns).
-This run was captured on `claude-haiku-4-5` (retiring on or after 2026-10-15);
-outputs on newer models differ in wording, not shape.
+The instructions give the model the date of the turn, so it reads the
+tool's `eta` against it: this run was on 2026-10-08, after the order's
+expected date.
 
 Edit the file and save: `kindgi dev` reloads it, and the next run uses it.
 
 ## Instructions are a template
 
 `{{ today }}` above is filled in when the turn starts. The template language
-is Liquid, so tags such as `{% if %}` work too. These variables are always
-there:
+is Liquid, so tags such as `{% if %}` work too. Partials (`{% include %}`,
+`{% render %}`, `{% layout %}`) don't: an agent or prompt block whose
+template uses one is refused with "templates can't use include, render or
+layout". To write `{{` or `{%` as text, put it in
+`{% raw %}…{% endraw %}`. These variables are always there:
 
 | Variable | Example |
 | --- | --- |
@@ -236,7 +370,9 @@ there:
 
 Your own variables are the agent's `parameters`, and an agent that runs as a
 flow step can read the step's input as `{{ input.* }}`: both are on
-[Give an agent its input](../give-an-agent-input/).
+[Give an agent its input](../give-an-agent-input/). A parameter can't take a
+name the turn fills in (`today`, `now`, `agent`, `conversation`, `input`,
+`settings`): defining the agent refuses it.
 
 Rendering is strict. A variable that is neither built in nor declared fails
 the turn before the model is called:
@@ -253,7 +389,9 @@ The rendered instructions are in the run's journal
 In TypeScript, each tool is an `{ id, version }` reference, and `version` is
 a semver range: `'^0.1.0'` takes the highest registered version from `0.1.0`
 up to, not including, `0.2.0`. In Python, pass the tool itself to pin it to
-its version, or the same `{"id": …, "version": …}` reference for a range.
+its version, or the same `{"id": …, "version": …}` reference for a range. In
+Java and Scala, `.tool(LookupOrder.TOOL)` pins the tool's version, and
+`.tool("acme.lookup-order", "^0.1.0")` takes a range.
 
 Under `kindgi dev`, the range is resolved when each turn starts. A published
 agent version resolves it once, when it's published, and keeps that version:
@@ -291,7 +429,7 @@ A guardrail the agent names must be registered: `kindgi dev` registers the
 pack's own. An unknown id fails the turn before the model is called:
 
 ```text
-Error [invalid-request]: Agent "acme.order-desk" references guardrails not in the registry: acme.no-refunds
+Error [unresolved-guardrail]: Agent "acme.order-desk" references guardrails not in the registry: acme.no-refunds
 ```
 
 In Python, passing the guardrail object you import (as above) keeps the id
@@ -310,3 +448,6 @@ In a Python pack, `uv run python -m kindgi.pack index --pack-dir .` reports
 a file that fails to load without the runtime: a bare-string tool (above), or
 a version that isn't an exact semver (`version must be an exact semver, got
 '0.1'`).
+
+In a Java or Scala pack, the compiler finds most mistakes first: `kindgi dev`
+shows its error with the file and line, and keeps the last good code running.

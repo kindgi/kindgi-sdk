@@ -32,6 +32,29 @@ export const FEATURES = [
 
 export type Feature = (typeof FEATURES)[number];
 
+/**
+ * What each feature means, in a line: the capability catalog's
+ * descriptions (`GET /v1/capabilities`), and what a model declaring the
+ * feature promises.
+ */
+export const FEATURE_DESCRIPTIONS: Readonly<Record<Feature, string>> = {
+  'structured-output':
+    'Answers in JSON that matches a schema the caller gives (a response format), not only free text.',
+  vision: 'Reads images in its input.',
+  'audio-input': 'Reads audio in its input.',
+  'audio-output': 'Produces audio as its answer.',
+  'tool-use':
+    'Calls tools: answers with a tool call and its arguments, then continues with the result.',
+  'parallel-tool-use': 'Calls several tools in one turn.',
+  thinking: 'Reasons in a separate step before it answers (extended or hidden thinking).',
+  'long-context': 'Takes a long input: a large context window.',
+  'code-execution': 'Runs code in a sandbox its provider hosts.',
+  'web-search': 'Searches the web through its provider.',
+  'file-search': "Searches files through its provider's own retrieval.",
+  streaming: 'Streams its answer as it is produced.',
+  batch: 'Takes requests in a batch, answered later at a lower price.',
+};
+
 /** Comparison operator used by numeric requirements (context, cost, latency). */
 export type ComparisonOp = '>=' | '>' | '=' | '<=' | '<';
 
@@ -225,7 +248,12 @@ export type RejectionReason =
       readonly observed: CapabilityKind;
       readonly wanted: CapabilityKind;
     }
-  | { readonly code: 'unknown-requirement'; readonly message: string };
+  | { readonly code: 'unknown-requirement'; readonly message: string }
+  | {
+      readonly code: 'provider-setup-failed';
+      readonly message: string;
+      readonly providerId: string;
+    };
 
 /**
  * Per-model metadata. A provider row exposes one or more models (e.g.
@@ -240,7 +268,7 @@ export type RejectionReason =
  * the framework declares the mandatory shape, adapters extend.
  */
 export interface ModelInfo {
-  /** Vendor-facing model id passed to the SDK (e.g. `claude-sonnet-4-6`). */
+  /** Vendor-facing model id passed to the SDK (e.g. `claude-sonnet-5-5`). */
   readonly name: string;
   /** Context window in tokens. */
   readonly contextWindow: number;
@@ -257,9 +285,11 @@ export interface ModelInfo {
   /** Best-effort p95 latency estimate in ms — varies by model. */
   readonly p95LatencyMs?: number;
   /**
-   * Fallback cap on output tokens. Adapters that require max_tokens on
-   * every request (e.g. Anthropic) use this when
-   * `ModelCallInput.maxOutputTokens` is unset.
+   * The default cap on a call's output tokens: what a call asks for when it
+   * sets none. A call's own `ModelCallInput.maxOutputTokens` (its agent's
+   * `maxOutputTokens`) replaces it. Not the model's own maximum, which its
+   * vendor sets. Adapters that need a cap on every request (Anthropic's
+   * `max_tokens`) send this one.
    */
   readonly maxOutputTokens?: number;
   /**
@@ -400,7 +430,9 @@ export interface ModelToolDefinition {
  * Adapter coverage:
  *   - `@kindgi/adapter-model-openai-compat` — translates to
  *     `response_format: { type: "json_schema", json_schema: { name,
- *     schema, strict: true } }`.
+ *     schema, strict: true } }` on Chat Completions, and to
+ *     `text.format: { type: "json_schema", name, schema, strict: true }`
+ *     on OpenAI's Responses API.
  *   - `@kindgi/adapter-model-anthropic` — ignores it (see that
  *     package's README).
  */
@@ -437,6 +469,16 @@ export interface ModelCallInput {
   readonly maxOutputTokens?: number;
   /** Cooperative cancellation. Handlers should observe. */
   readonly abortSignal?: AbortSignal;
+  /**
+   * A W3C `traceparent` for this call (`00-<trace id>-<span id>-<flags>`),
+   * so the vendor's request logs can be matched to the run that made the
+   * call. An adapter sends it as the `traceparent` header on its request
+   * to the vendor when it is set, and never makes one up. The caller sets
+   * it only when the provider's registration opts in (it leaves the
+   * process: ids only, never content). Adapters that don't know it
+   * ignore it.
+   */
+  readonly traceparent?: string;
 }
 
 /**
@@ -620,6 +662,28 @@ export interface ProviderRegistry {
    * implementations leave it undefined — no cache to invalidate.
    */
   invalidate?(tenantId: TenantId): void;
+  /**
+   * Optional: the tenant's registered providers that its last `hydrate`
+   * couldn't set up, each with why (its adapter refused its settings on
+   * this runtime, or the runtime has no such adapter). `list` leaves them
+   * out, so the router can't name them unless it's given them
+   * (`RouteInput.setupFailures`). Absent, or empty: none.
+   */
+  setupFailures?(tenantId: TenantId): readonly ProviderSetupFailure[];
+}
+
+/**
+ * A provider registered for a tenant that its registry couldn't set up
+ * (`ProviderRegistry.setupFailures`).
+ */
+export interface ProviderSetupFailure {
+  /** The registered provider's id. */
+  readonly providerId: string;
+  /**
+   * Why, in a sentence for whoever made the call: written by the registry,
+   * never with a setting's value or a thrown error's text.
+   */
+  readonly message: string;
 }
 
 /**

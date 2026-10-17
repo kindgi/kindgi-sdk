@@ -70,6 +70,10 @@ Same trade-off as `@kindgi/tools`: JSON Schema for portable / MCP-published chec
 
 Note that `Guardrail.config` on the wire is always `object` with `additionalProperties: true` — the check declares the concrete schema. Authors extend the guardrail registration surface (`defineCheck`); the guardrail surface itself takes an opaque `config` payload that the resolved check validates when `defineGuardrail` runs.
 
+## The `llm-judge` strategy
+
+A check of kind `llm-judge` asks a registered model for a verdict on the run trace: PASS or FAIL, or a score from 0 to 1, with a brief reason. Its answer gets 256 tokens. On a model that thinks (its registration has `thinking`), the judge asks for the least thinking the model allows and adds 2,048 tokens for it, since thinking counts against the output limit. On a model that takes no temperature (`"sampling": false`), a judge's `temperature` is left out. Each judge call is recorded in the cost ledger, under the guardrail it judged.
+
 ## Peer dependency
 
 `zod` (>= 4.0.0) is a peer dependency. Workspaces that never author with Zod never install it. Zod schemas that fail to convert (unrepresentable constructs like `z.function()`) surface as `invalid-check-definition` thrown at pack init — same failure model as an uncompilable JSON Schema.

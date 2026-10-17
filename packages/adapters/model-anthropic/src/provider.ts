@@ -12,10 +12,13 @@ import type {
 } from '@kindgi/capabilities';
 import { samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
-import { nameToolsAsSent } from '@kindgi/capabilities/tool-names';
+import { nameToolsAsSent, toolIdsBySentName } from '@kindgi/capabilities/tool-names';
+import { headerValueProblem } from '@kindgi/types';
 
-import { computeCostUsd, toFrameworkUsage } from './cost.js';
+import { withPromptCache } from './cache.js';
+import { type CostRates, computeCostUsd, toFrameworkUsage } from './cost.js';
 import {
+  decodeToolName,
   encodeToolName,
   fromAnthropicResponse,
   mapStopReason,
@@ -27,16 +30,14 @@ import {
  * Anthropic-specific `ModelInfo` extension. Widens the framework's
  * `ModelInfo.cost` with the two Anthropic prompt-cache multipliers
  * (`promptCacheCreationMultiplier`, `promptCacheReadMultiplier`) that
- * `computeCostUsd` uses to bill cache activity per invocation.
+ * `computeCostUsd` uses to bill cache activity per invocation, and a
+ * `longContext` tier for a model that prices long prompts higher.
  *
  * When either multiplier is omitted the framework falls back to
  * Anthropic's 5-minute-tier defaults (1.25 / 0.1) inside `cost.ts`.
  */
 export interface AnthropicModelInfo extends ModelInfo {
-  readonly cost: ModelInfo['cost'] & {
-    readonly promptCacheCreationMultiplier?: number;
-    readonly promptCacheReadMultiplier?: number;
-  };
+  readonly cost: ModelInfo['cost'] & Omit<CostRates, keyof ModelInfo['cost']>;
 }
 
 /**
@@ -100,6 +101,9 @@ const DEFAULT_MAX_TOKENS = 4096;
  * doesn't expose a streaming seam yet — a streaming adapter is a
  * separate primitive.
  */
+/** Anthropic's API: the SDK's own default, given explicitly so `ANTHROPIC_BASE_URL` can't move it. */
+const ANTHROPIC_API_URL = 'https://api.anthropic.com';
+
 export function createAnthropicProvider(options: AnthropicProviderOptions): ModelProvider {
   const metadata = options.metadata satisfies Omit<ProviderMetadata, 'models'> & {
     readonly models: readonly AnthropicModelInfo[];
@@ -128,8 +132,16 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
   }
 
   async function resolveApiKey(): Promise<string> {
-    if (typeof options.apiKey === 'function') return options.apiKey();
-    return options.apiKey;
+    const key = typeof options.apiKey === 'function' ? await options.apiKey() : options.apiKey;
+    // Checked before the SDK sends it: fetch's own error for a key it can't
+    // send (a line break inside) quotes the key, into the call's failure.
+    const problem = headerValueProblem(key);
+    if (problem !== undefined) {
+      throw new Error(
+        `@kindgi/adapter-model-anthropic: provider "${metadata.id}": its API key has ${problem}, which a header can't carry: store the secret without it`,
+      );
+    }
+    return key;
   }
 
   async function resolveClient(): Promise<Anthropic> {
@@ -138,7 +150,11 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
     if (cached !== undefined && cached.key === key) return cached.client;
     const client = new Anthropic({
       apiKey: key,
-      ...(options.baseURL !== undefined && { baseURL: options.baseURL }),
+      // Never from the server's environment: left out, the SDK reads
+      // ANTHROPIC_AUTH_TOKEN (sent as a bearer beside the provider's own key,
+      // on every provider's calls) and ANTHROPIC_BASE_URL.
+      authToken: null,
+      baseURL: options.baseURL ?? ANTHROPIC_API_URL,
       ...(options.clientOptions ?? {}),
       fetch: attempts.fetch,
     });
@@ -162,22 +178,28 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       const translated = toAnthropicMessages(input.messages);
       // The system prompt names the call's tools as they're sent (`acme__lookup_order`):
       // a model told to call `acme.lookup_order` calls a name it wasn't given (T311).
-      const system =
-        translated.system === undefined
-          ? undefined
-          : nameToolsAsSent(
-              translated.system,
-              input.tools?.map((t) => t.name) ?? [],
-              encodeToolName,
-            );
-      const { messages } = translated;
-      const tools =
-        input.tools !== undefined && input.tools.length > 0
-          ? toAnthropicTools(input.tools)
-          : undefined;
+      const toolNames = input.tools?.map((t) => t.name) ?? [];
+      // A call names its tool by the name it was sent: back to the id by lookup.
+      const toolIdOf = toolIdsBySentName(toolNames, encodeToolName, decodeToolName);
+      // Cache breakpoints on the tools, the agent's prompt and, when the call
+      // can continue, the conversation so far (`withPromptCache`).
+      const { system, tools, messages } = withPromptCache({
+        systemParts: translated.systemParts.map((part) =>
+          nameToolsAsSent(part, toolNames, encodeToolName),
+        ),
+        tools:
+          input.tools !== undefined && input.tools.length > 0
+            ? toAnthropicTools(input.tools)
+            : undefined,
+        messages: translated.messages,
+      });
 
-      const requestOptions: Record<string, unknown> =
-        input.abortSignal !== undefined ? { signal: input.abortSignal } : {};
+      // `traceparent` is a header on this request only, when the caller
+      // sets it (the provider's registration opted in); never logged.
+      const requestOptions: Record<string, unknown> = {
+        ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
+        ...(input.traceparent !== undefined && { headers: { traceparent: input.traceparent } }),
+      };
       const maxTokens = input.maxOutputTokens ?? modelInfo.maxOutputTokens ?? DEFAULT_MAX_TOKENS;
       const sampling = samplingFor(modelInfo, input);
       const thinking = input.thinking === 'lowest' ? lowestThinking(modelInfo) : {};
@@ -188,8 +210,8 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
             model: input.model,
             max_tokens: maxTokens,
             ...(system !== undefined && { system }),
-            messages: [...messages],
-            ...(tools !== undefined && { tools: [...tools] }),
+            messages,
+            ...(tools !== undefined && { tools }),
             ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
             ...thinking,
           },
@@ -199,7 +221,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       const response = counted.value;
 
       const durationMs = Date.now() - startedAt;
-      const message = fromAnthropicResponse(response);
+      const message = fromAnthropicResponse(response, toolIdOf);
       const usage = toFrameworkUsage(response.usage);
       const costUsd = computeCostUsd(response.usage, modelInfo.cost);
 

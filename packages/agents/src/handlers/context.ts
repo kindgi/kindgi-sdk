@@ -16,7 +16,13 @@ import type { EvaluationResult } from '@kindgi/guardrails';
 
 import type { EffectiveHitlPolicy } from '../hitl-policy.js';
 import type { ProvenanceBindings } from '../provenance-emit.js';
-import type { Agent, Conversation, ConversationMessage, RetrievedFact } from '../types.js';
+import type {
+  Agent,
+  Conversation,
+  ConversationMessage,
+  RecalledMemory,
+  RetrievedFact,
+} from '../types.js';
 
 import type { HitlBindings, InvokeAgentBindings, InvokeAgentInput } from './public-types.js';
 import type { TurnBlocks } from './resolve-blocks.js';
@@ -103,6 +109,11 @@ export interface TurnContext {
    * Populated by `run-retrievals` — facts pulled by declared intents.
    */
   retrieved?: readonly RetrievedFact[];
+  /**
+   * Populated by `run-retrievals` — messages of earlier conversations
+   * recalled by intents over conversations.
+   */
+  recalled?: readonly RecalledMemory[];
   /**
    * Populated by `persist-final-message` — the terminal assistant
    * message. `compose-result` reads it back for the returned
