@@ -8,8 +8,9 @@
  * git acts on: the git the test runs, and the git the CLI runs in the
  * test's own process, which reads `process.env`. In a shell where they
  * point at another repository, both would otherwise act on that one.
- * `scripts/lib/git-env.mjs` does the same for the script tests, which
- * pass an environment to each child instead.
+ * Without git on `PATH` it does nothing, since then nothing acts on a
+ * repository. `scripts/lib/git-env.mjs` does the same for the script
+ * tests, which pass an environment to each child instead.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -17,9 +18,14 @@ import { execFileSync } from 'node:child_process';
 import { vi } from 'vitest';
 
 export function stubOutGitRepoVars(): void {
-  for (const name of execFileSync('git', ['rev-parse', '--local-env-vars'], { encoding: 'utf8' })
-    .split('\n')
-    .filter(Boolean)) {
+  let names: string;
+  try {
+    names = execFileSync('git', ['rev-parse', '--local-env-vars'], { encoding: 'utf8' });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw err;
+  }
+  for (const name of names.split('\n').filter(Boolean)) {
     vi.stubEnv(name, undefined);
   }
 }
