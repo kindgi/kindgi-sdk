@@ -546,9 +546,13 @@ export const CLI_DEFAULTS = {
     label: 'none',
     overlap: '`skip`',
     project: "the tenant's Default project",
+    'run-as': 'none (you own the schedule)',
     segment: 'none',
     'starting-deadline': '`600` (seconds)',
     timezone: '`UTC`',
+  },
+  'schedules take-ownership': {
+    'run-as': 'none (you own the schedule)',
   },
   'schedules update': {
     agent: 'unchanged',
@@ -581,6 +585,7 @@ export const CLI_DEFAULTS = {
     preset: 'none (with no `--signature-header` either: a hex HMAC-SHA256 in `X-Kindgi-Signature`)',
     project: "the tenant's Default project",
     'rate-limit': '`600` a minute',
+    'run-as': 'none (you own the trigger)',
     secret: 'required',
     'signature-encoding': 'required with `--signature-header`',
     'signature-header': 'none',
@@ -608,6 +613,9 @@ export const CLI_DEFAULTS = {
   'webhooks fires': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
+  },
+  'webhooks take-ownership': {
+    'run-as': 'none (you own the trigger)',
   },
   'sites register': {
     'allowed-role': '`administrator` and `shop_manager`',
@@ -858,6 +866,9 @@ export const CLI_DEFAULTS = {
     email: 'none',
     name: 'required',
   },
+  'sign-in settings': {
+    'require-second-factor': 'unchanged: the settings are read',
+  },
   'people list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
@@ -901,6 +912,19 @@ export const CLI_DEFAULTS = {
     path: 'the current directory',
     severity: '`medium`',
     title: 'required',
+  },
+  'feedback submit': {
+    'access-url': '`https://access.kindgi.com`',
+    path: 'the current directory',
+    yes: 'none: at a terminal it asks; with no terminal, nothing is sent',
+  },
+  'feedback status': {
+    'access-url': '`https://access.kindgi.com`',
+    path: 'the current directory',
+  },
+  'feedback withdraw': {
+    'access-url': '`https://access.kindgi.com`',
+    path: 'the current directory',
   },
   doctor: {
     path: 'the current directory',
@@ -1743,6 +1767,30 @@ export const CLI_EXAMPLES = {
       line: 'kindgi people invite <user-id>',
     },
   ],
+  'people second-factor': [
+    {
+      purpose:
+        'See whether a person has a second factor set up, and how many recovery codes are left.',
+      line: 'kindgi people second-factor <user-id>',
+    },
+  ],
+  'people reset-second-factor': [
+    {
+      purpose:
+        'Remove the second factor of a person who lost their phone: they set one up again at their next sign-in.',
+      line: 'kindgi people reset-second-factor <user-id>',
+    },
+  ],
+  'sign-in settings': [
+    {
+      purpose: 'See whether signing in takes a second factor.',
+      line: 'kindgi sign-in settings',
+    },
+    {
+      purpose: 'Require a second factor at sign-in (set up your own first).',
+      line: 'kindgi sign-in settings --require-second-factor=on',
+    },
+  ],
   'people list': [
     {
       purpose: 'Find people whose name starts with Sam.',
@@ -1812,8 +1860,32 @@ export const CLI_EXAMPLES = {
   'feedback submit': [
     {
       purpose:
-        'It exits with status `1` and says where the entries are kept: `FEEDBACK.md` at the pack root, to commit or send.',
-      line: 'kindgi feedback submit',
+        'Print exactly what would be sent, after redaction, with its digest. Nothing is sent.',
+      line: 'kindgi feedback submit --preview',
+    },
+    {
+      purpose: 'After the person says yes to that preview, send exactly it.',
+      line: 'kindgi feedback submit --yes=<digest>',
+    },
+    {
+      purpose: 'Preview one entry by its id, to send it (again) on its own.',
+      line: 'kindgi feedback submit 2026-10-15.1 --preview',
+    },
+  ],
+  'feedback status': [
+    {
+      purpose: 'Ask what became of the reports sent: at most once a day each.',
+      line: 'kindgi feedback status',
+    },
+    {
+      purpose: "Ask about one now, by its entry's id or its report id.",
+      line: 'kindgi feedback status 2026-10-15.1',
+    },
+  ],
+  'feedback withdraw': [
+    {
+      purpose: 'Take a report back: the intake clears its text at once.',
+      line: 'kindgi feedback withdraw 2026-10-15.1',
     },
   ],
   egress: [
@@ -1847,6 +1919,7 @@ export const CLI_GROUP_SEE_ALSO = {
   upgrade: ['start/quickstart-java', 'start/quickstart-scala'],
   console: ['deploy/sign-in', 'start/introduction'],
   sites: ['deploy/sign-in', 'guides/approvals/ask-and-approve-in-wordpress'],
+  'sign-in': ['deploy/sign-in', 'deploy/people-and-keys'],
   'mcp-launch': ['guides/tools/mcp-servers'],
   projects: ['guides/projects/organize-by-org-and-project'],
   flows: ['guides/flows/write-a-flow', 'guides/flows/index'],

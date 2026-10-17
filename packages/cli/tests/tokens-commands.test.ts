@@ -61,11 +61,26 @@ const CAROL = {
 };
 const INVITE = { state: 'pending', expiresAt: '2026-10-13T12:00:00Z' };
 
+const SECOND_FACTOR = {
+  setUp: true,
+  since: '2026-10-07T12:00:00Z',
+  recoveryCodesLeft: 8,
+  usable: true,
+  required: false,
+};
+const SETTINGS = { required: false, onPreviousSecret: 0, unusable: 0 };
+
 /** What `users.*` answers, where a test needs another answer. */
 interface UsersAnswers {
   readonly create?: unknown;
   readonly list?: unknown;
   readonly resendInvite?: unknown;
+  readonly removeSecondFactor?: unknown;
+  readonly settings?: {
+    readonly required: boolean;
+    readonly onPreviousSecret: number;
+    readonly unusable: number;
+  };
 }
 
 async function run(argv: readonly string[], answers: UsersAnswers = {}) {
@@ -89,6 +104,18 @@ async function run(argv: readonly string[], answers: UsersAnswers = {}) {
           get: rec('tokens.get', META),
           revoke: rec('tokens.revoke', undefined),
         },
+        auth: {
+          settings: {
+            get: rec('auth.settings.get', { secondFactor: answers.settings ?? SETTINGS }),
+            update: async (...args: unknown[]) => {
+              calls.push(['auth.settings.update', ...args]);
+              const patch = args[0] as { secondFactor: { required: boolean } };
+              return {
+                secondFactor: { ...(answers.settings ?? SETTINGS), ...patch.secondFactor },
+              };
+            },
+          },
+        },
         serviceAccounts: {
           create: rec('sa.create', ACCOUNT),
           list: rec('sa.list', { data: [ACCOUNT], hasMore: false }),
@@ -108,6 +135,11 @@ async function run(argv: readonly string[], answers: UsersAnswers = {}) {
             },
           ),
           get: rec('users.get', { userId: 'u-9' }),
+          secondFactor: rec('users.secondFactor', SECOND_FACTOR),
+          removeSecondFactor: rec(
+            'users.removeSecondFactor',
+            answers.removeSecondFactor ?? { removed: true },
+          ),
           grants: rec('users.grants', GRANTS),
           grant: rec('users.grant', { ...GRANTS, tenantAdmin: true }),
           ungrant: rec('users.ungrant', GRANTS),
@@ -449,5 +481,67 @@ describe("kindgi people: a person's grants", () => {
     expect(none.out.exitCode).toBe(2);
     expect(none.out.stderr).toContain('Give --tenant-admin');
     expect(none.calls).toEqual([]);
+  });
+});
+
+describe('kindgi people and sign-in: a second factor', () => {
+  test('people second-factor reads theirs', async () => {
+    const { out, calls } = await run(['people', 'second-factor', 'u-9']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['users.secondFactor', 'u-9']]);
+    expect(JSON.parse(out.stdout)).toEqual(SECOND_FACTOR);
+  });
+
+  test('people reset-second-factor removes it, and says what that means', async () => {
+    const { out, calls } = await run(['people', 'reset-second-factor', 'u-9']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['users.removeSecondFactor', 'u-9']]);
+    expect(JSON.parse(out.stdout)).toEqual({ removed: true });
+    expect(out.stderr).toBe(
+      "Removed u-9's second factor: they set one up again at their next sign-in where the workspace requires one.\n",
+    );
+  });
+
+  test('people reset-second-factor for someone without one: nothing changed', async () => {
+    const { out } = await run(['people', 'reset-second-factor', 'u-9'], {
+      removeSecondFactor: { removed: false },
+    });
+    expect(out.stderr).toBe('u-9 had no second factor set up: nothing changed.\n');
+  });
+
+  test('sign-in settings reads them, and names what needs doing', async () => {
+    const { out, calls } = await run(['sign-in', 'settings'], {
+      settings: { required: true, onPreviousSecret: 2, unusable: 1 },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['auth.settings.get']]);
+    expect(JSON.parse(out.stdout)).toEqual({
+      secondFactor: { required: true, onPreviousSecret: 2, unusable: 1 },
+    });
+    expect(out.stderr).toBe(
+      [
+        'Signing in takes a second factor (your own identity provider is exempt; API keys are not covered).',
+        "2 person(s)' second factor is still under the previous sign-in secret: keep it configured until this is 0.",
+        "1 person(s)' second factor can't be read any more: they need a recovery code, or kindgi people reset-second-factor.",
+        '',
+      ].join('\n'),
+    );
+  });
+
+  test.each([
+    ['on', true],
+    ['off', false],
+  ] as const)('sign-in settings --require-second-factor=%s', async (flag, required) => {
+    const { out, calls } = await run(['sign-in', 'settings', `--require-second-factor=${flag}`]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['auth.settings.update', { secondFactor: { required } }]]);
+    expect(JSON.parse(out.stdout).secondFactor.required).toBe(required);
+  });
+
+  test('sign-in settings --require-second-factor takes on or off only', async () => {
+    const { out, calls } = await run(['sign-in', 'settings', '--require-second-factor=yes']);
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('--require-second-factor takes on or off (got yes)');
+    expect(calls).toEqual([]);
   });
 });

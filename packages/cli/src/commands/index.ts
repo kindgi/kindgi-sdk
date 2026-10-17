@@ -42,6 +42,7 @@ import { runsCommand } from './runs.js';
 import { schedulesCommand } from './schedules.js';
 import { secretsCommand } from './secrets.js';
 import { serviceAccountsCommand } from './service-accounts.js';
+import { signInCommand } from './sign-in.js';
 import { sitesCommand } from './sites.js';
 import { skillsCommand } from './skills.js';
 import { ssoCommand } from './sso.js';
@@ -65,6 +66,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   envCommand,
   secretsCommand,
   ssoCommand,
+  signInCommand,
   sitesCommand,
   keyCommand,
   licenseCommand,

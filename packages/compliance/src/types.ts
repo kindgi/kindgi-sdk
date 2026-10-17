@@ -83,6 +83,9 @@ export const EVIDENCE_KINDS = [
   'person-added',
   'person-granted',
   'person-ungranted',
+  // A trigger's owner (the principal its runs act as) set at registration
+  // or changed on take-over — a delegation when it names a service account.
+  'trigger-owner-set',
 ] as const;
 
 /**

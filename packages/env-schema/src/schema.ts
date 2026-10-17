@@ -404,6 +404,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_AUTH_PREVIOUS_SECRET_PATH',
+    description:
+      "While the sign-in secret rotates, the one before it (a 32-byte file, mode 0600): people's second-factor keys sealed under it still open, and each moves to the current secret at that person's next code. `kindgi sign-in settings` counts those left in each workspace: keep it until every count is 0, then remove it. A key that opens under neither secret can't be used: its person needs a recovery code, or an admin to remove it. Needs `KINDGI_AUTH_SECRET(_PATH)`, and must differ from it. This or `KINDGI_AUTH_PREVIOUS_SECRET`, not both.",
+    example: '/etc/kindgi/auth-secret.previous',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_PREVIOUS_SECRET',
+    description:
+      'The previous sign-in secret itself, base64. See `KINDGI_AUTH_PREVIOUS_SECRET_PATH`; this or that, not both.',
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_AUTH_PRIVATE_IDP_ORIGINS',
     description:
       "Comma-separated origins of identity providers on a private network (a self-hosted Keycloak or AD FS behind a VPN, e.g. `https://sso.corp.internal`) that tenants may register. Only public HTTPS identity providers are allowed otherwise: a tenant admin can't point the runtime at the deployment's own network. `KINDGI_TENANT_HOST_ACCESS=isolated` refuses this setting, since every tenant could name a listed origin.",
@@ -776,8 +794,17 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_RETENTION_SWEEP_INTERVAL_MS',
     description:
-      "How often the server purges deleted rows on its own, in milliseconds: in every tenant it serves, it purges for good the tombstones past their retention policy's grace, as `POST /v1/retention/sweep` does, holds (`graceSeconds: -1`) kept, and logs what it purged. Memory facts and conversations purge only under a policy naming their domain (`memory`, `conversation`), never under a `*` policy. Unset (the default): nothing purges on its own; sweep with `POST /v1/retention/sweep` or the console. At least 60000, or the server refuses to start.",
+      "How often the server purges deleted rows on its own, in milliseconds: in every tenant it serves, it purges for good the tombstones past their retention policy's grace, as `POST /v1/retention/sweep` does, holds (`graceSeconds: -1`) kept except where `KINDGI_RUN_RETENTION_MAX_DAYS` limits runs, and logs what it purged. Memory facts and conversations purge only under a policy naming their domain (`memory`, `conversation`), never under a `*` policy. Unset (the default): nothing purges on its own; sweep with `POST /v1/retention/sweep` or the console. At least 60000, or the server refuses to start.",
     example: '3600000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_RUN_RETENTION_MAX_DAYS',
+    description:
+      "The longest the server keeps a finished run, in whole days, counted from when it finished. Publishing a `run` retention policy that keeps runs longer, or for good (`graceSeconds: -1`), is refused with `400 retention-over-limit`. Where a policy keeps them longer anyway (a `*` policy, or one stored before the limit was set), or no policy covers runs, they're purged at the limit. A run still going is never purged. The sweep purges them (`KINDGI_RETENTION_SWEEP_INTERVAL_MS`, or `POST /v1/retention/sweep`). Unset (the default): no limit. At least 1, or the server refuses to start.",
+    example: '90',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',

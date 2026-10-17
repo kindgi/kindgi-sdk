@@ -10,6 +10,12 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **a webhook or schedule trigger can run as a service account.**
+  `run_as_service_account_id` on `webhooks.register`,
+  `webhooks.take_ownership`, `schedules.register` and
+  `schedules.take_ownership` names the service account whose grants the
+  trigger's runs act with, rather than whoever registered it. Naming an
+  account needs `act_as` on it, which tenant admins hold.
 - `kindgi`: **`flows.get` and `flows.get_version` answer the flow, and
   `tools.get` and `tools.get_version` the tool.** They read each answer as
   another object that had taken the name `Flow` or `Tool` (a judged run's

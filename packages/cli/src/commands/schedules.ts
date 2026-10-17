@@ -277,13 +277,25 @@ const get: LeafCommand = {
     }),
 };
 
+/**
+ * `--run-as`: the schedule's runs act as this service account, not you. Needs
+ * `act_as` on the account. Shared by `create` and `take-ownership`.
+ */
+const RUN_AS_FLAG: Readonly<Record<string, ParseArgsOption>> = {
+  'run-as': {
+    type: 'string',
+    description:
+      "A service account, by id: the schedule's owner, so its runs act as that account from the next fire (not as you). Needs `act_as` on the account; omit it to own the schedule yourself.",
+  },
+};
+
 const create: LeafCommand = {
   kind: 'leaf',
   name: 'create',
   description:
     "Run an agent or a flow on a schedule, or start improvement passes on an agent (--improve). Its runs act as you, checked again at every run; they're in your project's runs, naming the schedule.",
   usage:
-    'kindgi schedules create --cron=<expr> (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…) [--timezone=<tz>] [--input=<json-or-@file>] [--project=<project-id>] [--catch-up=latest|skip] [--overlap=skip|allow] [--starting-deadline=<s>] [--label=<text>]',
+    'kindgi schedules create --cron=<expr> (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…) [--timezone=<tz>] [--input=<json-or-@file>] [--project=<project-id>] [--catch-up=latest|skip] [--overlap=skip|allow] [--starting-deadline=<s>] [--label=<text>] [--run-as=<service-account-id>]',
   optionSpec: {
     ...TARGET_FLAGS,
     ...WHEN_FLAGS,
@@ -291,17 +303,20 @@ const create: LeafCommand = {
       type: 'string',
       description: "The schedule's project, by id (default: the tenant's Default project).",
     },
+    ...RUN_AS_FLAG,
   },
   run: (ctx) =>
     runSdk(ctx, 'schedules create', async () => {
       const config = await configFields(ctx);
       if (config.cronExpression === undefined) throw new Error('--cron=<expression> is required');
       const project = stringFlag(ctx, 'project');
+      const runAs = stringFlag(ctx, 'run-as');
       return await ctx.client().schedules.register({
         ...targetFields(ctx),
         config: { ...config, cronExpression: config.cronExpression },
         ...(project !== undefined && { projectId: project }),
         ...policyFields(ctx),
+        ...(runAs !== undefined && { runAsServiceAccountId: runAs }),
       } as RegisterInput);
     }),
 };
@@ -350,6 +365,24 @@ function byId(
   };
 }
 
+const takeOwnership: LeafCommand = {
+  kind: 'leaf',
+  name: 'take-ownership',
+  description:
+    "Become a schedule's owner, so its runs act as you from the next fire (for a schedule whose owner left). With --run-as, a service account becomes the owner instead.",
+  usage: 'kindgi schedules take-ownership <schedule-id> [--run-as=<service-account-id>]',
+  optionSpec: { ...RUN_AS_FLAG },
+  run: (ctx) =>
+    runSdk(ctx, 'schedules take-ownership', async () => {
+      const id = requiredPositional(ctx, 0, 'schedule-id');
+      const runAs = stringFlag(ctx, 'run-as');
+      const schedulesClient = ctx.client().schedules;
+      return await (runAs !== undefined
+        ? schedulesClient.takeOwnership(id, { runAsServiceAccountId: runAs })
+        : schedulesClient.takeOwnership(id));
+    }),
+};
+
 const fires: LeafCommand = {
   kind: 'leaf',
   name: 'fires',
@@ -389,11 +422,7 @@ export const schedulesCommand: Command = {
       (s, id) => s.runNow(id),
     ),
     fires,
-    byId(
-      'take-ownership',
-      "Become a schedule's owner, so its runs act as you (for a schedule whose owner left).",
-      (s, id) => s.takeOwnership(id),
-    ),
+    takeOwnership,
     byId('unregister', 'Remove a schedule: it stops running.', (s, id) => s.unregister(id)),
   ],
 };

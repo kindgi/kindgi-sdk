@@ -212,6 +212,61 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'second-factor-required': {
+    description:
+      "The workspace requires a second factor at sign-in. Signing in to the console with an API token is refused, since a token can't give one: sign in another way, with your second factor. Taking your own second factor off is refused too: replace it (`POST /v1/identity/me/second-factor` with a code), or ask a tenant admin to remove it.",
+    details: [
+      {
+        key: 'action',
+        meaning: 'the action that was refused (token sign-in only)',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on, as type:id (token sign-in only)',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the check refused it (token sign-in only)',
+      },
+    ],
+    seeAlso: ['deploy/sign-in'],
+  },
+  'second-factor-invalid': {
+    description:
+      "The code from the authenticator app, or the recovery code, isn't right: try the code the app shows now. Replacing a second factor that's set up takes a code from it. Too many wrong codes lock it for a while (`second-factor-locked`).",
+    details: [],
+    seeAlso: ['deploy/sign-in'],
+  },
+  'second-factor-locked': {
+    description:
+      'Too many wrong codes lately for this person: no code is checked until the `Retry-After` header says. Nothing changed.',
+    details: [],
+    seeAlso: ['deploy/sign-in'],
+  },
+  'second-factor-unusable': {
+    description:
+      "The person's authenticator key can't be opened any more: the deployment's sign-in secret changed, and the previous one isn't configured. A recovery code still works, and so does setting the second factor up again with one; otherwise a tenant admin removes it.",
+    details: [],
+    seeAlso: ['deploy/sign-in'],
+  },
+  'second-factor-enroll-first': {
+    description:
+      'Requiring a second factor from a session made without one would end that session at its next request. Set up your own second factor and sign in again with it, then require one. An API key may change the setting.',
+    details: [],
+    seeAlso: ['deploy/sign-in'],
+  },
+  'second-factor-not-set-up': {
+    description:
+      'The person has no second factor set up: there are no recovery codes to replace, and nothing to take off. Set one up with `POST /v1/identity/me/second-factor`.',
+    details: [],
+    seeAlso: ['deploy/sign-in'],
+  },
+  'second-factor-not-started': {
+    description:
+      'There is no new key to confirm, or the one given is over an hour old. Start again with `POST /v1/identity/me/second-factor`, and confirm with a code from the new key.',
+    details: [],
+    seeAlso: ['deploy/sign-in'],
+  },
   'token-sign-in-not-allowed': {
     description:
       "The key can't open a console session: it belongs to a service account, or it is narrowed to a member role or one project. Use a full key of a person, or the identity provider.",
