@@ -642,6 +642,67 @@ describe('kindgi license renew', () => {
     ]);
   });
 
+  // The Azure module alerts on this line from the renewal job's log: a line
+  // with `counts: not sent (`, unless it's the production key's reason.
+  // Changing either wording breaks its alert, so change it with them.
+  test("the counts line the Azure module's alert matches: renewed, unchanged or refused without counts, never a production key's", async () => {
+    const PRODUCTION = "counts: not sent (a production key's renewal carries no counts)";
+    const alerts = (output: string) =>
+      output
+        .split('\n')
+        .some((line) => line.includes('counts: not sent (') && !line.includes(PRODUCTION));
+    const notFound = runtime(async () => {
+      throw new KindgiApiError({
+        code: 'not-found',
+        message: 'Not Found',
+        resource: { kind: 'route', id: '/v1/license/usage' },
+      });
+    });
+    const current = licenseKey();
+    const { dir, renewer } = await enrolled(current);
+    writeFileSync(join(dir, 'runtime.token'), 'kgi_bt_test\n');
+    const renew = (answer: () => Response, clientFactory = notFound.clientFactory) =>
+      cli(dir, RENEW_WITH_RUNTIME, {
+        ...deps,
+        fetchImpl: service(renewer, answer),
+        clientFactory,
+      });
+
+    const renewed = await renew(() => Response.json({ licenseKey: NEXT_KEY }));
+    expect(renewed.exitCode).toBe(0);
+    expect(renewed.stdout).toMatch(/^renewed: /);
+    expect(alerts(renewed.stdout)).toBe(true);
+    writeFileSync(join(dir, 'kindgi.env'), `KINDGI_API_PORT=8080\nKINDGI_LICENSE_KEY=${current}\n`);
+
+    const unchanged = await renew(() => Response.json({ licenseKey: current }));
+    expect(unchanged.exitCode).toBe(0);
+    expect(unchanged.stdout).toMatch(/^unchanged: /);
+    expect(alerts(unchanged.stdout)).toBe(true);
+
+    const refused = await renew(() =>
+      Response.json(
+        { error: 'held-for-review', message: 'Write to contact@kindgi.com.' },
+        { status: 403 },
+      ),
+    );
+    expect(refused.exitCode).toBe(1);
+    expect(alerts(refused.stderr)).toBe(true);
+
+    const sent = await renew(
+      () => Response.json({ licenseKey: current }),
+      runtime(async () => USAGE).clientFactory,
+    );
+    expect(sent.stdout).toContain('counts: sent (');
+    expect(`${sent.stdout}${sent.stderr}`).not.toContain('counts: not sent');
+
+    const production = licenseKey({ use: 'production' });
+    writeFileSync(join(dir, 'kindgi.env'), `KINDGI_API_PORT=8080\nKINDGI_LICENSE_KEY=${production}\n`);
+    const productions = await renew(() => Response.json({ licenseKey: production }));
+    expect(productions.exitCode).toBe(0);
+    expect(productions.stdout).toContain(PRODUCTION);
+    expect(alerts(`${productions.stdout}${productions.stderr}`)).toBe(false);
+  });
+
   test('--runtime and --runtime-token go together; --runtime is a URL', async () => {
     const { dir } = await enrolled();
     const base = ['license', 'renew', '--env-file', 'kindgi.env', '--renewer', 'file:renewer.key'];

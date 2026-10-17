@@ -161,7 +161,11 @@ function usageProblem(runtime: string, cause: unknown): string {
   return `${runtime} couldn't be asked (${cause instanceof Error ? cause.message : String(cause)})`;
 }
 
-/** The counts line, when a runtime was asked. */
+/**
+ * The counts line, when a runtime was asked. The Azure module's alert
+ * matches "counts: not sent (" on it, leaving out the production key's
+ * reason (deploy/azure-container-apps): keep both.
+ */
 function countsLine(counts: CountsSent | undefined): string[] {
   if (counts === undefined) return [];
   if (!counts.sent) {
