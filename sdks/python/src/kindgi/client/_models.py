@@ -2026,6 +2026,41 @@ class JudgedItem(BaseModel):
     """
 
 
+class ExpectedCall(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: Annotated[str, Field(min_length=1)]
+    args: Annotated[dict[str, Any], Field(max_length=100)]
+    """
+    The partial set of top-level argument fields to compare, by value. Fields left out are not compared; an empty object asks only that the tool was called.
+    """
+
+
+class NotCalledItem(RootModel[str]):
+    root: Annotated[str, Field(min_length=1)]
+
+
+class Correction(BaseModel):
+    """
+    An expert's correction of a run's decisions: the tool calls the agent should have made, and the tools it should not have called at all. Graded deterministically on a replay. A tool can't be in both `calls` and `notCalled`, and one of them must be non-empty (both empty is a 400).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    calls: Annotated[list[ExpectedCall], Field(max_length=50)]
+    """
+    The calls the agent should have made.
+    """
+    not_called: Annotated[list[NotCalledItem], Field(alias="notCalled", max_length=50)]
+    """
+    Tools that should not have been called at all.
+    """
+
+
 class JudgmentAssertedBy(BaseModel):
     """
     Who asserted a judgment: the authenticated caller, never a typed name.
@@ -2055,6 +2090,10 @@ class Judgment(BaseModel):
     item: JudgedItem
     verdict: Literal["yes", "no"]
     reason: str | None = None
+    correction: Correction | None = None
+    """
+    The expert's correction of the run's decisions, when they gave one.
+    """
     judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
     """
     The judge class the judgment is recorded under. Absent when unclassified (counts with weight 1).
@@ -2124,6 +2163,10 @@ class CreateJudgmentBody(BaseModel):
     participant_id: Annotated[str | None, Field(alias="participantId", min_length=1)] = None
     """
     An app's opaque id for its end user, when judging on their behalf.
+    """
+    correction: Correction | None = None
+    """
+    Optional. The tool calls the agent should have made, graded on a replay. One correction per run per expert, under a fixed item key: saving again replaces it.
     """
 
 
@@ -6730,6 +6773,25 @@ class Metrics(BaseModel):
     weighted_precision_at_k: Annotated[ComparisonMetric, Field(alias="weightedPrecisionAtK")]
 
 
+class Corrections(BaseModel):
+    """
+    Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    checked: Annotated[int, Field(ge=0)]
+    """
+    How many corrections were graded.
+    """
+    passed: Annotated[int, Field(ge=0)]
+    """
+    How many passed (every repetition passed).
+    """
+
+
 class TopK(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -6851,6 +6913,59 @@ class Changes(BaseModel):
     kept: list[KeptItem]
     dropped: list[DroppedItem]
     new: list[NewItem]
+
+
+class Differences(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["count"]
+    expected: Annotated[int, Field(ge=0)]
+    actual: Annotated[int, Field(ge=0)]
+
+
+class Differences1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["must-not-call"]
+    actual: Annotated[int, Field(ge=1)]
+
+
+class Differences2(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["missing-field"]
+    field: str
+    expected: Any
+
+
+class Differences3(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["field-value"]
+    field: str
+    expected: Any
+    actual: Any
+
+
+class CorrectionDifference(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    differences: list[Differences | Differences1 | Differences2 | Differences3]
 
 
 class Stopped(BaseModel):
@@ -10772,6 +10887,33 @@ class JudgedRunContextFlow(BaseModel):
     """
 
 
+class JudgedEvalCaseCorrection(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    """
+    The judgment the correction was recorded on.
+    """
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+    """
+    The judgment's class, when it had one.
+    """
+    restricted: Literal[True] | None = None
+    """
+    Set when the judgment was recorded while its class was restricted (`Judgment.restricted`).
+    """
+    calls: Annotated[list[ExpectedCall], Field(max_length=50)]
+    """
+    The calls the agent should have made.
+    """
+    not_called: Annotated[list[NotCalledItem], Field(alias="notCalled", max_length=50)]
+    """
+    Tools that should not have been called at all.
+    """
+
+
 class JudgedComparisonSummaryScope(BaseModel):
     """
     Where the test set's judgments came from.
@@ -10800,6 +10942,26 @@ class ComparisonCaseResultTool(BaseModel):
     With `source: 'live'`: the call ran again from the same arguments because the compared version pins other settings, and the tool reads from nowhere, so it didn't diverge. Absent from older servers, and otherwise.
     """
     reason: str | None = None
+
+
+class ComparisonCaseResultCorrection(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    pass_: Annotated[bool, Field(alias="pass")]
+    """
+    Passed only when every repetition passed.
+    """
+    repetitions_passed: Annotated[int, Field(alias="repetitionsPassed", ge=0)]
+    """
+    The `k` of "k of n".
+    """
+    repetitions: Annotated[int, Field(ge=1)]
+    """
+    The `n` of "k of n".
+    """
 
 
 class DeploymentContentsTool(BaseModel):
@@ -11621,9 +11783,13 @@ class JudgedEvalCase(BaseModel):
     context: JudgedRunContext | None = None
     output: Any
     items: list[JudgedItemSummary]
+    corrections: list[JudgedEvalCaseCorrection] | None = None
+    """
+    Experts' corrections carried onto this case from its judgments, each graded on the replay. Empty or absent when none. `restricted-only` keeps only the entries whose judgment was restricted.
+    """
     erased: Literal[True] | None = None
     """
-    An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, and eval runs leave it out (counted as `erased`).
+    An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and eval runs leave it out (counted as `erased`).
     """
 
 
@@ -12145,6 +12311,10 @@ class JudgedComparisonSummary(BaseModel):
     sampling: Sampling
     repetitions: Annotated[int, Field(ge=1)]
     metrics: Metrics
+    corrections: Corrections | None = None
+    """
+    Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.
+    """
 
 
 class ComparisonCaseResult(BaseModel):
@@ -12176,6 +12346,16 @@ class ComparisonCaseResult(BaseModel):
     tools: list[ComparisonCaseResultTool] | None = None
     """
     The first repetition's tool calls, and what happened to each.
+    """
+    corrections: list[ComparisonCaseResultCorrection] | None = None
+    """
+    Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. Survives an erasure — the differences, which quote values, are in `correctionDifferences`.
+    """
+    correction_differences: Annotated[
+        list[CorrectionDifference] | None, Field(alias="correctionDifferences")
+    ] = None
+    """
+    The ways each correction's calls differed, by judgment. Quotes argument values, so an erasure clears it (the verdicts and counts stay in `corrections`).
     """
     diverged: bool
     refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]
