@@ -58,6 +58,8 @@ pack's code), append an entry to `FEEDBACK.md` at the pack root via
 `kindgi feedback write` — see the `kindgi-framework-feedback` skill. Mark
 items fixed by adding a `> **Fixed:** <note>` line right after their
 header; the file is a plain markdown list you edit directly.
+Send entries to Kindgi only after the person has seen the preview and said
+yes: `kindgi feedback submit --preview`, then `--yes=<its digest>`.
 
 ## Commands for the person's own terminal
 

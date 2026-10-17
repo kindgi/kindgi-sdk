@@ -261,6 +261,8 @@ another reviewer decides." instead of **Approve**.
   ```
 
   The code is `limited-session-cannot-mint`.
+- Kindgi asks them for no second factor, even where the workspace
+  [requires one](../../../deploy/sign-in/#a-second-factor): the site owns it.
 
 **Their grants come from the site, and only from it.**
 - A route that would give one of them a grant, a tenant role, a project or

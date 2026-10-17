@@ -424,3 +424,37 @@ describe('users not-yet-wired surface', () => {
     expect(stub.calls.length).toBe(0);
   });
 });
+
+describe("users.secondFactor and removeSecondFactor — a person's second factor", () => {
+  it('reads theirs, and removes it with an Idempotency-Key', async () => {
+    const status = {
+      setUp: true,
+      since: '2026-10-17T00:00:00.000Z',
+      recoveryCodesLeft: 3,
+      usable: true,
+      required: false,
+    };
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify(status) },
+      { status: 200, body: JSON.stringify({ removed: true }) },
+    ]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    expect(await client.users.secondFactor('user/bob' as never)).toEqual(status);
+    expect(
+      await client.users.removeSecondFactor('user/bob' as never, { idempotencyKey: 'idem-sf' }),
+    ).toEqual({ removed: true });
+    const [read, removed] = stub.calls;
+    expect(`${read?.method} ${read?.url}`).toBe(
+      'GET https://api.example.com/v1/identity/users/user%2Fbob/second-factor',
+    );
+    expect(`${removed?.method} ${removed?.url}`).toBe(
+      'POST https://api.example.com/v1/identity/users/user%2Fbob/second-factor/remove',
+    );
+    expect(removed?.headers['idempotency-key']).toBe('idem-sf');
+    expect(JSON.parse(removed?.body ?? 'null')).toEqual({});
+  });
+});

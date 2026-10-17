@@ -305,4 +305,20 @@ describe('kindgi webhooks: the rest of the group', () => {
       expect(calls).toEqual([[call, ID]]);
     }
   });
+
+  test('--run-as names a service account on register and take-over', async () => {
+    const BOT = '22222222-2222-4222-8222-222222222222';
+    const reg = await webhooks([
+      'register',
+      '--flow=acme.refund-review',
+      '--flow-version=1.0.0',
+      '--secret=acme-woo-secret',
+      `--run-as=${BOT}`,
+    ]);
+    expect(reg.out.exitCode, reg.out.stderr).toBe(0);
+    expect(reg.calls[0]).toMatchObject(['register', { runAsServiceAccountId: BOT }]);
+
+    const take = await webhooks(['take-ownership', ID, `--run-as=${BOT}`]);
+    expect(take.calls).toEqual([['takeOwnership', ID, { runAsServiceAccountId: BOT }]]);
+  });
 });

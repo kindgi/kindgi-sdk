@@ -7310,9 +7310,12 @@ class SignInEvent(BaseModel):
         "sign-in-link-capped",
         "sessions-revoked",
         "sessions-ended",
+        "second-factor-set-up",
+        "second-factor-removed",
+        "recovery-codes-replaced",
     ]
     """
-    `signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token).
+    `signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token, or a session made without a second factor in a workspace that requires one: `reason` says which); `second-factor-set-up`, `second-factor-removed` (`byUserId` is the admin who removed it, if not the person) and `recovery-codes-replaced`. Never a key or a code.
     """
     outcome: str
     """
@@ -7540,6 +7543,153 @@ class UserCreated(BaseModel):
     """
     metadata: dict[str, Any] | None = None
     invite_email: Annotated[InviteEmail | None, Field(alias="inviteEmail")] = None
+
+
+class SecondFactorProof(BaseModel):
+    """
+    Exactly one: a code from the authenticator app, or one of the recovery codes (used up by this).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: Annotated[str | None, Field(max_length=64, min_length=1)] = None
+    recovery_code: Annotated[
+        str | None, Field(alias="recoveryCode", max_length=64, min_length=1)
+    ] = None
+
+
+class SecondFactorConfirmBody(BaseModel):
+    """
+    A code from the new key, as the authenticator app shows it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: Annotated[str, Field(max_length=64, min_length=1)]
+
+
+class SecondFactorStatus(BaseModel):
+    """
+    A person's second factor, and whether their workspace requires one. With `setUp`, `since`, `recoveryCodesLeft` and `usable` are given; without it, `started`. Never a key or a code.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    set_up: Annotated[bool, Field(alias="setUp")]
+    started: bool | None = None
+    """
+    A key was given to set one up, and isn't confirmed yet.
+    """
+    since: AwareDatetime | None = None
+    recovery_codes_left: Annotated[int | None, Field(alias="recoveryCodesLeft", ge=0)] = None
+    usable: bool | None = None
+    """
+    `false`: its key can't be opened any more (the sign-in secret changed past it). A recovery code still works, as does setting it up again, or an admin removing it.
+    """
+    required: bool
+    """
+    The workspace requires a second factor at sign-in.
+    """
+
+
+class SecondFactorKey(BaseModel):
+    """
+    A new key to set up, shown this once: `uri` for an authenticator app (as a QR code), `key` to type in. Nothing changes until it is confirmed.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: str
+    """
+    The key, in base32.
+    """
+    uri: str
+    """
+    The `otpauth://totp/` URI.
+    """
+
+
+class SecondFactorRecoveryCodes(BaseModel):
+    """
+    The 10 recovery codes, shown this once. Each signs in once in place of a code from the app; any earlier ones stop working.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    recovery_codes: Annotated[list[str], Field(alias="recoveryCodes")]
+
+
+class SecondFactorRemoved(BaseModel):
+    """
+    `false` when there was none to remove.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    removed: bool
+
+
+class SecondFactor(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    required: bool
+    """
+    Signing in by the deployment's own ways in takes a second factor. Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. API keys aren't covered.
+    """
+    on_previous_secret: Annotated[int, Field(alias="onPreviousSecret", ge=0)]
+    """
+    People whose key is still kept under the deployment's previous sign-in secret: each moves to the current one at their next code. Keep the previous secret configured until this is 0.
+    """
+    unusable: Annotated[int, Field(ge=0)]
+    """
+    People whose key opens under neither secret: they need a recovery code, or an admin to remove it.
+    """
+
+
+class AuthSettings(BaseModel):
+    """
+    The workspace's sign-in settings.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    second_factor: Annotated[SecondFactor, Field(alias="secondFactor")]
+
+
+class SecondFactor1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    required: bool
+
+
+class AuthSettingsPatch(BaseModel):
+    """
+    Require a second factor at sign-in, or stop requiring one.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    second_factor: Annotated[SecondFactor1, Field(alias="secondFactor")]
 
 
 class CreateUserBody(BaseModel):
@@ -8346,6 +8496,7 @@ class EvidenceKind(RootModel[str]):
                 "person-added",
                 "person-granted",
                 "person-ungranted",
+                "trigger-owner-set",
             ],
             min_length=1,
         ),
@@ -8507,6 +8658,7 @@ class ComplianceEvidence(BaseModel):
                 "person-added",
                 "person-granted",
                 "person-ungranted",
+                "trigger-owner-set",
             ],
             min_length=1,
         ),
@@ -8593,6 +8745,7 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "person-added",
                 "person-granted",
                 "person-ungranted",
+                "trigger-owner-set",
             ],
             min_length=1,
         ),
@@ -8661,6 +8814,7 @@ class Filter(BaseModel):
                 "person-added",
                 "person-granted",
                 "person-ungranted",
+                "trigger-owner-set",
             ],
             min_length=1,
         ),
@@ -9677,6 +9831,23 @@ class Config8(BaseModel):
         populate_by_name=True,
     )
     input: Any | None = None
+
+
+class TakeTriggerOwnerBody(BaseModel):
+    """
+    Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_as_service_account_id: Annotated[
+        str | None, Field(alias="runAsServiceAccountId", min_length=1)
+    ] = None
+    """
+    A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs.
+    """
 
 
 class WebhookTriggerUnregisterResult(BaseModel):
@@ -12789,6 +12960,12 @@ class RegisterScheduleBody(BaseModel):
     """
     The schedule's project. Absent → the tenant's default project.
     """
+    run_as_service_account_id: Annotated[
+        str | None, Field(alias="runAsServiceAccountId", min_length=1)
+    ] = None
+    """
+    A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. Absent: the caller owns it.
+    """
     config: Config6
     catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
     """
@@ -12981,6 +13158,12 @@ class RegisterWebhookTriggerBody(BaseModel):
         int | None, Field(alias="rateLimitPerMinute", ge=1, le=6000)
     ] = None
     label: str | None = None
+    run_as_service_account_id: Annotated[
+        str | None, Field(alias="runAsServiceAccountId", min_length=1)
+    ] = None
+    """
+    A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it.
+    """
 
 
 class PatchWebhookTriggerBody(BaseModel):

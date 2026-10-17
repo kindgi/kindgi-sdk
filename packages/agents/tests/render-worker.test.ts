@@ -292,4 +292,33 @@ describe('the built renderer', () => {
     // identically-wrong renders from a timezone the fork failed to forward.
     expect(here).toContain('+0900');
   }, 30_000);
+
+  // Node takes the locale from LC_ALL, then LC_MESSAGES, then LANG, so a
+  // server may set any one of them alone. Each is forwarded on its own:
+  // with only that one set (every other LC_* and LANG left out), the
+  // in-process render is French, and the worker's must be too.
+  test.each(['LC_ALL', 'LC_MESSAGES', 'LANG'])(
+    'a worker takes the locale from %s alone, as in-process',
+    async (name) => {
+      const env: Record<string, string> = { TZ: 'UTC', [name]: 'fr_FR.UTF-8' };
+      for (const [key, value] of Object.entries(process.env)) {
+        if (value === undefined || key === 'LANG' || key.startsWith('LC_') || key in env) continue;
+        env[key] = value;
+      }
+      const { stdout } = await promisify(execFile)(
+        process.execPath,
+        [
+          fileURLToPath(new URL('./fixtures/locale-render-check.mjs', import.meta.url)),
+          workerEntry.href,
+        ],
+        { timeout: 20_000, env },
+      );
+      const { here, there } = JSON.parse(stdout) as { here: string; there: string };
+      expect(there).toBe(here);
+      // The locale took effect in-process (2026-10-15 is a Thursday), so this
+      // isn't two renders in the default locale from a variable never read.
+      expect(here).toContain('jeudi 15 octobre 2026');
+    },
+    30_000,
+  );
 });
