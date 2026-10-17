@@ -523,7 +523,11 @@ server_secret_env = {
 - **After an upgrade that adds a step per tenant,**
   `kindgi-runtime tenants repair --all` has to run once: a server serving
   many tenants sets nothing up per tenant at boot. This module runs no such
-  job.
+  job. It also takes away access a tenant's record doesn't back (runtime
+  0.1.9 or later): it finishes a removal that stopped part way, and revokes
+  a service account's admin, membership or project role that its grants
+  don't give. `--dry-run` shows what it would put back and take away, per
+  tenant, and changes nothing.
 - **An earlier runtime** ignores `KINDGI_TENANCY`. With no tenant id it would
   seed a new tenant at every start, so upgrade the runtime first.
 
