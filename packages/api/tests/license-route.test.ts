@@ -104,6 +104,8 @@ function makeApp(
     ...createStubAppBindings(),
     resolveToken,
     runHandler: {} as never,
+    // So `GET /v1/identity/me/permissions` answers (`licenseOperatorOnly`).
+    myAccess: { read: async () => ({ projects: [], orgs: [], teams: [], capabilities: {} }) },
     ...(license !== undefined && { license }),
     ...(options.authz === true && {
       authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding },
@@ -262,10 +264,10 @@ describe('GET /v1/license: the admins of the one tenant a deployment serves', ()
 });
 
 describe('GET /v1/license: everyone else is refused, and the refusal recorded', () => {
-  const refusal = {
-    code: 'license-operator-only',
-    message: expect.stringContaining("the deployment's own token"),
-  };
+  /** What the caller reads, in the answer and in its access audit: plain words, no setting's name. */
+  const LICENSE_REFUSAL =
+    "Only this deployment's operator reads its license: with the deployment's own token, or a system key holding system:license. A tenant admin reads the license's countdown only where the deployment serves that one tenant.";
+  const refusal = { code: 'license-operator-only', message: LICENSE_REFUSAL };
 
   test('a caller of the one tenant who is not its admin', async () => {
     const { get, recorded } = makeApp(
@@ -281,7 +283,11 @@ describe('GET /v1/license: everyone else is refused, and the refusal recorded', 
       {
         action: 'read',
         resource: 'tenant:t-1',
-        decision: expect.objectContaining({ allowed: false, failing: 'actor' }),
+        decision: expect.objectContaining({
+          allowed: false,
+          failing: 'actor',
+          reason: LICENSE_REFUSAL,
+        }),
       },
     ]);
   });
@@ -326,6 +332,38 @@ describe('GET /v1/license: everyone else is refused, and the refusal recorded', 
     expect(answer.status).toBe(403);
     expect(answer.body.error).toMatchObject(refusal);
     expectNothingOfTheOperators(answer);
+  });
+});
+
+describe('GET /v1/identity/me/permissions says what GET /v1/license does (licenseOperatorOnly)', () => {
+  const tokens = { SYSTEM, ADMIN, OTHER_ADMIN } as const;
+  type Caller = keyof typeof tokens;
+  // true: the route refuses the caller whatever its role; false: it reads it.
+  const cases: readonly (readonly [
+    string,
+    LicenseStatusBinding['soleTenant'],
+    Readonly<Record<Caller, boolean>>,
+  ])[] = [
+    ['serving the one tenant', () => TENANT, { SYSTEM: false, ADMIN: false, OTHER_ADMIN: true }],
+    [
+      'serving another tenant alone',
+      () => OTHER_TENANT,
+      { SYSTEM: false, ADMIN: true, OTHER_ADMIN: false },
+    ],
+    ['serving several', () => null, { SYSTEM: false, ADMIN: true, OTHER_ADMIN: true }],
+    ["that doesn't say", undefined, { SYSTEM: false, ADMIN: true, OTHER_ADMIN: true }],
+  ];
+  test.each(cases)('a deployment %s', async (_how, soleTenant, operatorOnly) => {
+    const { get } = makeApp(
+      { status: () => expiring(12), ...(soleTenant !== undefined && { soleTenant }) },
+      { authz: true },
+    );
+    for (const [who, token] of Object.entries(tokens)) {
+      const expected = operatorOnly[who as Caller];
+      const mine = await get(token, '/v1/identity/me/permissions');
+      expect(mine.body.licenseOperatorOnly, who).toBe(expected);
+      expect((await get(token)).status, who).toBe(expected ? 403 : 200);
+    }
   });
 });
 
@@ -424,14 +462,19 @@ describe("GET /v1/license/usage: the deployment's use, for its key's renewal", (
       expect(answer.body.error, token).toMatchObject({
         code: 'license-operator-only',
         message:
-          "The deployment's use counts every tenant's: only the deployment's own token (KINDGI_API_TOKEN), or a system key holding system:license, reads it.",
+          "The deployment's use counts every tenant's: only its operator reads it, with the deployment's own token or a system key holding system:license.",
       });
     }
     // Each refusal recorded once, against the caller's own tenant.
     const refusedRead = (tenant: string) => ({
       action: 'read',
       resource: `tenant:${tenant}`,
-      decision: expect.objectContaining({ allowed: false, failing: 'scope' }),
+      decision: expect.objectContaining({
+        allowed: false,
+        failing: 'scope',
+        reason:
+          "The deployment's use counts every tenant's: only its operator reads it, with the deployment's own token or a system key holding system:license.",
+      }),
     });
     expect(app.recorded).toEqual([refusedRead('t-1'), refusedRead('t-1'), refusedRead('t-2')]);
     expect(periods).toHaveLength(0);
