@@ -52,28 +52,36 @@ export class PublishRefused extends Error {
   /** With `…-project-mismatch`: the project the primitive belongs to, for the log only. */
   readonly projectId?: ProjectId;
 
-  constructor(
-    readonly primitive: PublishedPrimitive,
-    readonly id: string,
-    outcome: RefusedOutcome | DeployRefusal,
-  ) {
-    if ('code' in outcome) {
-      super(`The ${primitive} ${id} wasn't published: ${outcome.reason}`);
-      this.name = 'PublishRefused';
-      this.code = outcome.code;
-      return;
-    }
-    const code =
-      outcome.kind === 'project-mismatch'
-        ? (`${primitive}-project-mismatch` as const)
-        : outcome.kind;
-    super(
-      outcome.kind === 'project-mismatch'
-        ? `The ${primitive} ${id} wasn't published: it belongs to another project (one pack per client: \`kindgi init\` a copy of the pack for this client, with its own pack id)`
-        : `The ${primitive} ${id} wasn't published: ${code}`,
-    );
+  /** The primitive refused. */
+  readonly primitive: PublishedPrimitive;
+  /** Its id (with `@<version>` where it has one). */
+  readonly id: string;
+
+  constructor(primitive: PublishedPrimitive, id: string, outcome: RefusedOutcome | DeployRefusal) {
+    // One `super` at the top: tsc assigns parameter properties only after
+    // a top-level one, so a refusal built in a branch had no `primitive`
+    // or `id` in the built package (esbuild, which the tests run, assigns
+    // them after every `super`).
+    super(`The ${primitive} ${id} wasn't published: ${refusedBecause(outcome)}`);
     this.name = 'PublishRefused';
-    this.code = code;
-    if (outcome.kind === 'project-mismatch') this.projectId = outcome.projectId;
+    this.primitive = primitive;
+    this.id = id;
+    if ('code' in outcome) {
+      this.code = outcome.code;
+    } else if (outcome.kind === 'project-mismatch') {
+      this.code = `${primitive}-project-mismatch`;
+      this.projectId = outcome.projectId;
+    } else {
+      this.code = outcome.kind;
+    }
   }
+}
+
+/** Why a refused primitive wasn't published, for `PublishRefused`'s message. */
+function refusedBecause(outcome: RefusedOutcome | DeployRefusal): string {
+  if ('code' in outcome) return outcome.reason;
+  if (outcome.kind === 'project-mismatch') {
+    return 'it belongs to another project (one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id)';
+  }
+  return outcome.kind;
 }
