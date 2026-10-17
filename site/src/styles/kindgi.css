@@ -258,3 +258,16 @@ pre {
 .card :not(pre) > code {
   white-space: nowrap;
 }
+
+/* The entry page's hero: as wide as the content under it. It has no image,
+   so it needs neither the image's column nor Starlight's 50ch line. Its
+   padding is fixed rather than Starlight's, which grows with the window to
+   10rem: 3rem from the hero to the first heading, as from any page's title
+   to its content. */
+[data-has-hero] .hero {
+  grid-template-columns: 100%;
+  padding-block: 1.5rem;
+}
+[data-has-hero] .hero .copy > * {
+  max-width: none;
+}
