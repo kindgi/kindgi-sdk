@@ -257,10 +257,11 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
 export const THINKING_USED_MAX_TOKENS = 'thinking-used-max-tokens';
 
 /**
- * A `thinking-used-max-tokens` warning when the model thought until it hit
- * the call's output cap and answered nothing: thinking counts against
- * `max_tokens`, and the turn would otherwise end on an empty answer with
- * nothing saying why.
+ * A `thinking-used-max-tokens` warning when the call hit its output cap after
+ * the model thought and before it wrote any answer text: thinking counts
+ * against `max_tokens`. A tool call the cap cut short isn't run (the call
+ * finished with `length`, not `tool-use`), so either way the turn would end on
+ * an empty answer with nothing saying why.
  */
 function thinkingUsedMaxTokens(
   model: string,
@@ -272,13 +273,11 @@ function thinkingUsedMaxTokens(
   const thought = response.content.some(
     (b) => b.type === 'thinking' || b.type === 'redacted_thinking',
   );
-  if (finishReason !== 'length' || !thought || message.content !== '' || message.toolCalls) {
-    return [];
-  }
+  if (finishReason !== 'length' || !thought || message.content !== '') return [];
   return [
     {
       code: THINKING_USED_MAX_TOKENS,
-      message: `${model} spent all ${maxTokens} output tokens thinking and gave no answer: raise maxOutputTokens, on the agent's model settings or the provider's model.`,
+      message: `${model} used all ${maxTokens} output tokens, its thinking included, and gave no answer: raise maxOutputTokens in the agent's model-settings block or on the provider's model.`,
     },
   ];
 }

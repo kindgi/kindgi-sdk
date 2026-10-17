@@ -8,7 +8,8 @@
  * stored with its calls and read back as a later turn's history. Here the
  * Anthropic adapter, with a stubbed client, answers with thinking and a tool
  * call; the call after a restart, and a later turn's first call, send that
- * thinking back as Anthropic answered it.
+ * thinking back as Anthropic answered it. An answer whose thinking took the
+ * whole cap reaches the turn's result with the adapter's warning.
  */
 
 import { describe, expect, test, vi } from 'vitest';
@@ -20,10 +21,13 @@ import type { AnyTool } from '@kindgi/tools';
 import type { NodeId, RunId, TenantId, ToolId } from '@kindgi/types';
 
 import {
+  AGENT_LOOP_NODE,
   BUDGET_CHECK_NODE,
   BUILD_INITIAL_MESSAGES_NODE,
+  COMPOSE_RESULT_NODE,
   DISPATCH_TOOLS_NODE,
   MODEL_CALL_NODE,
+  PERSIST_FINAL_MESSAGE_NODE,
 } from '../src/agent-turn-flow.js';
 import type { TurnContext } from '../src/handlers/context.js';
 import { buildHandlers } from '../src/handlers/index.js';
@@ -100,7 +104,7 @@ function lookupTool(): AnyTool {
   return defined.value as unknown as AnyTool;
 }
 
-const agent = { id: 'acme.desk', version: '1.0.0' } as unknown as Agent;
+const agent = { id: 'acme.desk', version: '1.0.0', retrieval: [] } as unknown as Agent;
 
 /** A turn set up on `provider`: what setup leaves on it, and a conversation store. */
 function turn(provider: ModelProvider, history: readonly ConversationMessage[] = []) {
@@ -142,14 +146,18 @@ function turn(provider: ModelProvider, history: readonly ConversationMessage[] =
   } as unknown as TurnContext;
   const handlers = buildHandlers(ctx);
   const records = new Map<string, unknown>();
-  const kctx = testNodeContext({ runId: 'run-1' as RunId, dryRun: false } as never, records);
+  const nodeOutputs = new Map<NodeId, unknown>();
+  const kctx = testNodeContext(
+    { runId: 'run-1' as RunId, dryRun: false, nodeOutputs } as never,
+    records,
+  );
   /** Runs a step, and returns its output as the journal keeps it: JSON. */
   const step = async (node: string, input: unknown): Promise<unknown> => {
     const handler = handlers.get(node as NodeId);
     if (handler === undefined) throw new Error(`no ${node} handler`);
     return JSON.parse(JSON.stringify(await handler(input, kctx)));
   };
-  return { ctx, stored, step };
+  return { ctx, stored, step, nodeOutputs };
 }
 
 const initial: ModelMessage[] = [
@@ -209,6 +217,54 @@ describe('thinking carried in a tool call outlives the process', () => {
     expect(next.sent(0)).toEqual([
       { role: 'assistant', content: answeredWithThinking },
       { role: 'assistant', content: [{ type: 'text', text: 'It shipped.' }] },
+    ]);
+  });
+});
+
+describe('an answer whose thinking took the whole cap', () => {
+  test("ends the turn with an empty answer, and the turn's result carries the adapter's warning", async () => {
+    const create = vi.fn(async () => ({
+      id: 'msg_1',
+      type: 'message',
+      role: 'assistant',
+      model: MODEL.name,
+      stop_sequence: null,
+      usage: { input_tokens: 40, output_tokens: 4096 },
+      content: [THINKING],
+      stop_reason: 'max_tokens',
+    }));
+    const provider = createAnthropicProvider({
+      apiKey: 'sk-unused',
+      metadata: { id: 'anthropic', region: 'us-east-1', models: [MODEL] },
+      client: { messages: { create } } as never,
+    });
+    const { step, nodeOutputs } = turn(provider);
+    const called = await step(MODEL_CALL_NODE, { nextMessages: initial });
+    const dispatched = await step(DISPATCH_TOOLS_NODE, called);
+    const iterationEnd = (await step(BUDGET_CHECK_NODE, dispatched)) as {
+      readonly finishedTurn: boolean;
+    };
+    expect(iterationEnd.finishedTurn).toBe(true);
+    nodeOutputs.set(AGENT_LOOP_NODE as NodeId, {
+      finalOutput: iterationEnd,
+      iterations: 1,
+      stopReason: 'exit-condition',
+    });
+    await step(PERSIST_FINAL_MESSAGE_NODE, undefined);
+    const { output } = (await step(COMPOSE_RESULT_NODE, undefined)) as {
+      readonly output: {
+        readonly response: { readonly content: unknown };
+        readonly warnings?: readonly { readonly code: string; readonly message: string }[];
+      };
+    };
+
+    expect(output.response.content).toBe('');
+    expect(output.warnings).toEqual([
+      {
+        code: 'thinking-used-max-tokens',
+        message:
+          "claude-sonnet-5-5 used all 4096 output tokens, its thinking included, and gave no answer: raise maxOutputTokens in the agent's model-settings block or on the provider's model.",
+      },
     ]);
   });
 });

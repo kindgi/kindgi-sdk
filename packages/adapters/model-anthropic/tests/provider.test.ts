@@ -769,7 +769,7 @@ describe('createAnthropicProvider — thinking through a tool loop', () => {
         {
           code: THINKING_USED_MAX_TOKENS,
           message:
-            "claude-sonnet-5-5 spent all 4096 output tokens thinking and gave no answer: raise maxOutputTokens, on the agent's model settings or the provider's model.",
+            "claude-sonnet-5-5 used all 4096 output tokens, its thinking included, and gave no answer: raise maxOutputTokens in the agent's model-settings block or on the provider's model.",
         },
       ]);
       expect(THINKING_USED_MAX_TOKENS).toBe('thinking-used-max-tokens');
@@ -781,7 +781,16 @@ describe('createAnthropicProvider — thinking through a tool loop', () => {
         'max_tokens',
         1024,
       );
-      expect(result.warnings?.[0]?.message).toContain('spent all 1024 output tokens thinking');
+      expect(result.warnings?.[0]?.message).toContain('used all 1024 output tokens');
+    });
+
+    test('a tool call the cap cut short, after thinking, says so too: it is not run', async () => {
+      const cut = { type: 'tool_use', id: 'tu-1', name: 'acme__lookup', input: {} };
+      const result = await answer([thinking, cut], 'max_tokens');
+      expect(result.finishReason).toBe('length');
+      expect(result.message.content).toBe('');
+      expect(result.message.toolCalls?.map((c) => c.id)).toEqual(['tu-1']);
+      expect(result.warnings?.map((w) => w.code)).toEqual([THINKING_USED_MAX_TOKENS]);
     });
 
     test.each([
@@ -791,6 +800,11 @@ describe('createAnthropicProvider — thinking through a tool loop', () => {
         'max_tokens',
       ],
       ['a cut-short answer without thinking', [{ type: 'text', text: '' }], 'max_tokens'],
+      [
+        'a cut-short tool call without thinking',
+        [{ type: 'tool_use', id: 'tu-1', name: 'acme__lookup', input: {} }],
+        'max_tokens',
+      ],
       ['a finished answer, however short', [thinking], 'end_turn'],
     ] as const)('no warning for %s', async (_, content, stopReason) => {
       const result = await answer(content, stopReason);

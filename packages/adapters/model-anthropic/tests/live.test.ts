@@ -131,8 +131,9 @@ describe.skipIf(gated)('createAnthropicProvider — live turn against Anthropic'
 /**
  * Claude's thinking through a tool loop, against the real API. Each test
  * prints one line (`thinking-live …`) with what it measured, for the record.
- * They import only `createAnthropicProvider`, so they also run against an
- * older adapter's source, for a before/after.
+ * They import only `createAnthropicProvider`. L2 also runs against an older
+ * adapter's source, for a before/after; L1's check that Opus's thinking is
+ * carried needs this adapter.
  */
 describe.skipIf(gated)('createAnthropicProvider — live: thinking through a tool loop', () => {
   const claude = (name: string, completionUsdPer1kTokens: number) => ({
@@ -212,6 +213,7 @@ describe.skipIf(gated)('createAnthropicProvider — live: thinking through a too
         finish: result.finishReason,
         calls: result.message.toolCalls?.map((c) => c.name) ?? [],
         carried: carried(result.message) ?? null,
+        signatureChars: result.message.toolCalls?.[0]?.signature?.length ?? 0,
         promptTokens: result.usage.promptTokens,
         completionTokens: result.usage.completionTokens,
       });
