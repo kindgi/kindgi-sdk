@@ -2031,15 +2031,15 @@ class ExpectedCall(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    tool: Annotated[str, Field(min_length=1)]
+    tool: Annotated[str, Field(max_length=200, min_length=1)]
     args: Annotated[dict[str, Any], Field(max_length=100)]
     """
-    The partial set of top-level argument fields to compare, by value. Fields left out are not compared; an empty object asks only that the tool was called.
+    The partial set of top-level argument fields to compare, by value. Fields left out are not compared; an empty object asks only that the tool was called. At most 4000 characters in canonical JSON.
     """
 
 
 class NotCalledItem(RootModel[str]):
-    root: Annotated[str, Field(min_length=1)]
+    root: Annotated[str, Field(max_length=200, min_length=1)]
 
 
 class Correction(BaseModel):

@@ -20,6 +20,7 @@ import type { AgentRegistryBinding } from '../agent-binding.js';
 import type { Correction, ExpectedCall } from '../corrections.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
+import { canonical } from '../judged-items.js';
 import {
   type JudgeClass,
   type JudgeClassAssertableBy,
@@ -657,6 +658,8 @@ function parseJudgmentBody(raw: unknown): Parsed<JudgmentBody> {
 
 const MAX_CORRECTION_CALLS = 50;
 const MAX_CORRECTION_ARGS = 100;
+const MAX_CORRECTION_ARGS_SIZE = 4000;
+const MAX_TOOL_LEN = 200;
 
 /** One expected call `{ tool, args }`, or a message saying what's wrong. */
 function parseExpectedCall(call: unknown): ExpectedCall | string {
@@ -665,11 +668,19 @@ function parseExpectedCall(call: unknown): ExpectedCall | string {
   }
   const cc = call as Record<string, unknown>;
   if (!nonEmpty(cc.tool)) return 'each correction call needs a non-empty tool.';
+  if (cc.tool.length > MAX_TOOL_LEN) {
+    return `a correction call's tool name is at most ${MAX_TOOL_LEN} characters.`;
+  }
   if (cc.args === null || typeof cc.args !== 'object' || Array.isArray(cc.args)) {
     return 'each correction call needs an args object ({} asks only that the tool was called).';
   }
   if (Object.keys(cc.args).length > MAX_CORRECTION_ARGS) {
     return `a correction call's args hold at most ${MAX_CORRECTION_ARGS} fields.`;
+  }
+  // A value is copied onto the judgment, the case and every eval run's
+  // differences, so cap each call's args by their canonical size.
+  if (canonical(cc.args).length > MAX_CORRECTION_ARGS_SIZE) {
+    return `a correction call's args are at most ${MAX_CORRECTION_ARGS_SIZE} characters.`;
   }
   return { tool: cc.tool, args: cc.args as Record<string, unknown> };
 }
@@ -703,6 +714,9 @@ function parseCorrection(raw: unknown): Correction | string {
   }
   if (notCalled.some((t) => !nonEmpty(t))) {
     return 'each correction.notCalled entry is a non-empty tool name.';
+  }
+  if ((notCalled as string[]).some((t) => t.length > MAX_TOOL_LEN)) {
+    return `each correction.notCalled tool name is at most ${MAX_TOOL_LEN} characters.`;
   }
   if (parsedCalls.length === 0 && notCalled.length === 0) {
     return 'correction needs at least one of calls or notCalled.';

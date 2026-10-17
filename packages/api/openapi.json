@@ -5043,12 +5043,13 @@
         "properties": {
           "tool": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 200
           },
           "args": {
             "type": "object",
             "maxProperties": 100,
-            "description": "The partial set of top-level argument fields to compare, by value. Fields left out are not compared; an empty object asks only that the tool was called."
+            "description": "The partial set of top-level argument fields to compare, by value. Fields left out are not compared; an empty object asks only that the tool was called. At most 4000 characters in canonical JSON."
           }
         }
       },
@@ -5075,7 +5076,8 @@
             "description": "Tools that should not have been called at all.",
             "items": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "maxLength": 200
             }
           }
         }
@@ -5705,7 +5707,8 @@
                   "description": "Tools that should not have been called at all.",
                   "items": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 200
                   }
                 }
               }

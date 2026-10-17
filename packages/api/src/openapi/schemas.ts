@@ -4318,12 +4318,12 @@ export const ExpectedCallSchema: JsonSchema = {
   additionalProperties: false,
   required: ['tool', 'args'],
   properties: {
-    tool: { type: 'string', minLength: 1 },
+    tool: { type: 'string', minLength: 1, maxLength: 200 },
     args: {
       type: 'object',
       maxProperties: 100,
       description:
-        'The partial set of top-level argument fields to compare, by value. Fields left out are not compared; an empty object asks only that the tool was called.',
+        'The partial set of top-level argument fields to compare, by value. Fields left out are not compared; an empty object asks only that the tool was called. At most 4000 characters in canonical JSON.',
     },
   },
 };
@@ -4339,7 +4339,7 @@ const correctionNotCalledProperty = {
   type: 'array',
   maxItems: 50,
   description: 'Tools that should not have been called at all.',
-  items: { type: 'string', minLength: 1 },
+  items: { type: 'string', minLength: 1, maxLength: 200 },
 } as const;
 
 /** A correction an expert records on a judgment. */

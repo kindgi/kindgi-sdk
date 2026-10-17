@@ -316,6 +316,48 @@ describe('POST /v1/judgments', () => {
     expect(res.body.error.message).toContain('whole output');
   });
 
+  test('a correction call with oversized args is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { ...CORRECTION_ITEM },
+      verdict: 'no',
+      correction: {
+        calls: [{ tool: 'acme.refund', args: { note: 'x'.repeat(4100) } }],
+        notCalled: [],
+      },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('4000');
+  });
+
+  test('a correction call with an over-long tool name is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { ...CORRECTION_ITEM },
+      verdict: 'no',
+      correction: { calls: [{ tool: `acme.${'z'.repeat(220)}`, args: {} }], notCalled: [] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('200');
+  });
+
+  test('a notCalled tool name that is too long is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { ...CORRECTION_ITEM },
+      verdict: 'no',
+      correction: { calls: [], notCalled: [`acme.${'z'.repeat(220)}`] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('200');
+  });
+
   test('a second correction by the same judge on the same item replaces the first (counts once)', async () => {
     const run = row();
     const h = harness([run]);
