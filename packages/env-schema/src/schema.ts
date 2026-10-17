@@ -911,7 +911,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_TEMPLATE_RENDER_WORKERS',
     description:
-      "Used from runtime 0.1.8.1; earlier runtimes ignore it. How many worker processes the server renders a turn's instruction template in, off the thread that runs the turn. Default 1: one worker process, built on the first render and shared across turns; a higher count lets several templates render at once. 0 renders the template in the server process, as before, and starts no worker. Each worker's heap is capped by `KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MB`. A value that isn't a whole number of at least 0 stops the server at boot, naming this variable (exit code 2).",
+      "Used from runtime 0.1.8.1; earlier runtimes ignore it. How many worker processes the server renders a turn's instruction template in, off the thread that runs the turn. Default 1 on a runtime serving many tenants (`KINDGI_TENANCY=multi`): one worker process, built on the first render and shared across turns; a higher count lets several templates render at once. Default 0 on a runtime serving one: the template renders in the server process, as before, and no worker starts. A runtime serving one tenant gives a render no time limit, so there a render that never ends holds its worker until a restart, and the turns after it wait for a free worker. Each worker's heap is capped by `KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MB`. A value that isn't a whole number of at least 0 stops the server at boot, naming this variable (exit code 2).",
     example: '1',
     required: false,
     appliesTo: appliesToServer,
