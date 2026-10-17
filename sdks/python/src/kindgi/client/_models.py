@@ -7487,7 +7487,7 @@ class UserInvite(BaseModel):
 
 class InviteEmail(BaseModel):
     """
-    Whether the invitation was emailed, and why not: `no-email` (the person has no email, so isn't invited), `not-requested` (`sendInvite: false`), `not-configured` (the deployment sends no email), `send-failed` (the mail server refused it or didn't answer), `capped` (the workspace's invitations for the day are used up). An invitation not emailed is still open: tell them yourself.
+    Whether the invitation was emailed, and why not: `no-email` (the person has no email, so isn't invited), `not-requested` (`sendInvite: false`), `not-configured` (the deployment sends no email), `send-failed` (the mail server refused it or didn't answer), `capped` (the workspace, or the whole deployment, has sent as many invitation emails as it may in 24 hours). An invitation not emailed is still open: tell them yourself.
     """
 
     model_config = ConfigDict(

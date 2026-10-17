@@ -144,7 +144,7 @@ not, why (`inviteEmail.reason` in the answer):
 | `not-requested` | `--no-invite` (`sendInvite: false`). |
 | `not-configured` | The runtime has no sign-in email sender, so there's no emailed link: they sign in through Google, Microsoft, GitHub or the workspace's identity provider, with that email. |
 | `send-failed` | The mail server refused it or didn't answer. |
-| `capped` | The day's invitation emails are used up: the tenant's, or the deployment's (below). |
+| `capped` | The tenant, or the whole deployment, has sent as many invitation emails as it may in 24 hours (below). |
 | `no-email` | They have no email, so they aren't invited. |
 
 Unless it's `no-email`, they're invited all the same: tell them to sign in
@@ -157,8 +157,9 @@ kindgi people invite <user-id>
 
 Someone who has joined, or was never invited, is refused with
 `409 identity-user-not-invited`. Sending one person's again within a
-minute, more than 5 times a day, or past the day's invitation emails is
-refused with `429 invite-capped` and a `Retry-After`, and changes nothing.
+minute, more than 5 times in 24 hours, or past the tenant's or the
+deployment's invitation emails is refused with `429 invite-capped` and a
+`Retry-After`, and changes nothing.
 
 In 24 hours a tenant sends at most 100 invitation emails, or 10 while it
 isn't allowed [production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production)
