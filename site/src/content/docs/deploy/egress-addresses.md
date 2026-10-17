@@ -60,7 +60,7 @@ through the module's Cloud NAT. `nat_static_ip = true` reserves its address,
 and `terraform output nat_ip` prints it. Put it in `server_env`, then run
 `terraform apply` again:
 
-```hcl
+```hcl excerpt
 server_env = {
   # ...
   KINDGI_EGRESS_SERVER_ADDRESSES = "192.0.2.10"
