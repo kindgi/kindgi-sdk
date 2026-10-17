@@ -23,7 +23,11 @@ on an agent, and tests its check.
 ## The guardrail
 
 The guardrail fails a turn whose answer is longer than a limit. It's one
-file in the pack's `guardrails` folder:
+file in the pack's `guardrails` folder. Ask your coding agent: "I want a
+guardrail that keeps my agent's answers short." Kindgi's skills in your pack
+tell it how ([How it knows Kindgi](../../../start/coding-agents/)). For
+reference, the guardrail looks like this. This guide calls it
+`my-pack.answer-length`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -211,8 +215,9 @@ case class, is the config's schema, and `set("config", …)` gives its values.
 
 ## Put it on an agent
 
-A guardrail checks only the agents that list it. Add it to the agent's
-guardrails:
+A guardrail checks only the agents that list it. Ask your coding agent: "Put
+the answer length guardrail on my agent." For reference, it adds it to the
+agent's guardrails:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -263,9 +268,9 @@ import mypack.guardrails.{AnswerLength, ResponseNotEmpty}
 </TabItem>
 </Tabs>
 
-Save. `kindgi dev` registers the guardrail with the rest of the pack. An
-agent that names a guardrail that isn't registered doesn't run. Its turn
-fails with:
+Once it's saved, `kindgi dev` registers the guardrail with the rest of the
+pack. An agent that names a guardrail that isn't registered doesn't run. Its
+turn fails with:
 
 ```text
 Error [unresolved-guardrail]: Agent "my-pack.gated" references guardrails not in the registry: my-pack.no-such-guardrail
@@ -337,7 +342,9 @@ itself can't run.
 ## Test the check
 
 The check is a function of the config and the trace, so a unit test calls it
-directly, without a run. Write the test, then run the pack's tests:
+directly, without a run. Ask your coding agent: "Write tests for my answer
+length guardrail." For reference, the tests look like this, with the command
+that runs the pack's tests:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

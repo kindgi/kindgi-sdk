@@ -27,6 +27,11 @@ A guardrail's action decides what a failed check does to the turn:
 - **`log-only`** lets it finish. The answer goes out, and the failure is
   recorded on the turn as a violation.
 
+Ask your coding agent, for example: "When my answer length guardrail fails,
+don't stop the turn. Just record it." Kindgi's skills in your pack tell it
+how ([How it knows Kindgi](../../../start/coding-agents/)). For reference, it
+sets the action like this:
+
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
@@ -185,7 +190,8 @@ can be `critical`.
 ## Which agents it covers
 
 A guardrail checks the turns of every agent that lists it. `scope` narrows
-that:
+that. Ask your coding agent, for example: "Check answer length only on my
+echo agent." For reference, it sets the scope like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

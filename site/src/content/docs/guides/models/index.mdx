@@ -189,7 +189,15 @@ key:
    `kindgi secrets set BEDROCK_API_KEY --env=production --scope=tenant`
    ([Keys](#keys)).
 3. Register a spec whose `adapter_config.auth` is `api-key` and whose
-   `secret_ref` names that secret:
+   `secret_ref` names that secret. Ask your coding agent to write it.
+   Kindgi's skills in your pack tell it how
+   ([How it knows Kindgi](../../start/coding-agents/)):
+
+```text
+I want to use Bedrock with my Bedrock API key.
+```
+
+For reference, the spec it writes looks like this:
 
 ```json
 {
@@ -223,8 +231,15 @@ The key is read when a turn calls the model, not when you register.
 
 Anything that isn't a preset registers from a spec. A spec is a JSON file you
 pass with `kindgi providers register --spec=@<file>`, where `<file>` is the
-spec's path. The `@` tells the CLI to read the file. This one connects a
-local Ollama:
+spec's path. The `@` tells the CLI to read the file. Ask your coding agent to
+write one:
+
+```text
+I want to use llama3.1 with Ollama on this machine as a model provider.
+```
+
+For reference, the spec it writes looks like this. It connects a local
+Ollama:
 
 ```json
 {
@@ -378,6 +393,9 @@ Under `kindgi dev`, each project and each git worktree has its own database,
 and a provider you register by hand is in that one only. A provider declared
 in the pack's config is registered by `kindgi dev` on every boot: in a new
 worktree, after `--reset`, and on a teammate's machine.
+
+Ask your coding agent: "Declare my model providers in the pack's config." For
+reference, it adds them to `providers`, like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
