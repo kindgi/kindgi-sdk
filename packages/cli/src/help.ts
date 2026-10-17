@@ -71,6 +71,42 @@ export function unknownSubcommandText(
   return `Unknown subcommand "${word}" for kindgi ${path.join(' ')}.${hint}\n\n${commandHelpText(group, path)}`;
 }
 
+/**
+ * Top-level words that name a real command spelled another way: `improve`
+ * is `proposals improve`; `eval` is the `eval-runs` and `eval-suites`
+ * commands. Unlike a mistyped subcommand, these are nowhere near their real
+ * names, so they are listed, not guessed by edit distance.
+ */
+const NEAR_MISS_COMMAND: Readonly<Record<string, readonly string[]>> = {
+  improve: ['proposals improve'],
+  eval: ['eval-runs', 'eval-suites'],
+};
+
+/** `"kindgi a"`, or `"kindgi a" or "kindgi b"`, or `"kindgi a", "kindgi b" or "kindgi c"`. */
+function orQuoted(paths: readonly string[]): string {
+  const quoted = paths.map((p) => `"kindgi ${p}"`);
+  if (quoted.length <= 1) return quoted.join('');
+  const last = quoted.at(-1) ?? '';
+  return `${quoted.slice(0, -1).join(', ')} or ${last}`;
+}
+
+/**
+ * What `kindgi <word> …` prints when `word` names no command: the mistake,
+ * a pointer to the real command when the word is a known near-miss
+ * (`improve` → `kindgi proposals improve`), and the root help.
+ */
+export function unknownCommandText(tokens: readonly string[]): string {
+  const first = tokens[0];
+  // Object.hasOwn: a word like "constructor" must read the map, never a prototype member.
+  const targets =
+    first !== undefined && Object.hasOwn(NEAR_MISS_COMMAND, first)
+      ? NEAR_MISS_COMMAND[first]
+      : undefined;
+  const hint =
+    targets !== undefined && targets.length > 0 ? ` Did you mean ${orQuoted(targets)}?` : '';
+  return `Unknown command "${first ?? ''}".${hint}\n\n${rootHelpText()}`;
+}
+
 /** Words that mean a subcommand another group spells differently (`register` for `publish`). */
 const SAME_MEANING: Readonly<Record<string, readonly string[]>> = {
   register: ['publish', 'set', 'create', 'add'],
@@ -91,7 +127,9 @@ const SAME_MEANING: Readonly<Record<string, readonly string[]>> = {
  * of what was typed (`unregister` for `register`).
  */
 export function nearestSubcommand(word: string, names: readonly string[]): string | undefined {
-  const synonym = SAME_MEANING[word]?.find((alternative) => names.includes(alternative));
+  // Object.hasOwn: a word like "constructor" must read the map, never a prototype member.
+  const synonyms = Object.hasOwn(SAME_MEANING, word) ? SAME_MEANING[word] : undefined;
+  const synonym = synonyms?.find((alternative) => names.includes(alternative));
   if (synonym !== undefined) return synonym;
   return names
     .filter((name) => name !== `un${word}` && word !== `un${name}`)
