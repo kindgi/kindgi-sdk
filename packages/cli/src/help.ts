@@ -97,10 +97,14 @@ function orQuoted(paths: readonly string[]): string {
  */
 export function unknownCommandText(tokens: readonly string[]): string {
   const first = tokens[0];
-  const targets = first !== undefined ? NEAR_MISS_COMMAND[first] : undefined;
+  // Object.hasOwn: a word like "constructor" must read the map, never a prototype member.
+  const targets =
+    first !== undefined && Object.hasOwn(NEAR_MISS_COMMAND, first)
+      ? NEAR_MISS_COMMAND[first]
+      : undefined;
   const hint =
     targets !== undefined && targets.length > 0 ? ` Did you mean ${orQuoted(targets)}?` : '';
-  return `Unknown command: ${tokens.join(' ')}.${hint}\n\n${rootHelpText()}`;
+  return `Unknown command "${first ?? ''}".${hint}\n\n${rootHelpText()}`;
 }
 
 /** Words that mean a subcommand another group spells differently (`register` for `publish`). */
@@ -123,7 +127,9 @@ const SAME_MEANING: Readonly<Record<string, readonly string[]>> = {
  * of what was typed (`unregister` for `register`).
  */
 export function nearestSubcommand(word: string, names: readonly string[]): string | undefined {
-  const synonym = SAME_MEANING[word]?.find((alternative) => names.includes(alternative));
+  // Object.hasOwn: a word like "constructor" must read the map, never a prototype member.
+  const synonyms = Object.hasOwn(SAME_MEANING, word) ? SAME_MEANING[word] : undefined;
+  const synonym = synonyms?.find((alternative) => names.includes(alternative));
   if (synonym !== undefined) return synonym;
   return names
     .filter((name) => name !== `un${word}` && word !== `un${name}`)
