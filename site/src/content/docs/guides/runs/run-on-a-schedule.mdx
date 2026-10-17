@@ -121,7 +121,8 @@ each time still fires once.
   `skipped-erasure`, and no run starts for them until the erasure completes.
 
 After 5 fires in a row that were refused or failed, the schedule pauses
-itself, with the reason in its `statusReason`. Skipped fires don't count.
+itself, with the reason in its `statusReason`. Skipped fires don't count,
+and nor does one refused for a limit, such as a `rate-limited` one.
 `kindgi schedules resume <schedule-id>` clears it.
 
 ## See what it did
