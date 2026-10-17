@@ -289,10 +289,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
       by: `${actor.kind}:${actor.id}`,
       proposalId: proposal.id as unknown as string,
       tuplesFor: (projectId) => (id) =>
-        tuplesForCreate(
-          { kind: 'agent', id: id as AgentId, tenantId, projectId },
-          userId ?? ('00000000-0000-0000-0000-000000000000' as UserId),
-        ),
+        tuplesForCreate({ kind: 'agent', id: id as AgentId, tenantId, projectId }, userId),
     });
     if (derived.kind !== 'ok' && derived.kind !== 'reused') {
       return err(

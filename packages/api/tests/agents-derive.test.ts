@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import { type Agent, createAgentRegistry, pinsDigest } from '@kindgi/agents';
-import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import type { Action, AuthzCheckBinding, Decision, ResourceRef, TupleIntent } from '@kindgi/authz';
 import type { ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
@@ -36,8 +36,12 @@ const tenantId = randomUUID() as TenantId;
 const projectId = randomUUID() as ProjectId;
 const TOKEN = 'agents-derive-token';
 
-const resolveToken: TokenResolver = async (token) =>
-  token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
+const ACCOUNT_TOKEN = 'agents-derive-account-token';
+const resolveToken: TokenResolver = async (token) => {
+  if (token === TOKEN) return { tenantId, userId: 'user-1' as UserId };
+  if (token === ACCOUNT_TOKEN) return { tenantId, serviceAccountId: 'sa-ci' };
+  return null;
+};
 
 /**
  * The agent registry, storing what the route hands it. It records each
@@ -47,10 +51,13 @@ const resolveToken: TokenResolver = async (token) =>
  */
 function agentBinding(recordsProject = true): AgentRegistryBinding & {
   markUnregistered: (version: string) => void;
+  /** The entries each version's publish wrote. */
+  written: TupleIntent[];
 } {
   const registry = createAgentRegistry();
   const projects = new Map<string, ProjectId>();
   const unregistered = new Set<string>();
+  const written: TupleIntent[] = [];
   const withProject = (agent: AgentVersionRecord): AgentVersionRecord => {
     const project = projects.get(agent.version as unknown as string);
     return recordsProject && project !== undefined ? { ...agent, projectId: project } : agent;
@@ -63,6 +70,7 @@ function agentBinding(recordsProject = true): AgentRegistryBinding & {
       .map(withProject);
   return {
     markUnregistered: (version) => unregistered.add(version),
+    written,
     async list() {
       return { data: [] };
     },
@@ -89,7 +97,7 @@ function agentBinding(recordsProject = true): AgentRegistryBinding & {
       const data = all.slice(at, at + 1);
       return at + 1 < all.length ? { data, nextCursor: String(at + 1) as never } : { data };
     },
-    async publish({ agent, projectId: project }) {
+    async publish({ agent, projectId: project, enqueueTuples }) {
       // The agent stays in its first version's project, as a store keeps it.
       const owner = projects.values().next().value;
       if (owner !== undefined && owner !== project) {
@@ -105,6 +113,7 @@ function agentBinding(recordsProject = true): AgentRegistryBinding & {
       }
       registry.register(agent);
       projects.set(agent.version as unknown as string, project);
+      written.push(...enqueueTuples(agent.id as unknown as string));
       return { kind: 'ok', agentId: agent.id, version: agent.version };
     },
     async unregister() {
@@ -130,7 +139,9 @@ function decision(grants: readonly string[], action: Action, resource: ResourceR
   };
 }
 
-async function harness(opts: { recordsProject?: boolean; grants?: readonly string[] } = {}) {
+async function harness(
+  opts: { recordsProject?: boolean; grants?: readonly string[]; token?: string } = {},
+) {
   const agents = agentBinding(opts.recordsProject);
   const blocks = inMemoryBlocks([projectId]);
   const put = (block: Parameters<BlockRegistryBinding['publish']>[0]['block']) =>
@@ -166,7 +177,7 @@ async function harness(opts: { recordsProject?: boolean; grants?: readonly strin
     const res = await app.request(path, {
       method,
       headers: {
-        authorization: `Bearer ${TOKEN}`,
+        authorization: `Bearer ${opts.token ?? TOKEN}`,
         ...(body !== undefined && { 'content-type': 'application/json' }),
       },
       ...(body !== undefined && { body: JSON.stringify(body) }),
@@ -445,5 +456,30 @@ describe('POST /v1/agents/:agentId/versions is authorized as publish on the agen
     await publisher.publishAgent('1.0.0');
     await publisher.prompt('1.1.0', 'Sort it well.');
     expect((await publisher.call(...derive(body))).status).toBe(201);
+  });
+});
+
+describe("POST /v1/agents/:agentId/versions: who is made the derived version's owner", () => {
+  const derivePrompt = async (token?: string) => {
+    const h = await harness(token === undefined ? {} : { token });
+    await h.publishAgent('1.0.0');
+    await h.prompt('1.1.0', 'Sort it well.');
+    const res = await h.call(
+      ...derive({ from: '1.0.0', pins: { prompts: { 'acme.intake-prompt': '1.1.0' } } }),
+    );
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const owners = h.agents.written.filter((t) => t.relation === 'owner').map((t) => t.user);
+    return { body: res.body, owners };
+  };
+
+  test("a person's key makes them its owner", async () => {
+    const { owners } = await derivePrompt();
+    expect(owners).toEqual(['user:user-1']);
+  });
+
+  test("a service account's key makes no one its owner, and records no `by`", async () => {
+    const { body, owners } = await derivePrompt(ACCOUNT_TOKEN);
+    expect(owners).toEqual([]);
+    expect(body.derivedFrom).not.toHaveProperty('by');
   });
 });
