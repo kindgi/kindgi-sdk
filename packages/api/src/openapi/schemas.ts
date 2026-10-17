@@ -857,6 +857,12 @@ export const RunSchema: JsonSchema = {
     agent: { $ref: '#/components/schemas/RunAgent' },
     waitingFor: { $ref: '#/components/schemas/RunWaitingFor' },
     trigger: { $ref: '#/components/schemas/RunTrigger' },
+    startedBy: {
+      type: 'string',
+      enum: ['person', 'key', 'schedule', 'webhook', 'event'],
+      description:
+        "How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.",
+    },
     replayOf: {
       type: 'string',
       format: 'uuid',
@@ -3531,6 +3537,11 @@ export const ToolSchema: JsonSchema = {
       type: 'boolean',
       description:
         'Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.',
+    },
+    needsApprovalWhenUnattended: {
+      type: 'boolean',
+      description:
+        "`true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.",
     },
     sandbox: { $ref: '#/components/schemas/SandboxMode' },
     limits: { $ref: '#/components/schemas/RuntimeLimits' },

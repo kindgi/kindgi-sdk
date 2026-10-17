@@ -72,6 +72,12 @@ class ScalaPackSuite extends munit.FunSuite {
     val greet = list(index.get("tools")).find(_.get("id") == "acme.greet").get
     assertEquals(greet.get("modulePath"), "src/main/scala/scalapack/tools/Greet.scala")
     assertEquals(greet.get("mutating"), java.lang.Boolean.FALSE)
+    assertEquals(greet.get("needsApprovalWhenUnattended"), java.lang.Boolean.FALSE)
+    // Written when true, absent when the tool says nothing.
+    val later = list(index.get("tools")).find(_.get("id") == "acme.later").get
+    assertEquals(later.get("needsApprovalWhenUnattended"), java.lang.Boolean.TRUE)
+    val echo = list(index.get("tools")).find(_.get("id") == "acme.echo-json").get
+    assert(!echo.containsKey("needsApprovalWhenUnattended"))
     assertEquals(greet.get("input"), plain(
       """{"type": "object", "additionalProperties": false,
         | "properties": {
