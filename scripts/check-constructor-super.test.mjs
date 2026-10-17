@@ -2,7 +2,12 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import ts from 'typescript';
 
@@ -101,4 +106,16 @@ test('the sources it reads: tracked TypeScript, no declaration files', () => {
   const files = trackedSources();
   assert.ok(files.includes('packages/api/src/publish-refused.ts'));
   assert.ok(files.every((file) => /\.[mc]?tsx?$/.test(file) && !/\.d\.[mc]?ts$/.test(file)));
+});
+
+test('run through a symlink, it still checks (and says how many files)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'check-constructor-super-'));
+  try {
+    const linked = join(dir, 'check-constructor-super.mjs');
+    symlinkSync(fileURLToPath(new URL('./check-constructor-super.mjs', import.meta.url)), linked);
+    const printed = execFileSync(process.execPath, [linked], { encoding: 'utf8' });
+    assert.match(printed, /^check:constructor-super: \d+ files: /);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
