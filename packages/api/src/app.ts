@@ -1915,6 +1915,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.conversationBinding,
         input.flowRegistry,
         input.reviewerBinding,
+        input.agentRegistry,
       ),
     );
     v1.route('/judge-classes', judgeClassesRouter(input.judgmentRegistry, authorizer));

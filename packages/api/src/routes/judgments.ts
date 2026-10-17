@@ -3,13 +3,24 @@
 
 import { type Context, Hono } from 'hono';
 
-import type { ConversationBinding } from '@kindgi/agents';
+import type { AgentId, ConversationBinding } from '@kindgi/agents';
 import { REVIEWER_ROLE_RANK, type ReviewerRole, ref } from '@kindgi/authz';
 import type { RunBinding } from '@kindgi/runtime';
-import type { Cursor, ProjectId, RunId, ScopeSegment, TenantId } from '@kindgi/types';
+import {
+  CORRECTION_ITEM,
+  type Cursor,
+  type ProjectId,
+  type RunId,
+  type ScopeSegment,
+  type Semver,
+  type TenantId,
+} from '@kindgi/types';
 
+import type { AgentRegistryBinding } from '../agent-binding.js';
+import type { Correction, ExpectedCall } from '../corrections.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
+import { canonical } from '../judged-items.js';
 import {
   type JudgeClass,
   type JudgeClassAssertableBy,
@@ -59,6 +70,8 @@ export function judgmentsRouter(
   flows?: FlowRegistryBinding,
   /** Whose reviewer role a restricted judge class checks (T200). */
   reviewers?: ReviewerBinding,
+  /** Resolves a judged agent version's tools, so a correction can only name tools it has. */
+  agents?: AgentRegistryBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -85,6 +98,10 @@ export function judgmentsRouter(
     });
     if (prepared.kind === 'err') return fail(prepared.code, prepared.message, prepared.details);
     const { run, subject, projectId, itemValue, conversationId, restricted, replayOf } = prepared;
+    const unknownTool = await unknownCorrectionTool(tenantId, subject, body.correction, agents);
+    if (unknownTool !== undefined) {
+      return fail('bad-input', `The judged version has no tool "${unknownTool}".`);
+    }
     const first = await isFirstJudgment(binding, tenantId, body.runId);
     const captured = first
       ? await captureContext({
@@ -119,6 +136,7 @@ export function judgmentsRouter(
       ...(itemValue !== undefined && { itemValue }),
       verdict: body.verdict,
       ...(body.reason !== undefined && { reason: body.reason }),
+      ...(body.correction !== undefined && { correction: body.correction }),
       ...(body.judgeClassId !== undefined && { judgeClassId: body.judgeClassId }),
       ...(restricted === true && { restricted }),
       assertedBy: asserted,
@@ -599,6 +617,7 @@ interface JudgmentBody {
   readonly item: JudgedItem;
   readonly verdict: Verdict;
   readonly reason?: string;
+  readonly correction?: Correction;
   readonly judgeClassId?: string;
   readonly participantId?: string;
 }
@@ -621,17 +640,93 @@ function parseJudgmentBody(raw: unknown): Parsed<JudgmentBody> {
   if (typeof item === 'string') return err(item);
   const optional = optionalFieldError(b);
   if (optional !== undefined) return err(optional);
+  const correction = parseCorrectionField(b.correction, item);
+  if (typeof correction === 'string') return err(correction);
   return {
     kind: 'ok',
     body: {
       runId: b.runId,
       item,
       verdict: b.verdict,
+      ...(correction !== undefined && { correction }),
       ...(typeof b.judgeClassId === 'string' && { judgeClassId: b.judgeClassId }),
       ...(typeof b.reason === 'string' && b.reason.length > 0 && { reason: b.reason }),
       ...(typeof b.participantId === 'string' && { participantId: b.participantId }),
     },
   };
+}
+
+const MAX_CORRECTION_CALLS = 50;
+const MAX_CORRECTION_ARGS = 100;
+const MAX_CORRECTION_ARGS_SIZE = 4000;
+const MAX_TOOL_LEN = 200;
+
+/** One expected call `{ tool, args }`, or a message saying what's wrong. */
+function parseExpectedCall(call: unknown): ExpectedCall | string {
+  if (call === null || typeof call !== 'object' || Array.isArray(call)) {
+    return 'each correction.calls entry is an object { tool, args }.';
+  }
+  const cc = call as Record<string, unknown>;
+  if (!nonEmpty(cc.tool)) return 'each correction call needs a non-empty tool.';
+  if (cc.tool.length > MAX_TOOL_LEN) {
+    return `a correction call's tool name is at most ${MAX_TOOL_LEN} characters.`;
+  }
+  if (cc.args === null || typeof cc.args !== 'object' || Array.isArray(cc.args)) {
+    return 'each correction call needs an args object ({} asks only that the tool was called).';
+  }
+  if (Object.keys(cc.args).length > MAX_CORRECTION_ARGS) {
+    return `a correction call's args hold at most ${MAX_CORRECTION_ARGS} fields.`;
+  }
+  // A value is copied onto the judgment, the case and every eval run's
+  // differences, so cap each call's args by their canonical size.
+  if (canonical(cc.args).length > MAX_CORRECTION_ARGS_SIZE) {
+    return `a correction call's args are at most ${MAX_CORRECTION_ARGS_SIZE} characters.`;
+  }
+  return { tool: cc.tool, args: cc.args as Record<string, unknown> };
+}
+
+/**
+ * A correction on the judgment, or a message saying what's wrong. A tool
+ * can't be in both `calls` and `notCalled`, and at least one of them must be
+ * non-empty (both empty is a 400). Argument values aren't checked here; the
+ * comparator compares them on the replay.
+ */
+function parseCorrection(raw: unknown): Correction | string {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return 'correction must be an object { calls, notCalled }.';
+  }
+  const b = raw as Record<string, unknown>;
+  if (Object.keys(b).some((k) => k !== 'calls' && k !== 'notCalled')) {
+    return 'correction has only calls and notCalled.';
+  }
+  const { calls, notCalled } = b;
+  if (!Array.isArray(calls) || !Array.isArray(notCalled)) {
+    return 'correction.calls and correction.notCalled are both arrays.';
+  }
+  if (calls.length > MAX_CORRECTION_CALLS || notCalled.length > MAX_CORRECTION_CALLS) {
+    return `correction.calls and correction.notCalled hold at most ${MAX_CORRECTION_CALLS} each.`;
+  }
+  const parsedCalls: ExpectedCall[] = [];
+  for (const call of calls) {
+    const parsed = parseExpectedCall(call);
+    if (typeof parsed === 'string') return parsed;
+    parsedCalls.push(parsed);
+  }
+  if (notCalled.some((t) => !nonEmpty(t))) {
+    return 'each correction.notCalled entry is a non-empty tool name.';
+  }
+  if ((notCalled as string[]).some((t) => t.length > MAX_TOOL_LEN)) {
+    return `each correction.notCalled tool name is at most ${MAX_TOOL_LEN} characters.`;
+  }
+  if (parsedCalls.length === 0 && notCalled.length === 0) {
+    return 'correction needs at least one of calls or notCalled.';
+  }
+  const named = new Set(parsedCalls.map((call) => call.tool));
+  const inBoth = (notCalled as string[]).find((t) => named.has(t));
+  if (inBoth !== undefined) {
+    return `"${inBoth}" can't be in both correction.calls and correction.notCalled.`;
+  }
+  return { calls: parsedCalls, notCalled: notCalled as string[] };
 }
 
 /** What's wrong with the optional fields (class, reason, participant), if anything. */
@@ -663,6 +758,41 @@ function parseItem(raw: unknown): JudgedItem | string {
     ...(typeof i.pointer === 'string' && { pointer: i.pointer }),
     ...(typeof i.rank === 'number' && { rank: i.rank }),
   };
+}
+
+/**
+ * The correction item key is reserved for Kindgi. A judgment on it is accepted
+ * only when it carries a correction at pointer `""`; any other judgment there,
+ * at any pointer, is a 400. And a correction is accepted only there — so every
+ * correction for a run by one expert lands on the same item and counts once, and
+ * no caller's own item can collide with it. Returns the message for a judgment
+ * that breaks either rule, else `undefined`.
+ */
+function reservedItemError(item: JudgedItem, hasCorrection: boolean): string | undefined {
+  if (item.key === CORRECTION_ITEM.key) {
+    if (!hasCorrection) {
+      return `the item "${CORRECTION_ITEM.key}" is reserved for corrections; judge an item of the output instead.`;
+    }
+    if (item.pointer !== undefined && item.pointer !== CORRECTION_ITEM.pointer) {
+      return 'a correction judges the whole output; leave item.pointer as "" or unset.';
+    }
+    return undefined;
+  }
+  if (hasCorrection) {
+    return `a correction is recorded under the item "${CORRECTION_ITEM.key}", not "${item.key}".`;
+  }
+  return undefined;
+}
+
+/**
+ * The judgment's correction, an error message, or `undefined` when there is
+ * none. The correction must parse; and whether or not one is present, the item
+ * must obey the reserved-key rule.
+ */
+function parseCorrectionField(raw: unknown, item: JudgedItem): Correction | string | undefined {
+  const correction = raw === undefined ? undefined : parseCorrection(raw);
+  if (typeof correction === 'string') return correction;
+  return reservedItemError(item, correction !== undefined) ?? correction;
 }
 
 interface ClassBody {
@@ -802,6 +932,34 @@ function assertedByOf(
   return { kind: actor.kind === 'user' ? 'user' : 'service', id: actor.id };
 }
 
+/**
+ * Best-effort: a correction may only name tools the judged agent version
+ * has. Returns the first offending tool, or `undefined` when all are known
+ * or the check cannot run. It is skipped for flow subjects (a flow has no
+ * single tool list) and when the version cannot be resolved — a judgment
+ * outlives its version — so it never blocks an otherwise valid judgment.
+ */
+async function unknownCorrectionTool(
+  tenantId: TenantId,
+  subject: JudgedSubject,
+  correction: Correction | undefined,
+  agents: AgentRegistryBinding | undefined,
+): Promise<string | undefined> {
+  if (correction === undefined || agents === undefined || subject.kind !== 'agent')
+    return undefined;
+  const version = await agents.getVersion({
+    tenantId,
+    agentId: subject.id as AgentId,
+    version: subject.version as Semver,
+  });
+  if (version === null) return undefined;
+  const have = new Set(version.tools.map((t) => t.id as string));
+  for (const tool of [...correction.calls.map((call) => call.tool), ...correction.notCalled]) {
+    if (!have.has(tool)) return tool;
+  }
+  return undefined;
+}
+
 /** What a run ran: its agent at a version (agent turns), else its flow. */
 function subjectOf(run: {
   readonly flowId: string;
@@ -852,6 +1010,7 @@ function serializeJudgment(j: Judgment): Record<string, unknown> {
     item: j.item,
     verdict: j.verdict,
     ...(j.reason !== undefined && { reason: j.reason }),
+    ...(j.correction !== undefined && { correction: j.correction }),
     ...(j.judgeClassId !== undefined && { judgeClassId: j.judgeClassId }),
     ...(j.restricted === true && { restricted: true }),
     assertedBy: j.assertedBy,

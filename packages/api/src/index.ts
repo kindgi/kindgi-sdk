@@ -571,6 +571,7 @@ export type {
   EvalCasePage,
   EvalCasePutInput,
   EvalCaseStoreBinding,
+  JudgedCaseCorrection,
   JudgedEvalCase,
   JudgedItemSummary,
   JudgedReason,
@@ -751,6 +752,14 @@ export type {
   OutputItem,
   OutputScore,
 } from './judged-items.js';
+export { describeCorrectionDifference, gradeCorrection } from './corrections.js';
+export type {
+  CandidateCall,
+  Correction,
+  CorrectionDifference,
+  CorrectionResult,
+  ExpectedCall,
+} from './corrections.js';
 export {
   COST_AGGREGATE_DEFAULT_LIMIT,
   COST_AGGREGATE_MAX_LIMIT,

@@ -12,12 +12,26 @@ import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import type { KernelRunRecord, RunAgentRef, RunBinding } from '@kindgi/runtime';
-import type { ConversationId, ProjectId, RunId, TenantId, Timestamp, UserId } from '@kindgi/types';
+import {
+  CORRECTION_ITEM,
+  type ConversationId,
+  type ProjectId,
+  type RunId,
+  type TenantId,
+  type Timestamp,
+  type UserId,
+} from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
-import type { JudgmentRegistryBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';
+import type {
+  AgentRegistryBinding,
+  AgentVersionRecord,
+  JudgmentRegistryBinding,
+  RunHandlerBinding,
+  TokenResolver,
+} from '../src/index.js';
 import { isReplayCopy, judgeClassApplies, whyNotAssertable } from '../src/index.js';
 import { inMemoryJudgments } from './support/in-memory-judgments.js';
 
@@ -63,6 +77,18 @@ function row(overrides: Partial<KernelRunRecord> = {}): KernelRunRecord {
     ...overrides,
   };
 }
+
+/** A stub agent registry whose resolved version advertises exactly these tool ids. */
+const registryWithTools = (...ids: readonly string[]): AgentRegistryBinding =>
+  ({
+    getVersion: async () =>
+      ({ tools: ids.map((id) => ({ id, version: '1.0.0' })) }) as unknown as AgentVersionRecord,
+  }) as unknown as AgentRegistryBinding;
+
+/** A stub agent registry that cannot resolve the judged version (it is gone). */
+const registryVersionGone = {
+  getVersion: async () => null,
+} as unknown as AgentRegistryBinding;
 
 interface Harness {
   readonly call: (
@@ -111,6 +137,7 @@ function harness(
   rows: KernelRunRecord[],
   reads: TurnReads = {},
   authz?: Authz,
+  agentRegistry?: AgentRegistryBinding,
 ): Harness & { readonly reads: number[] } {
   const binding = inMemoryJudgments();
   const stubs = createStubAppBindings();
@@ -138,6 +165,7 @@ function harness(
     resolveToken,
     runHandler,
     judgmentRegistry: binding,
+    ...(agentRegistry !== undefined && { agentRegistry }),
     ...(authz !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -212,6 +240,250 @@ describe('POST /v1/judgments', () => {
       input: { query: 'acme' },
       output: { matches: [{ id: 'c1' }, { id: 'c2' }] },
     });
+  });
+
+  test('stores a correction and echoes it back on read', async () => {
+    const run = row();
+    const h = harness([run]);
+    const correction = {
+      calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+      notCalled: ['acme.email'],
+    };
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { ...CORRECTION_ITEM },
+      verdict: 'no',
+      correction,
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.correction).toEqual(correction);
+    const got = await h.call('GET', `/v1/judgments/${res.body.id}`);
+    expect(got.body.correction).toEqual(correction);
+  });
+
+  test('a tool in both calls and notCalled is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { ...CORRECTION_ITEM },
+      verdict: 'no',
+      correction: { calls: [{ tool: 'acme.refund', args: {} }], notCalled: ['acme.refund'] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('bad-input');
+    expect(res.body.error.message).toContain("can't be in both");
+  });
+
+  test('a correction with neither a call nor a must-not-call is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { ...CORRECTION_ITEM },
+      verdict: 'no',
+      correction: { calls: [], notCalled: [] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('bad-input');
+    expect(res.body.error.message).toContain('at least one of calls or notCalled');
+  });
+
+  test('a correction on any item but the fixed one is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'answer', pointer: '' },
+      verdict: 'no',
+      correction: { calls: [{ tool: 'acme.refund', args: {} }], notCalled: [] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('bad-input');
+    expect(res.body.error.message).toContain(CORRECTION_ITEM.key);
+  });
+
+  test('a correction on the fixed key but a non-empty pointer is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: CORRECTION_ITEM.key, pointer: '/matches/0' },
+      verdict: 'no',
+      correction: { calls: [{ tool: 'acme.refund', args: {} }], notCalled: [] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('whole output');
+  });
+
+  test('an ordinary judgment on the reserved item is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { ...CORRECTION_ITEM },
+      verdict: 'no',
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('bad-input');
+    expect(res.body.error.message).toContain('reserved');
+  });
+
+  test('an ordinary judgment on the reserved key at any pointer is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: CORRECTION_ITEM.key, pointer: '/matches/0' },
+      verdict: 'yes',
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('reserved');
+  });
+
+  test('an ordinary caller key the reserved key no longer shadows is accepted', async () => {
+    const run = row({ output: { decision: 'refund' } });
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'decision', pointer: '/decision' },
+      verdict: 'yes',
+    });
+    expect(res.status).toBe(201);
+  });
+
+  test('a correction call with oversized args is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { ...CORRECTION_ITEM },
+      verdict: 'no',
+      correction: {
+        calls: [{ tool: 'acme.refund', args: { note: 'x'.repeat(4100) } }],
+        notCalled: [],
+      },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('4000');
+  });
+
+  test('a correction call with an over-long tool name is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { ...CORRECTION_ITEM },
+      verdict: 'no',
+      correction: { calls: [{ tool: `acme.${'z'.repeat(220)}`, args: {} }], notCalled: [] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('200');
+  });
+
+  test('a notCalled tool name that is too long is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { ...CORRECTION_ITEM },
+      verdict: 'no',
+      correction: { calls: [], notCalled: [`acme.${'z'.repeat(220)}`] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('200');
+  });
+
+  test('a second correction by the same judge on the same item replaces the first (counts once)', async () => {
+    const run = row();
+    const h = harness([run]);
+    const post = (amount: number) =>
+      h.call('POST', '/v1/judgments', {
+        runId: run.runId,
+        item: { ...CORRECTION_ITEM },
+        verdict: 'no',
+        correction: { calls: [{ tool: 'acme.refund', args: { amount } }], notCalled: [] },
+      });
+    const first = await post(25);
+    const second = await post(40);
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    // The first is superseded by the second, so the correction counts once.
+    const gotFirst = await h.call('GET', `/v1/judgments/${first.body.id}`);
+    expect(gotFirst.body.supersededBy).toBe(second.body.id);
+    const list = await h.call('GET', `/v1/judgments?runId=${run.runId}`);
+    expect(list.body.data).toHaveLength(1);
+    expect(list.body.data[0].id).toBe(second.body.id);
+    expect(list.body.data[0].correction).toEqual({
+      calls: [{ tool: 'acme.refund', args: { amount: 40 } }],
+      notCalled: [],
+    });
+  });
+
+  test('a correction may name tools the judged version has', async () => {
+    const run = row();
+    const h = harness([run], {}, undefined, registryWithTools('acme.refund', 'acme.email'));
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { ...CORRECTION_ITEM },
+      verdict: 'no',
+      correction: {
+        calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+        notCalled: ['acme.email'],
+      },
+    });
+    expect(res.status).toBe(201);
+  });
+
+  test('a correction naming a call tool the version lacks is a 400', async () => {
+    const run = row();
+    const h = harness([run], {}, undefined, registryWithTools('acme.refund'));
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { ...CORRECTION_ITEM },
+      verdict: 'no',
+      correction: { calls: [{ tool: 'acme.ghost', args: {} }], notCalled: [] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('bad-input');
+    expect(res.body.error.message).toContain('acme.ghost');
+  });
+
+  test('a correction naming a must-not-call tool the version lacks is a 400', async () => {
+    const run = row();
+    const h = harness([run], {}, undefined, registryWithTools('acme.refund'));
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { ...CORRECTION_ITEM },
+      verdict: 'no',
+      correction: { calls: [], notCalled: ['acme.ghost'] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('acme.ghost');
+  });
+
+  test('an unknown tool is allowed when the judged version cannot be resolved', async () => {
+    const run = row();
+    const h = harness([run], {}, undefined, registryVersionGone);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { ...CORRECTION_ITEM },
+      verdict: 'no',
+      correction: { calls: [{ tool: 'acme.ghost', args: {} }], notCalled: [] },
+    });
+    expect(res.status).toBe(201);
+  });
+
+  test('a flow subject skips the tool check (best-effort)', async () => {
+    const { agent: _agent, ...flowRun } = row();
+    const h = harness([flowRun], {}, undefined, registryWithTools('acme.refund'));
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: flowRun.runId,
+      item: { ...CORRECTION_ITEM },
+      verdict: 'no',
+      correction: { calls: [{ tool: 'acme.ghost', args: {} }], notCalled: [] },
+    });
+    expect(res.status).toBe(201);
   });
 
   test('the run copy keeps the segment path the run was started with (none: empty)', async () => {

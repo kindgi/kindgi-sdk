@@ -131,6 +131,7 @@ export function inMemoryJudgments(): JudgmentRegistryBinding {
         item: input.item,
         verdict: input.verdict,
         ...(input.reason !== undefined && { reason: input.reason }),
+        ...(input.correction !== undefined && { correction: input.correction }),
         ...(input.judgeClassId !== undefined && { judgeClassId: input.judgeClassId }),
         ...(input.restricted === true && { restricted: true }),
         assertedBy: input.assertedBy,
