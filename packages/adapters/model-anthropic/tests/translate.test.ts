@@ -205,14 +205,201 @@ describe('fromAnthropicResponse', () => {
     ]);
   });
 
-  test('thinking blocks are ignored', () => {
+  test('a text answer with thinking gives the text, and keeps no thinking: no call follows it', () => {
     const response = fakeMessage([
       { type: 'thinking', thinking: 'reasoning...', signature: 'sig' },
       { type: 'text', text: 'answer' },
     ]);
-    const msg = fromAnthropicResponse(response);
-    expect(msg.content).toBe('answer');
-    expect(msg.toolCalls).toBeUndefined();
+    const msg = fromAnthropicResponse(response, undefined, MODEL);
+    expect(msg).toEqual({ role: 'assistant', content: 'answer' });
+  });
+});
+
+const MODEL = 'claude-sonnet-5-5';
+const THINKING = {
+  type: 'thinking',
+  thinking: 'The order number is in the message; look it up first.',
+  signature: 'EqQBCkgIBxABGAIiQL…',
+} as const;
+const REDACTED = { type: 'redacted_thinking', data: 'EmwKAhgBEgy3va3pzix/LafPsn4aDFIT…' } as const;
+const lookup = (id: string) =>
+  ({ type: 'tool_use', id, name: 'acme__orders__lookup', input: { order: 'A-1' } }) as const;
+
+/** The trail the agent loop sends next: the user's message, the answer, its tool results. */
+function trailAfter(answer: ModelMessage): ModelMessage[] {
+  return [
+    { role: 'user', content: 'Where is order A-1?' },
+    answer,
+    ...(answer.toolCalls ?? []).map(
+      (c): ModelMessage => ({ role: 'tool', content: '{"status":"shipped"}', toolCallId: c.id }),
+    ),
+  ];
+}
+
+/** The blocks an answer goes back as, on the next call to the model that answered. */
+function sentBack(answer: ModelMessage) {
+  return toAnthropicMessages(trailAfter(answer), MODEL).messages[1]?.content;
+}
+
+const toolUseSent = (id: string) => ({
+  type: 'tool_use',
+  id,
+  name: 'acme__orders__lookup',
+  input: { order: 'A-1' },
+});
+
+describe('thinking through a tool loop', () => {
+  test("an answer with thinking and a tool call goes back with its thinking unchanged, in place, before the call's result", () => {
+    const answer = fromAnthropicResponse(
+      fakeMessage([THINKING, { type: 'text', text: 'Let me look.' }, lookup('tu-1')]),
+      undefined,
+      MODEL,
+    );
+    expect(answer.content).toBe('Let me look.');
+    expect(answer.toolCalls?.[0]?.signature).toMatch(/^anth1\./);
+
+    const sent = toAnthropicMessages(trailAfter(answer), MODEL).messages;
+    expect(sent).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'Where is order A-1?' }] },
+      {
+        role: 'assistant',
+        content: [THINKING, { type: 'text', text: 'Let me look.' }, toolUseSent('tu-1')],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'tu-1', content: '{"status":"shipped"}' }],
+      },
+    ]);
+  });
+
+  test('redacted thinking goes back as it came', () => {
+    const answer = fromAnthropicResponse(
+      fakeMessage([REDACTED, THINKING, lookup('tu-1')]),
+      undefined,
+      MODEL,
+    );
+    expect(sentBack(answer)).toEqual([REDACTED, THINKING, toolUseSent('tu-1')]);
+  });
+
+  test('thinking between text and calls keeps its order; only the first call carries it', () => {
+    const answer = fromAnthropicResponse(
+      fakeMessage([
+        THINKING,
+        { type: 'text', text: 'Checking both. ' },
+        { ...THINKING, thinking: 'Now the second order.', signature: 'sig-2' },
+        lookup('tu-1'),
+        { type: 'text', text: 'And the other.' },
+        lookup('tu-2'),
+      ]),
+      undefined,
+      MODEL,
+    );
+    expect(answer.content).toBe('Checking both. And the other.');
+    expect(answer.toolCalls?.[1]?.signature).toBeUndefined();
+    expect(sentBack(answer)).toEqual([
+      THINKING,
+      { type: 'text', text: 'Checking both. ' },
+      { type: 'thinking', thinking: 'Now the second order.', signature: 'sig-2' },
+      toolUseSent('tu-1'),
+      { type: 'text', text: 'And the other.' },
+      toolUseSent('tu-2'),
+    ]);
+  });
+
+  test('kept as JSON (a journaled step, a stored message), it still goes back with its thinking', () => {
+    const answer = fromAnthropicResponse(
+      fakeMessage([THINKING, { type: 'text', text: 'Let me look.' }, lookup('tu-1')]),
+      undefined,
+      MODEL,
+    );
+    const kept = JSON.parse(JSON.stringify(answer)) as ModelMessage;
+    expect(sentBack(kept)).toEqual([
+      THINKING,
+      { type: 'text', text: 'Let me look.' },
+      toolUseSent('tu-1'),
+    ]);
+  });
+
+  test('an empty text block is left out, which the API would refuse', () => {
+    const answer = fromAnthropicResponse(
+      fakeMessage([THINKING, { type: 'text', text: '' }, lookup('tu-1')]),
+      undefined,
+      MODEL,
+    );
+    expect(sentBack(answer)).toEqual([THINKING, toolUseSent('tu-1')]);
+  });
+
+  test('an answer with no thinking keeps nothing, and goes back as before', () => {
+    const answer = fromAnthropicResponse(
+      fakeMessage([{ type: 'text', text: 'Let me look.' }, lookup('tu-1')]),
+      undefined,
+      MODEL,
+    );
+    expect(answer.toolCalls?.[0]).not.toHaveProperty('signature');
+    expect(sentBack(answer)).toEqual([{ type: 'text', text: 'Let me look.' }, toolUseSent('tu-1')]);
+  });
+
+  test('without the model that answered, nothing is kept', () => {
+    const answer = fromAnthropicResponse(fakeMessage([THINKING, lookup('tu-1')]));
+    expect(answer.toolCalls?.[0]).not.toHaveProperty('signature');
+  });
+
+  describe('goes back without its thinking, as text then calls, when', () => {
+    const answer = fromAnthropicResponse(
+      fakeMessage([
+        THINKING,
+        { type: 'text', text: 'Let me look.' },
+        lookup('tu-1'),
+        lookup('tu-2'),
+      ]),
+      undefined,
+      MODEL,
+    );
+    const calls = answer.toolCalls ?? [];
+    const signature = calls[0]?.signature ?? '';
+    const withSignature = (s: string): ModelMessage => ({
+      ...answer,
+      toolCalls: calls.map((c, i) => (i === 0 ? { ...c, signature: s } : c)),
+    });
+    const encoded = (value: unknown) =>
+      `anth1.${Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')}`;
+    const carried = JSON.parse(
+      Buffer.from(signature.slice('anth1.'.length), 'base64url').toString('utf8'),
+    ) as { model: string; blocks: unknown[] };
+
+    test.each([
+      ['another model is called', answer, 'claude-opus-5-5'],
+      ['the caller names no model', answer, undefined],
+      ['its text was edited', { ...answer, content: 'Let me look it up.' }, MODEL],
+      ['a call was removed', { ...answer, toolCalls: calls.slice(0, 1) }, MODEL],
+      ['its calls were reordered', { ...answer, toolCalls: [...calls].reverse() }, MODEL],
+      ["the signature is another adapter's (OpenAI Responses)", withSignature('oair1.e30'), MODEL],
+      [
+        "the signature is another adapter's (the shared engine)",
+        withSignature('aisdk1.e30'),
+        MODEL,
+      ],
+      ["the carry isn't JSON", withSignature('anth1.bm90IGpzb24'), MODEL],
+      ['the carry has no blocks', withSignature(encoded({ model: MODEL })), MODEL],
+      [
+        'a carried block is malformed',
+        withSignature(encoded({ ...carried, blocks: [{ type: 'thinking', thinking: 'x' }] })),
+        MODEL,
+      ],
+      [
+        'a carried block is of a kind it never keeps',
+        withSignature(encoded({ ...carried, blocks: [...carried.blocks, { type: 'image' }] })),
+        MODEL,
+      ],
+    ] as const)('%s', (_, message, model) => {
+      // Called directly: `sentBack`'s default would stand in for a missing model.
+      const sent = toAnthropicMessages(trailAfter(message as ModelMessage), model).messages[1]
+        ?.content;
+      expect(sent).toEqual([
+        { type: 'text', text: (message as ModelMessage).content },
+        ...((message as ModelMessage).toolCalls ?? []).map((c) => toolUseSent(c.id)),
+      ]);
+    });
   });
 });
 

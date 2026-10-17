@@ -53,8 +53,15 @@ export function decodeToolName(name: string): string {
  * `systemParts` keeps the system messages apart, in order, so each can be
  * its own block: the first (the agent's prompt) is the stable one a cache
  * breakpoint goes on (`withPromptCache`).
+ *
+ * With `model`, an assistant turn that `model` answered with thinking goes
+ * back with its thinking (`fromAnthropicResponse`'s carry); without it, or
+ * for any other turn, as its text and then its tool calls.
  */
-export function toAnthropicMessages(messages: readonly ModelMessage[]): {
+export function toAnthropicMessages(
+  messages: readonly ModelMessage[],
+  model?: string,
+): {
   readonly system: string | undefined;
   readonly systemParts: readonly string[];
   readonly messages: readonly Anthropic.MessageParam[];
@@ -72,21 +79,7 @@ export function toAnthropicMessages(messages: readonly ModelMessage[]): {
       continue;
     }
     if (msg.role === 'assistant') {
-      const blocks: Anthropic.ContentBlockParam[] = [];
-      if (msg.content.length > 0) blocks.push({ type: 'text', text: msg.content });
-      if (msg.toolCalls !== undefined) {
-        for (const tc of msg.toolCalls) {
-          blocks.push({
-            type: 'tool_use',
-            id: tc.id,
-            // Encode when replaying prior assistant turns — the
-            // message trail stores canonical framework names, but
-            // Anthropic on the wire wants the encoded form.
-            name: encodeToolName(tc.name),
-            input: tc.arguments,
-          });
-        }
-      }
+      const blocks = assistantBlocks(msg, model);
       // Anthropic rejects assistant turns with empty content — skip
       // rather than emit an invalid message. The framework's
       // dispatch-tools handler ensures either text or tool_use is
@@ -109,6 +102,55 @@ export function toAnthropicMessages(messages: readonly ModelMessage[]): {
     system: systemParts.length > 0 ? systemParts.join('\n\n') : undefined,
     systemParts,
     messages: out,
+  };
+}
+
+/**
+ * An assistant turn's blocks. One that `model` answered with thinking, still
+ * as it answered (`readCarried`), goes back as the answer was: its thinking
+ * unchanged and in place, its text as it was split, and each tool call where
+ * it was. Any other goes back as its text and then its tool calls.
+ */
+function assistantBlocks(
+  msg: ModelMessage,
+  model: string | undefined,
+): Anthropic.ContentBlockParam[] {
+  const calls = msg.toolCalls ?? [];
+  const carried = model === undefined ? undefined : readCarried(msg, model);
+  if (carried === undefined) {
+    return [
+      ...(msg.content.length > 0 ? [{ type: 'text' as const, text: msg.content }] : []),
+      ...calls.map(toolUse),
+    ];
+  }
+  const byId = new Map(calls.map((c) => [c.id, c] as const));
+  return carried.flatMap((block): Anthropic.ContentBlockParam[] => {
+    switch (block.type) {
+      case 'thinking':
+        return [{ type: 'thinking', thinking: block.thinking, signature: block.signature }];
+      case 'redacted_thinking':
+        return [{ type: 'redacted_thinking', data: block.data }];
+      // Anthropic rejects an empty text block; the text joins the same without it.
+      case 'text':
+        return block.text.length > 0 ? [{ type: 'text', text: block.text }] : [];
+      case 'tool_use': {
+        // `readCarried` matched every id to a call.
+        const call = byId.get(block.id);
+        return call === undefined ? [] : [toolUse(call)];
+      }
+    }
+  });
+}
+
+function toolUse(tc: ModelToolCall): Anthropic.ToolUseBlockParam {
+  return {
+    type: 'tool_use',
+    id: tc.id,
+    // Encode when replaying prior assistant turns — the
+    // message trail stores canonical framework names, but
+    // Anthropic on the wire wants the encoded form.
+    name: encodeToolName(tc.name),
+    input: tc.arguments,
   };
 }
 
@@ -147,19 +189,32 @@ export function toAnthropicTools(tools: readonly ModelToolDefinition[]): readonl
 /**
  * Translate an Anthropic response message back into a framework
  * `ModelMessage`. Text blocks concatenate into `content`; tool_use
- * blocks become `toolCalls`. Thinking blocks are ignored (the
- * framework has no thinking field on `ModelMessage`).
+ * blocks become `toolCalls`.
+ *
+ * Thinking (`thinking` and `redacted_thinking` blocks) has no field on
+ * `ModelMessage`, and the Messages API wants it back, unchanged and in
+ * place, on the call that sends the tool results. So, given the `model`
+ * that answered, an answer with thinking and tool calls keeps its content
+ * in order in its first tool call's `signature` (`anth1.`), as the other
+ * adapters keep their own state there, and `toAnthropicMessages` sends it
+ * back to that model. The thinking is kept as Claude wrote it (only
+ * `redacted_thinking` is encrypted): replay needs it unchanged. An answer
+ * without tool calls keeps none: no call in its turn follows it.
  */
 export function fromAnthropicResponse(
   response: Anthropic.Message,
   toolIdOf: (name: string) => string = decodeToolName,
+  model?: string,
 ): ModelMessage {
   const textParts: string[] = [];
   const toolCalls: ModelToolCall[] = [];
+  const blocks: CarriedBlock[] = [];
+  let thought = false;
 
   for (const block of response.content) {
     if (block.type === 'text') {
       textParts.push(block.text);
+      blocks.push({ type: 'text', text: block.text });
     } else if (block.type === 'tool_use') {
       toolCalls.push({
         id: block.id,
@@ -168,16 +223,103 @@ export function fromAnthropicResponse(
         name: toolIdOf(block.name),
         arguments: (block.input ?? {}) as Readonly<Record<string, unknown>>,
       });
+      blocks.push({ type: 'tool_use', id: block.id });
+    } else if (block.type === 'thinking') {
+      thought = true;
+      blocks.push({ type: 'thinking', thinking: block.thinking, signature: block.signature });
+    } else if (block.type === 'redacted_thinking') {
+      thought = true;
+      blocks.push({ type: 'redacted_thinking', data: block.data });
     }
-    // 'thinking' / 'redacted_thinking' blocks are ignored (see above).
   }
 
+  const carry =
+    model !== undefined && thought && toolCalls.length > 0
+      ? writeSignature({ model, blocks })
+      : undefined;
   const message: ModelMessage = {
     role: 'assistant',
     content: textParts.join(''),
-    ...(toolCalls.length > 0 && { toolCalls }),
+    ...(toolCalls.length > 0 && {
+      toolCalls: toolCalls.map((c, i) =>
+        i === 0 && carry !== undefined ? { ...c, signature: carry } : c,
+      ),
+    }),
   };
   return message;
+}
+
+/** An answer's block as carried: a tool call's name and arguments stay on the call. */
+type CarriedBlock =
+  | { readonly type: 'thinking'; readonly thinking: string; readonly signature: string }
+  | { readonly type: 'redacted_thinking'; readonly data: string }
+  | { readonly type: 'text'; readonly text: string }
+  | { readonly type: 'tool_use'; readonly id: string };
+
+interface Carried {
+  /** The model that answered: only that model gets it back. */
+  readonly model: string;
+  /** The answer's content, in order. */
+  readonly blocks: readonly CarriedBlock[];
+}
+
+/** Versioned, so a later shape can tell this one apart. */
+const SIGNATURE_PREFIX = 'anth1.';
+
+function writeSignature(carried: Carried): string {
+  return SIGNATURE_PREFIX + Buffer.from(JSON.stringify(carried), 'utf8').toString('base64url');
+}
+
+/**
+ * The answer carried on an assistant turn's first call, when it's this
+ * adapter's, for `model`, and the turn still says what the answer said: its
+ * text blocks join to the turn's text, and its tool calls are the turn's, in
+ * order. Anything else (another adapter's signature, another model's, a turn
+ * edited since, one that doesn't parse) is ignored: the turn goes back
+ * without it.
+ */
+function readCarried(msg: ModelMessage, model: string): readonly CarriedBlock[] | undefined {
+  const calls = msg.toolCalls ?? [];
+  const signature = calls[0]?.signature;
+  if (signature === undefined || !signature.startsWith(SIGNATURE_PREFIX)) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(
+      Buffer.from(signature.slice(SIGNATURE_PREFIX.length), 'base64url').toString('utf8'),
+    );
+  } catch {
+    return undefined;
+  }
+  if (!isRecord(parsed) || parsed.model !== model || !Array.isArray(parsed.blocks)) {
+    return undefined;
+  }
+  const blocks = parsed.blocks as unknown[];
+  if (!blocks.every(isCarriedBlock)) return undefined;
+  const text = blocks.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('');
+  if (text !== msg.content) return undefined;
+  const ids = blocks.flatMap((b) => (b.type === 'tool_use' ? [b.id] : []));
+  if (ids.length !== calls.length || ids.some((id, i) => id !== calls[i]?.id)) return undefined;
+  return blocks;
+}
+
+function isCarriedBlock(value: unknown): value is CarriedBlock {
+  if (!isRecord(value)) return false;
+  switch (value.type) {
+    case 'thinking':
+      return typeof value.thinking === 'string' && typeof value.signature === 'string';
+    case 'redacted_thinking':
+      return typeof value.data === 'string';
+    case 'text':
+      return typeof value.text === 'string';
+    case 'tool_use':
+      return typeof value.id === 'string';
+    default:
+      return false;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**

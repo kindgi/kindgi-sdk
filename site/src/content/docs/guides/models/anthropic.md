@@ -123,6 +123,12 @@ The Claude 5.5 models take no `temperature`, and they think before they
 answer. [Temperature and thinking](../#temperature-and-thinking) says what
 that means for an agent.
 
+When Claude thinks before it calls a tool, Kindgi sends that thinking back
+with the tool's result, as Anthropic asks, so the model goes on from its own
+reasoning. The thinking is kept as Claude wrote it, in the tool call's
+`signature`: it's stored with the conversation and the turn's run, and
+whoever can read the conversation can read it.
+
 Anthropic lists each model's status, and any retirement date, on its
 [model deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations)
 page. A turn routed to a retired model fails, so an agent that prefers or
