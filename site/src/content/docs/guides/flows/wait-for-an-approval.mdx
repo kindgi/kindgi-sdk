@@ -28,7 +28,10 @@ customer if the hold went through. Every hold waits for a person.
 
 ## The agent
 
-The agent's tool call is what waits. The agent gates `acme.hold-order` with
+The agent's tool call is what waits. Ask your coding agent: "I want an agent
+that puts an order on hold, but only once a person approves." Kindgi's skills
+in your pack tell it how ([How it knows Kindgi](../../../start/coding-agents/)).
+For reference, the agent looks like this. It gates `acme.hold-order` with
 `always_ask`, and returns a typed answer the flow can branch on:
 
 <Tabs syncKey="lang">
@@ -200,7 +203,9 @@ read-only.
 
 ## The flow
 
-The flow runs the agent as a step, then branches on its answer:
+Ask your coding agent: "I want a flow that runs that agent, then emails the
+customer if the order went on hold." For reference, the flow runs the agent
+as a step, then branches on its answer:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
