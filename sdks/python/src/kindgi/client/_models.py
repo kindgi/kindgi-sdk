@@ -3080,6 +3080,10 @@ class ReinstateToolVersionResult(BaseModel):
 
 
 class Retry(BaseModel):
+    """
+    The attempts a `retry` asks for. In 0.1 nothing acts on it: there's no second attempt.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -3101,11 +3105,20 @@ class GuardrailAction(BaseModel):
         ),
     ]
     """
-    What happens when the guardrail fires. Open string: the built-in actions are listed in `examples`; any other name needs an action handler registered under it where the guardrail is evaluated.
+    What a failed check does to the agent turn. Open string: the built-in actions are listed in `examples`, and any other non-empty name is accepted. In 0.1 the runtime acts only on `halt`: the turn fails with `guardrail-violation` and its response is not stored. Any other value is recorded as a violation, as `log-only` is, and the turn completes: nothing runs the turn again, escalates or calls a compensating tool.
     """
     retry: Retry | None = None
+    """
+    The attempts a `retry` asks for. In 0.1 nothing acts on it: there's no second attempt.
+    """
     escalate_to: Annotated[str | None, Field(alias="escalateTo")] = None
+    """
+    Where an `escalate` goes. In 0.1 nothing escalates.
+    """
     compensate_with: Annotated[str | None, Field(alias="compensateWith")] = None
+    """
+    The tool id a `compensate` names. In 0.1 that tool isn't called.
+    """
 
 
 class GuardrailScope(BaseModel):
