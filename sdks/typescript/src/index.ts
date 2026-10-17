@@ -629,6 +629,8 @@ export type {
   Judgment,
   JudgmentAssertedBy,
   JudgmentWithCopies,
+  Correction,
+  ExpectedCall,
   McpAgentExposure,
   McpEndpoint,
   McpEndpointConfig,

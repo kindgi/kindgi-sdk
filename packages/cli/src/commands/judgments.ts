@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { Correction } from '@kindgi/client';
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
-import { integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
+import { integerFlag, readJsonInput, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 const VERDICTS = ['yes', 'no'] as const;
@@ -21,13 +22,19 @@ function givenFlags<F extends string>(
   return out;
 }
 
+/** The optional `--correction` flag, parsed from JSON or `@<file>`. */
+async function correctionFlag(ctx: CommandContext): Promise<Correction | undefined> {
+  const text = stringFlag(ctx, 'correction');
+  return text === undefined ? undefined : ((await readJsonInput(text)) as Correction);
+}
+
 const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
   description:
     "Judge one item of a finished run's output: yes or no, with an optional reason. Judging the same item again as the same caller replaces the earlier judgment.",
   usage:
-    'kindgi judgments add --run=<run-id> --item=<key> [--pointer=<json-pointer>] [--rank=<n>] (--yes | --no) [--reason=<text>] [--class=<judge-class-id>] [--participant=<id>]',
+    'kindgi judgments add --run=<run-id> --item=<key> [--pointer=<json-pointer>] [--rank=<n>] (--yes | --no) [--reason=<text>] [--correction=<json-or-@file>] [--class=<judge-class-id>] [--participant=<id>]',
   optionSpec: {
     run: { type: 'string', description: 'The run whose output is judged. Required.' },
     item: {
@@ -43,6 +50,11 @@ const add: LeafCommand = {
     yes: { type: 'boolean', description: 'The verdict is yes. Give `--yes` or `--no`.' },
     no: { type: 'boolean', description: 'The verdict is no. Give `--yes` or `--no`.' },
     reason: { type: 'string', description: 'Why, recorded with the judgment.' },
+    correction: {
+      type: 'string',
+      description:
+        'What the agent should have done, as JSON or `@<file>`: `{ "calls": [{ "tool": "<tool-id>", "args": { … } }], "notCalled": ["<tool-id>"] }`. `args` are the partial top-level fields to compare (those left out are not compared); `notCalled` lists tools that should not have been called at all. Graded on a replay.',
+    },
     class: {
       type: 'string',
       description:
@@ -65,6 +77,7 @@ const add: LeafCommand = {
       const rank = integerFlag(ctx, 'rank');
       if (rank !== undefined && rank < 0) throw new UsageError('--rank must be 0 or more');
       const pointer = ctx.options.pointer;
+      const correction = await correctionFlag(ctx);
       return await ctx.client().judgments.create({
         runId,
         item: {
@@ -74,6 +87,7 @@ const add: LeafCommand = {
           ...(rank !== undefined && { rank }),
         },
         verdict: yes ? 'yes' : 'no',
+        ...(correction !== undefined && { correction }),
         ...givenFlags(ctx, {
           reason: 'reason',
           class: 'judgeClassId',

@@ -77,6 +77,45 @@ describe('kindgi judgments', () => {
     expect(JSON.parse(out.stdout)).toEqual({ id: 'j-1' });
   });
 
+  test('add sends a correction when given one', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      [
+        'judgments',
+        'add',
+        '--run=r-1',
+        '--item=c1',
+        '--no',
+        '--correction={"calls":[{"tool":"acme.refund","args":{"amount":25}}],"notCalled":["acme.escalate"]}',
+      ],
+      { judgments: { create: rec('create', { id: 'j-2' }) } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      [
+        'create',
+        {
+          runId: 'r-1',
+          item: { key: 'c1' },
+          verdict: 'no',
+          correction: {
+            calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+            notCalled: ['acme.escalate'],
+          },
+        },
+      ],
+    ]);
+  });
+
+  test('add rejects a malformed --correction', async () => {
+    const out = await run(
+      ['judgments', 'add', '--run=r-1', '--item=c1', '--no', '--correction={bad'],
+      { judgments: { create: recorder().rec('create') } },
+    );
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain('Malformed JSON input');
+  });
+
   test('add without a class is unclassified', async () => {
     const { calls, rec } = recorder();
     const out = await run(['judgments', 'add', '--run=r-1', '--item=c1', '--no'], {
