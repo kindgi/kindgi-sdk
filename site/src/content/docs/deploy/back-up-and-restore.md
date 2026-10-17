@@ -91,9 +91,10 @@ exits `0`:
 127.0.0.1:5432 - accepting connections
 ```
 
-That's a backup of runtime 0.1.9 or later. A backup of an earlier runtime
-holds one policy that names the runtime's database role, which the fresh
-server doesn't have yet. Its restore reports one error, and exits `1`:
+That's a backup taken after runtime 0.1.9 or later has started on the
+database. A backup from before then holds one policy that names the
+runtime's database role, which the fresh server doesn't have yet. Its
+restore reports one error, and exits `1`:
 
 ```text
 pg_restore: error: could not execute query: ERROR:  role "…" does not exist
