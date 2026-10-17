@@ -56,6 +56,12 @@ await runAsTenant(tenantId, () => handle(request));
 await runAsTenant(tenantId, () => publish(request), { compiles: 'all' });
 ```
 
+Work that runs on another thread, such as a template rendered in a worker,
+is charged with `TenantTimeBudget.admit(tenantId)`. It checks the budget
+when the work is asked for, refusing a tenant past it, and returns a
+`TenantWork` whose `start()` and `end()` charge the time between them.
+Time the work spends waiting for a thread isn't charged.
+
 ## Patterns
 
 `compileTenantPattern(source, flags)` compiles a pattern a tenant wrote, a

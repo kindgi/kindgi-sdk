@@ -33,6 +33,7 @@ import type { GuardrailsBindings } from '../guardrails-gate.js';
 import type { ProvenanceBindings } from '../provenance-emit.js';
 import type { RunSnapshotBinding } from '../run-snapshot-binding.js';
 import type { OnTurnEvent } from '../streaming.js';
+import type { TemplateRenderer } from '../template-renderer.js';
 import type { Agent, ConversationId } from '../types.js';
 
 import type { ReplayBinding } from './replay.js';
@@ -270,6 +271,13 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    * retrievals and session approval. Consulted only for a replay turn.
    */
   readonly replay?: ReplayBinding;
+  /**
+   * Where the turn renders its instructions, off the thread that runs it:
+   * `createWorkerTemplateRenderer` (`@kindgi/agents/render-worker`)
+   * renders in child processes, so a template can't hold up the server's
+   * other work. Absent: the turn renders them in-process.
+   */
+  readonly templateRenderer?: TemplateRenderer;
 }
 
 export interface HitlBindings {

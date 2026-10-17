@@ -25,6 +25,11 @@
       "types": "./dist/migrations-dir.d.ts",
       "import": "./dist/migrations-dir.js",
       "default": "./dist/migrations-dir.js"
+    },
+    "./render-worker": {
+      "types": "./dist/render-worker/index.d.ts",
+      "import": "./dist/render-worker/index.js",
+      "default": "./dist/render-worker/index.js"
     }
   },
   "files": ["dist", "src", "migrations", "README.md", "SPEC.md", "type-manifest.json"],
