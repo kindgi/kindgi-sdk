@@ -260,7 +260,7 @@ const evaluate: LeafCommand = {
     rescore: {
       type: 'boolean',
       description:
-        "Score the latest evaluation's replays again, with what people corrected on them since: same test-cases version and settings, nothing replayed.",
+        "Score the latest evaluation's replays again, with what people corrected on them since: the same version of the test cases and settings, nothing replayed.",
     },
     wait: {
       type: 'boolean',
@@ -283,7 +283,7 @@ const evaluate: LeafCommand = {
         const set = COMPARISON_FLAGS.filter((flag) => ctx.options[flag] !== undefined);
         if (set.length > 0) {
           throw new UsageError(
-            `--rescore cannot be combined with --${set[0]}: it reruns the latest evaluation's test-cases version and settings`,
+            `--rescore cannot be combined with --${set[0]}: it reruns the latest evaluation's version of the test cases and settings`,
           );
         }
         const started = await proposals.rescore(id, { ...idempotency(ctx) });
@@ -360,7 +360,7 @@ const withdraw: LeafCommand = {
   kind: 'leaf',
   name: 'withdraw',
   description:
-    'Withdraw a suggested change before review, or after its go-live was refused, superseded or expired. Needs `publish` on the agent.',
+    'Withdraw a suggested change before review, or after its request to make it live was refused, superseded or expired. Needs `publish` on the agent.',
   usage: 'kindgi proposals withdraw <proposal-id> --reason=<text>',
   optionSpec: {
     reason: { type: 'string', description: 'Why, kept on the record (required).' },
@@ -442,7 +442,7 @@ const improve: LeafCommand = {
     },
     'max-cost': {
       type: 'string',
-      description: 'The most its test-cases runs may cost, in US dollars (default 5).',
+      description: 'The most its runs on the test cases may cost, in US dollars (default 5).',
     },
     'max-candidates': {
       type: 'string',

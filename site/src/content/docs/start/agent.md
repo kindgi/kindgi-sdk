@@ -410,7 +410,7 @@ Tell the person, in your own words:
 >    the agent call it".
 > 2. **Judge a few answers:** say yes or no to what it answered, so later
 >    versions can be checked against your judgments
->    ([Judge a run's output](https://docs.kindgi.com/guides/evals/judge-a-runs-output/)).
+>    ([Mark a run's output right or wrong](https://docs.kindgi.com/guides/evals/judge-a-runs-output/)).
 > 3. **Compare two versions:** change its instructions and see whether people's
 >    corrections rate the new version higher
 >    ([Try a version on the test cases](https://docs.kindgi.com/guides/evals/compare-an-agent-version/)).

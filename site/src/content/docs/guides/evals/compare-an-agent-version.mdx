@@ -8,12 +8,12 @@ sidebar:
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 This guide shows whether people would rate a new agent or flow version
-higher than the runs they corrected, before anyone uses it.
+higher than the runs they marked right or wrong, before anyone uses it.
 
 A **run on the test cases** runs an agent version on each case of the
 [test cases](../build-a-test-set/), as a replay of the past run. It rates the
 version's answers with the corrections people already made, beside the
-recorded runs.
+recorded runs. On the CLI, these are `kindgi eval-runs`.
 
 ## Before you start
 
@@ -177,14 +177,14 @@ lowest. In the clients, it's `repetitions`.
 Each metric has its value for the recorded runs (`baseline`) and for the
 version (`candidate`), the `delta`, and `n`, the cases it's based on.
 
-- **`weightedYesShare`,** "Judged yes" in the console: of the items in the
-  answer that people corrected, the share they marked right, weighted by judge
-  class. 0.1.0's answers had 3 right of 9 corrected articles. 0.2.0's had 3 of 3:
+- **`weightedYesShare`,** "Share marked right" in the console: of the items in
+  the answer that people marked, the share they marked right, weighted by judge
+  class. 0.1.0's answers had 3 right of 9 marked articles. 0.2.0's had 3 of 3:
   it kept only the right article each time.
-- **`judgedCoverage`,** "Judged items": the share of the answer's items that
-  people corrected. Items no one corrected bring it down. Here, each answer's text
-  is an item too, and no one corrected it.
-- **`weightedPrecisionAtK`,** "Top 10 judged yes": marked right among the first
+- **`judgedCoverage`,** "Corrected items": the share of the answer's items that
+  people marked. Items no one marked bring it down. Here, each answer's text
+  is an item too, and no one marked it.
+- **`weightedPrecisionAtK`,** "Top 10 marked right": marked right among the first
   `k` items of a ranked list. `k` is 10 unless you set `--k`.
 
 **How a correction carries over.** An item with its own id, an `id` or `key`
@@ -193,16 +193,18 @@ the `yes` on `kb-301` counts for 0.2.0 too. The answer's text, and a list
 element without an id, carry a correction only when they're unchanged. A
 reworded answer is a new item, with no corrections yet.
 
-### Count only restricted judges
+<a id="count-only-restricted-judges"></a>
+
+### Count only experts' corrections
 
 `--class-weights=restricted-only` counts only the corrections made under a
-[restricted class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class), the experts' corrections.
-An item none of them corrected counts as uncorrected. In TypeScript, it's
+[restricted class](../judge-a-runs-output/#restrict-a-judge-class-to-experts), the experts' corrections.
+An item none of them marked counts as unmarked. In TypeScript, it's
 `classWeights: 'restricted-only'`, and in Python
 `class_weights="restricted-only"`. The summary says which it used, in
 `classWeights`, `as-recorded` by default.
 
-On three test cases, one of them corrected only under a class
+On three test cases, one of them marked only under a class
 restricted afterwards:
 
 | | `as-recorded` | `restricted-only` |
@@ -236,7 +238,7 @@ restricted afterwards:
 }
 ```
 
-- **`changes`:** the corrected items the version kept, with their place before
+- **`changes`:** the marked items the version kept, with their place before
   and now, the ones it dropped, and the new ones, for people to correct.
 - **`tools`:** each tool call, and what happened to it: `live` when it ran,
   `recorded` when it got the past run's result, or `refused`.
@@ -279,8 +281,8 @@ and `evalRunId`. Lists of runs leave them out. `kindgi runs list
 --eval-run=<run-id>` lists one run's, and `--replays=include` or
 `--replays=only` adds them to any list. Conversation lists leave out their
 conversations the same way: `kindgi conversations list --replays=only` lists
-them. You can [correct](../judge-a-runs-output/) them like any run: that's how
-a version's new items get their corrections.
+them. You can [mark](../judge-a-runs-output/) them right or wrong like any run:
+that's how a version's new items get their corrections.
 
 **A run on the test cases stopped** before it finished, because the runtime stopped,
 ends `failed` with the cases it got through:
@@ -289,9 +291,8 @@ Start it again.
 
 ## Try a flow version on the test cases
 
-Test cases built from a flow's corrected runs, with
-`kindgi eval-suites from-judgments … --flow=<flow-id>`, try a flow
-version. Each case runs the past run's input through that version, as a
+You try a flow version on test cases built from a flow's marked runs, with
+`kindgi eval-suites from-judgments … --flow=<flow-id>`. Each case runs the past run's input through that version, as a
 replay. The flow's whole output is rated: the output itself, the `output`
 item, and each element of a list in it.
 
@@ -356,31 +357,31 @@ A stopped case isn't an error: nothing was written, and it has no output to
 rate, so it's left out of the metrics. The summary counts it in `stopped`,
 and the refused call in `refusedWrites`. The other cases are rated as usual.
 A step's agent turn doesn't stop the flow: its refused calls go back to the
-model, as in a run on an agent.
+model, as they do when you try an agent version on the test cases.
 
 When a version does better, make it live where you choose, as
 [Release an agent version](../release-an-agent-version/) shows.
 
 ## In the console
 
-The test cases' page has **Compare an agent version**: pick the version, how
-many runs per case, whether to read live data instead of the past runs'
-results, and **Count only restricted judge classes**. Its **Comparisons**
-list links each one to its page, which has:
+The test cases' page has **Try an agent version on the test cases**: pick the
+version, how many runs per case, whether to read live data instead of the past
+runs' results, and **Count only restricted judge classes**. Its **Runs on the
+test cases** list links each one to its page, which has:
 
-- a headline in words: "People's judgments rate acme-ops.article-picker 0.2.0
-  better than the recorded runs: 33% yes before, 100% now, on the 3 of 3 cases
-  with answers people judged. In 1 case it read something the recording didn't
-  have.";
+- a headline in words: "People's corrections rate acme-ops.article-picker 0.2.0
+  better than the recorded runs: 33% marked right before, 100% now, on the 3
+  of 3 cases with answers people corrected. In 1 case it read something the
+  recording didn't have.";
 - the metrics, for the recorded runs and the version, with the change. A
-  run that counted only restricted classes says so: "Only judgments
-  in judge classes restricted to some judges counted; the others weighed
+  run that counted only restricted classes says so: "Only corrections
+  in judge classes restricted to experts counted; the others weighed
   0.", and lists mark it "restricted classes only";
-- **Case by case:** the recorded answer beside the version's, the corrected items
+- **Case by case:** the recorded answer beside the version's, the marked items
   it kept and the ones no longer there, the new ones, and each tool call;
 - **The raw result**, as JSON.
 
-A flow's test cases have **Compare a flow version** instead, with a picker for
+A flow's test cases have **Try a flow version on the test cases** instead, with a picker for
 each agent its steps run, to run it at another version. Tools are swapped
 from the CLI and the clients. The page for a flow run on the test cases shows the recorded output
 beside the version's, and a stopped case says what it would have done: "It
@@ -392,4 +393,4 @@ written, and there's no output to rate."
 
 - [Release an agent version](../release-an-agent-version/)
 - [Change a prompt or a setting without a deploy](../change-a-prompt-or-setting/)
-- [Judge a run's output](../judge-a-runs-output/)
+- [Mark a run's output right or wrong](../judge-a-runs-output/)

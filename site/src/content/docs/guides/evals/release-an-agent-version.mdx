@@ -16,6 +16,7 @@ version has done better on your test cases, as
 can make it **live** where you choose: the whole tenant, an org, a project, or
 a segment of a project's runs, such as one company's. Runs there use it from
 the next run, nothing changes anywhere else, and you can roll back at once.
+On the CLI, making a version live is `kindgi agents promote`.
 [Live versions reference](../live-versions-reference/) has every rule,
 refusal and console page.
 
@@ -267,7 +268,8 @@ the scope above, or the latest version when nothing above is live:
 kindgi agents unpin acme.order-desk --tenant --reason="Back to the latest"
 ```
 
-Every go-live, rollback and unpin is kept, with who asked and why.
+Every request to make a version live, rollback and unpin is kept, with who
+asked and why.
 `kindgi agents promotions list acme.order-desk --table` lists them, as
 [The history](../live-versions-reference/#the-history) shows.
 [Rollbacks and unpins](../live-versions-reference/#rollbacks-and-unpins)
@@ -275,11 +277,11 @@ lists what each refuses.
 
 ## Gate a release
 
-A **release gate policy** says what a go-live must show before a version goes live
-for a scope: a recent run on your test cases, enough corrected cases,
+A **release gate policy** says what a request to make a version live must show
+before the version goes live for a scope: a recent run on your test cases, enough corrected cases,
 figures at least this good, a clean replay and, if you want, a reviewer's
-approval. An agent has one policy per scope. A go-live is checked by the
-most specific one covering its scope, at its latest version.
+approval. An agent has one policy per scope. A request to make a version
+live is checked by the most specific one covering its scope, at its latest version.
 
 ### Set a gate
 
@@ -312,7 +314,8 @@ kindgi gate-policies publish acme.order-desk-release --policy-version=1.0.0 --ag
 - `--agent` and `--tenant` are the agent and the scope it gates.
 - `--spec=@gate.json` reads the policy from the file.
 
-The tenant's go-lives of `acme.order-desk` now go through the gate.
+Requests to make `acme.order-desk` live for the tenant now go through the
+gate.
 [Release gate policies](../live-versions-reference/#release-gate-policies) has what each
 part asks, and who may publish one.
 
@@ -321,11 +324,11 @@ part asks, and who may publish one.
 `--check` asks the gate without recording anything:
 
 ```sh
-kindgi agents promote acme.order-desk 1.3.0 --tenant --eval-run=<comparison-id> --check
+kindgi agents promote acme.order-desk 1.3.0 --tenant --eval-run=<eval-run-id> --check
 ```
 
-`--eval-run=<comparison-id>` names the run on the test cases of 1.3.0, where
-`<comparison-id>` is its eval run's id. It prints what the gate would say:
+`--eval-run=<eval-run-id>` names the run on the test cases of 1.3.0, by its
+id. It prints what the gate would say:
 
 ```json
 {
@@ -350,12 +353,13 @@ when there's no `--eval-run`.
 Promote it the same way, without `--check`:
 
 ```sh
-kindgi agents promote acme.order-desk 1.3.0 --tenant --eval-run=<comparison-id> --reason="1.3.0 did as well on the order checks"
+kindgi agents promote acme.order-desk 1.3.0 --tenant --eval-run=<eval-run-id> --reason="1.3.0 did as well on the order checks"
 ```
 
-It prints the promotion or the gate's refusal:
+Asking to make a version live makes a request. It prints the request, with its
+status, or the gate's refusal:
 
-- **When the policy has no `approvals`,** a go-live that passes goes live
+- **When the policy has no `approvals`,** a request that passes goes live
   at once, `"status": "promoted"`.
 - **When it has,** it waits: `"status": "pending-approval"`, with an
   `approvalId`. The scope keeps its version until a reviewer approves.
@@ -387,8 +391,8 @@ second reviewer instead.
 
 ### Promote from your app
 
-Your app checks the gate, then promotes, with the test-cases run's id as the
-script's argument:
+Your app checks the gate, then promotes, with the id of the run on the test cases as
+the script's argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

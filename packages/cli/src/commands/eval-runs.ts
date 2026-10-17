@@ -230,7 +230,7 @@ const start: LeafCommand = {
     baseline: {
       type: 'string',
       description:
-        "What a test-cases run tries the agent version against: `recorded` (the default: each case's output as it was corrected), `<agentId>@<version>` (another version, replayed the same way) or `live` (the version live in a project or segment). Only `recorded` runs today.",
+        "What a run on the test cases tries the agent version against: `recorded` (the default: each case's output as it was corrected), `<agentId>@<version>` (another version, replayed the same way) or `live` (the version live in a project or segment). Only `recorded` runs today.",
     },
     'baseline-project': {
       type: 'string',
@@ -358,7 +358,7 @@ const rescore: LeafCommand = {
   kind: 'leaf',
   name: 'rescore',
   description:
-    "Rescore a completed test-cases run: a new eval run that replays nothing and scores the run's replays again, with what people corrected on them since (correct a changed answer on its replay, then rescore). The run rescored stays as it was.",
+    "Rescore a completed run on the test cases: a new eval run that replays nothing and scores the run's replays again, with what people corrected on them since (correct a changed answer on its replay, then rescore). The run rescored stays as it was.",
   usage: 'kindgi eval-runs rescore <run-id> [--project=<project-id>] [--wait]',
   optionSpec: {
     project: {

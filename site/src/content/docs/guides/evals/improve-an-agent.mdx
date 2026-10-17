@@ -13,7 +13,8 @@ An **Improve run** does the search a [suggested change](../propose-a-change/)
 starts from. It tries candidates on part of the test cases, within a budget,
 proves the best one on the cases it didn't learn from, and writes it as a
 suggested change only when it's better. A person still decides: the suggested
-change waits for a reviewer.
+change waits for a reviewer. On the CLI, `kindgi proposals passes` lists
+the Improve runs and `kindgi proposals` the suggested changes.
 
 ## Before you start
 
@@ -22,7 +23,7 @@ An Improve run needs what a suggested change does, as
 lists:
 
 - **an agent whose instructions or settings are data blocks;**
-- **judged test cases;**
+- **test cases;**
 - **a live version of the agent for the whole tenant.** Without one, the
   Improve run is refused with `proposal-needs-pin`;
 - **a deployed runtime,** with Kindgi 0.1's CLI. Under `kindgi dev`, it's
@@ -65,7 +66,7 @@ kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=acme.rank-
 - **The agent and scope:** `--agent` and `--tenant`, or another scope flag.
 - **The version** is the one serving the scope, unless `--from-version` names
   another.
-- **The test cases:** `--test-set`, judged ones.
+- **The test cases:** `--test-set`.
 - **The budget:** `--max-cost` in US dollars, 5 by default and at most 100,
   and `--max-candidates`, 30 by default and at most 200. An Improve run stops at
   whichever it reaches first. It checks the cost between runs on the test cases, so the
@@ -93,11 +94,12 @@ minutes, and prints it:
   sets `"separateApprover": false`.
 - **`nothing-found`**, with why. No candidate beat the current version by more
   than the noise on the 70%. Or the best one didn't beat the recorded outputs
-  on the 30%, and the outcome's comparison on the cases it didn't learn from gives both figures there.
-  Or the best one is a change an existing suggested change already holds. Or nothing
-  could be measured: an Improve run scores only the items of an output that corrections
-  cover (a ranking's entries, say). So a changed free-text answer is a new
-  answer no one has corrected yet and has nothing to score, and then you
+  on the 30%, and the outcome's figures on the cases it didn't learn from show
+  both. Or the best one is a change an existing suggested change already
+  holds. Or nothing could be measured: an Improve run scores only the items of
+  an output that corrections cover (a ranking's entries, say). So a changed
+  free-text answer is a new answer no one has corrected yet and has nothing to
+  score, and then you
   [judge the new answers, then rescore](../propose-a-change/#judge-the-new-answers-then-rescore).
   The reason also says if the Improve run ran out of budget before comparing the
   rest.
@@ -153,7 +155,7 @@ The cost is 0 on `dev-echo`, which costs nothing:
 
 By default, an Improve run counts only the corrections of the people you trust: those
 recorded under a
-[judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class) you
+[judge class](../judge-a-runs-output/#restrict-a-judge-class-to-experts) you
 restrict, `classWeights: "restricted-only"`. So who may steer it is a choice
 you make. `"as-recorded"` counts every correction, by its class's weight: set
 it in the API or the clients.
@@ -192,7 +194,7 @@ writes is tried on the test cases only if it stays within what the agent already
 - it quotes no test case: a run of 8 or more words in a row from what the
   drafter was shown is refused, and cut from the hypothesis it keeps.
 
-A refused template shows in the Improve run's `comparisons` with its issues, as
+A refused draft shows in the Improve run's `comparisons` with its issues, as
 `refused`, and each drafted one with its `hypothesis`. Here a local model
 drafted a template reading a variable the agent doesn't have. The drafts are
 that model's words, and yours will differ:
@@ -266,10 +268,10 @@ shows.
 
 ## In the console
 
-The same loop runs in the console. On an agent's proposals page, **Improve**
-starts an Improve run, and its page follows it. The suggested change it writes shows
-its verdict and the figures from the test cases, and a **Request promotion** button to
-send it for a decision. A schedule that starts Improve runs is made with the CLI,
+The same loop runs in the console. On an agent's **Suggested changes** page,
+**Improve** starts an Improve run, and its page follows it. The suggested
+change it writes shows its verdict and the figures from the test cases, and an
+**Ask to make it live** button to send it for a decision. A schedule that starts Improve runs is made with the CLI,
 the API or the clients, as
 [Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
 shows: the console lists schedules and can pause, resume, run or remove them, but
@@ -278,5 +280,5 @@ doesn't make them.
 ## Next
 
 - [Propose a change, and test it](../propose-a-change/)
-- [Judge a run's output](../judge-a-runs-output/)
+- [Mark a run's output right or wrong](../judge-a-runs-output/)
 - [Run on a schedule](../../runs/run-on-a-schedule/)

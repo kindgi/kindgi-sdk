@@ -166,7 +166,7 @@ const derive: LeafCommand = {
       type: 'string',
       multiple: true,
       description:
-        "Pin the agent's instructions block the version already uses to this version (`<block-id>=<version>`). Repeat for several.",
+        "Pin the prompt block the agent's instructions come from to this version (`<block-id>=<version>`).",
     },
     setting: {
       type: 'string',
@@ -378,13 +378,13 @@ const promote: LeafCommand = {
   kind: 'leaf',
   name: 'promote',
   description:
-    "Make a version live for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. With a release gate policy for the scope, the test-cases run named by --eval-run is checked first: the answer's `status` is `promoted`, or `pending-approval` (a reviewer approves it); a refusal lists every check. `--check` asks what would happen, changing nothing.",
+    "Make a version live for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. With a release gate policy for the scope, the run on the test cases named by --eval-run is checked first: the answer's `status` is `promoted`, or `pending-approval` (a reviewer approves it); a refusal lists every check. `--check` asks what would happen, changing nothing.",
   usage: `kindgi agents promote <agent-id> <version> ${SCOPE_USAGE} [--eval-run=<eval-run-id>] [--reason=<text>] [--check]`,
   optionSpec: {
     ...SCOPE_FLAGS,
     'eval-run': {
       type: 'string',
-      description: 'The test-cases eval run the release gate checks, kept on the record.',
+      description: 'The run on the test cases the release gate checks, kept on the record.',
     },
     check: {
       type: 'boolean',
@@ -501,7 +501,7 @@ const promotionsList: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description:
-    "List an agent's go-lives, rollbacks and unpins, newest first; name a scope for only its history.",
+    "List an agent's requests to make a version live, rollbacks and unpins, newest first; name a scope for only its history.",
   usage: `kindgi agents promotions list <agent-id> [${SCOPE_USAGE}] [--limit=<n>] [--cursor=<c>]`,
   optionSpec: { ...SCOPE_FLAGS, ...PAGE_FLAGS },
   run: (ctx) =>

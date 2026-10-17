@@ -90,7 +90,7 @@ const TARGET_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   improve: {
     type: 'string',
     description:
-      'Start Improve runs on this agent (instead of runs), when enough new experts\' "no" corrections have come in: for the project (--project), or a segment of it (--segment). `--input` takes the Improve options, `threshold` and `monthlyCapUsd`.',
+      'Start Improve runs on this agent (instead of runs), when enough new corrections from experts marking answers wrong have come in: for the project (--project), or a segment of it (--segment). `--input` takes the Improve options, `threshold` and `monthlyCapUsd`.',
   },
   segment: {
     type: 'string',
@@ -170,7 +170,7 @@ function improveScope(ctx: CommandContext): NonNullable<RegisterInput['improve']
   const segments = segmentsFlag(ctx);
   if (project === undefined) {
     throw new Error(
-      '--improve needs its scope: --project=<id> [--segment=<key:value>]… (an Improve run learns from one project; make it live for the whole tenant by hand after review)',
+      '--improve needs its scope: --project=<id> [--segment=<key:value>]… (an Improve run learns from one project; after review, make its suggested change live for the whole tenant by hand)',
     );
   }
   return segments.length > 0
