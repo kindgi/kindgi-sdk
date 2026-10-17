@@ -230,8 +230,9 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "license_key_expiring"
 # revoked, or the job can't reach the server (`server_ip_allowlist`), say.
 # A run that renews without them still succeeds, so the failed-run alert
 # never sees it. A production key's renewal carries no counts by design,
-# and says so with a reason of its own, which this leaves out. Severity 3
-# (Informational), below the other two's 2 (Warning): the key renewed.
+# and says so with a reason of its own, which this leaves out. Severity 2
+# (Warning), as the other two: an informational alert is easy to route
+# nowhere.
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "license_counts_not_sent" {
   count                = local.license_renewal && local.license_usage_counts ? 1 : 0
   name                 = "${var.name_prefix}-license-counts-not-sent"
@@ -239,7 +240,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "license_counts_not_se
   location             = local.location
   scopes               = [azurerm_log_analytics_workspace.kindgi.id]
   description          = "The license renewal ran without sending this deployment's counts: see the renewal job's last run for its line \"counts: not sent (<why>)\". Usually the system key in the vault secret ${var.license_usage_key_secret} has expired or been revoked, or the job can't reach the server (server_ip_allowlist). The key still renews without them, and a run that failed raises its own alert too."
-  severity             = 3
+  severity             = 2
   evaluation_frequency = "P1D"
   window_duration      = "P1D"
   # The console log table appears once something has logged.
