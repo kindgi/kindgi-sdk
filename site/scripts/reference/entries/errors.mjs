@@ -383,7 +383,7 @@ export const ERROR_ENTRIES = {
   },
   'run-held-by-parent': {
     description:
-      "The run is a subflow's child run, left for its parent run's next resume, which resumes it too. It isn't resumed on its own.",
+      "The run is a subflow's child run, left for its parent run's next resume, which resumes it too. Only the parent's resume resumes it, so a resume of the child itself is refused.",
     details: [
       {
         key: 'runId',
