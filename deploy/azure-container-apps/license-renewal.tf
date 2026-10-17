@@ -154,10 +154,11 @@ resource "azurerm_container_app_job" "license_renewal" {
 }
 
 # ---- alerts, with the job on ------------------------------------------------------
-# Two alerts, sent to `alert_action_groups` (none: they fire in Azure
-# Monitor only): a renewal that failed, and a key that expires within a
-# week, which `kindgi license renew` says on every run ("⚠ It expires in N
-# days"; a CLI test pins that line).
+# Sent to `alert_action_groups` (none: they fire in Azure Monitor only): a
+# renewal that failed, and a key that expires within a week, which `kindgi
+# license renew` says on every run ("⚠ It expires in N days"). With the
+# usage key, a third: a run that sent no counts, which renew says on its
+# counts line ("counts: not sent (<why>)"). CLI tests pin both lines.
 
 resource "azurerm_monitor_metric_alert" "license_renewal_failed" {
   count               = local.license_renewal ? 1 : 0
@@ -211,6 +212,45 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "license_key_expiring"
       ContainerAppConsoleLogs_CL
       | where column_ifexists("ContainerJobName_s", "") == "${var.name_prefix}-license-renew"
       | where Log_s matches regex @"It expires in (-[0-9]+|[0-6]) days"
+    KQL
+    time_aggregation_method = "Count"
+    operator                = "GreaterThan"
+    threshold               = 0
+  }
+
+  dynamic "action" {
+    for_each = length(var.alert_action_groups) == 0 ? [] : [var.alert_action_groups]
+    content {
+      action_groups = action.value
+    }
+  }
+}
+
+# The renewal went on without the counts: the usage key expired or was
+# revoked, or the job can't reach the server (`server_ip_allowlist`), say.
+# A run that renews without them still succeeds, so the failed-run alert
+# never sees it. A production key's renewal carries no counts by design,
+# and says so with a reason of its own, which this leaves out.
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "license_counts_not_sent" {
+  count                = local.license_renewal && local.license_usage_counts ? 1 : 0
+  name                 = "${var.name_prefix}-license-counts-not-sent"
+  resource_group_name  = data.azurerm_resource_group.kindgi.name
+  location             = local.location
+  scopes               = [azurerm_log_analytics_workspace.kindgi.id]
+  description          = "The license renewal ran without sending this deployment's counts: see the renewal job's last run for its line \"counts: not sent (<why>)\". Usually the system key in the vault secret ${var.license_usage_key_secret} has expired or been revoked, or the job can't reach the server (server_ip_allowlist). The key still renews without them, and a run that failed raises its own alert too."
+  severity             = 3
+  evaluation_frequency = "P1D"
+  window_duration      = "P1D"
+  # The console log table appears once something has logged.
+  skip_query_validation = true
+  tags                  = local.tags
+
+  criteria {
+    query                   = <<-KQL
+      ContainerAppConsoleLogs_CL
+      | where column_ifexists("ContainerJobName_s", "") == "${var.name_prefix}-license-renew"
+      | where Log_s contains "counts: not sent ("
+      | where Log_s !contains "counts: not sent (a production key's renewal carries no counts)"
     KQL
     time_aggregation_method = "Count"
     operator                = "GreaterThan"

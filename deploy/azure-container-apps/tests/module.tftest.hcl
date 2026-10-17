@@ -459,7 +459,7 @@ run "sign_in_with_providers_needs_public_url" {
 run "license_renewal_is_off_by_default" {
   command = plan
   assert {
-    condition     = length(azurerm_container_app_job.license_renewal) == 0 && length(azurerm_user_assigned_identity.license_renewer) == 0 && length(azurerm_role_definition.license_key_writer) == 0 && length(azurerm_role_assignment.license_renewer_reads) == 0 && length(azurerm_monitor_metric_alert.license_renewal_failed) == 0 && length(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring) == 0
+    condition     = length(azurerm_container_app_job.license_renewal) == 0 && length(azurerm_user_assigned_identity.license_renewer) == 0 && length(azurerm_role_definition.license_key_writer) == 0 && length(azurerm_role_assignment.license_renewer_reads) == 0 && length(azurerm_monitor_metric_alert.license_renewal_failed) == 0 && length(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring) == 0 && length(azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent) == 0
     error_message = "No schedule: no job, no renewer identity, no grants, no alerts."
   }
   assert {
@@ -512,6 +512,10 @@ run "license_renewal_on_a_schedule" {
   assert {
     condition     = !contains([for k, a in azurerm_role_assignment.server_reads : a.scope], "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/license-renewer")
     error_message = "The server never reads the renewer key."
+  }
+  assert {
+    condition     = length(azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent) == 0
+    error_message = "Without the usage key, renewals carry no counts, so nothing alerts on them."
   }
 }
 
@@ -572,8 +576,8 @@ run "license_usage_key_without_a_schedule" {
     }
   }
   assert {
-    condition     = length(azurerm_container_app_job.license_renewal) == 0 && length(azurerm_role_assignment.license_renewer_reads) == 0 && endswith(output.license_renew_command, "--runtime https://kindgi-server.acme-env.canadacentral.azurecontainerapps.io --runtime-token azure:https://kindgi-ab12.vault.azure.net/secrets/license-usage-key")
-    error_message = "No job and no grant, and the command carries the counts."
+    condition     = length(azurerm_container_app_job.license_renewal) == 0 && length(azurerm_role_assignment.license_renewer_reads) == 0 && length(azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent) == 0 && endswith(output.license_renew_command, "--runtime https://kindgi-server.acme-env.canadacentral.azurecontainerapps.io --runtime-token azure:https://kindgi-ab12.vault.azure.net/secrets/license-usage-key")
+    error_message = "No job, no grant and no alert, and the command carries the counts."
   }
 }
 
@@ -684,6 +688,34 @@ run "license_renewal_alerts" {
   assert {
     condition     = toset([for a in azurerm_monitor_metric_alert.license_renewal_failed[0].action : a.action_group_id]) == toset(var.alert_action_groups) && toset(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring[0].action[0].action_groups) == toset(var.alert_action_groups)
     error_message = "Both go to the action groups."
+  }
+}
+
+# With the usage key, a third: a run whose counts line says it sent none. A
+# production key's renewal never carries counts and says so with a reason of
+# its own, which doesn't alert. A warning, not an error: the key renewed.
+run "license_renewal_alerts_with_counts" {
+  command = plan
+  variables {
+    license_renewal_schedule = "17 6 * * *"
+    license_usage_key_secret = "license-usage-key"
+    alert_action_groups      = ["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-ops/providers/microsoft.insights/actionGroups/oncall"]
+  }
+  assert {
+    condition     = strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].criteria[0].query, "== \"kindgi-license-renew\"") && strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].criteria[0].query, "| where Log_s contains \"counts: not sent (\"") && azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].scopes == tolist([azurerm_log_analytics_workspace.kindgi.id])
+    error_message = "The job's line saying the renewal sent no counts alerts, from the environment's workspace."
+  }
+  assert {
+    condition     = strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].criteria[0].query, "| where Log_s !contains \"counts: not sent (a production key's renewal carries no counts)\"")
+    error_message = "A production key's renewal, which never carries counts, doesn't alert."
+  }
+  assert {
+    condition     = azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].severity == 3 && azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].name == "kindgi-license-counts-not-sent" && strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].description, "the vault secret license-usage-key")
+    error_message = "A warning, named for what it says, and it names the usage key's secret."
+  }
+  assert {
+    condition     = toset(azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].action[0].action_groups) == toset(var.alert_action_groups)
+    error_message = "It goes to the action groups too."
   }
 }
 
