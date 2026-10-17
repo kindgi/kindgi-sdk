@@ -268,9 +268,10 @@ What to check before you upgrade, and what's different after:
     ([Renew the license key](../renew-the-license-key/)).
   - **Where the license stands:** `GET /v1/license` answers its `standing`
     (`valid`, `expiring`, `grace` or `expired`), `daysLeft` and its dates.
-    The deployment's token reads all of it; where the deployment serves one
-    tenant, that tenant's admins read the countdown only, and anyone else
-    gets `403 license-operator-only`.
+    The deployment's token reads all of it. Where the deployment is set up
+    to serve one tenant (without `KINDGI_TENANCY=multi`) and its database
+    holds only that one, that tenant's admins read the countdown only.
+    Anyone else gets `403 license-operator-only`.
   - **A tool's env values in a unit test:** `invokeToolForTest` and
     `toolContextForTest` in `@kindgi/sdk/define` decide them as a run does
     ([Give a tool per-project values](../../guides/tools/give-a-tool-env-values/#test-it)).
