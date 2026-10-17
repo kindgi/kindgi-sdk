@@ -5,9 +5,9 @@ import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, EnvName, Result } from '@kindgi/types';
 
-import type { ResolveContext } from './secrets-binding.js';
+import type { EnvNamesInput, ResolveContext } from './secrets-binding.js';
 
-export type { ResolveContext } from './secrets-binding.js';
+export type { EnvNamesInput, ResolveContext } from './secrets-binding.js';
 
 /**
  * Caller-plugged env store — non-sensitive per-env values. Same
@@ -53,6 +53,16 @@ export interface EnvBinding {
    * means gone.
    */
   delete(input: EnvDeleteInput): Promise<EnvDeleteOutcome>;
+
+  /**
+   * The env names this store holds a value under, at any scope of the
+   * tenant: the `envName` of each entry `list` returns. Each name once, in
+   * byte order, after `input.after`, at most `input.limit`.
+   * `GET /v1/environments` reads it; with a store that leaves it unset,
+   * that route answers `501 environments-unsupported`. A store that can't
+   * read throws, and the route answers `500`.
+   */
+  listEnvNames?(input: EnvNamesInput): Promise<readonly EnvName[]>;
 }
 
 export interface EnvRecord {

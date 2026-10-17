@@ -60,6 +60,7 @@ import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import type { OptionValue } from '../parse.js';
 import { type RateLimitRefusal, isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
+import { SLUG } from '../slug.js';
 import { runBuild } from './build.js';
 import type { EnvironmentConfig, PackConfig } from './build.js';
 import type { CommandResult, LeafCommand } from './types.js';
@@ -124,7 +125,7 @@ export const deployCommand: LeafCommand = {
     'sync-secrets': {
       type: 'boolean',
       description:
-        "After the deploy lands, also send the values in `.env.<env>` to the deployment's secrets. Off by default.",
+        "After the deploy lands, also send the values in `.env.<env>` to the deployment's secrets. Off by default. A hosted deploy needs --env with it.",
     },
     // Deploy although a name the pack's env.required declares has no
     // value for --env (the pack service won't be ready until it has).
@@ -147,7 +148,7 @@ export const deployCommand: LeafCommand = {
     out: {
       type: 'string',
       description:
-        'Where the envelope is looked for, and an inline build writes. Default: `.kindgi/build` under the pack root.',
+        'Where the envelope is looked for, and an inline build writes (default: `.kindgi/build`). An inline build applies the same --out rules as `kindgi build`: not the pack root or a directory containing it, and under it for a TypeScript pack.',
     },
     'artifact-version': {
       type: 'string',
@@ -792,11 +793,23 @@ const PACK_SERVICE_PROBLEMS: Readonly<Record<string, string>> = {
   'endpoint-info-mismatch': 'the pack service answered as another pack or version',
 };
 
+/** Why no pack service is wanted for a cleared deployment now, by its `retired` reason. */
+const PACK_SERVICE_RETIRED: Readonly<Record<string, string>> = {
+  superseded:
+    'a later deploy ships every tool version and check this one does, so no new call reaches it',
+  'tenant-closing': 'your workspace is closing',
+  'tenant-suspended': "your workspace is suspended, until it's restored",
+  'project-suspended': "its project is suspended, until it's restored",
+  'pack-suspended': "its pack is suspended, until it's restored",
+};
+
 /**
  * Waits for the deployment's own pack service to be `ready`, reading the
- * deployment again every 2 s and saying each new state once. Fails when
- * it's `cleared`, after 5 minutes, after a few failed reads in a row, or
- * on Ctrl+C. The deployment is in place whatever it finds.
+ * deployment again every 2 s and saying each new state once. A `cleared`
+ * one that's `waiting` (a suspension that took it down was lifted) is
+ * waited for like a pending one. Fails when it's `cleared` otherwise (saying
+ * why, when the server says), after 5 minutes, after a few failed reads in
+ * a row, or on Ctrl+C. The deployment is in place whatever it finds.
  */
 async function waitForPackService(
   ctx: CommandContext,
@@ -829,7 +842,7 @@ async function waitForPackService(
       if (settled.kind === 'ok') line('    ✓ ready\n');
       return settled;
     }
-    const state = pendingState(endpoint);
+    const state = waitingState(endpoint);
     if (state !== said) line(`    … ${state}`);
     said = state;
     if (now() - started >= PACK_SERVICE_WAIT_MS) {
@@ -883,7 +896,11 @@ function stoppedWaiting(why: string, deploymentId: string) {
   };
 }
 
-/** A pack service that's done with: `ready`, or `cleared` (a failure); else undefined. */
+/**
+ * A pack service that's done with: `ready`, or `cleared` and not `waiting`
+ * (a failure, with the server's reason when it gives one: an older server
+ * gives none); else undefined.
+ */
 function settledPackService(
   endpoint: DeploymentEndpointRecord,
   id: string,
@@ -892,20 +909,31 @@ function settledPackService(
   | { readonly kind: 'error'; readonly message: string }
   | undefined {
   if (endpoint.status === 'ready') return { kind: 'ok', endpoint };
-  if (endpoint.status === 'cleared') {
+  if (endpoint.status !== 'cleared' || endpoint.waiting === true) return undefined;
+  if (endpoint.retired === undefined) {
     return {
       kind: 'error',
-      message: `The deployment's pack service was taken down before it was ready (cleared). deploymentId ${id}.\n`,
+      message: `The deployment's pack service was taken down (cleared). deploymentId ${id}.\n`,
     };
   }
-  return undefined;
+  const why = PACK_SERVICE_RETIRED[endpoint.retired] ?? 'none is wanted for it now';
+  return {
+    kind: 'error',
+    message: `The deployment's pack service was taken down (cleared, ${endpoint.retired}): ${why}. deploymentId ${id}.\n`,
+  };
 }
 
-/** A pending pack service, as the wait says it: `pending`, and why when there's a problem. */
-function pendingState(endpoint: DeploymentEndpointRecord): string {
-  if (endpoint.problem === undefined) return 'pending';
+/**
+ * A pack service being waited for, as the wait says it: `pending`, or
+ * `cleared, waiting for its pack service again`, and why when there's a
+ * problem.
+ */
+function waitingState(endpoint: DeploymentEndpointRecord): string {
+  const state =
+    endpoint.status === 'cleared' ? 'cleared, waiting for its pack service again' : 'pending';
+  if (endpoint.problem === undefined) return state;
   const why = PACK_SERVICE_PROBLEMS[endpoint.problem.code] ?? 'not ready yet';
-  return `pending (${endpoint.problem.code}): ${why}`;
+  return `${state} (${endpoint.problem.code}): ${why}`;
 }
 
 function sleepUnlessStopped(ms: number, signal?: AbortSignal): Promise<void> {
@@ -966,7 +994,7 @@ async function resolveProject(
   if (only === undefined) {
     return {
       kind: 'error',
-      message: `--project ${ref}: no project of this tenant has that slug. \`kindgi projects list\` shows them.\n`,
+      message: `--project ${ref}: no project of this tenant has that slug. \`kindgi projects list\` shows them; \`kindgi projects create --name=<name> --slug=${SLUG.test(ref) ? ref : '<slug>'}\` makes one.\n`,
     };
   }
   if (more.length > 0) {
@@ -1002,7 +1030,8 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
 
   // --env — default staging (matches build's default).
   const envFlag = ctx.options.env;
-  const envName = typeof envFlag === 'string' && envFlag !== '' ? envFlag : 'staging';
+  const envGiven = typeof envFlag === 'string' && envFlag !== '';
+  const envName = envGiven ? envFlag : 'staging';
   const envBlock =
     cfg.environments?.[envName] !== undefined
       ? ((cfg.environments as Record<string, EnvironmentConfig>)[envName] as EnvironmentConfig)
@@ -1019,6 +1048,17 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       kind: 'error',
       stderr:
         '--hosted builds on the hosted build service, and --build-endpoint names another build server: leave one out.\n',
+      exitCode: 1,
+    };
+  }
+  // A hosted runtime reads a deployment's secrets in the env it serves.
+  // Without --env the sync would send `.env.staging` under `staging`,
+  // which it may never read: the env is named, not defaulted.
+  if (hosted && ctx.options['sync-secrets'] === true && !envGiven) {
+    return {
+      kind: 'error',
+      stderr:
+        "--sync-secrets on a hosted deploy needs --env. A hosted runtime reads a deployment's secrets in the env it serves; without --env, the values in .env.staging would go up under staging. Pass --env=<the env it serves>.\n",
       exitCode: 1,
     };
   }

@@ -135,7 +135,7 @@ export const ERROR_ENTRIES = {
   },
   'permission-denied': {
     description:
-      "Your key or session isn't allowed to do this on this resource, or lacks a capability the route needs. Ask an admin for the permission or use a key that has it.",
+      "Your key or session isn't allowed to do this on this resource, or lacks a capability the route needs, which the message names. For a permission, ask an admin for it. A key carries only the capabilities it was made with, and only ones the person who made it holds: use a key made with that capability.",
     details: [
       {
         key: 'action',
@@ -947,6 +947,16 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'invite-capped': {
+    description:
+      "Too many invitations sent, to this person or from the tenant: the limits are the server's. Nothing changed and nothing was sent. Try again after the `Retry-After` header, or, if their invitation hasn't expired, tell them to sign in.",
+    details: [
+      {
+        key: 'userId',
+        meaning: 'the person whose invitation was to be sent again',
+      },
+    ],
+  },
   'turn-memory-limit-reached': {
     description:
       "The runtime's agent turns hold more memory than its limit leaves this turn: the tenant's share (`KINDGI_TURN_MEMORY_PER_TENANT_MIB`) or the runtime's whole (`KINDGI_TURN_MEMORY_MIB`). The turn's run fails, and every tool call it finished is in the conversation, so a new turn there doesn't call it again. Retry later, or use a smaller conversation.",
@@ -975,6 +985,12 @@ export const ERROR_ENTRIES = {
       'The server hit an unexpected error while handling the request. Retry; if it persists, contact support with the `requestId`.',
     details: [],
     seeAlso: ['GET /v1/deployments'],
+  },
+  'database-busy': {
+    description:
+      "The database was too busy to answer the read in time: a lock held by other work or a query past the database's time limit ended it, or no database connection came free within the server's wait. Only a `GET` or `HEAD` answers it. Retry after the `Retry-After` header. A request with any other method that the database was too busy for answers a 500 (`internal-server-error`, or the code of what failed, such as `persistence-error`), since it may have saved part of its work: check what it changed before you send it again.",
+    details: [],
+    seeAlso: ['GET /v1/runs'],
   },
   'journal-error': {
     description:
@@ -1099,7 +1115,7 @@ export const ERROR_ENTRIES = {
   },
   'export-key-error': {
     description:
-      "Signing the export with the deployment's export key failed. The message carries the reason.",
+      "Signing the export with the deployment's export key failed. The reason is in the runtime's log, not the message.",
     details: [],
     seeAlso: ['POST /v1/approvals/{approvalId}/audit-bundle', 'POST /v1/provenance/{runId}/export'],
   },
@@ -1838,7 +1854,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-closing': {
     description:
-      "The tenant is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers that proves its sender is refused the same way, and nothing is recorded for it. A schedule's or webhook trigger's fire whose run starts as the tenant starts closing is recorded `skipped`, with `tenant-closing` in its `detail`, and doesn't count toward a schedule's auto-pause. The system routes that change its settings, limits, image prefix, a suspension or a deployment's endpoint refuse a closing tenant; clearing its deployments' endpoints, which retires its pack services, still works. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+      "The tenant is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers that proves its sender is refused the same way, and nothing is recorded for it. A schedule's or webhook trigger's fire whose run starts as the tenant starts closing is recorded `skipped`, with `tenant-closing` in its `detail`, and doesn't count toward a schedule's auto-pause. An eval run or an improvement pass going as it starts closing stops at its next case: it ends `cancelled`, with `tenant-closing` in its `cancelReason`. The system routes that change its settings, limits, image prefix, a suspension or a deployment's endpoint refuse a closing tenant; clearing its deployments' endpoints, which retires its pack services, still works. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
     details: [
       {
         key: 'state',
@@ -1852,7 +1868,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-suspended': {
     description:
-      "The tenant is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: tenant-suspended`, and nothing is recorded or kept for it. A sender that can redeliver by hand can resend it once the tenant is restored, and a restore is seen within 5 seconds. Its schedules don't fire while it's suspended, and nothing is caught up: at the restore, a schedule's or webhook trigger's fire whose run or pass hadn't started is recorded `skipped`, with `tenant-suspended` in its `detail`, and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A fire whose run was starting as the tenant was suspended is recorded `skipped` right away, with `tenant-suspended` in its `detail`. None of it counts toward a schedule's auto-pause. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+      "The tenant is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: tenant-suspended`, and nothing is recorded or kept for it. A sender that can redeliver by hand can resend it once the tenant is restored, and a restore is seen within 5 seconds. Its schedules don't fire while it's suspended, and nothing is caught up: at the restore, a schedule's or webhook trigger's fire whose run or pass hadn't started is recorded `skipped`, with `tenant-suspended` in its `detail`, and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. An eval run or an improvement pass going as it's suspended stops at its next case: it ends `cancelled`, with `tenant-suspended` in its `cancelReason`. A fire whose run was starting as the tenant was suspended is recorded `skipped` right away, with `tenant-suspended` in its `detail`. None of it counts toward a schedule's auto-pause. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
     details: [
       {
         key: 'state',
@@ -1956,6 +1972,16 @@ export const ERROR_ENTRIES = {
   'identity-user-unregistered': {
     description: "The person was removed from the tenant, so they can't be granted anything.",
     details: [],
+  },
+  'identity-user-not-invited': {
+    description:
+      'The person has no invitation to send again: they have signed in already, were added before invitations, or have no email. Nothing changed.',
+    details: [
+      {
+        key: 'userId',
+        meaning: 'the person',
+      },
+    ],
   },
   'person-grants-unsupported': {
     description:
@@ -2099,12 +2125,12 @@ export const ERROR_ENTRIES = {
   },
   'invalid-mcp-endpoint': {
     description:
-      "The body of `POST /v1/mcp/endpoints` isn't a valid MCP endpoint registration: an unknown field, a missing or empty id or name, an unknown transport, or a config that doesn't match its transport.",
+      "The body of `POST /v1/mcp/endpoints` isn't a valid MCP endpoint registration: an unknown field, a missing or empty id or name, an id with a `.`, an unknown transport, or a config that doesn't match its transport.",
     details: [
       {
         key: 'reason',
         meaning:
-          'short machine-readable reason, such as `unknown-field`, `empty-endpoint-id`, `unknown-transport`, `missing-config`, `config-transport-mismatch` or `invalid-secret-ref`',
+          'short machine-readable reason, such as `unknown-field`, `empty-endpoint-id`, `dot-in-endpoint-id`, `unknown-transport`, `missing-config`, `config-transport-mismatch` or `invalid-secret-ref`',
       },
     ],
   },
@@ -2262,6 +2288,75 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/sso/sessions'],
   },
+  'limited-session-not-refreshable': {
+    description:
+      "`POST /v1/auth/refresh` was called with a session limited to a project or a role. Such a session isn't refreshed, so no copy of it can come back without its limits. Get a new one where you got this one.",
+    details: [],
+  },
+  'limited-session-cannot-mint': {
+    description:
+      "`POST /v1/tokens` was called by a session limited to a project or a role. A limited session mints no keys: a key would outlive whatever ends the session. Mint the key with an API key, or with a session that isn't limited.",
+    details: [
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+  },
+  'site-not-found': {
+    description:
+      "No site with that id in the project the path names, or, revoking a key, no key with that id on the site. `GET /v1/projects/{projectId}/sites` lists the project's sites.",
+    details: [],
+  },
+  'site-invalid': {
+    description:
+      "A site's settings were refused. Registering one needs a `displayName`, an `origin` and an `approvalsUrl`, and a setting the API doesn't know is refused. An `origin` is `https://` with no path, query, fragment or credentials (`http://` only on a loopback host); an `approvalsUrl` is on that origin, with `{approvalId}` in it; `allowedRoles` holds 1 to 20 role names of up to 64 characters (a-z, 0-9, `_` and `-`); a `roleMap` names only roles in `allowedRoles`, and its reviewer roles are `standard` or `senior`, never above `reviewerCeiling`; a `displayName` is 1 to 100 characters, with no control, format or invisible characters; `peopleCap` is a whole number from 1 to 10,000, and `newPeoplePerDay` from 1 to 1,000. The message says the rule that was broken.",
+    details: [
+      {
+        key: 'field',
+        meaning: 'the setting that was refused',
+      },
+    ],
+  },
+  'site-enrollment-refused': {
+    description:
+      '`POST /v1/auth/sites/enroll` was refused: the enrollment code is wrong, used or expired, or its site is paused or unregistered. Each of these gets the same answer. Ask a tenant admin for a new enrollment code.',
+    details: [],
+  },
+  'site-key-invalid': {
+    description:
+      "The key a site posts to `POST /v1/auth/sites/enroll` isn't an Ed25519 public JWK: `kty` `OKP`, `crv` `Ed25519`, `x` the 32-byte public key in base64url, and a `kid` of 1 to 64 letters, digits, `.`, `_` and `-`. A JWK with a private part (`d`) is refused too: post the public half only. The message says which part is wrong.",
+    details: [],
+  },
+  'site-sign-in-refused': {
+    description:
+      "`POST /v1/auth/site-sign-in` refused the site's statement about a person. Until the statement's signature checks out, every refusal has the reason `not-verified`, so a caller learns nothing about the site. After it, the reason is the check that refused it: `site-paused`, `site-not-vouching`, `wrong-audience`, `expired`, `issued-in-the-future`, `too-long-lived`, `replayed`, `role-not-allowed`, `person-removed` or `people-cap`.",
+    details: [
+      {
+        key: 'reason',
+        meaning:
+          "why: `not-verified` until the statement's signature checks out, then the check that refused it",
+      },
+    ],
+  },
+  'site-request-too-large': {
+    description:
+      'A body sent to `POST /v1/auth/sites/enroll` or `POST /v1/auth/site-sign-in` is over 4096 bytes. Those routes take a few small fields: send only those.',
+    details: [],
+  },
+  'site-person-grants-managed': {
+    description:
+      "The request would change what a person a site signs in may do: give them or take away a grant, a tenant role, a project or team membership or its role, or a reviewer role, or mint them a key. Such a person holds only what their site's sign-in writes: their next sign-in would undo a change, and a key would outlive a paused or unregistered site. Change their role on the site, remove the person, or pause the site instead.",
+    details: [],
+  },
   'token-sign-in-needs-an-api-token': {
     description:
       "`POST /v1/auth/token-sign-in` was called while signed in by a session. It takes an API token in the Authorization header, so there's nothing to exchange.",
@@ -2352,10 +2447,12 @@ export const ERROR_ENTRIES = {
   },
   'project-suspended': {
     description:
-      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, or the operator setting the pack service of one of its deployments. What's already deployed stays. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or pass: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project.",
+      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an eval run started in it, an improvement pass for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. An eval run or a pass already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or pass: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project.",
     details: [],
     seeAlso: [
       'POST /v1/deployments',
+      'POST /v1/eval-suites/{suiteId}/runs',
+      'POST /v1/proposals/improve',
       'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
     ],
   },
@@ -2411,11 +2508,11 @@ export const ERROR_ENTRIES = {
   },
   'endpoint-not-pending': {
     description:
-      "A problem was recorded for a deployment whose pack service isn't pending. A problem goes with `pending` only.",
+      "A problem was sent for a deployment that isn't waiting for a pack service. A problem goes with a `pending` one, or a `cleared` one listed as needing a pack service again (`waiting`, once a suspension is lifted).",
     details: [
       {
         key: 'status',
-        meaning: "the deployment's endpoint status now: `ready` or `cleared`",
+        meaning: "the deployment's endpoint status now: `ready`, or `cleared` and not `waiting`",
       },
     ],
     seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem'],
@@ -2571,6 +2668,11 @@ export const ERROR_ENTRIES = {
       "The runtime has no authorization store, so it can't say who has access to the project.",
     details: [],
   },
+  'environments-unsupported': {
+    description:
+      "The runtime's env store or secrets store can't list the env names it holds, so the tenant's environments can't be listed whole. The message names the store.",
+    details: [],
+  },
   'provider-key-refused': {
     description:
       "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint or a webhook endpoint. Store the key under its own name and use that name.",
@@ -2661,7 +2763,7 @@ export const ERROR_ENTRIES = {
     details: [
       {
         key: 'policyKind',
-        meaning: 'the kind of policy that failed, for example `hitl`',
+        meaning: 'the kind of policy that failed: `hitl`, `model-routing` or `tool-errors`',
       },
     ],
     seeAlso: ['deploy/operate'],
@@ -3046,7 +3148,7 @@ export const OUTSIDE_THE_MAP = [
     code: 'sign-in-unavailable',
     status: 500,
     description:
-      "Signing in failed on the server, for example because its database didn't answer. Nothing about the cause is sent to the browser; a sign-in page shows the code instead of JSON. Try again.",
+      "Signing in failed on the server, for example because its database didn't answer. Nothing about the cause is sent to the browser; a sign-in page shows the code instead of JSON. The runtime's log says why, as an `sso` warning: `sign-in request failed: <reason>`. Try again.",
     seeAlso: ['deploy/sign-in'],
   },
 ];

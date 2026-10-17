@@ -40,6 +40,9 @@ describe('loadConfig: which file each value came from, and the address stored wi
         token: { path: HOME_FILE, kind: 'home' },
       },
       keyAddress: SIGNED_IN,
+      storedKeys: [
+        { token: 'kgi_tk_home', apiUrl: SIGNED_IN, file: { path: HOME_FILE, kind: 'home' } },
+      ],
     });
   });
 
@@ -100,6 +103,9 @@ describe("loadConfig: a folder's .kindgirc.json for a `kindgi dev` runtime", () 
             token: { path: HOME_FILE, kind: 'home' },
           },
           keyAddress: SIGNED_IN,
+          storedKeys: [
+            { token: 'kgi_tk_home', apiUrl: SIGNED_IN, file: { path: HOME_FILE, kind: 'home' } },
+          ],
         },
       });
     },

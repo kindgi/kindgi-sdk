@@ -13,11 +13,13 @@ import type { OutputFormat } from './output.js';
 export const GLOBAL_OPTION_SPEC = {
   url: {
     type: 'string' as const,
-    description: "The Kindgi API's URL. Overrides `KINDGI_API_URL` and the config files.",
+    description:
+      "The Kindgi API's URL. Overrides `KINDGI_API_URL` and the config files. A stored key goes only to the address stored with it.",
   },
   token: {
     type: 'string' as const,
-    description: 'The API token. Overrides `KINDGI_API_TOKEN` and the config files.',
+    description:
+      'The API token. Overrides `KINDGI_API_TOKEN` and the config files, and goes to the address the command does.',
   },
   verbose: {
     type: 'boolean' as const,

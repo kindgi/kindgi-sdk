@@ -197,7 +197,9 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    * `policyRegistry.evaluate('model-routing', {tenantId})` and merges
    * the result with `tenantPolicy` before routing. Without a registry
    * (or without an executor for that kind), `tenantPolicy` applies
-   * alone.
+   * alone. The turn reads `hitl` and `tool-errors` through it too; an
+   * evaluation of any of the three that throws fails the turn with
+   * `tenant-policy-unavailable`.
    */
   readonly policyRegistry?: PolicyRegistry;
   readonly embeddingRegistry?: EmbeddingProviderRegistry;
@@ -288,6 +290,18 @@ export interface HitlEnqueueInput {
   readonly subjectKind: string;
   readonly subjectRef: Readonly<Record<string, unknown>>;
   readonly requiredRole?: 'standard' | 'senior' | 'admin';
+  /**
+   * Who asked: the person the turn runs for (`user:<id>`,
+   * `service_account:<id>` or `system:<id>`), the same when another
+   * person's decision resumes it. Absent when the turn runs for no one.
+   */
+  readonly requestedBy?: string;
+  /**
+   * Four eyes: the person who asked (`requestedBy`) may not approve it.
+   * From the agent's `conversationPolicy.hitl.separateApprover`; absent =
+   * `false`.
+   */
+  readonly separateApprover?: boolean;
   readonly title?: string;
   readonly description?: string;
   readonly context?: Readonly<Record<string, unknown>>;

@@ -204,6 +204,10 @@ export function guardProviderKeys(
     ...(binding.nameRefusal !== undefined && {
       nameRefusal: (name: string) => binding.nameRefusal?.(name),
     }),
+    // Env names only: nothing a key could be read from.
+    ...(binding.listEnvNames !== undefined && {
+      listEnvNames: binding.listEnvNames.bind(binding),
+    }),
     async resolve(input) {
       const refused = await refusal(input.scope.tenantId, input.name);
       if (refused === undefined) return binding.resolve(input);
@@ -243,6 +247,7 @@ const GUARDED_MEMBERS = [
   'getVersion',
   'writesAppEnvFiles',
   'nameRefusal',
+  'listEnvNames',
 ] as const satisfies readonly (keyof SecretBinding)[];
 type Unguarded = Exclude<keyof SecretBinding, (typeof GUARDED_MEMBERS)[number]>;
 // `true` while every member is listed; an unlisted one makes it its name, and this fails.
