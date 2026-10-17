@@ -794,8 +794,9 @@ once one kind's versions are unregistered, the id is free for the other.
 MCP endpoint "<endpoint>" tool "<tool>" skipped: its id <id> is a tool published here (version <v>), not the endpoint's; unregister that tool's versions to free the id
 ```
 
-A tool published while the endpoint's tools were being listed is named
-without its version.
+A tool published during the sync, after it reads that id's versions and
+before it writes the endpoint's tool, is named without its version; the
+endpoint's tool is skipped all the same.
 
 To fix it, give one of them another id: rename the pack or the tool, or
 register the endpoint under another id. Or free the id: unregister the
@@ -813,8 +814,9 @@ either: a tool stays in the project its first version was published into,
 so that's `tool-project-mismatch`.
 
 An id that holds both kinds' active versions from an earlier runtime is
-served as neither, as before. A new version of either kind is refused until
-one kind's active versions are unregistered.
+served as neither, as before. Until every active version of one kind is
+unregistered, a new version of either kind is refused, and the endpoint's
+tool is skipped with the `WARN` above.
 
 ## Transports
 
