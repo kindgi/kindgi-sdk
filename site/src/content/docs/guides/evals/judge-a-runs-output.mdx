@@ -216,7 +216,7 @@ run's own retention. The clients have the same: `judgments.list`,
 Without a class, every correction counts once. A **judge class** counts some
 corrections more, for the tenant, a project, or an agent in a project.
 
-Add a class, then mark as it:
+Add a class, then mark runs as that class:
 
 ```sh
 kindgi judge-classes add --name=expert --weight=3 --project=<project-id>
@@ -237,8 +237,8 @@ The correction now counts with the class's weight.
 
 ### Restrict a judge class to experts
 
-A restricted class says who may mark as it, so the people using your app
-can't move the figures that release a version.
+A restricted class says who may mark runs as that class, so the people
+using your app can't move the figures that release a version.
 
 Add the class with a restriction, before your reviewers mark runs:
 
@@ -249,7 +249,7 @@ kindgi judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=s
 - `--tenant` makes it the tenant's class.
 - `--min-reviewer-role=senior` lets only a
   [reviewer](../../approvals/decide-an-approval/#reviewers-and-roles) of that
-  role or above mark as it: `standard`, `senior` or `admin`.
+  role or above mark runs as that class: `standard`, `senior` or `admin`.
 - `--description` says who it is for.
 - `--principal-kind=user|service` and `--principal-id=<id>`, which repeat,
   restrict it to people or service tokens, or to named ones.
