@@ -53,6 +53,7 @@ import type {
   ReviewerBinding,
   ReviewerRegistryBinding,
   RunHandlerBinding,
+  SecondFactorBinding,
   SecretBinding,
   ServiceAccountBinding,
   SessionStoreBinding,
@@ -479,6 +480,19 @@ const noopIdentityDirectory: IdentityDirectoryBinding = {
   resendInvite: async () => ({ kind: 'not-found' }),
 };
 
+const noSettings = { required: false, onPreviousSecret: 0, unusable: 0 };
+const noopSecondFactor: SecondFactorBinding = {
+  status: async () => ({ setUp: false, started: false }),
+  start: async () => ({ kind: 'proof-needed' }),
+  confirm: async () => ({ kind: 'not-started' }),
+  newRecoveryCodes: async () => ({ kind: 'not-set-up' }),
+  remove: async () => ({ kind: 'not-set-up' }),
+  removeFor: async () => false,
+  required: async () => false,
+  settings: async () => noSettings,
+  setRequired: async () => noSettings,
+};
+
 const serviceAccountNotFound = {
   kind: 'err',
   error: { code: 'service-account-not-found', message: 'noop' },
@@ -635,6 +649,7 @@ export function fullAppInput(): CreateAppInput {
     session: { cookie: { allowedOrigins: ['https://console.example.com'] }, tokenSignIn: true },
     identityProvider: noopIdentityProvider,
     identityDirectory: noopIdentityDirectory,
+    secondFactor: noopSecondFactor,
     deploymentRegistry: noopDeploymentRegistry,
     signingKeyRegistry: noopSigningKeyRegistry,
     imageRegistry: noopImageRegistry,

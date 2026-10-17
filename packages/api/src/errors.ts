@@ -385,6 +385,19 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'license-operator-only': 403,
   'invalid-provider-config': 400,
   'auth-not-session-token': 400,
+  // A second factor (`/v1/identity/me/second-factor*`, token sign-in):
+  // the tenant requires one (token sign-in can't give it; taking yours
+  // off); a code that isn't right; too many wrong ones lately (with
+  // `Retry-After`); a key that can't be opened any more (a recovery code
+  // still works); requiring one from a session made without one; none set
+  // up; no new key to confirm.
+  'second-factor-required': 403,
+  'second-factor-invalid': 403,
+  'second-factor-locked': 429,
+  'second-factor-unusable': 403,
+  'second-factor-enroll-first': 409,
+  'second-factor-not-set-up': 409,
+  'second-factor-not-started': 409,
   // `POST /v1/auth/refresh` with a browser session (cookie): refused, so a
   // fresh session token never reaches page scripts.
   'cookie-session-not-refreshable': 400,

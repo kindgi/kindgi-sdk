@@ -443,6 +443,13 @@
           "license-operator-only": 403,
           "invalid-provider-config": 400,
           "auth-not-session-token": 400,
+          "second-factor-required": 403,
+          "second-factor-invalid": 403,
+          "second-factor-locked": 429,
+          "second-factor-unusable": 403,
+          "second-factor-enroll-first": 409,
+          "second-factor-not-set-up": 409,
+          "second-factor-not-started": 409,
           "cookie-session-not-refreshable": 400,
           "limited-session-not-refreshable": 400,
           "limited-session-cannot-mint": 403,
@@ -15879,6 +15886,177 @@
           },
           "inviteEmail": {
             "$ref": "#/components/schemas/InviteEmail"
+          }
+        }
+      },
+      "SecondFactorProof": {
+        "description": "Exactly one: a code from the authenticator app, or one of the recovery codes (used up by this).",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "recoveryCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      },
+      "SecondFactorConfirmBody": {
+        "description": "A code from the new key, as the authenticator app shows it.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      },
+      "SecondFactorStatus": {
+        "description": "A person's second factor, and whether their workspace requires one. With `setUp`, `since`, `recoveryCodesLeft` and `usable` are given; without it, `started`. Never a key or a code.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "setUp",
+          "required"
+        ],
+        "properties": {
+          "setUp": {
+            "type": "boolean"
+          },
+          "started": {
+            "type": "boolean",
+            "description": "A key was given to set one up, and isn't confirmed yet."
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recoveryCodesLeft": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "usable": {
+            "type": "boolean",
+            "description": "`false`: its key can't be opened any more (the sign-in secret changed past it). A recovery code still works, as does setting it up again, or an admin removing it."
+          },
+          "required": {
+            "type": "boolean",
+            "description": "The workspace requires a second factor at sign-in."
+          }
+        }
+      },
+      "SecondFactorKey": {
+        "description": "A new key to set up, shown this once: `uri` for an authenticator app (as a QR code), `key` to type in. Nothing changes until it is confirmed.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "uri"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "The key, in base32."
+          },
+          "uri": {
+            "type": "string",
+            "description": "The `otpauth://totp/` URI."
+          }
+        }
+      },
+      "SecondFactorRecoveryCodes": {
+        "description": "The 10 recovery codes, shown this once. Each signs in once in place of a code from the app; any earlier ones stop working.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "recoveryCodes"
+        ],
+        "properties": {
+          "recoveryCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SecondFactorRemoved": {
+        "description": "`false` when there was none to remove.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "removed"
+        ],
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AuthSettings": {
+        "description": "The workspace's sign-in settings.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "secondFactor"
+        ],
+        "properties": {
+          "secondFactor": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "required",
+              "onPreviousSecret",
+              "unusable"
+            ],
+            "properties": {
+              "required": {
+                "type": "boolean",
+                "description": "Signing in by the deployment's own ways in takes a second factor. Signing in through the workspace's own identity provider is exempt: it owns MFA there. API keys aren't covered."
+              },
+              "onPreviousSecret": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "People whose key is still kept under the deployment's previous sign-in secret: each moves to the current one at their next code. Keep the previous secret configured until this is 0."
+              },
+              "unusable": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "People whose key opens under neither secret: they need a recovery code, or an admin to remove it."
+              }
+            }
+          }
+        }
+      },
+      "AuthSettingsPatch": {
+        "description": "Require a second factor at sign-in, or stop requiring one.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "secondFactor"
+        ],
+        "properties": {
+          "secondFactor": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "required"
+            ],
+            "properties": {
+              "required": {
+                "type": "boolean"
+              }
+            }
           }
         }
       },
@@ -43265,7 +43443,7 @@
             }
           },
           "403": {
-            "description": "Not allowed here (`token-sign-in-off`), or not this key (`token-sign-in-not-allowed`): a service account's, or a narrowed one.",
+            "description": "Not allowed here (`token-sign-in-off`), or not this key (`token-sign-in-not-allowed`): a service account's, or a narrowed one; or the workspace requires a second factor (`second-factor-required`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43285,7 +43463,7 @@
             }
           }
         },
-        "description": "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session.",
+        "description": "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.",
         "security": [
           {
             "bearerAuth": []
@@ -43654,6 +43832,160 @@
             "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/settings": {
+      "get": {
+        "operationId": "auth.settings.get",
+        "summary": "The workspace's sign-in settings",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "The settings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "auth.settings.update",
+        "summary": "Require a second factor at sign-in",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "The settings, after.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Turned on from a session made without a second factor (`second-factor-enroll-first`), or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthSettingsPatch"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []
@@ -44379,6 +44711,703 @@
           }
         },
         "description": "For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times a day, or past the workspace's invitations for the day, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/identity/me/second-factor": {
+      "get": {
+        "operationId": "identity.me.secondFactor",
+        "summary": "My second factor",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "Your second factor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecondFactorStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a session (`auth-not-session-token`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "identity.me.startSecondFactor",
+        "summary": "Start setting up a second factor",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "The new key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecondFactorKey"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a session (`auth-not-session-token`), or a malformed body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The code isn't right (`second-factor-invalid`), or the key can't be opened any more (`second-factor-unusable`: a recovery code still works).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecondFactorProof"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/identity/me/second-factor/confirm": {
+      "post": {
+        "operationId": "identity.me.confirmSecondFactor",
+        "summary": "Confirm a new second factor",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "Set up: the recovery codes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecondFactorRecoveryCodes"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a session (`auth-not-session-token`), or a malformed body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The code isn't right (`second-factor-invalid`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No new key to confirm, or it is over an hour old (`second-factor-not-started`), or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecondFactorConfirmBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/identity/me/second-factor/recovery-codes": {
+      "post": {
+        "operationId": "identity.me.newRecoveryCodes",
+        "summary": "New recovery codes",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "The new recovery codes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecondFactorRecoveryCodes"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a session (`auth-not-session-token`), or a malformed body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The code isn't right (`second-factor-invalid`), or the key can't be opened any more (`second-factor-unusable`: a recovery code still works).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No second factor set up (`second-factor-not-set-up`), or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecondFactorProof"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/identity/me/second-factor/remove": {
+      "post": {
+        "operationId": "identity.me.removeSecondFactor",
+        "summary": "Take my second factor off",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecondFactorRemoved"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a session (`auth-not-session-token`), or a malformed body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The workspace requires one (`second-factor-required`), the code isn't right (`second-factor-invalid`), or the key can't be opened any more (`second-factor-unusable`: a recovery code still works).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No second factor set up (`second-factor-not-set-up`), or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecondFactorProof"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/identity/users/{userId}/second-factor": {
+      "get": {
+        "operationId": "identity.users.secondFactor",
+        "summary": "A person's second factor",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "Their second factor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecondFactorStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No user with that id under this tenant (`identity-user-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/identity/users/{userId}/second-factor/remove": {
+      "post": {
+        "operationId": "identity.users.removeSecondFactor",
+        "summary": "Remove a person's second factor",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed, or none to remove.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecondFactorRemoved"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No user with that id under this tenant (`identity-user-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
         "parameters": [
           {
             "name": "userId",

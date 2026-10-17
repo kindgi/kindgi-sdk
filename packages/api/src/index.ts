@@ -275,6 +275,18 @@ export type {
 } from './person-grants-binding.js';
 export type { PersonCapabilitiesBinding } from './person-capabilities-binding.js';
 export type {
+  SecondFactorBinding,
+  SecondFactorConfirmOutcome,
+  SecondFactorProof,
+  SecondFactorRecoveryCodesOutcome,
+  SecondFactorRef,
+  SecondFactorRefusal,
+  SecondFactorRemoveOutcome,
+  SecondFactorSettings,
+  SecondFactorStartOutcome,
+  SecondFactorStatus,
+} from './second-factor-binding.js';
+export type {
   AccessPrincipal,
   ProjectAccessBinding,
   ProjectAccessHolder,
