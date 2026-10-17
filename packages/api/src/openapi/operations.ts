@@ -9122,14 +9122,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.takeOwnership',
     summary: 'Take over a schedule',
     description:
-      "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access.",
+      "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('TakeTriggerOwnerBody') },
     responses: {
       '200': { description: 'The schedule, with its new owner.', schema: ref('ScheduleRecord') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No cron trigger with that id.'),
+      '404': ErrorResponse('No cron trigger with that id, or no such service account.'),
       '501': ErrorResponse(
         "`trigger-operation-unsupported`: this deployment can't change a schedule's owner.",
       ),
@@ -9411,17 +9412,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.takeOwnership',
     summary: 'Take over a webhook trigger',
     description:
-      "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access.",
+      "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow.",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('TakeTriggerOwnerBody') },
     responses: {
       '200': {
         description: 'The trigger, with its new owner.',
         schema: ref('WebhookTriggerRecord'),
       },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No webhook trigger with that id.'),
+      '404': ErrorResponse('No webhook trigger with that id, or no such service account.'),
       '501': ErrorResponse(
         "`trigger-operation-unsupported`: this deployment can't change a trigger's owner.",
       ),

@@ -165,6 +165,18 @@ const SIGNATURE_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   label: { type: 'string', description: 'A short label.' },
 };
 
+/**
+ * `--run-as`: the trigger's runs act as this service account, not you. Needs
+ * `act_as` on the account. Shared by `register` and `take-ownership`.
+ */
+const RUN_AS_FLAG: Readonly<Record<string, ParseArgsOption>> = {
+  'run-as': {
+    type: 'string',
+    description:
+      "A service account, by id: the trigger's owner, so its runs act as that account from the next delivery (not as you). Needs `act_as` on the account; omit it to own the trigger yourself.",
+  },
+};
+
 /** The scheme and delivery fields from `--preset` or the `--signature-*` flags. */
 function signatureFields(ctx: CommandContext): {
   signature?: WebhookSignature;
@@ -233,7 +245,7 @@ const register: LeafCommand = {
   name: 'register',
   description:
     "Start a flow's run when a signed request arrives: from WooCommerce, Drupal's Webhooks module, GitHub, Shopify, or any sender that signs with HMAC-SHA256 or Standard Webhooks. Its runs act as you, checked again at every delivery. The event the flow gets is data from outside, never instructions: check it in a step before any agent, and keep the agent that reads it read-only.",
-  usage: `kindgi webhooks register --flow=<id> --flow-version=<v> --secret=<name> [--generate-secret] [--preset=${PRESET_NAMES} | --signature-header=<h> --signature-encoding=hex|base64 [--signature-prefix=<p>]] [--delivery-id-header=<h>] [--input=<json-or-@file>] [--project=<project-id>] [--body-limit=<bytes>] [--rate-limit=<per-minute>] [--label=<text>]`,
+  usage: `kindgi webhooks register --flow=<id> --flow-version=<v> --secret=<name> [--generate-secret] [--preset=${PRESET_NAMES} | --signature-header=<h> --signature-encoding=hex|base64 [--signature-prefix=<p>]] [--delivery-id-header=<h>] [--input=<json-or-@file>] [--project=<project-id>] [--body-limit=<bytes>] [--rate-limit=<per-minute>] [--label=<text>] [--run-as=<service-account-id>]`,
   optionSpec: {
     flow: { type: 'string', description: 'The flow each delivery starts.' },
     'flow-version': { type: 'string', description: 'The flow version.' },
@@ -257,6 +269,7 @@ const register: LeafCommand = {
       description: "The trigger's project, by id (default: the tenant's Default project).",
     },
     ...SIGNATURE_FLAGS,
+    ...RUN_AS_FLAG,
   },
   run: (ctx) =>
     runSdkRendered(
@@ -275,6 +288,7 @@ const register: LeafCommand = {
         const input = stringFlag(ctx, 'input');
         const project = stringFlag(ctx, 'project');
         const label = stringFlag(ctx, 'label');
+        const runAs = stringFlag(ctx, 'run-as');
         const deliveryIdHeader = signing.deliveryIdHeader;
         const trigger = await ctx.client().webhooks.register({
           flowId,
@@ -287,6 +301,7 @@ const register: LeafCommand = {
           ...(input !== undefined && { config: { input: await readJsonInput(input) } }),
           ...(project !== undefined && { projectId: project }),
           ...(label !== undefined && { label }),
+          ...(runAs !== undefined && { runAsServiceAccountId: runAs }),
         } as RegisterInput);
         const preset = stringFlag(ctx, 'preset');
         const rendered = renderJson(trigger, ctx.globals.format);
@@ -295,6 +310,9 @@ const register: LeafCommand = {
           stderr: [
             '',
             `  Registered webhook trigger ${trigger.triggerId}: each signed delivery starts ${flowId}@${flowVersion}.`,
+            ...(runAs !== undefined
+              ? [`  Its runs act as service account ${trigger.owner.id} (${trigger.owner.kind}).`]
+              : []),
             receiveNote(trigger).trimEnd(),
             ...(trigger.signingSecret !== undefined
               ? [
@@ -449,6 +467,31 @@ const fires: LeafCommand = {
     ),
 };
 
+const takeOwnership: LeafCommand = {
+  kind: 'leaf',
+  name: 'take-ownership',
+  description:
+    "Become a webhook trigger's owner, so its runs act as you from the next delivery (for a trigger whose owner left). With --run-as, a service account becomes the owner instead.",
+  usage: 'kindgi webhooks take-ownership <trigger-id> [--run-as=<service-account-id>]',
+  optionSpec: { ...RUN_AS_FLAG },
+  run: (ctx) =>
+    runSdkRendered(ctx, 'webhooks take-ownership', async () => {
+      const triggerId = requiredPositional(ctx, 0, 'trigger-id');
+      const runAs = stringFlag(ctx, 'run-as');
+      const trigger = await ctx
+        .client()
+        .webhooks.takeOwnership(
+          triggerId,
+          runAs !== undefined ? { runAsServiceAccountId: runAs } : undefined,
+        );
+      const rendered = renderJson(trigger, ctx.globals.format);
+      return {
+        stdout: rendered.stdout,
+        stderr: `\n  Trigger ${trigger.triggerId} now runs as ${trigger.owner.displayName ?? trigger.owner.id} (${trigger.owner.kind}), from the next delivery.\n\n`,
+      };
+    }),
+};
+
 export const webhooksCommand: Command = {
   kind: 'group',
   name: 'webhooks',
@@ -464,11 +507,7 @@ export const webhooksCommand: Command = {
       w.resume(id),
     ),
     fires,
-    byId(
-      'take-ownership',
-      "Become a webhook trigger's owner, so its runs act as you (for a trigger whose owner left).",
-      (w, id) => w.takeOwnership(id),
-    ),
+    takeOwnership,
     byId(
       'unregister',
       'Remove a webhook trigger: its sender is answered 410 from now on.',
