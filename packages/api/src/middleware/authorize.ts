@@ -11,6 +11,8 @@
 //   can(c, action, resource)           → boolean, for conditional logic
 //   check(c, action, resource)         → full Decision, for advanced cases
 //   filterByCan(c, action, items, fn)  → the items the principal may act on
+//   probe(c, action, resource)         → `can`'s answer, recorded nowhere,
+//                                        for a hint the caller is shown
 //
 // Use `authorize` on any mutating route. Use `can` inside handlers when
 // the decision affects response shape (e.g. filter results, include
@@ -46,6 +48,16 @@ export interface Authorizer {
   readonly authorize: (action: Action, getResource: ResourceGetter) => MiddlewareHandler<AppEnv>;
   readonly can: (c: Context<AppEnv>, action: Action, resource: ResourceRef) => Promise<boolean>;
   readonly check: (c: Context<AppEnv>, action: Action, resource: ResourceRef) => Promise<Decision>;
+  /**
+   * Whether the caller may `action` on `resource`, decided as `can`
+   * decides it (the API key's own limits first, then the binding), but
+   * recorded nowhere: the binding's `probe`, else its `check`, which
+   * records as before. Only for what a response shows the caller about
+   * its own access (whoami's `tenantAdmin`, a list's `can`), through
+   * `canForDisplay` (caller.ts). Never to decide what a request may do or
+   * read: `can`, `authorize` and `filterByCan` decide that, and record.
+   */
+  readonly probe?: (c: Context<AppEnv>, action: Action, resource: ResourceRef) => Promise<boolean>;
   /**
    * List-filtering helper — takes items + a ref-extractor and returns
    * only those items where the principal has `action` on the derived
@@ -119,17 +131,16 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
   /**
    * A refusal this layer decides without asking the binding: a check the
    * model can't answer (`undefinedRelation`), or what the caller's API key
-   * rules out (`keyCeilingDeny`, `inKeyProject`). Each is recorded through
-   * the binding (`recordDecision`), as it records its own decisions, so the
-   * audit holds every refusal whichever check made it.
+   * rules out (`keyCeilingDeny`, `inKeyProject`). Decided only: `ownRefusal`
+   * records it, `probe` doesn't.
    */
-  async function ownRefusal(
+  async function refusalOf(
     c: Context<AppEnv>,
     principal: Principal,
     action: Action,
     resource: ResourceRef,
   ): Promise<Decision | undefined> {
-    const refused =
+    return (
       undefinedRelation(c, action, resource) ??
       keyCeilingDeny(c, action, resource) ??
       ((await inKeyProject(c, principal, resource))
@@ -138,7 +149,22 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
             action,
             resource,
             `${limitedOne(c)} is limited to project ${c.get('tokenProjectId')}`,
-          ));
+          ))
+    );
+  }
+
+  /**
+   * `refusalOf`, recorded through the binding (`recordDecision`), as it
+   * records its own decisions, so the audit holds every refusal whichever
+   * check made it.
+   */
+  async function ownRefusal(
+    c: Context<AppEnv>,
+    principal: Principal,
+    action: Action,
+    resource: ResourceRef,
+  ): Promise<Decision | undefined> {
+    const refused = await refusalOf(c, principal, action, resource);
     if (refused !== undefined) recordFor(c, principal, action, resource, refused);
     return refused;
   }
@@ -202,6 +228,16 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
     async can(c, action, resource) {
       const d = await checkInternal(c, action, resource);
       return d.allowed;
+    },
+    async probe(c, action, resource) {
+      const principal = c.get('principal') as Principal | undefined;
+      if (principal === undefined) return false;
+      if ((await refusalOf(c, principal, action, resource)) !== undefined) return false;
+      const decision =
+        binding.probe !== undefined
+          ? await binding.probe(principal, action, resource, contextOf(c))
+          : await binding.check(principal, action, resource, contextOf(c));
+      return decision.allowed;
     },
     authorize(action, getResource) {
       return async (c, next) => {
