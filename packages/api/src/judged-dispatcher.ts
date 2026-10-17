@@ -940,7 +940,7 @@ function summarize(
 /**
  * A case as a `restricted-only` comparison counts it: each item at its
  * restricted judgments' weights; an item with none is left out, so it
- * counts as unjudged. Corrections filter the same way (C2) — only the ones
+ * counts as unjudged. Corrections filter the same way — only the ones
  * recorded under a restricted class are kept, so a correction from a judge
  * outside the restriction isn't graded.
  */

@@ -277,7 +277,7 @@ async function toCase(
   for (const [key, list] of byKey) items.push(await summarizeJudgments(key, list, weightOf));
   items.sort((a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER));
   // Each kept judgment that carries a correction rides onto the case, keyed by
-  // its judgment and carrying its judge class and restriction (C2) so a
+  // its judgment and carrying its judge class and restriction, so a
   // restricted-only comparison filters corrections the way it filters items.
   const corrections: JudgedCaseCorrection[] = kept.flatMap((j) =>
     j.correction === undefined

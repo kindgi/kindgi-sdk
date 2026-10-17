@@ -52,7 +52,7 @@ describe('gradeCorrection — scope', () => {
   });
 });
 
-describe('gradeCorrection — the multiset count (mutant 1)', () => {
+describe('gradeCorrection — the multiset count', () => {
   test('too many calls to a named tool fails on the count', () => {
     const correction: Correction = {
       calls: [{ tool: 'refund', args: { amount: 25 } }],
@@ -104,7 +104,7 @@ describe('gradeCorrection — the multiset count (mutant 1)', () => {
   });
 });
 
-describe('gradeCorrection — partial fields (mutant 2)', () => {
+describe('gradeCorrection — partial fields', () => {
   test('an actual field the correction did not pin is not compared', () => {
     const correction: Correction = {
       calls: [{ tool: 'refund', args: { amount: 25 } }],
@@ -163,7 +163,7 @@ describe('gradeCorrection — partial fields (mutant 2)', () => {
   });
 });
 
-describe('gradeCorrection — must not call (mutant 3)', () => {
+describe('gradeCorrection — must not call', () => {
   test('a forbidden tool that was called fails, with the count', () => {
     const correction: Correction = { calls: [], notCalled: ['refund'] };
     const result = gradeCorrection(correction, [
@@ -192,7 +192,7 @@ describe('gradeCorrection — must not call (mutant 3)', () => {
   });
 });
 
-describe('gradeCorrection — maximum matching, not greedy (mutant 5)', () => {
+describe('gradeCorrection — maximum matching, not greedy', () => {
   // The broad expected call is listed first. A greedy, order-dependent
   // pairing would take the call the narrow expected needs and then fail;
   // a maximum matching pairs them both.

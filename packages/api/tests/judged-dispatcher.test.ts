@@ -980,7 +980,7 @@ describe('corrections graded on the replay', () => {
     expect(summary.corrections).toEqual({ checked: 1, passed: 0 });
   });
 
-  test('restricted-only grades only the corrections recorded under a restricted class (C2)', async () => {
+  test('restricted-only grades only the corrections recorded under a restricted class', async () => {
     const corrected: JudgedEvalCase = {
       ...caseA,
       caseId: 'case-c',

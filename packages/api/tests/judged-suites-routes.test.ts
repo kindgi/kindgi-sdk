@@ -260,7 +260,7 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
     expect(cases.body.data[1].context).toBeUndefined();
   });
 
-  test('a kept judgment with a correction rides onto its case, with its judge class and restriction (C2)', async () => {
+  test('a kept judgment with a correction rides onto its case, with its judge class and restriction', async () => {
     const corrected = await h.judgments.record({
       tenantId,
       projectId: project,
