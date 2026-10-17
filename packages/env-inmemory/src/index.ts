@@ -20,6 +20,7 @@ import type {
   EnvGetInput,
   EnvListInput,
   EnvListPage,
+  EnvNamesInput,
   EnvRecord,
   EnvResolveInput,
   EnvResolveOutcome,
@@ -29,6 +30,7 @@ import type {
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import type { ResolveContext as ComplianceResolveContext } from '@kindgi/compliance';
 import { emitLifecycleEvent, emitResolveEvent } from '@kindgi/compliance';
+import type { Logger } from '@kindgi/log';
 import type { Scope } from '@kindgi/platform';
 import { scopeKey } from '@kindgi/platform';
 import type { EnvName, ProjectId, Result, TenantId } from '@kindgi/types';
@@ -52,8 +54,9 @@ export interface InMemoryEnvBindingOptions {
   /**
    * Optional unified audit binding — when supplied, `set`, `resolve`,
    * and a `delete` that removed an entry each emit an `env-*`
-   * `AuditEvent`. Emission is awaited before the op returns; emission
-   * failures are logged (`console.warn`) but never fail the caller's op.
+   * `AuditEvent`. Emission is awaited before the op returns; an append
+   * that fails or throws never fails the caller's op, and is logged
+   * through `log` when one is given.
    *
    * `tenantId` + `projectId` must be provided alongside — emission is
    * enabled only when all three are set, and every emitted record is
@@ -62,6 +65,8 @@ export interface InMemoryEnvBindingOptions {
   readonly auditEvents?: AuditEventBinding;
   readonly tenantId?: TenantId;
   readonly projectId?: ProjectId;
+  /** Where an audit append that fails or throws is logged, at `warn`. Absent: it isn't logged. */
+  readonly log?: Logger;
 }
 
 export function createInMemoryEnvBinding(options: InMemoryEnvBindingOptions = {}): EnvBinding {
@@ -74,6 +79,8 @@ export function createInMemoryEnvBinding(options: InMemoryEnvBindingOptions = {}
   const auditEvents = options.auditEvents;
   const evidenceTenant = options.tenantId;
   const evidenceProject = options.projectId;
+  // Where a failed append is logged: forwarded to every emit, when given.
+  const emitLog = options.log === undefined ? {} : { log: options.log };
   const canEmit =
     auditEvents !== undefined && evidenceTenant !== undefined && evidenceProject !== undefined;
 
@@ -133,6 +140,26 @@ export function createInMemoryEnvBinding(options: InMemoryEnvBindingOptions = {}
       return { data: all.slice(0, input.limit) };
     },
 
+    async listEnvNames(input: EnvNamesInput): Promise<readonly EnvName[]> {
+      // Scope keys don't carry the tenant: an entry's own scope does. A
+      // name whose entries were all deleted (or only read) holds none.
+      const names = new Set<EnvName>();
+      for (const byEnv of store.values()) {
+        for (const [envName, byName] of byEnv) {
+          for (const rec of byName.values()) {
+            if (rec.scope.tenantId === input.tenantId) {
+              names.add(envName);
+              break;
+            }
+          }
+        }
+      }
+      return [...names]
+        .filter((n) => input.after === undefined || n > input.after)
+        .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+        .slice(0, input.limit);
+    },
+
     async get(input: EnvGetInput): Promise<EnvRecord | null> {
       const byName = bucket(input.scope, input.envName);
       return byName.get(input.name) ?? null;
@@ -155,6 +182,7 @@ export function createInMemoryEnvBinding(options: InMemoryEnvBindingOptions = {}
               auditEvents: auditEvents!,
               tenantId: evidenceTenant,
               projectId: evidenceProject,
+              ...emitLog,
             });
           }
           return {
@@ -175,6 +203,7 @@ export function createInMemoryEnvBinding(options: InMemoryEnvBindingOptions = {}
           auditEvents: auditEvents!,
           tenantId: evidenceTenant,
           projectId: evidenceProject,
+          ...emitLog,
         });
       }
       return {
@@ -206,6 +235,7 @@ export function createInMemoryEnvBinding(options: InMemoryEnvBindingOptions = {}
               auditEvents: auditEvents!,
               tenantId: evidenceTenant,
               projectId: evidenceProject,
+              ...emitLog,
             });
           }
           return { kind: 'revision-conflict', currentRevision: current };
@@ -238,6 +268,7 @@ export function createInMemoryEnvBinding(options: InMemoryEnvBindingOptions = {}
           auditEvents: auditEvents!,
           tenantId: evidenceTenant,
           projectId: evidenceProject,
+          ...emitLog,
         });
       }
       return { kind: 'ok', record };
@@ -257,6 +288,7 @@ export function createInMemoryEnvBinding(options: InMemoryEnvBindingOptions = {}
           auditEvents: auditEvents!,
           tenantId: evidenceTenant,
           projectId: evidenceProject,
+          ...emitLog,
         });
       }
       return { deleted: had };

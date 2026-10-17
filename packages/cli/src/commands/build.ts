@@ -25,8 +25,8 @@
  * that's `kindgi deploy`.
  */
 
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
+import { lstat, mkdir, readFile, readlink, realpath, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import {
   type DiscoveryConfig,
@@ -36,6 +36,7 @@ import {
   resolvePackEnv,
 } from '@kindgi/handler-runtime';
 
+import { hostedApiAddress } from '../api-address.js';
 import { checkAptPackages } from '../build/apt.js';
 import { PACK_SERVICE_COMMAND } from '../build/containerfile.js';
 import { collectIncludeFiles, readBundleConfig } from '../build/context-files.js';
@@ -169,7 +170,7 @@ export const buildCommand: LeafCommand = {
     out: {
       type: 'string',
       description:
-        'Where the build output and `deploy-envelope.json` go. Default: `.kindgi/build` under the pack root.',
+        'Where the build output and `deploy-envelope.json` go (default: `.kindgi/build`). It cannot be the pack root or a directory containing it; for a TypeScript pack it must stay under the pack root.',
     },
     'artifact-version': {
       type: 'string',
@@ -251,7 +252,8 @@ interface ResolvedBuildArgs {
   readonly publishedAt: string;
   readonly tenantId: string;
   readonly signingKeyPath: string | undefined;
-  readonly signerKeyId: string;
+  /** `--signer-key-id`, else the env block's; signing falls back to the key file's name. */
+  readonly signerKeyId: string | undefined;
   readonly skipIntegrityGate: boolean;
   readonly skipImagePull: boolean;
   readonly skipSign: boolean;
@@ -671,10 +673,7 @@ async function signAndWriteEnvelope(
     lines('  ⚠ Signing SKIPPED — --skip-sign. Emitted envelope is unsigned; deploy will refuse');
     lines('    it. Use only for CI that signs elsewhere.');
   } else if (args.signingKeyPath === undefined) {
-    return failure(
-      'Signing key not configured. Set environments.<env>.signingKey in kindgi.config.ts, ' +
-        'pass --signing-key <path>, or use --skip-sign to emit an unsigned envelope.\n',
-    );
+    return failure(noSigningKey(undefined));
   } else {
     const privateKeyPem = await readFile(args.signingKeyPath, 'utf8');
     const message = canonicaliseSignatureBody({
@@ -685,12 +684,12 @@ async function signAndWriteEnvelope(
       publishedAt: args.publishedAt,
     });
     const signed = await runners.signEnvelope({ privateKeyPem, message });
-    signature = { ...signed, keyId: args.signerKeyId };
+    signature = { ...signed, keyId: args.signerKeyId ?? basenameNoExt(args.signingKeyPath) };
     lines('  Signing locally');
     lines(
       '    ✓ Ed25519 signature over (imageDigest, artifactVersion, indexHash, tenantId, publishedAt)',
     );
-    lines(`      key: ${args.signerKeyId}`);
+    lines(`      key: ${signature.keyId}`);
   }
 
   const envelope = buildEnvelope({
@@ -1190,6 +1189,53 @@ async function prepareJvmContext(
   return { kind: 'ok', contextDir, counts: localIndex.counts, secrets: [] };
 }
 
+// Resolve a path to its real location, following symlinks, even when the
+// path (or a leaf of it) does not exist yet: realpath the deepest existing
+// ancestor, then re-append the missing tail. A final dangling symlink (the
+// link exists, its target does not) is followed via readlink, so an in-pack
+// symlink that points outside the pack is caught here, not mistaken for a
+// plain in-pack path (nor surfaced later as an opaque ENOENT). Used so an
+// in-pack symlink can't point the build output outside the pack root.
+async function realpathUnderExisting(target: string, depth = 0): Promise<string> {
+  const abs = resolve(target);
+  try {
+    return await realpath(abs);
+  } catch (error) {
+    if ((error as { code?: string }).code !== 'ENOENT') return abs;
+  }
+  // `abs` is a dangling symlink, or it (or an ancestor) does not exist yet. A
+  // dangling symlink still has a target to follow; cap the chain so a cyclic
+  // one can't loop forever.
+  if (depth < 40) {
+    try {
+      if ((await lstat(abs)).isSymbolicLink()) {
+        return await realpathUnderExisting(resolve(dirname(abs), await readlink(abs)), depth + 1);
+      }
+    } catch {
+      // Not a symlink, or unreadable — fall through to the ancestor walk.
+    }
+  }
+  return realpathDeepestAncestor(abs);
+}
+
+// Walk up to the deepest existing ancestor, realpath it (following symlinks
+// in the ancestors), then re-append the missing tail lexically.
+async function realpathDeepestAncestor(abs: string): Promise<string> {
+  let existing = dirname(abs);
+  const missing: string[] = [basename(abs)];
+  for (;;) {
+    try {
+      return resolve(await realpath(existing), ...missing);
+    } catch (error) {
+      if ((error as { code?: string }).code !== 'ENOENT') return abs;
+      const parent = dirname(existing);
+      if (parent === existing) return abs;
+      missing.unshift(basename(existing));
+      existing = parent;
+    }
+  }
+}
+
 async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   // --path — pack root; auto-detects repo root separately so augment-
   // mode packs (kindgi.config.ts under <repo>/kindgi/, package.json at
@@ -1266,17 +1312,16 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
     if (clash !== undefined) {
       return failure(`--hosted builds on the hosted build service, and ${clash}: leave one out.\n`);
     }
-    // The API: `--url` > the env block's `endpoint` > KINDGI_API_URL or `kindgi auth login`'s.
-    const apiUrl =
-      ctx.config.source.apiUrl === 'flag'
-        ? ctx.config.apiUrl
-        : (envBlock?.endpoint ?? ctx.config.apiUrl);
-    if (apiUrl === undefined || apiUrl === '') {
-      return failure(
-        `kindgi build --hosted builds at the API's address, and none is set. Set environments.${envName}.endpoint in kindgi.config.ts, run \`kindgi auth login --url <url>\`, or export KINDGI_API_URL.\n`,
-      );
-    }
-    const token = ctx.config.token;
+    // The API: the CLI's own address (`--url`, KINDGI_API_URL or the
+    // stored one, never a local runtime's .kindgirc.json), the one the
+    // key is for. The env block's `endpoint` may only repeat it
+    // (api-address.ts).
+    const address = hostedApiAddress('kindgi build --hosted', ctx.config, [
+      { url: envBlock?.endpoint, where: `environments.${envName}.endpoint` },
+    ]);
+    if (address.kind === 'refused') return failure(`${address.message}\n`);
+    const apiUrl = address.url;
+    const token = address.config.token;
     if (token === undefined || token === '') {
       return failure(
         'kindgi build --hosted sends your API key to the build service, and none is set. ' +
@@ -1300,6 +1345,51 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   const outFlag = ctx.options.out;
   const outDirRaw = typeof outFlag === 'string' && outFlag !== '' ? outFlag : DEFAULT_OUT_DIR;
   const outDir = isAbsolute(outDirRaw) ? outDirRaw : resolve(packDir, outDirRaw);
+
+  // The build writes its output — `dist/`, the Containerfile, `context/`
+  // (and `<language>/` for a JVM pack) — under --out. Rules constrain it,
+  // all following symlinks (realpath) so an in-pack symlink can't slip past.
+  // Mirrors the local-dependency refusal in build/host-install.ts.
+  const realPackDir = await realpathUnderExisting(packDir);
+  const realOutDir = await realpathUnderExisting(outDir);
+  // 1. In any language, --out must not BE the pack root: the build would
+  //    write its dist/, Containerfile and context/ over the pack's own files.
+  if (realOutDir === realPackDir) {
+    return failure(
+      `--out ${outDirRaw} is the pack root ${realPackDir}: the build writes dist/, the Containerfile and context/ there, over the pack's own files. Use a subdirectory (default: ${DEFAULT_OUT_DIR}).\n`,
+    );
+  }
+  // 1b. Nor may --out CONTAIN the pack root (an ancestor directory): the
+  //     build would write dist/, the Containerfile and context/ beside the
+  //     pack, over a sibling of the same name — or, when the pack is itself
+  //     named like one of them, over the pack. Same hazard as (1), any
+  //     language. (A TypeScript pack with such an --out is also outside-root,
+  //     caught by (2); this gives every language the clearer reason.)
+  const packRel = relative(realOutDir, realPackDir);
+  if (packRel !== '..' && !packRel.startsWith(`..${sep}`) && !isAbsolute(packRel)) {
+    return failure(
+      `--out ${outDirRaw} resolves to ${realOutDir}, which contains the pack root ${realPackDir}: the build writes dist/, the Containerfile and context/ there, beside the pack — over a sibling of the same name, or the pack itself. Use a path inside the pack (default: ${DEFAULT_OUT_DIR}).\n`,
+    );
+  }
+  // 2. A TypeScript pack's --out must stay UNDER the pack root. Its local
+  //    indexer runs `node <out>/dist/kindgi-index.mjs`, whose bundle keeps
+  //    the pack's dependencies (zod, @kindgi/*) as bare externals that Node
+  //    resolves by walking up from <out>/dist into the pack's node_modules —
+  //    only reachable under the pack root. A Python or JVM pack's indexer
+  //    takes the pack dir and an explicit output path and never walks up from
+  //    <out>, so its output may sit anywhere; only this walk-up is bound to
+  //    the pack root.
+  // 'node' is the one pack language whose indexer walks up from <out>/dist;
+  // naming it positively stays correct if another language is added later.
+  const isTypeScriptPack = language === 'node';
+  if (isTypeScriptPack) {
+    const outRel = relative(realPackDir, realOutDir);
+    if (outRel === '..' || outRel.startsWith(`..${sep}`) || isAbsolute(outRel)) {
+      return failure(
+        `--out ${outDirRaw} resolves to ${realOutDir}, outside the pack root ${realPackDir}: a TypeScript pack's build indexes from <out>/dist and resolves the pack's dependencies by walking up into its node_modules, which only works under the pack root. Use a path inside the pack (default: ${DEFAULT_OUT_DIR}).\n`,
+      );
+    }
+  }
 
   // --artifact-version and --published-at: pinned, else the build time.
   const defaults = buildTimeDefaults(new Date());
@@ -1364,14 +1454,11 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       ? expandHome(signingKeyRaw, ctx.home)
       : undefined;
 
-  // --signer-key-id — derive from key filename basename if not
-  // explicitly configured.
+  // --signer-key-id — flag > env block; signing falls back to the key
+  // file's name. With no key there's no signature to name a key.
   const keyIdFlag = ctx.options['signer-key-id'];
   const signerKeyId =
-    typeof keyIdFlag === 'string' && keyIdFlag !== ''
-      ? keyIdFlag
-      : (envBlock?.signerKeyId ??
-        (signingKeyPath !== undefined ? basenameNoExt(signingKeyPath) : `${envName}-signer`));
+    typeof keyIdFlag === 'string' && keyIdFlag !== '' ? keyIdFlag : envBlock?.signerKeyId;
 
   // --push — the repository: the flag's, else the env block's registry
   // plus the pack id.
@@ -1398,6 +1485,24 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       : push !== undefined
         ? 'linux/amd64'
         : undefined;
+
+  // A build that signs (the build server's, or --local --push) needs its
+  // key before anything is built or sent; the other settings are checked
+  // first.
+  if (!skipSign && (!local || push !== undefined)) {
+    const keyRefusal = await signingKeyRefusal(
+      signingKeyPath,
+      typeof signKeyFlag === 'string' && signKeyFlag !== ''
+        ? '--signing-key'
+        : `environments.${envName}.signingKey`,
+      // The block the key goes in, when one is picked (with no --env and
+      // no `staging` block, the hint doesn't send you to make one).
+      envBlock !== undefined || (typeof envFlag === 'string' && envFlag !== '')
+        ? envName
+        : undefined,
+    );
+    if (keyRefusal !== undefined) return failure(keyRefusal);
+  }
 
   return {
     kind: 'ok',
@@ -1428,6 +1533,41 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       config,
     },
   };
+}
+
+/**
+ * Why a build can't sign, before it starts: no key set, or a key file
+ * that isn't there or isn't a file. `undefined` when the key is there to
+ * read. `envName` is the env block the key goes in, when one is picked.
+ */
+async function signingKeyRefusal(
+  keyPath: string | undefined,
+  from: string,
+  envName: string | undefined,
+): Promise<string | undefined> {
+  if (keyPath === undefined) return noSigningKey(envName);
+  try {
+    if ((await stat(keyPath)).isFile()) return undefined;
+    return `The signing key ${keyPath} (${from}) isn't a file. Name the key's .pem file, as \`kindgi key create <id>\` writes it: ~/.kindgi/keys/<id>.pem.\n`;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    return `The signing key ${keyPath} (${from}) isn't there. ${MAKE_A_KEY} Then ${nameTheKey(envName)}.\n`;
+  }
+}
+
+/** How a signing key comes to be, and to be trusted. */
+const MAKE_A_KEY =
+  "Make a key with `kindgi key create <id>`, and add it to the runtime's trust list with `kindgi key trust <id>` (once).";
+
+function noSigningKey(envName: string | undefined): string {
+  return `No signing key is set. ${MAKE_A_KEY} Then ${nameTheKey(envName)}. (--skip-sign emits an unsigned envelope, which kindgi deploy refuses.)\n`;
+}
+
+/** Where a build finds its key: the picked env block's `signingKey`, or --signing-key. */
+function nameTheKey(envName: string | undefined): string {
+  return envName !== undefined
+    ? `set environments.${envName}.signingKey to ~/.kindgi/keys/<id>.pem in kindgi.config.ts, or pass --signing-key ~/.kindgi/keys/<id>.pem`
+    : 'pass --signing-key ~/.kindgi/keys/<id>.pem, or set signingKey in an env block of kindgi.config.ts and pick that block with --env=<name> (with no --env, the block is `staging`)';
 }
 
 async function loadBuildConfig(

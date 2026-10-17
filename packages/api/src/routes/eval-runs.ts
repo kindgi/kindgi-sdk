@@ -35,7 +35,7 @@ import { type SettingsOverridesCheck, checkSettingsOverrides } from './eval-over
 import { type FlowVersionsCheck, checkFlowVersions } from './eval-versions.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
-import { formatSseFrame } from './sse.js';
+import { formatSseFrame, pause, readingOf } from './sse.js';
 import { parseTimeInput } from './time-input.js';
 
 /**
@@ -81,9 +81,18 @@ export function evalRunsRouters(
   authorizer?: Authorizer,
   /** What an eval run's project may run (`reference-scope.ts`); absent → as named. */
   referenceScope?: ReferenceScopeBinding,
+  /** Whether a project is suspended: no eval run starts in one. Absent: no check. */
+  projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>,
 ): EvalRunsRouters {
   return {
-    start: startRouter(binding, versionsCheck, overridesCheck, authorizer, referenceScope),
+    start: startRouter(
+      binding,
+      versionsCheck,
+      overridesCheck,
+      authorizer,
+      referenceScope,
+      projectSuspended,
+    ),
     readback: readbackRouter(binding, authorizer),
   };
 }
@@ -151,6 +160,7 @@ function startRouter(
   overridesCheck?: SettingsOverridesCheck,
   authorizer?: Authorizer,
   referenceScope?: ReferenceScopeBinding,
+  projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -199,6 +209,19 @@ function startRouter(
         : { path: '/flowRef/flowId', kind: 'flow', id: flowRef?.flowId as unknown as string },
     ]);
     if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    if (projectSuspended !== undefined && (await projectSuspended(tenantId, projectId))) {
+      c.status(statusFor('project-suspended') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'project-suspended',
+            message:
+              "The project is suspended, so nothing new runs in it until it's restored; the eval run wasn't started",
+          },
+          requestId,
+        ),
+      );
+    }
     const refusal =
       (await versionsRefusal(versionsCheck, tenantId, parsed.value)) ??
       (await overridesRefusal(overridesCheck, tenantId, parsed.value));
@@ -524,15 +547,37 @@ function readbackRouter(binding: EvalRunBinding, authorizer?: Authorizer): Hono<
       );
     }
 
+    const headers = {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Request-Id': requestId,
+    };
+    // Nobody will read this stream when the request is a HEAD (Hono answers a
+    // HEAD with this GET route and drops the body unread, and nothing cancels
+    // it) or when the client left during the read above (its request aborts,
+    // but the server cancels only a body it's writing). Then the route
+    // answers the stream's status and headers, before the stream exists, and
+    // starts none of its work.
+    if (c.req.method === 'HEAD' || c.req.raw.signal.aborted) {
+      return new Response(null, { status: 200, headers });
+    }
+
     const encoder = new TextEncoder();
     const POLL_MS = 100;
     const MAX_WAIT_MS = 5 * 60_000;
+    // Aborted when the client goes away: the reader cancels the stream, or
+    // the request aborts. The poll below ends on it at once.
+    const reading = readingOf(c.req.raw);
 
     // Track which per-case events we've already emitted (index within
     // result.perCase). Kept intentionally small — only the accuracy
     // kind's per-case shape is streamed; other kinds would need their
     // own projection.
     const body = new ReadableStream<Uint8Array>({
+      cancel() {
+        reading.abort();
+      },
       async start(controller) {
         const startedAt = Date.now();
         let lastEmittedCaseIndex = -1;
@@ -614,7 +659,8 @@ function readbackRouter(binding: EvalRunBinding, authorizer?: Authorizer): Hono<
             return;
           }
           while (Date.now() - startedAt < MAX_WAIT_MS) {
-            await new Promise((r2) => setTimeout(r2, POLL_MS));
+            await pause(POLL_MS, reading.signal);
+            if (reading.signal.aborted) break;
             const step = await emit();
             if (step.terminal) break;
           }
@@ -624,15 +670,7 @@ function readbackRouter(binding: EvalRunBinding, authorizer?: Authorizer): Hono<
       },
     });
 
-    return new Response(body, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'X-Request-Id': requestId,
-      },
-    });
+    return new Response(body, { status: 200, headers });
   });
 
   return r;
@@ -666,6 +704,8 @@ function serializeEvalRun(run: EvalRun): Record<string, unknown> {
     ...(run.completedAt !== undefined && { completedAt: run.completedAt }),
     ...(run.result !== undefined && { result: run.result }),
     ...(run.error !== undefined && { error: run.error }),
+    ...(run.status === 'cancelled' &&
+      run.cancelReason !== undefined && { cancelReason: run.cancelReason }),
     ...(run.correlationId !== undefined && { correlationId: run.correlationId }),
     ...(run.comparison !== undefined && { comparison: run.comparison }),
   };

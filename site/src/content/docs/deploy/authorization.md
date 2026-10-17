@@ -28,7 +28,10 @@ Authorization is for several people and teams sharing one deployment:
   what the caller may read.
 - **Every decision is recorded,** allowed or denied, with who asked, what for
   and why ([The access audit](#the-access-audit)).
-- **Registering an approval reviewer takes a tenant admin.**
+- **Registering an approval reviewer takes a tenant admin.** A tenant admin
+  reads approvals at every tier without registering, through a session or an
+  `admin` key not limited to a project, in the projects they may read.
+  Deciding takes the roster.
 - **A team can have a role on a project** through the API
   ([Team grants](#team-grants)). The console doesn't offer it.
 
@@ -143,8 +146,12 @@ the keys minted for them. A runtime started with a new token and no
 `⚠ KINDGI_API_TOKEN changed, so it acts as a new user`.
 :::
 
-**When OpenFGA is unreachable,** requests that need a check answer `500`,
-with `FGA Error: connect ECONNREFUSED …`. They work again once it's back.
+**When OpenFGA is unreachable,** requests that need a check answer `500
+internal-server-error` with `Unhandled server error` and the request id
+(runtime 0.1.8.1 or later; earlier ones answer with the cause itself). The
+runtime's `unhandled error` log line for that request id has the cause,
+`FGA Error: connect ECONNREFUSED …` ([Logs](../logs/)). They work again
+once it's back.
 
 **When the database fails one tenant's permission changes:** the runtime
 sends permission changes to OpenFGA from a queue in Postgres, about twice a
@@ -521,8 +528,10 @@ refused:
 - a request that names a project other than its key's, and a key limited to
   a project minting one that isn't (`key-project-mismatch`);
 - minting a key with capabilities you don't hold;
-- a caller who isn't a reviewer, on the approvals routes, or who may not
-  judge as a restricted judge class (`judge-class-not-allowed`);
+- on the approvals routes, a caller who isn't a reviewer, unless it's a
+  tenant admin reading them;
+- a caller who may not judge as a restricted judge class
+  (`judge-class-not-allowed`);
 - the operator's identity-provider lock (`identity-providers-operator-managed`);
 - reading the deployment's license (`GET /v1/license`) or its use
   (`GET /v1/license/usage`) without its own token or a system key holding
