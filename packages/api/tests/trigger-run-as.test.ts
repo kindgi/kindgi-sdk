@@ -63,8 +63,9 @@ const binding = (value: ServiceAccount | null): Pick<ServiceAccountBinding, 'get
   get: async () => value,
 });
 
-const allow = async () => undefined;
-const deny = async () => new Response('denied', { status: 403 });
+// `actAsDenied` is a boolean: `false` → allowed, `true` → refused.
+const allow = async () => false;
+const deny = async () => true;
 
 async function parse(res: Response): Promise<{ status: number; code?: string; text: string }> {
   const text = await res.text();

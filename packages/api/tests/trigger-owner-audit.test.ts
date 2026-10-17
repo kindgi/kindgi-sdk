@@ -7,7 +7,8 @@
  * owner (`to`) and the caller (`by`). A take-over records every time (a
  * plain caller take-over included), with the previous owner (`from`). A
  * plain register — the trigger's own creation, owner = caller — records
- * nothing. Driven through the schedules route; webhooks share the helper.
+ * nothing. Both routes share the recording helper and, with no authorization
+ * model, the tenant-admin gate; this drives both.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -25,14 +26,20 @@ import type { RunHandlerBinding, ServiceAccountBinding, TokenResolver } from '..
 
 const tenantId = randomUUID() as TenantId;
 const ADA = randomUUID() as UserId;
+const MEMBER = randomUUID() as UserId;
 const BOT = randomUUID();
 const PROJECT = randomUUID() as ProjectId;
 const ADMIN_TOKEN = 'audit-admin';
+const MEMBER_TOKEN = 'audit-member';
 
 // A tenant admin (the `scopes` an admin holds): `isTenantAdmin` is true, so
 // the caller may read service accounts and the reader-ordered checks apply.
-const resolveToken: TokenResolver = async (token) =>
-  token === ADMIN_TOKEN ? { tenantId, userId: ADA, scopes: ['tenant-admin'] } : null;
+// A member holds no such scope, so `isTenantAdmin` is false.
+const resolveToken: TokenResolver = async (token) => {
+  if (token === ADMIN_TOKEN) return { tenantId, userId: ADA, scopes: ['tenant-admin'] };
+  if (token === MEMBER_TOKEN) return { tenantId, userId: MEMBER, scopes: [] };
+  return null;
+};
 
 function harness() {
   const auditEvents = createInMemoryAuditEventBinding();
@@ -50,11 +57,11 @@ function harness() {
     serviceAccountBinding,
     auditEvents,
   });
-  const call = async (method: string, path: string, body?: unknown) => {
+  const call = async (method: string, path: string, body?: unknown, token = ADMIN_TOKEN) => {
     const res = await app.request(path, {
       method,
       headers: {
-        authorization: `Bearer ${ADMIN_TOKEN}`,
+        authorization: `Bearer ${token}`,
         'x-request-id': 'req-owner',
         ...(body !== undefined && { 'content-type': 'application/json' }),
       },
@@ -151,6 +158,86 @@ describe('every take-over is recorded, with the previous owner', () => {
     expect(docOf(events[0])).toMatchObject({
       from: `user:${ADA}`,
       to: `user:${ADA}`,
+    });
+  });
+});
+
+describe('with no authorization model, only a tenant admin may name a service account', () => {
+  const MISSING = randomUUID();
+
+  test('a member is refused, and an existing and a missing account look the same', async () => {
+    const h = harness();
+    const existing = await h.call(
+      'POST',
+      '/v1/schedules',
+      schedule({ runAsServiceAccountId: BOT }),
+      MEMBER_TOKEN,
+    );
+    const missing = await h.call(
+      'POST',
+      '/v1/schedules',
+      schedule({ runAsServiceAccountId: MISSING }),
+      MEMBER_TOKEN,
+    );
+    expect(existing.status).toBe(403);
+    expect(existing.body).toMatchObject({ error: { code: 'permission-denied' } });
+    // Byte-identical: a non-admin can't tell an existing account from a missing
+    // one, so naming ids can't probe the tenant's accounts.
+    expect(missing.status).toBe(existing.status);
+    expect(missing.body).toEqual(existing.body);
+    // A refused register records nothing.
+    expect(await h.recorded()).toEqual([]);
+  });
+
+  test('a tenant admin succeeds', async () => {
+    const h = harness();
+    const res = await h.call('POST', '/v1/schedules', schedule({ runAsServiceAccountId: BOT }));
+    expect(res.status).toBe(201);
+    expect(res.body.owner).toMatchObject({ kind: 'service', id: BOT });
+  });
+});
+
+describe('a webhook trigger records its owner being set, through the shared helper', () => {
+  const webhook = (over: Record<string, unknown> = {}) => ({
+    flowId: 'acme.refunds',
+    flowVersion: '1.0.0',
+    projectId: PROJECT,
+    hmacSecretName: 'acme-hmac',
+    ...over,
+  });
+
+  test('register with runAsServiceAccountId: trigger-owner-set, to the service, no `from`', async () => {
+    const h = harness();
+    const res = await h.call('POST', '/v1/webhooks', webhook({ runAsServiceAccountId: BOT }));
+    expect(res.status).toBe(201);
+    expect(res.body.owner).toMatchObject({ kind: 'service', id: BOT });
+    const events = await h.recorded();
+    expect(events.map((e) => e.kind)).toEqual(['trigger-owner-set']);
+    expect(docOf(events[0])).toMatchObject({
+      triggerId: res.body.triggerId,
+      triggerKind: 'webhook',
+      to: `service:${BOT}`,
+      by: `user:${ADA}`,
+    });
+    expect(docOf(events[0])).not.toHaveProperty('from');
+  });
+
+  test('a take-over to a service account: from the caller, to the service', async () => {
+    const h = harness();
+    const made = await h.call('POST', '/v1/webhooks', webhook());
+    expect(made.status).toBe(201);
+    const id = made.body.triggerId as string;
+    const taken = await h.call('POST', `/v1/webhooks/${id}/owner`, { runAsServiceAccountId: BOT });
+    expect(taken.status).toBe(200);
+    expect(taken.body.owner).toMatchObject({ kind: 'service', id: BOT });
+    const events = await h.recorded();
+    expect(events.map((e) => e.kind)).toEqual(['trigger-owner-set']);
+    expect(docOf(events[0])).toMatchObject({
+      triggerId: id,
+      triggerKind: 'webhook',
+      from: `user:${ADA}`,
+      to: `service:${BOT}`,
+      by: `user:${ADA}`,
     });
   });
 });

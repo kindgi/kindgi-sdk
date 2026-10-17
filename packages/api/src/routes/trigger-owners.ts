@@ -3,13 +3,18 @@
 
 import type { Context } from 'hono';
 
-import type { TenantId, UserId } from '@kindgi/types';
+import { ref } from '@kindgi/authz';
+import { emitAuditEvent } from '@kindgi/compliance';
+import type { ProjectId, TenantId, UserId } from '@kindgi/types';
 
+import { isTenantAdmin } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import type { ServiceAccountBinding } from '../service-account-binding.js';
 import type { TriggerOwner } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
+import { deniedBy } from './denied.js';
 
 /**
  * Where a trigger owner's name is read (`owner.displayName`): the person's
@@ -43,8 +48,8 @@ export interface ResolveTriggerOwnerDeps {
    * non-reader can't tell a missing account from one it may not name.
    */
   readonly canReadServiceAccounts: () => Promise<boolean>;
-  /** The route's 403 when the caller may not `act_as` the account, else nothing. */
-  readonly actAsDenied: (serviceAccountId: string) => Promise<Response | undefined>;
+  /** Whether the caller may not `act_as` the account (`true` → refused). */
+  readonly actAsDenied: (serviceAccountId: string) => Promise<boolean>;
 }
 
 /**
@@ -109,10 +114,99 @@ export async function resolveTriggerOwner(
         : forbidden(),
     };
   }
-  if ((await deps.actAsDenied(serviceAccountId)) !== undefined) {
+  if (await deps.actAsDenied(serviceAccountId)) {
     return { kind: 'refused', response: forbidden() };
   }
   return { kind: 'owner', owner: { kind: 'service', id: serviceAccountId } };
+}
+
+/**
+ * Whether the caller may not `act_as` the named service account. With an
+ * authorization model, the model decides — `act_as` on the account, which
+ * tenant admins hold. WITHOUT one (the default single-tenant self-host) the
+ * model can grant nothing, so the decision falls back to the tenant-admin
+ * check, read from the token's scopes: a non-admin is refused. Otherwise a
+ * model-off deployment would let any caller name any account as a trigger's
+ * owner, and naming an id would probe which accounts the tenant has.
+ */
+async function mayNotActAs(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  serviceAccountId: string,
+): Promise<boolean> {
+  if (authorizer === undefined) return !(await isTenantAdmin(c, authorizer));
+  return (
+    (await deniedBy(authorizer, c, 'act_as', ref('service_account', serviceAccountId))) !==
+    undefined
+  );
+}
+
+/**
+ * The checks {@link resolveTriggerOwner} runs, built from the route's
+ * authorizer. The one place the `act_as` decision and its model-off fallback
+ * live, so the webhook and schedule routers can't drift on who may name a
+ * service account.
+ */
+export function triggerOwnerDeps(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  serviceAccounts: Pick<ServiceAccountBinding, 'get'> | undefined,
+): ResolveTriggerOwnerDeps {
+  return {
+    serviceAccounts,
+    canReadServiceAccounts: () => isTenantAdmin(c, authorizer),
+    actAsDenied: (serviceAccountId) => mayNotActAs(c, authorizer, serviceAccountId),
+  };
+}
+
+type EmitAuditEventArgs = Parameters<typeof emitAuditEvent>[0];
+
+/**
+ * Records a trigger's owner being set: a schedule or webhook created to run
+ * as a service account, and every take-over. `from` is absent on a register
+ * (no prior owner), present on a take-over (a plain caller one included).
+ * The one place the `trigger-owner-set` evidence is shaped.
+ */
+export async function recordOwnerSet(args: {
+  readonly auditEvents: EmitAuditEventArgs['auditEvents'];
+  readonly tenantId: TenantId;
+  readonly projectId?: ProjectId;
+  readonly triggerId: string;
+  readonly triggerKind: 'webhook' | 'cron';
+  readonly from?: TriggerOwner;
+  readonly to: TriggerOwner;
+  readonly by: string | undefined;
+  readonly correlationId: string;
+  readonly log: EmitAuditEventArgs['log'];
+}): Promise<void> {
+  const {
+    auditEvents,
+    tenantId,
+    projectId,
+    triggerId,
+    triggerKind,
+    from,
+    to,
+    by,
+    correlationId,
+    log,
+  } = args;
+  await emitAuditEvent({
+    auditEvents,
+    tenantId,
+    ...(projectId !== undefined && { projectId }),
+    kind: 'trigger-owner-set',
+    ...(by !== undefined && { actor: by }),
+    correlationId,
+    doc: {
+      triggerId,
+      triggerKind,
+      ...(from !== undefined && { from: ownerKey(from) }),
+      to: ownerKey(to),
+      ...(by !== undefined && { by }),
+    },
+    ...(log !== undefined && { log }),
+  });
 }
 
 function ownerError(

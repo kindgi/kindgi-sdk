@@ -115,12 +115,13 @@ export const OBJECT_ACTIONS: Record<ObjectType, readonly Action[]> = {
 export const TENANT_GLOBAL_TYPES = ['tenant', 'org', 'team', 'user', 'service_account'] as const;
 
 // The object types reported per-type in role capabilities (the API's
-// `RoleActionsSchema` / `normalizeCapabilities`) and in the runtime's
-// `my-access` projection. ONE source of truth: every consumer imports this,
-// so the API's capabilities wire shape and the runtime's positively-written
-// copy cannot disagree about whether a type is reported. Tenant-global types
-// (`TENANT_GLOBAL_TYPES`) are left out; new project-scoped content types are
-// included automatically.
+// `RoleActionsSchema` / `normalizeCapabilities`). ONE source of truth within
+// this SDK: every consumer here imports this list, so the capabilities wire
+// shape stays consistent. The runtime's `my-access` projection keeps its own
+// positively-written list for now and so CAN differ; the runtime change that
+// adds `service_account` switches that projection to import this list, after
+// which the two can't drift. Tenant-global types (`TENANT_GLOBAL_TYPES`) are
+// left out; new project-scoped content types are included automatically.
 export const PROJECT_SCOPED_TYPES: readonly ObjectType[] = OBJECT_TYPES.filter(
   (t) => !(TENANT_GLOBAL_TYPES as readonly string[]).includes(t),
 );

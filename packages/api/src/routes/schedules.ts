@@ -6,11 +6,10 @@ import type { Context } from 'hono';
 
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { type Action, type ResourceRef, ref } from '@kindgi/authz';
-import { emitAuditEvent } from '@kindgi/compliance';
 import type { ProjectBinding } from '@kindgi/platform';
 import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
-import { callerRef, isTenantAdmin } from '../caller.js';
+import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
@@ -37,9 +36,10 @@ import { clampLimit } from './pagination.js';
 import {
   type TriggerOwnerNames,
   ownerJson,
-  ownerKey,
   ownerNamesOf,
+  recordOwnerSet,
   resolveTriggerOwner,
+  triggerOwnerDeps,
 } from './trigger-owners.js';
 import { UUID_RE } from './uuid-param.js';
 
@@ -176,11 +176,11 @@ export function schedulesRouter(
     if (runAsRaw !== undefined && (typeof runAsRaw !== 'string' || runAsRaw.length === 0)) {
       return bad(c, requestId, '`runAsServiceAccountId` must be a service-account id');
     }
-    const resolved = await resolveTriggerOwner(c, runAsRaw as string | undefined, {
-      serviceAccounts: names?.serviceAccounts,
-      canReadServiceAccounts: () => isTenantAdmin(c, authorizer),
-      actAsDenied: (id) => denied(c, 'act_as', ref('service_account', id)),
-    });
+    const resolved = await resolveTriggerOwner(
+      c,
+      runAsRaw as string | undefined,
+      triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
+    );
     if (resolved.kind === 'refused') return resolved.response;
     const owner = resolved.owner;
 
@@ -209,20 +209,15 @@ export function schedulesRouter(
     // A named service-account owner is a delegation: audit it. A plain
     // register (owner = caller) is the schedule's creation, not a change.
     if (runAsRaw !== undefined) {
-      const by = callerRef(c);
-      await emitAuditEvent({
+      await recordOwnerSet({
         auditEvents,
         tenantId,
         ...(project !== undefined && { projectId: project as ProjectId }),
-        kind: 'trigger-owner-set',
-        ...(by !== undefined && { actor: by }),
+        triggerId: result.value.triggerId,
+        triggerKind: 'cron',
+        to: owner,
+        by: callerRef(c),
         correlationId: requestId,
-        doc: {
-          triggerId: result.value.triggerId,
-          triggerKind: 'cron',
-          to: ownerKey(owner),
-          ...(by !== undefined && { by }),
-        },
         log: c.get('log'),
       });
     }
@@ -462,34 +457,27 @@ export function schedulesRouter(
     if (runAsRaw !== undefined && (typeof runAsRaw !== 'string' || runAsRaw.length === 0)) {
       return bad(c, requestId, '`runAsServiceAccountId` must be a service-account id');
     }
-    const resolved = await resolveTriggerOwner(c, runAsRaw as string | undefined, {
-      serviceAccounts: names?.serviceAccounts,
-      canReadServiceAccounts: () => isTenantAdmin(c, authorizer),
-      actAsDenied: (id) => denied(c, 'act_as', ref('service_account', id)),
-    });
+    const resolved = await resolveTriggerOwner(
+      c,
+      runAsRaw as string | undefined,
+      triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
+    );
     if (resolved.kind === 'refused') return resolved.response;
     const { tenantId, triggerId } = found.value;
     const previousOwner = found.value.owner;
     const result = await binding.setOwner({ tenantId, triggerId, owner: resolved.owner });
     if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
     // Every owner change is audited, a plain caller take-over included.
-    const by = callerRef(c);
-    await emitAuditEvent({
+    await recordOwnerSet({
       auditEvents,
       tenantId,
-      ...(found.value.projectId !== undefined && {
-        projectId: found.value.projectId as ProjectId,
-      }),
-      kind: 'trigger-owner-set',
-      ...(by !== undefined && { actor: by }),
+      ...(found.value.projectId !== undefined && { projectId: found.value.projectId as ProjectId }),
+      triggerId,
+      triggerKind: 'cron',
+      from: previousOwner,
+      to: resolved.owner,
+      by: callerRef(c),
       correlationId: requestId,
-      doc: {
-        triggerId,
-        triggerKind: 'cron',
-        from: ownerKey(previousOwner),
-        to: ownerKey(resolved.owner),
-        ...(by !== undefined && { by }),
-      },
       log: c.get('log'),
     });
     return scheduleJson(c, result.value as CronTriggerRecord);
