@@ -157,14 +157,14 @@ kindgi people invite <user-id>
 
 Someone who has joined, or was never invited, is refused with
 `409 identity-user-not-invited`. Sending one person's again within a
-minute, more than 5 times in 24 hours, or past the tenant's or the
-deployment's invitation emails is refused with `429 invite-capped` and a
-`Retry-After`, and changes nothing.
+minute, more than 5 times in 24 hours, or past the invitation emails the
+tenant, or the whole deployment, may send in 24 hours, is refused with
+`429 invite-capped` and a `Retry-After`, and changes nothing.
 
 In 24 hours a tenant sends at most 100 invitation emails, or 10 while it
 isn't allowed [production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production)
 (with `KINDGI_PRODUCTION_GATE` set to `on`). The whole deployment sends at
-most 500, all its tenants together
+most 500 by default, all its tenants together
 (`KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP`).
 
 The people invited who haven't signed in yet, with a STATE of `pending` or
