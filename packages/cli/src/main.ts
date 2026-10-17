@@ -20,6 +20,7 @@ import type { DeployRunners } from './deploy/runners.js';
 import type { DevRunners } from './dev/runners.js';
 import type { EnvRunners } from './env/runners.js';
 import { formatThrown } from './errors.js';
+import type { ExportsSeam } from './exports/create.js';
 import type { FeedbackSeam } from './feedback/run.js';
 import { commandHelpText, rootHelpText, unknownSubcommandText } from './help.js';
 import type { KeyRunners } from './key/runners.js';
@@ -127,6 +128,8 @@ export interface RunCliInputs {
   readonly openUrl?: OpenUrl;
   /** The sleep, clock and output a publishing command waits out the server's rate limits with. */
   readonly rateLimitWaits?: RateLimitWaitSeam;
+  /** `kindgi exports create`'s output, clock and pauses. */
+  readonly exportsSeam?: ExportsSeam;
 }
 
 /**
@@ -250,11 +253,13 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
   const keyRunners =
     inputs.keyRunners ?? (topLevel === 'key' ? await loadRealKeyRunners() : undefined);
 
+  const label = commandLabel(command, argv, consumed);
   const ctx = buildContext({
     globals: parsed.globals,
     positionals: parsed.positionals,
     options: parsed.options,
     config,
+    commandLabel: label,
     ...(inputs.fetchImpl !== undefined ? { fetchImpl: inputs.fetchImpl } : {}),
     ...(inputs.clientFactory !== undefined ? { clientFactory: inputs.clientFactory } : {}),
     ...(inputs.home !== undefined ? { home: inputs.home } : {}),
@@ -279,9 +284,9 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ...(inputs.doctorSeam !== undefined ? { doctorSeam: inputs.doctorSeam } : {}),
     ...(inputs.openUrl !== undefined ? { openUrl: inputs.openUrl } : {}),
     ...(inputs.rateLimitWaits !== undefined ? { rateLimitWaits: inputs.rateLimitWaits } : {}),
+    ...(inputs.exportsSeam !== undefined ? { exportsSeam: inputs.exportsSeam } : {}),
   });
 
-  const label = commandLabel(command, argv, consumed);
   // A Java pack pins the CLI it runs with (`cli-pin.ts`): say when this isn't it.
   // `kindgi dev` runs until stopped, so it hears it now, before it starts.
   const pinWarning = PIN_EXEMPT.has(topLevel ?? '')

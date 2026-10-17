@@ -67,7 +67,7 @@ export const CLI_DEFAULTS = {
     'artifact-version': 'for an inline build: the build time, as `YYYYMMDD.HHMMSS` (UTC)',
     'build-endpoint': "for an inline build: the env block's `build`",
     endpoint:
-      "the env block's `endpoint`, else the CLI's API URL (`--url`, `KINDGI_API_URL`, config files); required when none. A stored API key goes only to the address stored with it (`--token` or `KINDGI_API_TOKEN` gives another server's key); with `--hosted`, the endpoint can only be the CLI's API URL, and the `.kindgirc.json` that `kindgi dev` writes isn't read",
+      "the env block's `endpoint`, else the CLI's API URL (`--url`, `KINDGI_API_URL`, config files); required when none. A stored API key goes only to the address stored with it, and the key stored with the endpoint's address is the one used (`--token` or `KINDGI_API_TOKEN` gives another server's key); with `--hosted`, the endpoint can only be the CLI's API URL, and the `.kindgirc.json` that `kindgi dev` writes isn't read",
     env: '`staging`',
     'from-envelope': '`deploy-envelope.json` in `--out`; an inline build runs when it is missing',
     'idempotency-key': 'a hash of the request body',
@@ -237,6 +237,16 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
+  'projects create': {
+    description: 'none',
+    name: 'required',
+    org: 'none (a project in no org)',
+    slug: 'the name as a slug: lowercase letters and digits, accents dropped, each run of anything else `-`, at most 63 characters (`Support bot` is `support-bot`, `Café` is `cafe`)',
+  },
+  'projects rename': {
+    name: 'unchanged',
+    slug: 'unchanged',
+  },
   'runs list': {
     agent: 'none',
     cursor: 'none',
@@ -328,6 +338,7 @@ export const CLI_DEFAULTS = {
   'conversations list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
+    'opened-by': 'none (whoever opened them)',
     replays: '`exclude`',
     status: 'none',
   },
@@ -478,6 +489,9 @@ export const CLI_DEFAULTS = {
   'provenance export': {
     'signing-key': "the deployment's active key",
   },
+  'exports create': {
+    out: 'required: a new or empty folder, or, with `--resume`, the folder an export stopped in',
+  },
   'exports verify': {
     trust: "none (checks against the export's own key only)",
   },
@@ -595,9 +609,58 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
+  'sites register': {
+    'allowed-role': '`administrator` and `shop_manager`',
+    'approvals-url': 'required',
+    name: 'required',
+    'new-people-per-day': '`20`',
+    origin: 'required',
+    'people-cap': '`50`',
+    project: "the tenant's Default project",
+    'reviewer-ceiling': '`standard`',
+    'role-map':
+      'both default roles may ask, and decide as `standard` reviewers; with `--allowed-role` alone, the entries of the roles it allows',
+    vouching: '`on`',
+  },
+  'sites code': {
+    project: "the tenant's Default project",
+  },
+  'sites list': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+    project: "the tenant's Default project",
+  },
+  'sites get': {
+    project: "the tenant's Default project",
+  },
+  'sites update': {
+    'allowed-role': 'unchanged',
+    'approvals-url': 'unchanged',
+    name: 'unchanged',
+    'new-people-per-day': 'unchanged',
+    origin: 'unchanged',
+    'people-cap': 'unchanged',
+    project: "the tenant's Default project",
+    'reviewer-ceiling': 'unchanged',
+    'role-map': 'unchanged; with `--allowed-role` alone, the entries of the roles still allowed',
+    vouching: 'unchanged',
+  },
+  'sites pause': {
+    project: "the tenant's Default project",
+  },
+  'sites resume': {
+    project: "the tenant's Default project",
+  },
+  'sites revoke-key': {
+    project: "the tenant's Default project",
+  },
+  'sites unregister': {
+    project: "the tenant's Default project",
+  },
   'approvals list': {
     'assigned-to': 'none (all approvals your role can see)',
     cursor: 'none',
+    'decided-by': 'none (whoever decided them)',
     limit: '`25` (at most `100`)',
     order: '`desc` (newest first)',
     status: 'none (every status)',
@@ -862,7 +925,7 @@ export const GLOBAL_FLAG_DEFAULTS = {
   json: 'on when no format flag is given: pretty JSON (commands for people, such as `kindgi dev`, print JSON only when asked)',
   table: 'off; a command with no table prints JSON',
   token:
-    '`KINDGI_API_TOKEN`, then `./.kindgirc.json`, then `~/.kindgi/config.json`; none of them set: a command that calls the API fails',
+    "`KINDGI_API_TOKEN`, then a stored key: `./.kindgirc.json`'s, then `~/.kindgi/config.json`'s, and when those are for different addresses, the one stored with the API URL. A stored key goes only to the address stored with it: a command that would send it elsewhere is refused before it sends anything. None of them set: a command that calls the API fails",
   url: '`KINDGI_API_URL`, then `./.kindgirc.json`, then `~/.kindgi/config.json`; none of them set: a command that calls the API fails',
 };
 
@@ -1079,6 +1142,26 @@ export const CLI_EXAMPLES = {
       line: 'kindgi projects get <project-id>',
     },
   ],
+  'projects create': [
+    {
+      purpose: 'Make a project, with the slug `support-bot`, and print it with its id.',
+      line: 'kindgi projects create --name="Support bot"',
+    },
+    {
+      purpose: 'Make a project in an org, with a slug of your own.',
+      line: 'kindgi projects create --name=Support --slug=support --org=<org-id> --description="Answers the support inbox"',
+    },
+  ],
+  'projects rename': [
+    {
+      purpose: "Change a project's name; its slug stays.",
+      line: 'kindgi projects rename <project-id> --name=Storefront',
+    },
+    {
+      purpose: 'Change its name and its slug.',
+      line: 'kindgi projects rename <project-id> --name=Storefront --slug=storefront',
+    },
+  ],
   'agents list': [
     {
       purpose: 'List the registered agents.',
@@ -1203,6 +1286,16 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Unregister a guardrail.',
       line: 'kindgi guardrails unregister acme.no-refunds',
+    },
+  ],
+  'exports create': [
+    {
+      purpose: 'Export the whole workspace to a new folder, as a tenant admin.',
+      line: 'kindgi exports create --out ./acme-export',
+    },
+    {
+      purpose: 'Finish an export that stopped part way: the kinds already written are kept.',
+      line: 'kindgi exports create --out ./acme-export --resume',
     },
   ],
   'memory facts retrieve': [
@@ -1349,6 +1442,70 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Remove a trigger; its sender gets 410 from then on.',
       line: 'kindgi webhooks unregister <trigger-id>',
+    },
+  ],
+  'sites register': [
+    {
+      purpose:
+        'Register a WordPress store on the Default project, with the origin and the approvals URL its Kindgi → Settings page shows; the one-time code is shown once.',
+      line: "kindgi sites register --name='Acme store' --origin=https://acme-store.example --approvals-url='https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}'",
+    },
+    {
+      purpose: 'Let only shop managers sign in, as senior reviewers.',
+      line: `kindgi sites register --name='Acme store' --origin=https://acme-store.example --approvals-url='https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}' --allowed-role=shop_manager --reviewer-ceiling=senior --role-map='{"shop_manager": {"ask": true, "reviewer": "senior"}}'`,
+    },
+  ],
+  'sites code': [
+    {
+      purpose: 'A new one-time code: to connect the site again, or to replace its key.',
+      line: 'kindgi sites code <site-id>',
+    },
+  ],
+  'sites list': [
+    {
+      purpose: "The Default project's sites, with their state and keys.",
+      line: 'kindgi sites list --table',
+    },
+  ],
+  'sites get': [
+    {
+      purpose: "A site's settings, and its keys' thumbprints to compare with the plugin's.",
+      line: 'kindgi sites get <site-id>',
+    },
+  ],
+  'sites update': [
+    {
+      purpose: 'Allow more people from the site.',
+      line: 'kindgi sites update <site-id> --people-cap=100 --new-people-per-day=40',
+    },
+    {
+      purpose:
+        "Stop the site's administrators signing in; shop managers keep what the role map gives them.",
+      line: 'kindgi sites update <site-id> --allowed-role=shop_manager',
+    },
+  ],
+  'sites pause': [
+    {
+      purpose: "Stop a site's sign-ins and end its people's sessions now.",
+      line: 'kindgi sites pause <site-id>',
+    },
+  ],
+  'sites resume': [
+    {
+      purpose: "Let a paused site's people sign in again.",
+      line: 'kindgi sites resume <site-id>',
+    },
+  ],
+  'sites revoke-key': [
+    {
+      purpose: "Refuse what a site's key signs from now on.",
+      line: 'kindgi sites revoke-key <site-id> <kid>',
+    },
+  ],
+  'sites unregister': [
+    {
+      purpose: 'Remove a site; the people it signed in stay, with their records.',
+      line: 'kindgi sites unregister <site-id>',
     },
   ],
   'reviewers get': [
@@ -1583,10 +1740,30 @@ export const CLI_EXAMPLES = {
       line: 'kindgi service-accounts unregister <service-account-id>',
     },
   ],
+  'people add': [
+    {
+      purpose: 'Add a person and email them their invitation.',
+      line: 'kindgi people add --name="Sam Lee" --email=sam@acme.example',
+    },
+    {
+      purpose: 'Add a person without emailing the invitation: you tell them.',
+      line: 'kindgi people add --name="Sam Lee" --email=sam@acme.example --no-invite',
+    },
+  ],
+  'people invite': [
+    {
+      purpose: "Send a person's invitation again, with a new expiry.",
+      line: 'kindgi people invite <user-id>',
+    },
+  ],
   'people list': [
     {
       purpose: 'Find people whose name starts with Sam.',
       line: 'kindgi people list --query=Sam',
+    },
+    {
+      purpose: "List the people invited who haven't signed in yet.",
+      line: 'kindgi people list --pending --table',
     },
     {
       purpose: 'List everyone, removed people too, as a table.',
@@ -1676,6 +1853,17 @@ export const CLI_EXAMPLES = {
       line: 'kindgi feedback withdraw 2026-10-15.1',
     },
   ],
+  egress: [
+    {
+      purpose:
+        "Print the addresses this deployment's calls come from, to admit them on a site that admits only known addresses.",
+      line: 'kindgi egress',
+    },
+    {
+      purpose: "Both lists as JSON, for a script that writes the site's firewall rule.",
+      line: 'kindgi egress --json',
+    },
+  ],
   health: [
     {
       purpose: 'Check that the API server answers.',
@@ -1695,12 +1883,14 @@ export const CLI_GROUP_SEE_ALSO = {
   auth: ['start/install', 'deploy/people-and-keys'],
   upgrade: ['start/quickstart-java', 'start/quickstart-scala'],
   console: ['deploy/sign-in', 'start/introduction'],
+  sites: ['deploy/sign-in', 'guides/approvals/ask-and-approve-in-wordpress'],
   'mcp-launch': ['guides/tools/mcp-servers'],
   projects: ['guides/projects/organize-by-org-and-project'],
   flows: ['guides/flows/write-a-flow', 'guides/flows/index'],
   capabilities: ['guides/agents/choose-a-model'],
   adapters: ['guides/models/index', 'guides/models/serve-your-own-model'],
   feedback: ['start/coding-agents'],
+  egress: ['deploy/operate'],
   health: ['deploy/operate'],
   version: ['start/install'],
 };

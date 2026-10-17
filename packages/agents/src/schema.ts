@@ -51,6 +51,13 @@ export const agentConversations = pgTable(
      */
     projectId: uuid('project_id'),
     /**
+     * Who opened it: the caller's principal (`user:<id>`,
+     * `service_account:<id>`), set by the server, never from a request's
+     * body. Null on conversations opened before it was kept (nothing is
+     * backfilled), and for a caller with no principal.
+     */
+    openedBy: text('opened_by'),
+    /**
      * Structural scope — project id, matter id, etc. Persisted through
      * the versioning envelope so shape evolution is migrate-on-read.
      */
@@ -91,6 +98,10 @@ export const agentConversations = pgTable(
     tenantProjectOpenedIdx: index('agent_conversations_tenant_project_opened_idx')
       .on(t.tenantId, t.projectId, t.openedAt.desc())
       .where(sql`${t.projectId} IS NOT NULL`),
+    // "My conversations" (`?openedBy=me`), newest first, as the list pages.
+    tenantOpenedByIdx: index('agent_conversations_tenant_opened_by_idx')
+      .on(t.tenantId, t.openedBy, t.openedAt.desc(), t.id.desc())
+      .where(sql`${t.openedBy} IS NOT NULL`),
     /** Partial index: open conversations sorted by recency. Used by the UI list. */
     openRecentIdx: index('agent_conversations_open_recent_idx')
       .on(t.tenantId, t.lastMessageAt.desc())

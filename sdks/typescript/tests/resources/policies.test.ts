@@ -96,6 +96,19 @@ describe('policies.get / list / versions', () => {
     );
   });
 
+  it("getVersion keeps a retired version's unregisteredAt", async () => {
+    const stub = jsonFetch({ ...WIRE_POLICY, unregisteredAt: '2026-09-24T22:00:00.000Z' });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+
+    const retired = await client.policies.getVersion('access.default' as never, '1.0.0');
+    expect(retired.version).toBe('1.0.0');
+    expect(retired.unregisteredAt).toBe('2026-09-24T22:00:00.000Z');
+  });
+
   it('maps 404 not-found on getVersion', async () => {
     const stub = errorFetch(404, { code: 'not-found', message: 'no such policy version' });
     const client = createClient({

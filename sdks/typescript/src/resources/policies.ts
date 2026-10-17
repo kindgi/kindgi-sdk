@@ -83,12 +83,14 @@ export interface PoliciesClient {
   versions(id: PolicyId, filter?: PolicyVersionsFilter): Promise<ListPage<PolicyVersionRow>>;
 
   /**
-   * Fetch a specific version of a policy.
+   * Fetch a specific version of a policy. A retired (unregistered)
+   * version is returned too, with its `unregisteredAt`; an active one
+   * has none.
    *
    * @wire `GET /v1/policies/{policyId}/versions/{version}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1policies~1{policyId}~1versions~1{version}/get`.
    */
-  getVersion(id: PolicyId, version: string): Promise<Policy>;
+  getVersion(id: PolicyId, version: string): Promise<PolicyVersionRow>;
 
   /**
    * Unregister a specific version.
@@ -143,10 +145,10 @@ export interface PolicyVersionsFilter {
 }
 
 /**
- * A row in a `versions` response — standard `Policy` fields plus an
- * optional `unregisteredAt` timestamp, present iff the version is
- * soft-tombstoned. Callers can ignore the extra field and treat the
- * row as a plain `Policy`.
+ * A version as `versions` and `getVersion` return it — standard `Policy`
+ * fields plus an optional `unregisteredAt` timestamp, present iff the
+ * version is soft-tombstoned. Callers can ignore the extra field and
+ * treat the row as a plain `Policy`.
  */
 export type PolicyVersionRow = Policy & {
   readonly unregisteredAt?: string;
@@ -222,7 +224,7 @@ export function makePoliciesClient(transport: Transport): PoliciesClient {
     },
 
     async getVersion(id, version) {
-      return transport.request<Policy>({
+      return transport.request<PolicyVersionRow>({
         method: 'GET',
         path: `/v1/policies/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}`,
       });

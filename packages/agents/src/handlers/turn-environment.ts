@@ -120,13 +120,7 @@ export async function resolveTurnEnvironment(
   // Merge the static tenant policy with the one derived from the
   // policy registry (if wired); the result is at least as strict as
   // each (see `mergeTenantPolicies`).
-  const derivedPolicy =
-    ctx.bindings.policyRegistry !== undefined
-      ? await ctx.bindings.policyRegistry.evaluate<
-          { readonly tenantId: typeof ctx.input.tenantId },
-          TenantPolicy | undefined
-        >('model-routing', { tenantId: ctx.input.tenantId })
-      : undefined;
+  const derivedPolicy = await evaluateTurnPolicy<TenantPolicy>(ctx, 'model-routing');
   const effectivePolicy = mergeTenantPolicies(ctx.bindings.tenantPolicy, derivedPolicy);
   if (effectivePolicy !== undefined) ctx.tenantPolicy = effectivePolicy;
   ctx.toolErrorPolicy = await resolveToolErrorPolicy(ctx);
@@ -212,39 +206,41 @@ export async function turnToolRegistry(ctx: TurnContext): Promise<ToolRegistry> 
 }
 
 /**
- * The turn's approval rules: the agent's, held to the tenant's `hitl`
- * policy. A policy that can't be evaluated fails the turn — running
- * without it would skip the tenant's approvals.
+ * The tenant's `kind` policy for the turn, or `undefined` without a
+ * policy registry. A policy that can't be evaluated fails the turn with
+ * `tenant-policy-unavailable`, its cause's message in the failure's:
+ * running without it would skip the tenant's rules (its approvals, its
+ * model routing, its cap on tool errors).
  */
-export async function resolveTurnHitlPolicy(ctx: TurnContext): Promise<EffectiveHitlPolicy> {
-  let tenant: HitlSpec | undefined;
-  if (ctx.bindings.policyRegistry !== undefined) {
-    try {
-      tenant = await ctx.bindings.policyRegistry.evaluate<
-        { readonly tenantId: typeof ctx.input.tenantId },
-        HitlSpec | undefined
-      >('hitl', { tenantId: ctx.input.tenantId });
-    } catch (cause) {
-      // Work a budget kept per tenant refused isn't the policy's failure: the turn answers for it.
-      if (cause instanceof TenantBudgetError) throw cause;
-      throwAgentTurnFailure({
-        code: 'tenant-policy-unavailable',
-        message: `The tenant's hitl policy could not be applied: ${cause instanceof Error ? cause.message : String(cause)}`,
-        policyKind: 'hitl',
-      });
-    }
+async function evaluateTurnPolicy<Spec>(
+  ctx: TurnContext,
+  kind: 'hitl' | 'model-routing' | 'tool-errors',
+): Promise<Spec | undefined> {
+  if (ctx.bindings.policyRegistry === undefined) return undefined;
+  try {
+    return await ctx.bindings.policyRegistry.evaluate<
+      { readonly tenantId: typeof ctx.input.tenantId },
+      Spec | undefined
+    >(kind, { tenantId: ctx.input.tenantId });
+  } catch (cause) {
+    // Work a budget kept per tenant refused isn't the policy's failure: the turn answers for it.
+    if (cause instanceof TenantBudgetError) throw cause;
+    throwAgentTurnFailure({
+      code: 'tenant-policy-unavailable',
+      message: `The tenant's ${kind} policy could not be applied: ${cause instanceof Error ? cause.message : String(cause)}`,
+      policyKind: kind,
+    });
   }
+}
+
+/** The turn's approval rules: the agent's, held to the tenant's `hitl` policy. */
+export async function resolveTurnHitlPolicy(ctx: TurnContext): Promise<EffectiveHitlPolicy> {
+  const tenant = await evaluateTurnPolicy<HitlSpec>(ctx, 'hitl');
   return resolveEffectiveHitlPolicy({ tenant, agent: ctx.input.agent });
 }
 
 /** The agent's `toolErrors`, capped by the tenant's `tool-errors` policy. */
 async function resolveToolErrorPolicy(ctx: TurnContext): Promise<ToolErrorPolicy> {
-  const cap =
-    ctx.bindings.policyRegistry !== undefined
-      ? await ctx.bindings.policyRegistry.evaluate<
-          { readonly tenantId: typeof ctx.input.tenantId },
-          ToolErrorsSpec | undefined
-        >('tool-errors', { tenantId: ctx.input.tenantId })
-      : undefined;
+  const cap = await evaluateTurnPolicy<ToolErrorsSpec>(ctx, 'tool-errors');
   return effectiveToolErrorPolicy(ctx.input.agent.toolErrors, cap);
 }

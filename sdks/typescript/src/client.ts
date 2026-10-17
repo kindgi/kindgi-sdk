@@ -14,6 +14,7 @@ import { type ConversationsClient, makeConversationsClient } from './resources/c
 import { type CostClient, makeCostClient } from './resources/cost.js';
 import { type DeploymentsClient, makeDeploymentsClient } from './resources/deployments.js';
 import { type EnvClient, makeEnvClient } from './resources/env.js';
+import { type EnvironmentsClient, makeEnvironmentsClient } from './resources/environments.js';
 import { type EvalRunsClient, makeEvalRunsClient } from './resources/eval-runs.js';
 import { type EvalSuitesClient, makeEvalSuitesClient } from './resources/eval-suites.js';
 import { type EventsClient, makeEventsClient } from './resources/events.js';
@@ -112,6 +113,8 @@ export interface KindgiClient {
   readonly projects: ProjectsClient;
   readonly env: EnvClient;
   readonly secrets: SecretsClient;
+  /** The tenant's env names, across env values and secrets (tenant admin). */
+  readonly environments: EnvironmentsClient;
   readonly deployments: DeploymentsClient;
   readonly compliance: ComplianceClient;
   readonly audit: AuditResourceClient;
@@ -197,6 +200,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     projects: makeProjectsClient(transport),
     env: makeEnvClient(transport),
     secrets: makeSecretsClient(transport),
+    environments: makeEnvironmentsClient(transport),
     deployments: makeDeploymentsClient(transport),
     compliance: makeComplianceClient(transport),
     audit: makeAuditClient(transport),

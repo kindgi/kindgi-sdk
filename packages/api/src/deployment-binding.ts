@@ -102,8 +102,31 @@ export interface DeploymentBinding {
 export type DeploymentEndpointStatus = 'pending' | 'ready' | 'cleared';
 
 /**
- * Why a `pending` deployment has no pack service yet. A fixed code, never
- * free text, so nothing about the operator's setup reaches the tenant.
+ * Why a deployment's pack service should go:
+ * - `superseded`, for good: newer deployments ship every tool version and
+ *   check it does, so no new call reaches it. A tool call a step made on it
+ *   still goes back to it when the step runs again, and fails closed
+ *   (`pack-endpoint-cleared`) once its endpoint is cleared;
+ * - `tenant-closing`, `tenant-suspended`: every deployment of the tenant,
+ *   routed or not, since nothing of it runs;
+ * - `project-suspended`, `pack-suspended`: every deployment of the project,
+ *   or this deployment.
+ */
+export const SYSTEM_DEPLOYMENT_RETIRE_REASONS = [
+  'superseded',
+  'tenant-closing',
+  'tenant-suspended',
+  'project-suspended',
+  'pack-suspended',
+] as const;
+
+export type SystemDeploymentRetireReason = (typeof SYSTEM_DEPLOYMENT_RETIRE_REASONS)[number];
+
+/**
+ * Why a deployment waiting for its pack service has none yet: a `pending`
+ * one, or a `cleared` one that's `waiting` (after a suspension is lifted). A
+ * fixed code, never free text, so nothing about the operator's setup
+ * reaches the tenant.
  *
  * The server refused the endpoint it was given:
  * - `endpoint-url-invalid`: not `https`, or with user info or a path;
@@ -133,7 +156,7 @@ export const DEPLOYMENT_ENDPOINT_PROBLEM_CODES = [
 
 export type DeploymentEndpointProblemCode = (typeof DEPLOYMENT_ENDPOINT_PROBLEM_CODES)[number];
 
-/** Why a `pending` deployment has no pack service yet, and since when. */
+/** Why a deployment waiting for its pack service has none yet, and since when. */
 export interface DeploymentEndpointProblem {
   readonly code: DeploymentEndpointProblemCode;
   /** When it was recorded. ISO-8601. */
@@ -146,10 +169,50 @@ export interface DeploymentEndpoint {
   /** When the status last changed. ISO-8601. */
   readonly since: string;
   /**
-   * With `pending` only: the last reason it has no pack service yet. Gone
-   * once the status changes.
+   * While it waits for a pack service (`pending`, or `cleared` and
+   * `waiting`): the last reason recorded while it waited. A `ready` one has
+   * none, nor a `retired` one.
    */
   readonly problem?: DeploymentEndpointProblem;
+  /**
+   * `cleared` only: a pack service is wanted for it again, as once a
+   * suspension that took its service down is lifted, and it lists as
+   * needing one.
+   * A `cleared` one carries this or `retired`, never both (from runtime
+   * 0.1.8.1; an older server sends neither).
+   */
+  readonly waiting?: true;
+  /**
+   * `cleared` only: why no pack service is wanted for it now, as the
+   * orchestrator is told to retire one. `superseded` is for good: newer
+   * deployments ship every tool version and check it does, so no new call
+   * reaches it; a tool call a step made on it still goes back to it when the
+   * step runs again, and fails closed (`pack-endpoint-cleared`). The others
+   * last until the tenant, project or pack is restored.
+   */
+  readonly retired?: SystemDeploymentRetireReason;
+}
+
+/**
+ * A deployment's endpoint as the routes answer it: named fields only, so its
+ * URL and token never leave the server. A `cleared` one carries `waiting` or
+ * `retired` (`waiting`, should a binding give both), and no other carries
+ * either. The problem shows while it waits: `pending`, or `cleared` and
+ * `waiting`.
+ */
+export function endpointToWire(endpoint: DeploymentEndpoint): DeploymentEndpoint {
+  const waiting = endpoint.status === 'cleared' && endpoint.waiting === true;
+  const retired = endpoint.status === 'cleared' && !waiting ? endpoint.retired : undefined;
+  return {
+    status: endpoint.status,
+    since: endpoint.since,
+    ...((endpoint.status === 'pending' || waiting) &&
+      endpoint.problem !== undefined && {
+        problem: { code: endpoint.problem.code, since: endpoint.problem.since },
+      }),
+    ...(waiting && { waiting: true }),
+    ...(retired !== undefined && { retired }),
+  };
 }
 
 export interface Deployment {

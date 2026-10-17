@@ -196,7 +196,8 @@ export function policiesRouter(
         ),
       );
     }
-    return c.json(serializePolicy(policy));
+    // A retired version answers too, with its `unregisteredAt`.
+    return c.json(serializePolicyVersionRow(policy));
   });
 
   // ---------- POST / (publish) ----------
@@ -394,9 +395,10 @@ function serializePolicy(p: Policy): Record<string, unknown> {
 }
 
 /**
- * Version-list serializer — same shape as `serializePolicy` plus the
- * optional `unregisteredAt` timestamp when the row is tombstoned. Kept
- * separate so `get` / `getVersion` responses don't leak the field.
+ * A version's serializer (the version list and the version route) —
+ * same shape as `serializePolicy` plus the optional `unregisteredAt`
+ * timestamp when the version is tombstoned. `get` answers the latest
+ * active version, which never carries it.
  */
 function serializePolicyVersionRow(
   p: Policy & { readonly unregisteredAt?: string },
