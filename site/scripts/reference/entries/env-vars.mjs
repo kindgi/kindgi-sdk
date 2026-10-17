@@ -46,6 +46,8 @@ export const ENV_DEFAULTS = {
     'none (with `KINDGI_AUTH_SECRET` unset): sign-in with identity providers is off',
   KINDGI_AUTH_SECRET:
     'none (with `KINDGI_AUTH_SECRET_PATH` unset): sign-in with identity providers is off',
+  KINDGI_AUTH_PREVIOUS_SECRET_PATH: 'none: no previous secret',
+  KINDGI_AUTH_PREVIOUS_SECRET: 'none: no previous secret',
   KINDGI_AUTH_PRIVATE_IDP_ORIGINS: 'none: none; only public HTTPS identity providers are allowed',
   KINDGI_AUTH_VERIFIED_DOMAINS:
     "none: none; a runtime serving one tenant routes that tenant's domains without it, one serving several routes no domain",
@@ -198,6 +200,10 @@ export const ENV_EXAMPLES = {
   KINDGI_AUTH_SECRET: {
     value: '<32 random bytes, base64>',
     make: 'openssl rand -base64 32',
+  },
+  // The secret it held before the rotation, not a new one.
+  KINDGI_AUTH_PREVIOUS_SECRET: {
+    value: '<the KINDGI_AUTH_SECRET value before the rotation>',
   },
   KINDGI_AUTH_GOOGLE_CLIENT_ID: {
     value: '<client id of your Google OAuth app>',

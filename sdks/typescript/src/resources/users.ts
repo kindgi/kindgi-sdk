@@ -4,6 +4,7 @@
 import type { Filter, SessionId, UserId } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import type { SecondFactorRemoved, SecondFactorStatus } from '../generated/api.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type {
@@ -172,6 +173,31 @@ export interface UsersClient {
   resendInvite(id: UserId, options?: { readonly idempotencyKey?: string }): Promise<InviteRenewed>;
 
   /**
+   * Whether a person has a second factor set up, since when, how many
+   * recovery codes they have left, and whether their workspace requires
+   * one. Never a key or a code. Tenant admins only; mounted where the
+   * deployment keeps second factors.
+   *
+   * @wire `GET /v1/identity/users/{userId}/second-factor` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users~1{userId}~1second-factor/get`.
+   */
+  secondFactor(id: UserId): Promise<SecondFactorStatus>;
+
+  /**
+   * Remove a person's second factor, for a lost phone or lost recovery
+   * codes: they're told by email where the deployment sends it, and it's
+   * audited. Their sessions stay. `removed: false` when they had none.
+   * Tenant admins only.
+   *
+   * @wire `POST /v1/identity/users/{userId}/second-factor/remove` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users~1{userId}~1second-factor~1remove/post`.
+   */
+  removeSecondFactor(
+    id: UserId,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<SecondFactorRemoved>;
+
+  /**
    * @unwired No user-update route — users live in the deployment's
    *   identity directory.
    */
@@ -330,6 +356,22 @@ export function makeUsersClient(transport: Transport): UsersClient {
       return transport.request<InviteRenewed>({
         method: 'POST',
         path: `/v1/identity/users/${encodeURIComponent(id as unknown as string)}/invite`,
+        body: {},
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+
+    async secondFactor(id) {
+      return transport.request<SecondFactorStatus>({
+        method: 'GET',
+        path: `/v1/identity/users/${encodeURIComponent(id as unknown as string)}/second-factor`,
+      });
+    },
+
+    async removeSecondFactor(id, options) {
+      return transport.request<SecondFactorRemoved>({
+        method: 'POST',
+        path: `/v1/identity/users/${encodeURIComponent(id as unknown as string)}/second-factor/remove`,
         body: {},
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });

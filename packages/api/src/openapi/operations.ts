@@ -6255,7 +6255,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.tokenSignIn',
     summary: 'Sign in to the console with an API token',
     description:
-      "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session.",
+      "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.",
     tags: ['auth'],
     security: 'bearer',
     responses: {
@@ -6268,7 +6268,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'Signed in by a session, not an API token (`token-sign-in-needs-an-api-token`).',
       ),
       '403': ErrorResponse(
-        "Not allowed here (`token-sign-in-off`), or not this key (`token-sign-in-not-allowed`): a service account's, or a narrowed one.",
+        "Not allowed here (`token-sign-in-off`), or not this key (`token-sign-in-not-allowed`): a service account's, or a narrowed one; or the workspace requires a second factor (`second-factor-required`).",
       ),
       '409': ErrorResponse(
         "A retry with the Idempotency-Key of a sign-in that succeeded: its session was in the cookie, which isn't kept (`idempotency-key-replay-withheld`). Sign in again without the key.",
@@ -6414,6 +6414,43 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '403': ProviderChangeRefused,
       '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/auth/settings',
+    openapiPath: '/v1/auth/settings',
+    operationId: 'auth.settings.get',
+    summary: "The workspace's sign-in settings",
+    description:
+      "Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+    tags: ['auth'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'The settings.', schema: ref('AuthSettings') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/auth/settings',
+    openapiPath: '/v1/auth/settings',
+    operationId: 'auth.settings.update',
+    summary: 'Require a second factor at sign-in',
+    description:
+      "Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+    tags: ['auth'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('AuthSettingsPatch') },
+    responses: {
+      '200': { description: 'The settings, after.', schema: ref('AuthSettings') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '409': ErrorResponse(
+        'Turned on from a session made without a second factor (`second-factor-enroll-first`), or an idempotency conflict.',
+      ),
     },
   },
   {
@@ -6627,6 +6664,171 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '429': ErrorResponse(
         '`invite-capped`: renewed again too soon for this person, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours. Nothing changed; `Retry-After` says when to try again.',
       ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/identity/me/second-factor',
+    openapiPath: '/v1/identity/me/second-factor',
+    operationId: 'identity.me.secondFactor',
+    summary: 'My second factor',
+    description:
+      'Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+    tags: ['identity'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'Your second factor.', schema: ref('SecondFactorStatus') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Not a session (`auth-not-session-token`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/identity/me/second-factor',
+    openapiPath: '/v1/identity/me/second-factor',
+    operationId: 'identity.me.startSecondFactor',
+    summary: 'Start setting up a second factor',
+    description:
+      'A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('SecondFactorProof') },
+    responses: {
+      '200': { description: 'The new key.', schema: ref('SecondFactorKey') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('Not a session (`auth-not-session-token`), or a malformed body.'),
+      '403': ErrorResponse(
+        "The code isn't right (`second-factor-invalid`), or the key can't be opened any more (`second-factor-unusable`: a recovery code still works).",
+      ),
+      '429': ErrorResponse(
+        'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/identity/me/second-factor/confirm',
+    openapiPath: '/v1/identity/me/second-factor/confirm',
+    operationId: 'identity.me.confirmSecondFactor',
+    summary: 'Confirm a new second factor',
+    description:
+      'A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('SecondFactorConfirmBody') },
+    responses: {
+      '200': {
+        description: 'Set up: the recovery codes.',
+        schema: ref('SecondFactorRecoveryCodes'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('Not a session (`auth-not-session-token`), or a malformed body.'),
+      '403': ErrorResponse("The code isn't right (`second-factor-invalid`)."),
+      '409': ErrorResponse(
+        'No new key to confirm, or it is over an hour old (`second-factor-not-started`), or an idempotency conflict.',
+      ),
+      '429': ErrorResponse(
+        'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/identity/me/second-factor/recovery-codes',
+    openapiPath: '/v1/identity/me/second-factor/recovery-codes',
+    operationId: 'identity.me.newRecoveryCodes',
+    summary: 'New recovery codes',
+    description:
+      '10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('SecondFactorProof') },
+    responses: {
+      '200': { description: 'The new recovery codes.', schema: ref('SecondFactorRecoveryCodes') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('Not a session (`auth-not-session-token`), or a malformed body.'),
+      '403': ErrorResponse(
+        "The code isn't right (`second-factor-invalid`), or the key can't be opened any more (`second-factor-unusable`: a recovery code still works).",
+      ),
+      '429': ErrorResponse(
+        'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+      ),
+      '409': ErrorResponse(
+        'No second factor set up (`second-factor-not-set-up`), or an idempotency conflict.',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/identity/me/second-factor/remove',
+    openapiPath: '/v1/identity/me/second-factor/remove',
+    operationId: 'identity.me.removeSecondFactor',
+    summary: 'Take my second factor off',
+    description:
+      'Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('SecondFactorProof') },
+    responses: {
+      '200': { description: 'Removed.', schema: ref('SecondFactorRemoved') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('Not a session (`auth-not-session-token`), or a malformed body.'),
+      '403': ErrorResponse(
+        "The workspace requires one (`second-factor-required`), the code isn't right (`second-factor-invalid`), or the key can't be opened any more (`second-factor-unusable`: a recovery code still works).",
+      ),
+      '409': ErrorResponse(
+        'No second factor set up (`second-factor-not-set-up`), or an idempotency conflict.',
+      ),
+      '429': ErrorResponse(
+        'Too many wrong codes lately (`second-factor-locked`): nothing is checked until `Retry-After`.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/identity/users/:userId/second-factor',
+    openapiPath: '/v1/identity/users/{userId}/second-factor',
+    operationId: 'identity.users.secondFactor',
+    summary: "A person's second factor",
+    description:
+      'Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [
+      { name: 'userId', in: 'path', required: true, schema: { type: 'string', minLength: 1 } },
+    ],
+    responses: {
+      '200': { description: 'Their second factor.', schema: ref('SecondFactorStatus') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/identity/users/:userId/second-factor/remove',
+    openapiPath: '/v1/identity/users/{userId}/second-factor/remove',
+    operationId: 'identity.users.removeSecondFactor',
+    summary: "Remove a person's second factor",
+    description:
+      "For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.8.1).",
+    tags: ['identity'],
+    security: 'bearer',
+    parameters: [
+      { name: 'userId', in: 'path', required: true, schema: { type: 'string', minLength: 1 } },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': { description: 'Removed, or none to remove.', schema: ref('SecondFactorRemoved') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "Not a tenant admin, or the caller's own (taken off at `/v1/identity/me/second-factor/remove`).",
+      ),
+      '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
     },
   },
   {

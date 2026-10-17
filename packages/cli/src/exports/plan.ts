@@ -121,6 +121,13 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     admin: true,
   },
   {
+    name: 'user-second-factors',
+    route: '/v1/identity/users/{userId}/second-factor',
+    paging: 'one',
+    parent: { kind: 'users', params: { userId: 'userId' } },
+    admin: true,
+  },
+  {
     name: 'service-accounts',
     route: '/v1/service-accounts',
     paging: cursor,
@@ -154,6 +161,7 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     paging: whole,
     covers: ['/v1/auth/providers/{providerId}'],
   },
+  { name: 'sign-in-settings', route: '/v1/auth/settings', paging: 'one', admin: true },
 
   // Settings.
   { name: 'environments', route: '/v1/environments', paging: cursor, admin: true },
@@ -521,6 +529,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   // The caller, not the workspace.
   '/v1/identity/whoami': 'the caller, not the workspace',
   '/v1/identity/me/permissions': 'the caller, not the workspace',
+  '/v1/identity/me/second-factor': 'the caller, not the workspace',
   '/v1/auth/sign-in-options': 'the caller, not the workspace',
   '/v1/auth/providers/{providerId}/sign-in': 'the caller, not the workspace',
   // Live views of records exported elsewhere.

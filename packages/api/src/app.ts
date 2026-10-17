@@ -167,6 +167,7 @@ import { reviewersRouter } from './routes/reviewers.js';
 import { type RunsRouterOptions, runsRouter } from './routes/runs.js';
 import { s3Router } from './routes/s3.js';
 import { schedulesRouter } from './routes/schedules.js';
+import { authSettingsRouter, secondFactorIdentityRouter } from './routes/second-factor.js';
 import { secretsRouter } from './routes/secrets.js';
 import { serviceAccountsRouter } from './routes/service-accounts.js';
 import { type SignInOptionsRateLimit, signInOptionsRouter } from './routes/sign-in-options.js';
@@ -196,6 +197,7 @@ import { toolsRouter } from './routes/tools.js';
 import { webhookEndpointsRouter } from './routes/webhook-endpoints.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import type { S3CredentialBinding } from './s3-credential-binding.js';
+import type { SecondFactorBinding } from './second-factor-binding.js';
 import { type SecretBinding, observeSecretWrites } from './secrets-binding.js';
 import type { ServiceAccountBinding } from './service-account-binding.js';
 import type { SessionStoreBinding } from './session-store-binding.js';
@@ -967,6 +969,16 @@ export interface CreateAppInput {
    * otherwise; reads and sign-in are unchanged.
    */
   readonly identityProviderChanges?: 'tenant' | 'operator';
+  /**
+   * Optional. A person's second factor and the tenant's setting that
+   * requires one at sign-in: mounts `/v1/identity/me/second-factor*` (the
+   * person's own, from a session), `/v1/identity/users/:userId/second-factor*`
+   * (tenant admins) and `/v1/auth/settings` (tenant admins). With it, token
+   * sign-in is refused in a tenant that requires one (`403
+   * second-factor-required`). Holding sessions to the setting is the
+   * session store's (`resolveToken`).
+   */
+  readonly secondFactor?: SecondFactorBinding;
   /**
    * The deployment's public base URL (e.g. `https://kindgi.acme.example`):
    * what a webhook trigger's `receiveUrl` is made from. Never taken from a
@@ -1828,6 +1840,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.envBinding !== undefined && { tenantConfig: input.envBinding }),
     }),
   );
+  if (input.secondFactor !== undefined) {
+    const secondFactor = {
+      binding: input.secondFactor,
+      ...(authorizer !== undefined && { authorizer }),
+      ...(input.identityDirectory !== undefined && { directory: input.identityDirectory }),
+      ...(input.sessionStore !== undefined && { sessionStore: input.sessionStore }),
+    };
+    v1.route('/identity', secondFactorIdentityRouter(secondFactor));
+    v1.route('/auth/settings', authSettingsRouter(secondFactor));
+  }
   if (input.cost !== undefined) {
     v1.route('/cost', costRouter(input.cost, authorizer, input.projectBinding));
   }
@@ -2285,6 +2307,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             cookieName: sessionCookieOf(input.session.cookie).name,
             cookieSecure: sessionCookieOf(input.session.cookie).secure,
             ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+            ...(input.secondFactor !== undefined && {
+              secondFactorRequired: input.secondFactor.required.bind(input.secondFactor),
+            }),
           }
         : { enabled: false },
       authorizer,

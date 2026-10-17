@@ -347,7 +347,7 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
     }
 
     // A new session in place of this one: same person, provider, scopes,
-    // expiry and metadata. Refresh never calls the provider.
+    // expiry, metadata and second factor. Refresh never calls the provider.
     const createdSession = await sessionStore.create({
       tenantId,
       userId: current.userId,
@@ -355,6 +355,7 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
       expiresAt: current.expiresAt,
       scopes: current.scopes,
       ...(current.metadata !== undefined && { metadata: current.metadata }),
+      ...(current.secondFactor !== undefined && { secondFactor: current.secondFactor }),
     });
     const fresh = await sessionStore.get({ tenantId, sessionId: createdSession.sessionId });
     if (fresh === null) throw new Error('session vanished immediately after create');

@@ -866,6 +866,9 @@ export const CLI_DEFAULTS = {
     email: 'none',
     name: 'required',
   },
+  'sign-in settings': {
+    'require-second-factor': 'unchanged: the settings are read',
+  },
   'people list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
@@ -1764,6 +1767,30 @@ export const CLI_EXAMPLES = {
       line: 'kindgi people invite <user-id>',
     },
   ],
+  'people second-factor': [
+    {
+      purpose:
+        'See whether a person has a second factor set up, and how many recovery codes are left.',
+      line: 'kindgi people second-factor <user-id>',
+    },
+  ],
+  'people reset-second-factor': [
+    {
+      purpose:
+        'Remove the second factor of a person who lost their phone: they set one up again at their next sign-in.',
+      line: 'kindgi people reset-second-factor <user-id>',
+    },
+  ],
+  'sign-in settings': [
+    {
+      purpose: 'See whether signing in takes a second factor.',
+      line: 'kindgi sign-in settings',
+    },
+    {
+      purpose: 'Require a second factor at sign-in (set up your own first).',
+      line: 'kindgi sign-in settings --require-second-factor=on',
+    },
+  ],
   'people list': [
     {
       purpose: 'Find people whose name starts with Sam.',
@@ -1892,6 +1919,7 @@ export const CLI_GROUP_SEE_ALSO = {
   upgrade: ['start/quickstart-java', 'start/quickstart-scala'],
   console: ['deploy/sign-in', 'start/introduction'],
   sites: ['deploy/sign-in', 'guides/approvals/ask-and-approve-in-wordpress'],
+  'sign-in': ['deploy/sign-in', 'deploy/people-and-keys'],
   'mcp-launch': ['guides/tools/mcp-servers'],
   projects: ['guides/projects/organize-by-org-and-project'],
   flows: ['guides/flows/write-a-flow', 'guides/flows/index'],
