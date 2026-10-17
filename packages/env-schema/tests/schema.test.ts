@@ -16,6 +16,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  AUTH_INVITE_EMAIL_DAILY_CAP_VAR,
   type EnvTarget,
   type EnvVarSpec,
   KINDGI_ENV_SCHEMA,
@@ -295,6 +296,23 @@ describe('envVarsForTarget — the executor lease', () => {
     expect(packService).not.toContain('KINDGI_RUN_LEASE_MS');
     expect(packService).not.toContain('KINDGI_RUN_SWEEP_INTERVAL_MS');
     expect(packService).not.toContain('KINDGI_RUN_ENDED_CHECK_MS');
+  });
+});
+
+describe('envVarsForTarget — invitation emails', () => {
+  test("the deployment's daily backstop is the server's, optional, in core, and says its range and default", () => {
+    const cap = envVarsForTarget({ component: 'server' }).find(
+      (v) => v.name === AUTH_INVITE_EMAIL_DAILY_CAP_VAR,
+    );
+    expect(AUTH_INVITE_EMAIL_DAILY_CAP_VAR).toBe('KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP');
+    expect(cap).toMatchObject({ required: false, group: 'core', example: '500' });
+    expect(cap?.description).toContain('Default 500, a whole number from 1 to 100000');
+    expect(cap?.description).toContain('KINDGI_AUTH_EMAIL_SMTP_URL');
+    expect(
+      envVarsForTarget({ component: 'pack-service' }).some(
+        (v) => v.name === AUTH_INVITE_EMAIL_DAILY_CAP_VAR,
+      ),
+    ).toBe(false);
   });
 });
 
