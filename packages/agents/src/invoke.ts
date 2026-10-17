@@ -346,5 +346,9 @@ export function turnInputFromSnapshot(
     // of an unattended run attended.
     ...(snapshot.startedBy !== undefined &&
       snapshot.startedBy !== null && { startedBy: snapshot.startedBy }),
+    // No `messageFromEvent`: a replay doesn't park before its turn has
+    // stored its message (marked) and built its first model call, and a
+    // resumed turn reads that stored mark. If a replay could park sooner,
+    // derive it here from the replay's past run.
   };
 }
