@@ -1833,7 +1833,7 @@ export const CLI_GROUP_SEE_ALSO = {
   capabilities: ['guides/agents/choose-a-model'],
   adapters: ['guides/models/index', 'guides/models/serve-your-own-model'],
   feedback: ['start/coding-agents'],
-  egress: ['deploy/operate'],
+  egress: ['deploy/egress-addresses'],
   health: ['deploy/operate'],
   version: ['start/install'],
 };
