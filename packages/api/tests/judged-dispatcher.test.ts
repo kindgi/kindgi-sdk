@@ -898,6 +898,7 @@ describe('corrections graded on the replay', () => {
     expect(perCase[0]?.correctionDifferences).toEqual([
       {
         judgmentId: 'j-amount',
+        repetition: 1,
         differences: [
           { tool: 'acme.refund', kind: 'field-value', field: 'amount', expected: 25, actual: 80 },
         ],
@@ -936,6 +937,7 @@ describe('corrections graded on the replay', () => {
     expect(perCase[0]?.correctionDifferences).toEqual([
       {
         judgmentId: 'j-amount',
+        repetition: 1,
         differences: [{ tool: 'acme.refund', kind: 'count', expected: 1, actual: 2, refused: 1 }],
       },
     ]);
@@ -963,6 +965,17 @@ describe('corrections graded on the replay', () => {
     });
     expect(perCase[0]?.corrections).toEqual([
       { judgmentId: 'j-amount', pass: false, repetitionsPassed: 1, repetitions: 2 },
+    ]);
+    // The first repetition passed, so the differences come from the second,
+    // and say so — a later failure is no longer shown with none.
+    expect(perCase[0]?.correctionDifferences).toEqual([
+      {
+        judgmentId: 'j-amount',
+        repetition: 2,
+        differences: [
+          { tool: 'acme.refund', kind: 'field-value', field: 'amount', expected: 25, actual: 80 },
+        ],
+      },
     ]);
     expect(summary.corrections).toEqual({ checked: 1, passed: 0 });
   });

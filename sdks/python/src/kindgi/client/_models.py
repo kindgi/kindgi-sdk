@@ -6981,6 +6981,10 @@ class CorrectionDifference(BaseModel):
         populate_by_name=True,
     )
     judgment_id: Annotated[str, Field(alias="judgmentId")]
+    repetition: Annotated[int, Field(ge=1)]
+    """
+    Which repetition (1-based) these differences are from.
+    """
     differences: list[Differences | Differences1 | Differences2 | Differences3]
 
 
@@ -12371,7 +12375,7 @@ class ComparisonCaseResult(BaseModel):
         list[CorrectionDifference] | None, Field(alias="correctionDifferences")
     ] = None
     """
-    The ways each correction's calls differed, by judgment. Quotes argument values, so an erasure clears it (the verdicts and counts stay in `corrections`).
+    The ways each correction's calls differed, by judgment: the differences from the first repetition that failed it, and that repetition's number. Quotes argument values, so an erasure clears it (the verdicts and counts stay in `corrections`).
     """
     diverged: bool
     refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]

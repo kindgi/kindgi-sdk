@@ -14684,17 +14684,23 @@
           },
           "correctionDifferences": {
             "type": "array",
-            "description": "The ways each correction's calls differed, by judgment. Quotes argument values, so an erasure clears it (the verdicts and counts stay in `corrections`).",
+            "description": "The ways each correction's calls differed, by judgment: the differences from the first repetition that failed it, and that repetition's number. Quotes argument values, so an erasure clears it (the verdicts and counts stay in `corrections`).",
             "items": {
               "type": "object",
               "additionalProperties": false,
               "required": [
                 "judgmentId",
+                "repetition",
                 "differences"
               ],
               "properties": {
                 "judgmentId": {
                   "type": "string"
+                },
+                "repetition": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Which repetition (1-based) these differences are from."
                 },
                 "differences": {
                   "type": "array",

@@ -222,11 +222,15 @@ export interface JudgedCaseResult {
     readonly repetitions: number;
   }[];
   /**
-   * How each correction's calls differed, by judgment (the first
-   * repetition's differences). Quotes argument values, so an erasure clears it.
+   * How each correction's calls differed, by judgment: the differences from
+   * the first repetition that failed it, and that repetition's number (the
+   * shown `tools` are the first repetition's, which may differ). Quotes
+   * argument values, so an erasure clears it.
    */
   readonly correctionDifferences?: readonly {
     readonly judgmentId: string;
+    /** Which repetition (1-based) these differences are from. */
+    readonly repetition: number;
     readonly differences: readonly CorrectionDifference[];
   }[];
   readonly diverged: boolean;
@@ -424,9 +428,16 @@ class CaseTally {
   private readonly correctionsCase: readonly JudgedCaseCorrection[];
   /** judgmentId -> how many repetitions this correction passed. */
   private readonly correctionPasses = new Map<string, number>();
-  /** judgmentId -> the first repetition's differences, shown beside its first-repetition calls. */
-  private readonly firstDifferences = new Map<string, readonly CorrectionDifference[]>();
-  private correctionsGraded = false;
+  /**
+   * judgmentId -> the first repetition that failed this correction: its number
+   * (1-based) and its differences. Kept so a correction that passes the first
+   * repetition and fails a later one still shows why.
+   */
+  private readonly firstFailure = new Map<
+    string,
+    { readonly repetition: number; readonly differences: readonly CorrectionDifference[] }
+  >();
+  private correctionRepetitions = 0;
 
   constructor(
     private readonly judgedCase: JudgedEvalCase,
@@ -478,11 +489,13 @@ class CaseTally {
    * Grade every correction on the case against this repetition's recorded
    * calls (refused calls included, so a refused-then-retried call still
    * counts). Called for every repetition — one that errored has no calls, so
-   * a `calls` correction fails it. The first repetition's differences are
-   * kept to show beside its calls.
+   * a `calls` correction fails it. The first repetition that fails a
+   * correction keeps its differences, with its repetition number.
    */
   private gradeCorrections(outcome: EvalRunSubjectInvokeOutcome): void {
     if (this.correctionsCase.length === 0) return;
+    this.correctionRepetitions += 1;
+    const repetition = this.correctionRepetitions;
     const calls: CandidateCall[] = (outcome.replay?.tools ?? []).map((t) => ({
       tool: t.toolId,
       args: asArgs(t.arguments),
@@ -494,12 +507,10 @@ class CaseTally {
       const graded = gradeCorrection(c, calls);
       if (graded.pass) {
         this.correctionPasses.set(c.judgmentId, (this.correctionPasses.get(c.judgmentId) ?? 0) + 1);
-      }
-      if (!this.correctionsGraded && graded.differences.length > 0) {
-        this.firstDifferences.set(c.judgmentId, graded.differences);
+      } else if (!this.firstFailure.has(c.judgmentId)) {
+        this.firstFailure.set(c.judgmentId, { repetition, differences: graded.differences });
       }
     }
-    this.correctionsGraded = true;
   }
 
   result(baseline: OutputScore): JudgedCaseResult {
@@ -515,8 +526,16 @@ class CaseTally {
       };
     });
     const correctionDifferences = this.correctionsCase.flatMap((c) => {
-      const differences = this.firstDifferences.get(c.judgmentId);
-      return differences === undefined ? [] : [{ judgmentId: c.judgmentId, differences }];
+      const failure = this.firstFailure.get(c.judgmentId);
+      return failure === undefined
+        ? []
+        : [
+            {
+              judgmentId: c.judgmentId,
+              repetition: failure.repetition,
+              differences: failure.differences,
+            },
+          ];
     });
     return {
       caseId: this.judgedCase.caseId,
