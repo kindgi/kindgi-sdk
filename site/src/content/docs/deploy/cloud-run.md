@@ -129,8 +129,8 @@ built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.7" \
-  quay.io/kindgi/runtime:0.1.7@sha256:442e3232adf13830868b309390a2cbf74cb1f3538e7efbe3166fad925a10984c
+docker buildx imagetools create --tag "$REPO/runtime:0.1.8" \
+  quay.io/kindgi/runtime:0.1.8@sha256:48b81defe532ec284abb2a9cd8fac5ff7543dea998e7cbf67704a163ce183358
 ```
 
 - `REPO` is the repository's address, from the foundation's output.
@@ -493,8 +493,11 @@ server_secret_env = {
   `pack_call_timeout_ms` still caps each call.
 - **The API token** is the operator's: it reaches only `/v1/system/*`, in no
   tenant. So step 5 and everything after it use a tenant's key instead:
-  - **A tenant:** `POST /v1/system/tenants` with the API token. Without
-    `firstAdmin`, the answer carries the first admin's key, sent once.
+  - **A tenant:** `POST /v1/system/tenants` with the API token. With
+    `firstAdmin`, that person is its admin and holds every capability but
+    `secrets:reveal`, to put on the keys they make
+    ([Who can do what](../people-and-keys/#who-can-do-what)). Without it,
+    the answer carries the first admin's key, sent once.
   - **Its image repository:** the create's `imagePrefix`, or
     `PUT /v1/system/tenants/{tenantId}/image-prefix`, before its first
     deploy. Without it, a deploy is refused with `409 image-prefix-unset`.
@@ -785,10 +788,11 @@ A new grant can take a minute or two to apply.
 
 ## Tear it down
 
-Cloud SQL is protected from deletion: set `database_deletion_protection =
-false` and apply first. The KMS key ring and key outlive `terraform destroy`:
-Google Cloud never deletes them. Take them out of Terraform's state, destroy
-the rest, then schedule the key's versions for destruction:
+Terraform won't delete Cloud SQL while `database_deletion_protection` is
+on (the default). Set it to `false` and apply first. The KMS key ring and
+key outlive `terraform destroy`: Google Cloud never deletes them. Take them
+out of Terraform's state, destroy the rest, then schedule the key's versions
+for destruction:
 
 ```sh
 terraform apply -var-file=prod.tfvars -var=database_deletion_protection=false

@@ -175,17 +175,17 @@ Error [invalid-request]: Provider "bedrock" doesn't fit adapter @kindgi/adapter-
 
 A provider registered before the runtime moved to `isolated`, and that signs
 in as the runtime, isn't used there. Here, a `bedrock` preset registration:
-a turn that needs it fails with `422 capability-routing-failed`:
+a turn that needs it fails with `422 capability-routing-failed`, and the
+error's message names the setting the adapter refuses:
 
 ```json
-{"error":{"code":"capability-routing-failed","message":"No registered provider satisfies the capability declaration","details":{"runId":"7023ea0b-ddf3-4795-9b62-f68cdfe4b808"},"requestId":"req-82f50c49-8e4f-4cce-b221-f0a33d051dd0"}}
+{"error":{"code":"capability-routing-failed","message":"No registered provider satisfies the capability declaration. Provider \"bedrock\" can't be set up on this runtime: adapter @kindgi/adapter-model-bedrock refuses its /adapter_config/auth (GET /v1/providers/bedrock/check says why).","details":{"runId":"a6b708ca-d4cc-4cc7-a365-be066858d59f"},"requestId":"req-8b1ef821-9ec2-4f01-9c92-18eeedf4a9b0"}}
 ```
 
-The runtime's log says why:
-
-```text
-16:50:24.757 WARN  [providers] factory throw traceId=… tenantId=… projectId=… runId=7023ea0b-ddf3-4795-9b62-f68cdfe4b808 agentId=acme.helper agentVersion=1.0.0 conversationId=… providerId=bedrock adapterId=@kindgi/adapter-model-bedrock err="Error: @kindgi/adapter-model-bedrock: provider \"bedrock\": adapter_config.auth = aws-identity (the default) signs in as the runtime's own AWS identity, which this deployment doesn't let tenant configuration use (KINDGI_TENANT_HOST_ACCESS). Set auth = api-key, with secret_ref naming a Bedrock API key."
-```
+[`GET /v1/providers/bedrock/check`](../../guides/models/#check-a-registration)
+gives the adapter's own words, the same as the refusal above, at
+`/adapter_config/auth`. The runtime's log has them too, in its
+`factory throw` line.
 
 Unregister such a provider, and register it again with a key of its own:
 for Bedrock, [an API key](../../guides/models/#with-a-bedrock-api-key); for

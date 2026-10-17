@@ -20,8 +20,10 @@ import type {
 import type { AppEnv } from '../types.js';
 import { capabilityRefusal } from './denied.js';
 import { requireEnvName, requireScope, scopesEqual } from './env.js';
+import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { queryScopeResourceRef, scopeResourceRef } from './scope-params.js';
+import { readingOf } from './sse.js';
 import { parseTimeInput } from './time-input.js';
 import { auditWrite } from './write-audit.js';
 
@@ -160,6 +162,8 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
 
     const limit = clampLimit(c.req.query('limit'));
     const cursorRaw = c.req.query('cursor');
+    const refused = refuseUnissuedCursor(c, secretsBinding, 'secrets', cursorRaw);
+    if (refused !== undefined) return refused;
     const namePrefix = c.req.query('namePrefix');
 
     const page = await secretsBinding.list({
@@ -168,6 +172,7 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
       limit,
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
       ...(namePrefix !== undefined && namePrefix.length > 0 && { namePrefix }),
+      ...(c.req.query('includeRevoked') === 'true' && { includeRevoked: true }),
     });
     return c.json({
       data: page.data.map(serializeSecretRecord),
@@ -234,6 +239,8 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
 
     const limit = clampLimit(c.req.query('limit'));
     const cursorRaw = c.req.query('cursor');
+    const refused = refuseUnissuedCursor(c, secretsBinding, 'versions', cursorRaw);
+    if (refused !== undefined) return refused;
 
     const page = await secretsBinding.listVersions({
       scope: scopeResult.scope,
@@ -742,9 +749,32 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
       );
     }
 
+    const headers = {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      'X-Accel-Buffering': 'no',
+      Connection: 'keep-alive',
+    };
+    // Nobody will read this stream when the request is a HEAD (Hono answers a
+    // HEAD with this GET route and drops the body unread, and nothing cancels
+    // it) or when the client left during the read above (its request aborts,
+    // but the server cancels only a body it's writing). Then the route
+    // answers the stream's status and headers, before the stream exists, and
+    // starts none of its work.
+    if (c.req.method === 'HEAD' || c.req.raw.signal.aborted) {
+      return new Response(null, { status: 200, headers });
+    }
+
     const encoder = new TextEncoder();
     const initialStatus = existing;
+    // Aborted when the client goes away: the reader cancels the stream, or
+    // the request aborts. The wait below ends on it at once, and the
+    // subscription and the heartbeat with it.
+    const reading = readingOf(c.req.raw);
     const body = new ReadableStream<Uint8Array>({
+      cancel() {
+        reading.abort();
+      },
       async start(controller) {
         let closed = false;
         const close = (): void => {
@@ -800,29 +830,23 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
           if (terminal) return;
           emit('ping', {});
         }, heartbeatMs);
+        reading.signal.addEventListener('abort', wakeup, { once: true });
 
         try {
-          while (!terminal) {
+          while (!terminal && !reading.signal.aborted) {
             await new Promise<void>((resolve) => {
               notifier = resolve;
             });
           }
         } finally {
+          reading.signal.removeEventListener('abort', wakeup);
           clearInterval(timer);
           unsub();
           close();
         }
       },
     });
-    return new Response(body, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache',
-        'X-Accel-Buffering': 'no',
-        Connection: 'keep-alive',
-      },
-    });
+    return new Response(body, { status: 200, headers });
   });
 
   // ------------------------ DELETE /:name -----------------------

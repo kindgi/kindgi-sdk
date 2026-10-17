@@ -11,6 +11,7 @@ import { Hono } from 'hono';
 import { describe, expect, test } from 'vitest';
 
 import { type AuthzCheckBinding, type Decision, ref, userPrincipal } from '@kindgi/authz';
+import { noopLogger } from '@kindgi/log';
 import type { TenantId, UserId } from '@kindgi/types';
 
 import { createAuthorizer } from '../src/middleware/authorize.js';
@@ -108,6 +109,8 @@ describe('a check the authorization model has no relation for (T243 A)', () => {
     const authorizer = createAuthorizer(binding);
     const r = new Hono<AppEnv>();
     r.use('*', async (c, next) => {
+      // The request's logger, as `createApp` sets it: such a check is logged through it.
+      c.set('log', noopLogger);
       c.set('tenantId' as never, tenantId as never);
       c.set('requestId' as never, 'req-authz-2' as never);
       c.set('principal' as never, userPrincipal('u-1' as UserId, tenantId) as never);

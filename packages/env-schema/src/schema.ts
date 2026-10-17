@@ -285,7 +285,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_TENANT_HOST_ACCESS',
     description:
-      "How far what tenants register may reach into the server's own host. `deployed` refuses a `stdio` MCP endpoint (a command the server would run in its container, as its user) at registration (`403 host-access-denied`) and at connect; run MCP servers over HTTP instead. It also refuses the server's connections to the cloud metadata endpoints (link-local addresses) and to its own host (loopback) when a tenant chose the host: an MCP endpoint, a model provider's base URL, an HTTP tool, an image reference. Private networks stay reachable. `isolated` is for a server whose tenants don't trust one another: it refuses all that `deployed` does, plus private networks (RFC 1918, CGNAT 100.64.0.0/10, IPv6 unique-local, IPv6 site-local), and the server's own cloud credentials: a model provider can't sign in as the server (a Gemini provider on Vertex AI needs `secret_ref` rather than Application Default Credentials, and Azure OpenAI's `auth: entra` and Bedrock's `auth: aws-identity` are refused). The server won't start with it and `KINDGI_DEV`, `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow` or `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`. `KINDGI_TENANCY=multi` starts only with it. `isolated` is used from runtime 0.1.8; earlier runtimes refuse it at startup. `local` allows all of it: only for a machine where every token holder may run commands. Unset: `local` with `KINDGI_DEV`, `deployed` otherwise; a value set here always wins.",
+      "How far what tenants register may reach into the server's own host. `deployed` refuses a `stdio` MCP endpoint (a command the server would run in its container, as its user) at registration (`403 host-access-denied`) and at connect; run MCP servers over HTTP instead. It also refuses the server's connections to the cloud metadata endpoints (link-local addresses, and the few that clouds serve outside that range, such as Azure's 168.63.129.16) and to its own host (loopback) when a tenant chose the host: an MCP endpoint, a model provider's base URL, an HTTP tool, an image reference. Private networks stay reachable. `isolated` is for a server whose tenants don't trust one another: it refuses all that `deployed` does, plus private networks (RFC 1918, CGNAT 100.64.0.0/10, IPv6 unique-local, IPv6 site-local), and the server's own cloud credentials: a model provider can't sign in as the server (a Gemini provider on Vertex AI needs `secret_ref` rather than Application Default Credentials, and Azure OpenAI's `auth: entra` and Bedrock's `auth: aws-identity` are refused). The server won't start with it and `KINDGI_DEV`, `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow` or `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`. `KINDGI_TENANCY=multi` starts only with it. `isolated` is used from runtime 0.1.8; earlier runtimes refuse it at startup. `local` allows all of it: only for a machine where every token holder may run commands. Unset: `local` with `KINDGI_DEV`, `deployed` otherwise; a value set here always wins.",
     example: 'deployed',
     required: false,
     appliesTo: appliesToServer,
@@ -295,7 +295,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_WEBHOOK_PRIVATE_NETWORKS',
     description:
-      'Whether a webhook may go to a private network address: for a receiver on the same VPC or compose network as a self-hosted server. `allow` accepts a receiver whose host resolves to a private address: RFC 1918, CGNAT (100.64.0.0/10) or IPv6 unique-local. Loopback, link-local (the cloud metadata endpoints) and unroutable addresses stay refused, and webhooks stay https only. Unset or `deny`: public addresses only. Development mode (`KINDGI_DEV`) allows http and every address anyway. `KINDGI_TENANT_HOST_ACCESS=isolated` refuses `allow`.',
+      'Whether a webhook may go to a private network address: for a receiver on the same VPC or compose network as a self-hosted server. `allow` accepts a receiver whose host resolves to a private address: RFC 1918, CGNAT (100.64.0.0/10), IPv6 unique-local or IPv6 site-local. Loopback, the cloud metadata endpoints (link-local addresses, and the few that clouds serve elsewhere, some inside CGNAT or IPv6 unique-local) and unroutable addresses stay refused, even with `allow`, and webhooks stay https only. Unset or `deny`: public addresses only. Development mode (`KINDGI_DEV`) allows http and every address anyway. `KINDGI_TENANT_HOST_ACCESS=isolated` refuses `allow`.',
     example: 'allow',
     required: false,
     appliesTo: appliesToServer,
@@ -539,6 +539,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_SITE_SIGN_IN',
+    description:
+      "`true` lets sites sign their own people in to one project each: a tenant admin registers a site (a store's WordPress admin, say), the site enrolls its own Ed25519 key, and each person it vouches for gets a 15-minute session limited to that project, as themselves, never matched by email. Needs authorization enforced (`KINDGI_OPENFGA_API_URL`) and `KINDGI_PUBLIC_URL` (what a site's statements carry as their audience); turned on without either, the runtime refuses to start. Off by default.",
+    example: 'true',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_AUTH_EMAIL_FROM',
     description:
       "The emailed sign-in link's From address, on a domain your SMTP provider may send for (SPF and DKIM set up): `Kindgi <sign-in@acme.com>`.",
@@ -552,6 +561,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       "The emailed sign-in link's backstop: at most this many links a day to one address from one client network (IPv4 /24, IPv6 /64). Default 20. Before it: one a minute and 3 per 15 minutes to an address, except for the browser that already got a link for it, so someone else's requests can't keep its person out. At a limit the request answers as usual, and nothing is sent.",
     example: '20',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP',
+    description:
+      "The deployment's backstop on invitation emails: at most this many in 24 hours, from all its tenants together. Default 500, a whole number from 1 to 100000. Each tenant may also send at most 100 in 24 hours, or 10 while `KINDGI_PRODUCTION_GATE` is `on` and the tenant isn't allowed production (its `productionAllowed` is `false`). At a limit the person is still added, without the email (`inviteEmail.reason` is `capped`), and sending it again answers `429 invite-capped`. Invitations are emailed by the emailed sign-in link's sender: set without `KINDGI_AUTH_EMAIL_SMTP_URL` (or `KINDGI_AUTH_EMAIL_SMTP_URL_PATH`), the runtime refuses to start.",
+    example: '500',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -670,6 +688,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       'Comma-separated browser origins allowed to call, cross-origin, the routes a public run token can use (`GET /v1/runs/{runId}/progress` and its stream). Exact origins, no wildcards. Unset: no CORS headers on any route.',
     example: 'https://app.example.com',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_EGRESS_SERVER_ADDRESSES',
+    description:
+      "Used from runtime 0.1.8.1; earlier runtimes ignore it. The IP addresses this server's own calls to other sites come from, such as its calls to MCP servers and model providers, and its webhook deliveries: comma-separated IPv4 or IPv6 addresses, such as your NAT's. It publishes them for a site that admits only known addresses: `GET /v1/tenant` shows them to every tenant as `egress.server`, and `kindgi egress` prints them. It changes nothing about where calls go or come from, so set it only once calls really come from these addresses. A value that isn't an IP address stops the server from starting.",
+    example: '192.0.2.10',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_EGRESS_DEPLOYMENT_ADDRESSES',
+    description:
+      "Used from runtime 0.1.8.1; earlier runtimes ignore it. The IP addresses calls made by the code deployed to this server come from: comma-separated IPv4 or IPv6 addresses. As with `KINDGI_EGRESS_SERVER_ADDRESSES`, it only publishes them: `GET /v1/tenant` shows them to every tenant as `egress.deployments`, and `kindgi egress` prints them. A value that isn't an IP address stops the server from starting.",
+    example: '198.51.100.20,198.51.100.21',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',

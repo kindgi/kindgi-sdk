@@ -179,6 +179,7 @@ export default defineConfig({
         },
         { label: 'Concepts', items: [{ autogenerate: { directory: 'concepts' } }] },
         { label: 'Deploy', items: [{ autogenerate: { directory: 'deploy' } }] },
+        { label: 'Kindgi Cloud', items: [{ autogenerate: { directory: 'hosted' } }] },
         {
           label: 'Reference',
           items: [
