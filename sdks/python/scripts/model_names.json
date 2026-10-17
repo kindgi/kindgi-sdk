@@ -671,6 +671,7 @@
   "SystemTenant": ["SystemTenant"],
   "SystemTenantList": ["SystemTenantList"],
   "SystemWhoami": ["SystemWhoami"],
+  "TakeTriggerOwnerBody": ["TakeTriggerOwnerBody"],
   "Team": ["Team"],
   "TeamCollectionPage": ["TeamCollectionPage"],
   "TeamMembership": ["TeamMembership"],

@@ -17842,7 +17842,8 @@
           "service-account-unregistered",
           "person-added",
           "person-granted",
-          "person-ungranted"
+          "person-ungranted",
+          "trigger-owner-set"
         ]
       },
       "EvidenceActor": {
@@ -18003,7 +18004,8 @@
               "service-account-unregistered",
               "person-added",
               "person-granted",
-              "person-ungranted"
+              "person-ungranted",
+              "trigger-owner-set"
             ]
           },
           "timestamp": {
@@ -18187,7 +18189,8 @@
               "service-account-unregistered",
               "person-added",
               "person-granted",
-              "person-ungranted"
+              "person-ungranted",
+              "trigger-owner-set"
             ]
           },
           "from": {
@@ -18269,7 +18272,8 @@
                   "service-account-unregistered",
                   "person-added",
                   "person-granted",
-                  "person-ungranted"
+                  "person-ungranted",
+                  "trigger-owner-set"
                 ]
               },
               "from": {
@@ -20776,6 +20780,11 @@
             "format": "uuid",
             "description": "The schedule's project. Absent → the tenant's default project."
           },
+          "runAsServiceAccountId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. Absent: the caller owns it."
+          },
           "config": {
             "type": "object",
             "additionalProperties": false,
@@ -21305,6 +21314,11 @@
           },
           "label": {
             "type": "string"
+          },
+          "runAsServiceAccountId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it."
           }
         }
       },
@@ -21361,6 +21375,18 @@
             "minimum": 1,
             "maximum": 6000,
             "description": "`null`: the default."
+          }
+        }
+      },
+      "TakeTriggerOwnerBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner.",
+        "properties": {
+          "runAsServiceAccountId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs."
           }
         }
       },
@@ -52925,7 +52951,7 @@
             }
           },
           "404": {
-            "description": "No cron trigger with that id.",
+            "description": "No cron trigger with that id, or no such service account.",
             "content": {
               "application/json": {
                 "schema": {
@@ -52936,6 +52962,16 @@
           },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
             "content": {
               "application/json": {
                 "schema": {
@@ -52965,7 +53001,7 @@
             }
           }
         },
-        "description": "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access.",
+        "description": "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs.",
         "parameters": [
           {
             "name": "triggerId",
@@ -52988,6 +53024,16 @@
             "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TakeTriggerOwnerBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []
@@ -53760,7 +53806,7 @@
             }
           },
           "404": {
-            "description": "No webhook trigger with that id.",
+            "description": "No webhook trigger with that id, or no such service account.",
             "content": {
               "application/json": {
                 "schema": {
@@ -53771,6 +53817,16 @@
           },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
             "content": {
               "application/json": {
                 "schema": {
@@ -53800,7 +53856,7 @@
             }
           }
         },
-        "description": "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access.",
+        "description": "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow.",
         "parameters": [
           {
             "name": "triggerId",
@@ -53823,6 +53879,16 @@
             "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TakeTriggerOwnerBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []

@@ -163,6 +163,51 @@ export async function emitLifecycleEvent(input: EmitLifecycleEventInput): Promis
   await safeEmit(input.auditEvents, event, input.log);
 }
 
+/** Input to {@link emitAuditEvent}: a lifecycle event outside the env / secret paths. */
+export interface EmitAuditEventInput {
+  /** Where the event lands; absent (no audit binding) → nothing is recorded. */
+  readonly auditEvents: AuditEventBinding | undefined;
+  readonly tenantId: TenantId;
+  /** The event's project, when it has one (query scoping). */
+  readonly projectId?: ProjectId;
+  /** The event kind — a built-in `EvidenceKind` or a pack's own. */
+  readonly kind: string;
+  /** Who did it, as the API names its caller (`user:<id>` / `service_account:<id>`). */
+  readonly actor?: string;
+  /** The outcome, when the event has one; defaults to `succeeded`. */
+  readonly outcome?: string;
+  /** The request it came from (the API's `requestId`). */
+  readonly correlationId?: string;
+  /** The kernel run it was emitted in, when any. */
+  readonly runId?: string;
+  /** The kind-specific body, wrapped as the versioned `{ v: 1, doc }` envelope. */
+  readonly doc: Readonly<Record<string, unknown>>;
+  /** Where an append that fails or throws is logged, at `warn`. Absent: it isn't logged. */
+  readonly log?: Logger;
+}
+
+/**
+ * Emit a lifecycle audit event the env / secret and resolve paths don't
+ * cover — a route-layer event such as a trigger's owner change. Builds the
+ * canonical event (its id, timestamp and `{ v: 1, doc }` payload envelope)
+ * and appends it, fire-and-forget on the same contract as the others: an
+ * append that fails or throws is logged at `warn`, never raised.
+ */
+export async function emitAuditEvent(input: EmitAuditEventInput): Promise<void> {
+  if (input.auditEvents === undefined) return;
+  const event = buildEvent({
+    tenantId: input.tenantId,
+    ...(input.projectId !== undefined && { projectId: input.projectId }),
+    kind: input.kind,
+    outcome: input.outcome ?? 'succeeded',
+    actor: input.actor,
+    runId: input.runId,
+    ...(input.correlationId !== undefined && { correlationId: input.correlationId }),
+    payload: input.doc,
+  });
+  await safeEmit(input.auditEvents, event, input.log);
+}
+
 // -----------------------------------------------------------------------------
 // Internals
 // -----------------------------------------------------------------------------

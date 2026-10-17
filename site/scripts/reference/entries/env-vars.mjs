@@ -103,6 +103,7 @@ export const ENV_DEFAULTS = {
     'none: required when `KINDGI_MEMORY_EMBEDDINGS=openai-compat`, not read otherwise',
   KINDGI_MEMORY_EMBEDDINGS_API_KEY: 'none: requests carry no key',
   KINDGI_RETENTION_SWEEP_INTERVAL_MS: 'none: no automatic purge; at least `60000` when set',
+  KINDGI_RUN_RETENTION_MAX_DAYS: 'none: runs are kept as their retention policy says',
   KINDGI_ERASURE_SHARED_WAIT_MS: '`604800000` (7 days); at least `3600000`',
   KINDGI_ERASURE_LEDGER_KEY_PATH:
     'none (with `KINDGI_ERASURE_LEDGER_KEY` unset): erasures run but cannot be replayed after a restore',

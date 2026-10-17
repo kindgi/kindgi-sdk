@@ -6,8 +6,7 @@ import { Hono } from 'hono';
 
 import {
   OBJECT_ACTIONS,
-  OBJECT_TYPES,
-  type ObjectType,
+  PROJECT_SCOPED_TYPES,
   type ProjectRole,
   REVIEWER_ROLE_RANK,
   type ReviewerRole,
@@ -559,11 +558,6 @@ function mountPersonGrants(
 
 /** Project roles from the highest: `capabilities` is answered in this order. */
 const PROJECT_ROLES_BY_RANK: readonly ProjectRole[] = ['owner', 'admin', 'editor', 'viewer'];
-
-/** What a project role reaches: the project and the objects in it, in `OBJECT_TYPES` order. */
-const PROJECT_SCOPED_TYPES: readonly ObjectType[] = OBJECT_TYPES.filter(
-  (t) => t !== 'tenant' && t !== 'org' && t !== 'team' && t !== 'user',
-);
 
 /** Reviewer roles from the lowest rank. */
 const REVIEWER_ROLES_BY_RANK: readonly ReviewerRole[] = (
