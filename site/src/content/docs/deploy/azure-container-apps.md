@@ -546,7 +546,8 @@ to finish, with the output `{"greeting":"Hello, Azure!"}`.
   ([Renew the license key](../renew-the-license-key/#on-a-schedule)). With
   `license_usage_key_secret` too, its renewals carry counts of the
   deployment's use
-  ([A key for the counts](../renew-the-license-key/#a-key-for-the-counts)).
+  ([A key for the counts](../renew-the-license-key/#a-key-for-the-counts)),
+  and an alert says when a run sent none.
 - **A key the runtime can't use:** a new replica exits with code 2 and says
   why, and what to check:
 
