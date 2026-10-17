@@ -140,7 +140,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // A gate asked for an approval past the tenant's limit on approvals waiting.
   'approvals-pending-limit': 429,
   // An invitation renewed again too soon for one person, or past the
-  // workspace's invitations for the day. With `Retry-After`.
+  // invitation emails the workspace, or the deployment, may send in 24
+  // hours. With `Retry-After`.
   'invite-capped': 429,
   // An agent turn's memory, charged by size, is past the tenant's share or
   // the runtime's whole (a runtime's limit, as Kindgi Cloud sets). No
@@ -213,6 +214,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'policy-already-registered': 409,
   'policy-scope-taken': 409,
   'policy-scope-changed': 409,
+  /** A retention policy that keeps its domain's rows longer than the server's limit allows (`retentionLimits`), or holds them. */
+  'retention-over-limit': 400,
   // Admin plane — eval suites.
   'block-not-found': 404,
   'block-already-registered': 409,
