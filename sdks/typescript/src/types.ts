@@ -2052,7 +2052,7 @@ export interface Session {
 /**
  * Wire shape — matches `@kindgi/api/openapi.json#UserRecord`:
  * `{ userId, tenantId, primaryEmail?, displayName?, createdAt,
- * lastActiveAt?, unregisteredAt?, metadata? }`. The API does not own user persistence
+ * lastActiveAt?, unregisteredAt?, invite?, firstSignedInAt?, metadata? }`. The API does not own user persistence
  * (deployments plug in their identity plane — LDAP, SCIM, or a bespoke
  * store); attributes such as email verification or deactivation, when
  * an identity provider has them, travel in `metadata`.
@@ -2066,6 +2066,13 @@ export interface User {
   readonly lastActiveAt?: import('@kindgi/types').Timestamp;
   /** When they were removed from the tenant (`client.users.unregister`); absent while they're here. */
   readonly unregisteredAt?: import('@kindgi/types').Timestamp;
+  /**
+   * Their invitation, while they haven't signed in; absent once they have,
+   * if they were never invited, and from a runtime that doesn't invite.
+   */
+  readonly invite?: UserInvite;
+  /** Their first sign-in; absent before it, and for people added before the runtime kept it. */
+  readonly firstSignedInAt?: import('@kindgi/types').Timestamp;
   readonly metadata?: Readonly<Record<string, unknown>>;
   /**
    * The person's grants: only from `users.list({ includeGrants: true })`,
@@ -2073,6 +2080,57 @@ export interface User {
    * an older one).
    */
   readonly grants?: PersonGrants;
+}
+
+/**
+ * An open invitation (`@kindgi/api/openapi.json#UserInvite`). `pending`
+ * signs in; `expired` (past `expiresAt`) is refused at every sign-in until
+ * a tenant admin renews it (`client.users.resendInvite`).
+ */
+export interface UserInvite {
+  readonly state: 'pending' | 'expired';
+  readonly expiresAt: import('@kindgi/types').Timestamp;
+  /** When it was last emailed; absent when it never was. */
+  readonly sentAt?: import('@kindgi/types').Timestamp;
+}
+
+/**
+ * Whether an invitation was emailed (`@kindgi/api/openapi.json#InviteEmail`),
+ * and why not:
+ * - `no-email`: the person has no email, so isn't invited;
+ * - `not-requested`: the add said not to (`sendInvite: false`);
+ * - `not-configured`: the deployment sends no email;
+ * - `send-failed`: the mail server refused it or didn't answer;
+ * - `capped`: the workspace's daily invitations are used up.
+ * An invitation not emailed is still open: tell the person another way.
+ */
+export interface InviteEmail {
+  readonly sent: boolean;
+  readonly reason?: InviteEmailUnsent;
+}
+
+export type InviteEmailUnsent =
+  | 'no-email'
+  | 'not-requested'
+  | 'not-configured'
+  | 'send-failed'
+  | 'capped';
+
+/**
+ * The person `client.users.create` added
+ * (`@kindgi/api/openapi.json#UserCreated`). `inviteEmail` says whether
+ * their invitation was emailed; absent from a runtime that doesn't invite.
+ */
+export type UserCreated = User & { readonly inviteEmail?: InviteEmail };
+
+/**
+ * A renewed invitation (`client.users.resendInvite`): the person with the
+ * new expiry, and whether it was emailed again.
+ * Matches `@kindgi/api/openapi.json#InviteRenewed`.
+ */
+export interface InviteRenewed {
+  readonly user: User;
+  readonly inviteEmail: InviteEmail;
 }
 
 /**
@@ -2118,6 +2176,12 @@ export interface UserSpec {
   readonly displayName: string;
   /** Unique among the tenant's people. */
   readonly email?: string;
+  /**
+   * Email them the invitation (default true, where the runtime invites).
+   * False still invites them, for telling them another way: `inviteEmail`
+   * says `not-requested`.
+   */
+  readonly sendInvite?: boolean;
   /** @deprecated Not on the wire: `users.create` throws `not-yet-wired` when it is set. */
   readonly orgId?: import('@kindgi/types').OrgId;
   /** @deprecated Not on the wire: `users.create` throws `not-yet-wired` when it is set. */
