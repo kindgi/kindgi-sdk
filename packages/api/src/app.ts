@@ -106,7 +106,7 @@ import {
   mintPublicRunToken,
   resolvePublicRunTokenConfig,
 } from './public-run-token.js';
-import type { RateLimitStore } from './rate-limit-store.js';
+import { type RateLimitStore, nearestForwardedClient } from './rate-limit-store.js';
 import type { ReferenceScopeBinding } from './reference-scope.js';
 import type { RetentionBinding } from './retention-binding.js';
 import type { ReviewerBinding, ReviewerRegistryBinding } from './reviewer-binding.js';
@@ -171,6 +171,8 @@ import { secretsRouter } from './routes/secrets.js';
 import { serviceAccountsRouter } from './routes/service-accounts.js';
 import { type SignInOptionsRateLimit, signInOptionsRouter } from './routes/sign-in-options.js';
 import { signingKeysRouter } from './routes/signing-keys.js';
+import { siteEnrollRouter, siteSignInRouter } from './routes/site-auth.js';
+import { sitesRouter } from './routes/sites.js';
 import {
   type SystemDeploymentsOptions,
   systemDeploymentsRouter,
@@ -198,6 +200,7 @@ import { type SecretBinding, observeSecretWrites } from './secrets-binding.js';
 import type { ServiceAccountBinding } from './service-account-binding.js';
 import type { SessionStoreBinding } from './session-store-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from './signing-key-binding.js';
+import type { SiteBinding } from './site-binding.js';
 import type { SupervisorBinding } from './supervisor-binding.js';
 import type { TenantHostAccess } from './tenant-host-access.js';
 import type { TokenAdmin } from './token-admin.js';
@@ -980,6 +983,27 @@ export interface CreateAppInput {
     readonly clientAddress?: (request: Request) => string | undefined;
     /** Where the counts live; default this process's memory. */
     readonly rateLimitStore?: RateLimitStore;
+  };
+  /**
+   * Sites that sign their own people in to one project (`SiteBinding`).
+   * Mounts `/v1/projects/{projectId}/sites` (tenant admins) and, outside
+   * the bearer chain, `POST /v1/auth/sites/enroll` and
+   * `POST /v1/auth/site-sign-in`. Absent: none of them is mounted. A
+   * deployment wires it only with authorization enforced (`authz`) and a
+   * session store with `revokeByProvider`: `createApp` throws without
+   * either. `clientAddress` defaults to the nearest X-Forwarded-For hop.
+   */
+  readonly sites?: {
+    readonly binding: SiteBinding;
+    /**
+     * Who the client is, for the binding's limit on failures per address.
+     * The default, the nearest `X-Forwarded-For` hop, fits only behind a
+     * proxy that writes that header: without one every client shares one
+     * bucket, and the header is the caller's to set. A runtime exposed
+     * directly passes its own (the socket's address, or the address past
+     * its trusted proxies).
+     */
+    readonly clientAddress?: (request: Request) => string | undefined;
   };
   /**
    * The rate limit on `GET /v1/auth/sign-in-options` (unauthenticated):
@@ -2173,6 +2197,33 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         }),
       }),
     );
+  }
+  // A site enrolls its key, and signs its people in: outside the bearer
+  // chain (mounted ahead of `/v1`), since nobody is signed in yet.
+  if (input.sites !== undefined) {
+    // A site's session is held to its project by the authorizer (on routes
+    // that take only an id, by `inKeyProject`), and ends with the site
+    // (`revokeByProvider`): without either, refuse to start.
+    if (input.authz === undefined) {
+      throw new Error(
+        'createApp: `sites` needs authorization (`authz`): without it a site session is not held to its project',
+      );
+    }
+    if (input.sessionStore?.revokeByProvider === undefined) {
+      throw new Error(
+        'createApp: `sites` needs a session store with `revokeByProvider`: a paused or revoked site must end its sessions',
+      );
+    }
+    const siteAuth = {
+      binding: input.sites.binding,
+      // Default: the nearest X-Forwarded-For hop (the proxy in front wrote
+      // it), as the sign-in options limit tells clients apart.
+      clientAddress:
+        input.sites.clientAddress ?? ((request: Request) => nearestForwardedClient(request)),
+    };
+    app.route('/v1/auth/sites/enroll', siteEnrollRouter(siteAuth));
+    app.route('/v1/auth/site-sign-in', siteSignInRouter(siteAuth));
+    v1.route('/projects', sitesRouter(input.sites.binding, authorizer));
   }
   // Browser sessions need a way out even without identity providers
   // (which bring their own `/auth` routes, logout included).

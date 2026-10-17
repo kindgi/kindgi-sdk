@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.5"
+version: "0.1.6"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -139,7 +139,9 @@ brief_writer = Agent(
   messages loaded; `hitl` configures approval gates. Absent = the full
   history, no gates. A tenant's `hitl` policy can tighten the gates
   (shorter timeout, higher reviewer role, stricter per tool), never
-  loosen them.
+  loosen them. `"separateApprover"` in `hitl` (`True`, or
+  `{"overrides": {"<tool id>": True}}`) makes a tool's approval need
+  someone other than whoever asked.
 - **`budget`** — per turn: `maxSteps` (model calls, default 8),
   `maxCostUsd`, `maxWallMs` (default 120 000). Steps or cost exceeded
   fails the turn (`budget-exceeded`); out of wall time aborts it. Leave

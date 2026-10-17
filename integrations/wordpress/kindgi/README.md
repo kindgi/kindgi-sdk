@@ -32,22 +32,18 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 2. **Read this site's two addresses** under **Kindgi → Settings**: its origin, and its approvals URL (`…/wp-admin/admin.php?page=kindgi&approval={approvalId}`).
 3. **Register the site in Kindgi**, on the project its staff will use. A tenant admin does this:
 
-   ```ts
-   import { createClient } from '@kindgi/sdk/client';
-
-   const kindgi = createClient(); // KINDGI_API_URL and KINDGI_API_TOKEN, a tenant admin's
-   const { site, enrollment } = await kindgi.projects.sites.register(projectId, {
-     displayName: 'Acme store',
-     origin: 'https://acme-store.example',
-     approvalsUrl: 'https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}',
-   });
-   console.log(enrollment.code); // one-time, for 15 minutes
+   ```sh
+   kindgi sites register --project=<project-id> --name='Acme store' \
+     --origin=https://acme-store.example \
+     --approvals-url='https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}'
    ```
+
+   The command prints the one-time code, good for 15 minutes; `kindgi sites code <site-id>` gives a new one.
 
    Registering does the following:
    - **Who may sign in:** by default, WordPress `administrator` and `shop_manager`. A WooCommerce `customer` never becomes a person in Kindgi.
    - **What they get:** each may ask the project's agents and review approvals as a `standard` reviewer.
-   - **Changing it:** set `allowedRoles`, `roleMap` and `reviewerCeiling` when registering, or change them later.
+   - **Changing it:** set `--allowed-role`, `--role-map` and `--reviewer-ceiling` when registering, or later with `kindgi sites update <site-id>`.
 4. **Connect.** Paste the one-time code under **Kindgi → Settings**, along with the Kindgi URL this server reaches. The plugin makes its signing key and sends Kindgi the public half. Your staff can use the **Kindgi** page from then on.
    - The URL must be `https://`. An `http://` URL works only to this computer (`localhost`) or from a local or development site (`WP_ENVIRONMENT_TYPE`).
    - It's kept only once Kindgi takes the code, so a typo never breaks a working connection.
@@ -62,6 +58,7 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 
   An environment variable of the same name works too. A copy of the database (a backup, a staging clone) never carries `wp-config.php` or the environment.
 - **Without one,** the plugin keeps the key in a database option, which isn't autoloaded. Connecting again with a new code replaces it.
+- **Its id** shows under **Kindgi → Settings**: the key's RFC 7638 thumbprint. `kindgi sites get <site-id>` lists the site's keys by the same id, so you can tell which one to revoke.
 - **The site's address is part of the deal.** The plugin signs nothing when `home_url()` isn't the address the site connected as, so a staging copy of the site never vouches as production. If the site moves, connect it again with a new code.
 
 ## Who sees the page

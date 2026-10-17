@@ -56,6 +56,11 @@ otherwise.
 | `{{PACK_ID}}.woo.set-price` | waits for a person | not given |
 | `{{PACK_ID}}.woo.publish-product` | waits for a person | not given |
 
+The store agent's three that wait need a second person
+(`conversationPolicy.hitl.separateApprover`). Whoever's turn asked for a
+large refund, a price change or a publish isn't offered **Approve** for it:
+another reviewer decides.
+
 A call that waits shows in the console's approvals inbox, and in
 `{{KINDGI}} approvals list`. The tool runs only once a reviewer approves it
 (`{{KINDGI}} approvals complete <approval-id> --decision=approve`). A
@@ -311,8 +316,8 @@ then says who approved, for example "approved by Jane, via Acme store", not
    Its source is at
    [`integrations/wordpress/kindgi`](https://github.com/kindgi/kindgi-sdk/tree/main/integrations/wordpress/kindgi).
 2. **Register the store as a site** on this pack's project. A tenant admin
-   uses `projects.sites.register` in the client, with the store's origin and
-   the approvals URL the plugin's settings page shows.
+   runs `kindgi sites register` with `--project`, the store's origin and the
+   approvals URL the plugin's settings page shows.
 3. **Connect.** Paste the one-time code under Kindgi → Settings.
 
 **The runtime needs site sign-in on:**

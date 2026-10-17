@@ -237,6 +237,16 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
+  'projects create': {
+    description: 'none',
+    name: 'required',
+    org: 'none (a project in no org)',
+    slug: 'the name as a slug: lowercase letters and digits, accents dropped, each run of anything else `-`, at most 63 characters (`Support bot` is `support-bot`, `Café` is `cafe`)',
+  },
+  'projects rename': {
+    name: 'unchanged',
+    slug: 'unchanged',
+  },
   'runs list': {
     agent: 'none',
     cursor: 'none',
@@ -328,6 +338,7 @@ export const CLI_DEFAULTS = {
   'conversations list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
+    'opened-by': 'none (whoever opened them)',
     replays: '`exclude`',
     status: 'none',
   },
@@ -598,9 +609,58 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
+  'sites register': {
+    'allowed-role': '`administrator` and `shop_manager`',
+    'approvals-url': 'required',
+    name: 'required',
+    'new-people-per-day': '`20`',
+    origin: 'required',
+    'people-cap': '`50`',
+    project: "the tenant's Default project",
+    'reviewer-ceiling': '`standard`',
+    'role-map':
+      'both default roles may ask, and decide as `standard` reviewers; with `--allowed-role` alone, the entries of the roles it allows',
+    vouching: '`on`',
+  },
+  'sites code': {
+    project: "the tenant's Default project",
+  },
+  'sites list': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+    project: "the tenant's Default project",
+  },
+  'sites get': {
+    project: "the tenant's Default project",
+  },
+  'sites update': {
+    'allowed-role': 'unchanged',
+    'approvals-url': 'unchanged',
+    name: 'unchanged',
+    'new-people-per-day': 'unchanged',
+    origin: 'unchanged',
+    'people-cap': 'unchanged',
+    project: "the tenant's Default project",
+    'reviewer-ceiling': 'unchanged',
+    'role-map': 'unchanged; with `--allowed-role` alone, the entries of the roles still allowed',
+    vouching: 'unchanged',
+  },
+  'sites pause': {
+    project: "the tenant's Default project",
+  },
+  'sites resume': {
+    project: "the tenant's Default project",
+  },
+  'sites revoke-key': {
+    project: "the tenant's Default project",
+  },
+  'sites unregister': {
+    project: "the tenant's Default project",
+  },
   'approvals list': {
     'assigned-to': 'none (all approvals your role can see)',
     cursor: 'none',
+    'decided-by': 'none (whoever decided them)',
     limit: '`25` (at most `100`)',
     order: '`desc` (newest first)',
     status: 'none (every status)',
@@ -1069,6 +1129,26 @@ export const CLI_EXAMPLES = {
       line: 'kindgi projects get <project-id>',
     },
   ],
+  'projects create': [
+    {
+      purpose: 'Make a project, with the slug `support-bot`, and print it with its id.',
+      line: 'kindgi projects create --name="Support bot"',
+    },
+    {
+      purpose: 'Make a project in an org, with a slug of your own.',
+      line: 'kindgi projects create --name=Support --slug=support --org=<org-id> --description="Answers the support inbox"',
+    },
+  ],
+  'projects rename': [
+    {
+      purpose: "Change a project's name; its slug stays.",
+      line: 'kindgi projects rename <project-id> --name=Storefront',
+    },
+    {
+      purpose: 'Change its name and its slug.',
+      line: 'kindgi projects rename <project-id> --name=Storefront --slug=storefront',
+    },
+  ],
   'agents list': [
     {
       purpose: 'List the registered agents.',
@@ -1349,6 +1429,70 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Remove a trigger; its sender gets 410 from then on.',
       line: 'kindgi webhooks unregister <trigger-id>',
+    },
+  ],
+  'sites register': [
+    {
+      purpose:
+        'Register a WordPress store on the Default project, with the origin and the approvals URL its Kindgi → Settings page shows; the one-time code is shown once.',
+      line: "kindgi sites register --name='Acme store' --origin=https://acme-store.example --approvals-url='https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}'",
+    },
+    {
+      purpose: 'Let only shop managers sign in, as senior reviewers.',
+      line: `kindgi sites register --name='Acme store' --origin=https://acme-store.example --approvals-url='https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}' --allowed-role=shop_manager --reviewer-ceiling=senior --role-map='{"shop_manager": {"ask": true, "reviewer": "senior"}}'`,
+    },
+  ],
+  'sites code': [
+    {
+      purpose: 'A new one-time code: to connect the site again, or to replace its key.',
+      line: 'kindgi sites code <site-id>',
+    },
+  ],
+  'sites list': [
+    {
+      purpose: "The Default project's sites, with their state and keys.",
+      line: 'kindgi sites list --table',
+    },
+  ],
+  'sites get': [
+    {
+      purpose: "A site's settings, and its keys' thumbprints to compare with the plugin's.",
+      line: 'kindgi sites get <site-id>',
+    },
+  ],
+  'sites update': [
+    {
+      purpose: 'Allow more people from the site.',
+      line: 'kindgi sites update <site-id> --people-cap=100 --new-people-per-day=40',
+    },
+    {
+      purpose:
+        "Stop the site's administrators signing in; shop managers keep what the role map gives them.",
+      line: 'kindgi sites update <site-id> --allowed-role=shop_manager',
+    },
+  ],
+  'sites pause': [
+    {
+      purpose: "Stop a site's sign-ins and end its people's sessions now.",
+      line: 'kindgi sites pause <site-id>',
+    },
+  ],
+  'sites resume': [
+    {
+      purpose: "Let a paused site's people sign in again.",
+      line: 'kindgi sites resume <site-id>',
+    },
+  ],
+  'sites revoke-key': [
+    {
+      purpose: "Refuse what a site's key signs from now on.",
+      line: 'kindgi sites revoke-key <site-id> <kid>',
+    },
+  ],
+  'sites unregister': [
+    {
+      purpose: 'Remove a site; the people it signed in stay, with their records.',
+      line: 'kindgi sites unregister <site-id>',
     },
   ],
   'reviewers get': [
@@ -1671,6 +1815,7 @@ export const CLI_GROUP_SEE_ALSO = {
   auth: ['start/install', 'deploy/people-and-keys'],
   upgrade: ['start/quickstart-java', 'start/quickstart-scala'],
   console: ['deploy/sign-in', 'start/introduction'],
+  sites: ['deploy/sign-in', 'guides/approvals/ask-and-approve-in-wordpress'],
   'mcp-launch': ['guides/tools/mcp-servers'],
   projects: ['guides/projects/organize-by-org-and-project'],
   flows: ['guides/flows/write-a-flow', 'guides/flows/index'],

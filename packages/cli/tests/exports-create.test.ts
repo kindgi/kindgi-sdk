@@ -497,7 +497,7 @@ describe('kindgi exports create', () => {
     const refused = await cli(server({}, { admin: false }));
     expect(refused.exitCode).toBe(1);
     expect(refused.stderr).toContain(
-      "You aren't a tenant admin here, so the export would skip team-memberships, team-project-grants, users,",
+      "You aren't a tenant admin here, so the export would skip team-memberships, team-project-grants, sites, users,",
     );
     expect(refused.stderr).toContain('pass --yes');
     await expect(readdir(out)).rejects.toThrow();

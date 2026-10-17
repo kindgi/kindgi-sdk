@@ -1895,6 +1895,16 @@ export const ApprovalDecisionRecordSchema: JsonSchema = {
     reviewerRoleAtDecision: ReviewerRoleSchema,
     decidedAt: { type: 'string', format: 'date-time' },
     rationale: { type: 'string' },
+    sessionProvider: {
+      type: 'string',
+      description:
+        "The provider of the session the reviewer decided with: `site:<id>` for a site's sign-in, an identity provider's id for a single sign-on session. Absent for an API key, and on decisions an older runtime recorded.",
+    },
+    deciderName: {
+      type: 'string',
+      description:
+        "The reviewer's display name when they decided: a person renamed since still shows as they were. Absent on decisions an older runtime recorded.",
+    },
   },
 };
 
@@ -1930,6 +1940,12 @@ export const ApprovalCollectionPageSchema: JsonSchema = {
       enum: ['asc', 'desc'],
       description:
         'The order the page is in: `asc` (oldest first) or `desc` (newest first). Absent from a runtime before Kindgi 0.1.6, which lists newest first and ignores `order`.',
+    },
+    decidedBy: {
+      type: 'string',
+      enum: ['me'],
+      description:
+        '`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.',
     },
   },
 };
@@ -1999,6 +2015,257 @@ export const UnregisterReviewerResultSchema: JsonSchema = {
   properties: {
     reviewerId: { type: 'string', format: 'uuid' },
     unregistered: { type: 'boolean', const: true },
+  },
+};
+
+// ---------------- sites ----------------
+
+const SiteRoleNameSchema: JsonSchema = {
+  type: 'string',
+  pattern: '^[a-z0-9_-]{1,64}$',
+  description: 'A role on the site, as the site names it (a WordPress role: `shop_manager`).',
+};
+
+export const SiteRoleGrantSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['ask'],
+  description:
+    "What a person with one of the site's roles gets in the site's project. Reading the project comes with every role; nothing above it ever does.",
+  properties: {
+    ask: {
+      type: 'boolean',
+      description: "Whether they may start turns with the project's agents.",
+    },
+    reviewer: {
+      type: 'string',
+      enum: ['standard', 'senior'],
+      description:
+        "The reviewer role they decide approvals with, at most the site's `reviewerCeiling`; absent: they decide none.",
+    },
+  },
+};
+
+export const SiteKeySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kid', 'thumbprint', 'addedAt'],
+  description: "One of the site's live public keys. Kindgi never has a private half.",
+  properties: {
+    kid: { type: 'string' },
+    thumbprint: {
+      type: 'string',
+      description: "The key's RFC 7638 thumbprint, to compare with the one the site shows.",
+    },
+    addedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const SiteSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'siteId',
+    'projectId',
+    'displayName',
+    'origin',
+    'approvalsUrl',
+    'allowedRoles',
+    'roleMap',
+    'reviewerCeiling',
+    'vouching',
+    'peopleCap',
+    'newPeoplePerDay',
+    'keys',
+    'createdAt',
+  ],
+  description:
+    'A site that signs its own people in to one project: it vouches for whoever is signed in there, so they ask the project\'s agents and decide its approvals as themselves. Each person it signs in is a person of the tenant, shown as "<name>, via <displayName>".',
+  properties: {
+    siteId: { type: 'string', format: 'uuid' },
+    projectId: { type: 'string', format: 'uuid' },
+    displayName: {
+      type: 'string',
+      description:
+        'Set by a tenant admin, never by the site: shown after every name the site signs in.',
+    },
+    origin: { type: 'string', description: "The site's origin (`https://acme-store.example`)." },
+    approvalsUrl: {
+      type: 'string',
+      description:
+        "Where an approval opens on the site; `{approvalId}` is replaced. A site's people get it in their reviewer email.",
+    },
+    allowedRoles: { type: 'array', items: SiteRoleNameSchema },
+    roleMap: {
+      type: 'object',
+      additionalProperties: { $ref: '#/components/schemas/SiteRoleGrant' },
+      description:
+        'Role → grant. A person with several allowed roles gets the most any of them gives.',
+    },
+    reviewerCeiling: { type: 'string', enum: ['standard', 'senior'] },
+    vouching: {
+      type: 'boolean',
+      description: "Whether the site's statements are accepted.",
+    },
+    peopleCap: {
+      type: 'integer',
+      minimum: 1,
+      description: 'At most this many live people from the site.',
+    },
+    newPeoplePerDay: {
+      type: 'integer',
+      minimum: 1,
+      description: 'At most this many new people from the site per day.',
+    },
+    keys: { type: 'array', items: { $ref: '#/components/schemas/SiteKey' } },
+    audience: {
+      type: 'string',
+      description:
+        "What the site's statements carry as `aud`: this deployment's public URL, given at enrollment.",
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    createdBy: { type: 'string' },
+    pausedAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const SiteCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/Site' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+const SiteSettingsProperties: Record<string, JsonSchema> = {
+  displayName: { type: 'string', minLength: 1, maxLength: 100 },
+  origin: {
+    type: 'string',
+    description: 'An https:// origin with no path; http:// only for localhost, 127.0.0.1 or [::1].',
+  },
+  approvalsUrl: {
+    type: 'string',
+    description: "A URL on the site's own origin with `{approvalId}` in it.",
+  },
+  allowedRoles: {
+    type: 'array',
+    items: SiteRoleNameSchema,
+    minItems: 1,
+    maxItems: 20,
+    description: 'The roles that may sign in at all. Default `["administrator", "shop_manager"]`.',
+  },
+  roleMap: {
+    type: 'object',
+    additionalProperties: { $ref: '#/components/schemas/SiteRoleGrant' },
+    description:
+      "Default: both default roles may ask, and decide as `standard` reviewers. Without a `roleMap`, the map keeps only the entries of the roles in `allowedRoles`: the default map's for a new site, the site's own for a change. An allowed role with no entry signs in to read the project only.",
+  },
+  reviewerCeiling: {
+    type: 'string',
+    enum: ['standard', 'senior'],
+    description: 'Default `standard`.',
+  },
+  vouching: { type: 'boolean', description: 'Default `true`.' },
+  peopleCap: { type: 'integer', minimum: 1, maximum: 10000, description: 'Default 50.' },
+  newPeoplePerDay: { type: 'integer', minimum: 1, maximum: 1000, description: 'Default 20.' },
+};
+
+export const RegisterSiteBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['displayName', 'origin', 'approvalsUrl'],
+  properties: SiteSettingsProperties,
+};
+
+export const UpdateSiteBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'The settings to change; the rest stay as they are.',
+  properties: SiteSettingsProperties,
+};
+
+export const SiteEnrollmentCodeSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['code', 'expiresAt'],
+  description:
+    "A one-time code the site posts with its public key (`POST /v1/auth/sites/enroll`). Shown once. Using it replaces the site's keys and ends its live sessions.",
+  properties: {
+    code: { type: 'string' },
+    expiresAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const RegisterSiteResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['site', 'enrollment'],
+  properties: {
+    site: { $ref: '#/components/schemas/Site' },
+    enrollment: { $ref: '#/components/schemas/SiteEnrollmentCode' },
+  },
+};
+
+export const EnrollSiteBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['code', 'publicKey'],
+  properties: {
+    code: { type: 'string', minLength: 1, maxLength: 200 },
+    publicKey: {
+      type: 'object',
+      additionalProperties: true,
+      description:
+        "The site's Ed25519 public key, a JWK: `kty: OKP`, `crv: Ed25519`, `x` and `kid`.",
+    },
+  },
+};
+
+export const EnrollSiteResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['siteId', 'audience'],
+  properties: {
+    siteId: {
+      type: 'string',
+      format: 'uuid',
+      description: "What the site's statements carry as `iss`.",
+    },
+    audience: { type: 'string', description: "What the site's statements carry as `aud`." },
+  },
+};
+
+export const SiteSignInBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['statement'],
+  properties: {
+    statement: {
+      type: 'string',
+      description:
+        "The person's statement, signed by the site: a compact JWS, `alg: EdDSA`, `typ: kindgi-site+jwt`, with the site's `kid`. Claims: `iss` (the site id), `aud`, `sub` (the person's stable id on the site), `iat`, `exp` (at most 60 s after `iat`), `jti` (used once), `name`, `roles`, and an optional `email` for notifications.",
+    },
+  },
+};
+
+export const SiteSignInResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['token', 'expiresAt', 'userId', 'actor', 'projectId'],
+  properties: {
+    token: {
+      type: 'string',
+      description:
+        "A session token (`kgi_sk_…`) limited to the site's project. Shown once; not refreshable.",
+    },
+    expiresAt: { type: 'string', format: 'date-time' },
+    userId: { type: 'string' },
+    actor: { type: 'string', description: 'The person as approvals name them: `user:<userId>`.' },
+    projectId: { type: 'string', format: 'uuid' },
   },
 };
 
@@ -3621,6 +3888,11 @@ export const ConversationSchema: JsonSchema = {
       description:
         "The project the conversation is in: the project of the run that opened it, or `projectId` on open (when omitted, the agent's own project, or the tenant's Default project for an agent filed under none). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.",
     },
+    openedBy: {
+      type: 'string',
+      description:
+        "Who opened it: the caller's principal (`user:<id>`, `service_account:<id>`), or, for one a turn opened, whoever the run acts for. Set by the server, never from a request's body. Absent on conversations an older runtime opened, and when the caller had no principal; those aren't listed by `?openedBy=me`.",
+    },
     scope: {
       type: 'object',
       additionalProperties: true,
@@ -3709,6 +3981,12 @@ export const ConversationCollectionPageSchema: JsonSchema = {
       description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
     },
     hasMore: { type: 'boolean' },
+    openedBy: {
+      type: 'string',
+      enum: ['me'],
+      description:
+        "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.",
+    },
   },
 };
 
@@ -8796,11 +9074,12 @@ export const WhoamiResultSchema: JsonSchema = {
     tokenId: { type: 'string', description: "The caller's API key, when it is one." },
     role: {
       ...ApiTokenRoleSchema,
-      description: "The caller's API key role, when the key has one.",
+      description:
+        "The caller's API key role, when the key has one, or its session's role ceiling.",
     },
     projectId: {
       type: 'string',
-      description: "The project the caller's API key is limited to, when it is.",
+      description: "The project the caller's API key or session is limited to, when it is.",
     },
     tenantAdmin: {
       type: 'boolean',
@@ -13123,6 +13402,18 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WebhookDelivery', WebhookDeliverySchema],
   ['WebhookDeliveryCollectionPage', WebhookDeliveryCollectionPageSchema],
   ['LicensePreview', LicensePreviewSchema],
+  ['SiteRoleGrant', SiteRoleGrantSchema],
+  ['SiteKey', SiteKeySchema],
+  ['Site', SiteSchema],
+  ['SiteCollectionPage', SiteCollectionPageSchema],
+  ['RegisterSiteBody', RegisterSiteBodySchema],
+  ['UpdateSiteBody', UpdateSiteBodySchema],
+  ['SiteEnrollmentCode', SiteEnrollmentCodeSchema],
+  ['RegisterSiteResult', RegisterSiteResultSchema],
+  ['EnrollSiteBody', EnrollSiteBodySchema],
+  ['EnrollSiteResult', EnrollSiteResultSchema],
+  ['SiteSignInBody', SiteSignInBodySchema],
+  ['SiteSignInResult', SiteSignInResultSchema],
 ] as const;
 
 /** Convenience `$ref` builder. */

@@ -126,6 +126,39 @@ export type {
   SignInOptionsInput,
 } from './identity-provider-binding.js';
 export type {
+  Site,
+  SiteBinding,
+  SiteChangeOutcome,
+  SiteEnrollInput,
+  SiteEnrollOutcome,
+  SiteEnrollmentCode,
+  SiteEnrollmentCodeOutcome,
+  SiteGetInput,
+  SiteInvalid,
+  SiteKey,
+  SiteListInput,
+  SitePage,
+  SiteRegisterInput,
+  SiteRegisterOutcome,
+  SiteRevokeKeyInput,
+  SiteRole,
+  SiteRoleGrant,
+  SiteSetPausedInput,
+  SiteSignInInput,
+  SiteSignInOutcome,
+  SiteSignInRefusal,
+  SiteUpdateInput,
+} from './site-binding.js';
+export {
+  SITE_DEFAULTS,
+  applySiteChange,
+  checkSiteSettings,
+  hasHiddenCharacters,
+  siteOrigin,
+  withoutHiddenCharacters,
+} from './routes/sites.js';
+export { SITE_REQUEST_MAX_BYTES, publicEd25519Key } from './routes/site-auth.js';
+export type {
   Session,
   SessionCreateInput,
   SessionCreateOutput,
