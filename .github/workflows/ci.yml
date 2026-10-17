@@ -59,6 +59,9 @@ jobs:
       - name: No package dependency cycles
         run: pnpm run check:cycles
 
+      - name: Constructors with parameter properties call super at their root (tsc's emit)
+        run: pnpm run check:constructor-super
+
       - name: README package table
         run: pnpm run check:readme
 
