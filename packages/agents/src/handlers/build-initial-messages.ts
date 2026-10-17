@@ -4,6 +4,7 @@
 import type { ModelMessage, ModelToolCall } from '@kindgi/capabilities';
 import type { NodeHandler } from '@kindgi/handler';
 
+import { EVENT_DATA_RULE, formatEventForPrompt, messageIsEvent } from '../event-data.js';
 import {
   MEMORY_DATA_RULE,
   formatPoliciesForPrompt,
@@ -22,16 +23,18 @@ import { outputSection } from './structured-output.js';
  * feeds to the model:
  *
  *   [ system: rendered prompt
- *             (+ the memory rule, + "Policies (verified)", when there are,
- *              + the output's section, for a typed agent),
+ *             (+ the memory rule, + the event rule, + "Policies (verified)",
+ *              when there are, + the output's section, for a typed agent),
  *     ...history,
  *     user: <memory> data block (if anything was retrieved),
- *     user: current message ]
+ *     user: current message (an <event> data block, in a run a webhook
+ *           or an event started) ]
  *
  * Retrieved facts are data: a labelled block in a user-role message, read
  * as information about the world, never as instructions. Only a verified
  * fact of a type the agent lists in `memory.instructionTypes` is an
- * instruction, in the system message.
+ * instruction, in the system message. So is a message from outside: in a
+ * run a webhook or an event started, the turn's message is the event.
  *
  * Output shape: `{ nextMessages: ModelMessage[] }` — matches the loop
  * iteration output's `nextMessages` field so the loop body can treat
@@ -69,9 +72,11 @@ export function buildBuildInitialMessagesHandler(ctx: TurnContext): NodeHandler 
       });
     }
 
+    const isEvent = messageIsEvent(ctx.input.startedBy);
     const system = [
       rendered,
       ...(memoryMessage !== undefined ? [MEMORY_DATA_RULE] : []),
+      ...(isEvent ? [EVENT_DATA_RULE] : []),
       ...(policies.length > 0 ? [formatPoliciesForPrompt(policies)] : []),
       // A typed agent's output, from the turn's start: the first answer can
       // fit, and a repair (`budget-check`) is the fallback, not every turn's
@@ -82,7 +87,10 @@ export function buildBuildInitialMessagesHandler(ctx: TurnContext): NodeHandler 
       { role: 'system', content: system },
       ...history.map(conversationToModelMessage),
       ...(memoryMessage !== undefined ? [memoryMessage] : []),
-      { role: 'user', content: ctx.input.userMessage },
+      {
+        role: 'user',
+        content: isEvent ? formatEventForPrompt(ctx.input.userMessage) : ctx.input.userMessage,
+      },
     ];
 
     return { nextMessages: modelMessages };

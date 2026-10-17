@@ -381,7 +381,14 @@ person's. Someone else's key reads as `404`. `kindgi tokens revoke
 ## Service accounts
 
 A service account is for a pipeline or an app. It has no sign-in, only
-keys, and only the grants you give it:
+keys, and only the grants you give it.
+
+**Your own key acts as you:** a run it starts counts as one you started.
+For automation, use a service account's key: its runs count as unattended,
+so a tool that needs a person's yes when no one is watching waits for one
+([When no person started the run](../../guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run)).
+
+Make one:
 
 ```sh
 kindgi service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:editor

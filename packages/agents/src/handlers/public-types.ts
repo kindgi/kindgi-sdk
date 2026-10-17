@@ -12,6 +12,7 @@ import type {
   RunBinding,
   RunIdempotencyKey,
   RunReplayRef,
+  RunStartedBy,
   RunTriggerRef,
 } from '@kindgi/runtime';
 import type { ToolRegistry, ToolSecretRef } from '@kindgi/tools';
@@ -93,6 +94,14 @@ export interface InvokeAgentInput {
   readonly idempotencyKey?: RunIdempotencyKey;
   /** Set when a trigger starts the turn; its run records it (`RunTriggerRef`). */
   readonly trigger?: RunTriggerRef;
+  /**
+   * How the turn's run started (`RunStartedBy`); its run records it. Only
+   * `person` counts as attended: in any other turn, or one without it, a
+   * tool that declares `needsApprovalWhenUnattended` waits for a person's
+   * yes whatever the agent's approval rules say, and a turn a webhook or
+   * an event started reads its message as data (`<event>`).
+   */
+  readonly startedBy?: RunStartedBy;
   readonly participantId?: string;
   readonly abortSignal?: AbortSignal;
   /**

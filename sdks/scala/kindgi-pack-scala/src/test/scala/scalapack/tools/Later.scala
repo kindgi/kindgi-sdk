@@ -12,5 +12,6 @@ object Later {
 
   val tool: Tool[Input, Output] = Tool[Input, Output]("acme.later")
     .description("Doubles n, later.")
+    .needsApprovalWhenUnattended(true)
     .handlerAsync((in, _) => Future(Output(in.n * 2))(ExecutionContext.global))
 }
