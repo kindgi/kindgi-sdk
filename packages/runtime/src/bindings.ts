@@ -28,7 +28,8 @@ import type { JournalEntry, RunResult } from './types.js';
 /**
  * A part of a run's journal (`RunBinding.readJournal`): the entries after
  * the sequence `after`, at most `limit` of them (a whole number from 1).
- * Either may be left out.
+ * Either may be left out. `after` may be any number: a binding gives the
+ * entries whose sequence is greater.
  */
 export interface JournalPage {
   readonly after?: number;
