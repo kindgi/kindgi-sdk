@@ -761,10 +761,13 @@ return array( 'refund_id' => $refund->get_id(), 'repeat' => false );
 
 ## When the server changes
 
-The runtime lists an endpoint's tools when the endpoint is registered and
-each time the runtime starts. It doesn't watch the server. To pick up new or
-changed tools, unregister the endpoint and register it again, or restart
-the runtime. `inventory` in the path is the endpoint's id:
+The runtime lists an endpoint's tools when the endpoint is registered. It
+doesn't watch the server. To pick up new or changed tools, unregister the
+endpoint and register it again. A runtime serving one tenant, the default,
+also lists every endpoint's tools each time it starts, so restarting it works
+too. A runtime [serving many tenants](../../../deploy/serve-many-tenants/)
+(`KINDGI_TENANCY=multi`) lists none when it starts: there, only unregistering
+and registering again does. `inventory` in the path is the endpoint's id:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/mcp/endpoints/inventory/unregister" \
