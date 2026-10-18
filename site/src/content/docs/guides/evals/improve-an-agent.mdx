@@ -143,13 +143,16 @@ The cost is 0 on `dev-echo`, which costs nothing:
 
 `kindgi proposals passes get <pass-id>` reads the same pass back later.
 
-### It learns from trusted judgments
+### Whose judgments it learns from
 
-A pass counts only judgments recorded under a
-[restricted judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class)
-by default, `classWeights: "restricted-only"`. So who may steer it is a
-choice you make. `"as-recorded"` counts every judgment, by its class's
-weight: set it in the API or the clients.
+Until your project — or its tenant — names an expert judge class (a
+[restricted judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class)),
+a pass counts everyone's judgments, each by its class's weight
+(`classWeights: "as-recorded"`): with no experts named, counting only
+them would count nothing. Name a restricted class and the default flips
+to those trusted classes only (`classWeights: "restricted-only"`), so
+who may steer a pass is a choice you make. Set `classWeights` in the API
+or the clients to pin either, whatever classes exist.
 
 ## Draft a prompt instead
 
