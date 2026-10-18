@@ -166,11 +166,8 @@ CAPTURE: kindgi deploy --hosted for acme-shop, from the build to the pack servic
 CAPTURE: the console's Tools for acme-shop on Kindgi Cloud
 ```
 
-<details>
-<summary>Under the hood: what the template made</summary>
-
-Abridged: the tests, and the store in memory they run against
-(`lib/fake-store.ts`), are left out.
+For reference, the pack looks like this, without its tests and the store in
+memory they run against (`lib/fake-store.ts`):
 
 ```text
 acme-shop/
@@ -192,8 +189,6 @@ acme-shop/
 The tools call your store's REST API from Kindgi Cloud, as `shop-agent` with
 its Application Password. That's why the store needs a public https
 address.
-
-</details>
 
 ## 4. The Kindgi plugin, connected
 
@@ -250,13 +245,11 @@ now." The **Kindgi** page has two tabs, **Ask** and **Approvals**.
 CAPTURE: Kindgi → Settings, connected
 ```
 
-<details>
-<summary>Under the hood: the site and its people</summary>
+### How your staff sign in
 
-From code, the SDK client's `projects.sites.register` does what `kindgi
-sites register` does. With the defaults, an administrator or a shop manager
-may sign in, ask the project's agents, and review at the `standard` role.
-Any other role is refused.
+With the defaults, an administrator or a shop manager may sign in, ask the
+project's agents, and review at the `standard` role. Any other role is
+refused.
 
 When someone opens the page, the plugin signs a short statement: the person
 signed in here, with these WordPress roles. Kindgi checks it against the
@@ -267,8 +260,6 @@ Kindgi person of their own, matched by the site, never by email.
 [Let a store's staff ask and approve in WordPress](../../guides/approvals/ask-and-approve-in-wordpress/)
 has the rest: the site's settings, pausing, re-keying and removing it, and
 what the plugin keeps.
-
-</details>
 
 ## 5. A small refund, asked for from wp-admin
 
