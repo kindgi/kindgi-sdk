@@ -312,12 +312,12 @@ describe('the revision', () => {
     expect(again).not.toBe(removed.revision);
   });
 
-  test('a value removed and set again in the same millisecond is a new revision: its row id is new', async () => {
+  test('a value removed and set again in the same millisecond, the same value, is a new revision: its row id is new', async () => {
     const s = stores({ now: () => '2026-10-18T03:00:00.000Z' });
     s.setEnv(projectScope(staging), 'API_BASE', 'https://a.acme.test');
     const applied = (await packEnvCheck(s.deps, input)).revision;
     s.removeEnv(projectScope(staging), 'API_BASE');
-    s.setEnv(projectScope(staging), 'API_BASE', 'https://b.acme.test');
+    s.setEnv(projectScope(staging), 'API_BASE', 'https://a.acme.test');
     expect((await packEnvCheck(s.deps, input)).revision).not.toBe(applied);
   });
 
