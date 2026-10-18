@@ -207,6 +207,19 @@ describe('the values a deployment needs in a project, names only', () => {
     expect(out.body.data).toEqual([
       { name: 'ACME_TOKEN', kind: 'secret', neededBy: SEARCH, foundAt: 'tenant' },
       { name: 'ACME_REGION', kind: 'env', neededBy: SEARCH, foundAt: 'project' },
+      // No provider is registered, so each agent version, shipped or carried, has none to call.
+      {
+        name: 'any provider',
+        kind: 'model-key',
+        neededBy: { type: 'agent', id: 'acme.triage', version: '1.0.0' },
+        problem: 'no-provider',
+      },
+      {
+        name: 'any provider',
+        kind: 'model-key',
+        neededBy: { type: 'agent', id: 'acme.triage', version: '1.0.1' },
+        problem: 'no-provider',
+      },
       {
         name: 'ACME_PACK_URL',
         kind: 'pack-env',
