@@ -24,7 +24,7 @@ export const GLOBAL_OPTION_SPEC = {
   hosted: {
     type: 'boolean' as const,
     description:
-      "Go to the CLI's own address (`--url`, `KINDGI_API_URL` or the one `kindgi auth login` stored), never a `kindgi dev` runtime's `.kindgirc.json`; `kindgi build` and `kindgi deploy` then use the hosted build service. An env block's `build: 'hosted'` does the same for the env a command acts in.",
+      "Go to the CLI's own address (`--url`, `KINDGI_API_URL` or the one `kindgi auth login` stored), never a `kindgi dev` runtime's `.kindgirc.json`; `kindgi build` and `kindgi deploy` then use the hosted build service. An env block's `build: 'hosted'` does the same for the env a command acts in. `kindgi dev` refuses it: a dev runtime is never hosted.",
   },
   verbose: {
     type: 'boolean' as const,
