@@ -18,6 +18,8 @@ import {
   findProjectsReal,
   getDeploymentReal,
   getPackEnvReal,
+  listEnvironmentOrdersReal,
+  listProjectsReal,
   postDeploymentReal,
   syncSecretsReal,
 } from './post.js';
@@ -42,6 +44,9 @@ export const REAL_DEPLOY_RUNNERS: DeployRunners = {
   syncSecrets: syncSecretsReal,
   // `--project <slug>` only: an id goes as it is.
   findProjects: findProjectsReal,
+  // A refusal into a later environment only: to name the environments on the way.
+  listProjects: listProjectsReal,
+  listEnvironmentOrders: listEnvironmentOrdersReal,
   // `--hosted` only: the wait for the deployment's pack service.
   getDeployment: getDeploymentReal,
   getPackEnv: getPackEnvReal,

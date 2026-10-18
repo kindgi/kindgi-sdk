@@ -2642,6 +2642,45 @@ describe('GET /v1/deployments', () => {
     ]);
   });
 
+  test('projectId and packId reach the binding, and every page names them, an empty one too', async () => {
+    const binding = makeInMemoryDeploymentBinding();
+    const asked: unknown[] = [];
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      deploymentRegistry: {
+        ...binding,
+        list: async (input) => {
+          asked.push(input);
+          return binding.list(input);
+        },
+      },
+      signingKeyRegistry: makeMockSigningKeyRegistry([]),
+      imageRegistry: makeMockImageRegistry([]),
+    });
+    const headers = { authorization: `Bearer ${TOKEN}` };
+
+    const res = await app.request('/v1/deployments?projectId=p-staging&packId=acme.pack', {
+      headers,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      data: [],
+      hasMore: false,
+      projectId: 'p-staging',
+      packId: 'acme.pack',
+    });
+    expect(asked).toEqual([
+      expect.objectContaining({ projectId: 'p-staging', packId: 'acme.pack' }),
+    ]);
+
+    const unfiltered = await app.request('/v1/deployments', { headers });
+    expect(await unfiltered.json()).toEqual({ data: [], hasMore: false });
+    expect(asked[1]).not.toHaveProperty('projectId');
+    expect(asked[1]).not.toHaveProperty('packId');
+  });
+
   test('get single deployment by id', async () => {
     const fixture = buildSignedDeploy();
     const { app } = makeApp({ fixture });

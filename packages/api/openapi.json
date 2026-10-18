@@ -500,6 +500,10 @@
           "environment-takes-promotions": 409,
           "project-in-environment-order": 409,
           "org-has-environment-order": 409,
+          "promotion-not-next-environment": 409,
+          "promotion-values-not-ready": 409,
+          "deployment-superseded": 409,
+          "promotions-unsupported": 501,
           "provider-key-refused": 400,
           "provider-key-in-use": 409,
           "slug-conflict": 409,
@@ -18126,6 +18130,15 @@
           "packEnv": {
             "$ref": "#/components/schemas/PackEnvDeclaration"
           },
+          "promotedFromDeploymentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "When this deployment was made by promoting another into the next environment of its order: the deployment it was promoted from. Absent for one deployed directly."
+          },
+          "packId": {
+            "type": "string",
+            "description": "The pack's id, from the image's index. Absent from a runtime that doesn't keep it."
+          },
           "endpoint": {
             "$ref": "#/components/schemas/DeploymentEndpoint"
           },
@@ -18134,6 +18147,291 @@
           },
           "contents": {
             "$ref": "#/components/schemas/DeploymentContents"
+          }
+        }
+      },
+      "DeploymentValueNeededBy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "id"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "`tool`, `agent`, `provider` or `pack`; a later runtime may add kinds, so treat an unknown one as a need not yet named."
+          },
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "DeploymentValue": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "kind",
+          "neededBy"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The secret's or env value's name; for a model key, the key's secret name, or `any provider` when none is registered."
+          },
+          "kind": {
+            "type": "string",
+            "description": "`secret`, `env`, `model-key` or `pack-env`; a later runtime may add kinds, so treat an unknown one as a value not yet named."
+          },
+          "neededBy": {
+            "$ref": "#/components/schemas/DeploymentValueNeededBy"
+          },
+          "foundAt": {
+            "type": "string",
+            "enum": [
+              "project",
+              "org",
+              "tenant"
+            ],
+            "description": "Where a run finds it, when it is set: the project, else its org, else the tenant."
+          },
+          "problem": {
+            "type": "string",
+            "description": "Why it isn't ready; absent when it is. One of a fixed list; a later runtime may add problems, so treat an unknown one as a reason not yet named. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set both as a secret and as a plain value. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one). `no-provider`: an agent that runs on any provider (it names none, or names one that isn't registered), with no provider registered in the tenant, so a run has none to call."
+          }
+        }
+      },
+      "DeploymentPromotionBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "toProjectId"
+        ],
+        "properties": {
+          "toProjectId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The next environment of the deployment's order."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "Why, kept in the `deployment-promoted` audit record."
+          }
+        }
+      },
+      "DeploymentPromotionCheckBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "toProjectId"
+        ],
+        "properties": {
+          "toProjectId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The next environment of the deployment's order."
+          }
+        }
+      },
+      "PromotionMovedVersion": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "carried": {
+            "type": "boolean",
+            "const": true,
+            "description": "Carried with the build: an edit of a version it ships. Absent for one it ships."
+          }
+        }
+      },
+      "PromotionMoves": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "imageDigest",
+          "agents",
+          "flows",
+          "tools",
+          "guardrails"
+        ],
+        "properties": {
+          "packId": {
+            "type": "string"
+          },
+          "imageDigest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PromotionMovedVersion"
+            }
+          },
+          "flows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PromotionMovedVersion"
+            }
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string",
+                  "description": "Absent for guardrails, which have no version."
+                }
+              }
+            }
+          },
+          "guardrails": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string",
+                  "description": "Absent for guardrails, which have no version."
+                }
+              }
+            }
+          }
+        }
+      },
+      "LeftBehindVersion": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id",
+          "version",
+          "from"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "`agent` or `flow`; a later runtime may add kinds, so treat an unknown one as an item not yet named."
+          },
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "description": "The version its chain of edits starts from."
+          }
+        }
+      },
+      "DeploymentPromotion": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deployment",
+          "created",
+          "moved"
+        ],
+        "properties": {
+          "deployment": {
+            "$ref": "#/components/schemas/DeploymentRecord"
+          },
+          "created": {
+            "type": "boolean",
+            "description": "`true`: the promotion made this deployment (`201`). `false`: the target had this build already (`200`), and only the versions it lacked were carried."
+          },
+          "moved": {
+            "$ref": "#/components/schemas/PromotionMoves"
+          },
+          "leftBehind": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LeftBehindVersion"
+            },
+            "description": "Edits of the build's agents and flows that stay behind; absent when none."
+          }
+        }
+      },
+      "PromotionNextEnvironment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "projectId",
+          "position"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "string"
+          },
+          "position": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Its place in the order, from 0 (the first, which takes builds)."
+          }
+        }
+      },
+      "DeploymentPromotionCheck": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "moves",
+          "values",
+          "nextEnvironment"
+        ],
+        "properties": {
+          "moves": {
+            "$ref": "#/components/schemas/PromotionMoves"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeploymentValue"
+            },
+            "description": "Each value with a problem in the target; empty when every one is ready."
+          },
+          "nextEnvironment": {
+            "$ref": "#/components/schemas/PromotionNextEnvironment"
+          },
+          "envName": {
+            "type": "string",
+            "description": "The env this runtime serves, which a run in the target reads its values under: a value is set there (`--env=<envName>` with `--scope=project:<id>`). Absent when the runtime names none, and each value is then listed unread."
+          },
+          "leftBehind": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LeftBehindVersion"
+            },
+            "description": "Edits of the build's agents and flows that would stay behind; absent when none."
           }
         }
       },
@@ -18207,6 +18505,14 @@
           },
           "hasMore": {
             "type": "boolean"
+          },
+          "projectId": {
+            "type": "string",
+            "description": "The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `projectId` and lists them all."
+          },
+          "packId": {
+            "type": "string",
+            "description": "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `packId` and lists them all."
           }
         }
       },
@@ -18395,7 +18701,8 @@
           "person-granted",
           "person-ungranted",
           "trigger-owner-set",
-          "environment-order-set"
+          "environment-order-set",
+          "deployment-promoted"
         ]
       },
       "EvidenceActor": {
@@ -18558,7 +18865,8 @@
               "person-granted",
               "person-ungranted",
               "trigger-owner-set",
-              "environment-order-set"
+              "environment-order-set",
+              "deployment-promoted"
             ]
           },
           "timestamp": {
@@ -18744,7 +19052,8 @@
               "person-granted",
               "person-ungranted",
               "trigger-owner-set",
-              "environment-order-set"
+              "environment-order-set",
+              "deployment-promoted"
             ]
           },
           "from": {
@@ -18828,7 +19137,8 @@
                   "person-granted",
                   "person-ungranted",
                   "trigger-owner-set",
-                  "environment-order-set"
+                  "environment-order-set",
+                  "deployment-promoted"
                 ]
               },
               "from": {
@@ -47164,7 +47474,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits).",
+        "description": "Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.",
         "parameters": [
           {
             "name": "limit",
@@ -47204,6 +47514,24 @@
             },
             "required": false,
             "description": "Filter to deployments signed by this key id."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Filter to one environment's deployments. The tenant's Default project also finds those that name no project."
+          },
+          {
+            "name": "packId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Filter to one pack's deployments (`packId`)."
           }
         ],
         "security": [
@@ -47488,6 +47816,264 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/DeploymentSecretsSyncRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/deployments/{deploymentId}/promotions": {
+      "post": {
+        "operationId": "deployments.promote",
+        "summary": "Promote a deployment to the next environment",
+        "tags": [
+          "deployments"
+        ],
+        "responses": {
+          "200": {
+            "description": "The target has this build already: its deployment, with the edits made since recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentPromotion"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Promoted: a new deployment in the target.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentPromotion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed body (`bad-input`). Or `signature-invalid`: the deployment's signature doesn't verify over the fields it keeps.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the tenant's trust list (`details.signerKeyId`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`deployment-not-found`: no deployment with that id in this tenant, or one in a project you don't read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`promotion-not-next-environment`: the target isn't the next environment of the deployment's order, or the deployment's environment is last or in no order (`details.position`, the next environment's place; `details.nextProjectId`, when you can read it). `promotion-values-not-ready`: values the build needs aren't ready in the target, each in `details.values` (`DeploymentValue`). `deployment-superseded`: the deployment no longer serves its environment, or the target's copy no longer serves there: newer deployments serve every tool version it ships (`details.environment`, `source` or `target`; `details.newerDeploymentId`). `project-suspended`, `pack-suspended`, `tenant-suspended` or `tenant-closing`: a suspension of the source or the target (`details.environment`). Nothing is written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`promotions-unsupported`: this runtime's deployment ledger can't promote.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since.",
+        "parameters": [
+          {
+            "name": "deploymentId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "The deployment to promote: one serving an environment of an order."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeploymentPromotionBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/deployments/{deploymentId}/promotions/check": {
+      "post": {
+        "operationId": "deployments.promoteCheck",
+        "summary": "Check a promotion without making it",
+        "tags": [
+          "deployments"
+        ],
+        "responses": {
+          "200": {
+            "description": "What a promotion would move, and the values not ready in the target.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentPromotionCheck"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed body (`bad-input`). Or `signature-invalid`: the deployment's signature doesn't verify over the fields it keeps.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, which a promotion's check is refused as the promotion is. Or `signer-not-trusted`: the key that signed the build is no longer trusted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`deployment-not-found`: no deployment with that id in this tenant, or one in a project you don't read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`promotion-not-next-environment`, `deployment-superseded`, or a suspension of the source or the target, as on the promotion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check. Needs `read` on the deployment's project and `admin` on the target.",
+        "parameters": [
+          {
+            "name": "deploymentId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "The deployment to promote: one serving an environment of an order."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeploymentPromotionCheckBody"
               }
             }
           }

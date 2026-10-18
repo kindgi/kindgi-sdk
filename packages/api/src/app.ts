@@ -32,6 +32,7 @@ import type { CapabilityRegistryBinding } from './capability-binding.js';
 import type { CostBinding } from './cost-binding.js';
 import type { CursorSealer } from './cursor-seal.js';
 import type { DeploymentBinding } from './deployment-binding.js';
+import type { DeploymentValuesDeps } from './deployment-values.js';
 import type { EnvBinding } from './env-binding.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import type { WireErrorBody } from './errors.js';
@@ -1159,6 +1160,14 @@ export interface CreateAppInput {
    */
   readonly envBinding?: EnvBinding;
   /**
+   * What a deployment's values check reads that only the runtime knows
+   * (`deployment-values.ts`): where a model provider's key is for a run in
+   * a project, and the pack service's own env. The check reads env values
+   * through `envBinding` and the providers through `providerRegistry`.
+   * Each one absent isn't checked.
+   */
+  readonly deploymentValues?: Pick<DeploymentValuesDeps, 'modelKeyLookup' | 'packEnv'>;
+  /**
    * Optional. Sensitive per-env values. Same mount rule as
    * `envBinding` — either binding present is enough to mount
    * `/v1/tenant/config`. Writes to `/v1/tenant/config` with
@@ -2251,6 +2260,14 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // `POST /v1/tools` / `POST /v1/guardrails` call.
           ...(input.onToolWrite !== undefined && { onToolWrite: input.onToolWrite }),
           ...(input.onGuardrailWrite !== undefined && { onGuardrailWrite: input.onGuardrailWrite }),
+          // A deployment's values check (a promotion's, and its values read)
+          // reads env values and model keys as a run does.
+          values: {
+            ...(input.envBinding !== undefined && { env: input.envBinding }),
+            ...(input.providerRegistry !== undefined && { providers: input.providerRegistry }),
+            ...input.deploymentValues,
+          },
+          ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         },
         authorizer,
       ),

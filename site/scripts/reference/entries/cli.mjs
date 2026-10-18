@@ -137,6 +137,13 @@ export const CLI_DEFAULTS = {
   'environments clear': {
     org: "none (the tenant's order)",
   },
+  promote: {
+    from: 'required',
+    to: 'required',
+    deployment: 'none (the one deployment serving in `--from`; in a pack, of this pack)',
+    reason: 'none',
+    path: 'the current directory',
+  },
   'secrets list': {
     cursor: 'none',
     env: 'required',
@@ -1084,6 +1091,20 @@ export const CLI_EXAMPLES = {
       line: 'kindgi environments clear',
     },
   ],
+  promote: [
+    {
+      purpose: 'Promote the build serving in staging to prod, saying why.',
+      line: 'kindgi promote --from=staging --to=prod --reason="release 12"',
+    },
+    {
+      purpose: 'See what would move to prod and which values it lacks, changing nothing.',
+      line: 'kindgi promote --from=staging --to=prod --check',
+    },
+    {
+      purpose: 'Outside a pack, name the two environments by project slug or id.',
+      line: 'kindgi promote --from=acme-staging --to=acme-prod',
+    },
+  ],
   'secrets list': [
     {
       purpose: "List the tenant's secrets for the local env.",
@@ -1986,6 +2007,7 @@ export const CLI_GROUP_SEE_ALSO = {
   deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
   environments: ['guides/projects/organize-by-org-and-project'],
+  promote: ['guides/projects/organize-by-org-and-project'],
   flows: ['guides/flows/write-a-flow', 'guides/flows/index'],
   capabilities: ['guides/agents/choose-a-model'],
   adapters: ['guides/models/index', 'guides/models/serve-your-own-model'],

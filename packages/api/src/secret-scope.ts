@@ -37,6 +37,7 @@ import { scopeResourceRef } from './routes/scope-params.js';
 import type {
   SecretBinding,
   SecretError,
+  SecretRecord,
   SecretResolveInput,
   SecretResolveOutcome,
 } from './secrets-binding.js';
@@ -71,15 +72,27 @@ export interface NamedSecretScopeInput {
 
 /** The scope to record for one named secret; `null` when the caller administers none of the chain. */
 export async function namedSecretScope(input: NamedSecretScopeInput): Promise<Scope | null> {
+  return (await findNamedSecretScope(input))?.scope ?? null;
+}
+
+/**
+ * The scope `namedSecretScope` records, and the secret there when it was
+ * found: what a run will read. Absent `found`: the secret isn't there (the
+ * broadest administered scope is recorded), or nothing was looked up (no
+ * `envName`). `null` when the caller administers none of the chain.
+ */
+export async function findNamedSecretScope(
+  input: NamedSecretScopeInput,
+): Promise<{ readonly scope: Scope; readonly found?: SecretRecord } | null> {
   let ceiling: Scope | null = null;
   for (const scope of input.chain) {
     if (input.administers !== undefined && !(await input.administers(scope))) continue;
     ceiling = scope;
     if (input.envName === undefined) continue;
     const found = await input.secrets.get({ scope, envName: input.envName, name: input.name });
-    if (found !== null) return scope;
+    if (found !== null) return { scope, found };
   }
-  return ceiling;
+  return ceiling === null ? null : { scope: ceiling };
 }
 
 export type { RecordedSecretScope };

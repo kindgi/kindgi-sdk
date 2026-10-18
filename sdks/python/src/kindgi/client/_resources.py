@@ -776,6 +776,16 @@ OPERATIONS: dict[str, Operation] = {
     "deployments.syncSecrets": Operation(
         "deployments.syncSecrets", "POST", "/v1/deployments/{deploymentId}/secrets", "json", True
     ),
+    "deployments.promote": Operation(
+        "deployments.promote", "POST", "/v1/deployments/{deploymentId}/promotions", "json", False
+    ),
+    "deployments.promoteCheck": Operation(
+        "deployments.promoteCheck",
+        "POST",
+        "/v1/deployments/{deploymentId}/promotions/check",
+        "json",
+        False,
+    ),
     "compliance.evidence.list": Operation(
         "compliance.evidence.list", "GET", "/v1/compliance/evidence", "json", False
     ),
@@ -7005,11 +7015,13 @@ class DeploymentsResource:
         cursor: str | None = None,
         image_ref_prefix: str | None = None,
         signer_key_id: str | UUID | None = None,
+        project_id: str | UUID | None = None,
+        pack_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.DeploymentCollectionPage:
         """List signed deployments. `GET /v1/deployments`
 
-        Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits).
+        Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.
         """
         return self._client._request(
             _OPERATIONS["deployments.list"],
@@ -7019,6 +7031,8 @@ class DeploymentsResource:
                 "cursor": cursor,
                 "imageRefPrefix": image_ref_prefix,
                 "signerKeyId": signer_key_id,
+                "projectId": project_id,
+                "packId": pack_id,
             },
             headers={},
             response=_models.DeploymentCollectionPage,
@@ -7098,6 +7112,52 @@ class DeploymentsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.DeploymentSecretsSyncRequest, body, fields),
             response=_models.DeploymentSecretsSyncResponse,
+            timeout=timeout,
+        )
+
+    def promote(
+        self,
+        deployment_id: str | UUID,
+        body: _models.DeploymentPromotionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentPromotion:
+        """Promote a deployment to the next environment. `POST /v1/deployments/{deploymentId}/promotions`
+
+        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since.
+        """
+        return self._client._request(
+            _OPERATIONS["deployments.promote"],
+            path={"deploymentId": deployment_id},
+            query={},
+            headers={},
+            body=_body(_models.DeploymentPromotionBody, body, fields),
+            response=_models.DeploymentPromotion,
+            timeout=timeout,
+        )
+
+    def promote_check(
+        self,
+        deployment_id: str | UUID,
+        body: _models.DeploymentPromotionCheckBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentPromotionCheck:
+        """Check a promotion without making it. `POST /v1/deployments/{deploymentId}/promotions/check`
+
+        Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check. Needs `read` on the deployment's project and `admin` on the target.
+        """
+        return self._client._request(
+            _OPERATIONS["deployments.promoteCheck"],
+            path={"deploymentId": deployment_id},
+            query={},
+            headers={},
+            body=_body(_models.DeploymentPromotionCheckBody, body, fields),
+            response=_models.DeploymentPromotionCheck,
             timeout=timeout,
         )
 
@@ -15534,11 +15594,13 @@ class AsyncDeploymentsResource:
         cursor: str | None = None,
         image_ref_prefix: str | None = None,
         signer_key_id: str | UUID | None = None,
+        project_id: str | UUID | None = None,
+        pack_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.DeploymentCollectionPage:
         """List signed deployments. `GET /v1/deployments`
 
-        Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits).
+        Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.
         """
         return await self._client._request(
             _OPERATIONS["deployments.list"],
@@ -15548,6 +15610,8 @@ class AsyncDeploymentsResource:
                 "cursor": cursor,
                 "imageRefPrefix": image_ref_prefix,
                 "signerKeyId": signer_key_id,
+                "projectId": project_id,
+                "packId": pack_id,
             },
             headers={},
             response=_models.DeploymentCollectionPage,
@@ -15627,6 +15691,52 @@ class AsyncDeploymentsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.DeploymentSecretsSyncRequest, body, fields),
             response=_models.DeploymentSecretsSyncResponse,
+            timeout=timeout,
+        )
+
+    async def promote(
+        self,
+        deployment_id: str | UUID,
+        body: _models.DeploymentPromotionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentPromotion:
+        """Promote a deployment to the next environment. `POST /v1/deployments/{deploymentId}/promotions`
+
+        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since.
+        """
+        return await self._client._request(
+            _OPERATIONS["deployments.promote"],
+            path={"deploymentId": deployment_id},
+            query={},
+            headers={},
+            body=_body(_models.DeploymentPromotionBody, body, fields),
+            response=_models.DeploymentPromotion,
+            timeout=timeout,
+        )
+
+    async def promote_check(
+        self,
+        deployment_id: str | UUID,
+        body: _models.DeploymentPromotionCheckBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentPromotionCheck:
+        """Check a promotion without making it. `POST /v1/deployments/{deploymentId}/promotions/check`
+
+        Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check. Needs `read` on the deployment's project and `admin` on the target.
+        """
+        return await self._client._request(
+            _OPERATIONS["deployments.promoteCheck"],
+            path={"deploymentId": deployment_id},
+            query={},
+            headers={},
+            body=_body(_models.DeploymentPromotionCheckBody, body, fields),
+            response=_models.DeploymentPromotionCheck,
             timeout=timeout,
         )
 

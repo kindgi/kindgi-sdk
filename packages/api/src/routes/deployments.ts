@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { type Context, Hono } from 'hono';
 
 import { type Agent, type AgentId, type AgentPins, templateProblem } from '@kindgi/agents';
+import type { AuditEventBinding } from '@kindgi/audit-events';
 import { ref, tuplesForCreate } from '@kindgi/authz';
 import { runOutsideTenant } from '@kindgi/bounds';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
@@ -45,8 +46,10 @@ import {
   type DeploymentBinding,
   type DeploymentPrimitiveCounts,
   type DeploymentRegisterOutcome,
-  endpointToWire,
+  serializeDeployment,
 } from '../deployment-binding.js';
+import { canonicalizeEnvelope, normaliseSha256Hex } from '../deployment-envelope.js';
+import type { DeploymentValuesDeps } from '../deployment-values.js';
 import type { EnvBinding } from '../env-binding.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
@@ -78,6 +81,7 @@ import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { capabilityRefusal } from './denied.js';
+import { isPromotionRoute, mountDeploymentPromotions } from './deployment-promotions.js';
 import { requireEnvName } from './env.js';
 import type { GuardrailWriteHook } from './guardrails.js';
 import { clampLimit } from './pagination.js';
@@ -255,6 +259,15 @@ export interface DeploymentsRouterBindings {
    */
   readonly onToolWrite?: ToolWriteHook;
   readonly onGuardrailWrite?: GuardrailWriteHook;
+  /**
+   * What the values check reads besides the bindings above
+   * (`deployment-values.ts`, `valuesDepsFor`): env values, the model
+   * providers, where a provider's key is, and the pack service's own env.
+   * Each one absent isn't checked.
+   */
+  readonly values?: Pick<DeploymentValuesDeps, 'env' | 'providers' | 'modelKeyLookup' | 'packEnv'>;
+  /** Where a promotion is recorded (`deployment-promoted`). Absent: it isn't. */
+  readonly auditEvents?: AuditEventBinding;
 }
 
 export function deploymentsRouter(
@@ -270,6 +283,9 @@ export function deploymentsRouter(
   // `refuseOtherProjectForKey`.)
   const tenantAccess = tenantResourceAccess(authorizer);
   r.use('*', async (c, next) => {
+    // A promotion checks rights on the projects themselves: read on the
+    // deployment's environment, admin on the target.
+    if (isPromotionRoute(c.req.method, c.req.path)) return next();
     if (
       authorizer === undefined ||
       c.req.method !== 'POST' ||
@@ -292,6 +308,9 @@ export function deploymentsRouter(
     })(c, next);
   });
 
+  // ---------- POST /:deploymentId/promotions (and /check) ----------
+  mountDeploymentPromotions(r, bindings, authorizer);
+
   // ---------- GET / (list, cursor-paginated) ----------
   r.get('/', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
@@ -300,6 +319,10 @@ export function deploymentsRouter(
     const cursorRaw = c.req.query('cursor');
     const imageRefPrefixRaw = c.req.query('imageRefPrefix');
     const signerKeyIdRaw = c.req.query('signerKeyId');
+    // One environment's deployments (the Default's include those that name
+    // no project), and one pack's.
+    const projectIdRaw = c.req.query('projectId');
+    const packIdRaw = c.req.query('packId');
 
     // A throw from list() propagates to the app's central error handler
     // (middleware/error-mapper.ts): a busy database answers this GET with a
@@ -317,6 +340,9 @@ export function deploymentsRouter(
         signerKeyIdRaw.length > 0 && {
           signerKeyId: signerKeyIdRaw as SigningKeyId,
         }),
+      ...(projectIdRaw !== undefined &&
+        projectIdRaw.length > 0 && { projectId: projectIdRaw as ProjectId }),
+      ...(packIdRaw !== undefined && packIdRaw.length > 0 && { packId: packIdRaw }),
     });
     return c.json({
       data: page.data.map(serializeDeployment),
@@ -324,6 +350,9 @@ export function deploymentsRouter(
       ...(page.nextCursor !== undefined && {
         nextCursor: page.nextCursor as unknown as string,
       }),
+      // The filters it applied, so a client can tell a runtime that ignored them.
+      ...(projectIdRaw !== undefined && projectIdRaw.length > 0 && { projectId: projectIdRaw }),
+      ...(packIdRaw !== undefined && packIdRaw.length > 0 && { packId: packIdRaw }),
     });
   });
 
@@ -1582,40 +1611,6 @@ function extractImageDigest(imageRef: string): string | null {
   return digest.toLowerCase();
 }
 
-function normaliseSha256Hex(raw: string): string {
-  const lower = raw.toLowerCase();
-  return lower.startsWith('sha256:') ? lower : `sha256:${lower}`;
-}
-
-// ------------------------------------------------------------
-// Canonical envelope
-// ------------------------------------------------------------
-
-interface EnvelopeFields {
-  readonly imageDigest: string;
-  readonly artifactVersion: string;
-  readonly indexHash: string;
-  readonly tenantId: string;
-  readonly publishedAt: string;
-}
-
-/**
- * Canonical form of the signed envelope: JSON object with sorted keys,
- * no whitespace, UTF-8. Deterministic by construction — the same field
- * values always produce byte-identical output.
- */
-function canonicalizeEnvelope(fields: EnvelopeFields): Uint8Array {
-  const ordered: Record<string, string> = {
-    artifactVersion: fields.artifactVersion,
-    imageDigest: normaliseSha256Hex(fields.imageDigest),
-    indexHash: normaliseSha256Hex(fields.indexHash),
-    publishedAt: fields.publishedAt,
-    tenantId: fields.tenantId,
-  };
-  const json = JSON.stringify(ordered);
-  return new TextEncoder().encode(json);
-}
-
 // ------------------------------------------------------------
 // Primitive validation
 // ------------------------------------------------------------
@@ -2428,34 +2423,6 @@ async function rollback(actions: readonly RollbackAction[]): Promise<void> {
       // record a rollback-failure event so operators can reconcile.
     }
   }
-}
-
-function serializeDeployment(d: Deployment): Record<string, unknown> {
-  return {
-    deploymentId: d.deploymentId,
-    tenantId: d.tenantId as unknown as string,
-    imageRef: d.imageRef,
-    imageDigest: d.imageDigest,
-    artifactVersion: d.artifactVersion,
-    indexHash: d.indexHash,
-    signerKeyId: d.signerKeyId as unknown as string,
-    signerPublicKey: d.signerPublicKey,
-    signature: d.signature,
-    publishedAt: d.publishedAt,
-    activatedAt: d.activatedAt,
-    ...(d.projectId !== undefined && { projectId: d.projectId as unknown as string }),
-    ...(d.endpoint !== undefined && { endpoint: endpointToWire(d.endpoint) }),
-    ...(d.packEnv !== undefined && {
-      packEnv: { required: [...d.packEnv.required], optional: [...d.packEnv.optional] },
-    }),
-    primitives: {
-      tools: d.primitives.tools,
-      guardrails: d.primitives.guardrails,
-      agents: d.primitives.agents,
-      flows: d.primitives.flows,
-    },
-    contents: d.contents,
-  };
 }
 
 /** Tell the catalog caches about what a new deployment registered (advisory). */

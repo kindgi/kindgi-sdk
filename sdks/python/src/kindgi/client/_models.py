@@ -8603,6 +8603,111 @@ class DeploymentEndpoint(BaseModel):
     """
 
 
+class DeploymentValueNeededBy(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    type: str
+    """
+    `tool`, `agent`, `provider` or `pack`; a later runtime may add kinds, so treat an unknown one as a need not yet named.
+    """
+    id: str
+    version: str | None = None
+
+
+class DeploymentValue(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: str
+    """
+    The secret's or env value's name; for a model key, the key's secret name, or `any provider` when none is registered.
+    """
+    kind: str
+    """
+    `secret`, `env`, `model-key` or `pack-env`; a later runtime may add kinds, so treat an unknown one as a value not yet named.
+    """
+    needed_by: Annotated[DeploymentValueNeededBy, Field(alias="neededBy")]
+    found_at: Annotated[Literal["project", "org", "tenant"] | None, Field(alias="foundAt")] = None
+    """
+    Where a run finds it, when it is set: the project, else its org, else the tenant.
+    """
+    problem: str | None = None
+    """
+    Why it isn't ready; absent when it is. One of a fixed list; a later runtime may add problems, so treat an unknown one as a reason not yet named. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set both as a secret and as a plain value. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one). `no-provider`: an agent that runs on any provider (it names none, or names one that isn't registered), with no provider registered in the tenant, so a run has none to call.
+    """
+
+
+class DeploymentPromotionBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    to_project_id: Annotated[str, Field(alias="toProjectId", min_length=1)]
+    """
+    The next environment of the deployment's order.
+    """
+    reason: Annotated[str | None, Field(max_length=1000)] = None
+    """
+    Why, kept in the `deployment-promoted` audit record.
+    """
+
+
+class DeploymentPromotionCheckBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    to_project_id: Annotated[str, Field(alias="toProjectId", min_length=1)]
+    """
+    The next environment of the deployment's order.
+    """
+
+
+class PromotionMovedVersion(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str | None = None
+    carried: Literal[True] | None = None
+    """
+    Carried with the build: an edit of a version it ships. Absent for one it ships.
+    """
+
+
+class LeftBehindVersion(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    `agent` or `flow`; a later runtime may add kinds, so treat an unknown one as an item not yet named.
+    """
+    id: str
+    version: str
+    from_: Annotated[str, Field(alias="from")]
+    """
+    The version its chain of edits starts from.
+    """
+
+
+class PromotionNextEnvironment(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str, Field(alias="projectId")]
+    position: Annotated[int, Field(ge=1)]
+    """
+    Its place in the order, from 0 (the first, which takes builds).
+    """
+
+
 class DeploymentRegistrationBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -8746,6 +8851,7 @@ class EvidenceKind(RootModel[str]):
                 "person-ungranted",
                 "trigger-owner-set",
                 "environment-order-set",
+                "deployment-promoted",
             ],
             min_length=1,
         ),
@@ -8909,6 +9015,7 @@ class ComplianceEvidence(BaseModel):
                 "person-ungranted",
                 "trigger-owner-set",
                 "environment-order-set",
+                "deployment-promoted",
             ],
             min_length=1,
         ),
@@ -8997,6 +9104,7 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "person-ungranted",
                 "trigger-owner-set",
                 "environment-order-set",
+                "deployment-promoted",
             ],
             min_length=1,
         ),
@@ -9067,6 +9175,7 @@ class Filter(BaseModel):
                 "person-ungranted",
                 "trigger-owner-set",
                 "environment-order-set",
+                "deployment-promoted",
             ],
             min_length=1,
         ),
@@ -11339,6 +11448,30 @@ class DeploymentContentsFlow(BaseModel):
     """
 
 
+class PromotionMovesTool(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str | None = None
+    """
+    Absent for guardrails, which have no version.
+    """
+
+
+class PromotionMovesGuardrail(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str | None = None
+    """
+    Absent for guardrails, which have no version.
+    """
+
+
 class RunAgent(BaseModel):
     """
     Set on an agent's turn (an agent run, or the turn a flow's agent step started): the agent, the version that ran and the conversation. Absent on other runs, and on turns that ran before Kindgi 0.1.3.
@@ -12808,9 +12941,70 @@ class DeploymentRecord(BaseModel):
     The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's Default project).
     """
     pack_env: Annotated[PackEnvDeclaration | None, Field(alias="packEnv")] = None
+    promoted_from_deployment_id: Annotated[
+        str | None, Field(alias="promotedFromDeploymentId", min_length=1)
+    ] = None
+    """
+    When this deployment was made by promoting another into the next environment of its order: the deployment it was promoted from. Absent for one deployed directly.
+    """
+    pack_id: Annotated[str | None, Field(alias="packId")] = None
+    """
+    The pack's id, from the image's index. Absent from a runtime that doesn't keep it.
+    """
     endpoint: DeploymentEndpoint | None = None
     primitives: DeploymentPrimitiveCounts
     contents: DeploymentContents
+
+
+class PromotionMoves(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    pack_id: Annotated[str | None, Field(alias="packId")] = None
+    image_digest: Annotated[str, Field(alias="imageDigest", pattern="^sha256:[0-9a-f]{64}$")]
+    agents: list[PromotionMovedVersion]
+    flows: list[PromotionMovedVersion]
+    tools: list[PromotionMovesTool]
+    guardrails: list[PromotionMovesGuardrail]
+
+
+class DeploymentPromotion(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    deployment: DeploymentRecord
+    created: bool
+    """
+    `true`: the promotion made this deployment (`201`). `false`: the target had this build already (`200`), and only the versions it lacked were carried.
+    """
+    moved: PromotionMoves
+    left_behind: Annotated[list[LeftBehindVersion] | None, Field(alias="leftBehind")] = None
+    """
+    Edits of the build's agents and flows that stay behind; absent when none.
+    """
+
+
+class DeploymentPromotionCheck(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    moves: PromotionMoves
+    values: list[DeploymentValue]
+    """
+    Each value with a problem in the target; empty when every one is ready.
+    """
+    next_environment: Annotated[PromotionNextEnvironment, Field(alias="nextEnvironment")]
+    env_name: Annotated[str | None, Field(alias="envName")] = None
+    """
+    The env this runtime serves, which a run in the target reads its values under: a value is set there (`--env=<envName>` with `--scope=project:<id>`). Absent when the runtime names none, and each value is then listed unread.
+    """
+    left_behind: Annotated[list[LeftBehindVersion] | None, Field(alias="leftBehind")] = None
+    """
+    Edits of the build's agents and flows that would stay behind; absent when none.
+    """
 
 
 class DeploymentCollectionPage(BaseModel):
@@ -12821,6 +13015,14 @@ class DeploymentCollectionPage(BaseModel):
     data: list[DeploymentRecord]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `projectId` and lists them all.
+    """
+    pack_id: Annotated[str | None, Field(alias="packId")] = None
+    """
+    The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `packId` and lists them all.
+    """
 
 
 class DeploymentSecretsSyncRequest(BaseModel):

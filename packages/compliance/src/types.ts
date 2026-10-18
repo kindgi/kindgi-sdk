@@ -90,6 +90,11 @@ export const EVIDENCE_KINDS = [
   // was set, changed or cleared. The payload carries the order before and
   // after, each a list of project ids — never anything a project holds.
   'environment-order-set',
+  // A deployment was promoted into the next environment of its order: a new
+  // deployment there, or versions carried onto the one it had. The payload
+  // names both deployments, both projects, the image digest and the
+  // versions carried — never anything a project holds.
+  'deployment-promoted',
 ] as const;
 
 /**

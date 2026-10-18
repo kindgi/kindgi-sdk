@@ -8,6 +8,7 @@
  * exercising the full runCli path.
  */
 
+import { type PromotionStop, promotionHint } from './promotion-path.js';
 import type { DeployedVersionRecord, DeploymentRecord, PostDeploymentResult } from './runners.js';
 
 /**
@@ -81,6 +82,8 @@ export function renderResponse(
     readonly signerKeyId: string;
     readonly envelopePath: string;
     readonly idempotencyKey: string;
+    /** On a `409 environment-takes-promotions`: each environment on the way there, when they could be read. */
+    readonly promotionPath?: readonly PromotionStop[] | undefined;
   },
 ): RenderedResponse {
   if (result.kind === 'created' || result.kind === 'replayed') {
@@ -133,18 +136,7 @@ export function renderResponse(
     banner.push(`    ✗ POST /v1/deployments  →  HTTP ${result.status}`);
     banner.push(`      code:    ${result.error.code}`);
     banner.push(`      message: ${result.error.message}`);
-    const fill = (text: string): string =>
-      text.replaceAll('{signerKeyId}', ctx.signerKeyId).replaceAll('{endpoint}', ctx.endpoint);
-    const hint = WIRE_ERROR_HINTS[result.error.code];
-    if (hint !== undefined) {
-      banner.push('');
-      banner.push('  Hint:');
-      for (const line of wrapForBanner(fill(hint), 74, '    ')) {
-        banner.push(line);
-      }
-      const command = WIRE_ERROR_COMMANDS[result.error.code];
-      if (command !== undefined) banner.push(`      ${fill(command)}`);
-    }
+    banner.push(...hintLines(result.error.code, ctx));
     if (result.error.details !== undefined && result.error.details.length > 0) {
       banner.push('');
       banner.push('  Details:');
@@ -186,6 +178,34 @@ export function renderResponse(
   );
   banner.push('');
   return { banner, summary: null, exitCode: 1 };
+}
+
+/**
+ * The hint for a refusal's code, then the commands it names, each on a line
+ * of its own; none for a code without one.
+ */
+function hintLines(
+  code: string,
+  ctx: {
+    readonly signerKeyId: string;
+    readonly endpoint: string;
+    readonly promotionPath?: readonly PromotionStop[] | undefined;
+  },
+): string[] {
+  const fill = (text: string): string =>
+    text.replaceAll('{signerKeyId}', ctx.signerKeyId).replaceAll('{endpoint}', ctx.endpoint);
+  let text: string;
+  let commands: readonly string[];
+  if (code === 'environment-takes-promotions') {
+    ({ text, commands } = promotionHint(ctx.promotionPath));
+  } else {
+    const hint = WIRE_ERROR_HINTS[code];
+    if (hint === undefined) return [];
+    const command = WIRE_ERROR_COMMANDS[code];
+    text = fill(hint);
+    commands = command === undefined ? [] : [fill(command)];
+  }
+  return ['', '  Hint:', ...wrapForBanner(text, 74, '    '), ...commands.map((c) => `      ${c}`)];
 }
 
 /**

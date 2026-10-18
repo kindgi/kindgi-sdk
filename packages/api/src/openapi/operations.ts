@@ -7126,7 +7126,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.list',
     summary: 'List signed deployments',
     description:
-      'Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits).',
+      'Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.',
     tags: ['deployments'],
     security: 'bearer',
     parameters: [
@@ -7144,6 +7144,21 @@ export const OPERATIONS: readonly OperationSpec[] = [
         in: 'query',
         required: false,
         description: 'Filter to deployments signed by this key id.',
+        schema: { type: 'string' },
+      },
+      {
+        name: 'projectId',
+        in: 'query',
+        required: false,
+        description:
+          "Filter to one environment's deployments. The tenant's Default project also finds those that name no project.",
+        schema: { type: 'string' },
+      },
+      {
+        name: 'packId',
+        in: 'query',
+        required: false,
+        description: "Filter to one pack's deployments (`packId`).",
         schema: { type: 'string' },
       },
     ],
@@ -7239,6 +7254,96 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...SecretWriteErrors,
       '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
       '404': ErrorResponse('No deployment with that id, or referenced secret does not exist.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/deployments/:deploymentId/promotions',
+    openapiPath: '/v1/deployments/{deploymentId}/promotions',
+    operationId: 'deployments.promote',
+    summary: 'Promote a deployment to the next environment',
+    description:
+      "Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since.",
+    tags: ['deployments'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'deploymentId',
+        in: 'path',
+        required: true,
+        description: 'The deployment to promote: one serving an environment of an order.',
+        schema: { type: 'string', minLength: 1 },
+      },
+    ],
+    requestBody: { required: true, schema: ref('DeploymentPromotionBody') },
+    responses: {
+      '201': {
+        description: 'Promoted: a new deployment in the target.',
+        schema: ref('DeploymentPromotion'),
+      },
+      '200': {
+        description:
+          'The target has this build already: its deployment, with the edits made since recorded.',
+        schema: ref('DeploymentPromotion'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "Malformed body (`bad-input`). Or `signature-invalid`: the deployment's signature doesn't verify over the fields it keeps.",
+      ),
+      '403': ErrorResponse(
+        "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the tenant's trust list (`details.signerKeyId`).",
+      ),
+      '404': ErrorResponse(
+        "`deployment-not-found`: no deployment with that id in this tenant, or one in a project you don't read.",
+      ),
+      '409': ErrorResponse(
+        "`promotion-not-next-environment`: the target isn't the next environment of the deployment's order, or the deployment's environment is last or in no order (`details.position`, the next environment's place; `details.nextProjectId`, when you can read it). `promotion-values-not-ready`: values the build needs aren't ready in the target, each in `details.values` (`DeploymentValue`). `deployment-superseded`: the deployment no longer serves its environment, or the target's copy no longer serves there: newer deployments serve every tool version it ships (`details.environment`, `source` or `target`; `details.newerDeploymentId`). `project-suspended`, `pack-suspended`, `tenant-suspended` or `tenant-closing`: a suspension of the source or the target (`details.environment`). Nothing is written.",
+      ),
+      '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
+      '501': ErrorResponse(
+        "`promotions-unsupported`: this runtime's deployment ledger can't promote.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/deployments/:deploymentId/promotions/check',
+    openapiPath: '/v1/deployments/{deploymentId}/promotions/check',
+    operationId: 'deployments.promoteCheck',
+    summary: 'Check a promotion without making it',
+    description:
+      "Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check. Needs `read` on the deployment's project and `admin` on the target.",
+    tags: ['deployments'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'deploymentId',
+        in: 'path',
+        required: true,
+        description: 'The deployment to promote: one serving an environment of an order.',
+        schema: { type: 'string', minLength: 1 },
+      },
+    ],
+    requestBody: { required: true, schema: ref('DeploymentPromotionCheckBody') },
+    responses: {
+      '200': {
+        description: 'What a promotion would move, and the values not ready in the target.',
+        schema: ref('DeploymentPromotionCheck'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "Malformed body (`bad-input`). Or `signature-invalid`: the deployment's signature doesn't verify over the fields it keeps.",
+      ),
+      '403': ErrorResponse(
+        "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, which a promotion's check is refused as the promotion is. Or `signer-not-trusted`: the key that signed the build is no longer trusted.",
+      ),
+      '404': ErrorResponse(
+        "`deployment-not-found`: no deployment with that id in this tenant, or one in a project you don't read.",
+      ),
+      '409': ErrorResponse(
+        '`promotion-not-next-environment`, `deployment-superseded`, or a suspension of the source or the target, as on the promotion.',
+      ),
+      '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
     },
   },
 

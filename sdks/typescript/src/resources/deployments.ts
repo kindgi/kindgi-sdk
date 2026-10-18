@@ -12,10 +12,19 @@
  * Server verifies signature against the tenant trust-list, pulls the
  * image, validates + upserts every packed primitive (tools, guardrails,
  * agents, flows), and appends an immutable ledger row. All-or-nothing.
+ *
+ * Promote a deployment to the next environment of its environment order:
+ * the exact build moves, with the edits of its agents and flows; `check`
+ * says what would move and which values aren't ready there, writing
+ * nothing.
  */
 
 import type {
   DeploymentCollectionPage,
+  DeploymentPromotion,
+  DeploymentPromotionBody,
+  DeploymentPromotionCheck,
+  DeploymentPromotionCheckBody,
   DeploymentRecord,
   DeploymentRegistrationBody,
   DeploymentSecretsSyncRequest,
@@ -31,12 +40,19 @@ export type RegisterDeploymentInput = DeploymentRegistrationBody;
 export type SyncSecretsInput = DeploymentSecretsSyncRequest;
 export type SyncSecretsResult = DeploymentSecretsSyncResponse;
 export type { PackEnvNameStatus, PackEnvNames };
+export type PromoteDeploymentInput = DeploymentPromotionBody;
+export type CheckDeploymentPromotionInput = DeploymentPromotionCheckBody;
+export type { DeploymentPromotion, DeploymentPromotionCheck };
 
 export interface ListDeploymentsFilter {
   readonly limit?: number;
   readonly cursor?: string;
   readonly imageRefPrefix?: string;
   readonly signerKeyId?: string;
+  /** One environment's deployments; the Default project also finds those that name no project. */
+  readonly projectId?: string;
+  /** One pack's deployments. */
+  readonly packId?: string;
 }
 
 export interface DeploymentsClient {
@@ -69,6 +85,24 @@ export interface DeploymentsClient {
    * @wire GET /v1/deployments/:deploymentId/pack-env
    */
   packEnv(deploymentId: string): Promise<PackEnvNames>;
+  /**
+   * Promote a deployment to the next environment of its order: the target
+   * gets a deployment of its own with the same build. A target that has
+   * the build already answers its deployment.
+   *
+   * @wire POST /v1/deployments/:deploymentId/promotions
+   */
+  promote(deploymentId: string, input: PromoteDeploymentInput): Promise<DeploymentPromotion>;
+  /**
+   * What a promotion would move, and each value not ready in the target.
+   * Writes nothing.
+   *
+   * @wire POST /v1/deployments/:deploymentId/promotions/check
+   */
+  promoteCheck(
+    deploymentId: string,
+    input: CheckDeploymentPromotionInput,
+  ): Promise<DeploymentPromotionCheck>;
 }
 
 export function makeDeploymentsClient(transport: Transport): DeploymentsClient {
@@ -90,6 +124,8 @@ export function makeDeploymentsClient(transport: Transport): DeploymentsClient {
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
           ...(filter?.imageRefPrefix !== undefined && { imageRefPrefix: filter.imageRefPrefix }),
           ...(filter?.signerKeyId !== undefined && { signerKeyId: filter.signerKeyId }),
+          ...(filter?.projectId !== undefined && { projectId: filter.projectId }),
+          ...(filter?.packId !== undefined && { packId: filter.packId }),
         },
       });
     },
@@ -111,6 +147,20 @@ export function makeDeploymentsClient(transport: Transport): DeploymentsClient {
       return transport.request<PackEnvNames>({
         method: 'GET',
         path: `/v1/deployments/${encodeURIComponent(deploymentId)}/pack-env`,
+      });
+    },
+    async promote(deploymentId, input) {
+      return transport.request<DeploymentPromotion>({
+        method: 'POST',
+        path: `/v1/deployments/${encodeURIComponent(deploymentId)}/promotions`,
+        body: input,
+      });
+    },
+    async promoteCheck(deploymentId, input) {
+      return transport.request<DeploymentPromotionCheck>({
+        method: 'POST',
+        path: `/v1/deployments/${encodeURIComponent(deploymentId)}/promotions/check`,
+        body: input,
       });
     },
   };

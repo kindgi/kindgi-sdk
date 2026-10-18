@@ -35,6 +35,7 @@ import type {
   DeployRunners,
   DeploymentEndpointRecord,
   DeploymentRecord,
+  EnvironmentOrderRow,
   GetDeploymentResult,
   GetPackEnvResult,
   LoadEnvelopeResult,
@@ -140,6 +141,7 @@ interface Fixtures {
     buildCalls: number;
     syncCalls: number;
     findCalls: number;
+    listCalls: number;
     capturedPost?: PostDeploymentOptions;
     capturedFindSlug?: string;
     capturedBuild?: RunBuildOptions;
@@ -161,6 +163,10 @@ interface FixtureOptions {
   readonly omitSyncRunner?: boolean;
   /** The tenant's projects, for `--project <slug>`; absent: no lookup runner. */
   readonly projects?: readonly { id: string; name: string; slug: string; orgId?: string }[];
+  /** The environment orders the token reads; with `projects`, the reads a refusal into a later environment makes. */
+  readonly orders?: readonly EnvironmentOrderRow[];
+  /** Which of those reads answers an error. */
+  readonly failedList?: 'projects' | 'orders';
 }
 
 function makeFixtures(opts: FixtureOptions = {}): Fixtures {
@@ -170,6 +176,7 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
     buildCalls: 0,
     syncCalls: 0,
     findCalls: 0,
+    listCalls: 0,
   };
   const envelope = opts.envelope ?? makeEnvelope();
   const runners: DeployRunners = {
@@ -203,6 +210,20 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
           .filter((p) => p.slug === o.slug)
           .map(({ id, name, orgId }) => ({ id, name, ...(orgId !== undefined && { orgId }) })),
       };
+    };
+  }
+  if (opts.projects !== undefined && opts.orders !== undefined) {
+    const { projects, orders } = opts;
+    const failed = { kind: 'error', message: 'GET answered 503' } as const;
+    (runners as { listProjects?: DeployRunners['listProjects'] }).listProjects = async () => {
+      state.listCalls += 1;
+      return opts.failedList === 'projects' ? failed : { kind: 'ok', projects };
+    };
+    (
+      runners as { listEnvironmentOrders?: DeployRunners['listEnvironmentOrders'] }
+    ).listEnvironmentOrders = async () => {
+      state.listCalls += 1;
+      return opts.failedList === 'orders' ? failed : { kind: 'ok', orders };
     };
   }
   if (!opts.omitSyncRunner) {
@@ -603,6 +624,112 @@ describe('kindgi deploy — response handling', () => {
     );
     expect(out.stderr).not.toContain('SigningKeyBinding');
     expect(out.stderr).not.toContain('This answer is a replay');
+  });
+
+  describe('409 environment-takes-promotions: a deploy into a later environment of its order', () => {
+    const STAGING = '11111111-1111-4111-8111-111111111111';
+    const QA = '22222222-2222-4222-8222-222222222222';
+    const PROD = '33333333-3333-4333-8333-333333333333';
+    const projects = [
+      { id: STAGING, name: 'Staging', slug: 'acme-staging' },
+      { id: QA, name: 'QA', slug: 'acme-qa' },
+      { id: PROD, name: 'Prod', slug: 'acme-prod' },
+    ];
+    const orders = [
+      { entries: [{ position: 0 }] },
+      {
+        entries: [
+          { position: 2, projectId: PROD },
+          { position: 0, projectId: STAGING },
+          { position: 1, projectId: QA },
+        ],
+      },
+    ];
+    const refused = (details: { position: number; firstProjectId?: string }) =>
+      ({
+        kind: 'wire-error',
+        status: 409,
+        error: {
+          code: 'environment-takes-promotions',
+          message:
+            "This project is a later environment of its environment order (position 2), and a later environment takes builds only by promotion from the one before it. Deploy into the order's first environment and promote the build from there. Nothing was deployed.",
+          ...details,
+        },
+      }) as const;
+    /** The pack config: staging (the test default) plus qa and prod, each naming its project. */
+    const environments = (staging: Record<string, unknown>) => ({
+      environments: {
+        staging: { ...staging, project: 'acme-staging' },
+        qa: { endpoint: 'https://api.staging.example.com', project: 'acme-qa' },
+        prod: { endpoint: 'https://api.staging.example.com', project: PROD },
+      },
+    });
+
+    test('names the first environment and prints each promote on the way, from the pack config', async () => {
+      await writeAutoEnvelope();
+      const fixtures = makeFixtures({
+        postResult: refused({ position: 2, firstProjectId: STAGING }),
+        projects,
+        orders,
+      });
+      const staging = (testConfig().environments as { staging: Record<string, unknown> }).staging;
+      const out = await runCli({
+        ...baseInputs(fixtures, {}, environments(staging)),
+        argv: ['deploy', '--env=staging', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(fixtures.state.postCalls).toBe(1);
+      expect(fixtures.state.listCalls).toBe(2);
+      expect(out.stderr).toContain('code:    environment-takes-promotions');
+      expect(out.stderr.replace(/\s+/g, ' ')).toContain(
+        'Builds reach prod only by promotion from the environment before it. A build enters its environment order at staging, the first environment: deploy there, then promote the build one environment at a time.',
+      );
+      expect(out.stderr).toContain(
+        '\n      kindgi promote --from=staging --to=qa\n      kindgi promote --from=qa --to=prod\n',
+      );
+    });
+
+    test("without the first environment (the caller can't read it), says the rule and where the order is, and reads nothing", async () => {
+      await writeAutoEnvelope();
+      const fixtures = makeFixtures({ postResult: refused({ position: 1 }), projects, orders });
+      const staging = (testConfig().environments as { staging: Record<string, unknown> }).staging;
+      const out = await runCli({
+        ...baseInputs(fixtures, {}, environments(staging)),
+        argv: ['deploy', '--env=staging', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(fixtures.state.listCalls).toBe(0);
+      const text = out.stderr.replace(/\s+/g, ' ');
+      expect(text).toContain(
+        'A build enters an environment order at its first environment and moves on one environment at a time, by promotion. Deploy into the first environment, then promote the build from there, one `kindgi promote --from=<environment> --to=<the next one>` at a time. `kindgi environments list` shows the order.',
+      );
+      expect(out.stderr).not.toContain('      kindgi promote --from=');
+    });
+
+    test.each(['projects', 'orders'] as const)(
+      'when reading the %s fails, says the rule and where the order is',
+      async (failedList) => {
+        await writeAutoEnvelope();
+        const fixtures = makeFixtures({
+          postResult: refused({ position: 2, firstProjectId: STAGING }),
+          projects,
+          orders,
+          failedList,
+        });
+        const staging = (testConfig().environments as { staging: Record<string, unknown> }).staging;
+        const out = await runCli({
+          ...baseInputs(fixtures, {}, environments(staging)),
+          argv: ['deploy', '--env=staging', `--path=${packDir}`],
+        });
+        expect(out.exitCode).toBe(1);
+        expect(fixtures.state.listCalls).toBe(2);
+        expect(out.stderr).toContain('code:    environment-takes-promotions');
+        expect(out.stderr.replace(/\s+/g, ' ')).toContain(
+          '`kindgi environments list` shows the order.',
+        );
+        expect(out.stderr).not.toContain('      kindgi promote --from=');
+      },
+    );
   });
 
   test('a refusal the server replays (a runtime before 0.1.3): says so, and how to retry', async () => {
