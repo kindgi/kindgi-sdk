@@ -55,7 +55,12 @@ export const SECTIONS = [
     paths: ['tutorials/'],
   },
   { slug: 'guides', label: 'Guides', description: 'how to do one thing', paths: ['guides/'] },
-  { slug: 'sites', label: 'Sites', description: "Kindgi in your website's admin", paths: ['sites/'] },
+  {
+    slug: 'sites',
+    label: 'Sites',
+    description: "Kindgi in your website's admin",
+    paths: ['sites/'],
+  },
   { slug: 'concepts', label: 'Concepts', paths: ['concepts/'] },
   {
     slug: 'deploy',
