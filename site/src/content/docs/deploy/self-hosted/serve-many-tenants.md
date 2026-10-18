@@ -245,7 +245,9 @@ service is, and checks it. It never creates or deletes one.
    `pack-env-secret-unreadable`, a runtime with nowhere to audit one refuses
    with `501 pack-env-secrets-unaudited`, and a secret over 32768 bytes is
    more than a pack service can be given (`pack-env-secret-too-large`):
-   record the code. The tenant sees the code and when, so a deploy that
+   record the code. Record `pack-env-secret-capacity` when there's no room
+   just now for a service that can be given a secret, kept apart from other
+   projects': try again. The tenant sees the code and when, so a deploy that
    waits for its pack service says why at once.
 5. **Give a running service its changed environment** (runtime 0.1.8.1 or
    later): `GET /v1/system/pack-env` lists the deployments with a `ready`
@@ -262,9 +264,9 @@ service is, and checks it. It never creates or deletes one.
    values change. One held as `pack-env-secret-unreadable` or
    `pack-env-secrets-unaudited` is listed every time, with its `held`, since
    the platform fixes those and its revision doesn't move: read it again on
-   your own back-off. A service made where no secret can be given, once a
-   name is set only as one, is held as `pack-env-secret-redeploy`: the next
-   deploy's service can be given it.
+   your own back-off. If a running service can't be given a secret where you
+   run it, and a name is now set only as one, hold it as
+   `pack-env-secret-redeploy`: the next deploy's service can be given it.
 6. **Retire what should go:** `GET /v1/system/deployments?endpoint=retire`
    lists deployments with an endpoint whose service should go, each with its
    `reason`. Clear the endpoint first, with `DELETE …/endpoint`, then delete
