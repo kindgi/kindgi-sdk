@@ -103,4 +103,54 @@ describe('deployments — wire round-trips', () => {
       `GET /v1/deployments/d1/values?projectId=${PROJECT}`,
     ]);
   });
+
+  it('promote and promoteCheck send where to; list filters by environment and pack', async () => {
+    const moves = {
+      imageDigest: 'sha256:abc',
+      agents: [{ id: 'acme.matcher', version: '1.0.1', carried: true }],
+      flows: [],
+      tools: [],
+      guardrails: [],
+    };
+    const stub = recordingFetch([
+      {
+        status: 201,
+        body: JSON.stringify({
+          deployment: { ...SAMPLE_DEPLOYMENT, deploymentId: 'd2', promotedFromDeploymentId: 'd1' },
+          moved: moves,
+        }),
+      },
+      {
+        status: 200,
+        body: JSON.stringify({
+          moves,
+          values: [],
+          nextEnvironment: { projectId: 'p-prod', position: 2 },
+        }),
+      },
+      { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const promoted = await client.deployments.promote('d1', {
+      toProjectId: 'p-staging-2',
+      reason: 'release',
+    });
+    const check = await client.deployments.promoteCheck('d2', { toProjectId: 'p-prod' });
+    await client.deployments.list({ projectId: 'p-prod', packId: 'acme.pack' });
+    expect(stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual([
+      'POST /v1/deployments/d1/promotions',
+      'POST /v1/deployments/d2/promotions/check',
+      'GET /v1/deployments',
+    ]);
+    expect(JSON.parse(String(stub.calls[0]?.body))).toEqual({
+      toProjectId: 'p-staging-2',
+      reason: 'release',
+    });
+    expect(new URL(stub.calls[2]?.url ?? '').searchParams.toString()).toBe(
+      'projectId=p-prod&packId=acme.pack',
+    );
+    expect(promoted.deployment.promotedFromDeploymentId).toBe('d1');
+    expect(promoted.moved.agents[0]?.carried).toBe(true);
+    expect(check.nextEnvironment.position).toBe(2);
+  });
 });

@@ -10,6 +10,11 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **a deployment is promoted to the next environment of its
+  environment order.** `deployments.promote` moves the same build, with the
+  edits made since to its agents and flows. `deployments.promote_check`
+  answers what would move and which values aren't ready in the target,
+  writing nothing. `deployments.list` takes `project_id` and `pack_id`.
 - `kindgi`: **`deployments.values.list(deployment_id, project_id=…)` lists
   what a deployment needs set in a project**, names only
   (`GET /v1/deployments/{deploymentId}/values`). Each `DeploymentValue` says

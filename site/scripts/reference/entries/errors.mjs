@@ -677,6 +677,59 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'promotion-not-next-environment': {
+    description:
+      "A deployment is promoted only to the next environment of its environment order, one environment at a time. The project named isn't that one, or the deployment is in the order's last environment, or in no order. `kindgi environments list` shows the order. Nothing is written.",
+    details: [
+      {
+        key: 'position',
+        meaning:
+          "the next environment's place in the order, from 0 (the first); absent when there's none",
+      },
+      {
+        key: 'nextProjectId',
+        meaning: "the next environment's project; present when you can read it",
+      },
+    ],
+    seeAlso: ['POST /v1/deployments/{deploymentId}/promotions'],
+  },
+  'promotion-values-not-ready': {
+    description:
+      "Values the build needs in the target environment aren't ready there: a secret, env value or model key set nowhere a run there looks, one revoked where a run reads it, or a pack env name set only as a secret, or both as a secret and as a plain value. Each one is in `details.values`: set them in the target, then promote again. The promotion check lists the same, writing nothing. Nothing is written.",
+    details: [
+      {
+        key: 'values',
+        meaning:
+          'each value not ready: its `name`, `kind`, what needs it (`neededBy`), where a run finds it (`foundAt`, when it is set) and why it is not ready (`problem`); never a value',
+      },
+    ],
+    seeAlso: [
+      'POST /v1/deployments/{deploymentId}/promotions',
+      'POST /v1/deployments/{deploymentId}/promotions/check',
+    ],
+  },
+  'deployment-superseded': {
+    description:
+      'A deployment is promoted only while it serves. With `details.environment` `source`: newer deployments in its environment serve every tool version it ships, so it no longer serves there; promote the newer one. With `target`: the target environment has this build already, superseded there; promote the newer build from the environment before it. Nothing is written.',
+    details: [
+      {
+        key: 'environment',
+        meaning: '`source` (the deployment promoted) or `target` (the environment it goes to)',
+      },
+      {
+        key: 'newerDeploymentId',
+        meaning:
+          'the newest deployment there that serves every tool version this one ships; present when there is one',
+      },
+    ],
+    seeAlso: ['POST /v1/deployments/{deploymentId}/promotions'],
+  },
+  'promotions-unsupported': {
+    description:
+      "This runtime can't promote deployments: it has nowhere to write a promotion. The promotion check still answers. Nothing is written.",
+    details: [],
+    seeAlso: ['POST /v1/deployments/{deploymentId}/promotions'],
+  },
   'guardrail-config-invalid': {
     description:
       "The guardrail's `config` doesn't satisfy the config schema of the check it names, so the check would refuse it on every call. Fix the config and register again.",
@@ -2498,12 +2551,12 @@ export const ERROR_ENTRIES = {
   },
   'signature-invalid': {
     description:
-      "The deployment's signature isn't valid: it isn't base64, can't be verified, or doesn't match the signed envelope of image digest, version, index hash, tenant and publish time.",
+      "The deployment's signature isn't valid: it isn't base64, can't be verified, or doesn't match the signed envelope of image digest, version, index hash, tenant and publish time. A promotion checks the signature again, over the fields the deployment keeps, and is refused the same way.",
     details: [],
   },
   'signer-not-trusted': {
     description:
-      "The key that signed the deployment isn't on the tenant's trust list. Trust the key, then deploy again.",
+      "The key that signed the deployment isn't on the tenant's trust list. Trust the key, then deploy again. A promotion is refused the same way when the key that signed the build is no longer trusted: the build isn't promoted.",
     details: [
       {
         key: 'signerKeyId',
@@ -2533,33 +2586,53 @@ export const ERROR_ENTRIES = {
     ],
   },
   'deployment-not-found': {
-    description: 'No deployment with that id exists under the tenant.',
+    description:
+      "No deployment with that id exists under the tenant. A promotion of a deployment in a project you can't read is answered the same way.",
     details: [
       {
         key: 'deploymentId',
         meaning: "the deployment id that wasn't found",
       },
     ],
-    seeAlso: ['GET /v1/deployments/{deploymentId}', 'POST /v1/deployments/{deploymentId}/secrets'],
+    seeAlso: [
+      'GET /v1/deployments/{deploymentId}',
+      'POST /v1/deployments/{deploymentId}/secrets',
+      'POST /v1/deployments/{deploymentId}/promotions',
+      'POST /v1/deployments/{deploymentId}/promotions/check',
+    ],
   },
   'project-suspended': {
     description:
-      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an eval run started in it, an improvement pass for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. An eval run or a pass already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or pass: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project.",
-    details: [],
+      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an eval run started in it, an improvement pass for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. An eval run or a pass already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or pass: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which.",
+    details: [
+      {
+        key: 'environment',
+        meaning:
+          'from a promotion: `source` (the deployment promoted) or `target` (the environment it goes to)',
+      },
+    ],
     seeAlso: [
       'POST /v1/deployments',
       'POST /v1/eval-suites/{suiteId}/runs',
       'POST /v1/proposals/improve',
       'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
+      'POST /v1/deployments/{deploymentId}/promotions',
     ],
   },
   'pack-suspended': {
     description:
-      "The operator suspended this deployment's pack, so its pack service can't be set. Lift the suspension first.",
-    details: [],
+      "The operator suspended this deployment's pack, so its pack service can't be set. Lift the suspension first. A promotion of its builds from or into an environment where it's suspended is refused too: `details.environment` says which.",
+    details: [
+      {
+        key: 'environment',
+        meaning:
+          'from a promotion: `source` (the deployment promoted) or `target` (the environment it goes to)',
+      },
+    ],
     seeAlso: [
       'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended',
       'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
+      'POST /v1/deployments/{deploymentId}/promotions',
     ],
   },
   'endpoint-url-invalid': {

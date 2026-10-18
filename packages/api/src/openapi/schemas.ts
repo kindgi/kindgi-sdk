@@ -10261,7 +10261,11 @@ export const DeploymentValueNeededBySchema: JsonSchema = {
   additionalProperties: false,
   required: ['type', 'id'],
   properties: {
-    type: { type: 'string', enum: ['tool', 'agent', 'provider', 'pack'] },
+    type: {
+      type: 'string',
+      description:
+        '`tool`, `agent`, `provider` or `pack`; a later runtime may add kinds, so treat an unknown one as a need not yet named.',
+    },
     id: { type: 'string' },
     version: { type: 'string' },
   },
@@ -10281,7 +10285,11 @@ export const DeploymentValueSchema: JsonSchema = {
       type: 'string',
       description: "The secret's or env value's name; for a model key, the key's secret name.",
     },
-    kind: { type: 'string', enum: ['secret', 'env', 'model-key', 'pack-env'] },
+    kind: {
+      type: 'string',
+      description:
+        '`secret`, `env`, `model-key` or `pack-env`; a later runtime may add kinds, so treat an unknown one as a value not yet named.',
+    },
     neededBy: { $ref: '#/components/schemas/DeploymentValueNeededBy' },
     foundAt: {
       type: 'string',
@@ -10291,9 +10299,148 @@ export const DeploymentValueSchema: JsonSchema = {
     },
     problem: {
       type: 'string',
-      enum: ['missing', 'secret-not-yet', 'ambiguous', 'revoked'],
       description:
-        "Why it isn't ready; absent when it is. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set both as a secret and as a plain value. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one).",
+        "Why it isn't ready; absent when it is. One of a fixed list; a later runtime may add problems, so treat an unknown one as a reason not yet named. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set both as a secret and as a plain value. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one).",
+    },
+  },
+};
+
+/** `POST /v1/deployments/{deploymentId}/promotions`: where to, and why. */
+export const DeploymentPromotionBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['toProjectId'],
+  properties: {
+    toProjectId: {
+      type: 'string',
+      minLength: 1,
+      description: "The next environment of the deployment's order.",
+    },
+    reason: {
+      type: 'string',
+      maxLength: 1000,
+      description: 'Why, kept in the `deployment-promoted` audit record.',
+    },
+  },
+};
+
+/** `POST /v1/deployments/{deploymentId}/promotions/check`: where to. */
+export const DeploymentPromotionCheckBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['toProjectId'],
+  properties: {
+    toProjectId: {
+      type: 'string',
+      minLength: 1,
+      description: "The next environment of the deployment's order.",
+    },
+  },
+};
+
+/** An agent or flow version a promotion moves: one the build ships, or one carried with it. */
+export const PromotionMovedVersionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id'],
+  properties: {
+    id: { type: 'string' },
+    version: { type: 'string' },
+    carried: {
+      type: 'boolean',
+      const: true,
+      description:
+        'Carried with the build: an edit of a version it ships. Absent for one it ships.',
+    },
+  },
+};
+
+/** What a promotion moves into the next environment: the build, and the edits carried with it. */
+export const PromotionMovesSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['imageDigest', 'agents', 'flows', 'tools', 'guardrails'],
+  properties: {
+    packId: { type: 'string' },
+    imageDigest: { type: 'string', pattern: '^sha256:[0-9a-f]{64}$' },
+    agents: { type: 'array', items: { $ref: '#/components/schemas/PromotionMovedVersion' } },
+    flows: { type: 'array', items: { $ref: '#/components/schemas/PromotionMovedVersion' } },
+    tools: { type: 'array', items: DeployedPrimitiveSchema },
+    guardrails: { type: 'array', items: DeployedPrimitiveSchema },
+  },
+};
+
+/** An edit of an agent or flow a build ships, made from a version it doesn't ship: it stays. */
+export const LeftBehindVersionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id', 'version', 'from'],
+  properties: {
+    kind: {
+      type: 'string',
+      description:
+        '`agent` or `flow`; a later runtime may add kinds, so treat an unknown one as an item not yet named.',
+    },
+    id: { type: 'string' },
+    version: { type: 'string' },
+    from: { type: 'string', description: 'The version its chain of edits starts from.' },
+  },
+};
+
+/** A promotion's answer. */
+export const DeploymentPromotionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['deployment', 'created', 'moved'],
+  properties: {
+    deployment: { $ref: '#/components/schemas/DeploymentRecord' },
+    created: {
+      type: 'boolean',
+      description:
+        '`true`: the promotion made this deployment (`201`). `false`: the target had this build already (`200`), and only the versions it lacked were carried.',
+    },
+    moved: { $ref: '#/components/schemas/PromotionMoves' },
+    leftBehind: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/LeftBehindVersion' },
+      description: "Edits of the build's agents and flows that stay behind; absent when none.",
+    },
+  },
+};
+
+/** The environment a deployment is promoted into: the next one in its order. */
+export const PromotionNextEnvironmentSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'position'],
+  properties: {
+    projectId: { type: 'string' },
+    position: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Its place in the order, from 0 (the first, which takes builds).',
+    },
+  },
+};
+
+/** A promotion check's answer: what would move, and the values not ready in the target. */
+export const DeploymentPromotionCheckSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['moves', 'values', 'nextEnvironment'],
+  properties: {
+    moves: { $ref: '#/components/schemas/PromotionMoves' },
+    values: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/DeploymentValue' },
+      description: 'Each value with a problem in the target; empty when every one is ready.',
+    },
+    nextEnvironment: { $ref: '#/components/schemas/PromotionNextEnvironment' },
+    leftBehind: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/LeftBehindVersion' },
+      description:
+        "Edits of the build's agents and flows that would stay behind; absent when none.",
     },
   },
 };
@@ -10438,6 +10585,16 @@ export const DeploymentCollectionPageSchema: JsonSchema = {
     },
     nextCursor: { type: 'string' },
     hasMore: { type: 'boolean' },
+    projectId: {
+      type: 'string',
+      description:
+        "The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `projectId` and lists them all.",
+    },
+    packId: {
+      type: 'string',
+      description:
+        "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `packId` and lists them all.",
+    },
   },
 };
 
@@ -13689,6 +13846,14 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeploymentValueNeededBy', DeploymentValueNeededBySchema],
   ['DeploymentValue', DeploymentValueSchema],
   ['DeploymentValueList', DeploymentValueListSchema],
+  ['DeploymentPromotionBody', DeploymentPromotionBodySchema],
+  ['DeploymentPromotionCheckBody', DeploymentPromotionCheckBodySchema],
+  ['PromotionMovedVersion', PromotionMovedVersionSchema],
+  ['PromotionMoves', PromotionMovesSchema],
+  ['LeftBehindVersion', LeftBehindVersionSchema],
+  ['DeploymentPromotion', DeploymentPromotionSchema],
+  ['PromotionNextEnvironment', PromotionNextEnvironmentSchema],
+  ['DeploymentPromotionCheck', DeploymentPromotionCheckSchema],
   ['DeploymentRegistrationBody', DeploymentRegistrationBodySchema],
   ['DeploymentCollectionPage', DeploymentCollectionPageSchema],
   ['DeploymentValidationDetails', DeploymentValidationDetailsSchema],

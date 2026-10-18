@@ -47,6 +47,7 @@ import {
   type DeploymentRegisterOutcome,
   serializeDeployment,
 } from '../deployment-binding.js';
+import { canonicalizeEnvelope, normaliseSha256Hex } from '../deployment-envelope.js';
 import { type DeploymentValuesDeps, deploymentValues } from '../deployment-values.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
@@ -77,7 +78,13 @@ import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { capabilityRefusal, deniedBy } from './denied.js';
-import { carriedFor, servingProjectOf, valuesDepsFor } from './deployment-promotions.js';
+import {
+  carriedFor,
+  isPromotionRoute,
+  mountDeploymentPromotions,
+  servingProjectOf,
+  valuesDepsFor,
+} from './deployment-promotions.js';
 import { requireEnvName } from './env.js';
 import type { GuardrailWriteHook } from './guardrails.js';
 import { clampLimit } from './pagination.js';
@@ -269,6 +276,9 @@ export function deploymentsRouter(
   // `refuseOtherProjectForKey`.)
   const tenantAccess = tenantResourceAccess(authorizer);
   r.use('*', async (c, next) => {
+    // A promotion checks rights on the projects themselves: read on the
+    // deployment's environment, admin on the target.
+    if (isPromotionRoute(c.req.method, c.req.path)) return next();
     if (
       authorizer === undefined ||
       c.req.method !== 'POST' ||
@@ -291,6 +301,9 @@ export function deploymentsRouter(
     })(c, next);
   });
 
+  // ---------- POST /:deploymentId/promotions (and /check) ----------
+  mountDeploymentPromotions(r, bindings, authorizer);
+
   // ---------- GET / (list, cursor-paginated) ----------
   r.get('/', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
@@ -299,6 +312,10 @@ export function deploymentsRouter(
     const cursorRaw = c.req.query('cursor');
     const imageRefPrefixRaw = c.req.query('imageRefPrefix');
     const signerKeyIdRaw = c.req.query('signerKeyId');
+    // One environment's deployments (the Default's include those that name
+    // no project), and one pack's.
+    const projectIdRaw = c.req.query('projectId');
+    const packIdRaw = c.req.query('packId');
 
     // A throw from list() propagates to the app's central error handler
     // (middleware/error-mapper.ts): a busy database answers this GET with a
@@ -316,6 +333,9 @@ export function deploymentsRouter(
         signerKeyIdRaw.length > 0 && {
           signerKeyId: signerKeyIdRaw as SigningKeyId,
         }),
+      ...(projectIdRaw !== undefined &&
+        projectIdRaw.length > 0 && { projectId: projectIdRaw as ProjectId }),
+      ...(packIdRaw !== undefined && packIdRaw.length > 0 && { packId: packIdRaw }),
     });
     return c.json({
       data: page.data.map(serializeDeployment),
@@ -323,6 +343,9 @@ export function deploymentsRouter(
       ...(page.nextCursor !== undefined && {
         nextCursor: page.nextCursor as unknown as string,
       }),
+      // The filters it applied, so a client can tell a runtime that ignored them.
+      ...(projectIdRaw !== undefined && projectIdRaw.length > 0 && { projectId: projectIdRaw }),
+      ...(packIdRaw !== undefined && packIdRaw.length > 0 && { packId: packIdRaw }),
     });
   });
 
@@ -1581,40 +1604,6 @@ function extractImageDigest(imageRef: string): string | null {
   const digest = imageRef.slice(at + 1);
   if (!SHA256_PREFIX_RE.test(digest)) return null;
   return digest.toLowerCase();
-}
-
-function normaliseSha256Hex(raw: string): string {
-  const lower = raw.toLowerCase();
-  return lower.startsWith('sha256:') ? lower : `sha256:${lower}`;
-}
-
-// ------------------------------------------------------------
-// Canonical envelope
-// ------------------------------------------------------------
-
-interface EnvelopeFields {
-  readonly imageDigest: string;
-  readonly artifactVersion: string;
-  readonly indexHash: string;
-  readonly tenantId: string;
-  readonly publishedAt: string;
-}
-
-/**
- * Canonical form of the signed envelope: JSON object with sorted keys,
- * no whitespace, UTF-8. Deterministic by construction — the same field
- * values always produce byte-identical output.
- */
-function canonicalizeEnvelope(fields: EnvelopeFields): Uint8Array {
-  const ordered: Record<string, string> = {
-    artifactVersion: fields.artifactVersion,
-    imageDigest: normaliseSha256Hex(fields.imageDigest),
-    indexHash: normaliseSha256Hex(fields.indexHash),
-    publishedAt: fields.publishedAt,
-    tenantId: fields.tenantId,
-  };
-  const json = JSON.stringify(ordered);
-  return new TextEncoder().encode(json);
 }
 
 // ------------------------------------------------------------
