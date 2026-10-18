@@ -7641,7 +7641,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'orgs.delete',
     summary: 'Delete an org (idempotent)',
     description:
-      "A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.",
+      "A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). When the org is the parent of an environment order, nothing is deleted either: `409 org-has-environment-order` names the order (a tenant admin clears it first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.",
     tags: ['orgs'],
     security: 'bearer',
     parameters: [
@@ -7658,7 +7658,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '204': { description: 'Deleted (or already absent). No body.' },
       ...CommonAuthErrors,
       '409': ErrorResponse(
-        "slug-conflict: the org's projects would leave it with slugs that projects without an org already have.",
+        "`slug-conflict`: the org's projects would leave it with slugs that projects without an org already have. Or `org-has-environment-order`: the org is the parent of an environment order, so it can't be deleted — a tenant admin clears the order first.",
       ),
     },
   },
@@ -8052,6 +8052,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Updated. No body.' },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up; or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
+      ),
       '404': ErrorResponse(
         'project-not-found: no project with that id under this tenant; or org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).',
       ),
@@ -8078,6 +8081,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Deleted (or already absent). No body.' },
       ...CommonAuthErrors,
+      '409': ErrorResponse(
+        "`project-in-environment-order`: the project is a member of an environment order, so it can't be deleted — clear it from the order first.",
+      ),
     },
   },
   {

@@ -2708,6 +2708,16 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['POST /v1/compliance/evidence/export'],
   },
+  'org-has-environment-order': {
+    description:
+      "An org can't be deleted while it's the parent of an environment order, because deleting it would orphan the order. A tenant admin clears the order first (PUT /v1/environment-orders/orgs/{orgId} with []), then deletes the org.",
+    details: [
+      {
+        key: 'orderId',
+        meaning: 'the environment order the org is the parent of',
+      },
+    ],
+  },
   'org-not-found': {
     description:
       "The org doesn't exist in the tenant: it never existed or was deleted. Also returned when creating or changing a project or team with an unknown `orgId`.",
@@ -2855,6 +2865,16 @@ export const ERROR_ENTRIES = {
       {
         key: 'projectId',
         meaning: 'the project already in another order',
+      },
+    ],
+  },
+  'project-in-environment-order': {
+    description:
+      "A project can't be deleted, or moved to another parent, while it's a member of an environment order. Clear it from the order first, then delete or move it.",
+    details: [
+      {
+        key: 'orderId',
+        meaning: 'the environment order the project belongs to',
       },
     ],
   },
