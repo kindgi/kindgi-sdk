@@ -18,7 +18,7 @@ import {
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
 import { resolvePackEnv } from '@kindgi/handler-runtime/pack-env';
-import type { ProjectBinding, Scope } from '@kindgi/platform';
+import type { ProjectBinding } from '@kindgi/platform';
 import { SchemaCompileBudgetError, compileInlineSchema } from '@kindgi/schema';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
 import type {
@@ -74,7 +74,12 @@ import {
   reservedToolMetadataMessage,
 } from '../reference-scope.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
-import { callerAdministers, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
+import {
+  callerAdministers,
+  deploymentSecretScope,
+  secretScopesFor,
+  toolSecretRefs,
+} from '../secret-scope.js';
 import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding.js';
 import { type ServedEnvRule, readReferencesOnce, refuseUnservedValue } from '../served-env.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
@@ -1477,31 +1482,6 @@ export function deploymentsRouter(
   });
 
   return r;
-}
-
-// ------------------------------------------------------------
-// Scope derivation for deployment secret sync
-// ------------------------------------------------------------
-
-/**
- * Where a deployment's secrets sync writes, from the deployment record's
- * `projectId` (absent for a deploy that named no project). The sync never
- * accepts a caller-supplied scope override on the wire (CRITICAL — scope
- * MUST be inferred server-side to prevent tenant/project confusion
- * attacks).
- *
- * A deploy into a named project syncs its secrets into that project; a
- * tenant-wide one (no `projectId`) syncs them tenant-wide, though its tools
- * land in the Default project. The deploy records this scope for a secret
- * its tools name that's set nowhere yet, so a call reads what the sync
- * stores (`secret-scope.ts`). A promotion records its target project
- * instead (`deployment-promotions.ts`): for a promotion into the Default
- * project, which stores no `projectId`, that's the Default project, while
- * this sync writes the tenant.
- */
-function deploymentSecretScope(tenantId: TenantId, projectId: ProjectId | undefined): Scope {
-  if (projectId !== undefined) return { kind: 'project', tenantId, projectId };
-  return { kind: 'tenant', tenantId };
 }
 
 type ParsedSyncEntry =

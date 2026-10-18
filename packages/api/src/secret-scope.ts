@@ -13,11 +13,10 @@
  * needs). The first that has it is recorded. If none has it yet (an item
  * registered before its secret is set), the broadest scope they administer
  * is: the tenant for a tenant admin, the project for a project admin. A
- * deployment's tools record the scope its own secrets sync writes instead
- * (its project, or the tenant for a deploy that names none), and a
- * promotion's the target project, when the caller administers it: a deploy
- * then reads what its sync stored, and a promotion what's set in the
- * target. A caller who administers none of them records none, and the
+ * deployment's tools, deployed or promoted, record the scope that
+ * deployment's secrets sync writes instead (`deploymentSecretScope`), when
+ * the caller administers it: a call then reads what the sync stores. A
+ * caller who administers none of them records none, and the
  * item reads no secret until an admin records it again: a tool by
  * publishing a new version, an MCP endpoint by unregistering it and
  * registering it again, a webhook trigger by naming its secret again (an
@@ -34,7 +33,14 @@ import { emitResolveEvent } from '@kindgi/compliance';
 import type { Logger } from '@kindgi/log';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
 import type { ToolManifest } from '@kindgi/tools';
-import type { EnvName, OrgId, RecordedSecretScope, Result, TenantId } from '@kindgi/types';
+import type {
+  EnvName,
+  OrgId,
+  ProjectId,
+  RecordedSecretScope,
+  Result,
+  TenantId,
+} from '@kindgi/types';
 import type { Context } from 'hono';
 
 import type { Authorizer } from './middleware/authorize.js';
@@ -80,6 +86,25 @@ export interface NamedSecretScopeInput {
    * otherwise the broadest administered scope is recorded, as without it.
    */
   readonly fallback?: Scope;
+}
+
+/**
+ * Where a deployment's secrets sync writes (`POST
+ * /v1/deployments/{deploymentId}/secrets`), from the deployment record's
+ * `projectId`. The sync never accepts a caller-supplied scope override on
+ * the wire (CRITICAL — scope MUST be inferred server-side to prevent
+ * tenant/project confusion attacks).
+ *
+ * A deployment stored in a named project syncs its secrets into that
+ * project. One stored with no `projectId` syncs them tenant-wide, though
+ * its tools are in the Default project: a deploy that named no project, or
+ * a promotion into the Default project. A deploy and a promotion record
+ * this scope for a secret their tools name that's set nowhere yet, so a
+ * call reads what the sync stores.
+ */
+export function deploymentSecretScope(tenantId: TenantId, projectId: ProjectId | undefined): Scope {
+  if (projectId !== undefined) return { kind: 'project', tenantId, projectId };
+  return { kind: 'tenant', tenantId };
 }
 
 /** The scope to record for one named secret; `null` when the caller administers none of the chain. */
