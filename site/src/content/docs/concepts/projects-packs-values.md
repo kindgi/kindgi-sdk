@@ -85,8 +85,9 @@ A run uses four kinds of values, each kept in its own place.
   deployment's `--sync-secrets` writes: the project it promotes into, or
   the tenant when that's the Default project. A tool registered any other
   way records the broadest of those scopes: the tenant for a tenant admin,
-  the project for a project admin. That version then reads the secret
-  there and nowhere else. A value set later at another scope isn't
+  the project for a project admin. So does a promotion into the Default
+  project by someone who doesn't administer the tenant. That version then
+  reads the secret there and nowhere else. A value set later at another scope isn't
   read until a new version of the tool is registered. An MCP endpoint's
   credentials and a webhook trigger's signing secret are also read only at
   a scope recorded for them: when the endpoint is registered, or when the
