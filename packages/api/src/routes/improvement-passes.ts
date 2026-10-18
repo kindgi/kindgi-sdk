@@ -50,39 +50,43 @@ export interface ImproveDeps {
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
   /**
    * The tenant's judge classes. The `classWeights` default counts everyone
-   * (`as-recorded`) until the project names an expert class (one with
-   * `assertableBy`), then it's `restricted-only`. Absent: the default stays
-   * `restricted-only`. Only `listClasses` is used.
+   * (`as-recorded`) until an expert class (one with `assertableBy`) is named
+   * in the tenant, the pass's project, or on the agent improved, then it's
+   * `restricted-only`. Absent: the default stays `restricted-only`. Only
+   * `listClasses` is used.
    */
   readonly judgeClasses?: Pick<JudgmentRegistryBinding, 'listClasses'>;
 }
 
 /**
  * The pass default for `classWeights` when the caller doesn't set one.
- * Until a project names an expert judge class (one with `assertableBy`),
- * Improve counts *everyone's* judgments (`as-recorded`); once the project
- * has one, the default is trusted judgments only (`restricted-only`). An
- * explicit `classWeights` always wins. With no judge-class binding wired,
- * the default stays `restricted-only` (the prior behavior).
+ * Until an expert judge class (one with `assertableBy`) is named — in the
+ * tenant, the pass's project, or on the agent being improved — Improve
+ * counts *everyone's* judgments (`as-recorded`); once one is, the default is
+ * trusted judgments only (`restricted-only`). An explicit `classWeights`
+ * always wins. With no judge-class binding wired, the default stays
+ * `restricted-only` (the prior behavior).
  */
 async function resolveClassWeights(
   deps: ImproveDeps,
   tenantId: TenantId,
   projectId: ProjectId | undefined,
+  agentId: string | undefined,
   explicit: EvalClassWeights | undefined,
 ): Promise<EvalClassWeights> {
   if (explicit !== undefined) return explicit;
   if (deps.judgeClasses === undefined) return 'restricted-only';
-  return (await projectHasExpertClass(deps.judgeClasses, tenantId, projectId))
+  return (await projectHasExpertClass(deps.judgeClasses, tenantId, projectId, agentId))
     ? 'restricted-only'
     : 'as-recorded';
 }
 
 /**
- * Whether the project (or its tenant) has named an expert judge class: one
- * restricted to named asserters (`assertableBy` set). Project scope and
- * tenant scope both count — a tenant-wide expert class names experts for
- * every project; agent scope and other projects' classes don't.
+ * Whether an expert judge class — one restricted to named asserters
+ * (`assertableBy` set) — applies to this pass: one in tenant scope, in the
+ * pass's project, or on the agent being improved (that agent, in that
+ * project). A tenant-wide expert class names experts for every project;
+ * another agent's class, or another project's, doesn't count.
  *
  * Exported so a caller that resolves the default outside the improve route
  * — a pass started from a schedule — decides it exactly the same way.
@@ -91,9 +95,13 @@ export async function projectHasExpertClass(
   registry: Pick<JudgmentRegistryBinding, 'listClasses'>,
   tenantId: TenantId,
   projectId: ProjectId | undefined,
+  agentId?: string,
 ): Promise<boolean> {
   const scopes: JudgeClassScope[] = [
     ...(projectId !== undefined ? [{ kind: 'project', projectId } as const] : []),
+    ...(projectId !== undefined && agentId !== undefined
+      ? [{ kind: 'agent', projectId, agentId } as const]
+      : []),
     { kind: 'tenant' } as const,
   ];
   for (const scope of scopes) {
@@ -203,7 +211,13 @@ export function mountImproveRoute(r: Hono<AppEnv>, deps: ImproveDeps, authorizer
       suiteId: parsed.suiteId,
       tiers: parsed.tiers,
       objective: parsed.objective,
-      classWeights: await resolveClassWeights(deps, tenantId, from.projectId, parsed.classWeights),
+      classWeights: await resolveClassWeights(
+        deps,
+        tenantId,
+        from.projectId,
+        parsed.agentId,
+        parsed.classWeights,
+      ),
       ...(parsed.model !== undefined && { model: parsed.model }),
       ...(parsed.candidates !== undefined && { candidates: parsed.candidates }),
       budget: parsed.budget,

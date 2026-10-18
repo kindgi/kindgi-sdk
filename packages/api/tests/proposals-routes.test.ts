@@ -1427,6 +1427,84 @@ describe('improvement passes', () => {
     expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
   });
 
+  test('a restricted class on the agent being improved switches to trusted', async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'agent', projectId, agentId: AGENT },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+  });
+
+  test("a restricted class on another agent doesn't count: still counts everyone", async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'agent', projectId, agentId: 'acme.other' },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
+  });
+
+  test("a restricted class in another project doesn't count: still counts everyone", async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'project', projectId: randomUUID() as ProjectId },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
+  });
+
+  test('finds an expert class past the first page of its scope', async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    // The expert class is the oldest, so it falls on the second page once 100
+    // newer open classes are listed ahead of it: the resolver must read on.
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'project', projectId },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    for (let i = 0; i < 100; i++) {
+      await judgments.createClass({
+        tenantId,
+        scope: { kind: 'project', projectId },
+        name: `open-${i}`,
+        weight: 1,
+      });
+    }
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+  });
+
   test('an unrestricted class is not an expert class: still counts everyone', async () => {
     const passes = inMemoryPasses();
     const judgments = inMemoryJudgments();

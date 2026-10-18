@@ -145,14 +145,15 @@ The cost is 0 on `dev-echo`, which costs nothing:
 
 ### Whose judgments it learns from
 
-Until your project — or its tenant — names an expert judge class (a
-[restricted judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class)),
-a pass counts everyone's judgments, each by its class's weight
-(`classWeights: "as-recorded"`): with no experts named, counting only
-them would count nothing. Name a restricted class and the default flips
-to those trusted classes only (`classWeights: "restricted-only"`), so
-who may steer a pass is a choice you make. Set `classWeights` in the API
-or the clients to pin either, whatever classes exist.
+By default, once your project, its tenant, or the agent you're improving
+has a [restricted judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class),
+a pass counts only the judgments recorded under one
+(`classWeights: "restricted-only"`), so who may steer a pass is a choice
+you make. Until then it counts every judgment, each by its class's
+weight (`classWeights: "as-recorded"`), since counting only restricted
+classes would count nothing. A class restricted for a different agent,
+or in another project, doesn't count here. Set `classWeights` in the API
+or the clients to choose either, whatever classes exist.
 
 ## Draft a prompt instead
 
