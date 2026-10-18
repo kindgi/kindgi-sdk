@@ -35,12 +35,12 @@ import { deployApiAddress, hostedApiAddress } from '../api-address.js';
 import { HOSTED_BUILD } from '../build/hosted.js';
 import type { CommandContext } from '../context.js';
 import { isEnvelopeSigned } from '../deploy/envelope-loader.js';
+import { packServiceProblemText, packServiceRetiredText } from '../deploy/pack-service-text.js';
 import {
   buildPostBody,
   deriveIdempotencyKey,
   deriveSyncSecretsIdempotencyKey,
 } from '../deploy/post.js';
-import { packServiceProblemText, packServiceRetiredText } from '../deploy/pack-service-text.js';
 import { renderResponse } from '../deploy/response.js';
 import type {
   DeployRunners,

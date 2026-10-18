@@ -76,7 +76,9 @@ function packServiceCell(endpoint: Endpoint | undefined): string {
       : 'ready';
   }
   const state =
-    endpoint.status === 'cleared' && endpoint.waiting === true ? 'cleared, waiting' : endpoint.status;
+    endpoint.status === 'cleared' && endpoint.waiting === true
+      ? 'cleared, waiting'
+      : endpoint.status;
   const why = endpoint.problem?.code ?? endpoint.retired;
   return why !== undefined ? `${state}: ${why}` : state;
 }
