@@ -555,9 +555,10 @@ describe('kindgi deployments list', () => {
     expect(out.stderr).toBe('Next page: --cursor=c2\n');
   });
 
-  describe('--project', () => {
+  describe('--project and --pack', () => {
     const DEFAULT_ID = '0b9a6f1e-5c2d-4e8a-9f3b-1a2b3c4d5e6f';
     const STAGING_ID = '7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f';
+    const PACK_ID = 'com.acme.shop';
     const PROJECTS = {
       data: [
         { id: DEFAULT_ID, slug: 'default', name: 'Default', orgId: 'org-acme' },
@@ -567,43 +568,58 @@ describe('kindgi deployments list', () => {
       ],
       hasMore: false,
     };
-    const EMPTY = { data: [], hasMore: false };
 
-    test('an id is the projectId filter as it is, beside the others; the projects are not read', async () => {
+    /** A runtime with the filters: the page says which it applied, an empty one too. */
+    const filtered =
+      (data: readonly unknown[] = []): Answer =>
+      async (filter) => {
+        const { projectId, packId } = filter as { projectId?: string; packId?: string };
+        return {
+          data,
+          hasMore: false,
+          ...(projectId !== undefined && { projectId }),
+          ...(packId !== undefined && { packId }),
+        };
+      };
+    /** A runtime before them: every deployment, and nothing on the page about a filter. */
+    const unfiltered: Answer = async () => ({ data: [DEPLOYMENT], hasMore: false });
+
+    test('a project id is the projectId filter as it is, beside the others; the projects are not read', async () => {
       const { out, asked } = await run(
         ['deployments', 'list', `--project=${STAGING_ID}`, '--signer-key-id=key-acme', '--limit=5'],
-        { list: async () => EMPTY },
+        { list: filtered() },
       );
       expect(out.exitCode).toBe(0);
       expect(asked.list).toEqual([{ limit: 5, signerKeyId: 'key-acme', projectId: STAGING_ID }]);
       expect(asked.projects).toEqual([]);
+      expect(JSON.parse(out.stdout)).toEqual({ data: [], hasMore: false, projectId: STAGING_ID });
     });
 
-    test('a slug: the id of the project that has it', async () => {
+    test("a slug: the id of the project that has it; the rows as the API answers them, another project's too", async () => {
+      // The runtime filters: a row it answers is printed, whichever project it names.
+      const data = [{ ...DEPLOYMENT, projectId: DEFAULT_ID }];
       const { out, asked } = await run(['deployments', 'list', '--project=staging'], {
-        list: async () => EMPTY,
+        list: filtered(data),
         projects: async () => PROJECTS,
       });
       expect(out.exitCode).toBe(0);
       expect(asked.list).toEqual([{ projectId: STAGING_ID }]);
+      expect(JSON.parse(out.stdout)).toEqual({ data, hasMore: false, projectId: STAGING_ID });
     });
 
     test("the Default project's id: its deployments and those that name no project, as the API answers them", async () => {
-      const page = {
-        data: [
-          { ...DEPLOYMENT, deploymentId: 'dep-acme-d', projectId: DEFAULT_ID },
-          (({ projectId: _p, ...rest }) => ({ ...rest, deploymentId: 'dep-acme-n' }))(DEPLOYMENT),
-        ],
-        hasMore: false,
-      };
+      const data = [
+        { ...DEPLOYMENT, deploymentId: 'dep-acme-d', projectId: DEFAULT_ID },
+        (({ projectId: _p, ...rest }) => ({ ...rest, deploymentId: 'dep-acme-n' }))(DEPLOYMENT),
+      ];
       const json = await run(['deployments', 'list', `--project=${DEFAULT_ID}`], {
-        list: async () => page,
+        list: filtered(data),
       });
       expect(json.asked.list).toEqual([{ projectId: DEFAULT_ID }]);
-      expect(JSON.parse(json.out.stdout)).toEqual(page);
+      expect(JSON.parse(json.out.stdout)).toEqual({ data, hasMore: false, projectId: DEFAULT_ID });
 
       const { out } = await run(['deployments', 'list', '--project=default', '--table'], {
-        list: async () => page,
+        list: filtered(data),
         projects: async () => PROJECTS,
       });
       expect(out.exitCode).toBe(0);
@@ -613,6 +629,29 @@ describe('kindgi deployments list', () => {
         new RegExp(`^dep-acme-d +1\\.4\\.0 +${DEFAULT_ID} +2026-10-18T09:12:00\\.000Z +ready$`),
       );
       expect(row('dep-acme-n')).toMatch(/^dep-acme-n +1\.4\.0 +2026-10-18T09:12:00\.000Z +ready$/);
+    });
+
+    test("a pack id is the packId filter as it is; the page's own pack id with it", async () => {
+      const { out, asked } = await run(['deployments', 'list', `--pack=${PACK_ID}`], {
+        list: filtered([DEPLOYMENT]),
+      });
+      expect(out.exitCode).toBe(0);
+      expect(asked.list).toEqual([{ packId: PACK_ID }]);
+      expect(asked.projects).toEqual([]);
+      expect(JSON.parse(out.stdout)).toEqual({
+        data: [DEPLOYMENT],
+        hasMore: false,
+        packId: PACK_ID,
+      });
+    });
+
+    test('both: the two filters in one list', async () => {
+      const { out, asked } = await run(
+        ['deployments', 'list', '--project=staging', `--pack=${PACK_ID}`],
+        { list: filtered(), projects: async () => PROJECTS },
+      );
+      expect(out.exitCode).toBe(0);
+      expect(asked.list).toEqual([{ projectId: STAGING_ID, packId: PACK_ID }]);
     });
 
     test('a slug no project has, or one two orgs share: a usage error, exit 2, and no list', async () => {
@@ -629,6 +668,23 @@ describe('kindgi deployments list', () => {
       expect(two.out.exitCode).toBe(2);
       expect(two.out.stderr).toContain('"shop" is the slug of 2 projects, in different orgs');
       expect(two.asked.list).toEqual([]);
+    });
+
+    test('a runtime that lists them all, its page naming no filter: the release it needs, exit 1, nothing printed', async () => {
+      for (const [flag, argv] of [
+        ['project', [`--project=${STAGING_ID}`]],
+        ['pack', [`--pack=${PACK_ID}`]],
+        ['pack', [`--project=${STAGING_ID}`, `--pack=${PACK_ID}`, '--table']],
+      ] as const) {
+        const answer: Answer =
+          argv.length === 1
+            ? unfiltered
+            : async () => ({ data: [DEPLOYMENT], hasMore: false, projectId: STAGING_ID });
+        const { out } = await run(['deployments', 'list', ...argv], { list: answer });
+        expect(out.exitCode).toBe(1);
+        expect(out.stdout).toBe('');
+        expect(out.stderr).toBe(`Error: --${flag} needs a runtime on Kindgi 0.1.8.1 or later.\n`);
+      }
     });
   });
 });

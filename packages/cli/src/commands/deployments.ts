@@ -23,6 +23,7 @@ import { renderJson } from '../output.js';
 import { resolveProjectRef } from '../project-ref.js';
 import {
   type TableSpec,
+  filterIgnored,
   integerFlag,
   requiredPositional,
   runSdk,
@@ -90,12 +91,17 @@ const list: LeafCommand = {
   description:
     "List the deployments, the latest activated first. `--table` shows each one's pack service: ready (or held on the values it was last given, with the code), pending or cleared.",
   usage:
-    'kindgi deployments list [--project=<id-or-slug>] [--image-ref-prefix=<ref>] [--signer-key-id=<id>] [--limit=<n>] [--cursor=<c>]',
+    'kindgi deployments list [--project=<id-or-slug>] [--pack=<pack-id>] [--image-ref-prefix=<ref>] [--signer-key-id=<id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     project: {
       type: 'string',
       description:
-        "Only one project's deployments, by its id or its slug. The Default project's include the deployments that name no project. A slug two orgs share is refused: pass the id.",
+        "Only one project's deployments, by its id or its slug. The Default project's include the deployments that name no project. A slug two orgs share is refused: pass the id. Needs a runtime on Kindgi 0.1.8.1 or later.",
+    },
+    pack: {
+      type: 'string',
+      description:
+        "Only one pack's deployments, by its pack id (the image index's `packId`). Needs a runtime on Kindgi 0.1.8.1 or later.",
     },
     'image-ref-prefix': {
       type: 'string',
@@ -112,14 +118,24 @@ const list: LeafCommand = {
         const projectRef = stringFlag(ctx, 'project');
         const projectId =
           projectRef !== undefined ? await resolveProjectRef(ctx, projectRef) : undefined;
+        const packId = stringFlag(ctx, 'pack');
         const imageRefPrefix = stringFlag(ctx, 'image-ref-prefix');
         const signerKeyId = stringFlag(ctx, 'signer-key-id');
-        return await ctx.client().deployments.list({
+        const listed = await ctx.client().deployments.list({
           ...page(ctx),
           ...(projectId !== undefined && { projectId }),
+          ...(packId !== undefined && { packId }),
           ...(imageRefPrefix !== undefined && { imageRefPrefix }),
           ...(signerKeyId !== undefined && { signerKeyId }),
         });
+        // A runtime before these filters ignores them and lists them all, without saying so on the page.
+        if (projectId !== undefined && listed.projectId !== projectId) {
+          throw filterIgnored('project', '0.1.8.1');
+        }
+        if (packId !== undefined && listed.packId !== packId) {
+          throw filterIgnored('pack', '0.1.8.1');
+        }
+        return listed;
       },
       DEPLOYMENTS_TABLE,
     ),

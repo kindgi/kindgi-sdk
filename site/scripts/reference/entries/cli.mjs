@@ -86,6 +86,7 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     'image-ref-prefix': 'none',
     limit: '`25` (at most `100`)',
+    pack: 'none: every pack',
     project: 'none: every project',
     'signer-key-id': 'none',
   },
