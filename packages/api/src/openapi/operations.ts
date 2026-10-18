@@ -7159,7 +7159,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.list',
     summary: 'List signed deployments',
     description:
-      'Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.',
+      "Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Only the deployments in projects the caller reads are listed (a deployment naming no project is the Default project's), so a page can hold fewer than `limit` with `hasMore` true: page by `nextCursor`, not by count. Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [
@@ -7184,7 +7184,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         in: 'query',
         required: false,
         description:
-          "Filter to one environment's deployments. The tenant's Default project also finds those that name no project.",
+          "Filter to one environment's deployments. The tenant's Default project also finds those that name no project. Needs `read` on that project.",
         schema: { type: 'string' },
       },
       {
@@ -7201,6 +7201,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('DeploymentCollectionPage'),
       },
       ...CommonAuthErrors,
+      '403': ErrorResponse(
+        "No `read` on the tenant, or a `projectId` naming a project the caller doesn't read, or one that isn't there (the tenant admin too, so it tells no one what exists).",
+      ),
       '500': ErrorResponse('List failed inside the caller-plugged binding.'),
     },
   },
@@ -7224,7 +7227,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Deployment record.', schema: ref('DeploymentRecord') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No deployment with that id under this tenant.'),
+      '404': ErrorResponse(
+        "No deployment with that id under this tenant, or one in a project the caller doesn't read (`deployment-not-found`).",
+      ),
     },
   },
   {
@@ -7250,7 +7255,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Where each declared name is set.', schema: ref('PackEnvNames') },
       ...CommonAuthErrors,
       '404': ErrorResponse(
-        'No deployment with that id under this tenant (`deployment-not-found`).',
+        "No deployment with that id under this tenant, or one in a project the caller doesn't read (`deployment-not-found`).",
       ),
       '501': ErrorResponse(
         "The server's pack services take their env from how they're run, not from the env store (`pack-env-not-served`).",
@@ -7285,8 +7290,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       ...SecretWriteErrors,
-      '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
-      '404': ErrorResponse('No deployment with that id, or referenced secret does not exist.'),
+      '403': ErrorResponse(
+        "Bearer token missing `secrets:write` capability, or no `admin` on the scope it writes: the deployment's project, else the tenant.",
+      ),
+      '404': ErrorResponse(
+        "No deployment with that id, or one in a project the caller doesn't read, or referenced secret does not exist.",
+      ),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
     },
   },
@@ -7297,7 +7306,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.values.list',
     summary: 'List the values a deployment needs in a project',
     description:
-      "Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), and `read` on the tenant, as every deployments route does.",
+      "Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), `read` on the project the deployment serves, and `read` on the tenant, as every deployments route does.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [
@@ -7328,7 +7337,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '403': ErrorResponse('No `admin` on the project, or no `read` on the tenant.'),
       '404': ErrorResponse(
-        'No deployment with that id under this tenant (`deployment-not-found`), or `projectId` names no project of this tenant (`project-not-found`).',
+        "No deployment with that id under this tenant, or one in a project the caller doesn't read (`deployment-not-found`), or `projectId` names no project of this tenant (`project-not-found`).",
       ),
     },
   },
