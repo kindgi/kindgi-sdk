@@ -27,13 +27,16 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
 
 - **Docker**, `openssl`, `uuidgen` and `curl`, and for a TypeScript pack
   **Node 22.12** or later and **pnpm**.
-- **Kindgi 0.1's CLI.**
+- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.1` ([Install](../../start/install/)). Inside a pack
+  project, `pnpm exec kindgi` runs the project's pinned CLI instead. The build
+  and deploy steps need the pack's folder, so they use `pnpm exec kindgi`.
 - **Ollama**, with `llama3.1` pulled, for the flow in step 8.
 - **A pack.** This page uses the sample. `--template=sample` picks it, and
   `acme-pack` is its folder and its pack id:
 
   ```sh
-  npx @kindgi/cli init acme-pack --template=sample
+  npx --yes @kindgi/cli@0.1 init acme-pack --template=sample
   cd acme-pack
   pnpm install
   ```
@@ -107,9 +110,9 @@ If your app's code needs a generate step in the image (Prisma's client, for
 example), set that up first:
 [What the pack's image needs](../../start/existing-app-typescript/#what-the-packs-image-needs).
 
-In a Python pack, run each `pnpm exec kindgi` on this page as
-`uv run kindgi`, and lock its dependencies first (`uv lock`, or
-`poetry lock`): the image installs them from the lockfile.
+In a Python pack, run each `kindgi` command on this page, `pnpm exec kindgi` and
+`npx --yes @kindgi/cli@0.1` alike, as `uv run kindgi`. Lock its dependencies
+first (`uv lock`, or `poetry lock`): the image installs them from the lockfile.
 
 Pick a tenant id. The runtime serves this tenant, and the pack's signature names it:
 
@@ -123,7 +126,7 @@ Create a signing key. `acme-selfhost` is the key's id, and `--env selfhost`
 also prints the lines to add to the `selfhost` environment:
 
 ```sh
-pnpm exec kindgi key create acme-selfhost --env selfhost
+npx --yes @kindgi/cli@0.1 key create acme-selfhost --env selfhost
 ```
 
 It prints the key's JSON, then the paths of its private and public key files
@@ -393,11 +396,12 @@ explains.
 ## 7. Trust your key and deploy
 
 The runtime deploys only images signed by a key its tenant trusts. Trust
-yours. `--url` is the runtime, and `--token` the API token:
+yours, with the API token exported as `KINDGI_API_TOKEN`. `--url` is the
+runtime:
 
 ```sh
 export KINDGI_API_TOKEN=<the token from kindgi.env>
-pnpm exec kindgi key trust acme-selfhost --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
+npx --yes @kindgi/cli@0.1 key trust acme-selfhost --url http://localhost:4000
 ```
 
 It prints the trusted key as JSON, then confirms it:
@@ -411,11 +415,10 @@ It prints the trusted key as JSON, then confirms it:
 The fingerprint is the one `kindgi key create` printed. The runtime now
 accepts deploys this key signs.
 
-Then deploy. `--env selfhost` picks the environment, and `--token` sends
-the API token:
+Then deploy. `--env selfhost` picks the environment:
 
 ```sh
-pnpm exec kindgi deploy --env selfhost --token "$KINDGI_API_TOKEN"
+pnpm exec kindgi deploy --env selfhost
 ```
 
 ```text
@@ -450,8 +453,8 @@ Register it, then start the sample's flow. `--spec=@ollama.json` reads the
 provider from the file, `--flow` is the flow, and `--input` its input:
 
 ```sh
-pnpm exec kindgi providers register --spec=@ollama.json --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
-pnpm exec kindgi runs start --flow=acme-pack.echo-flow --input='{"name":"Ada"}' --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
+npx --yes @kindgi/cli@0.1 providers register --spec=@ollama.json --url http://localhost:4000
+npx --yes @kindgi/cli@0.1 runs start --flow=acme-pack.echo-flow --input='{"name":"Ada"}' --url http://localhost:4000
 ```
 
 `register` prints the provider's id, as JSON. The run ends:

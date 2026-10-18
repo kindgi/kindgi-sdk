@@ -21,9 +21,12 @@ runtime makes the seed user a tenant admin at every start.
 - **Authorization is on** for your runtime
   ([Run with authorization](../authorization/)).
 - **You're a tenant admin,** such as the seed user.
-- **The `kindgi` CLI reaches your runtime as you:** `KINDGI_API_URL` is the
-  runtime's address, and `KINDGI_API_TOKEN` is your API key. The `curl`
-  examples read the same two variables.
+- **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
+  exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`. The
+  `curl` examples read the same two variables.
+- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.1` ([Install](../../start/install/)). Inside a pack
+  project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## Who can do what
 
@@ -58,7 +61,7 @@ Adding a person gives them a place in the tenant, so they can sign in and
 get keys:
 
 ```sh
-pnpm exec kindgi people add --name="Sam Rivera" --email=sam@acme.example
+npx --yes @kindgi/cli@0.1 people add --name="Sam Rivera" --email=sam@acme.example
 ```
 
 - `--name` is their name, as people see it.
@@ -117,8 +120,8 @@ A tenant admin can do everything in the tenant. `grant` makes someone one,
 and `ungrant` takes it away:
 
 ```sh
-pnpm exec kindgi people grant <user-id> --tenant-admin
-pnpm exec kindgi people ungrant <user-id> --tenant-admin
+npx --yes @kindgi/cli@0.1 people grant <user-id> --tenant-admin
+npx --yes @kindgi/cli@0.1 people ungrant <user-id> --tenant-admin
 ```
 
 `<user-id>` is the person's id, as `kindgi people add` printed it. The grant
@@ -173,8 +176,8 @@ first admin stops being a tenant admin or is removed, and as a tenant
 admin, whoever holds it can make new keys with its capabilities:
 
 ```sh
-pnpm exec kindgi service-accounts create acme-deploy --description="Deploys" --tenant-admin
-pnpm exec kindgi tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=deploy --expires=90d
+npx --yes @kindgi/cli@0.1 service-accounts create acme-deploy --description="Deploys" --tenant-admin
+npx --yes @kindgi/cli@0.1 tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=deploy --expires=90d
 ```
 
 ## What you may do
@@ -228,7 +231,7 @@ On a runtime without an authorization store, it answers
 Everyone can make their own keys, for the API, the CLI and the SDKs:
 
 ```sh
-pnpm exec kindgi tokens create --label=laptop --expires=30d
+npx --yes @kindgi/cli@0.1 tokens create --label=laptop --expires=30d
 ```
 
 - `--label` is a name for the key, to tell your keys apart.
@@ -270,7 +273,7 @@ Make longer-lived keys with one of those, such as the 90-day key in
 A tenant admin made Sam's first key:
 
 ```sh
-pnpm exec kindgi tokens create --for=user:<user-id> --label=laptop --expires=30d
+npx --yes @kindgi/cli@0.1 tokens create --for=user:<user-id> --label=laptop --expires=30d
 ```
 
 ```text
@@ -294,7 +297,7 @@ pnpm exec kindgi tokens create --for=user:<user-id> --label=laptop --expires=30d
 ```
 
 ```sh
-pnpm exec kindgi tokens list --table
+npx --yes @kindgi/cli@0.1 tokens list --table
 ```
 
 ```text
@@ -314,7 +317,7 @@ A service account is for a pipeline or an app. It has no sign-in, only
 keys, and only the grants you give it:
 
 ```sh
-pnpm exec kindgi service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:editor
+npx --yes @kindgi/cli@0.1 service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:editor
 ```
 
 - `acme-ci` is the account's name.
@@ -342,7 +345,7 @@ pnpm exec kindgi service-accounts create acme-ci --description="Deploys from CI"
 Then make it a key:
 
 ```sh
-pnpm exec kindgi tokens create --for=sa:<service-account-id> --label=ci --expires=90d
+npx --yes @kindgi/cli@0.1 tokens create --for=sa:<service-account-id> --label=ci --expires=90d
 ```
 
 `<service-account-id>` is the `serviceAccountId` that `create` printed.
@@ -373,7 +376,7 @@ A person's record and sessions are for a tenant admin, or that person.
 Removing a person ends all their access at once:
 
 ```sh
-pnpm exec kindgi people remove <user-id>
+npx --yes @kindgi/cli@0.1 people remove <user-id>
 ```
 
 ```text
