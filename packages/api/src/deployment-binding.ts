@@ -5,6 +5,7 @@ import type { PinChange } from '@kindgi/agents';
 import type {
   Cursor,
   ProjectId,
+  RecordedSecretScope,
   SigningKeyId,
   TenantId,
   VersionDerivationReason,
@@ -77,9 +78,60 @@ export interface DeploymentBinding {
    * compose as AND.
    */
   list(input: DeploymentListInput): Promise<DeploymentPage>;
+  /**
+   * Promote a deployment into the next environment of its order, in one
+   * transaction: a deployment in the target project with the source's
+   * signed fields, contents, pack and pack checks (as `register` writes
+   * one, with its routes and pending endpoint) and
+   * `promotedFromDeploymentId`; the versions carried with it; and where
+   * each tool's secrets are read in the target. Registries aren't touched,
+   * and nothing is built: the image is the one the source runs.
+   *
+   * The route checks everything first (the order, the source served, the
+   * signer, the values at the target): the binding receives a promotion
+   * it may write.
+   *
+   * Idempotent per `imageDigest` in the target, as `register` is: when the
+   * target has that digest already, the binding returns
+   * `{ kind: 'already-registered', deployment }` with that row, and adds
+   * the carried versions it doesn't record yet.
+   *
+   * Absent: the runtime can't promote (`501 promotions-unsupported`).
+   */
+  promote?(input: DeploymentPromoteInput): Promise<DeploymentPromoteOutcome>;
 }
 
 // -------------------- record --------------------
+
+/** A deployment as the routes answer it: named fields only. */
+export function serializeDeployment(d: Deployment): Record<string, unknown> {
+  return {
+    deploymentId: d.deploymentId,
+    tenantId: d.tenantId as unknown as string,
+    imageRef: d.imageRef,
+    imageDigest: d.imageDigest,
+    artifactVersion: d.artifactVersion,
+    indexHash: d.indexHash,
+    signerKeyId: d.signerKeyId as unknown as string,
+    signerPublicKey: d.signerPublicKey,
+    signature: d.signature,
+    publishedAt: d.publishedAt,
+    activatedAt: d.activatedAt,
+    ...(d.projectId !== undefined && { projectId: d.projectId as unknown as string }),
+    ...(d.promotedFromDeploymentId !== undefined && {
+      promotedFromDeploymentId: d.promotedFromDeploymentId,
+    }),
+    ...(d.packId !== undefined && { packId: d.packId }),
+    ...(d.endpoint !== undefined && { endpoint: endpointToWire(d.endpoint) }),
+    primitives: {
+      tools: d.primitives.tools,
+      guardrails: d.primitives.guardrails,
+      agents: d.primitives.agents,
+      flows: d.primitives.flows,
+    },
+    contents: d.contents,
+  };
+}
 
 /**
  * Wire shape for a deployment record. Immutable once written — every
@@ -253,6 +305,8 @@ export interface Deployment {
    * Absent for a deployment registered directly.
    */
   readonly promotedFromDeploymentId?: string;
+  /** The pack's id, from the image's index (`packId`), when the binding keeps it. */
+  readonly packId?: string;
   /**
    * Its pack service's status, when the server routes pack calls per
    * deployment. Absent otherwise (one pack service for every deployment),
@@ -420,9 +474,75 @@ export interface DeploymentListInput {
    * "which deploys did the compromised key sign?"
    */
   readonly signerKeyId?: SigningKeyId;
+  /**
+   * Only the deployments in this project. The tenant's Default project
+   * also finds the deployments that name no project (they serve there).
+   */
+  readonly projectId?: ProjectId;
+  /** Only the deployments of this pack (`packId`). */
+  readonly packId?: string;
 }
 
 export interface DeploymentPage {
   readonly data: readonly Deployment[];
   readonly nextCursor?: Cursor;
 }
+
+// -------------------- promote --------------------
+
+/**
+ * A version that moves with a deployment to the next environment: an edit
+ * of a version it ships (`carriedVersions`). No deployment lists it, so
+ * the promotion records it with the deployment it moved with.
+ */
+export interface CarriedVersion {
+  readonly kind: 'agent' | 'flow';
+  readonly id: string;
+  readonly version: string;
+}
+
+/** Where each secret a tool version names is read in the project a promotion targets. */
+export interface PromotedToolSecretScopes {
+  readonly toolId: string;
+  readonly version: string;
+  /** By secret name, as a deploy records them (`secret-scope.ts`); `null`: no scope found. */
+  readonly secretScopes: Readonly<Record<string, RecordedSecretScope | null>>;
+}
+
+export interface DeploymentPromoteInput {
+  readonly tenantId: TenantId;
+  /** The deployment promoted. */
+  readonly sourceDeploymentId: string;
+  /**
+   * The project it's promoted into; absent for the tenant's Default
+   * project, stored with no project as a deploy naming none is.
+   */
+  readonly projectId?: ProjectId;
+  /** The versions carried with it, recorded with the target's deployment. */
+  readonly carried: readonly CarriedVersion[];
+  /** Each tool version it ships, with where its secrets are read in the target. */
+  readonly toolSecretScopes: readonly PromotedToolSecretScopes[];
+}
+
+export type DeploymentPromoteOutcome =
+  | {
+      /** A new deployment in the target. `carried`: the versions recorded with it. */
+      readonly kind: 'ok';
+      readonly deployment: Deployment;
+      readonly carried: readonly CarriedVersion[];
+    }
+  | {
+      /**
+       * The target has this digest already: that row, unchanged.
+       * `carried`: the versions it didn't record yet, now recorded.
+       */
+      readonly kind: 'already-registered';
+      readonly deployment: Deployment;
+      readonly carried: readonly CarriedVersion[];
+    }
+  | {
+      /** Any other write failure — persistence error, invalid input. */
+      readonly kind: 'error';
+      readonly code: string;
+      readonly message: string;
+    };

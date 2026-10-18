@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { type Context, Hono } from 'hono';
 
 import { type Agent, type AgentId, type AgentPins, templateProblem } from '@kindgi/agents';
+import type { AuditEventBinding } from '@kindgi/audit-events';
 import { ref, tuplesForCreate } from '@kindgi/authz';
 import { runOutsideTenant } from '@kindgi/bounds';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
@@ -44,8 +45,9 @@ import {
   type DeploymentBinding,
   type DeploymentPrimitiveCounts,
   type DeploymentRegisterOutcome,
-  endpointToWire,
+  serializeDeployment,
 } from '../deployment-binding.js';
+import type { DeploymentValuesDeps } from '../deployment-values.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
@@ -242,6 +244,15 @@ export interface DeploymentsRouterBindings {
    */
   readonly onToolWrite?: ToolWriteHook;
   readonly onGuardrailWrite?: GuardrailWriteHook;
+  /**
+   * What the values check reads besides the bindings above
+   * (`deployment-values.ts`, `valuesDepsFor`): env values, the model
+   * providers, where a provider's key is, and the pack service's own env.
+   * Each one absent isn't checked.
+   */
+  readonly values?: Pick<DeploymentValuesDeps, 'env' | 'providers' | 'modelKeyLookup' | 'packEnv'>;
+  /** Where a promotion is recorded (`deployment-promoted`). Absent: it isn't. */
+  readonly auditEvents?: AuditEventBinding;
 }
 
 export function deploymentsRouter(
@@ -2341,31 +2352,6 @@ async function rollback(actions: readonly RollbackAction[]): Promise<void> {
       // record a rollback-failure event so operators can reconcile.
     }
   }
-}
-
-function serializeDeployment(d: Deployment): Record<string, unknown> {
-  return {
-    deploymentId: d.deploymentId,
-    tenantId: d.tenantId as unknown as string,
-    imageRef: d.imageRef,
-    imageDigest: d.imageDigest,
-    artifactVersion: d.artifactVersion,
-    indexHash: d.indexHash,
-    signerKeyId: d.signerKeyId as unknown as string,
-    signerPublicKey: d.signerPublicKey,
-    signature: d.signature,
-    publishedAt: d.publishedAt,
-    activatedAt: d.activatedAt,
-    ...(d.projectId !== undefined && { projectId: d.projectId as unknown as string }),
-    ...(d.endpoint !== undefined && { endpoint: endpointToWire(d.endpoint) }),
-    primitives: {
-      tools: d.primitives.tools,
-      guardrails: d.primitives.guardrails,
-      agents: d.primitives.agents,
-      flows: d.primitives.flows,
-    },
-    contents: d.contents,
-  };
 }
 
 /** Tell the catalog caches about what a new deployment registered (advisory). */

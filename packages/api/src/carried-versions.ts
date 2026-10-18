@@ -20,16 +20,11 @@
 import type { AgentId, FlowId, ProjectId, TenantId, VersionDerivation } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from './agent-binding.js';
-import type { DeploymentContents } from './deployment-binding.js';
+import type { CarriedVersion, DeploymentContents } from './deployment-binding.js';
 import type { FlowRegistryBinding } from './flow-binding.js';
 import type { ReferenceScopeBinding } from './reference-scope.js';
 
-/** A version that moves with a deployment: an edit of a version it ships. */
-export interface CarriedVersion {
-  readonly kind: 'agent' | 'flow';
-  readonly id: string;
-  readonly version: string;
-}
+export type { CarriedVersion };
 
 /** An edit of an agent or flow a deployment ships, made from a version it doesn't ship. */
 export interface LeftBehindVersion extends CarriedVersion {

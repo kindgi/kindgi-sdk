@@ -520,6 +520,11 @@ export type {
   LeftBehindVersion,
 } from './carried-versions.js';
 export {
+  carriedFor,
+  servingProjectOf,
+  valuesDepsFor,
+} from './routes/deployment-promotions.js';
+export {
   isCredentialHeaderName,
   MCP_AUTH_HEADERS_MAX,
   MCP_AUTH_SCHEMES,
@@ -978,8 +983,11 @@ export type {
   DeploymentEndpointProblemCode,
   DeploymentEndpointStatus,
   DeploymentPrimitiveCounts,
+  DeploymentPromoteInput,
+  DeploymentPromoteOutcome,
   DeploymentRegisterInput,
   DeploymentRegisterOutcome,
+  PromotedToolSecretScopes,
   SystemDeploymentRetireReason,
 } from './deployment-binding.js';
 export type {

@@ -10238,9 +10238,63 @@ export const DeploymentRecordSchema: JsonSchema = {
       description:
         "The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's Default project).",
     },
+    promotedFromDeploymentId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        'When this deployment was made by promoting another into the next environment of its order: the deployment it was promoted from. Absent for one deployed directly.',
+    },
+    packId: {
+      type: 'string',
+      description:
+        "The pack's id, from the image's index. Absent from a runtime that doesn't keep it.",
+    },
     endpoint: { $ref: '#/components/schemas/DeploymentEndpoint' },
     primitives: { $ref: '#/components/schemas/DeploymentPrimitiveCounts' },
     contents: { $ref: '#/components/schemas/DeploymentContents' },
+  },
+};
+
+/** What needs a deployment's value: a tool version, an agent version, a model provider, or the pack's service. */
+export const DeploymentValueNeededBySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['type', 'id'],
+  properties: {
+    type: { type: 'string', enum: ['tool', 'agent', 'provider', 'pack'] },
+    id: { type: 'string' },
+    version: { type: 'string' },
+  },
+};
+
+/**
+ * One value a deployment needs set in a project before it serves there:
+ * a tool's secret or env value, a model provider's key, or the pack
+ * service's own env. Never the value itself: whether it's set, and where.
+ */
+export const DeploymentValueSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'kind', 'neededBy'],
+  properties: {
+    name: {
+      type: 'string',
+      description: "The secret's or env value's name; for a model key, the key's secret name.",
+    },
+    kind: { type: 'string', enum: ['secret', 'env', 'model-key', 'pack-env'] },
+    neededBy: { $ref: '#/components/schemas/DeploymentValueNeededBy' },
+    foundAt: {
+      type: 'string',
+      enum: ['project', 'org', 'tenant'],
+      description:
+        'Where a run finds it, when it is set: the project, else its org, else the tenant.',
+    },
+    problem: {
+      type: 'string',
+      enum: ['missing', 'secret-not-yet', 'ambiguous', 'revoked'],
+      description:
+        "Why it isn't ready; absent when it is. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set both as a secret and as a plain value. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one).",
+    },
   },
 };
 
@@ -13617,6 +13671,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeploymentEndpointProblem', DeploymentEndpointProblemSchema],
   ['DeploymentEndpoint', DeploymentEndpointSchema],
   ['DeploymentRecord', DeploymentRecordSchema],
+  ['DeploymentValueNeededBy', DeploymentValueNeededBySchema],
+  ['DeploymentValue', DeploymentValueSchema],
   ['DeploymentRegistrationBody', DeploymentRegistrationBodySchema],
   ['DeploymentCollectionPage', DeploymentCollectionPageSchema],
   ['DeploymentValidationDetails', DeploymentValidationDetailsSchema],

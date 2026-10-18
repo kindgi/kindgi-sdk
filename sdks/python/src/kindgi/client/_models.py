@@ -8368,6 +8368,37 @@ class DeploymentEndpoint(BaseModel):
     """
 
 
+class DeploymentValueNeededBy(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    type: Literal["tool", "agent", "provider", "pack"]
+    id: str
+    version: str | None = None
+
+
+class DeploymentValue(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: str
+    """
+    The secret's or env value's name; for a model key, the key's secret name.
+    """
+    kind: Literal["secret", "env", "model-key", "pack-env"]
+    needed_by: Annotated[DeploymentValueNeededBy, Field(alias="neededBy")]
+    found_at: Annotated[Literal["project", "org", "tenant"] | None, Field(alias="foundAt")] = None
+    """
+    Where a run finds it, when it is set: the project, else its org, else the tenant.
+    """
+    problem: Literal["missing", "secret-not-yet", "ambiguous", "revoked"] | None = None
+    """
+    Why it isn't ready; absent when it is. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set both as a secret and as a plain value. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one).
+    """
+
+
 class DeploymentRegistrationBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -12571,6 +12602,16 @@ class DeploymentRecord(BaseModel):
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
     The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's Default project).
+    """
+    promoted_from_deployment_id: Annotated[
+        str | None, Field(alias="promotedFromDeploymentId", min_length=1)
+    ] = None
+    """
+    When this deployment was made by promoting another into the next environment of its order: the deployment it was promoted from. Absent for one deployed directly.
+    """
+    pack_id: Annotated[str | None, Field(alias="packId")] = None
+    """
+    The pack's id, from the image's index. Absent from a runtime that doesn't keep it.
     """
     endpoint: DeploymentEndpoint | None = None
     primitives: DeploymentPrimitiveCounts

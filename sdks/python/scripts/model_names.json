@@ -145,6 +145,8 @@
   "DeploymentSecretsSyncRequest": ["DeploymentSecretsSyncRequest"],
   "DeploymentSecretsSyncResponse": ["DeploymentSecretsSyncResponse"],
   "DeploymentValidationDetails": ["DeploymentValidationDetails"],
+  "DeploymentValue": ["DeploymentValue"],
+  "DeploymentValueNeededBy": ["DeploymentValueNeededBy"],
   "DeriveAgentVersionBody": ["DeriveAgentVersionBody"],
   "Domain": [
     "OidcIdentityProviderConfig.domains",
