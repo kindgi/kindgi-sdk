@@ -34,8 +34,8 @@ a new key instead, or write to contact@kindgi.com.
   sign in there with.
 - **The `kindgi` CLI, 0.1.7 or later,** on a machine that can read and write
   where your keys are kept. It runs from any folder as
-  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a pack
-  project, `pnpm exec kindgi` runs the project's pinned CLI instead.
+  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+  pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 - **A place for each key,** from [Where the keys are kept](#where-the-keys-are-kept).
 
 ## Where the keys are kept
