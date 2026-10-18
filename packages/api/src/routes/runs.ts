@@ -909,8 +909,13 @@ async function refusedAsBefore(
  * project the run lands in, by the runtime's order: the one named; else,
  * for an agent, the conversation's; else a project-scoped key's own, when
  * it serves the target (and the run is filed there: `start` names it);
- * else the first. `undefined`: no such item, or a run landing outside its
- * projects, checked as before.
+ * else the first. `undefined`: no such item, one project serving it, or a
+ * run landing outside its projects, checked as before.
+ *
+ * It asks only about the project the run lands in, never for every
+ * project the item is in. A project that serves the item and isn't its
+ * first means more than one does (`servesIn`); for its first, one other
+ * project is enough to know (`servedElsewhere`).
  */
 async function servedRun(
   c: Context<AppEnv>,
@@ -919,25 +924,63 @@ async function servedRun(
   start: ParsedStartRunBody,
   conversation: () => Promise<{ readonly projectId?: string } | null>,
 ): Promise<{ start: ParsedStartRunBody; refused: Response | undefined } | undefined> {
-  const served = await itemRights?.multi(c, target.kind, target.id);
-  if (itemRights === undefined || served === undefined) return undefined;
+  if (itemRights === undefined) return undefined;
   const named = start.projectId as unknown as string | undefined;
-  const continued =
-    named === undefined && target.kind === 'agent' ? (await conversation())?.projectId : undefined;
+  if (named !== undefined) {
+    return (await servedThere(c, itemRights, target, named))
+      ? { start, refused: await runIn(c, itemRights, target, named) }
+      : undefined;
+  }
+  const served = await itemRights.servedElsewhere(c, target.kind, target.id);
+  if (served === undefined || !served.elsewhere) return undefined;
+  const continued = target.kind === 'agent' ? (await conversation())?.projectId : undefined;
+  if (continued !== undefined) {
+    return (await oneOfItsProjects(c, itemRights, target, served.own, continued))
+      ? { start, refused: await runIn(c, itemRights, target, continued) }
+      : undefined;
+  }
   const keyProject = c.get('tokenProjectId');
   const keyed =
-    named === undefined &&
-    continued === undefined &&
     keyProject !== undefined &&
-    served.includes(keyProject as ProjectId)
+    (await oneOfItsProjects(c, itemRights, target, served.own, keyProject))
       ? keyProject
       : undefined;
-  const landing = named ?? continued ?? keyed ?? (served[0] as unknown as string | undefined);
-  if (landing === undefined || !served.includes(landing as ProjectId)) return undefined;
   return {
     start: keyed === undefined ? start : { ...start, projectId: keyed as ProjectId },
-    refused: await runIn(c, itemRights, target, landing),
+    refused: await runIn(c, itemRights, target, keyed ?? served.own),
   };
+}
+
+/**
+ * Whether `projectId` is one of the target's projects, and more than one
+ * serves it: its first one alone isn't enough.
+ */
+async function servedThere(
+  c: Context<AppEnv>,
+  itemRights: ItemRights,
+  target: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  projectId: string,
+): Promise<boolean> {
+  const there = await itemRights.servesIn(c, target.kind, target.id, projectId);
+  if (there === undefined || !there.serves) return false;
+  return (
+    projectId !== there.own ||
+    (await itemRights.servedElsewhere(c, target.kind, target.id))?.elsewhere === true
+  );
+}
+
+/** Whether `projectId` is one of the target's projects, `own` (its first) among them. */
+async function oneOfItsProjects(
+  c: Context<AppEnv>,
+  itemRights: ItemRights,
+  target: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  own: string,
+  projectId: string,
+): Promise<boolean> {
+  return (
+    projectId === own ||
+    (await itemRights.servesIn(c, target.kind, target.id, projectId))?.serves === true
+  );
 }
 
 /** Hand a parsed start body to the binding: an agent turn or a flow run. */

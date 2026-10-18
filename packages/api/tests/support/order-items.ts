@@ -52,6 +52,20 @@ export function itemProjects(rows: ItemRow[]): ItemProjectsBinding & { readonly 
       }
       return out;
     },
+    async servesIn({ kind, id, projectId }) {
+      asked.push(`servesIn ${kind} ${id} ${projectId}`);
+      const projects = find(kind, id)?.projects;
+      const own = projects?.[0];
+      return own === undefined
+        ? undefined
+        : { own, serves: projects?.includes(projectId) === true };
+    },
+    async servedElsewhere({ kind, id }) {
+      asked.push(`servedElsewhere ${kind} ${id}`);
+      const projects = find(kind, id)?.projects;
+      const own = projects?.[0];
+      return own === undefined ? undefined : { own, elsewhere: (projects?.length ?? 0) > 1 };
+    },
     async versionProjectsOf({ kind, id, version }) {
       asked.push(`versionProjectsOf ${kind} ${id} ${version}`);
       return find(kind, id)?.versions?.find((v) => v.version === version)?.projects;

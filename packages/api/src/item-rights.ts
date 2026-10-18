@@ -42,7 +42,12 @@ import type { LiveScope, ProjectId, TenantId } from '@kindgi/types';
 import { firstEnvironmentOf } from './environment-entry.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import { toWireError } from './errors.js';
-import type { ItemProjectsBinding, OrderItemKind } from './item-projects-binding.js';
+import type {
+  ItemProjectsBinding,
+  ItemServedElsewhere,
+  ItemServesIn,
+  OrderItemKind,
+} from './item-projects-binding.js';
 import type { Authorizer } from './middleware/authorize.js';
 import type { AppEnv } from './types.js';
 
@@ -103,6 +108,25 @@ export interface ItemRights {
     kind: OrderItemKind,
     ids: readonly string[],
   ): Promise<ReadonlyMap<string, readonly ProjectId[]>>;
+  /**
+   * Whether `projectId` is one of the item's projects, and its first one,
+   * without reading every project it's in. `undefined`: no such item.
+   */
+  servesIn(
+    c: Ctx,
+    kind: OrderItemKind,
+    id: string,
+    projectId: string,
+  ): Promise<ItemServesIn | undefined>;
+  /**
+   * Whether more than one project serves the item, and its first one,
+   * without reading every project it's in. `undefined`: no such item.
+   */
+  servedElsewhere(
+    c: Ctx,
+    kind: OrderItemKind,
+    id: string,
+  ): Promise<ItemServedElsewhere | undefined>;
   /** Rule 1. `undefined` when allowed; else the item's own refusal, as today's. */
   read(
     c: Ctx,
@@ -229,6 +253,14 @@ export function createItemRights(
   async function multi(c: Ctx, kind: OrderItemKind, id: string) {
     const all = await projects(c, kind, id);
     return all !== undefined && all.length > 1 ? all : undefined;
+  }
+
+  function servesIn(c: Ctx, kind: OrderItemKind, id: string, projectId: string) {
+    return binding.servesIn({ tenantId: tenantOf(c), kind, id, projectId: projectId as ProjectId });
+  }
+
+  function servedElsewhere(c: Ctx, kind: OrderItemKind, id: string) {
+    return binding.servedElsewhere({ tenantId: tenantOf(c), kind, id });
   }
 
   async function multiOfMany(c: Ctx, kind: OrderItemKind, ids: readonly string[]) {
@@ -521,6 +553,8 @@ export function createItemRights(
     projects,
     multi,
     multiOfMany,
+    servesIn,
+    servedElsewhere,
     read,
     visibleVersions,
     versionVisible,
