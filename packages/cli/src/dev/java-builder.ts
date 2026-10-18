@@ -37,7 +37,7 @@ import {
   SHARE_WATCH_BY_DEFAULT,
   type WatchEvents,
   directoryWatches,
-  folderGoneWhileRead,
+  mayHideChange,
 } from './shared-watch.js';
 
 const SKIPPED_DIRS = ['target', 'node_modules', 'build', 'out'];
@@ -71,12 +71,19 @@ export interface JavaPackBuilderOptions {
 /** Whether a change to `relPath` (relative to the pack root) is a change to the pack's code. */
 export function isJavaSourceChange(relPath: string): boolean {
   const segments = relPath.split(/[\\/]/);
-  if (segments.slice(0, -1).some((s) => s.startsWith('.') || SKIPPED_DIRS.includes(s))) {
-    return false;
-  }
+  if (isSkippedFolder(segments.slice(0, -1).join('/'))) return false;
   const name = segments[segments.length - 1] ?? '';
   if (name.startsWith('.')) return false;
   return relPath === 'pom.xml' || (segments[0] === 'src' && segments[1] === 'main');
+}
+
+/**
+ * Whether `folder` (relative to the pack root, `/`-separated) is one no build
+ * reads, or in one: a dot folder (`.kindgi/dev/java`), or one in
+ * `SKIPPED_DIRS` (Maven's `target/`).
+ */
+function isSkippedFolder(folder: string): boolean {
+  return folder.split('/').some((s) => s.startsWith('.') || SKIPPED_DIRS.includes(s));
 }
 
 /** The sources a build reads, with their mtimes and sizes (`scan-backstop.ts`). */
@@ -217,11 +224,11 @@ export function createJavaPackBuilder(options: JavaPackBuilderOptions): PackBuil
         });
         // The watch failed: build, as when shared. An 'error' nothing
         // listens for would end `kindgi dev`. On Linux, Node's recursive
-        // watch also emits one for a folder removed while it read it, and
-        // goes on: the removal comes as a change, which the filter above
-        // decides on, so that one builds nothing.
+        // watch goes on after one, and some hide no change to the code: a
+        // folder removed while it read it, or a path in a folder no build
+        // reads (`mayHideChange`). Those build nothing.
         watcher.on('error', (error) => {
-          if (!folderGoneWhileRead(error)) schedule();
+          if (mayHideChange(error, packDir, isSkippedFolder)) schedule();
         });
       }
       backstop = await startScanBackstop({

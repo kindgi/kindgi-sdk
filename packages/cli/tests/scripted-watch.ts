@@ -49,12 +49,31 @@ export function removedWhileRead(folder: string): NodeJS.ErrnoException {
 
 /**
  * A watch that failed: the error Node's recursive watch emits on Linux when
- * the system's limit on watches is reached and a folder can't be watched.
- * Its changes would go unreported, so the builder builds.
+ * the system's limit on watches is reached and a new file or folder in the
+ * pack can't be watched. The watch goes on, but leaves that path's changes,
+ * and its folder's other new entries, unreported.
  */
-export function watchLimitReached(folder: string): NodeJS.ErrnoException {
+export function watchLimitReached(path: string): NodeJS.ErrnoException {
   return Object.assign(
-    new Error(`ENOSPC: System limit for number of file watchers reached, watch '${folder}'`),
-    { errno: -28, code: 'ENOSPC', syscall: 'watch', path: folder },
+    new Error(`ENOSPC: System limit for number of file watchers reached, watch '${path}'`),
+    { errno: -28, code: 'ENOSPC', syscall: 'watch', path },
   );
+}
+
+/**
+ * A folder Node's recursive watch can't read (`scandir`), or a file or
+ * folder it can't watch (`watch`), on Linux: EACCES, as for a folder another
+ * user owns. The watch goes on, but leaves what it couldn't read or watch
+ * unreported.
+ */
+export function permissionDenied(
+  path: string,
+  syscall: 'scandir' | 'watch',
+): NodeJS.ErrnoException {
+  return Object.assign(new Error(`EACCES: permission denied, ${syscall} '${path}'`), {
+    errno: -13,
+    code: 'EACCES',
+    syscall,
+    path,
+  });
 }

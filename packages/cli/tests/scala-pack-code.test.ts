@@ -27,7 +27,12 @@ import {
   sbtErrors,
   sbtServerRunning,
 } from '../src/dev/scala-builder.js';
-import { removedWhileRead, scriptedWatch, watchLimitReached } from './scripted-watch.js';
+import {
+  permissionDenied,
+  removedWhileRead,
+  scriptedWatch,
+  watchLimitReached,
+} from './scripted-watch.js';
 
 let packDir: string;
 
@@ -298,7 +303,7 @@ describe('the Scala pack builder', () => {
   // watch emits an 'error' for a folder removed while it reads it, as well as
   // when it fails.
   test.skipIf(process.platform === 'win32')(
-    'an error for a folder removed while read builds nothing; a failed watch reloads and builds',
+    'an error for a folder removed while read, or in the build output, builds nothing; a failed watch reloads and builds',
     async () => {
       const { code, log } = await fakes();
       const { watchFs, watcher } = scriptedWatch();
@@ -328,6 +333,10 @@ describe('the Scala pack builder', () => {
       expect(vi.getTimerCount()).toBe(1);
       await rm(made, { recursive: true });
       watcher.emit('error', removedWhileRead(made));
+      expect(vi.getTimerCount()).toBe(1);
+      // In sbt's output, and the meta-build's.
+      watcher.emit('error', watchLimitReached(join(packDir, 'target', 'streams', 'compile')));
+      watcher.emit('error', permissionDenied(join(packDir, 'project', 'project'), 'scandir'));
       expect(vi.getTimerCount()).toBe(1);
       watcher.emit('error', watchLimitReached(join(packDir, 'src')));
       expect(vi.getTimerCount()).toBe(2);

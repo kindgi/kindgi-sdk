@@ -42,7 +42,7 @@ import {
   SHARE_WATCH_BY_DEFAULT,
   type WatchEvents,
   directoryWatches,
-  folderGoneWhileRead,
+  mayHideChange,
 } from './shared-watch.js';
 
 const SKIPPED_DIRS = ['target', 'node_modules', 'build', 'out', 'project/project'];
@@ -95,15 +95,22 @@ export function isSbtBuildChange(relPath: string): boolean {
 export function isScalaSourceChange(relPath: string): boolean {
   const normalized = relPath.split(/[\\/]/).join('/');
   const segments = normalized.split('/');
-  if (
-    segments.slice(0, -1).some((s) => s.startsWith('.') || SKIPPED_DIRS.includes(s)) ||
-    SKIPPED_DIRS.some((d) => d.includes('/') && normalized.startsWith(`${d}/`))
-  ) {
-    return false;
-  }
+  if (isSkippedFolder(segments.slice(0, -1).join('/'))) return false;
   const name = segments[segments.length - 1] ?? '';
   if (name.startsWith('.')) return false;
   return isSbtBuildChange(normalized) || (segments[0] === 'src' && segments[1] === 'main');
+}
+
+/**
+ * Whether `folder` (relative to the pack root, `/`-separated) is one no build
+ * reads, or in one: a dot folder, or one in `SKIPPED_DIRS` (sbt's `target/`,
+ * the meta-build's `project/project`).
+ */
+function isSkippedFolder(folder: string): boolean {
+  return (
+    folder.split('/').some((s) => s.startsWith('.') || SKIPPED_DIRS.includes(s)) ||
+    SKIPPED_DIRS.some((d) => d.includes('/') && `${folder}/`.startsWith(`${d}/`))
+  );
 }
 
 /** The sources and build files a build reads, with their mtimes and sizes (`scan-backstop.ts`). */
@@ -369,11 +376,11 @@ export function createScalaPackBuilder(options: ScalaPackBuilderOptions): PackBu
         });
         // The watch failed: reload and build, as when shared. An 'error'
         // nothing listens for would end `kindgi dev`. On Linux, Node's
-        // recursive watch also emits one for a folder removed while it read
-        // it, and goes on: the removal comes as a change, which the filter
-        // above decides on, so that one builds nothing.
+        // recursive watch goes on after one, and some hide no change to the
+        // code: a folder removed while it read it, or a path in a folder no
+        // build reads (`mayHideChange`). Those build nothing.
         watcher.on('error', (error) => {
-          if (!folderGoneWhileRead(error)) reloadAndBuild();
+          if (mayHideChange(error, packDir, isSkippedFolder)) reloadAndBuild();
         });
       }
       backstop = await startScanBackstop({

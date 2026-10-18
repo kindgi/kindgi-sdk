@@ -27,7 +27,12 @@ import {
   resolvePackCode,
   resolvePackJava,
 } from '../src/dev/pack-code.js';
-import { removedWhileRead, scriptedWatch, watchLimitReached } from './scripted-watch.js';
+import {
+  permissionDenied,
+  removedWhileRead,
+  scriptedWatch,
+  watchLimitReached,
+} from './scripted-watch.js';
 
 let packDir: string;
 beforeEach(async () => {
@@ -204,7 +209,7 @@ describe('the Java pack builder', () => {
   // As the Python builder's (pack-code.test.ts): on Linux, Node's recursive
   // watch emits an 'error' for a folder removed while it reads it, as well as
   // when it fails.
-  test('an error for a folder removed while read builds nothing; a failed watch builds; the watch goes on', async () => {
+  test('an error for a folder removed while read, or in the build output, builds nothing; a failed watch builds; the watch goes on', async () => {
     vi.useFakeTimers();
     onTestFinished(() => {
       vi.useRealTimers();
@@ -228,6 +233,10 @@ describe('the Java pack builder', () => {
     expect(vi.getTimerCount()).toBe(1);
     await rm(made, { recursive: true });
     watcher.emit('error', removedWhileRead(made));
+    expect(vi.getTimerCount()).toBe(1);
+    // In the build's output: the class files, and Maven's `target/`.
+    watcher.emit('error', watchLimitReached(join(made, 'com', 'acme', 'Tool.class')));
+    watcher.emit('error', permissionDenied(join(packDir, 'target', 'classes'), 'scandir'));
     expect(vi.getTimerCount()).toBe(1);
     watcher.emit('error', watchLimitReached(join(packDir, 'src')));
     // A build, due in 50 ms (stopped before it runs: no Maven here).

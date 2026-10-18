@@ -15,7 +15,12 @@ import { checkPackPython, resolvePackCode, resolvePackPython } from '../src/dev/
 import { createPythonPackBuilder, isPythonSourceChange } from '../src/dev/python-builder.js';
 import type { WatchEvents } from '../src/dev/shared-watch.js';
 import { untilReported } from './fs-events.js';
-import { removedWhileRead, scriptedWatch, watchLimitReached } from './scripted-watch.js';
+import {
+  permissionDenied,
+  removedWhileRead,
+  scriptedWatch,
+  watchLimitReached,
+} from './scripted-watch.js';
 
 // The Python SDK's own virtualenv in the sibling kindgi-sdk checkout (`uv sync` in sdks/python).
 const sdkPython = fileURLToPath(
@@ -352,7 +357,7 @@ describe('the Python pack builder', () => {
   );
 
   test.skipIf(systemPython === undefined)(
-    'a failed watch builds, so the result says how the sources are',
+    'a failed watch builds, so the result says how the sources are; not in a folder no build reads',
     async () => {
       vi.useFakeTimers();
       onTestFinished(() => {
@@ -371,6 +376,10 @@ describe('the Python pack builder', () => {
       const builds: unknown[] = [];
       await builder.watch((build) => builds.push(build));
       // One timer: the scan's interval.
+      expect(vi.getTimerCount()).toBe(1);
+      // In an in-project virtualenv, and in Python's bytecode cache: no code there.
+      watcher.emit('error', watchLimitReached(join(packDir, '.venv', 'lib', 'site.py')));
+      watcher.emit('error', permissionDenied(join(packDir, 'tools', '__pycache__'), 'scandir'));
       expect(vi.getTimerCount()).toBe(1);
       watcher.emit('error', watchLimitReached(join(packDir, 'tools')));
       expect(vi.getTimerCount()).toBe(2);
