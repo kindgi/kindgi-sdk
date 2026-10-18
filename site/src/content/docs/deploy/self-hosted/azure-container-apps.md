@@ -76,7 +76,8 @@ Who calls whom:
 - **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
   `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
-  build and deploy steps need the pack's folder, so they're written that way.
+  build, `env plan` and deploy steps need the pack's folder, so they use
+  `pnpm exec kindgi`.
 - **Runtime 0.1.6 or later:** the first with Key Vault keys and the
   registry's managed identity.
 - **Access to the runtime image** (`kindgi auth registry`; see

@@ -67,7 +67,8 @@ Who calls whom:
 - **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
   `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
-  build and deploy steps need the pack's folder, so they're written that way.
+  build, `env plan` and deploy steps need the pack's folder, so they use
+  `pnpm exec kindgi`.
 - **Runtime 0.1.1 or later.** Cloud SQL has no superuser; 0.1.0 can't start
   on it.
 - **Access to the runtime image** (`kindgi auth registry`; see
