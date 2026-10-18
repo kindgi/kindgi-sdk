@@ -8420,7 +8420,7 @@ class DeploymentPromotionBody(BaseModel):
     """
     make_live: Annotated[bool | None, Field(alias="makeLive")] = None
     """
-    Make every agent version the promotion carries live in the target project, each through its scope's gate. The answer's `live` reports each.
+    Make every agent version the promotion carries live in the target project, each through its scope's gate. The answer's `live` reports each. An error answered after some carried agents were already pinned lists those in `error.details.live`, in `live`'s shape.
     """
 
 

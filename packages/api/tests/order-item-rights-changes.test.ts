@@ -702,6 +702,12 @@ describe("liveChangeRefusal: the one check a change to what's live asks", () => 
       });
       expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('live-scope-spans-environments');
+      // S1/N5: the message names the scope asked for and the order it spans,
+      // so a reword that drops either regresses here.
+      expect(res.body.error.message).toContain(
+        scope.kind === 'org' ? 'org-wide pin' : 'tenant-wide pin',
+      );
+      expect(res.body.error.message).toContain('environment order at once');
       // The authorization still ran first (today’s promote on the agent).
       expect(res.asked).toEqual([`solo promote agent:${SOLO}`]);
       expect(res.bodyRead).toBe(false);

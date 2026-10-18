@@ -414,7 +414,11 @@ async function authorizeCarried(
  * and so is a pin in place). The width check in `liveChangeRefusal` never
  * fires here: the scope is one project. Then each version is requested
  * through its scope's gate: live now, waiting for an approval, or refused
- * by a check, each reported in `live`. An error only the write can give
+ * by a check, each reported in `live`. (`requestPromotion`'s own
+ * out-of-scope read can't refuse here either: the carried agents run in
+ * `toProjectId` after the move, so that project is one of theirs — so the
+ * only thing left for the loop to answer is an error the write itself
+ * gives.) An error only the write can give
  * carries the pins already made in its `live`. Returns the pins, or the
  * response to answer instead (a 403, a gate this deployment can't record,
  * or a write error with the pins so far).

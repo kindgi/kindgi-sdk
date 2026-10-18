@@ -255,13 +255,26 @@ const notUsed = async (): Promise<never> => {
  * answers it live at once, with no gate. `pinned` is each `promote` input,
  * in order, so a test can read the scope the pin was set at.
  */
-function livePins(opts: { readonly gated?: readonly string[] | undefined } = {}): {
+function livePins(
+  opts: {
+    readonly gated?: readonly string[] | undefined;
+    /** Carried agents whose pin write fails (the error only the write can give). */
+    readonly errorOn?: readonly string[] | undefined;
+  } = {},
+): {
   readonly releases: AgentReleaseBindings;
   readonly pinned: PromoteInput[];
 } {
   const pinned: PromoteInput[] = [];
+  const errorOn = new Set(opts.errorOn ?? []);
   const promotions = {
     promote: async (input: PromoteInput) => {
+      if (errorOn.has(input.agentId)) {
+        return {
+          kind: 'err' as const,
+          error: { code: 'database-busy', message: 'The pin write failed.' },
+        };
+      }
       pinned.push(input);
       return {
         kind: 'ok' as const,
@@ -331,6 +344,8 @@ function harness(
     readonly live?: boolean;
     /** Carried agents whose scope has a gate policy this binding can't record. */
     readonly gated?: readonly string[];
+    /** Carried agents whose pin write fails (the error only the write can give). */
+    readonly errorOn?: readonly string[];
     /** Items an order carries, so an agent spans more than one project. */
     readonly itemRows?: readonly ItemRow[];
   } = {},
@@ -354,7 +369,8 @@ function harness(
   const keyOf = (scope: { kind: string; projectId?: unknown }, name: string) =>
     `${scope.kind}:${(scope.projectId as string | undefined) ?? ''}:${name}`;
   const grants = opts.grants;
-  const live = opts.live === true ? livePins({ gated: opts.gated }) : undefined;
+  const live =
+    opts.live === true ? livePins({ gated: opts.gated, errorOn: opts.errorOn }) : undefined;
   const items = opts.itemRows !== undefined ? itemProjects([...opts.itemRows]) : undefined;
   const app = createApp({
     ...createStubAppBindings(),
@@ -1045,8 +1061,48 @@ describe('making the carried agents live in the target (makeLive)', () => {
     expect(res.body.error.code).toBe('promotion-gate-unsupported');
     // The first agent is not left live: the gate is decided before any pin.
     expect(h.pinned).toEqual([]);
-    expect(res.body.live).toBeUndefined();
+    // Nothing was pinned, so the refusal carries no `live` (N3: assert the
+    // error body, not a top-level field that an error answer never has).
+    expect(res.body.error.details?.live).toBeUndefined();
     // The build still moved — only making the carried agents live is refused.
     expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
+  });
+
+  // S3: an error only the pin write can give, after an earlier agent is
+  // already live, answers with the pins made so far in `error.details.live`.
+  test('a later carried agent’s pin write fails after an earlier one is live: the error carries the pins already made', async () => {
+    const FAILS = 'acme.ranker';
+    const h = harness({
+      live: true,
+      errorOn: [FAILS],
+      rows: [
+        built({
+          id: 'dep-s1',
+          projectId: S1,
+          contents: {
+            ...SHIPS,
+            agents: [
+              { id: AGENT, version: '1.0.0' },
+              { id: FAILS, version: '1.0.0' },
+            ],
+          },
+        }),
+      ],
+      grants: [
+        `read project:${S1}`,
+        `admin project:${S2}`,
+        `promote agent:${AGENT}`,
+        `promote agent:${FAILS}`,
+      ],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe('database-busy');
+    // The write failed on the second agent, but the first is already live, so
+    // the answer names it (its `live` shape) rather than hiding it.
+    expect(res.body.error.details.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(h.pinned).toHaveLength(1);
+    expect(h.pinned[0]).toMatchObject({ agentId: AGENT });
   });
 });
