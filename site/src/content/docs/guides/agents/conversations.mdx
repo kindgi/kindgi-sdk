@@ -429,7 +429,8 @@ one project's or org's.
 - A turn into a conversation that doesn't exist is refused with
   `404 conversation-not-found` before it starts, with `wait: false` too. If
   you can't read the conversation's project, you get that same `404` in place
-  of the `409` or the `403 permission-denied`.
+  of the `409 conversation-project-mismatch` (below) or the
+  `403 permission-denied`.
 - **Who opened it:** `openedBy` (`user:<id>` or `service_account:<id>`) is
   the caller who opened it, or, for one a turn opened, whoever the run acts
   for. It's set by the server, never from the body.
