@@ -7,6 +7,7 @@ import {
   type PackEnvNameRecord,
   packEnvHint,
   packEnvProblemLines,
+  packEnvSecretSetCommand,
   packEnvSetCommand,
 } from '../src/env/pack-env-hint.js';
 
@@ -29,6 +30,20 @@ describe('packEnvSetCommand', () => {
     expect(
       packEnvSetCommand({ envName: 'staging', projectId: PROJECT, hasProjectMapping: true }),
     ).toBe('kindgi env set NAME <value> --env=staging');
+  });
+});
+
+describe('packEnvSecretSetCommand', () => {
+  test("a project's deployment: the project's scope, and the env; the value is asked for", () => {
+    expect(packEnvSecretSetCommand({ envName: 'prod', projectId: PROJECT })).toBe(
+      `kindgi secrets set NAME --scope=project:${PROJECT} --env=prod`,
+    );
+  });
+
+  test('a tenant-wide deployment: the tenant', () => {
+    expect(packEnvSecretSetCommand({ envName: 'prod' })).toBe(
+      'kindgi secrets set NAME --scope=tenant --env=prod',
+    );
   });
 });
 
@@ -88,7 +103,7 @@ describe('packEnvProblemLines', () => {
       ),
     ).toEqual([
       "A isn't set for prod. Set it with `kindgi env set NAME <value> --scope=tenant --env=prod`.",
-      "B and C are set only as secrets, which a pack service isn't given in its environment: a tool reads them per call (`ctx.secrets`).",
+      "B and C are set only as secrets, which this server keeps out of a pack service's environment: a tool reads them per call (`ctx.secrets`).",
       `D is set both as a secret (tenant) and as a plain value (project ${PROJECT}): remove one, so it's clear which the pack service gets.`,
     ]);
   });
