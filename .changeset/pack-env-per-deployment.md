@@ -1,6 +1,7 @@
 ---
 "@kindgi/api": patch
 "@kindgi/client": patch
+"@kindgi/env-inmemory": patch
 "@kindgi/handler-runtime": patch
 ---
 
@@ -15,3 +16,4 @@
   
   `system:deployments` reads no value. The TypeScript client has `systemDeployments.listPackEnvChanged`, `getPackEnv` and `recordPackEnv`.
 - **A deployment records its pack's declaration** (`packEnv`, optional), and a deploy whose image index carries a malformed `env` is refused (`image-unverifiable`). A ready endpoint can carry `packEnvProblem` (`{ code, since }`) while its service runs on the values it was last given: one of the three codes above, or `pack-env-update-failed` when the newest values didn't start. `@kindgi/api` exports `packEnvCheck`, `PACK_ENV_PROBLEM_CODES`, `PACK_ENV_HELD_CODES` and `PACK_ENV_RETRY_MS`; `@kindgi/handler-runtime` exports its env declaration check at `@kindgi/handler-runtime/pack-env`.
+- **An env or secret record can carry `recordId`,** the store's own id for its row, never on the wire. The revision carries it, so a removed value set again is a new revision even when its row starts again at 1 in the same millisecond. `@kindgi/env-inmemory` sets it; a store without one has only the update time.
