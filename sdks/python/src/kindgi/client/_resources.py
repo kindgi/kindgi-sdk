@@ -114,6 +114,23 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "systemDeployments.listPackEnvChanged": Operation(
+        "systemDeployments.listPackEnvChanged", "GET", "/v1/system/pack-env", "json", False
+    ),
+    "systemDeployments.getPackEnv": Operation(
+        "systemDeployments.getPackEnv",
+        "GET",
+        "/v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env",
+        "json",
+        False,
+    ),
+    "systemDeployments.recordPackEnv": Operation(
+        "systemDeployments.recordPackEnv",
+        "PUT",
+        "/v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env",
+        "json",
+        True,
+    ),
     "systemDeployments.recordProblem": Operation(
         "systemDeployments.recordProblem",
         "PUT",
@@ -752,6 +769,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "deployments.get": Operation(
         "deployments.get", "GET", "/v1/deployments/{deploymentId}", "json", False
+    ),
+    "deployments.packEnv": Operation(
+        "deployments.packEnv", "GET", "/v1/deployments/{deploymentId}/pack-env", "json", False
     ),
     "deployments.syncSecrets": Operation(
         "deployments.syncSecrets", "POST", "/v1/deployments/{deploymentId}/secrets", "json", True
@@ -2054,6 +2074,68 @@ class SystemDeploymentsResource:
             path={"tenantId": tenant_id, "deploymentId": deployment_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            response=_models.DeploymentEndpoint,
+            timeout=timeout,
+        )
+
+    def list_pack_env_changed(
+        self,
+        /,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemDeploymentPage:
+        """List deployments whose pack service runs on values that changed. `GET /v1/system/pack-env`
+
+        Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`. Ids and the image only, never a value. Takes `system:pack-env`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemDeployments.listPackEnvChanged"],
+            path={},
+            query={"cursor": cursor, "limit": limit},
+            headers={},
+            response=_models.SystemDeploymentPage,
+            timeout=timeout,
+        )
+
+    def get_pack_env(
+        self, tenant_id: str | UUID, deployment_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.SystemPackEnv:
+        """Read the env a deployment's pack service is to be given. `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
+
+        For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the plain values when nothing stands in the way. A name set only as a secret (`pack-env-secret-not-yet`), one set both ways (`pack-env-ambiguous`) or a required one set nowhere (`pack-env-missing`) is a `problem`, and then no value is given. Each value given out is on the audit record. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value.
+        """
+        return self._client._request(
+            _OPERATIONS["systemDeployments.getPackEnv"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={},
+            headers={},
+            response=_models.SystemPackEnv,
+            timeout=timeout,
+        )
+
+    def record_pack_env(
+        self,
+        tenant_id: str | UUID,
+        deployment_id: str | UUID,
+        body: _models.RecordPackEnvBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentEndpoint:
+        """Record the env revision a deployment's pack service runs. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
+
+        After giving a `ready` pack service its values: the `revision` it now runs. Or, with `held`, that this revision's values couldn't be given (a required one was removed, say): the service keeps what it runs, and the tenant sees the code on the endpoint (`packEnvProblem`) until a later revision can be given. Compare-and-set: `appliedRevision` is the one the service was found running, and another recorded since is `pack-env-conflict`. A new service's revision goes with its endpoint instead (`packEnvRevision`). Takes `system:pack-env`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemDeployments.recordPackEnv"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RecordPackEnvBody, body, fields),
             response=_models.DeploymentEndpoint,
             timeout=timeout,
         )
@@ -6917,6 +6999,22 @@ class DeploymentsResource:
             timeout=timeout,
         )
 
+    def pack_env(
+        self, deployment_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.PackEnvNames:
+        """Show where each name a deployment's pack declares is set. `GET /v1/deployments/{deploymentId}/pack-env`
+
+        On a server that runs a pack service per deployment and gives it the env its pack declares: each declared name, where it's set (the deployment's project, then its org, then the tenant, at the env the server serves) and why it can't be given, if it can't. Never a value. A name set only as a secret can't be given into the pack service's environment yet: a tool reads it per call (`ctx.secrets`).
+        """
+        return self._client._request(
+            _OPERATIONS["deployments.packEnv"],
+            path={"deploymentId": deployment_id},
+            query={},
+            headers={},
+            response=_models.PackEnvNames,
+            timeout=timeout,
+        )
+
     def sync_secrets(
         self,
         deployment_id: str | UUID,
@@ -10333,6 +10431,68 @@ class AsyncSystemDeploymentsResource:
             path={"tenantId": tenant_id, "deploymentId": deployment_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            response=_models.DeploymentEndpoint,
+            timeout=timeout,
+        )
+
+    async def list_pack_env_changed(
+        self,
+        /,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemDeploymentPage:
+        """List deployments whose pack service runs on values that changed. `GET /v1/system/pack-env`
+
+        Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`. Ids and the image only, never a value. Takes `system:pack-env`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemDeployments.listPackEnvChanged"],
+            path={},
+            query={"cursor": cursor, "limit": limit},
+            headers={},
+            response=_models.SystemDeploymentPage,
+            timeout=timeout,
+        )
+
+    async def get_pack_env(
+        self, tenant_id: str | UUID, deployment_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.SystemPackEnv:
+        """Read the env a deployment's pack service is to be given. `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
+
+        For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the plain values when nothing stands in the way. A name set only as a secret (`pack-env-secret-not-yet`), one set both ways (`pack-env-ambiguous`) or a required one set nowhere (`pack-env-missing`) is a `problem`, and then no value is given. Each value given out is on the audit record. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemDeployments.getPackEnv"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={},
+            headers={},
+            response=_models.SystemPackEnv,
+            timeout=timeout,
+        )
+
+    async def record_pack_env(
+        self,
+        tenant_id: str | UUID,
+        deployment_id: str | UUID,
+        body: _models.RecordPackEnvBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentEndpoint:
+        """Record the env revision a deployment's pack service runs. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
+
+        After giving a `ready` pack service its values: the `revision` it now runs. Or, with `held`, that this revision's values couldn't be given (a required one was removed, say): the service keeps what it runs, and the tenant sees the code on the endpoint (`packEnvProblem`) until a later revision can be given. Compare-and-set: `appliedRevision` is the one the service was found running, and another recorded since is `pack-env-conflict`. A new service's revision goes with its endpoint instead (`packEnvRevision`). Takes `system:pack-env`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemDeployments.recordPackEnv"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RecordPackEnvBody, body, fields),
             response=_models.DeploymentEndpoint,
             timeout=timeout,
         )
@@ -15215,6 +15375,22 @@ class AsyncDeploymentsResource:
             query={},
             headers={},
             response=_models.DeploymentRecord,
+            timeout=timeout,
+        )
+
+    async def pack_env(
+        self, deployment_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.PackEnvNames:
+        """Show where each name a deployment's pack declares is set. `GET /v1/deployments/{deploymentId}/pack-env`
+
+        On a server that runs a pack service per deployment and gives it the env its pack declares: each declared name, where it's set (the deployment's project, then its org, then the tenant, at the env the server serves) and why it can't be given, if it can't. Never a value. A name set only as a secret can't be given into the pack service's environment yet: a tool reads it per call (`ctx.secrets`).
+        """
+        return await self._client._request(
+            _OPERATIONS["deployments.packEnv"],
+            path={"deploymentId": deployment_id},
+            query={},
+            headers={},
+            response=_models.PackEnvNames,
             timeout=timeout,
         )
 

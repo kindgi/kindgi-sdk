@@ -2491,6 +2491,96 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/system/pack-env',
+    openapiPath: '/v1/system/pack-env',
+    operationId: 'systemDeployments.listPackEnvChanged',
+    summary: 'List deployments whose pack service runs on values that changed',
+    description:
+      "Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`. Ids and the image only, never a value. Takes `system:pack-env`.",
+    tags: ['system-deployments'],
+    security: 'bearer',
+    parameters: [CursorQueryParam, LimitQueryParam],
+    responses: {
+      '200': { description: 'One page of deployments.', schema: ref('SystemDeploymentPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('A `limit` out of range, or a cursor refused.'),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:pack-env` (`system-scope-missing`).",
+      ),
+      '501': ErrorResponse(
+        "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/tenants/:tenantId/deployments/:deploymentId/pack-env',
+    openapiPath: '/v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env',
+    operationId: 'systemDeployments.getPackEnv',
+    summary: "Read the env a deployment's pack service is to be given",
+    description:
+      "For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the plain values when nothing stands in the way. A name set only as a secret (`pack-env-secret-not-yet`), one set both ways (`pack-env-ambiguous`) or a required one set nowhere (`pack-env-missing`) is a `problem`, and then no value is given. Each value given out is on the audit record. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value.",
+    tags: ['system-deployments'],
+    security: 'bearer',
+    parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam],
+    responses: {
+      '200': {
+        description: 'Where each name is set, and the values when there is no problem.',
+        schema: ref('SystemPackEnv'),
+      },
+      ...CommonAuthErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:pack-env` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse(
+        'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
+      ),
+      '409': ErrorResponse(
+        "The tenant is closing or suspended (`tenant-closing`, `tenant-suspended`), or the deployment's pack service was retired (`endpoint-retired`).",
+      ),
+      '501': ErrorResponse(
+        "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/deployments/:deploymentId/pack-env',
+    openapiPath: '/v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env',
+    operationId: 'systemDeployments.recordPackEnv',
+    summary: "Record the env revision a deployment's pack service runs",
+    description:
+      "After giving a `ready` pack service its values: the `revision` it now runs. Or, with `held`, that this revision's values couldn't be given (a required one was removed, say): the service keeps what it runs, and the tenant sees the code on the endpoint (`packEnvProblem`) until a later revision can be given. Compare-and-set: `appliedRevision` is the one the service was found running, and another recorded since is `pack-env-conflict`. A new service's revision goes with its endpoint instead (`packEnvRevision`). Takes `system:pack-env`.",
+    tags: ['system-deployments'],
+    security: 'bearer',
+    parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('RecordPackEnvBody') },
+    responses: {
+      '200': {
+        description: "Recorded: the deployment's endpoint as its tenant sees it.",
+        schema: ref('DeploymentEndpoint'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('A malformed body, or a `held` code not on the list (`bad-input`).'),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:pack-env` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse(
+        'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
+      ),
+      '409': ErrorResponse(
+        "The tenant is closing (`tenant-closing`); the endpoint isn't `ready` (`endpoint-not-ready`, with `details.status`); another revision was recorded since (`pack-env-conflict`, with `details.appliedRevision`).",
+      ),
+      '501': ErrorResponse(
+        "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`).",
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+      ),
+    },
+  },
+  {
     method: 'delete',
     honoPath: '/v1/system/tenants/:tenantId/deployments/:deploymentId/endpoint',
     openapiPath: '/v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
@@ -7057,6 +7147,36 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Deployment record.', schema: ref('DeploymentRecord') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No deployment with that id under this tenant.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/deployments/:deploymentId/pack-env',
+    openapiPath: '/v1/deployments/{deploymentId}/pack-env',
+    operationId: 'deployments.packEnv',
+    summary: "Show where each name a deployment's pack declares is set",
+    description:
+      "On a server that runs a pack service per deployment and gives it the env its pack declares: each declared name, where it's set (the deployment's project, then its org, then the tenant, at the env the server serves) and why it can't be given, if it can't. Never a value. A name set only as a secret can't be given into the pack service's environment yet: a tool reads it per call (`ctx.secrets`).",
+    tags: ['deployments'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'deploymentId',
+        in: 'path',
+        required: true,
+        description: 'Deployment id assigned by the ledger at register time.',
+        schema: { type: 'string', minLength: 1 },
+      },
+    ],
+    responses: {
+      '200': { description: 'Where each declared name is set.', schema: ref('PackEnvNames') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No deployment with that id under this tenant (`deployment-not-found`).',
+      ),
+      '501': ErrorResponse(
+        "The server's pack services take their env from how they're run, not from the env store (`pack-env-not-served`).",
+      ),
     },
   },
   {

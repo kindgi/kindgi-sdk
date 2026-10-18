@@ -393,12 +393,14 @@ export type {
 export type {
   DeploymentEndpointProblemSpec,
   PackEndpointSpec,
+  PackEnvRecordSpec,
   PackSuspension,
   PackSuspensionSpec,
   SystemDeploymentEntry,
   SystemDeploymentPage,
   SystemDeploymentsClient,
   SystemDeploymentsWanted,
+  SystemPackEnv,
 } from './resources/system-deployments.js';
 export type {
   CreatedSystemTenant,
@@ -429,6 +431,8 @@ export type {
   DeploymentPage,
   DeploymentsClient,
   ListDeploymentsFilter,
+  PackEnvNameStatus,
+  PackEnvNames,
   RegisterDeploymentInput,
   SyncSecretsInput,
   SyncSecretsResult,

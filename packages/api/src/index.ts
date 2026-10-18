@@ -71,6 +71,7 @@ export { PACK_ENDPOINT_AUTHS } from './routes/system-deployments.js';
 export type {
   DeploymentRef,
   PackEndpointAuth,
+  PackEnvRecordInput,
   SetPackEndpointInput,
   SetPackEndpointOutcome,
   SystemDeploymentEntry,
@@ -78,7 +79,19 @@ export type {
   SystemDeploymentsBinding,
   SystemDeploymentsOptions,
   SystemDeploymentToRetire,
+  SystemPackEnvOptions,
+  SystemPackEnvServed,
 } from './routes/system-deployments.js';
+export { PACK_ENV_PROBLEM_CODES, packEnvCheck } from './pack-env.js';
+export type {
+  PackEnvCheck,
+  PackEnvCheckInput,
+  PackEnvDeclaration,
+  PackEnvDeps,
+  PackEnvNameStatus,
+  PackEnvProblemCode,
+  PackEnvScopeRef,
+} from './pack-env.js';
 export { tenantStateGate } from './middleware/tenant-state.js';
 export type { TenantStateBinding } from './middleware/tenant-state.js';
 export { systemTenantsRouter, systemWhoamiRouter } from './routes/system-tenants.js';

@@ -5,9 +5,11 @@ import type {
   DeploymentEndpoint,
   PackSuspension,
   RecordDeploymentProblemBody,
+  RecordPackEnvBody,
   SetPackEndpointBody,
   SetPackSuspendedBody,
   SystemDeploymentPage,
+  SystemPackEnv,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 
@@ -18,6 +20,9 @@ export type PackEndpointSpec = SetPackEndpointBody;
 export type DeploymentEndpointProblemSpec = RecordDeploymentProblemBody;
 export type PackSuspensionSpec = SetPackSuspendedBody;
 export type { PackSuspension };
+/** Where each name a deployment's pack declares is set, and the plain values when nothing stands in the way. */
+export type { SystemPackEnv };
+export type PackEnvRecordSpec = RecordPackEnvBody;
 
 /** Which deployments to list: those that need a pack service, or those whose service should go. */
 export type SystemDeploymentsWanted = 'missing' | 'retire';
@@ -91,6 +96,39 @@ export interface SystemDeploymentsClient {
     spec: PackSuspensionSpec,
     options?: { readonly idempotencyKey?: string },
   ): Promise<PackSuspension>;
+  /**
+   * One page across tenants (`system:pack-env`): deployments with a `ready`
+   * pack service whose declared env values changed since the revision it
+   * runs, and weren't held back at this revision. Ids only, never a value.
+   *
+   * @wire `GET /v1/system/pack-env`
+   */
+  listPackEnvChanged(page?: {
+    readonly cursor?: string;
+    readonly limit?: number;
+  }): Promise<SystemDeploymentPage>;
+  /**
+   * What the deployment's pack service is to be given (`system:pack-env`):
+   * where each declared name is set, its `revision`, and the plain values
+   * (`env`) unless there's a `problem`. Each value given out is on the audit
+   * record.
+   *
+   * @wire `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
+   */
+  getPackEnv(tenantId: string, deploymentId: string): Promise<SystemPackEnv>;
+  /**
+   * Records the revision a `ready` pack service now runs, or, with `held`,
+   * that this revision couldn't be given and the service keeps what it
+   * runs. Compare-and-set on `appliedRevision` (`pack-env-conflict`).
+   *
+   * @wire `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
+   */
+  recordPackEnv(
+    tenantId: string,
+    deploymentId: string,
+    spec: PackEnvRecordSpec,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<DeploymentEndpoint>;
 }
 
 export function makeSystemDeploymentsClient(transport: Transport): SystemDeploymentsClient {
@@ -136,6 +174,30 @@ export function makeSystemDeploymentsClient(transport: Transport): SystemDeploym
       return transport.request<PackSuspension>({
         method: 'PUT',
         path: `/v1/system/tenants/${seg(tenantId)}/deployments/${seg(deploymentId)}/suspended`,
+        body: spec,
+        ...key(options),
+      });
+    },
+    async listPackEnvChanged(page) {
+      return transport.request<SystemDeploymentPage>({
+        method: 'GET',
+        path: '/v1/system/pack-env',
+        query: {
+          ...(page?.cursor !== undefined && { cursor: page.cursor }),
+          ...(page?.limit !== undefined && { limit: page.limit }),
+        },
+      });
+    },
+    async getPackEnv(tenantId, deploymentId) {
+      return transport.request<SystemPackEnv>({
+        method: 'GET',
+        path: `/v1/system/tenants/${seg(tenantId)}/deployments/${seg(deploymentId)}/pack-env`,
+      });
+    },
+    async recordPackEnv(tenantId, deploymentId, spec, options) {
+      return transport.request<DeploymentEndpoint>({
+        method: 'PUT',
+        path: `/v1/system/tenants/${seg(tenantId)}/deployments/${seg(deploymentId)}/pack-env`,
         body: spec,
         ...key(options),
       });
