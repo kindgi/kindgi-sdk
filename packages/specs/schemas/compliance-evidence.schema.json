@@ -68,7 +68,8 @@
         "person-added",
         "person-granted",
         "person-ungranted",
-        "trigger-owner-set"
+        "trigger-owner-set",
+        "environment-order-set"
       ]
     },
     "timestamp": {
