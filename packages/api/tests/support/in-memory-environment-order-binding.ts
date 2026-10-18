@@ -16,7 +16,9 @@ import type { ProjectId, TenantId } from '@kindgi/types';
 import type {
   EnvironmentOrder,
   EnvironmentOrderBinding,
+  EnvironmentOrderCursor,
   EnvironmentOrderGetInput,
+  EnvironmentOrderKey,
   EnvironmentOrderListInput,
   EnvironmentOrderListPage,
   EnvironmentOrderLocation,
@@ -27,8 +29,22 @@ import type {
   HasEnvironmentOrderInput,
 } from '../../src/environment-orders-binding.js';
 
-function orderKey(tenantId: TenantId, parent: EnvironmentOrderParent): string {
-  return parent.kind === 'org' ? `org:${parent.orgId}` : `tenant:${tenantId}`;
+function orderKey(tenantId: TenantId, parent: EnvironmentOrderParent): EnvironmentOrderKey {
+  const key = parent.kind === 'org' ? `org:${parent.orgId}` : `tenant:${tenantId}`;
+  return key as EnvironmentOrderKey;
+}
+
+/** A parent as a page cursor: its org, or `null` for the tenant's own. */
+function cursorOf(parent: EnvironmentOrderParent): EnvironmentOrderCursor {
+  return { orgId: parent.kind === 'org' ? parent.orgId : null };
+}
+
+/** The durable binding's listing order: the tenant's own first, then its orgs by id. */
+function compareCursors(a: EnvironmentOrderCursor, b: EnvironmentOrderCursor): number {
+  if (a.orgId === b.orgId) return 0;
+  if (a.orgId === null) return -1;
+  if (b.orgId === null) return 1;
+  return a.orgId < b.orgId ? -1 : 1;
 }
 
 interface StoredOrder {
@@ -61,16 +77,17 @@ export function makeInMemoryEnvironmentOrderBinding(): EnvironmentOrderBinding {
 
   return {
     async list(input: EnvironmentOrderListInput): Promise<EnvironmentOrderListPage> {
-      const all = tenantOrders(input.tenantId)
-        .sort((a, b) =>
-          orderKey(input.tenantId, a.parent).localeCompare(orderKey(input.tenantId, b.parent)),
-        )
-        .map(toOrder);
-      const start = input.after === undefined ? 0 : Number.parseInt(input.after, 10) || 0;
-      const next = start + input.limit;
+      const { after } = input;
+      const rest = tenantOrders(input.tenantId)
+        .filter((o) => after === undefined || compareCursors(cursorOf(o.parent), after) > 0)
+        .sort((a, b) => compareCursors(cursorOf(a.parent), cursorOf(b.parent)));
+      const page = rest.slice(0, input.limit);
+      const last = page.at(-1);
       return {
-        orders: all.slice(start, next),
-        ...(next < all.length ? { nextCursor: String(next) } : {}),
+        orders: page.map(toOrder),
+        ...(rest.length > page.length && last !== undefined
+          ? { nextAfter: cursorOf(last.parent) }
+          : {}),
       };
     },
 

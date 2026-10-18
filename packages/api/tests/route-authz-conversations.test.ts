@@ -186,7 +186,8 @@ describe('opening or closing one needs execute on its agent', () => {
     const body = (projectId: string) => ({ agentId: AGENT, agentVersion: '1.0.0', projectId });
     const gone = randomUUID();
     const error = async (res: Response) => {
-      const { requestId: _, ...rest } = (await res.json()).error;
+      const body = (await res.json()) as { error: Record<string, unknown> };
+      const { requestId: _, ...rest } = body.error;
       return { status: res.status, error: rest };
     };
     // Write on both projects, no execute on the agent.

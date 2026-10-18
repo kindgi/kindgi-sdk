@@ -3,7 +3,7 @@
 
 import type { ProjectId } from '@kindgi/types';
 
-import type { EnvironmentOrderBinding } from '../../src/index.js';
+import type { EnvironmentOrderBinding, EnvironmentOrderKey } from '../../src/index.js';
 
 /**
  * A tenant's environment orders, each a list of projects in order, read
@@ -25,7 +25,8 @@ export function environmentOrders(
       for (const [i, projects] of orders.entries()) {
         const position = projects.indexOf(projectId);
         if (position >= 0) {
-          return { orderId: `tenant:${i}`, parent: { kind: 'tenant' }, projects, position };
+          const orderId = `tenant:${i}` as EnvironmentOrderKey;
+          return { orderId, parent: { kind: 'tenant' }, projects, position };
         }
       }
       return undefined;
