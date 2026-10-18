@@ -2,8 +2,8 @@
 title: Let a store's staff ask and approve in WordPress
 description: Connect a WordPress site to a project, so its staff ask the project's agents and decide approvals in wp-admin, each as themselves.
 sidebar:
-  order: 4.5
-  label: Ask and approve in WordPress
+  order: 1
+  label: WordPress
 ---
 
 The Kindgi plugin for WordPress adds a **Kindgi** page to wp-admin. On it,
@@ -42,7 +42,7 @@ It also covers what the site's people can and can't do in Kindgi.
 
 Site sign-in needs a runtime on Kindgi 0.1.8.1 or later, and is off by
 default. It needs two more settings in the runtime's environment:
-- [authorization enforced](../../../deploy/authorization/), which holds a
+- [authorization enforced](../../deploy/authorization/), which holds a
   site's people to its project;
 - the runtime's public URL, which a site's statements carry as their
   audience.
@@ -187,7 +187,7 @@ About the Kindgi URL:
 
 ## Reviewer email
 
-With [`KINDGI_REVIEWER_EMAIL=on`](../decide-an-approval/#reviewer-email),
+With [`KINDGI_REVIEWER_EMAIL=on`](../../guides/approvals/decide-an-approval/#reviewer-email),
 Kindgi emails the site's reviewers too:
 - **At the address the site sends for them:** the person's WordPress email.
   The `kindgi_statement_email` filter changes it, or sends none.
@@ -211,7 +211,7 @@ The audit record of each decision carries both.
 
 **By default, a person may approve a tool call they asked for.** To require
 someone else, set `separateApprover` on the agent: see
-[Ask before a tool runs](../ask-before-a-tool-runs/), under "Someone other
+[Ask before a tool runs](../../guides/approvals/ask-before-a-tool-runs/), under "Someone other
 than whoever asked". The `woocommerce` template's store agent sets it for its
 money tools. With it on, the person who asked sees "You asked for this;
 another reviewer decides." instead of **Approve**.
@@ -262,7 +262,7 @@ another reviewer decides." instead of **Approve**.
 
   The code is `limited-session-cannot-mint`.
 - Kindgi asks them for no second factor, even where the workspace
-  [requires one](../../../deploy/sign-in/#a-second-factor): the site owns it.
+  [requires one](../../deploy/self-hosted/sign-in/#a-second-factor): the site owns it.
 
 **Their grants come from the site, and only from it.**
 - A route that would give one of them a grant, a tenant role, a project or
@@ -392,7 +392,7 @@ WordPress's [Abilities API](https://developer.wordpress.org/apis/abilities-api/)
 (WordPress 6.9 and later) and the
 [MCP Adapter](https://github.com/WordPress/mcp-adapter) plugin can expose
 the store's actions (look up an order, refund it) as
-[an MCP server's tools](../../tools/mcp-servers/):
+[an MCP server's tools](../../guides/tools/mcp-servers/):
 
 - **Register your own adapter server,** and list each ability on it: the
   abilities it names become its MCP tools (see

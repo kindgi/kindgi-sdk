@@ -161,7 +161,7 @@ pnpm exec kindgi runs get <run id> --url http://localhost:4000 --token "$KINDGI_
   }
 ```
 
-A backup taken before an [erasure](../../guides/agents/erase-a-persons-data/)
+A backup taken before an [erasure](../../../guides/agents/erase-a-persons-data/)
 brings back what it cleared. Replay the erasures next, as
 [Erasures and backups](#erasures-and-backups) shows. To look at the restored
 database first, without anything running on its own, start the runtime with
@@ -353,6 +353,6 @@ Two more things keep erasures complete:
 ## Next
 
 - [Restart the runtime and check its health](../restart-and-check-health/)
-- [Erase a person's data](../../guides/agents/erase-a-persons-data/)
-- [Retention](../retention/)
+- [Erase a person's data](../../../guides/agents/erase-a-persons-data/)
+- [Retention](../../retention/)
 - [Operate a self-hosted runtime](../operate/)

@@ -10,7 +10,7 @@ A runtime serves one tenant by default, `KINDGI_TENANT_ID`'s. With
 system API, and each request's tenant comes from its key or session. This page
 is for the operator: whoever runs the runtime, its database and the services
 around it, for tenants who don't trust one another. The runtime's license
-applies as on any deployment ([Licensing](../../concepts/licensing/)).
+applies as on any deployment ([Licensing](../../../concepts/licensing/)).
 
 Commands that take the operator's token read it from `$KINDGI_API_TOKEN`, and
 the runtime's address from `$KINDGI_URL`.
@@ -68,7 +68,7 @@ apart, and the two that let you allow and count them:
 | `KINDGI_TENANT_HOST_ACCESS=isolated` | What a tenant registers reaches public hosts only: not the metadata server, this host or private networks, and never with the server's own cloud credentials. The server then refuses `KINDGI_DEV`, `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow` and `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`. |
 | `KINDGI_PACK_ROUTING=per-deployment` | Each call goes to the pack service of the deployment that shipped the tool or check, never to one pack service every tenant shares. It needs `KINDGI_SECRETS_BACKEND=postgres`, because each endpoint's token is sealed under the secrets' key. `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused. |
 | `KINDGI_PACK_ENDPOINT_HOSTS` | The hosts a deployment's pack service may be on, comma-separated: a host name, `*.` and a domain, or `*-`, a tail and a domain. |
-| `KINDGI_OPENFGA_API_URL` and `KINDGI_OPENFGA_PRESHARED_KEY` | The authorization store, and the key it requires of its callers, so only the server reads and writes tenants' grants ([Require a key for OpenFGA](../authorization/#require-a-key-for-openfga)). |
+| `KINDGI_OPENFGA_API_URL` and `KINDGI_OPENFGA_PRESHARED_KEY` | The authorization store, and the key it requires of its callers, so only the server reads and writes tenants' grants ([Require a key for OpenFGA](../../authorization/#require-a-key-for-openfga)). |
 | `KINDGI_PRODUCTION_GATE=on` | A tenant puts a project in production only once you allow it ([Limits and production](#limits-and-production)). |
 | `KINDGI_USAGE_METERING=on` | Each run is counted when it's created and when it ends, so tenants' limits read what each one did. |
 
@@ -78,7 +78,7 @@ A start that lacks any of them is refused, naming each, and exits 2:
 KINDGI_TENANCY=multi serves tenants who don't trust one another, so it starts only with the hosted profile's settings: KINDGI_PACK_ENDPOINT_HOSTS must name the hosts a deployment's endpoint may be on (it's empty, so every endpoint would be refused).
 ```
 
-[Environment variables](../../reference/env-vars/) has each setting in
+[Environment variables](../../../reference/env-vars/) has each setting in
 full.
 
 At every start, the server checks that OpenFGA takes its key. If OpenFGA
@@ -147,7 +147,7 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
 - **With `firstAdmin`,** that person becomes the tenant's admin and member by
   email, and signs in with the runtime's own sign-in
   ([Turn on sign-in](../sign-in/)). No key comes back: once signed in, they
-  make the tenant's keys ([API keys](../people-and-keys/#api-keys)).
+  make the tenant's keys ([API keys](../../people-and-keys/#api-keys)).
 - **Without `firstAdmin`,** the answer carries the tenant's first admin key,
   once. Store it, because nothing shows it again, and without it nothing
   gives the tenant another admin key. Only the full capability creates a
@@ -247,7 +247,7 @@ it fails with `pack-endpoint-pending`, and after a clear with
   projects already in production stay so.
   `KINDGI_PRODUCTION_NEXT_URL` names where a refused tenant goes to be
   allowed
-  ([Put a project in production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production)).
+  ([Put a project in production](../../../guides/projects/organize-by-org-and-project/#put-a-project-in-production)).
   The `projectsInProduction` limit caps how many of its projects are in
   production at once.
 
@@ -326,7 +326,7 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
   window, or one with artifacts or an OpenFGA store when `KINDGI_ARTIFACTS`
   or `KINDGI_OPENFGA_API_URL` isn't set as the server has it. **Exit 1** when rows or bytes of it are left, named: run it again.
 - **With a key for OpenFGA**
-  ([Require a key for OpenFGA](../authorization/#require-a-key-for-openfga)),
+  ([Require a key for OpenFGA](../../authorization/#require-a-key-for-openfga)),
   purging a tenant with an OpenFGA store needs runtime 0.1.8.1 or later. An
   earlier one doesn't send the key, or the ID token behind Cloud Run IAM, so
   the store's delete is refused, and the purge exits `2` with
@@ -384,7 +384,7 @@ The first start with many tenants keeps the tenant it served, with its data,
 keys and people, as the first of many.
 
 1. **Run OpenFGA with a preshared key,** and point the runtime at it
-   ([Require a key for OpenFGA](../authorization/#require-a-key-for-openfga)).
+   ([Require a key for OpenFGA](../../authorization/#require-a-key-for-openfga)).
 2. **[Upgrade](../operate/#upgrade-the-runtime) and start it still as one
    tenant,** `KINDGI_TENANT_ID` kept. If the tenant has no authorization
    store yet, because it ran without OpenFGA, that start sets one up. Going
@@ -418,7 +418,7 @@ keys and people, as the first of many.
 ## Next
 
 - The system routes in full:
-  [system tenants](../../reference/api/operations/tags/system-tenants/),
-  [system keys](../../reference/api/operations/tags/system-keys/) and
-  [system deployments](../../reference/api/operations/tags/system-deployments/).
+  [system tenants](../../../reference/api/operations/tags/system-tenants/),
+  [system keys](../../../reference/api/operations/tags/system-keys/) and
+  [system deployments](../../../reference/api/operations/tags/system-deployments/).
 - [Back up and restore](../back-up-and-restore/), then `tenants repurge`.

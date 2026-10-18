@@ -2210,6 +2210,63 @@ describe('POST /v1/deployments — rollback', () => {
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
   });
 
+  test("a tool whose id is an MCP endpoint's tool → 409 tool-kind-mismatch, naming the endpoint; rolled back, nothing deployed", async () => {
+    const tool = (id: string) => ({
+      id,
+      description: 'x',
+      version: '1.0.0',
+      input: { type: 'object' },
+      output: { type: 'object' },
+    });
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [tool('acme.verify-citation'), tool('acme.search')],
+        guardrails: [],
+        agents: [],
+        flows: [],
+      },
+    });
+    const tools = makeInMemoryToolRegistry();
+    // As a registry holding MCP endpoint `acme`'s tool `search`.
+    const toolRegistry: ToolRegistryBinding = {
+      ...tools,
+      publish: async (input) =>
+        (input.tool.id as unknown as string) === 'acme.search'
+          ? {
+              kind: 'kind-mismatch',
+              toolId: input.tool.id,
+              version: input.tool.version as never,
+              endpointId: 'acme',
+            }
+          : tools.publish(input),
+    };
+    const { app, deploymentRegistry } = makeApp({ fixture, toolRegistry });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details?: Record<string, unknown> };
+    };
+    expect(body.error.code).toBe('tool-kind-mismatch');
+    expect(body.error.message).toBe(
+      "The tool acme.search@1.0.0 wasn't published: its id is MCP endpoint \"acme\"'s tool (give the pack's tool another name, or unregister the endpoint first); nothing was deployed",
+    );
+    expect(body.error.details).toEqual({
+      primitive: 'tool',
+      id: 'acme.search@1.0.0',
+      endpointId: 'acme',
+    });
+    // What it published before is rolled back.
+    expect(await tools.get({ tenantId, toolId: 'acme.verify-citation' as never })).toBeNull();
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
   test('an agent that belongs to another project → 409 agent-project-mismatch, rolled back, nothing deployed', async () => {
     const fixture = buildSignedDeploy({
       index: {

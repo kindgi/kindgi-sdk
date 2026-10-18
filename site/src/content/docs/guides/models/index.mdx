@@ -266,7 +266,7 @@ Ollama:
 - **`send_traceparent`** (optional, `true` or `false`) sends each model call's
   W3C `traceparent` to the provider as a request header. The provider's
   request logs can then be matched to the run that made the call, as
-  [Follow a request or a run](../../deploy/logs/#follow-a-request-or-a-run)
+  [Follow a request or a run](../../deploy/self-hosted/logs/#follow-a-request-or-a-run)
   shows. Only the ids go: the trace id and a span id, never a prompt or an
   answer. It's off by default, so nothing about a run's trace leaves your
   deployment unless you turn it on.

@@ -18,7 +18,7 @@ included.
 :::note[Access to the runtime image]
 Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
 runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+(see [Install](../../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## What you'll have
@@ -76,7 +76,7 @@ Who calls whom:
 - **Runtime 0.1.6 or later:** the first with Key Vault keys and the
   registry's managed identity.
 - **Access to the runtime image** (`kindgi auth registry`; see
-  [Install](../../start/install/)).
+  [Install](../../../start/install/)).
 - **A license key:** a non-production key covers staging. Get one at
   [access.kindgi.com](https://access.kindgi.com), or from contact@kindgi.com.
 - **A pack** that `kindgi build --local --push` builds, with an environment
@@ -307,7 +307,7 @@ secret set` printed for secrets-aad-key (README, step 3).
   server signs there, so the private key never leaves Key Vault. Exports
   are then `ecdsa-p256-sha256`, since Key Vault has no Ed25519.
 
-See [Export signed evidence](../../guides/observability/export-signed-evidence/).
+See [Export signed evidence](../../../guides/observability/export-signed-evidence/).
 
 **The database login** is the server's admin, a member of `azure_pg_admin`
 with `CREATEROLE`, which is what the runtime needs.
@@ -472,7 +472,7 @@ It prints the deployment as JSON, then each step. The last steps:
   Runs already in flight continue on their pinned image.
 ```
 
-To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
+To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
 
 The runtime read your pack's image from the registry with its own identity
 (`KINDGI_IMAGE_REGISTRY_AUTH=azure`) to check it before registering it.
@@ -522,7 +522,7 @@ to finish, with the output `{"greeting":"Hello, Azure!"}`.
   comes up. The runtime warns from 30 days before, at startup and once a
   day, in a log record with `"event": "kindgi.preview_expiry"`: alert on it
   in Log Analytics
-  ([Licensing](../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
+  ([Licensing](../../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
 - **Upgrade:** make sure a restorable backup exists. Automatic backups with
   point-in-time restore are on. Copy the new runtime image by digest, set
   `server_image`, and apply. Migrations only go forward: never run two runtime

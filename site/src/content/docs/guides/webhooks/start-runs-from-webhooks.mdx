@@ -384,7 +384,7 @@ what else a delivery leaves: the sender's address on a refusal.
 - **The limit slows only requests that fail verification.** A validly signed
   delivery is never refused because of anyone's refusals, its own address's
   included. The limit keys on the connection's address. With
-  [`KINDGI_TRUSTED_PROXIES`](../../../deploy/self-host/#behind-a-load-balancer-or-ingress),
+  [`KINDGI_TRUSTED_PROXIES`](../../../deploy/self-hosted/self-host/#behind-a-load-balancer-or-ingress),
   it keys on the client the proxies vouch for. Behind a load balancer or
   ingress without it, every sender has the proxy's address, so the limit is
   shared too. Set it to the proxies in front.
