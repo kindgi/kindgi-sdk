@@ -35,6 +35,7 @@ import { deployApiAddress, hostedApiAddress } from '../api-address.js';
 import { HOSTED_BUILD } from '../build/hosted.js';
 import type { CommandContext } from '../context.js';
 import { isEnvelopeSigned } from '../deploy/envelope-loader.js';
+import { packServiceProblemText, packServiceRetiredText } from '../deploy/pack-service-text.js';
 import {
   buildPostBody,
   deriveIdempotencyKey,
@@ -814,33 +815,6 @@ const PACK_SERVICE_POLL_MS = 2_000;
 /** Reads in a row that may fail before it stops waiting. */
 const PACK_SERVICE_READ_TRIES = 3;
 
-/** Why a deployment has no pack service yet, by its `problem.code`. */
-const PACK_SERVICE_PROBLEMS: Readonly<Record<string, string>> = {
-  'tenant-not-provisioned': 'your workspace has nowhere to run pack services yet',
-  'capacity-unavailable': 'there is no room for another pack service just now',
-  'service-start-failed': "the pack's image was deployed but didn't start",
-  'image-not-allowed': "the image is outside your workspace's own repository",
-  'endpoint-url-invalid': "the platform couldn't connect the pack service",
-  'endpoint-host-not-allowed': "the platform couldn't connect the pack service",
-  'endpoint-name-mismatch': "the platform couldn't connect the pack service",
-  'endpoint-unreachable': "the pack service didn't answer",
-  'endpoint-info-mismatch': 'the pack service answered as another pack or version',
-  'pack-env-missing': "a name the pack needs in its env isn't set",
-  'pack-env-secret-not-yet': 'a name the pack reads from its env is set only as a secret',
-  'pack-env-ambiguous':
-    'a name the pack reads from its env is set both as a secret and as a plain value',
-};
-
-/** Why no pack service is wanted for a cleared deployment now, by its `retired` reason. */
-const PACK_SERVICE_RETIRED: Readonly<Record<string, string>> = {
-  superseded:
-    'a later deploy ships every tool version and check this one does, so no new call reaches it',
-  'tenant-closing': 'your workspace is closing',
-  'tenant-suspended': "your workspace is suspended, until it's restored",
-  'project-suspended': "its project is suspended, until it's restored",
-  'pack-suspended': "its pack is suspended, until it's restored",
-};
-
 /**
  * Waits for the deployment's own pack service to be `ready`, reading the
  * deployment again every 2 s and saying each new state once. A `cleared`
@@ -997,7 +971,7 @@ function settledPackService(
       message: `The deployment's pack service was taken down (cleared). deploymentId ${id}.\n`,
     };
   }
-  const why = PACK_SERVICE_RETIRED[endpoint.retired] ?? 'none is wanted for it now';
+  const why = packServiceRetiredText(endpoint.retired);
   return {
     kind: 'error',
     message: `The deployment's pack service was taken down (cleared, ${endpoint.retired}): ${why}. deploymentId ${id}.\n`,
@@ -1013,7 +987,7 @@ function waitingState(endpoint: DeploymentEndpointRecord): string {
   const state =
     endpoint.status === 'cleared' ? 'cleared, waiting for its pack service again' : 'pending';
   if (endpoint.problem === undefined) return state;
-  const why = PACK_SERVICE_PROBLEMS[endpoint.problem.code] ?? 'not ready yet';
+  const why = packServiceProblemText(endpoint.problem.code);
   return `${state} (${endpoint.problem.code}): ${why}`;
 }
 
