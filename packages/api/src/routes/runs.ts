@@ -4,7 +4,13 @@
 import { type Context, Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
-import type { KernelRunRecord, ListRunsInput, RunBinding, RunStatus } from '@kindgi/runtime';
+import type {
+  KernelRunRecord,
+  ListRunsInput,
+  RunBinding,
+  RunStartedBy,
+  RunStatus,
+} from '@kindgi/runtime';
 import type {
   FlowId,
   ListScope,
@@ -296,6 +302,7 @@ export function runsRouter(
       tenantId,
       parsed.value,
       c.get('principal') as Principal | undefined,
+      c.get('serviceAccountId') !== undefined,
       trace !== undefined ? { traceId: trace.traceId, spanId: trace.spanId } : undefined,
     );
 
@@ -834,18 +841,39 @@ function budgetWaitOf(failure: RunHandlerFailure): number | undefined {
   return failure.code === 'rate-limit-exceeded' && typeof wait === 'number' ? wait : undefined;
 }
 
+/**
+ * How a run the API starts began (`RunStartedBy`), from its caller:
+ * `person` when it's a person, signed in or with their own key; `key` when
+ * it's a service account, or the request came with a service account's
+ * key whoever it names. Any other caller (an agent, on its own or for
+ * someone; the system) records none, so its run counts as unattended.
+ */
+export function startedByCaller(
+  principal: Principal | undefined,
+  serviceAccountKey: boolean,
+): RunStartedBy | undefined {
+  if (principal === undefined) return undefined;
+  if (serviceAccountKey || principal.actor.kind === 'service_account') return 'key';
+  if (principal.actor.kind === 'user' && principal.onBehalfOf === undefined) return 'person';
+  return undefined;
+}
+
 /** Hand a parsed start body to the binding: an agent turn or a flow run. */
 function invokeFromBody(
   binding: RunHandlerBinding,
   tenantId: TenantId,
   body: ParsedStartRunBody,
   principal: Principal | undefined,
+  serviceAccountKey: boolean,
   trace?: RunTrace,
 ): Promise<RunHandlerOutcome> {
+  const startedBy = startedByCaller(principal, serviceAccountKey);
   const common = {
     tenantId,
     // Whom the run acts for: the authenticated caller, never the body.
     ...(principal !== undefined && { principal }),
+    // How it started: from the caller too, never the body.
+    ...(startedBy !== undefined && { startedBy }),
     ...(trace !== undefined && { trace }),
     ...(body.projectId !== undefined && { projectId: body.projectId }),
     input: body.input,
@@ -916,6 +944,7 @@ function serializeRun(
         }),
       },
     }),
+    ...(row.startedBy !== undefined && { startedBy: row.startedBy }),
     ...(row.versions != null && { versions: row.versions }),
     ...(row.contentErasedAt !== undefined && {
       contentErasedAt: row.contentErasedAt as unknown as string,

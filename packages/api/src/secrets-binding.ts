@@ -14,6 +14,48 @@ import type { Cursor, EnvName, Result, TenantId } from '@kindgi/types';
 export const RESERVED_SECRET_NAME_PREFIX = 'kindgi.';
 
 /**
+ * The shape a secret name may take at the API border: ASCII letters, digits,
+ * and `.`, `-`, `_`, starting with a letter, digit or `_`, with any `.` between
+ * two non-`.` characters (so a name neither starts nor ends with `.`).
+ * {@link secretNameGrammarRefusal} holds a *fresh* create to this shape; a name
+ * already stored outside it still reads, rotates and takes new versions.
+ */
+export const SECRET_NAME_ALLOWED = /^[A-Za-z0-9_][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*$/;
+
+/**
+ * The longest a secret name may be at create. 255 is within every supported
+ * secret store's own limit, so a name of this length or less is writable
+ * wherever secrets are kept.
+ */
+export const SECRET_NAME_MAX_LENGTH = 255;
+
+/**
+ * Why a caller may not name a *new* secret `name` at the API border, or
+ * `undefined` when the name is allowed: the shared grammar
+ * ({@link SECRET_NAME_ALLOWED}, at most {@link SECRET_NAME_MAX_LENGTH}
+ * characters) the create routes hold a caller-supplied name to before anything
+ * is stored. A store may refuse further names of its own
+ * ({@link SecretBinding.nameRefusal}); this is the floor beneath that. The
+ * caller sees `secret-name-invalid` with the message as the request's `400`.
+ */
+export function secretNameGrammarRefusal(name: string): SecretNameRefusal | undefined {
+  if (name.length > SECRET_NAME_MAX_LENGTH) {
+    return {
+      code: 'secret-name-invalid',
+      message: `A secret name is at most ${SECRET_NAME_MAX_LENGTH} characters long; this one is ${name.length}.`,
+    };
+  }
+  if (!SECRET_NAME_ALLOWED.test(name)) {
+    return {
+      code: 'secret-name-invalid',
+      message:
+        'A secret name is 1 to 255 ASCII letters, digits, `.`, `-` and `_`; it starts with a letter, digit or `_`, and any `.` sits between two non-`.` characters. Rename it to that form.',
+    };
+  }
+  return undefined;
+}
+
+/**
  * Caller-plugged secret store — the framework consumer's surface for
  * every secret-lifecycle op. Every method is scope + env-scoped, where
  * `scope` is the discriminated primitive from `@kindgi/platform`

@@ -5,6 +5,7 @@ import type { ModelMessage, ModelToolCall } from '@kindgi/capabilities';
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
 import { WaitpointCancelledError } from '@kindgi/handler';
 import { stricterToolHitlRule } from '@kindgi/policy-contract';
+import { runIsAttended } from '@kindgi/runtime';
 import {
   BUILT_IN_TOOL_PREFIX,
   invokeTool,
@@ -43,17 +44,26 @@ import { addStepToolNodes } from './turn-provenance.js';
  * Resolves the effective HITL mode + reviewer role for a specific
  * tool from the pre-resolved effective policy. Mirrors the standalone
  * `resolveToolHitl(agent, tool)` in tool-hitl.ts but consumes the
- * resolver's output.
+ * resolver's output, and adds the floors that sit above the agent's
+ * rules: the tenant's, and in a run no person started, the tool's own
+ * `needsApprovalWhenUnattended`.
  */
-function resolveEffectiveToolHitl(
+export function resolveEffectiveToolHitl(
   effective: EffectiveHitlPolicy,
   tool: Tool,
+  attended: boolean,
 ): { readonly mode: ToolHitlMode; readonly requiredRole: 'standard' | 'senior' | 'admin' } {
   const gate = agentToolHitl(effective, tool);
   // The tenant's floor for this tool, when it names one: the stricter wins.
   const floor = effective.toolFloors?.get(tool.id as unknown as string);
-  if (floor === undefined) return gate;
-  const stricter = stricterToolHitlRule(gate, floor);
+  const floored = floor === undefined ? gate : stricterToolHitlRule(gate, floor);
+  // In a run no person started, a tool that declares it needs a person's
+  // yes waits for one on every call. Agents are reused, so their rules
+  // can't lift it, the same as the tenant's floor.
+  const stricter =
+    !attended && tool.needsApprovalWhenUnattended === true
+      ? stricterToolHitlRule(floored, { mode: 'always_ask' })
+      : floored;
   return { mode: stricter.mode, requiredRole: stricter.requiredRole ?? gate.requiredRole };
 }
 
@@ -125,8 +135,12 @@ async function decideToolGate(
       cause: null,
     });
   }
+  // Whether a person started the turn's run: as the run recorded it when it
+  // started (a resumed turn's comes from its record, never from whoever
+  // resumed it), so an approval doesn't make the rest of the run attended.
+  const attended = runIsAttended(ctx.input.startedBy);
   return kctx.record(`${TOOL_GATE_RECORD_PREFIX}${call.id}`, (): ToolGateRecord | undefined => {
-    const resolved = resolveEffectiveToolHitl(effectiveHitl, tool);
+    const resolved = resolveEffectiveToolHitl(effectiveHitl, tool, attended);
     if (resolved.mode === 'never_ask') return undefined;
     const argsHash = hashToolArgs(call.arguments);
     return {

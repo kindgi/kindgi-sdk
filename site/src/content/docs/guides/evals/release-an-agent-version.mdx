@@ -152,7 +152,10 @@ version, and since when.
 
 ## From your app
 
-Your app can do the same, with the project's id as the script's argument:
+Your app can do the same. Ask your coding agent: "I want to make a new version
+of my agent live for one company's runs, and check which version a run gets."
+For reference, the script looks like this, with the project's id as its
+argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -289,7 +292,14 @@ A gated scope needs a live version of its own, so give the tenant one first:
 kindgi agents promote acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
 ```
 
-Write the policy in `gate.json`:
+Ask your coding agent to write the policy:
+
+```text
+Before a new version of my agent goes live, I want it to have done well on my test set, and a senior reviewer to approve it.
+```
+
+For reference, the policy it writes looks like this. This guide saves it as
+`gate.json`:
 
 ```json
 {
@@ -387,8 +397,10 @@ second reviewer instead.
 
 ### Promote from your app
 
-Your app checks the gate, then promotes, with the comparison's id as the
-script's argument:
+Your app checks the gate, then promotes. Ask your coding agent: "Check the
+release gate for my new agent version, and promote it unless the gate
+refuses." For reference, the script looks like this, with the comparison's id
+as its argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

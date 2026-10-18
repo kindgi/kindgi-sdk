@@ -943,20 +943,25 @@ export interface Guardrail {
 }
 
 /**
- * Wire shape — matches `@kindgi/api/openapi.json#GuardrailAction`. Enumerates
- * what the runtime does when the check reports a violation.
+ * Wire shape — matches `@kindgi/api/openapi.json#GuardrailAction`. What a
+ * failed check does to the agent turn: in 0.1 the runtime acts only on `halt`.
  */
 export interface GuardrailAction {
   /**
    * Built-in actions: `halt`, `retry`, `escalate`, `log-only`, `compensate`.
-   * Open string: any other name needs an action handler registered under it
-   * where the guardrail is evaluated.
+   * Open string: any other non-empty name is accepted. In 0.1 the runtime acts
+   * only on `halt`: the turn fails with `guardrail-violation`. Any other value
+   * is recorded as a violation, as `log-only` is, and the turn completes:
+   * nothing runs the turn again, escalates or calls a compensating tool.
    */
   readonly 'on-violation': string;
+  /** The attempts a `retry` asks for. In 0.1 nothing acts on it: there's no second attempt. */
   readonly retry?: {
     readonly maxAttempts: number;
   };
+  /** Where an `escalate` goes. In 0.1 nothing escalates. */
   readonly escalateTo?: string;
+  /** The tool id a `compensate` names. In 0.1 that tool isn't called. */
   readonly compensateWith?: string;
 }
 

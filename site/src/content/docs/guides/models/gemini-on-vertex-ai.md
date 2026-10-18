@@ -91,10 +91,12 @@ kindgi providers register --preset=gemini --project=<gcp-project> --models=gemin
 The preset's models answer with up to 65,536 tokens, thinking included.
 `--max-output-tokens=<n>` registers them with another limit, `<n>` tokens.
 
-To have `kindgi dev` register it on every boot, declare it in the pack's config
-instead: `{ preset: 'gemini', project: '<gcp-project>' }` in
-`kindgi.config.ts`'s `providers`, or a `[[tool.kindgi.providers]]` table with
-`preset = "gemini"` and `project = "<gcp-project>"` in `pyproject.toml`.
+To have `kindgi dev` register it on every boot, ask your coding agent to
+declare it in the pack's config instead. Kindgi's skills in your pack tell it
+how ([How it knows Kindgi](../../../start/coding-agents/)). It goes there as
+`{ preset: 'gemini', project: '<gcp-project>' }` in `kindgi.config.ts`'s
+`providers`, or a `[[tool.kindgi.providers]]` table with `preset = "gemini"`
+and `project = "<gcp-project>"` in `pyproject.toml`.
 [Declare them in your pack's config](../#declare-them-in-your-packs-config)
 shows how.
 

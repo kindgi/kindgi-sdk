@@ -43,7 +43,14 @@ The examples on this page move the reply drafter's instructions from
 block, `acme.reply-prompt`, and add a settings block, `acme.reply-style`:
 how long a reply may be, and up to what amount a refund needs no approval.
 
-A prompt block with parameters is published from a JSON file,
+A prompt block with parameters is published from a JSON file. Ask your
+coding agent to write the prompt block:
+
+```text
+I want my agent's instructions in a prompt block, with the tone as a parameter.
+```
+
+For reference, the block it writes looks like this. This guide saves it as
 `reply-prompt.json`:
 
 ```json
@@ -106,7 +113,8 @@ Each prints the block's id and version. The second prints:
 ## Use them in an agent
 
 The agent names its prompt block and its settings blocks by range, as it names
-its tools:
+its tools. Ask your coding agent: "Have my agent use its prompt block and
+settings block." For reference, the agent looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -205,7 +213,9 @@ object ReplyDrafter {
 
 The prompt block brings its parameters, so the agent declares none. A tool
 reads the settings blocks of the agent version that calls it, as
-`ctx.settings`:
+`ctx.settings`. Ask your coding agent: "I want a tool that says whether a
+refund needs a person's approval, with the limit from my settings block." For
+reference, the tool looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -410,7 +420,9 @@ kindgi blocks publish acme.reply-style --block-version=1.1.0 --project=<project-
 `--block-version=1.1.0` is the new version, and `--settings` its values: a
 higher refund limit. It prints the block's id and version.
 
-From your code, such as an admin page of your own:
+From your code, such as an admin page of your own, ask your coding agent: "I
+want to publish a new version of my settings block from my app." For
+reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -581,7 +593,8 @@ It prints the new agent version:
 }
 ```
 
-From your code:
+From your code, ask your coding agent: "I want a new version of my agent that
+uses the new refund limit." For reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
