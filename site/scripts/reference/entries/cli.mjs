@@ -134,7 +134,7 @@ export const CLI_DEFAULTS = {
   promote: {
     from: 'required',
     to: 'required',
-    deployment: "none (this pack's one deployment serving in `--from`)",
+    deployment: 'none (the one deployment serving in `--from`; in a pack, of this pack)',
     reason: 'none',
     path: 'the current directory',
   },
@@ -1075,6 +1075,10 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'See what would move to prod and which values it lacks, changing nothing.',
       line: 'kindgi promote --from=staging --to=prod --check',
+    },
+    {
+      purpose: 'Outside a pack, name the two environments by project slug or id.',
+      line: 'kindgi promote --from=acme-staging --to=acme-prod',
     },
   ],
   'secrets list': [

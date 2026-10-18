@@ -3,6 +3,8 @@
 
 import { isAbsolute, resolve } from 'node:path';
 
+import type { KindgiClient } from '@kindgi/client';
+
 import type { CommandContext } from '../context.js';
 import {
   type ListedProject,
@@ -25,11 +27,11 @@ export function packDirOf(ctx: CommandContext): string {
 }
 
 /** Every project of the tenant, following `nextCursor` to the last page. */
-async function listAllProjects(ctx: CommandContext): Promise<ListedProject[]> {
+async function listAllProjects(client: KindgiClient): Promise<ListedProject[]> {
   const rows: ListedProject[] = [];
   let cursor: string | undefined;
   for (;;) {
-    const page = await ctx.client().projects.list(cursor !== undefined ? { cursor } : {});
+    const page = await client.projects.list(cursor !== undefined ? { cursor } : {});
     rows.push(...((page.data ?? []) as readonly ListedProject[]));
     if (page.hasMore !== true) break;
     const next = (page as { readonly nextCursor?: unknown }).nextCursor;
@@ -39,10 +41,18 @@ async function listAllProjects(ctx: CommandContext): Promise<ListedProject[]> {
   return rows;
 }
 
-/** Resolve each id-or-slug to a project id, refusing a slug that names none or several. */
-export async function resolveRefs(ctx: CommandContext, refs: readonly string[]): Promise<string[]> {
+/**
+ * Resolve each id-or-slug to a project id, refusing a slug that names none
+ * or several. `client`: the runtime to read the projects from; default, the
+ * CLI's own.
+ */
+export async function resolveRefs(
+  ctx: CommandContext,
+  refs: readonly string[],
+  client?: KindgiClient,
+): Promise<string[]> {
   const needsList = refs.some((r) => !PROJECT_ID_RE.test(r));
-  const rows = needsList ? await listAllProjects(ctx) : [];
+  const rows = needsList ? await listAllProjects(client ?? ctx.client()) : [];
   return refs.map((ref) => {
     const resolved = resolveAgainst(rows, ref);
     if (resolved.kind === 'none') {
@@ -117,7 +127,7 @@ async function envNameLabels(ctx: CommandContext): Promise<Map<string, string>> 
     const named = envProjectRefs(loaded.config);
     if (named.length === 0) return new Map();
     const needsList = named.some((n) => !PROJECT_ID_RE.test(n.ref));
-    return envNamesByProject(named, needsList ? await listAllProjects(ctx) : []);
+    return envNamesByProject(named, needsList ? await listAllProjects(ctx.client()) : []);
   } catch {
     // Labels are a convenience; the order still prints without them.
     return new Map();

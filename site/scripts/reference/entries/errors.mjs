@@ -695,7 +695,7 @@ export const ERROR_ENTRIES = {
   },
   'promotion-values-not-ready': {
     description:
-      "Values the build needs in the target environment aren't ready there: a secret, env value or model key set nowhere a run there looks, one revoked where a run reads it, or a pack env name set only as a secret, or both as a secret and as a plain value. Each one is in `details.values`: set them in the target, then promote again. The promotion check lists the same, writing nothing. Nothing is written.",
+      "Values the build needs in the target environment aren't ready there: a secret, env value or model key set nowhere a run there looks; one revoked where a run reads it; a pack env name set only as a secret, or both as a secret and as a plain value; or no model provider registered for an agent that runs on any provider. Each one is in `details.values`: set them in the target, then promote again. The promotion check lists the same, writing nothing. Nothing is written.",
     details: [
       {
         key: 'values',
@@ -1860,7 +1860,7 @@ export const ERROR_ENTRIES = {
   },
   'key-project-mismatch': {
     description:
-      'Your key is limited to one project, and the request names another project, or asks to mint a key not limited to your project. Use the project the key is limited to.',
+      "Your key is limited to one project, and the request names another project, or asks to mint a key not limited to your project. Use the project the key is limited to. A promotion reads one project and writes another, so a key or session limited to a project can't promote, or check a promotion.",
     details: [
       {
         key: 'keyProjectId',

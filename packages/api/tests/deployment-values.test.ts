@@ -45,6 +45,24 @@ const tools: Record<string, object> = {
       authorization: { kind: 'bearer', secretRef: { envName: 'shared', name: 'RELAY_KEY' } },
     },
   },
+  'acme.mailer@1.0.0': {
+    id: 'acme.mailer',
+    version: '1.0.0',
+    needsSpec: {
+      secrets: {
+        ACME_SMTP_KEY: { type: 'string' },
+        ACME_DKIM: { type: ['string', 'null'] },
+        ACME_SIGNING: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+        ACME_BEARER: { type: ['string', 'null'] },
+      },
+    },
+    spec: {
+      kind: 'http',
+      method: 'POST',
+      urlTemplate: 'https://mail.acme.example',
+      authorization: { kind: 'bearer', secretRef: { envName: 'prod', name: 'ACME_BEARER' } },
+    },
+  },
 };
 
 /** Providers registered in the tenant, by id: its key's name, or none (a keyless one). */
@@ -179,6 +197,33 @@ describe('a tool version: its secrets and the env it has no default for', () => 
     ]);
   });
 
+  test('an optional secret (its schema accepts null): set nowhere, not listed; set, listed; revoked, a problem. A secretRef stays required', async () => {
+    const mailer = { type: 'tool', id: 'acme.mailer', version: '1.0.0' } as const;
+    const d = deployment({ tools: [{ id: 'acme.mailer', version: '1.0.0' }] });
+    expect(await values(world({}), d)).toEqual([
+      { name: 'ACME_BEARER', kind: 'secret', neededBy: mailer, problem: 'missing' },
+      { name: 'ACME_SMTP_KEY', kind: 'secret', neededBy: mailer, problem: 'missing' },
+    ]);
+    const deps = world({
+      stored: {
+        'project:prod:ACME_DKIM': {},
+        'tenant:prod:ACME_SIGNING': { revokedAt: '2026-01-01T00:00:00Z' },
+      },
+    });
+    expect(await values(deps, d)).toEqual([
+      { name: 'ACME_BEARER', kind: 'secret', neededBy: mailer, problem: 'missing' },
+      { name: 'ACME_SMTP_KEY', kind: 'secret', neededBy: mailer, problem: 'missing' },
+      { name: 'ACME_DKIM', kind: 'secret', neededBy: mailer, foundAt: 'project' },
+      {
+        name: 'ACME_SIGNING',
+        kind: 'secret',
+        neededBy: mailer,
+        foundAt: 'tenant',
+        problem: 'revoked',
+      },
+    ]);
+  });
+
   test("without the runtime's env, each is listed unread; a secretRef's own env still is read", async () => {
     const deps = world({ noEnvName: true, stored: { 'tenant:shared:RELAY_KEY': {} } });
     expect(await values(deps, both)).toEqual([
@@ -286,6 +331,37 @@ describe('model keys: by provider, for every agent version shipped or carried', 
     ];
     expect(await values(deps, ships, carried)).toEqual([
       { name: 'ANTHROPIC_KEY', kind: 'model-key', neededBy: anthropic, foundAt: 'tenant' },
+      { name: 'OPENAI_KEY', kind: 'model-key', neededBy: openai, problem: 'missing' },
+    ]);
+  });
+
+  test('with no provider registered, each agent version that runs on any provider has none to call', async () => {
+    // 1.0.0 names none; the carried 1.0.1 names one that isn't registered.
+    const deps = world({
+      agents: { 'acme.matcher@1.0.0': undefined, 'acme.matcher@1.0.1': 'anthropic' },
+      registered: {},
+    });
+    const carried: CarriedVersion[] = [{ kind: 'agent', id: 'acme.matcher', version: '1.0.1' }];
+    expect(await values(deps, ships, carried)).toEqual([
+      {
+        name: 'any provider',
+        kind: 'model-key',
+        neededBy: { type: 'agent', id: 'acme.matcher', version: '1.0.0' },
+        problem: 'no-provider',
+      },
+      {
+        name: 'any provider',
+        kind: 'model-key',
+        neededBy: { type: 'agent', id: 'acme.matcher', version: '1.0.1' },
+        problem: 'no-provider',
+      },
+    ]);
+    // With one registered, its key is what's needed.
+    const one = world({
+      agents: { 'acme.matcher@1.0.0': undefined },
+      registered: { openai: 'OPENAI_KEY' },
+    });
+    expect(await values(one, ships)).toEqual([
       { name: 'OPENAI_KEY', kind: 'model-key', neededBy: openai, problem: 'missing' },
     ]);
   });

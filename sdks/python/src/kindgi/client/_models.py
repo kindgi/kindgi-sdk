@@ -8388,7 +8388,7 @@ class DeploymentValue(BaseModel):
     )
     name: str
     """
-    The secret's or env value's name; for a model key, the key's secret name.
+    The secret's or env value's name; for a model key, the key's secret name, or `any provider` when none is registered.
     """
     kind: str
     """
@@ -8401,7 +8401,7 @@ class DeploymentValue(BaseModel):
     """
     problem: str | None = None
     """
-    Why it isn't ready; absent when it is. One of a fixed list; a later runtime may add problems, so treat an unknown one as a reason not yet named. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set both as a secret and as a plain value. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one).
+    Why it isn't ready; absent when it is. One of a fixed list; a later runtime may add problems, so treat an unknown one as a reason not yet named. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set both as a secret and as a plain value. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one). `no-provider`: an agent that runs on any provider (it names none, or names one that isn't registered), with no provider registered in the tenant, so a run has none to call.
     """
 
 
@@ -12772,6 +12772,10 @@ class DeploymentPromotionCheck(BaseModel):
     Each value with a problem in the target; empty when every one is ready.
     """
     next_environment: Annotated[PromotionNextEnvironment, Field(alias="nextEnvironment")]
+    env_name: Annotated[str | None, Field(alias="envName")] = None
+    """
+    The env this runtime serves, which a run in the target reads its values under: a value is set there (`--env=<envName>` with `--scope=project:<id>`). Absent when the runtime names none, and each value is then listed unread.
+    """
     left_behind: Annotated[list[LeftBehindVersion] | None, Field(alias="leftBehind")] = None
     """
     Edits of the build's agents and flows that would stay behind; absent when none.

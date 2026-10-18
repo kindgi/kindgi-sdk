@@ -11,7 +11,7 @@
  */
 
 import type { ProjectBinding, Scope } from '@kindgi/platform';
-import { toolRequiredEnvNames } from '@kindgi/tools';
+import { toolOptionalSecretNames, toolRequiredEnvNames } from '@kindgi/tools';
 import type { AgentId, EnvName, ProjectId, Semver, TenantId, ToolId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from './agent-binding.js';
@@ -34,13 +34,24 @@ export type DeploymentValueScope = 'project' | 'org' | 'tenant';
  * - `ambiguous`: a pack env name set both as a secret and as a plain value;
  * - `revoked`: a tool's secret revoked where it's recorded, or a model key
  *   revoked where a run looks first: a run refuses (`secret-revoked`)
- *   rather than read a wider one.
+ *   rather than read a wider one;
+ * - `no-provider`: an agent that runs on any provider (it names none, or
+ *   one that isn't registered), with no provider registered in the tenant:
+ *   a run has none to call. Its name is `any provider`.
  */
-export type DeploymentValueProblem = 'missing' | 'secret-not-yet' | 'ambiguous' | 'revoked';
+export type DeploymentValueProblem =
+  | 'missing'
+  | 'secret-not-yet'
+  | 'ambiguous'
+  | 'revoked'
+  | 'no-provider';
 
 /** One value a deployment needs in a project. Never the value itself. */
 export interface DeploymentValue {
-  /** The secret's or env variable's name; for a model key, the key's secret name. */
+  /**
+   * The secret's or env variable's name; for a model key, the key's secret
+   * name, or `any provider` when none is registered (`no-provider`).
+   */
   readonly name: string;
   readonly kind: 'secret' | 'env' | 'model-key' | 'pack-env';
   /** What needs it: a tool version, an agent version, a model provider, or the pack's service. */
@@ -185,7 +196,13 @@ async function toolAt(
     : deps.tools.getVersion({ tenantId, toolId, version: version as Semver });
 }
 
-/** A tool's secrets, each at the scope a promotion records for it: what a run reads, and only there. */
+/**
+ * A tool's secrets, each at the scope a promotion records for it: what a
+ * run reads, and only there. An optional one (its schema accepts `null`)
+ * that's set nowhere isn't listed, as a call runs without it; set, it's
+ * listed, and revoked it's a problem, as it still refuses the call. The
+ * authorization's `secretRef` is always required.
+ */
 async function toolSecrets(
   deps: DeploymentValuesDeps,
   chain: readonly Scope[],
@@ -193,6 +210,9 @@ async function toolSecrets(
   neededBy: NeededBy,
 ): Promise<DeploymentValue[]> {
   const out: DeploymentValue[] = [];
+  const optional = new Set(toolOptionalSecretNames(tool));
+  const authorization = tool.spec?.authorization?.secretRef?.name;
+  if (authorization !== undefined) optional.delete(authorization);
   for (const ref of toolSecretRefs(tool, deps.envName)) {
     const base = { name: ref.name, kind: 'secret' as const, neededBy };
     if (deps.secrets === undefined || ref.envName === undefined) {
@@ -206,10 +226,13 @@ async function toolSecrets(
       envName: ref.envName,
       name: ref.name,
     });
-    if (at?.found === undefined) out.push({ ...base, problem: 'missing' });
-    else if (at.found.revokedAt !== undefined)
+    if (at?.found === undefined) {
+      if (!optional.has(ref.name)) out.push({ ...base, problem: 'missing' });
+    } else if (at.found.revokedAt !== undefined) {
       out.push({ ...base, foundAt: at.scope.kind, problem: 'revoked' });
-    else out.push({ ...base, foundAt: at.scope.kind });
+    } else {
+      out.push({ ...base, foundAt: at.scope.kind });
+    }
   }
   return out;
 }
@@ -241,7 +264,12 @@ async function toolEnv(
   return out;
 }
 
-/** The model keys the deployment's agents and the carried ones need, by provider. */
+/**
+ * The model keys the deployment's agents and the carried ones need, by
+ * provider. An agent that runs on any provider needs one registered with
+ * its key ("model key, any provider"): with none registered at all, each
+ * such agent version is `no-provider`.
+ */
 async function modelKeys(
   deps: DeploymentValuesDeps,
   input: DeploymentValuesInput,
@@ -253,7 +281,7 @@ async function modelKeys(
       e,
     ]),
   );
-  const { needed, needsAny } = await providersNeeded(deps, input, registered);
+  const { needed, anyNeeders } = await providersNeeded(deps, input, registered);
   const keys = new Map<string, Promise<DeploymentValue | 'keyless'>>();
   const keyOf = (entry: ProviderRuntimeEntry) => {
     const known = keys.get(entry.metadata.id) ?? modelKey(deps, input, entry);
@@ -265,7 +293,18 @@ async function modelKeys(
     const value = await keyOf(registered.get(providerId) as ProviderRuntimeEntry);
     if (value !== 'keyless') out.push(value);
   }
-  if (!needsAny) return out;
+  if (anyNeeders.length === 0) return out;
+  if (registered.size === 0) {
+    return [
+      ...out,
+      ...anyNeeders.map(({ id, version }) => ({
+        name: 'any provider',
+        kind: 'model-key' as const,
+        neededBy: { type: 'agent' as const, id, version },
+        problem: 'no-provider' as const,
+      })),
+    ];
+  }
   const all = [...registered.keys()].sort().map((id) => registered.get(id) as ProviderRuntimeEntry);
   const answers = await Promise.all(all.map(keyOf));
   // Any provider will do: when one is ready, nothing more is needed.
@@ -278,16 +317,19 @@ async function modelKeys(
 
 /**
  * The providers whose keys the agent versions need: each one's registered
- * `preferredProvider`, and whether one needs any provider (it names none,
- * or names one that isn't registered).
+ * `preferredProvider`, and the agent versions that run on any provider
+ * (they name none, or name one that isn't registered).
  */
 async function providersNeeded(
   deps: DeploymentValuesDeps,
   input: DeploymentValuesInput,
   registered: ReadonlyMap<string, ProviderRuntimeEntry>,
-): Promise<{ readonly needed: ReadonlySet<string>; readonly needsAny: boolean }> {
+): Promise<{
+  readonly needed: ReadonlySet<string>;
+  readonly anyNeeders: readonly { readonly id: string; readonly version: string }[];
+}> {
   const needed = new Set<string>();
-  let needsAny = false;
+  const anyNeeders: { id: string; version: string }[] = [];
   for (const { id, version } of agentVersions(input)) {
     const agent = await deps.agents?.getVersion({
       tenantId: input.deployment.tenantId,
@@ -296,9 +338,9 @@ async function providersNeeded(
     });
     const preferred = agent?.preferredProvider;
     if (preferred !== undefined && registered.has(preferred)) needed.add(preferred);
-    else needsAny = true;
+    else anyNeeders.push({ id, version });
   }
-  return { needed, needsAny };
+  return { needed, anyNeeders };
 }
 
 /** Each agent version the deployment ships or carries, once. */
