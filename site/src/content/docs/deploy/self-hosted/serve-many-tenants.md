@@ -247,8 +247,9 @@ service is, and checks it. It never creates or deletes one.
    the new revision didn't start, send `held` with the code instead
    (`pack-env-update-failed` for one that didn't start): the service keeps
    what it runs, and the tenant sees the code. One held as
-   `pack-env-update-failed` is listed again for an hour, so you try it
-   again.
+   `pack-env-update-failed` stays listed for an hour after it was first
+   held, so you try it again. After that it's listed again only when its
+   values change.
 6. **Retire what should go:** `GET /v1/system/deployments?endpoint=retire`
    lists deployments with an endpoint whose service should go, each with its
    `reason`. Clear the endpoint first, with `DELETE …/endpoint`, then delete
