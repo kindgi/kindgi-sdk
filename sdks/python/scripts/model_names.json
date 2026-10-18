@@ -139,6 +139,8 @@
   "DeploymentContentsTool": ["DeploymentContentsTool"],
   "DeploymentEndpoint": ["DeploymentEndpoint"],
   "DeploymentEndpointProblem": ["DeploymentEndpointProblem"],
+  "DeploymentLivePin": ["DeploymentLivePin"],
+  "DeploymentLivePinGate": ["DeploymentLivePinGate"],
   "DeploymentPrimitiveCounts": ["DeploymentPrimitiveCounts"],
   "DeploymentPromotion": ["DeploymentPromotion"],
   "DeploymentPromotionBody": ["DeploymentPromotionBody"],

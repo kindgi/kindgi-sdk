@@ -41,6 +41,11 @@ export function isPromotionWrite(method: string, path: string): boolean {
   return method === 'POST' && /\/(promotions|live\/rollback|live\/unpin)$/.test(path);
 }
 
+/** The promotion writes that set a live version — a pin or a rollback, not an unpin: only these span an order's environments. */
+export function isLiveSet(method: string, path: string): boolean {
+  return method === 'POST' && /\/(promotions|live\/rollback)$/.test(path);
+}
+
 /** `POST …/promotions/check` changes nothing: `read` on the agent. */
 export function isPromotionCheck(method: string, path: string): boolean {
   return method === 'POST' && path.endsWith('/promotions/check');

@@ -1152,6 +1152,53 @@ describe('POST /v1/proposals/:id/rollback and /withdraw', () => {
   });
 });
 
+describe('an agent an environment order carries: a tenant- or org-wide change spans the order (409)', () => {
+  const PROD = randomUUID() as ProjectId;
+  const ORG = randomUUID();
+  // The caller administers both environments, so the authorization passes and
+  // the width — not a missing right — is what refuses the change.
+  const wide = {
+    orders: [[projectId, PROD]],
+    items: [{ kind: 'agent' as const, id: AGENT, projects: [projectId, PROD] }],
+    grants: [
+      `read project:${projectId}`,
+      `write project:${projectId}`,
+      `admin project:${projectId}`,
+      `read project:${PROD}`,
+      `write project:${PROD}`,
+      `admin project:${PROD}`,
+    ],
+  };
+
+  async function wideDraft(scope: unknown) {
+    const h = await harness(wide);
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals', { ...DRAFT, scope });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    return { ...h, id: res.body.id as string };
+  }
+
+  const spans = (scope: unknown, verb: 'request' | 'rollback') => async () => {
+    const { call, id } = await wideDraft(scope);
+    const res = await call('POST', `/v1/proposals/${id}/${verb}`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error.code).toBe('live-scope-spans-environments');
+  };
+
+  test('a tenant-wide request is refused', spans({ kind: 'tenant' }, 'request'));
+  test('a tenant-wide rollback is refused', spans({ kind: 'tenant' }, 'rollback'));
+  test('an org-wide request is refused', spans({ kind: 'org', orgId: ORG }, 'request'));
+  test('an org-wide rollback is refused', spans({ kind: 'org', orgId: ORG }, 'rollback'));
+
+  test('a project-scoped change for the same agent is not a width refusal', async () => {
+    const { call, id } = await wideDraft({ kind: 'project', projectId: PROD });
+    // The project scope stays within one environment: past the width check,
+    // on to the service (which here has nothing pinned at that scope to roll back).
+    const res = await call('POST', `/v1/proposals/${id}/rollback`, {});
+    expect(res.body.error?.code).not.toBe('live-scope-spans-environments');
+  });
+});
+
 describe('GET /v1/proposals', () => {
   test('lists newest first with derived statuses; filters by status and agent', async () => {
     const { call, id, evalRuns } = await drafted();

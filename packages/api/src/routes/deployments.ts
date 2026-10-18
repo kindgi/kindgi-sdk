@@ -57,7 +57,8 @@ import { type FlowPinsLive, publishDeployedFlow, resolveFlowPins } from '../flow
 import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
 import { imageRefWithin, parseImagePrefix, parseImageRef } from '../image-ref.js';
 import type { ImageRegistryBinding } from '../image-registry-binding.js';
-import type { LiveVersionBinding } from '../live-version-binding.js';
+import type { ItemRights } from '../item-rights.js';
+import type { AgentReleaseBindings, LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
@@ -77,6 +78,7 @@ import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
+import type { AgentReleaseGateDeps } from './agent-releases.js';
 import { capabilityRefusal } from './denied.js';
 import { isPromotionRoute, mountDeploymentPromotions } from './deployment-promotions.js';
 import { requireEnvName } from './env.js';
@@ -255,6 +257,22 @@ export interface DeploymentsRouterBindings {
   readonly values?: Pick<DeploymentValuesDeps, 'env' | 'providers' | 'modelKeyLookup' | 'packEnv'>;
   /** Where a promotion is recorded (`deployment-promoted`). Absent: it isn't. */
   readonly auditEvents?: AuditEventBinding;
+  /**
+   * The agents' live versions and gated promotions, for a promotion asked
+   * to make what it carried live (`{ makeLive: true }`): each carried
+   * agent is pinned in the target through the same gate a live route uses
+   * (`requestPromotion`). Absent: `makeLive` answers `501`.
+   */
+  readonly agentReleases?: AgentReleaseBindings;
+  /** What the make-live gate reads besides the releases (`requestPromotion`): comparisons, projects, the reference scope. */
+  readonly releaseGateDeps?: AgentReleaseGateDeps;
+  /**
+   * Rights on an agent more than one project serves, for a make-live: an
+   * agent in an order is pinned by an admin of the target project, and a
+   * pin wider than one project is refused (`liveChangeRefusal`). Absent, or
+   * with no authorizer: today's `promote` check.
+   */
+  readonly itemRights?: ItemRights;
 }
 
 export function deploymentsRouter(

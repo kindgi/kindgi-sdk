@@ -2218,6 +2218,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.agentRegistry !== undefined && { agentRegistry: input.agentRegistry }),
           ...(input.flowRegistry !== undefined && { flowRegistry: input.flowRegistry }),
           ...(input.agentReleases !== undefined && { liveVersions: input.agentReleases.live }),
+          // A promotion asked to make its carried agents live pins each in
+          // the target through the same gate a live route uses.
+          ...(input.agentReleases !== undefined && {
+            agentReleases: input.agentReleases,
+            releaseGateDeps: {
+              ...(input.evalRunBinding !== undefined && { evalRuns: input.evalRunBinding }),
+              ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+              ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+            },
+          }),
+          ...(itemRights !== undefined && { itemRights }),
           // The deployments router's agents publish loop resolves the
           // Default project through this binding. Optional at wiring so
           // app compositions without a project binding still boot; the loop

@@ -763,8 +763,12 @@ export function liveScopeCheck(scope: LiveScope | undefined): ItemCheck {
  * a deployment's promotion that makes what it moved live. For an agent
  * more than one project serves, what `liveScopeCheck` names; else
  * today's check, `promote` on the agent, as the route's middleware asks
- * it. `undefined` when allowed; else the 403 to answer. It reads no body
- * and answers nothing itself.
+ * it. Then, for an agent in an order, `setsLive` (a pin or a rollback,
+ * not an unpin) at a scope wider than one project is refused: a tenant-
+ * or org-wide pin would span the order's environments (`widthRefusal`).
+ * The authorization is first, so an unauthorized wide pin is the 403, not
+ * the 409. `undefined` when allowed; else the response to answer. It reads
+ * no body and answers nothing itself.
  */
 export async function liveChangeRefusal(
   c: Ctx,
@@ -773,12 +777,25 @@ export async function liveChangeRefusal(
     readonly rights: ItemRights | undefined;
     readonly agentId: string;
     readonly scope: LiveScope | undefined;
+    /** A pin or a rollback (one that sets a live version), not an unpin: only such a change spans an order's environments. */
+    readonly setsLive?: boolean;
   },
 ): Promise<Response | undefined> {
   const projects = await how.rights?.multi(c, 'agent', how.agentId);
   if (how.rights !== undefined && projects !== undefined) {
     const check = liveScopeCheck(how.scope);
-    return how.rights.enforce(c, 'agent', how.agentId, projects, check, namesNoVersion);
+    const refused = await how.rights.enforce(
+      c,
+      'agent',
+      how.agentId,
+      projects,
+      check,
+      namesNoVersion,
+    );
+    if (refused !== undefined) return refused;
+    return how.setsLive === true && spansEnvironmentsScope(how.scope)
+      ? spansEnvironments(c)
+      : undefined;
   }
   let allowed = false;
   const refused = await how.authorizer.authorize('promote', () => ref('agent', how.agentId))(
@@ -795,6 +812,50 @@ export async function liveChangeRefusal(
 /** `enforce`'s answer for a version the caller can't see: a live scope's check names no version, so it's never asked. */
 function namesNoVersion(): never {
   throw new Error("A live change's check names no version");
+}
+
+/** A live scope that reaches more than one project: the tenant's, an org's, or none given (tenant-wide). A project or one of its segments stays within one. */
+function spansEnvironmentsScope(scope: LiveScope | undefined): boolean {
+  return scope?.kind !== 'project' && scope?.kind !== 'segment';
+}
+
+/** The 409 a pin wider than one project answers for an agent in an order, in the envelope the other refusals use. */
+function spansEnvironments(c: Ctx): Response {
+  const requestId = c.get('requestId');
+  c.status(409);
+  return c.json(
+    toWireError(
+      {
+        code: 'live-scope-spans-environments',
+        message:
+          "An agent in an environment order is made live within one project; a tenant- or org-wide pin would span the order's environments. Pin the project, or a segment of it.",
+      },
+      typeof requestId === 'string' ? requestId : '',
+    ),
+  );
+}
+
+/**
+ * Whether a pin for an agent in an order is refused for spanning the
+ * order's environments: a tenant- or org-wide `scope` (one wider than a
+ * project). The 409 to answer, else `undefined`. For an agent one project
+ * serves, with no order, or with no rights to ask, `undefined` — today's
+ * checks hold. It reads no body and answers nothing but the refusal. The
+ * proposals' request and rollback call it after their own `deny`, as the
+ * live routes and a deployment's make-live call it through
+ * `liveChangeRefusal`.
+ */
+export async function widthRefusal(
+  c: Ctx,
+  how: {
+    readonly rights: ItemRights | undefined;
+    readonly agentId: string;
+    readonly scope: LiveScope | undefined;
+  },
+): Promise<Response | undefined> {
+  if (how.rights === undefined || !spansEnvironmentsScope(how.scope)) return undefined;
+  const projects = await how.rights.multi(c, 'agent', how.agentId);
+  return projects === undefined ? undefined : spansEnvironments(c);
 }
 
 /**

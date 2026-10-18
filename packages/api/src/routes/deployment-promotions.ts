@@ -43,7 +43,7 @@ import { ref } from '@kindgi/authz';
 import { emitAuditEvent } from '@kindgi/compliance';
 import { verifyEd25519 } from '@kindgi/crypto';
 import type { Scope } from '@kindgi/platform';
-import type { ProjectId, Semver, TenantId, ToolId } from '@kindgi/types';
+import type { LiveScope, ProjectId, Semver, TenantId, ToolId } from '@kindgi/types';
 
 import { callerIdentity } from '../caller.js';
 import {
@@ -66,10 +66,15 @@ import {
   deploymentValues,
 } from '../deployment-values.js';
 import { statusFor, toWireError } from '../errors.js';
+import type { GatePolicyRef } from '../gate-policy-binding.js';
+import type { GateCheck } from '../gate.js';
+import { liveChangeRefusal } from '../item-rights.js';
+import type { Promotion, PromotionStatus } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { limitedCaller } from '../middleware/key-project.js';
 import { secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import type { AppEnv } from '../types.js';
+import { actorOf, promotionResponse, requestPromotion } from './agent-releases.js';
 import { deniedBy, refused } from './denied.js';
 import type { DeploymentsRouterBindings } from './deployments.js';
 import { scopeResourceRef } from './scope-params.js';
@@ -153,6 +158,24 @@ export interface PromotionMoves {
   readonly guardrails: readonly DeployedPrimitive[];
 }
 
+/** The gate's say on a carried version's pin: there when it isn't live yet (an approval or a failed check), or ran checks. */
+export interface DeploymentLivePinGate {
+  readonly status: PromotionStatus;
+  readonly promotionId: string;
+  readonly policy?: GatePolicyRef | null;
+  readonly approvalId?: string;
+  readonly checks?: readonly GateCheck[];
+}
+
+/** A carried agent version the make-live pinned, or tried to, in the target project. */
+export interface DeploymentLivePin {
+  readonly id: string;
+  readonly version: string;
+  /** Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`). */
+  readonly pinned: boolean;
+  readonly gate?: DeploymentLivePinGate;
+}
+
 /**
  * What a promotion did. The handler builds it once and answers it through
  * `promotionAnswer`, so what's added after the write (making versions
@@ -166,6 +189,8 @@ export interface PromotionResult {
   readonly leftBehind: readonly LeftBehindVersion[];
   /** `true`: a new deployment (`201`); `false`: the target had it (`200`). */
   readonly created: boolean;
+  /** Each carried agent pinned live in the target, present only when `makeLive` was asked. */
+  readonly live?: readonly DeploymentLivePin[];
 }
 
 /** The moves of `deployment` with the versions carried with it: each list as shipped, then carried. */
@@ -203,6 +228,7 @@ export function promotionAnswer(c: Context<AppEnv>, result: PromotionResult): Re
     created: result.created,
     moved: result.moved,
     ...(result.leftBehind.length > 0 && { leftBehind: result.leftBehind }),
+    ...(result.live !== undefined && { live: result.live }),
   });
 }
 
@@ -238,6 +264,8 @@ interface PromotionPlan {
 interface PromotionBody {
   readonly toProjectId: ProjectId;
   readonly reason?: string;
+  /** Make every agent version the promotion carries live in the target project. */
+  readonly makeLive?: boolean;
 }
 
 const MAX_REASON = 1000;
@@ -298,11 +326,117 @@ export function mountDeploymentPromotions(
       leftBehind: plan.carried.leftBehind,
       created: outcome.kind === 'ok',
     };
-    if (result.created || outcome.carried.length > 0) {
-      await auditPromotion(c, bindings, plan, result, outcome.carried, body.reason);
-    }
-    return promotionAnswer(c, result);
+    return finishPromotion(c, bindings, authorizer, plan, result, outcome.carried, body);
   });
+}
+
+/**
+ * After the move commits: record it, and — when `makeLive` was asked — pin
+ * every carried agent live in the target (`makeCarriedLive`), adding `live`
+ * to the answer. Answers the promotion either way.
+ */
+async function finishPromotion(
+  c: Context<AppEnv>,
+  bindings: DeploymentsRouterBindings,
+  authorizer: Authorizer | undefined,
+  plan: PromotionPlan,
+  result: PromotionResult,
+  carried: readonly CarriedVersion[],
+  body: PromotionBody,
+): Promise<Response> {
+  if (result.created || carried.length > 0) {
+    await auditPromotion(c, bindings, plan, result, carried, body.reason);
+  }
+  if (body.makeLive !== true) return promotionAnswer(c, result);
+  const live = await makeCarriedLive(c, bindings, authorizer, plan, result, body.reason);
+  return live instanceof Response ? live : promotionAnswer(c, { ...result, live });
+}
+
+/**
+ * Pin every carried agent version live in the target project, through the
+ * same gate a live route does (`requestPromotion`). The promotion is
+ * already committed, so this runs after it. Each agent is authorized
+ * first — a project scope at the target, `liveChangeRefusal`, the one the
+ * live routes use — for all of them before any pin, so a refusal is the
+ * 403 answered and nothing is pinned (fix the grant and promote again:
+ * the move is idempotent, and so is a pin in place). The width check in
+ * `liveChangeRefusal` never fires here: the scope is one project. Then
+ * each version is requested through its scope's gate: live now, waiting
+ * for an approval, or refused by a check, each reported in `live`.
+ * Returns the pins, or the response to answer instead (a 403, or a gate
+ * this deployment can't record).
+ */
+async function makeCarriedLive(
+  c: Context<AppEnv>,
+  bindings: DeploymentsRouterBindings,
+  authorizer: Authorizer | undefined,
+  plan: PromotionPlan,
+  result: PromotionResult,
+  reason: string | undefined,
+): Promise<readonly DeploymentLivePin[] | Response> {
+  const { agentReleases, agentRegistry, releaseGateDeps } = bindings;
+  if (agentReleases === undefined || agentRegistry === undefined || releaseGateDeps === undefined) {
+    return unsupported(c);
+  }
+  const tenantId = plan.source.tenantId;
+  const scope: LiveScope = { kind: 'project', projectId: plan.toProjectId };
+  const pinnable = result.moved.agents.filter(
+    (a): a is MovedVersion & { version: string } => a.version !== undefined,
+  );
+  // Authorize every agent first, so a refusal answers the 403 before a
+  // single version is pinned (the authorizer is off in a plain composition).
+  if (authorizer !== undefined) {
+    for (const agent of pinnable) {
+      const denied = await liveChangeRefusal(c, {
+        authorizer,
+        rights: bindings.itemRights,
+        agentId: agent.id,
+        scope,
+        setsLive: true,
+      });
+      if (denied !== undefined) return denied;
+    }
+  }
+  const live: DeploymentLivePin[] = [];
+  for (const agent of pinnable) {
+    const outcome = await requestPromotion(agentRegistry, agentReleases, releaseGateDeps, {
+      tenantId,
+      agentId: agent.id,
+      version: agent.version as unknown as Semver,
+      scope,
+      requestedBy: actorOf(c),
+      ...(reason !== undefined && { reason }),
+    });
+    if (outcome.kind !== 'ok') return promotionResponse(c, outcome);
+    live.push(livePinOf(agent, outcome.promotion, outcome.checks));
+  }
+  return live;
+}
+
+/** A carried agent's `live` entry from its promotion: pinned unless a gate holds it, with the gate's say when it does or ran checks. */
+function livePinOf(
+  agent: MovedVersion & { version: string },
+  promotion: Promotion,
+  outcomeChecks: readonly GateCheck[] | undefined,
+): DeploymentLivePin {
+  const pinned = promotion.status !== 'pending-approval' && promotion.status !== 'refused';
+  const checks = promotion.checks ?? outcomeChecks;
+  const gate: DeploymentLivePinGate | undefined =
+    !pinned || (checks !== undefined && checks.length > 0)
+      ? {
+          status: promotion.status ?? 'promoted',
+          promotionId: promotion.id,
+          ...(promotion.policy !== undefined && { policy: promotion.policy }),
+          ...(promotion.approvalId !== undefined && { approvalId: promotion.approvalId }),
+          ...(checks !== undefined && { checks }),
+        }
+      : undefined;
+  return {
+    id: agent.id,
+    version: (promotion.toVersion as unknown as string | null) ?? agent.version,
+    pinned,
+    ...(gate !== undefined && { gate }),
+  };
 }
 
 /** The body: `toProjectId`, and `reason` where the route takes one; anything else is refused. */
@@ -320,19 +454,23 @@ async function promotionBody(
     return badInput(c, 'The body must be a JSON object.');
   }
   const body = raw as Record<string, unknown>;
-  const allowed = takesReason ? ['toProjectId', 'reason'] : ['toProjectId'];
+  const allowed = takesReason ? ['toProjectId', 'reason', 'makeLive'] : ['toProjectId'];
   const unknownKey = Object.keys(body).find((k) => !allowed.includes(k));
   if (unknownKey !== undefined) return badInput(c, `Unknown field \`${unknownKey}\`.`);
-  const { toProjectId, reason } = body;
+  const { toProjectId, reason, makeLive } = body;
   if (typeof toProjectId !== 'string' || toProjectId.length === 0) {
     return badInput(c, '`toProjectId` must name the project to promote the deployment to.');
   }
   if (reason !== undefined && (typeof reason !== 'string' || reason.length > MAX_REASON)) {
     return badInput(c, `\`reason\` must be a string of at most ${MAX_REASON} characters.`);
   }
+  if (makeLive !== undefined && typeof makeLive !== 'boolean') {
+    return badInput(c, '`makeLive` must be `true` or `false`.');
+  }
   return {
     toProjectId: toProjectId as ProjectId,
     ...(typeof reason === 'string' && { reason }),
+    ...(typeof makeLive === 'boolean' && { makeLive }),
   };
 }
 

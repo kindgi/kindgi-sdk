@@ -30,6 +30,7 @@ import type {
   ProjectId,
   SigningKeyId,
   TenantId,
+  Timestamp,
   UserId,
   VersionDerivation,
 } from '@kindgi/types';
@@ -37,17 +38,21 @@ import type {
 import { canonicalizeEnvelope } from '../src/deployment-envelope.js';
 import { createApp } from '../src/index.js';
 import type {
+  AgentReleaseBindings,
   CarriedVersion,
   Deployment,
   DeploymentBinding,
   DeploymentContents,
   DeploymentEndpoint,
+  PromoteInput,
   PromotedToolSecretScopes,
+  Promotion,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 import { environmentOrders } from './support/environment-orders.js';
+import { type ItemRow, itemProjects } from './support/order-items.js';
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'promotions-token';
@@ -243,6 +248,45 @@ const notUsed = async (): Promise<never> => {
   throw new Error('not asked in these tests');
 };
 
+/**
+ * A live-release binding that records every pin a make-live asks for and
+ * answers it live at once, with no gate. `pinned` is each `promote` input,
+ * in order, so a test can read the scope the pin was set at.
+ */
+function livePins(): { readonly releases: AgentReleaseBindings; readonly pinned: PromoteInput[] } {
+  const pinned: PromoteInput[] = [];
+  const promotions = {
+    promote: async (input: PromoteInput) => {
+      pinned.push(input);
+      return {
+        kind: 'ok' as const,
+        value: {
+          id: `pin-${pinned.length}`,
+          agentId: input.agentId,
+          scope: input.scope,
+          action: 'promote',
+          fromVersion: null,
+          toVersion: input.version,
+          requestedBy: input.requestedBy,
+          createdAt: '2026-10-01T10:00:00.000Z' as Timestamp,
+          ...(input.reason !== undefined && { reason: input.reason }),
+        } satisfies Promotion,
+      };
+    },
+    rollback: notUsed,
+    unpin: notUsed,
+    list: async () => ({ data: [] }),
+    get: async () => null,
+  };
+  return {
+    pinned,
+    releases: {
+      live: { resolve: async () => null, list: async () => [] },
+      promotions: promotions as unknown as AgentReleaseBindings['promotions'],
+    },
+  };
+}
+
 function harness(
   opts: {
     readonly rows?: readonly Deployment[];
@@ -257,6 +301,10 @@ function harness(
     readonly suspended?: readonly ProjectId[];
     /** The env the runtime serves; `null`: none named. */
     readonly envName?: string | null;
+    /** Wire a live-release binding (`livePins`), so `makeLive` can pin. */
+    readonly live?: boolean;
+    /** Items an order carries, so an agent spans more than one project. */
+    readonly itemRows?: readonly ItemRow[];
   } = {},
 ) {
   const deployments = ledger(opts.rows ?? [built({ id: 'dep-s1', projectId: S1 })], {
@@ -278,6 +326,8 @@ function harness(
   const keyOf = (scope: { kind: string; projectId?: unknown }, name: string) =>
     `${scope.kind}:${(scope.projectId as string | undefined) ?? ''}:${name}`;
   const grants = opts.grants;
+  const live = opts.live === true ? livePins() : undefined;
+  const items = opts.itemRows !== undefined ? itemProjects([...opts.itemRows]) : undefined;
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -313,6 +363,8 @@ function harness(
           : null,
     } as never,
     environmentOrders: environmentOrders(opts.orders ?? [ORDER]),
+    ...(live !== undefined && { agentReleases: live.releases }),
+    ...(items !== undefined && { itemProjects: items }),
     ...(opts.suspended !== undefined && {
       projectSuspended: async (_t: TenantId, p: ProjectId) => opts.suspended?.includes(p) === true,
     }),
@@ -341,11 +393,15 @@ function harness(
     trusted,
     appended,
     versions,
+    /** The pins the make-live asked for, in order (empty without `live`). */
+    pinned: live?.pinned ?? [],
     promote: (id: string, toProjectId: ProjectId, reason?: string) =>
       call(`/v1/deployments/${id}/promotions`, {
         toProjectId,
         ...(reason !== undefined && { reason }),
       }),
+    makeLive: (id: string, toProjectId: ProjectId, token = TOKEN) =>
+      call(`/v1/deployments/${id}/promotions`, { toProjectId, makeLive: true }, token),
     check: (id: string, toProjectId: ProjectId) =>
       call(`/v1/deployments/${id}/promotions/check`, { toProjectId }),
     call,
@@ -818,5 +874,112 @@ describe('the record, and what a promotion takes', () => {
       [400, 'bad-input'],
     ]);
     expect(h.deployments.rows).toHaveLength(1);
+  });
+});
+
+describe('making the carried agents live in the target (makeLive)', () => {
+  const AGENT = 'acme.matcher';
+
+  test('pins each carried agent in the target and reports it live; an agent one project serves is asked the promote right it has today', async () => {
+    const h = harness({
+      live: true,
+      grants: [`read project:${S1}`, `admin project:${S2}`, `promote agent:${AGENT}`],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status).toBe(201);
+    expect(res.body.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    // Pinned in the target, at the target's own project scope — never the tenant's.
+    expect(h.pinned).toHaveLength(1);
+    expect(h.pinned[0]).toMatchObject({
+      agentId: AGENT,
+      version: '1.0.0',
+      scope: { kind: 'project', projectId: S2 },
+    });
+  });
+
+  test("refused when the caller can't promote an agent one project serves: 403, though the build has already moved", async () => {
+    const h = harness({
+      live: true,
+      grants: [`read project:${S1}`, `admin project:${S2}`],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status).toBe(403);
+    expect(res.body.error.details).toMatchObject({ action: 'promote', resource: `agent:${AGENT}` });
+    // The promotion committed (the move isn't undone); nothing was pinned.
+    expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
+    expect(h.pinned).toEqual([]);
+  });
+
+  test('an agent an order carries is asked admin on the target project, not its home: a target admin who runs neither the source nor the home pins it', async () => {
+    const h = harness({
+      live: true,
+      // `acme.matcher` runs in S1 (its home) and S2 (the target).
+      itemRows: [{ kind: 'agent', id: AGENT, projects: [S1, S2] }],
+      // Admin on the target S2 and read on the source S1 — but no admin on the home S1.
+      grants: [`read project:${S1}`, `admin project:${S2}`],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status).toBe(201);
+    expect(res.body.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(h.pinned[0]).toMatchObject({ scope: { kind: 'project', projectId: S2 } });
+  });
+
+  test('admin on the source alone, not the target: the promotion is refused before anything is made live', async () => {
+    const h = harness({
+      live: true,
+      grants: [`read project:${S1}`, `admin project:${S1}`],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status).toBe(403);
+    expect(res.body.error.details).toMatchObject({ action: 'admin', resource: `project:${S2}` });
+    expect(h.pinned).toEqual([]);
+    expect(h.deployments.rows.filter((d) => d.projectId === S2)).toHaveLength(0);
+  });
+
+  test('making it live again is safe: the move is idempotent and a pin in place passes, with the same answer', async () => {
+    const h = harness({
+      live: true,
+      grants: [`read project:${S1}`, `admin project:${S2}`, `promote agent:${AGENT}`],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const first = await h.makeLive('dep-s1', S2);
+    const again = await h.makeLive('dep-s1', S2);
+    expect(first.status).toBe(201);
+    expect(first.body.created).toBe(true);
+    // The target already has the build, so the repeat answers 200 — and makes
+    // it live again all the same, with the same answer.
+    expect(again.status).toBe(200);
+    expect(again.body.created).toBe(false);
+    expect(again.body.live).toEqual(first.body.live);
+    // One deployment in the target; the pin was asked both times (in place, a no-op the binding absorbs).
+    expect(h.deployments.rows.filter((d) => d.projectId === S2)).toHaveLength(1);
+    expect(h.pinned).toHaveLength(2);
+  });
+
+  test('made live in the Default project: the pin names that project, so a Default run resolves it over an older tenant-wide pin', async () => {
+    const h = harness({
+      live: true,
+      rows: [built({ id: 'dep-s2', projectId: S2 })],
+    });
+    const res = await h.makeLive('dep-s2', PROD);
+    expect(res.status).toBe(201);
+    expect(res.body.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    // A project-kind pin on the Default — never tenant- or org-wide — so it
+    // takes precedence over an older tenant pin when the Default resolves live.
+    expect(h.pinned).toHaveLength(1);
+    expect(h.pinned[0]?.scope).toEqual({ kind: 'project', projectId: PROD });
+  });
+
+  test("a composition without a live-release binding can't make a promotion live: 501, the move still done", async () => {
+    const h = harness();
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status).toBe(501);
+    expect(res.body.error.code).toBe('promotions-unsupported');
+    // The build moved; only making it live is unsupported.
+    expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
   });
 });
