@@ -546,14 +546,14 @@ describe("API — eval-runs start: the version it runs must be the project's to 
       const error = await refusal(res);
       expect(error.code).toBe('reference-out-of-scope');
       expect(error.message).toBe(
-        `This project can't reference ${named}: it isn't registered in this project, its org or the tenant`,
+        `This project can't reference ${named}: it isn't a version this project runs (not registered in this project, its org or the tenant, nor deployed to it)`,
       );
       expect(error.details?.issues).toEqual([
         {
           path,
           kind,
           id,
-          message: `${named} isn't registered in this project, its org or the tenant`,
+          message: `${named} isn't a version this project runs (not registered in this project, its org or the tenant, nor deployed to it)`,
         },
       ]);
       expect(calls.n).toBe(0);
@@ -588,14 +588,14 @@ describe("API — eval-runs start: the version it runs must be the project's to 
       const error = await refusal(res);
       expect(error.code).toBe('reference-out-of-scope');
       expect(error.message).toBe(
-        `This project can't reference agent "acme.drafting" 1.1.0: it isn't registered in this project, its org or the tenant`,
+        `This project can't reference agent "acme.drafting" 1.1.0: it isn't a version this project runs (not registered in this project, its org or the tenant, nor deployed to it)`,
       );
       expect(error.details?.issues).toEqual([
         {
           path: '/versions/agents/acme.drafting',
           kind: 'agent',
           id: 'acme.drafting',
-          message: `agent "acme.drafting" 1.1.0 isn't registered in this project, its org or the tenant`,
+          message: `agent "acme.drafting" 1.1.0 isn't a version this project runs (not registered in this project, its org or the tenant, nor deployed to it)`,
         },
       ]);
       expect(calls.n).toBe(0);
@@ -650,7 +650,7 @@ describe("API — eval-runs start: the version it runs must be the project's to 
       );
       expect(error.code).toBe('reference-out-of-scope');
       expect(error.message).toBe(
-        `This project can't reference 3 of the items named (flow "acme.triage" 2.0.0, agent "acme.drafting" 1.1.0, tool "acme.offsite"): none is registered in this project, its org or the tenant`,
+        `This project can't reference 3 of the items named (flow "acme.triage" 2.0.0, agent "acme.drafting" 1.1.0, tool "acme.offsite"): none is registered in this project, its org or the tenant, and no version named is deployed to it`,
       );
       expect(error.details?.issues?.map((i) => i.path)).toEqual([
         '/flowRef/flowId',

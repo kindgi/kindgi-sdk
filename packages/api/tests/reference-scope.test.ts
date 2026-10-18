@@ -85,6 +85,10 @@ describe('the helpers', () => {
     expect(refused?.issues[0]?.message).toBe(
       `tool "acme.other-tool" isn't registered in this project, its org or the tenant`,
     );
+    // With no version named, the refusal says nothing about deploying one.
+    expect(refused?.message).toBe(
+      `This project can't reference 2 of the items named (tool "acme.other-tool", tool "acme.other-tool"): none is registered in this project, its org or the tenant`,
+    );
   });
 
   test('a version is its own reference: asked with its version, once per version, beside the id', async () => {
@@ -109,10 +113,10 @@ describe('the helpers', () => {
     expect(refused?.issues.map((i) => i.path)).toEqual(['/pins/1', '/pins/2']);
     // The refusal names the version: the item may be in reach at another.
     expect(refused?.issues[0]?.message).toBe(
-      `agent "acme.agent" 1.1.0 isn't registered in this project, its org or the tenant`,
+      `agent "acme.agent" 1.1.0 isn't a version this project runs (not registered in this project, its org or the tenant, nor deployed to it)`,
     );
     expect(refused?.message).toBe(
-      `This project can't reference 2 of the items named (agent "acme.agent" 1.1.0, agent "acme.agent" 1.1.0): none is registered in this project, its org or the tenant`,
+      `This project can't reference 2 of the items named (agent "acme.agent" 1.1.0, agent "acme.agent" 1.1.0): none is registered in this project, its org or the tenant, and no version named is deployed to it`,
     );
   });
 

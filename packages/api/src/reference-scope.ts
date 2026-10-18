@@ -107,7 +107,7 @@ export async function referencesOutOfScope(
         path: ref.path,
         kind: ref.kind,
         id: ref.id,
-        message: `${named(ref)} isn't registered in this project, its org or the tenant`,
+        message: `${named(ref)} ${refusedBecause(ref)}`,
       });
       refused.push(ref);
     }
@@ -118,8 +118,8 @@ export async function referencesOutOfScope(
     code: 'reference-out-of-scope',
     message:
       issues.length === 1
-        ? `This project can't reference ${named(first)}: it isn't registered in this project, its org or the tenant`
-        : `This project can't reference ${issues.length} of the items named (${refused.map(named).join(', ')}): none is registered in this project, its org or the tenant`,
+        ? `This project can't reference ${named(first)}: it ${refusedBecause(first)}`
+        : `This project can't reference ${issues.length} of the items named (${refused.map(named).join(', ')}): none is ${REGISTERED}${refused.some((r) => r.version !== undefined) ? ', and no version named is deployed to it' : ''}`,
     issues,
   };
 }
@@ -127,6 +127,19 @@ export async function referencesOutOfScope(
 /** `agent "acme.desk"`, with its version when the reference is to one (`agent "acme.desk" 1.1.0`). */
 function named(ref: ItemReference): string {
   return `${NOUN[ref.kind]} "${ref.id}"${ref.version !== undefined ? ` ${ref.version}` : ''}`;
+}
+
+const REGISTERED = 'registered in this project, its org or the tenant';
+
+/**
+ * Why a reference is refused. A version may be of an item the project has
+ * elsewhere in its environment order (made in an earlier environment, not
+ * yet promoted), so it says the version is what the project doesn't run.
+ */
+function refusedBecause(ref: ItemReference): string {
+  return ref.version === undefined
+    ? `isn't ${REGISTERED}`
+    : `isn't a version this project runs (not ${REGISTERED}, nor deployed to it)`;
 }
 
 /**
