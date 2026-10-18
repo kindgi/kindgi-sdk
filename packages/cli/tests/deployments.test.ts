@@ -339,7 +339,42 @@ describe('kindgi deployments get', () => {
     expect(table.out.stdout).toBe(plain.out.stdout);
   });
 
-  test("pending, cleared and waiting, or cleared for good: why, in deploy's words; a pending pack-env code says what to do", async () => {
+  test("pending on a pack-env code, or cleared and waiting on one: the lines deploy prints while it waits, at the env the server reads and the deployment's project", async () => {
+    const at = (endpoint: Record<string, unknown>) => async () => ({ ...DEPLOYMENT, endpoint });
+    const since = '2026-10-18T09:13:05.000Z';
+    const problem = { code: 'pack-env-missing', since };
+    const fix =
+      "      API_BASE isn't set for staging. Set it with `kindgi env set NAME <value> --scope=project:prj-acme --env=staging`.";
+
+    const pending = await run(['deployments', 'get', 'dep-acme-1'], {
+      get: at({ status: 'pending', since, problem }),
+      packEnv: packEnvAt('staging', MISSING),
+    });
+    expect(pending.out.exitCode).toBe(0);
+    expect(pending.asked.packEnv).toEqual(['dep-acme-1']);
+    expect(pending.out.stdout).toBe(
+      lines(
+        ...HEAD,
+        `  Pack service: pending since ${since}: a name the pack needs in its env isn't set (pack-env-missing)`,
+        fix,
+      ),
+    );
+
+    const waiting = await run(['deployments', 'get', 'dep-acme-1'], {
+      get: at({ status: 'cleared', since, waiting: true, problem }),
+      packEnv: packEnvAt('staging', MISSING),
+    });
+    expect(waiting.asked.packEnv).toEqual(['dep-acme-1']);
+    expect(waiting.out.stdout).toBe(
+      lines(
+        ...HEAD,
+        `  Pack service: cleared since ${since}, waiting for one again: a name the pack needs in its env isn't set (pack-env-missing)`,
+        fix,
+      ),
+    );
+  });
+
+  test("pending, cleared and waiting, or cleared for good: why, in deploy's words", async () => {
     const at = (endpoint: Record<string, unknown>) => async () => ({ ...DEPLOYMENT, endpoint });
     const since = '2026-10-18T09:13:05.000Z';
     const problem = (code: string) => ({ code, since });
@@ -354,18 +389,6 @@ describe('kindgi deployments get', () => {
       ),
     );
     expect(pending.asked.packEnv).toEqual([]);
-
-    const pendingEnv = await run(['deployments', 'get', 'dep-acme-1'], {
-      get: at({ status: 'pending', since, problem: problem('pack-env-missing') }),
-      packEnv: packEnvAt('prod', MISSING),
-    });
-    expect(pendingEnv.out.stdout).toBe(
-      lines(
-        ...HEAD,
-        `  Pack service: pending since ${since}: a name the pack needs in its env isn't set (pack-env-missing)`,
-        "      API_BASE isn't set for prod. Set it with `kindgi env set NAME <value> --scope=project:prj-acme --env=prod`.",
-      ),
-    );
 
     const waiting = await run(['deployments', 'get', 'dep-acme-1'], {
       get: at({ status: 'cleared', since, waiting: true }),
