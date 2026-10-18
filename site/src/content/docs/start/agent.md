@@ -52,6 +52,8 @@ URL with `.md`.
   - a Java or Scala project: `./kindgiw` (the CLI version the project pins in
     `kindgi.config.json`; `kindgiw.cmd` on Windows).
 
+<!-- cli-launch: the rule above says what `kindgi` stands for, before step 2 makes a project and after -->
+
 ## Step 0: check the machine
 
 Work out this machine's OS yourself, without asking the person: `uname -s`
