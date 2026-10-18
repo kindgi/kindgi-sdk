@@ -64,6 +64,10 @@ Who calls whom:
 - **Terraform 1.6 or later, gcloud, Docker** with `buildx`, **jq**, **curl**,
   **openssl**, and your pack's `kindgi` CLI, 0.1.2 or later, which has
   `kindgi key trust`.
+- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.1`. Inside a pack project, `pnpm exec kindgi`
+  runs the project's pinned CLI instead. The build and deploy steps need the
+  pack's folder, so they're written that way.
 - **Runtime 0.1.1 or later.** Cloud SQL has no superuser; 0.1.0 can't start
   on it.
 - **Access to the runtime image** (`kindgi auth registry`; see
@@ -537,8 +541,8 @@ endpoint ([Serve many tenants](#serve-many-tenants)).
 
 ```sh
 URL=$(terraform output -raw server_url)
-KINDGI_API_TOKEN=$(gcloud secrets versions access latest --secret=$N-api-token)
-pnpm exec kindgi key trust acme-prod --url "$URL" --token "$KINDGI_API_TOKEN"
+export KINDGI_API_TOKEN=$(gcloud secrets versions access latest --secret=$N-api-token)
+npx --yes @kindgi/cli@0.1 key trust acme-prod --url "$URL"
 ```
 
 It prints the key the runtime now trusts, then says so:
@@ -558,12 +562,13 @@ It prints the key the runtime now trusts, then says so:
 
 - `gcloud secrets versions access` reads the API token from step 3.
 - `acme-prod` is your signing key's id, from `~/.kindgi/keys/`.
-- `--url` and `--token` are the runtime's address and its API token.
+- `--url` is the runtime's address. The commands send the API token,
+  exported as `KINDGI_API_TOKEN`, which keeps it off the command line.
   `kindgi deploy` takes the address as `--endpoint`, and `--env prod` names
   the environment block to deploy.
 
 ```sh
-pnpm exec kindgi deploy --env prod --endpoint "$URL" --token "$KINDGI_API_TOKEN"
+pnpm exec kindgi deploy --env prod --endpoint "$URL"
 ```
 
 It prints the deployment as JSON, then each step. The last steps:
@@ -595,9 +600,9 @@ what to fix. Fix it and run the same command again.
 Check the runtime answers, lists your pack's tools, and runs a flow:
 
 ```sh
-curl "$URL/health"                                                    # {"ok":true}
-pnpm exec kindgi tools list --url "$URL" --token "$KINDGI_API_TOKEN"   # your pack's tools
-pnpm exec kindgi runs start --flow=acme.greet-echo --input='{"name":"Ada"}' --url "$URL" --token "$KINDGI_API_TOKEN"
+curl "$URL/health"                                  # {"ok":true}
+npx --yes @kindgi/cli@0.1 tools list --url "$URL"   # your pack's tools
+npx --yes @kindgi/cli@0.1 runs start --flow=acme.greet-echo --input='{"name":"Ada"}' --url "$URL"
 ```
 
 `--flow` names the flow to run, and `--input` is its input, as JSON.
@@ -693,7 +698,7 @@ on the Vertex AI API and grants the runtime's service account
 `roles/aiplatform.user`. Then register the preset:
 
 ```sh
-pnpm exec kindgi providers register --preset=gemini --project=<project> --models=gemini-3.8-flash --url "$URL" --token "$KINDGI_API_TOKEN"
+npx --yes @kindgi/cli@0.1 providers register --preset=gemini --project=<project> --models=gemini-3.8-flash --url "$URL"
 ```
 
 ```text

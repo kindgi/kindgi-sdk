@@ -14,9 +14,11 @@ that it came back healthy.
   `kindgi-server`, `kindgi-db` and `kindgi-pack` containers, on the `kindgi`
   network, with `kindgi.env` and `pack.env`.
 - **Docker** and **curl**, on the machine that runs the containers.
-- **`KINDGI_API_TOKEN` set in your shell** to the runtime's API token. The
+- **`KINDGI_API_TOKEN` exported in your shell** as the runtime's API token. The
   commands that take your API token read it from there.
-- **For `kindgi` commands:** your pack's directory, with Kindgi 0.1's CLI.
+- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.1`. Inside a pack project, `pnpm exec kindgi`
+  runs the project's pinned CLI instead.
 
 ## Restart the runtime
 
@@ -61,12 +63,11 @@ time, can be left `running`: nothing resumes it. Cancel it, and start it
 again:
 
 ```sh
-pnpm exec kindgi runs cancel <run id> --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
+npx --yes @kindgi/cli@0.1 runs cancel <run id> --url http://localhost:4000
 ```
 
-`<run id>` is the run's id. `--url` is the runtime's URL, and `--token` the
-API token. It prints the run's id, as in
-[Cancel a run](../../guides/runs/cancel-a-run/):
+`<run id>` is the run's id, and `--url` is the runtime's URL. It prints the
+run's id, as in [Cancel a run](../../guides/runs/cancel-a-run/):
 
 ```json
 {
@@ -213,7 +214,7 @@ Each repair is a line in its log:
 - **Another failure while starting:** it exits with code 1, and the log's
   first line starts with `kindgi-runtime: fatal:` and ends with the cause.
 - **A run that fails:** its `failureMessage`, in
-  `pnpm exec kindgi runs get <run id>`.
+  `npx --yes @kindgi/cli@0.1 runs get <run id>`.
 
 ## Next
 
