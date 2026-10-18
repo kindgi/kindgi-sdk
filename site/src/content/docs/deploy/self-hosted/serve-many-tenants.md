@@ -103,7 +103,7 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 | `system:tenants:contacts` | A tenant's admins' contact addresses, for service notices |
 | `system:suspend` | Suspending and restoring a tenant, a project or a pack |
 | `system:deployments` | The deployments and their pack services' endpoints |
-| `system:pack-env` | The plain values each deployment's pack declares, for its pack service, and the revision it runs (runtime 0.1.8.1 or later). On a key of its own: the deployments key reads no value |
+| `system:pack-env` | The values each deployment's pack declares, for its pack service, and the revision it runs (runtime 0.1.8.1 or later). On a key of its own: the deployments key reads no value, and only a key holding this scope itself, not `kindgi:system`, reads a secret's |
 | `system:license` | Reading the deployment's license, for its renewal |
 | `kindgi:system` | All of them: a full key |
 
@@ -203,7 +203,9 @@ service is, and checks it. It never creates or deletes one.
    If its pack declares an environment (runtime 0.1.8.1 or later), read it
    first, with a key of its own holding `system:pack-env`:
    `GET …/deployments/{deploymentId}/pack-env` gives each declared name's
-   plain value (`env`) and the `revision` they make. Give the service those.
+   plain value (`env`) and the `revision` they make. Ask with
+   `?secrets=values`, and a name set only as a secret is given too, in
+   `secrets`, read at the version the revision names. Give the service those.
    If it names a `problem` instead, it gives no value: start nothing, and say
    why (step 4).
 3. **Record its endpoint:**
@@ -235,7 +237,15 @@ service is, and checks it. It never creates or deletes one.
    `image-not-allowed`. For its environment (runtime 0.1.8.1 or later):
    `pack-env-missing` (a required name is set nowhere), `pack-env-ambiguous`
    (set both as a secret and as a plain value) or `pack-env-secret-not-yet`
-   (set only as a secret). The tenant sees the code and when, so a deploy that
+   (set only as a secret, read without `secrets=values`). With
+   `secrets=values`, every secret value the route gives is audited, one row
+   per secret, before the answer. When those rows can't be written, or the
+   secret store is out, it gives none (`503 pack-env-unavailable`): try
+   again. A secret that can't be read for a reason the platform fixes is
+   `pack-env-secret-unreadable`, a runtime with nowhere to audit one refuses
+   with `501 pack-env-secrets-unaudited`, and a secret over 32768 bytes is
+   more than a pack service can be given (`pack-env-secret-too-large`):
+   record the code. The tenant sees the code and when, so a deploy that
    waits for its pack service says why at once.
 5. **Give a running service its changed environment** (runtime 0.1.8.1 or
    later): `GET /v1/system/pack-env` lists the deployments with a `ready`
@@ -249,7 +259,12 @@ service is, and checks it. It never creates or deletes one.
    what it runs, and the tenant sees the code. One held as
    `pack-env-update-failed` stays listed for an hour after it was first
    held, so you try it again. After that it's listed again only when its
-   values change.
+   values change. One held as `pack-env-secret-unreadable` or
+   `pack-env-secrets-unaudited` is listed every time, with its `held`, since
+   the platform fixes those and its revision doesn't move: read it again on
+   your own back-off. A service made where no secret can be given, once a
+   name is set only as one, is held as `pack-env-secret-redeploy`: the next
+   deploy's service can be given it.
 6. **Retire what should go:** `GET /v1/system/deployments?endpoint=retire`
    lists deployments with an endpoint whose service should go, each with its
    `reason`. Clear the endpoint first, with `DELETE …/endpoint`, then delete
