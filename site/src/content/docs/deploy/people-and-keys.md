@@ -58,7 +58,7 @@ Adding a person gives them a place in the tenant, so they can sign in and
 get keys:
 
 ```sh
-kindgi people add --name="Sam Rivera" --email=sam@acme.example
+pnpm exec kindgi people add --name="Sam Rivera" --email=sam@acme.example
 ```
 
 - `--name` is their name, as people see it.
@@ -117,8 +117,8 @@ A tenant admin can do everything in the tenant. `grant` makes someone one,
 and `ungrant` takes it away:
 
 ```sh
-kindgi people grant <user-id> --tenant-admin
-kindgi people ungrant <user-id> --tenant-admin
+pnpm exec kindgi people grant <user-id> --tenant-admin
+pnpm exec kindgi people ungrant <user-id> --tenant-admin
 ```
 
 `<user-id>` is the person's id, as `kindgi people add` printed it. The grant
@@ -173,8 +173,8 @@ first admin stops being a tenant admin or is removed, and as a tenant
 admin, whoever holds it can make new keys with its capabilities:
 
 ```sh
-kindgi service-accounts create acme-deploy --description="Deploys" --tenant-admin
-kindgi tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=deploy --expires=90d
+pnpm exec kindgi service-accounts create acme-deploy --description="Deploys" --tenant-admin
+pnpm exec kindgi tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=deploy --expires=90d
 ```
 
 ## What you may do
@@ -228,7 +228,7 @@ On a runtime without an authorization store, it answers
 Everyone can make their own keys, for the API, the CLI and the SDKs:
 
 ```sh
-kindgi tokens create --label=laptop --expires=30d
+pnpm exec kindgi tokens create --label=laptop --expires=30d
 ```
 
 - `--label` is a name for the key, to tell your keys apart.
@@ -270,7 +270,7 @@ Make longer-lived keys with one of those, such as the 90-day key in
 A tenant admin made Sam's first key:
 
 ```sh
-kindgi tokens create --for=user:<user-id> --label=laptop --expires=30d
+pnpm exec kindgi tokens create --for=user:<user-id> --label=laptop --expires=30d
 ```
 
 ```text
@@ -294,7 +294,7 @@ kindgi tokens create --for=user:<user-id> --label=laptop --expires=30d
 ```
 
 ```sh
-kindgi tokens list --table
+pnpm exec kindgi tokens list --table
 ```
 
 ```text
@@ -314,7 +314,7 @@ A service account is for a pipeline or an app. It has no sign-in, only
 keys, and only the grants you give it:
 
 ```sh
-kindgi service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:editor
+pnpm exec kindgi service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:editor
 ```
 
 - `acme-ci` is the account's name.
@@ -342,7 +342,7 @@ kindgi service-accounts create acme-ci --description="Deploys from CI" --project
 Then make it a key:
 
 ```sh
-kindgi tokens create --for=sa:<service-account-id> --label=ci --expires=90d
+pnpm exec kindgi tokens create --for=sa:<service-account-id> --label=ci --expires=90d
 ```
 
 `<service-account-id>` is the `serviceAccountId` that `create` printed.
@@ -373,7 +373,7 @@ A person's record and sessions are for a tenant admin, or that person.
 Removing a person ends all their access at once:
 
 ```sh
-kindgi people remove <user-id>
+pnpm exec kindgi people remove <user-id>
 ```
 
 ```text

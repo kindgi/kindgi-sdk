@@ -23,7 +23,7 @@ Google Cloud project.
 whoever runs your Google Cloud project:
 
 ```sh
-kindgi sso providers start acme-google --idp=google
+pnpm exec kindgi sso providers start acme-google --idp=google
 ```
 
 - `acme-google` is the provider's id in your workspace.
@@ -87,7 +87,7 @@ Store the secret in Kindgi's secret store, by name, so it never travels by
 email or chat:
 
 ```sh
-kindgi secrets set ACME_GOOGLE_SECRET --env=production --scope=tenant
+pnpm exec kindgi secrets set ACME_GOOGLE_SECRET --env=production --scope=tenant
 ```
 
 - `ACME_GOOGLE_SECRET` is the secret's name. The registration keeps only
@@ -119,7 +119,7 @@ Re-enter to confirm:
 `finish` registers the client, and offers it to people at your domains:
 
 ```sh
-kindgi sso providers finish acme-google --kind=oidc --issuer=https://accounts.google.com \
+pnpm exec kindgi sso providers finish acme-google --kind=oidc --issuer=https://accounts.google.com \
   --client-id=<client id> --client-secret-ref=ACME_GOOGLE_SECRET --domains=<your domain>
 ```
 

@@ -26,7 +26,7 @@ through Okta has been checked.
 whoever runs your Okta organization:
 
 ```sh
-kindgi sso providers start acme-okta --idp=okta
+pnpm exec kindgi sso providers start acme-okta --idp=okta
 ```
 
 - `acme-okta` is the provider's id in your workspace.
@@ -74,7 +74,7 @@ Store the secret in Kindgi's secret store, by name, so it never travels by
 email or chat:
 
 ```sh
-kindgi secrets set ACME_OKTA_SECRET --env=production --scope=tenant
+pnpm exec kindgi secrets set ACME_OKTA_SECRET --env=production --scope=tenant
 ```
 
 - `ACME_OKTA_SECRET` is the secret's name. The registration keeps only this
@@ -106,7 +106,7 @@ Re-enter to confirm:
 `finish` registers the app, and offers it to people at your domains:
 
 ```sh
-kindgi sso providers finish acme-okta --kind=oidc --issuer=https://<your-org>.okta.com \
+pnpm exec kindgi sso providers finish acme-okta --kind=oidc --issuer=https://<your-org>.okta.com \
   --client-id=<client id> --client-secret-ref=ACME_OKTA_SECRET --domains=<your domain>
 ```
 

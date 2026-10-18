@@ -221,10 +221,40 @@ sender, and `--generate-secret` has your runtime make a signing secret, store
 it in the trigger's project, and show it once so you can paste it into the
 sender:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
+pnpm exec kindgi webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
   --preset=woocommerce --secret=acme-woo-orders --generate-secret
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
+  --preset=woocommerce --secret=acme-woo-orders --generate-secret
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
+  --preset=woocommerce --secret=acme-woo-orders --generate-secret
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
+  --preset=woocommerce --secret=acme-woo-orders --generate-secret
+```
+
+</TabItem>
+</Tabs>
 
 It prints the trigger as JSON, then where to point the sender: the trigger's
 id, its **receive URL** (`https://<your runtime>/v1/hooks/<tenant id>/<webhook id>`),
@@ -321,9 +351,36 @@ when it has a secret.
 
 Each delivery is on record, with what it started or why it didn't:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi webhooks fires <trigger-id> --table
+pnpm exec kindgi webhooks fires <trigger-id> --table
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi webhooks fires <trigger-id> --table
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw webhooks fires <trigger-id> --table
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw webhooks fires <trigger-id> --table
+```
+
+</TabItem>
+</Tabs>
 
 `<trigger-id>` is the trigger's id, which `register` printed. `--table`
 prints a table instead of JSON. From the same WooCommerce run:

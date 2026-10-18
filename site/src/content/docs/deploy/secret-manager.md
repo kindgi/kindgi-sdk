@@ -53,7 +53,7 @@ KINDGI_SECRETS_MANAGER=aws    # or azure, gcp, or vault
 `kindgi env init` writes a settings file to start from:
 
 ```sh
-kindgi env init --secrets-backend=secret-manager --secrets-manager=aws
+pnpm exec kindgi env init --secrets-backend=secret-manager --secrets-manager=aws
 ```
 
 - `--secrets-backend=secret-manager` keeps the secrets in a secret manager.
