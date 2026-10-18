@@ -14,6 +14,13 @@ token. Whoever holds it can do anything in its tenant. **Authorization** adds a
 second check, per resource, kept in [OpenFGA](https://openfga.dev): who may
 read, write or administer each project and what's in it.
 
+:::note[On Kindgi Cloud]
+Authorization is always on, and Kindgi runs OpenFGA. Skip
+[Before you start](#before-you-start) and
+[Run OpenFGA next to the runtime](#run-openfga-next-to-the-runtime), and the
+runtime's `KINDGI_*` settings: they're Kindgi's.
+:::
+
 ## What it gives, and what it doesn't
 
 Authorization is for several people and teams sharing one deployment:
