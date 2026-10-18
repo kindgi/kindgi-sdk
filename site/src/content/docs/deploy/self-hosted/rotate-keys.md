@@ -287,7 +287,7 @@ and `revokedReason`, if it was revoked:
 
 ## Rotate the public run token key
 
-If browsers [follow runs](../../guides/runs/follow-from-the-browser/), the
+If browsers [follow runs](../../../guides/runs/follow-from-the-browser/), the
 runtime signs their public run tokens with a key of its own. A new key
 replaces it.
 
@@ -346,5 +346,5 @@ Tokens minted after the restart work as before.
 
 - [Restart the runtime and check its health](../restart-and-check-health/)
 - [Renew the license key](../renew-the-license-key/)
-- [People, API keys and service accounts](../people-and-keys/)
+- [People, API keys and service accounts](../../people-and-keys/)
 - [Operate a self-hosted runtime](../operate/)

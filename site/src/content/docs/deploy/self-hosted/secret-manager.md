@@ -37,7 +37,7 @@ in a secret manager already, Kindgi can keep them there instead.
   Kindgi numbers them, whatever ids the secret manager gives its own
   versions. So `kindgi secrets` reads the same on every backend.
 - **Tools, providers and endpoints still name a secret the same way,** by
-  its name in an env ([Store a secret](../../guides/secrets/store-a-secret/)).
+  its name in an env ([Store a secret](../../../guides/secrets/store-a-secret/)).
   Only where its values live changes.
 
 ## Choose the backend
@@ -94,7 +94,7 @@ KINDGI_AWS_IDENTITY=container    # or instance, or web-identity
   AWS's commercial, GovCloud or China partition. The runtime refuses a
   region in any other partition at startup.
 - **The identity:** the server signs in as its own AWS identity
-  ([`KINDGI_AWS_IDENTITY`](../../reference/env-vars/#kindgi_aws_identity)):
+  ([`KINDGI_AWS_IDENTITY`](../../../reference/env-vars/#kindgi_aws_identity)):
   - `container` for ECS, Fargate or EKS Pod Identity;
   - `instance` for an EC2 instance profile;
   - `web-identity` for EKS IRSA;
@@ -312,9 +312,9 @@ Secrets manager probe failed at boot: unauthorized: Vault probe failed: Vault's 
 
 ## Next
 
-- [The environment variable reference](../../reference/env-vars/#kindgi_secrets_manager):
+- [The environment variable reference](../../../reference/env-vars/#kindgi_secrets_manager):
   every setting on this page.
-- [Store a secret](../../guides/secrets/store-a-secret/): set and read
+- [Store a secret](../../../guides/secrets/store-a-secret/): set and read
   secrets, whatever the backend.
 - [Operate a self-hosted runtime](../operate/): health, backups and
   rotating keys.

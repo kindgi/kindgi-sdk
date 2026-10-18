@@ -188,10 +188,10 @@ service account. On Cloud Run, that's the service's account. That account needs
 `roles/aiplatform.user` in the project, and the project needs the Vertex AI
 API turned on. Without the role, every model call fails with
 `Permission 'aiplatform.endpoints.predict' denied`.
-[Deploy on Google Cloud Run](../../../deploy/cloud-run/#use-gemini) sets this up.
+[Deploy on Google Cloud Run](../../../deploy/self-hosted/cloud-run/#use-gemini) sets this up.
 
 ## Next
 
 - [Choose the model an agent uses](../../agents/choose-a-model/)
-- [Deploy on Google Cloud Run](../../../deploy/cloud-run/#use-gemini)
+- [Deploy on Google Cloud Run](../../../deploy/self-hosted/cloud-run/#use-gemini)
 - [Models](../)

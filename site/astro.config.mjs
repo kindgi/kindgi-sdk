@@ -177,9 +177,21 @@ export default defineConfig({
             })),
           ],
         },
+        { label: 'Sites', items: [{ autogenerate: { directory: 'sites' } }] },
         { label: 'Concepts', items: [{ autogenerate: { directory: 'concepts' } }] },
-        { label: 'Deploy', items: [{ autogenerate: { directory: 'deploy' } }] },
-        { label: 'Kindgi Cloud', items: [{ autogenerate: { directory: 'hosted' } }] },
+        {
+          label: 'Deploy',
+          // Kindgi Cloud's pages keep their hosted/ URLs: the platform links to them.
+          // The pages for both sit at deploy/ itself.
+          items: [
+            'deploy',
+            'deploy/retention',
+            'deploy/authorization',
+            'deploy/people-and-keys',
+            { label: 'Kindgi Cloud', items: [{ autogenerate: { directory: 'hosted' } }] },
+            { label: 'Self-hosted', items: [{ autogenerate: { directory: 'deploy/self-hosted' } }] },
+          ],
+        },
         {
           label: 'Reference',
           items: [

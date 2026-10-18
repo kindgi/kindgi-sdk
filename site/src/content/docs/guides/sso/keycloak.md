@@ -266,7 +266,7 @@ Error [identity-provider-invalid]: The identity provider wants signed sign-in re
 Kindgi refuses a Keycloak that the runtime reaches only on a private
 address, unless the runtime's operator allows its origin with
 `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`
-([Turn on sign-in](../../../deploy/sign-in/)):
+([Turn on sign-in](../../../deploy/self-hosted/sign-in/)):
 
 ```text
 Error [identity-provider-invalid]: http://127.0.0.1:18091/realms/acme is not a public HTTPS address (loopback): the deployment's operator can allow its origin with KINDGI_AUTH_PRIVATE_IDP_ORIGINS

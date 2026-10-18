@@ -39,7 +39,7 @@ describe('releaseNotes', () => {
     );
     assert.match(
       notes,
-      /https:\/\/docs\.kindgi\.com\/v0\.1\/guides\/approvals\/ask-and-approve-in-wordpress\//,
+      /https:\/\/docs\.kindgi\.com\/v0\.1\/sites\/wordpress\//,
     );
   });
 });
