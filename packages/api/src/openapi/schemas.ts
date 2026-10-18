@@ -2440,6 +2440,25 @@ export const SiteEnrollmentCodeSchema: JsonSchema = {
   },
 };
 
+export const SitePersonRestoreResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['user', 'undid'],
+  description:
+    "A site's person let back in (`POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`), and what was undone.",
+  properties: {
+    user: { $ref: '#/components/schemas/UserRecord' },
+    undid: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 2,
+      description:
+        "What was undone, in this order: `removed`, their removal from the tenant; `left`, the site's word that they left it.",
+      items: { type: 'string', enum: ['removed', 'left'] },
+    },
+  },
+};
+
 export const RegisterSiteResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -14296,6 +14315,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateSiteBody', UpdateSiteBodySchema],
   ['SiteEnrollmentCode', SiteEnrollmentCodeSchema],
   ['RegisterSiteResult', RegisterSiteResultSchema],
+  ['SitePersonRestoreResult', SitePersonRestoreResultSchema],
   ['EnrollSiteBody', EnrollSiteBodySchema],
   ['EnrollSiteResult', EnrollSiteResultSchema],
   ['SiteSignInBody', SiteSignInBodySchema],

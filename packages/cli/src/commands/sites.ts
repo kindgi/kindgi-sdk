@@ -283,11 +283,28 @@ const revokeKey: LeafCommand = {
     }),
 };
 
+const restorePerson: LeafCommand = {
+  kind: 'leaf',
+  name: 'restore-person',
+  description:
+    "Let a removed person of a site back in, by their user id (`kindgi people list` finds them; `--include-removed` for someone removed in Kindgi): undoes their removal, the site's word that they left it, or both (`undid`). They're the same person, with their history; their grants come back the next time the site signs them in. Refused, with nothing changed, when there's nothing to undo, at the site's people cap, and when they also sign in another way. Tenant admins only.",
+  usage: 'kindgi sites restore-person <site-id> <user-id> [--project=<project-id>]',
+  optionSpec: PROJECT_FLAG,
+  run: (ctx) =>
+    runSdk(ctx, 'sites restore-person', async () => {
+      const siteId = requiredPositional(ctx, 0, 'site-id');
+      const userId = requiredPositional(ctx, 1, 'user-id');
+      return await ctx
+        .client()
+        .projects.sites.restorePerson(await projectIdFlag(ctx), siteId, userId);
+    }),
+};
+
 export const sitesCommand: Command = {
   kind: 'group',
   name: 'sites',
   description:
-    'Sites that sign their own people in to a project (the Kindgi WordPress plugin): register, code, list, get, update, pause, resume, revoke-key, unregister. Tenant admins only.',
+    'Sites that sign their own people in to a project (the Kindgi WordPress plugin): register, code, list, get, update, pause, resume, revoke-key, restore-person, unregister. Tenant admins only.',
   subcommands: [
     register,
     code,
@@ -303,6 +320,7 @@ export const sitesCommand: Command = {
     ),
     bySite('resume', "Start a paused site's sign-ins again.", (s, p, id) => s.resume(p, id)),
     revokeKey,
+    restorePerson,
     bySite(
       'unregister',
       'Unregister a site: its sign-ins stop and its live sessions end. The people it signed in stay, with their records.',

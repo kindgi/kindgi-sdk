@@ -470,6 +470,8 @@
           "site-sign-in-refused": 401,
           "site-request-too-large": 413,
           "site-person-grants-managed": 403,
+          "site-person-not-found": 404,
+          "site-person-restore-refused": 409,
           "token-sign-in-needs-an-api-token": 400,
           "redirect-uri-not-allowed": 400,
           "redirect-uri-mismatch": 400,
@@ -23604,6 +23606,33 @@
           },
           "enrollment": {
             "$ref": "#/components/schemas/SiteEnrollmentCode"
+          }
+        }
+      },
+      "SitePersonRestoreResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "user",
+          "undid"
+        ],
+        "description": "A site's person let back in (`POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`), and what was undone.",
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/UserRecord"
+          },
+          "undid": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 2,
+            "description": "What was undone, in this order: `removed`, their removal from the tenant; `left`, the site's word that they left it.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "removed",
+                "left"
+              ]
+            }
           }
         }
       },
@@ -59055,6 +59084,133 @@
             },
             "required": true,
             "description": "The key's id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore": {
+      "post": {
+        "operationId": "projects.sites.restorePerson",
+        "summary": "Let a removed site's person back in",
+        "tags": [
+          "sites"
+        ],
+        "responses": {
+          "200": {
+            "description": "The person, and what was undone.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SitePersonRestoreResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No site with that id in this project (`site-not-found`), or the site has no link to that person (`site-person-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refused, with nothing changed (`site-person-restore-refused`, `details.reason`: `not-removed`, `people-cap` or `linked-elsewhere`), or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Undoes what removed one of the site's people: their removal from the tenant (`removed`: they're one of its people again), the site's word that they left it (`left`: the same link to them is made live again, so they're the same person, with their history), or both. Only the person and the link come back. Their grants come back the next time the site signs them in, from its role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` when there's nothing to undo, `people-cap` when making the link live again would take the site past its `peopleCap` (`details.peopleCap`), and `linked-elsewhere` when undoing `removed` would let them in another way too (through another site, or the tenant's own sign-in): add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "siteId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The site id (a UUID)."
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "The person's id."
           },
           {
             "name": "Idempotency-Key",

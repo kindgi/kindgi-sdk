@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { ProjectId, TenantId } from '@kindgi/types';
+import type { ProjectId, TenantId, UserId } from '@kindgi/types';
 import { type Context, Hono } from 'hono';
 
 import { callerIdentity, isTenantAdmin } from '../caller.js';
@@ -12,11 +12,13 @@ import type {
   Site,
   SiteBinding,
   SiteChangeOutcome,
+  SitePersonRestoreOutcome,
   SiteRegisterInput,
   SiteRole,
   SiteRoleGrant,
 } from '../site-binding.js';
 import type { AppEnv } from '../types.js';
+import { serializeUser } from './identity.js';
 import { clampLimit } from './pagination.js';
 import { UUID_RE } from './uuid-param.js';
 
@@ -162,7 +164,64 @@ export function sitesRouter(
     return answer(c, outcome);
   });
 
+  const restorePerson = binding.restorePerson?.bind(binding);
+  if (restorePerson !== undefined) {
+    r.post('/:projectId/sites/:siteId/people/:userId/restore', async (c) => {
+      const userId = c.req.param('userId');
+      const outcome = await restorePerson({
+        ...where(c),
+        siteId: c.req.param('siteId'),
+        userId: userId as UserId,
+        by: callerIdentity(c),
+      });
+      if (outcome.kind === 'not-found') return notFound(c);
+      if (outcome.kind === 'person-not-found') {
+        c.status(statusFor('site-person-not-found') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'site-person-not-found',
+              message: 'No person of this site with that id',
+              userId,
+            },
+            c.get('requestId'),
+          ),
+        );
+      }
+      if (outcome.kind === 'refused') {
+        c.status(statusFor('site-person-restore-refused') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'site-person-restore-refused',
+              message: restoreRefusedText(outcome),
+              reason: outcome.reason,
+              userId,
+              ...(outcome.reason === 'people-cap' && { peopleCap: outcome.peopleCap }),
+            },
+            c.get('requestId'),
+          ),
+        );
+      }
+      return c.json({ user: serializeUser(outcome.user), undid: outcome.undid });
+    });
+  }
+
   return r;
+}
+
+/** Why a restore was refused, as the person asking reads it: nothing changed. */
+function restoreRefusedText(
+  outcome: Extract<SitePersonRestoreOutcome, { readonly kind: 'refused' }>,
+): string {
+  switch (outcome.reason) {
+    case 'not-removed':
+      return "This person isn't removed, and their site hasn't said they left it: there's nothing to undo";
+    case 'people-cap':
+      return `The site has as many people as its cap allows (${outcome.peopleCap}): raise its \`peopleCap\`, or remove someone first`;
+    case 'linked-elsewhere':
+      return "This person also signs in another way (through another site, or the tenant's own sign-in), and letting them back in would let them in there too. Add them again instead, as a new person: with an email, they're invited";
+  }
 }
 
 /** A site's settings, as a body would give them (for checking a change against the whole site). */

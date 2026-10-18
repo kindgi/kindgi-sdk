@@ -2553,6 +2553,34 @@ export const ERROR_ENTRIES = {
       "The request would change what a person a site signs in may do: give them or take away a grant, a tenant role, a project or team membership or its role, or a reviewer role, or mint them a key. Such a person holds only what their site's sign-in writes: their next sign-in would undo a change, and a key would outlive a paused or unregistered site. Change their role on the site, remove the person, or pause the site instead.",
     details: [],
   },
+  'site-person-not-found': {
+    description:
+      'The site has no link to that person: they never signed in through it. A restore lets back in only the people a site signed in. Find their id with `kindgi people list` (`--include-removed` for someone removed in Kindgi).',
+    details: [
+      {
+        key: 'userId',
+        meaning: 'the person who was to be let back in',
+      },
+    ],
+  },
+  'site-person-restore-refused': {
+    description:
+      "The site's person wasn't let back in, and nothing changed. `not-removed`: they're in the tenant and their site hasn't said they left it, so there's nothing to undo. `people-cap`: their link would count among the site's people again, and the site has as many as its `peopleCap` allows: raise it, or remove someone first. `linked-elsewhere`: they also sign in another way (through another site, or the tenant's own sign-in), and letting them back in would let them in there too: add them again instead, as a new person.",
+    details: [
+      {
+        key: 'reason',
+        meaning: "why it was refused: 'not-removed', 'people-cap' or 'linked-elsewhere'",
+      },
+      {
+        key: 'userId',
+        meaning: 'the person who was to be let back in',
+      },
+      {
+        key: 'peopleCap',
+        meaning: "with `people-cap`: the site's cap",
+      },
+    ],
+  },
   'token-sign-in-needs-an-api-token': {
     description:
       "`POST /v1/auth/token-sign-in` was called while signed in by a session. It takes an API token in the Authorization header, so there's nothing to exchange.",

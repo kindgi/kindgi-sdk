@@ -10516,6 +10516,43 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'post',
+    honoPath: '/v1/projects/:projectId/sites/:siteId/people/:userId/restore',
+    openapiPath: '/v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore',
+    operationId: 'projects.sites.restorePerson',
+    summary: "Let a removed site's person back in",
+    description:
+      "Undoes what removed one of the site's people: their removal from the tenant (`removed`: they're one of its people again), the site's word that they left it (`left`: the same link to them is made live again, so they're the same person, with their history), or both. Only the person and the link come back. Their grants come back the next time the site signs them in, from its role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` when there's nothing to undo, `people-cap` when making the link live again would take the site past its `peopleCap` (`details.peopleCap`), and `linked-elsewhere` when undoing `removed` would let them in another way too (through another site, or the tenant's own sign-in): add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.",
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [
+      ProjectIdPathParam,
+      SiteIdPathParam,
+      {
+        name: 'userId',
+        in: 'path',
+        required: true,
+        description: "The person's id.",
+        schema: { type: 'string', minLength: 1 },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': {
+        description: 'The person, and what was undone.',
+        schema: ref('SitePersonRestoreResult'),
+      },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse(
+        'No site with that id in this project (`site-not-found`), or the site has no link to that person (`site-person-not-found`).',
+      ),
+      '409': ErrorResponse(
+        'Refused, with nothing changed (`site-person-restore-refused`, `details.reason`: `not-removed`, `people-cap` or `linked-elsewhere`), or an idempotency conflict.',
+      ),
+    },
+  },
+  {
+    method: 'post',
     honoPath: '/v1/auth/sites/enroll',
     openapiPath: '/v1/auth/sites/enroll',
     operationId: 'auth.sites.enroll',

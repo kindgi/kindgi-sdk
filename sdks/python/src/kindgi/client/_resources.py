@@ -1151,6 +1151,13 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "projects.sites.restorePerson": Operation(
+        "projects.sites.restorePerson",
+        "POST",
+        "/v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore",
+        "json",
+        True,
+    ),
     "auth.sites.enroll": Operation(
         "auth.sites.enroll", "POST", "/v1/auth/sites/enroll", "json", False
     ),
@@ -8450,6 +8457,29 @@ class ProjectsSitesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.Site,
+            timeout=timeout,
+        )
+
+    def restore_person(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SitePersonRestoreResult:
+        """Let a removed site's person back in. `POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`
+
+        Undoes what removed one of the site's people: their removal from the tenant (`removed`: they're one of its people again), the site's word that they left it (`left`: the same link to them is made live again, so they're the same person, with their history), or both. Only the person and the link come back. Their grants come back the next time the site signs them in, from its role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` when there's nothing to undo, `people-cap` when making the link live again would take the site past its `peopleCap` (`details.peopleCap`), and `linked-elsewhere` when undoing `removed` would let them in another way too (through another site, or the tenant's own sign-in): add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.restorePerson"],
+            path={"projectId": project_id, "siteId": site_id, "userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SitePersonRestoreResult,
             timeout=timeout,
         )
 
@@ -17064,6 +17094,29 @@ class AsyncProjectsSitesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.Site,
+            timeout=timeout,
+        )
+
+    async def restore_person(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SitePersonRestoreResult:
+        """Let a removed site's person back in. `POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`
+
+        Undoes what removed one of the site's people: their removal from the tenant (`removed`: they're one of its people again), the site's word that they left it (`left`: the same link to them is made live again, so they're the same person, with their history), or both. Only the person and the link come back. Their grants come back the next time the site signs them in, from its role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` when there's nothing to undo, `people-cap` when making the link live again would take the site past its `peopleCap` (`details.peopleCap`), and `linked-elsewhere` when undoing `removed` would let them in another way too (through another site, or the tenant's own sign-in): add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.restorePerson"],
+            path={"projectId": project_id, "siteId": site_id, "userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SitePersonRestoreResult,
             timeout=timeout,
         )
 

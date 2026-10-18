@@ -3,6 +3,8 @@
 
 import type { ProjectId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
+import type { UserRecord } from './identity-directory-binding.js';
+
 /**
  * Sites that sign their own people in to one project: a website (a
  * WordPress admin, say) registered with Kindgi vouches for whoever is
@@ -58,6 +60,26 @@ export interface SiteBinding {
   ): Promise<SiteEnrollmentCodeOutcome>;
   /** Revoke one of the site's keys. Its live sessions end. */
   revokeKey(input: SiteRevokeKeyInput): Promise<SiteChangeOutcome>;
+  /**
+   * Let one of the site's people back in, undoing what removed them: their
+   * removal from the tenant (`removed`: they're one of its people again),
+   * the site's word that they left it (`left`: the same link un-retired,
+   * never a new one, so they're the same person, with their history), or
+   * both. Only the person and the link come back: their grants come back
+   * the next time the site signs them in, from its role map then, and
+   * their keys and sessions stay gone. A site's people hold no tenant
+   * membership, so none is written.
+   *
+   * Refused, with nothing changed, when there's nothing to undo
+   * (`not-removed`); when un-retiring the link would take the site past
+   * its `peopleCap`, as a new person would (`people-cap`); and when undoing
+   * `removed` would let them in another way too, through another site's
+   * live link or a sign-in account of the tenant's own
+   * (`linked-elsewhere`). Audited (`site-person-restored`). An
+   * unregistered site is `not-found`, as for its other changes; a paused
+   * one isn't. Optional: the route is mounted only when the binding has it.
+   */
+  restorePerson?(input: SitePersonRestoreInput): Promise<SitePersonRestoreOutcome>;
   /**
    * `POST /v1/auth/sites/enroll`, before anyone is signed in: the site
    * posts its public key with a one-time code. The code is the only
@@ -229,6 +251,30 @@ export type SiteChangeOutcome =
   | { readonly kind: 'ok'; readonly site: Site }
   | { readonly kind: 'not-found' }
   | SiteInvalid;
+
+export interface SitePersonRestoreInput extends SiteGetInput {
+  readonly userId: UserId;
+  readonly by: string;
+}
+
+/**
+ * What a restore undid, in this order: `removed`, the person's removal
+ * from the tenant; `left`, the site's word that they left it.
+ */
+export type SitePersonRestoreUndid = 'removed' | 'left';
+
+export type SitePersonRestoreOutcome =
+  | {
+      readonly kind: 'ok';
+      readonly user: UserRecord;
+      readonly undid: readonly SitePersonRestoreUndid[];
+    }
+  /** No site with that id in this project, or an unregistered one. */
+  | { readonly kind: 'not-found' }
+  /** The site has no link to that person, live or retired. */
+  | { readonly kind: 'person-not-found' }
+  | { readonly kind: 'refused'; readonly reason: 'not-removed' | 'linked-elsewhere' }
+  | { readonly kind: 'refused'; readonly reason: 'people-cap'; readonly peopleCap: number };
 
 export type SiteEnrollmentCodeOutcome =
   | { readonly kind: 'ok'; readonly enrollment: SiteEnrollmentCode }
