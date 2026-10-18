@@ -615,6 +615,9 @@ function serializeTool(t: ToolRecord): Record<string, unknown> {
     ...(t.mcpEndpoint !== undefined && { mcpEndpoint: t.mcpEndpoint }),
     ...(t.metadata !== undefined && { metadata: t.metadata }),
     ...(t.mutating !== undefined && { mutating: t.mutating }),
+    ...(t.needsApprovalWhenUnattended !== undefined && {
+      needsApprovalWhenUnattended: t.needsApprovalWhenUnattended,
+    }),
     ...(t.sandbox !== undefined && { sandbox: t.sandbox }),
     ...(t.limits !== undefined && { limits: t.limits }),
     ...(t.network !== undefined && { network: t.network }),

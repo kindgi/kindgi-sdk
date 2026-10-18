@@ -3080,6 +3080,10 @@ class ReinstateToolVersionResult(BaseModel):
 
 
 class Retry(BaseModel):
+    """
+    The attempts a `retry` asks for. In 0.1 nothing acts on it: there's no second attempt.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -3101,11 +3105,20 @@ class GuardrailAction(BaseModel):
         ),
     ]
     """
-    What happens when the guardrail fires. Open string: the built-in actions are listed in `examples`; any other name needs an action handler registered under it where the guardrail is evaluated.
+    What a failed check does to the agent turn. Open string: the built-in actions are listed in `examples`, and any other non-empty name is accepted. In 0.1 the runtime acts only on `halt`: the turn fails with `guardrail-violation` and its response is not stored. Any other value is recorded as a violation, as `log-only` is, and the turn completes: nothing runs the turn again, escalates or calls a compensating tool.
     """
     retry: Retry | None = None
+    """
+    The attempts a `retry` asks for. In 0.1 nothing acts on it: there's no second attempt.
+    """
     escalate_to: Annotated[str | None, Field(alias="escalateTo")] = None
+    """
+    Where an `escalate` goes. In 0.1 nothing escalates.
+    """
     compensate_with: Annotated[str | None, Field(alias="compensateWith")] = None
+    """
+    The tool id a `compensate` names. In 0.1 that tool isn't called.
+    """
 
 
 class GuardrailScope(BaseModel):
@@ -11992,6 +12005,12 @@ class RegisterToolBody(BaseModel):
     """
     Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
     """
+    needs_approval_when_unattended: Annotated[
+        bool | None, Field(alias="needsApprovalWhenUnattended")
+    ] = None
+    """
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.
+    """
     sandbox: Literal["none", "context-isolated", "strict"] | None = None
     """
     Isolation posture the runtime enforces around the handler. Optional additive field.
@@ -12796,6 +12815,9 @@ class SecretSetRequest(BaseModel):
     Per-environment slug. `[a-z][a-z0-9-]{0,62}` — RFC-1035-like label.
     """
     name: Annotated[str, Field(min_length=1)]
+    """
+    A new secret name: 1 to 255 ASCII letters, digits, `.`, `-` and `_`, starting with a letter, digit or `_`, with any `.` between two non-`.` characters. The server holds a newly-created name to this shape (`create-new`, or an `add-version` of a name not yet stored); a name already stored outside this shape still reads, rotates and takes new versions.
+    """
     value: str
     write_mode: Annotated[Literal["create-new", "add-version"], Field(alias="writeMode")]
     tags: dict[str, str] | None = None
@@ -13404,6 +13426,12 @@ class Run(BaseModel):
     agent: RunAgent | None = None
     waiting_for: Annotated[RunWaitingFor | None, Field(alias="waitingFor")] = None
     trigger: RunTrigger | None = None
+    started_by: Annotated[
+        Literal["person", "key", "schedule", "webhook", "event"] | None, Field(alias="startedBy")
+    ] = None
+    """
+    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
+    """
     replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
     """
     Set on a replay run (an eval run re-running a past run): the run it replays.
@@ -13478,6 +13506,12 @@ class Datum(BaseModel):
     agent: RunAgent | None = None
     waiting_for: Annotated[RunWaitingFor | None, Field(alias="waitingFor")] = None
     trigger: RunTrigger | None = None
+    started_by: Annotated[
+        Literal["person", "key", "schedule", "webhook", "event"] | None, Field(alias="startedBy")
+    ] = None
+    """
+    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
+    """
     replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
     """
     Set on a replay run (an eval run re-running a past run): the run it replays.
@@ -13551,6 +13585,12 @@ class Tool(BaseModel):
     mutating: bool | None = None
     """
     Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
+    """
+    needs_approval_when_unattended: Annotated[
+        bool | None, Field(alias="needsApprovalWhenUnattended")
+    ] = None
+    """
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.
     """
     sandbox: Literal["none", "context-isolated", "strict"] | None = None
     """
@@ -13630,6 +13670,12 @@ class ToolVersionRow(BaseModel):
     mutating: bool | None = None
     """
     Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
+    """
+    needs_approval_when_unattended: Annotated[
+        bool | None, Field(alias="needsApprovalWhenUnattended")
+    ] = None
+    """
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.
     """
     sandbox: Literal["none", "context-isolated", "strict"] | None = None
     """

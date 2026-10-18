@@ -45,7 +45,9 @@ it's in: its `projectId`, with the runtime 0.1.6 or later. A pack
 ## Give a customer an org and a project
 
 Create the customer's org and a project in it once, then run the customer's
-work there. The script prints the run's status and the org's runs:
+work there. Ask your coding agent: "I want each of my customers to have an
+org with a project, and their work to run there." For reference, the script
+looks like this. It prints the run's status and the org's runs:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -295,6 +297,10 @@ project in production is a **production** run, and a run anywhere else is
 each run with its class for usage counting, so test work is counted apart
 from real work. A run's own read doesn't show it.
 
+To switch it from your app, ask your coding agent: "Put a customer's project
+in production when they go live." For reference, the commands and the code
+look like this:
+
 <Tabs syncKey="lang">
 <TabItem label="CLI">
 
@@ -421,8 +427,9 @@ to go. A refused switch shows the runtime's own message.
 
 ## Delete an org
 
-Delete an org when its customer leaves. With `kindgi` and `org` from the
-script:
+Delete an org when its customer leaves. Ask your coding agent: "When a
+customer leaves, delete their org." For reference, the code looks like this,
+with `kindgi` and `org` from the script:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

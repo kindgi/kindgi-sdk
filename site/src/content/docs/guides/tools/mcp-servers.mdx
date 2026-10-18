@@ -34,8 +34,10 @@ API, as this guide shows.
 
 ## A server to try
 
-An MCP server that speaks Streamable HTTP works. This one, written with the
-Python MCP SDK, version 1.x, has two tools:
+An MCP server that speaks Streamable HTTP works. Ask your coding agent: "I
+want a small MCP server to try, with a tool that checks stock levels." For
+reference, this one, written with the Python MCP SDK, version 1.x, has two
+tools:
 
 ```python
 # server.py
@@ -99,7 +101,9 @@ uv add 'mcp<2'
 ## Register the endpoint
 
 Registering the endpoint makes its tools your tenant's. Register it from
-your app's code:
+your app's code. Ask your coding agent: "Register my inventory MCP server
+with the Kindgi runtime, so my agents can use its tools." For reference, the
+code looks like this. This guide's endpoint id is `inventory`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -295,7 +299,9 @@ tool answers `"Echo: hi"`.
 
 ## Call its tools
 
-An agent lists an MCP tool by id, with a version range:
+An agent lists an MCP tool by id, with a version range. Ask your coding
+agent: "Let my agent check stock levels with the inventory server's tool."
+For reference, it adds the tool to the agent's list:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -375,9 +381,11 @@ A flow step names it in `ref`, like any tool:
 
 ## Send a credential
 
-Add `secretRef` to the registration. Kindgi resolves the secret in the
-tenant's secrets when it connects, and sends it as
-`Authorization: Bearer <value>`:
+To send a token, ask your coding agent: "My inventory MCP server wants a
+bearer token." You store the token itself, as below. For reference, it adds
+`secretRef` to the registration.
+Kindgi resolves the secret in the tenant's secrets when it connects, and
+sends it as `Authorization: Bearer <value>`:
 
 ```json excerpt
 "secretRef": { "envName": "local", "name": "INVENTORY_TOKEN" }
@@ -400,7 +408,9 @@ unregister the endpoint and register it again, as
 
 For a server that takes HTTP Basic, use `auth` instead of `secretRef`. A
 WordPress site's MCP Adapter takes it with an Application Password, and so
-do WooCommerce's MCP tools:
+do WooCommerce's MCP tools. Ask your coding agent: "My MCP server signs in
+with a user name and password." For reference, it adds this to the
+registration:
 
 ```json excerpt
 "auth": {
@@ -429,7 +439,9 @@ the [MCP Adapter](https://github.com/WordPress/mcp-adapter) and
 ### Sign in with OAuth client credentials
 
 For a server behind an OAuth 2 token endpoint, such as a Drupal site's MCP
-Server with Simple OAuth:
+Server with Simple OAuth, ask your coding agent: "My MCP server signs in
+with OAuth client credentials." For reference, it adds this to the
+registration:
 
 ```json excerpt
 "auth": {
@@ -485,7 +497,9 @@ user its tokens act as.
 
 For a server that takes an API key in a header such as `X-Api-Key`, a key and
 a secret in two headers, or `Authorization` with a prefix other than
-`Bearer `, use `scheme: "header"`:
+`Bearer `, use `scheme: "header"`. Ask your coding agent, for example: "My
+MCP server wants an API key and a secret, each in a header of its own." For
+reference, it adds this to the registration:
 
 ```json
 "auth": {
@@ -626,14 +640,16 @@ with `auth` in place of the header.
 
 ## Send the run's trace
 
-Add `"sendTraceparent": true` to the registration, and each tool call to the
-server carries the W3C `traceparent` of the run that made it, as a request
-header. The server's logs can then be matched to the run, as
-[Follow a request or a run](../../../deploy/logs/#follow-a-request-or-a-run)
-shows. Only the ids go: the trace id and a span id, never the tool's input
-or output. It's off by default, and HTTP transports only. A `stdio` server
-gets no headers, so `true` there is refused with `invalid-mcp-endpoint`,
-reason `invalid-send-traceparent`.
+Ask your coding agent: "I want to match my MCP server's logs to the runs that
+called it." For reference, it adds `"sendTraceparent": true` to the
+registration, and each tool call to the server carries the W3C `traceparent`
+of the run that made it, as a request header. The server's logs can then be
+matched to the run, as [Follow a request or a
+run](../../../deploy/logs/#follow-a-request-or-a-run) shows. Only the ids go:
+the trace id and a span id, never the tool's input or output. It's off by
+default, and HTTP transports only. A `stdio` server gets no headers, so `true`
+there is refused with `invalid-mcp-endpoint`, reason
+`invalid-send-traceparent`.
 
 ## Make a write happen once
 
@@ -745,10 +761,13 @@ return array( 'refund_id' => $refund->get_id(), 'repeat' => false );
 
 ## When the server changes
 
-The runtime lists an endpoint's tools when the endpoint is registered and
-each time the runtime starts. It doesn't watch the server. To pick up new or
-changed tools, unregister the endpoint and register it again, or restart
-the runtime. `inventory` in the path is the endpoint's id:
+The runtime lists an endpoint's tools when the endpoint is registered. It
+doesn't watch the server. To pick up new or changed tools, unregister the
+endpoint and register it again. A runtime serving one tenant, the default,
+also lists every endpoint's tools each time it starts, so restarting it works
+too. A runtime [serving many tenants](../../../deploy/serve-many-tenants/)
+(`KINDGI_TENANCY=multi`) lists none when it starts: there, only unregistering
+and registering again does. `inventory` in the path is the endpoint's id:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/mcp/endpoints/inventory/unregister" \

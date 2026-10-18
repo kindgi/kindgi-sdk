@@ -857,6 +857,12 @@ export const RunSchema: JsonSchema = {
     agent: { $ref: '#/components/schemas/RunAgent' },
     waitingFor: { $ref: '#/components/schemas/RunWaitingFor' },
     trigger: { $ref: '#/components/schemas/RunTrigger' },
+    startedBy: {
+      type: 'string',
+      enum: ['person', 'key', 'schedule', 'webhook', 'event'],
+      description:
+        "How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.",
+    },
     replayOf: {
       type: 'string',
       format: 'uuid',
@@ -3532,6 +3538,11 @@ export const ToolSchema: JsonSchema = {
       description:
         'Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.',
     },
+    needsApprovalWhenUnattended: {
+      type: 'boolean',
+      description:
+        "`true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.",
+    },
     sandbox: { $ref: '#/components/schemas/SandboxMode' },
     limits: { $ref: '#/components/schemas/RuntimeLimits' },
     network: { $ref: '#/components/schemas/NetworkPolicy' },
@@ -3664,18 +3675,26 @@ export const GuardrailActionSchema: JsonSchema = {
       minLength: 1,
       examples: ['halt', 'retry', 'escalate', 'log-only', 'compensate'],
       description:
-        'What happens when the guardrail fires. Open string: the built-in actions are listed in `examples`; any other name needs an action handler registered under it where the guardrail is evaluated.',
+        'What a failed check does to the agent turn. Open string: the built-in actions are listed in `examples`, and any other non-empty name is accepted. In 0.1 the runtime acts only on `halt`: the turn fails with `guardrail-violation` and its response is not stored. Any other value is recorded as a violation, as `log-only` is, and the turn completes: nothing runs the turn again, escalates or calls a compensating tool.',
     },
     retry: {
       type: 'object',
       additionalProperties: false,
       required: ['maxAttempts'],
+      description:
+        "The attempts a `retry` asks for. In 0.1 nothing acts on it: there's no second attempt.",
       properties: {
         maxAttempts: { type: 'integer', minimum: 1, maximum: 10 },
       },
     },
-    escalateTo: { type: 'string' },
-    compensateWith: { type: 'string' },
+    escalateTo: {
+      type: 'string',
+      description: 'Where an `escalate` goes. In 0.1 nothing escalates.',
+    },
+    compensateWith: {
+      type: 'string',
+      description: "The tool id a `compensate` names. In 0.1 that tool isn't called.",
+    },
   },
 };
 
@@ -11735,7 +11754,15 @@ export const SecretSetRequestSchema: JsonSchema = {
   properties: {
     scope: { $ref: '#/components/schemas/Scope' },
     envName: { $ref: '#/components/schemas/EnvName' },
-    name: { type: 'string', minLength: 1 },
+    name: {
+      type: 'string',
+      minLength: 1,
+      // Documented, not enforced on the wire: the create-name grammar is the
+      // server's (SECRET_NAME_ALLOWED), so the request stays additive — a client
+      // can still add a version to a name stored before this release.
+      description:
+        'A new secret name: 1 to 255 ASCII letters, digits, `.`, `-` and `_`, starting with a letter, digit or `_`, with any `.` between two non-`.` characters. The server holds a newly-created name to this shape (`create-new`, or an `add-version` of a name not yet stored); a name already stored outside this shape still reads, rotates and takes new versions.',
+    },
     value: { type: 'string' },
     writeMode: { type: 'string', enum: ['create-new', 'add-version'] },
     tags: { type: 'object', additionalProperties: { type: 'string' } },

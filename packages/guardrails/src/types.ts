@@ -50,7 +50,8 @@ export type GuardrailSeverity = 'info' | 'warn' | 'error' | 'critical';
  * `'redact-then-continue'`. Any non-empty name is accepted when the
  * guardrail is defined; with `EvaluationBindings.actions` set, a name
  * with no registered handler fails with `unknown-action` when the
- * guardrail fires.
+ * guardrail fires. The agent runtime in 0.1 binds no action handlers
+ * and acts only on `'halt'` (see `Action`).
  */
 export type OnViolation = string;
 
@@ -223,12 +224,12 @@ export interface Guardrail {
    */
   readonly config?: Readonly<Record<string, unknown>>;
   /**
-   * What the framework does when this guardrail fires — `halt`
-   * (fail the run), `retry` (re-execute the step with a
-   * `maxAttempts` cap), `escalate` (route to HITL review),
-   * `log-only` (record but don't block), `compensate` (invoke a
-   * named compensation tool). `BUILT_IN_ON_VIOLATIONS` lists the
-   * built-in values; `OnViolation` itself is an open string.
+   * What a failed check does to the agent turn. In 0.1 the runtime
+   * acts only on `halt`: the turn fails with `guardrail-violation`.
+   * `retry`, `escalate`, `compensate` and any other name are recorded
+   * like `log-only` and the turn completes (see `Action`).
+   * `BUILT_IN_ON_VIOLATIONS` lists the built-in values; `OnViolation`
+   * itself is an open string.
    */
   readonly action: Action;
   /**
