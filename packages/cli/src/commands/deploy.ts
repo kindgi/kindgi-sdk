@@ -50,6 +50,7 @@ import type {
   RunBuildResult,
   SyncSecretsBody,
 } from '../deploy/runners.js';
+import { packEnvProblemLines, packEnvSetCommand } from '../env/pack-env-hint.js';
 import {
   type PackEnvPlan,
   describePackEnvPlan,
@@ -271,6 +272,8 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   // a hosted build carries the project's id as its label.
   const project = await resolveProject(args, runners, ctx);
   if (project.kind === 'error') return failure(project.message);
+  const hostedEnvRefusal = refuseHostedConfigEnv(args, project.id);
+  if (hostedEnvRefusal !== undefined) return hostedEnvRefusal;
 
   // ---- 2. Ensure envelope on disk -------------------------------------
   const envelopeReady = await ensureEnvelopeExists(ctx, args, runners, line, project.id);
@@ -442,7 +445,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   // deployment is in place whatever the wait finds.
   let packService: DeploymentEndpointRecord | undefined;
   if (args.hosted && deployedRecord !== null && deployedRecord.endpoint !== undefined) {
-    const waited = await waitForPackService(ctx, args, runners, deployedRecord, line);
+    const waited = await waitForPackService(ctx, args, runners, deployedRecord, line, project.id);
     if (waited.kind === 'error') {
       return { kind: 'error', stderr: `${banner.join('\n')}\n${waited.message}`, exitCode: 1 };
     }
@@ -578,6 +581,9 @@ function checkPackEnv(
   args: ResolvedDeployArgs,
   line: (s: string) => void,
 ): CommandResult | undefined {
+  // A hosted pack service gets the values set in the workspace, not these:
+  // `refuseHostedConfigEnv`, once the project is known.
+  if (args.hosted) return undefined;
   const plan = args.packEnv;
   if (plan.entries.length === 0 && plan.problems.length === 0 && plan.warnings.length === 0) {
     return undefined;
@@ -599,6 +605,34 @@ function checkPackEnv(
     line('');
   }
   return undefined;
+}
+
+/**
+ * A hosted deploy: Kindgi Cloud gives the pack service the env values set
+ * in the workspace (`kindgi env set`), at the deployment's project, then its
+ * org, then the tenant. `environments.<env>.env` in kindgi.config isn't
+ * read there, so a config that gives any is refused before anything is
+ * built or sent, naming each name and how to set it.
+ */
+function refuseHostedConfigEnv(
+  args: ResolvedDeployArgs,
+  projectId: string | undefined,
+): CommandResult | undefined {
+  const plan = args.packEnv;
+  if (!args.hosted || (plan.given.length === 0 && plan.problems.length === 0)) return undefined;
+  const block = `environments.${args.envName}.env`;
+  const names = plan.given.length === 0 ? '' : ` (${plan.given.join(', ')})`;
+  const command = packEnvSetCommand({
+    envName: args.envName,
+    ...(projectId !== undefined && { projectId }),
+    hasProjectMapping: false,
+  });
+  const secrets = plan.entries.some((e) => e.source?.kind === 'secret')
+    ? ' A secret is read per call in a tool (`ctx.secrets`): a pack service on Kindgi Cloud is given plain values only.'
+    : '';
+  return failure(
+    `kindgi deploy: on Kindgi Cloud the pack service gets the env values set in your workspace, not ${block} in kindgi.config${names}. Set each with \`${command}\`, then remove ${block} from kindgi.config and deploy again.${secrets}\n`,
+  );
 }
 
 // ---------------------------------------------------------------------
@@ -791,6 +825,10 @@ const PACK_SERVICE_PROBLEMS: Readonly<Record<string, string>> = {
   'endpoint-name-mismatch': "the platform couldn't connect the pack service",
   'endpoint-unreachable': "the pack service didn't answer",
   'endpoint-info-mismatch': 'the pack service answered as another pack or version',
+  'pack-env-missing': "a name the pack needs in its env isn't set",
+  'pack-env-secret-not-yet': 'a name the pack reads from its env is set only as a secret',
+  'pack-env-ambiguous':
+    'a name the pack reads from its env is set both as a secret and as a plain value',
 };
 
 /** Why no pack service is wanted for a cleared deployment now, by its `retired` reason. */
@@ -817,6 +855,7 @@ async function waitForPackService(
   runners: DeployRunners,
   record: DeploymentRecord,
   line: (s: string) => void,
+  projectId: string | undefined,
 ): Promise<
   | { readonly kind: 'ok'; readonly endpoint: DeploymentEndpointRecord }
   | { readonly kind: 'error'; readonly message: string }
@@ -834,7 +873,15 @@ async function waitForPackService(
   const started = now();
   let endpoint = record.endpoint as DeploymentEndpointRecord;
   let said = '';
+  let saidEnv = '';
   let failedReads = 0;
+  // What stands in the way of its env, said once, and again when it changes.
+  const sayPackEnv = async (): Promise<void> => {
+    const lines = await packEnvLines(ctx, args, runners, id, projectId);
+    const text = lines.join('\n');
+    if (text !== '' && text !== saidEnv) for (const l of lines) line(`      ${l}`);
+    saidEnv = text;
+  };
   line('  Waiting for the pack service');
   for (;;) {
     const settled = settledPackService(endpoint, id);
@@ -843,7 +890,13 @@ async function waitForPackService(
       return settled;
     }
     const state = waitingState(endpoint);
-    if (state !== said) line(`    … ${state}`);
+    if (state !== said) {
+      line(`    … ${state}`);
+      // At once, before the platform records it as the problem; and again then.
+      if (said === '' || endpoint.problem?.code.startsWith('pack-env-') === true) {
+        await sayPackEnv();
+      }
+    }
     said = state;
     if (now() - started >= PACK_SERVICE_WAIT_MS) {
       return stoppedWaiting(`The pack service isn't ready after 5 minutes: ${state}`, id);
@@ -866,6 +919,34 @@ async function waitForPackService(
       );
     }
   }
+}
+
+/**
+ * Where the deployment's pack declares names that stand in the way, said
+ * as what to do: nothing when none does, when the server doesn't give pack
+ * services their env (or is older), or when it can't be read.
+ */
+async function packEnvLines(
+  ctx: CommandContext,
+  args: ResolvedDeployArgs,
+  runners: DeployRunners,
+  deploymentId: string,
+  projectId: string | undefined,
+): Promise<string[]> {
+  if (runners.getPackEnv === undefined) return [];
+  const got = await runners.getPackEnv({
+    endpoint: args.endpoint,
+    token: args.token,
+    deploymentId,
+    fetchImpl: ctx.fetch,
+    ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+  });
+  if (got.kind !== 'ok') return [];
+  return packEnvProblemLines(got.packEnv.data, {
+    envName: got.packEnv.envName,
+    ...(projectId !== undefined && { projectId }),
+    hasProjectMapping: false,
+  });
 }
 
 /** The deployment's pack service now, read again. */

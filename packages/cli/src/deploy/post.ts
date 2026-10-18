@@ -33,6 +33,8 @@ import type {
   FindProjectsResult,
   GetDeploymentOptions,
   GetDeploymentResult,
+  GetPackEnvResult,
+  PackEnvRecord,
   PostDeploymentBody,
   PostDeploymentOptions,
   PostDeploymentResult,
@@ -348,4 +350,38 @@ export async function getDeploymentReal(opts: GetDeploymentOptions): Promise<Get
     };
   }
   return { kind: 'ok', record: body as DeploymentRecord };
+}
+
+/** `GET /v1/deployments/:id/pack-env`: where each name the deployment's pack declares is set. */
+export async function getPackEnvReal(opts: GetDeploymentOptions): Promise<GetPackEnvResult> {
+  const url = `${opts.endpoint.replace(/\/+$/, '')}/v1/deployments/${encodeURIComponent(opts.deploymentId)}/pack-env`;
+  let res: Response;
+  try {
+    res = await opts.fetchImpl(url, {
+      headers: { Authorization: `Bearer ${opts.token}` },
+      ...(opts.signal !== undefined && { signal: opts.signal }),
+    });
+  } catch (err) {
+    return { kind: 'error', message: `GET ${url} failed: ${(err as Error).message}` };
+  }
+  // 501: its pack services take their env from how they're run; 404: a server before the route.
+  if (res.status === 501 || res.status === 404) return { kind: 'not-served' };
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    return {
+      kind: 'error',
+      message: `GET ${url} answered HTTP ${res.status} with a body that isn't JSON`,
+    };
+  }
+  const packEnv = body as Partial<PackEnvRecord> | null;
+  if (!res.ok || typeof packEnv?.envName !== 'string' || !Array.isArray(packEnv.data)) {
+    const code = (body as { error?: { code?: unknown } } | null)?.error?.code;
+    return {
+      kind: 'error',
+      message: `GET ${url} answered HTTP ${res.status}${typeof code === 'string' ? ` (${code})` : ''}`,
+    };
+  }
+  return { kind: 'ok', packEnv: packEnv as PackEnvRecord };
 }
