@@ -70,6 +70,14 @@ version in the first environment. It reaches `prod` by promotion, like any
 build. Improve still learns from the runs of every environment, `prod`'s
 included.
 
+In a later environment, the console doesn't offer those changes. In their
+place, it says where they're made, such as "New agent versions are made in
+staging-1, and reach this environment by promotion.", with a link to the
+same page in `staging-1`. If you can't read `staging-1`, it's named
+Environment 1, with no link. Improve's proposals and evaluations stay in
+every environment. An accepted proposal's version is made in the first
+environment: make it live there, then promote it.
+
 ## Before you start
 
 - **A pack you deploy,** to Kindgi Cloud, as in
