@@ -20,6 +20,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
   type SystemTenantDirectory,
+  ownSystemScope,
   requireSystemScope,
   systemReadAcrossTenants,
   withSystemTenantContext,
@@ -30,6 +31,9 @@ import {
   type PackEnvDeclaration,
   type PackEnvDeps,
   type PackEnvHeldCode,
+  type PackEnvPlatformHold,
+  type PackEnvSecretsAsk,
+  isPackEnvPlatformHold,
   packEnvCheck,
   packEnvValues,
 } from '../pack-env.js';
@@ -249,7 +253,11 @@ export interface SystemPackEnvOptions {
   readonly deployments: Pick<DeploymentBinding, 'get'>;
   readonly stores: PackEnvDeps;
   readonly envName: EnvName;
-  /** Where each value given out is audited (`env-resolved`). */
+  /**
+   * Where each value given out is audited: `env-resolved` for a plain value,
+   * `secret-resolved` (caller `pack-env`) for a secret's. Absent: no secret
+   * value is given (`501 pack-env-secrets-unaudited`).
+   */
   readonly auditEvents?: AuditEventBinding;
   readonly log?: Logger;
 }
@@ -288,8 +296,9 @@ type WireError = { readonly code: string; readonly message: string } & Readonly<
  * `system:suspend`, so the orchestrator's key can't suspend or restore a
  * pack, and the pack env routes (`/v1/system/pack-env` and
  * `…/deployments/{id}/pack-env`), which take `system:pack-env`, so the
- * deployments key can't read a value. No tenant input ever names a pack's
- * URL.
+ * deployments key can't read a value. A secret's value is given only to a
+ * key holding `system:pack-env` itself, never `kindgi:system`, and only
+ * when it's asked for. No tenant input ever names a pack's URL.
  */
 export function systemDeploymentsRouter(
   options: SystemDeploymentsOptions & {
@@ -449,7 +458,8 @@ export function systemDeploymentsRouter(
   // ---------- GET /pack-env ----------
   // The deployments whose pack service runs on values that have changed
   // since (and weren't held back at this revision, but for one that didn't
-  // start, tried again for an hour): ids, and the revision each runs, for
+  // start, tried again for an hour, and one held for a cause the platform
+  // fixes, every time, with its hold): ids, and the revision each runs, for
   // the compare-and-set.
   r.get('/pack-env', async (c) => {
     const denied = systemReadAcrossTenants(c, PACK_ENV, authorizer);
@@ -468,9 +478,10 @@ export function systemDeploymentsRouter(
       return fail(c, badInput('`cursor` is not one this route gave: start again without it').error);
     }
     return c.json({
-      data: (await changedPackEnv(packEnv, result.data)).map((entry) => ({
+      data: (await changedPackEnv(packEnv, result.data)).map(({ entry, platformHold }) => ({
         ...entryToWire(entry),
         ...(entry.appliedRevision !== undefined && { appliedRevision: entry.appliedRevision }),
+        ...(platformHold !== undefined && { held: platformHold }),
       })),
       ...(result.nextCursor !== undefined && { nextCursor: result.nextCursor }),
       hasMore: result.nextCursor !== undefined,
@@ -479,48 +490,30 @@ export function systemDeploymentsRouter(
 
   // ---------- GET …/pack-env ----------
   // The values, for the deployment's pack service only: none while there's a
-  // problem, and none for a retired deployment.
+  // problem, and none for a retired deployment. Its secrets' values only
+  // when asked (`?secrets=values`), by a key holding `system:pack-env`
+  // itself, and each audited before any is answered.
   r.get(`${onDeployment}/pack-env`, requireSystemScope(PACK_ENV, authorizer), async (c) => {
     const ref = deploymentRef(c);
     if (ref.kind === 'err') return fail(c, ref.error);
+    const secrets = secretsAsk(c, authorizer);
+    if (secrets instanceof Response) return secrets;
     if (packEnv === undefined || binding.recordPackEnv === undefined) {
       return packEnvUnsupported(c);
     }
+    if (secrets !== undefined && packEnv.auditEvents === undefined) return secretsUnaudited(c);
     return withSystemTenantContext(
       c,
       tenants,
       ref.value.tenantId,
       { scope: PACK_ENV, refuse: ['closing', 'suspended'], ...(authorizer && { authorizer }) },
-      async (tenant) => {
-        const deployment = await packEnv.deployments.get({
-          tenantId: tenant.id,
-          deploymentId: ref.value.deploymentId,
-        });
-        if (deployment === null) return deploymentNotFound(c, ref.value.deploymentId);
-        const endpoint = deployment.endpoint;
-        if (endpoint?.status === 'cleared' && endpoint.waiting !== true) {
-          return fail(c, {
-            code: 'endpoint-retired',
-            message: `Deployment ${ref.value.deploymentId}'s pack service was retired: its env isn't given out.`,
-            ...(endpoint.retired !== undefined && { retired: endpoint.retired }),
-          });
-        }
-        const { check, values } = await packEnvValues(packEnv.stores, {
-          tenantId: tenant.id,
-          ...(deployment.projectId !== undefined && { projectId: deployment.projectId }),
-          envName: packEnv.envName,
-          declaration: deployment.packEnv ?? { required: [], optional: [] },
-          deploymentId: deployment.deploymentId,
-          ...(packEnv.auditEvents !== undefined && { auditEvents: packEnv.auditEvents }),
-          ...(packEnv.log !== undefined && { log: packEnv.log }),
-        });
-        return c.json({
-          revision: check.revision,
-          names: check.names,
-          ...(check.problem !== undefined && { problem: check.problem }),
-          ...(values !== undefined && { env: values }),
-        });
-      },
+      (tenant) =>
+        packEnvAnswer(
+          c,
+          packEnv,
+          { tenantId: tenant.id, deploymentId: ref.value.deploymentId },
+          secrets,
+        ),
     );
   });
 
@@ -684,12 +677,22 @@ function parseLimit(raw: string | undefined): Parsed<number> {
   return { kind: 'ok', value: n };
 }
 
-/** The entries whose pack service runs on values that changed since, and weren't held back at this revision. */
+/** A listed entry, and its hold when it's held at this revision for a cause the platform fixes. */
+interface PackEnvChange {
+  readonly entry: SystemPackEnvServed;
+  readonly platformHold?: { readonly code: PackEnvPlatformHold; readonly since: string };
+}
+
+/**
+ * The entries whose pack service runs on values that changed since, and
+ * weren't held back at this revision, or were held at it for a cause the
+ * platform fixes.
+ */
 async function changedPackEnv(
   packEnv: SystemPackEnvOptions,
   served: readonly SystemPackEnvServed[],
-): Promise<SystemPackEnvServed[]> {
-  const changed: SystemPackEnvServed[] = [];
+): Promise<PackEnvChange[]> {
+  const changed: PackEnvChange[] = [];
   const now = Date.now();
   for (const entry of served) {
     const { revision } = await packEnvCheck(packEnv.stores, {
@@ -700,17 +703,96 @@ async function changedPackEnv(
     });
     if (revision === entry.appliedRevision) continue;
     const held = entry.held;
-    // Values that can't be given wait for a change. Values that were given
-    // and didn't start are tried again for a while, as their cause may pass.
-    if (
-      held === undefined ||
-      held.revision !== revision ||
-      (held.code === 'pack-env-update-failed' && now - Date.parse(held.since) < PACK_ENV_RETRY_MS)
+    if (held === undefined || held.revision !== revision) {
+      changed.push({ entry });
+      continue;
+    }
+    // Values the owner has to change wait for a change. Values that were
+    // given and didn't start are tried again for a while, as their cause may
+    // pass. A cause the platform fixes is listed every time: the revision
+    // doesn't move when it's fixed.
+    if (isPackEnvPlatformHold(held.code)) {
+      changed.push({ entry, platformHold: { code: held.code, since: held.since } });
+    } else if (
+      held.code === 'pack-env-update-failed' &&
+      now - Date.parse(held.since) < PACK_ENV_RETRY_MS
     ) {
-      changed.push(entry);
+      changed.push({ entry });
     }
   }
   return changed;
+}
+
+const UNAVAILABLE_BECAUSE = {
+  store: 'its secret store is out',
+  changed: 'a secret changed while it was read, twice',
+  audit: "its secrets' audit rows weren't written",
+} as const;
+
+/**
+ * `?secrets=`: left out (`undefined`), or `values`, asked by a key holding
+ * `system:pack-env` itself: who asks, for each secret's row. Otherwise the
+ * answer refusing it.
+ */
+function secretsAsk(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+): PackEnvSecretsAsk | undefined | Response {
+  const raw = c.req.query('secrets');
+  if (raw === undefined) return undefined;
+  if (raw !== 'values') return fail(c, badInput('`secrets` must be `values`, or left out').error);
+  const principal = ownSystemScope(
+    c,
+    PACK_ENV,
+    "A deployment's secret values are given only to the pack env key",
+    authorizer,
+  );
+  if (principal instanceof Response) return principal;
+  return { requestId: c.get('requestId'), systemKeyId: principal.keyId };
+}
+
+/** GET …/pack-env, once the key and the tenant are let through. */
+async function packEnvAnswer(
+  c: Context<AppEnv>,
+  packEnv: SystemPackEnvOptions,
+  ref: DeploymentRef,
+  secrets: PackEnvSecretsAsk | undefined,
+): Promise<Response> {
+  const deployment = await packEnv.deployments.get(ref);
+  if (deployment === null) return deploymentNotFound(c, ref.deploymentId);
+  const endpoint = deployment.endpoint;
+  if (endpoint?.status === 'cleared' && endpoint.waiting !== true) {
+    return fail(c, {
+      code: 'endpoint-retired',
+      message: `Deployment ${ref.deploymentId}'s pack service was retired: its env isn't given out.`,
+      ...(endpoint.retired !== undefined && { retired: endpoint.retired }),
+    });
+  }
+  const read = await packEnvValues(packEnv.stores, {
+    tenantId: ref.tenantId,
+    ...(deployment.projectId !== undefined && { projectId: deployment.projectId }),
+    envName: packEnv.envName,
+    declaration: deployment.packEnv ?? { required: [], optional: [] },
+    deploymentId: deployment.deploymentId,
+    ...(packEnv.auditEvents !== undefined && { auditEvents: packEnv.auditEvents }),
+    ...(packEnv.log !== undefined && { log: packEnv.log }),
+    ...(secrets !== undefined && { secrets }),
+  });
+  if (read.kind === 'unaudited') return secretsUnaudited(c);
+  if (read.kind === 'unavailable') {
+    return fail(c, {
+      code: 'pack-env-unavailable',
+      message: `Deployment ${ref.deploymentId}'s pack env can't be read just now (${UNAVAILABLE_BECAUSE[read.cause]}): try again.`,
+    });
+  }
+  const { check, values } = read;
+  return c.json({
+    revision: check.revision,
+    names: check.names,
+    ...(check.problem !== undefined && { problem: check.problem }),
+    ...(values !== undefined && { env: values }),
+    ...(read.secrets !== undefined && { secrets: read.secrets }),
+  });
 }
 
 interface ParsedEndpointBody {
@@ -795,6 +877,14 @@ function parsePackEnvBody(body: unknown): Parsed<Omit<PackEnvRecordInput, keyof 
       ...(typeof b.appliedRevision === 'string' && { appliedRevision: b.appliedRevision }),
     },
   };
+}
+
+function secretsUnaudited(c: Context<AppEnv>): Response {
+  return fail(c, {
+    code: 'pack-env-secrets-unaudited',
+    message:
+      'This server has nowhere to audit a secret given out, so it gives none: a person has to set up its audit store.',
+  });
 }
 
 function packEnvUnsupported(c: Context<AppEnv>): Response {
