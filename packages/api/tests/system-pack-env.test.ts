@@ -63,6 +63,8 @@ const SCOPES: Record<string, readonly string[]> = {
   [FULL]: ['kindgi:system'],
   [FULL_AND_PACK_ENV]: ['kindgi:system', 'system:pack-env'],
 };
+/** A system key's id, as its resolver gives it: never the token itself. */
+const keyIdOf = (token: string) => `key-${Object.keys(SCOPES).indexOf(token)}`;
 const NOW = '2026-10-18T03:00:00.000Z';
 
 function deployment(id: string, projectId: ProjectId, endpoint: DeploymentEndpoint): Deployment {
@@ -264,7 +266,11 @@ function makeApp(
     resolveToken: async (token) => {
       const scopes = SCOPES[token];
       if (scopes !== undefined) {
-        return { tenantId: SYSTEM_TENANT_ID, system: { keyId: token }, capabilities: scopes };
+        return {
+          tenantId: SYSTEM_TENANT_ID,
+          system: { keyId: keyIdOf(token) },
+          capabilities: scopes,
+        };
       }
       if (token === TENANT_KEY) return { tenantId: live, scopes: ['tenant-admin'] };
       return null;
@@ -719,11 +725,13 @@ describe('GET …/pack-env?secrets=values: secret values, for the pack env key o
           name: 'ACME_API_KEY',
           caller: 'pack-env',
           deploymentId: 'd',
-          systemKeyId: PACK_ENV,
+          systemKeyId: keyIdOf(PACK_ENV),
           revision: (r.body.secrets as Record<string, { revision: string }>).ACME_API_KEY?.revision,
         },
       },
     });
+    // The key by its id, never its token.
+    expect(JSON.stringify(a.appended)).not.toContain(PACK_ENV);
     expect(a.resolved).toHaveLength(1);
   });
 
