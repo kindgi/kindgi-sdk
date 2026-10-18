@@ -34,7 +34,7 @@ nothing runs on your machine but your coding agent and the Kindgi CLI.
 - **An API key from your AI provider** (Anthropic, OpenAI, Gemini, Groq or
   OpenRouter), made for this tutorial, with a spending limit.
 - **A second person's address,** or a second address of your own, for the
-  staff member who approves in chapter 6.
+  staff member who asks for a refund in chapter 6.
 
 What the store agent says reads differently for you: your model writes it.
 Your order numbers and amounts differ too.
@@ -48,15 +48,14 @@ signed in to it, so your coding agent can deploy to it.
 
 :::note[What only you do]
 **Sign up.** Open
-[Kindgi Cloud's sign-up page](https://platform.kindgi.com/cloud/signup?plan=apps-preview-v1),
-give your name, your work email and your organization, and follow the link
-in the email. When we admit your organization, an email says its workspace
-is ready, with a link to sign in to its console.
+[Kindgi Cloud's sign-up page](https://platform.kindgi.com/cloud/signup) and
+follow its steps. When your workspace is ready, an email says so, with a
+link to sign in to its console. You're the workspace's first admin.
 
-**Make a key for the CLI.** In the console, open **API keys** and
-**Create a key**. Under **How far it goes**, choose **Admin**. Under **What
-it can change**, tick **Trust signing keys** and **Store secrets**. The key
-shows once.
+**Make a key for the CLI.** In the console, open **API keys** and **Create
+a key**. Under **How far it goes**, choose **Admin**. Under **What it can
+change**, tick **Trust signing keys** and **Store secrets**, then choose
+**Create key**. The key shows once: **Copy** it.
 
 **Sign the CLI in, in a terminal of your own.** Paste the key at the prompt,
 which doesn't show it:
@@ -67,14 +66,15 @@ npx --yes @kindgi/cli@0.1 auth login --url=https://platform.kindgi.com
 npx --yes @kindgi/cli@0.1 auth whoami
 ```
 
-The CLI keeps the key in `~/.kindgi/config.json`, and your coding agent uses
-that sign-in from then on. The key itself never goes into the chat.
+`auth whoami` shows who the key acts as: you. The CLI keeps the key in
+`~/.kindgi/config.json`, and your coding agent uses that sign-in from then
+on. The key itself never goes into the chat.
 :::
 
 ### See it in Kindgi's console
 
-**Dashboard** shows your workspace's default project. Your agents go there
-in chapter 3.
+**Dashboard** shows your workspace's default project, **Default**. Your
+agents go there in chapter 3.
 
 ```text
 CAPTURE: the console's Dashboard for a new workspace
@@ -121,8 +121,8 @@ Open your coding agent in an empty folder, and paste:
 
 ```text
 Make a Kindgi pack for my WooCommerce store with `npx --yes @kindgi/cli@0.1 init acme-shop --template=woocommerce`, and run its tests with `kindgi test`. Read the project's README and follow it, with these differences: the store's agents run on Kindgi Cloud, where the Kindgi CLI is already signed in, so there's no `kindgi dev`.
-- Connect the pack to my store, following the README's "Connect your store", at the scope of my workspace's default project, on `prod`: WOO_STORE_URL is https://shop.acme.example and WOO_USER is shop-agent. WOO_APP_PASSWORD is a secret: take it from my clipboard into `kindgi secrets set … --from-stdin` when I say I've copied it. Never print it.
-- Then my model key, the same way, for the provider I name, as the kindgi-authoring-providers skill says.
+- Connect the pack to my store, following the README's "Connect your store", at the scope of my workspace's default project (`--scope=project:<its id>`), on `prod` (`--env=prod`): WOO_STORE_URL is https://shop.acme.example and WOO_USER is shop-agent. WOO_APP_PASSWORD is a secret: take it from my clipboard into `kindgi secrets set WOO_APP_PASSWORD --env=prod --scope=project:<its id> --from-stdin` when I say I've copied it. Never print it.
+- Then my model key, for the provider I name: take it from my clipboard into `kindgi secrets set <its key's name> --env=prod --scope=tenant --from-stdin` the same way. Then register that provider on `prod` with `kindgi providers register --preset=<its preset> --env=prod`, as the kindgi-authoring-providers skill says.
 - Make a signing key with `kindgi key create acme-agency` and trust it with `kindgi key trust acme-agency`. Then deploy the pack to the default project with `kindgi deploy --hosted --env=prod`, signing with that key, and wait until the deploy says the pack service is ready.
 Tell me whenever you need something from me, and wait for me. At the end, tell me the agents' ids.
 ```
@@ -157,8 +157,8 @@ CAPTURE: kindgi deploy --hosted for acme-shop, from the build to the pack servic
 
 ### See it in Kindgi's console
 
-- **Tools:** five store tools under `acme-shop.woo.`, and the check that
-  reads new orders.
+- **Tools:** six under `acme-shop.woo.`: five that work on the store, and
+  the check that reads each new order (`acme-shop.woo.check-order-event`).
 - **Agents:** the store agent (`acme-shop.store-agent`) and the order
   reviewer (`acme-shop.order-reviewer`).
 
@@ -205,11 +205,12 @@ vouches for whoever is signed in to WordPress, and Kindgi gives them a short
 session on the store's project.
 
 :::note[What only you do]
-**Install the plugin.** On the
-[Kindgi SDK's releases page](https://github.com/kindgi/kindgi-sdk/releases),
-download the plugin's zip. In wp-admin, go to **Plugins → Add Plugin → Upload
-Plugin** (**Add New Plugin** before WordPress 6.8), choose the zip, then
-**Install Now** and **Activate Plugin**.
+**Install the plugin.** Download `kindgi-<version>.zip` from the Kindgi
+SDK's [latest release](https://github.com/kindgi/kindgi-sdk/releases/latest).
+The `.sha256` file next to it checks the download (`sha256sum -c`). In
+wp-admin, go to **Plugins → Add Plugin → Upload Plugin** (**Add New
+Plugin** before WordPress 6.8), choose the zip, then **Install Now** and
+**Activate Plugin**.
 
 **If you can edit the store's `wp-config.php`,** give the plugin its signing
 key there before you connect, as
@@ -217,14 +218,14 @@ key there before you connect, as
 shows. Then a copy of the database, a backup or a staging clone, carries no
 key.
 
-**Open Kindgi → Settings.** It shows two addresses: the store's origin, and
-its approvals URL. Give both to your coding agent.
+**Open Kindgi → Settings.** It shows two addresses, **Origin** and
+**Approvals URL**. Give both to your coding agent.
 :::
 
 ### Ask your coding agent
 
 ```text
-Register my store as a site on my workspace's default project, where the acme-shop pack is, so its staff can sign in from WordPress: display name "Acme Shop", and the origin and approvals URL that I paste from the plugin's settings page. Keep the defaults for who may sign in. Give me the one-time code it returns, and tell me how long it lasts.
+Register my store as a site with `kindgi sites register`, on my workspace's default project, where the acme-shop pack is, so its staff can sign in from WordPress: display name "Acme Shop", and the origin and approvals URL that I paste from the plugin's settings page. Keep the defaults for who may sign in. Give me the one-time code it prints, and tell me until when it works.
 ```
 
 ### What your agent should say
@@ -234,10 +235,10 @@ CAPTURE: the site registered, with its one-time code and how long it lasts
 ```
 
 :::note[What only you do]
-**Connect.** Under **Kindgi → Settings**, paste the one-time code, and
-`https://platform.kindgi.com` as the Kindgi URL. Choose **Connect**. The
-code works once, within 15 minutes: after that, ask your agent for a new
-one.
+**Connect.** Under **Kindgi → Settings**, paste the code under **One-time
+code**, and `https://platform.kindgi.com` under **Kindgi URL**. Choose
+**Connect**. The code is good for 15 minutes: after that, ask your coding
+agent for a new one (`kindgi sites code`).
 :::
 
 ### See it in your store
@@ -252,10 +253,10 @@ CAPTURE: Kindgi → Settings, connected
 <details>
 <summary>Under the hood: the site and its people</summary>
 
-The site is registered through the SDK client's `projects.sites.register`, which
-returns the one-time code. With the defaults, an administrator or a shop
-manager may sign in, ask the project's agents, and review at the `standard`
-role. An editor who sees the page is refused.
+From code, the SDK client's `projects.sites.register` does what `kindgi
+sites register` does. With the defaults, an administrator or a shop manager
+may sign in, ask the project's agents, and review at the `standard` role.
+Any other role is refused.
 
 When someone opens the page, the plugin signs a short statement: the person
 signed in here, with these WordPress roles. Kindgi checks it against the
@@ -289,8 +290,8 @@ Use your order's number for `1043`.
 
 ### See it in your store
 
-The order's page lists the refund under its items, by Shop agent, with the
-reason underneath. No money moved through a payment gateway: the template
+The order's page lists the refund under its items, by `shop-agent`, with
+the reason underneath. No money moved through a payment gateway: the template
 records refunds in WooCommerce only, unless you turn the gateway on
 (`WOO_REFUND_THROUGH_GATEWAY`, in the project's README).
 
@@ -300,12 +301,11 @@ CAPTURE: the order's refund in WooCommerce
 
 ### See it in Kindgi's console
 
-**Dashboard → Runs:** the run at the top, `completed`. It looked the order
-up, then made one call to `acme-shop.woo.refund`. The conversation it
-belongs to is yours, opened from your store.
+**Runs:** the run at the top, **Completed**. Under **What happened**, it
+looked the order up, then made one call to `acme-shop.woo.refund`.
 
 ```text
-CAPTURE: the run in the console, from a conversation opened via Acme Shop
+CAPTURE: the run in the console, with the order looked up and the refund made
 ```
 
 ## 6. A big refund waits for a second person
@@ -318,8 +318,8 @@ both of you.
 
 :::note[What only you do]
 **Add Jane to the staff.** In wp-admin, go to **Users → Add User** (**Add New
-User** before WordPress 6.8), and make a user for her with the **Shop Manager**
-role and her email address.
+User** before WordPress 6.8), and make a user for Jane with the **Shop
+Manager** role and their email address.
 :::
 
 ### Ask in wp-admin, as Jane
@@ -343,15 +343,18 @@ role it needs. Choose **Approve**.
 
 ### See it in your store
 
-The order's page lists a refund of 150, by Shop agent.
+The order's page lists a refund of 150, by `shop-agent`.
 
 ### See it in Kindgi's console
 
-The approval names who asked (Jane), who decided (you), and the store it
-came through.
+Under **Approvals**, the refund says **Approved**. Open it: **The whole
+record** has who asked (`requestedBy`) and who decided (`decidedBy`), each
+the Kindgi person the site made for them. The decision also keeps your name
+with the store's (`deciderName`: your name, then ", via Acme Shop"), and
+how you signed in (`sessionProvider`: `site:` and the site's id).
 
 ```text
-CAPTURE: the decided approval in the console, Jane asking and you approving
+CAPTURE: the decided approval in the console, with its whole record
 ```
 
 :::note[When two people must really decide]
@@ -404,8 +407,9 @@ Settings → Payments** if it's off.
 
 ### See it in Kindgi's console
 
-**Runs** has a run of `acme-shop.order-review`, started by the trigger
-"WooCommerce orders", with the order reviewer's review.
+**Runs** has a run of `acme-shop.order-review` that the webhook
+"WooCommerce orders" started (**Started by**), with the order reviewer's
+review.
 
 ```text
 CAPTURE: the webhook-started review in the console
@@ -419,15 +423,20 @@ The project in production, so its runs are the store's real work, not
 tests.
 
 :::note[What only you do]
-**Go live.** In the console, use **Go live** on the **Production** card of
-the project's **Dashboard**. Do this yourself: it's the step that makes the
-store agent's work real, so it's a person's decision.
+**Go live.** In the console, open the project's **Dashboard**. Use **Go
+live** on its **Production** card, and **Go live** again to confirm. Do
+this yourself: it's the step that makes the store agent's work real, so
+it's a person's decision.
 :::
 
 ### See it in Kindgi's console
 
-The **Production** card says the project is in production, and the runs from
-then on are production runs.
+The **Production** card says **Live**, and since when. Runs from then on
+count as live. **Take out of production**, on the same card, makes the
+project's runs staging again.
+
+How many of your projects can be in production at once is in
+[Kindgi Cloud's limits](../../hosted/limits/#projects-in-production).
 
 ## If something looks wrong
 
@@ -436,21 +445,15 @@ then on are production runs.
   wp-admin, **Tools → Site Health** then says "The authorization header is
   missing", and your host can pass it through again.
 - **The store agent's calls never reach the store.** A host firewall, a WAF
-  or a security plugin may refuse requests from cloud addresses. Allow the
-  addresses that the store's tools call from on Kindgi Cloud:
-
-  ```text
-  CAPTURE: where the addresses that Kindgi Cloud's packs call out from are listed
-  ```
-
-  Kindgi Cloud reaches stores over IPv4, so a store reachable only over IPv6
-  can't be reached.
+  or a security plugin may refuse requests from cloud addresses, and its log
+  shows them refused. Let requests to the store's REST API (`/wp-json/wc/v3/`)
+  through.
 - **Kindgi → Settings can't connect.** `WP_HTTP_BLOCK_EXTERNAL` in
   `wp-config.php`, or a security plugin, may block WordPress's own requests
   to `platform.kindgi.com`. Allow that host.
-- **"None of these roles may sign in through this site."** The person's
-  WordPress role isn't one the site lets in: by default, administrators and
-  shop managers.
+- **The Kindgi page says "None of these roles may sign in through this
+  site".** The person's WordPress role isn't one the site lets in: by
+  default, administrators and shop managers.
 - **No review after an order.** WooCommerce sends deliveries from a queue,
   when WordPress runs its scheduled tasks. **WooCommerce → Status →
   Scheduled Actions** shows them pending as
