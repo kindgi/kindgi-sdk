@@ -17,8 +17,8 @@ that it came back healthy.
 - **`KINDGI_API_TOKEN` exported in your shell** as the runtime's API token. The
   commands that take your API token read it from there.
 - **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.1`. Inside a pack project, `pnpm exec kindgi`
-  runs the project's pinned CLI instead.
+  `npx --yes @kindgi/cli@0.1` ([Install](../../start/install/)). Inside a pack
+  project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## Restart the runtime
 

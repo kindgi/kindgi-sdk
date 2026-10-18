@@ -26,8 +26,8 @@ page does the same steps ([From the console](#from-the-console)).
   runtime's address, and `KINDGI_API_TOKEN` is your API key
   ([People and keys](../../deploy/people-and-keys/#api-keys)).
 - **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.1`. Inside a pack project, `pnpm exec kindgi`
-  runs the project's pinned CLI instead.
+  `npx --yes @kindgi/cli@0.1` ([Install](../../start/install/)). Inside a pack
+  project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Get what to send IT
 

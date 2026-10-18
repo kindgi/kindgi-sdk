@@ -16,8 +16,8 @@ that directory only.
 - **Someone who can register apps in your Entra ID directory,** and assign
   people to them.
 - **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.1`. Inside a pack project, `pnpm exec kindgi`
-  runs the project's pinned CLI instead.
+  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+  pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Get the redirect URI
 

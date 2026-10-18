@@ -17,9 +17,9 @@ one stops working.
 - **`KINDGI_API_TOKEN` exported in your shell** as the runtime's API token,
   where the `kindgi` commands read it.
 - **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.1`. Inside a pack project, `pnpm exec kindgi`
-  runs the project's pinned CLI instead. The build and deploy steps need the
-  pack's folder, so they're written that way.
+  `npx --yes @kindgi/cli@0.1` ([Install](../../start/install/)). Inside a pack
+  project, `pnpm exec kindgi` runs the project's pinned CLI instead. The build
+  and deploy steps need the pack's folder, so they're written that way.
 
 Each rotation ends with a restart, as
 [Restart the runtime](../restart-and-check-health/#restart-the-runtime)
@@ -179,8 +179,7 @@ revoked id can't be trusted again.
    ```
 
    `--url` is the runtime's URL. It prints the trusted key as JSON, then
-   `✓ Trusted acme-selfhost-2` with the fingerprint
-   `key create` printed:
+   `✓ Trusted acme-selfhost-2` with the fingerprint `key create` printed:
 
    ```text
    {

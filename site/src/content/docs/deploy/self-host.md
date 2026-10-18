@@ -28,9 +28,9 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
 - **Docker**, `openssl`, `uuidgen` and `curl`, and for a TypeScript pack
   **Node 22.12** or later and **pnpm**.
 - **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.1`. Inside a pack project, `pnpm exec kindgi`
-  runs the project's pinned CLI instead. The build and deploy steps need the
-  pack's folder, so they're written that way.
+  `npx --yes @kindgi/cli@0.1` ([Install](../../start/install/)). Inside a pack
+  project, `pnpm exec kindgi` runs the project's pinned CLI instead. The build
+  and deploy steps need the pack's folder, so they're written that way.
 - **Ollama**, with `llama3.1` pulled, for the flow in step 8.
 - **A pack.** This page uses the sample. `--template=sample` picks it, and
   `acme-pack` is its folder and its pack id:
@@ -110,9 +110,9 @@ If your app's code needs a generate step in the image (Prisma's client, for
 example), set that up first:
 [What the pack's image needs](../../start/existing-app-typescript/#what-the-packs-image-needs).
 
-In a Python pack, run each `pnpm exec kindgi` on this page as
-`uv run kindgi`, and lock its dependencies first (`uv lock`, or
-`poetry lock`): the image installs them from the lockfile.
+In a Python pack, run each `kindgi` command on this page, `pnpm exec kindgi` and
+`npx --yes @kindgi/cli@0.1` alike, as `uv run kindgi`. Lock its dependencies
+first (`uv lock`, or `poetry lock`): the image installs them from the lockfile.
 
 Pick a tenant id. The runtime serves this tenant, and the pack's signature names it:
 

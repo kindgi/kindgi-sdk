@@ -16,8 +16,8 @@ needs from that provider.
   with the `kindgi` CLI set up as [Set up SSO](../#before-you-start) says.
 - **Someone who can create a web application in your identity provider.**
 - **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.1`. Inside a pack project, `pnpm exec kindgi`
-  runs the project's pinned CLI instead.
+  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+  pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Get the redirect URI
 

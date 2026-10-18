@@ -21,12 +21,12 @@ runtime makes the seed user a tenant admin at every start.
 - **Authorization is on** for your runtime
   ([Run with authorization](../authorization/)).
 - **You're a tenant admin,** such as the seed user.
-- **The `kindgi` CLI reaches your runtime as you:** `KINDGI_API_URL` is the
-  runtime's address, and `KINDGI_API_TOKEN` is your API key. The `curl`
-  examples read the same two variables.
+- **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
+  exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`. The
+  `curl` examples read the same two variables.
 - **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.1`. Inside a pack project, `pnpm exec kindgi`
-  runs the project's pinned CLI instead.
+  `npx --yes @kindgi/cli@0.1` ([Install](../../start/install/)). Inside a pack
+  project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## Who can do what
 
