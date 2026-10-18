@@ -1,17 +1,20 @@
 ---
 title: 'Environments: from staging to production'
-description: Put your Kindgi Cloud projects in order as environments, deploy each new build into the first one, and promote that exact build from one environment to the next until it reaches production.
+description: Put your projects in order as environments, deploy each new build into the first one, and promote that exact build from one environment to the next until it reaches production, on Kindgi Cloud or on your own runtime.
 sidebar:
   label: Environments
 ---
 
-On Kindgi Cloud, an environment is a project of your workspace. You put
-projects in order, such as `staging-1`, `staging-2` and `prod`. A new build
-goes into the first environment only. From there, you promote it to the next
-one, one environment at a time, until it reaches `prod`.
+An environment is a project. You put projects in order, such as
+`staging-1`, `staging-2` and `prod`. A new build goes into the first
+environment only. From there, you promote it to the next one, one
+environment at a time, until it reaches `prod`.
+
+It works the same on Kindgi Cloud and on a runtime you host. The parts that
+are Kindgi Cloud's own are marked.
 
 ```text
-kindgi deploy --hosted --env=staging-1      a new build enters here only
+a deploy into staging-1      a new build enters here only
         │
         ▼
   staging-1    its own values and data: try it, make it live here
@@ -37,9 +40,10 @@ Each environment has its own values and its own data. Only the build moves.
 - **Values never move.** Each environment has its own secrets, model keys
   and tool values. A promoted build reads the next environment's values,
   never the ones it had before.
-- **It checks the next environment first.** Before anything moves, it lists
-  each value the build needs that the next environment doesn't have. If one
-  is missing, nothing moves.
+- **It checks first.** Before anything moves, it checks that the key that
+  signed the build is still trusted, as a deploy does. Then it lists each
+  value the build needs that the next environment doesn't have. If the key
+  isn't trusted or a value is missing, nothing moves.
 - **It goes one environment at a time, in order.** Only the first
   environment takes new builds. The others take promotions only, so nothing
   reaches `prod` without passing through every environment before it.
@@ -60,27 +64,34 @@ Each environment has its own values and its own data. Only the build moves.
   made in `prod` can hold production data, and data never moves back toward
   staging.
 
-Changes you make in Kindgi Cloud start in the first environment too. A
-prompt or settings change in the console, or an accepted proposal from
-Improve, makes a new version in the first environment. It reaches `prod` by
-promotion, like any build. Improve still learns from the runs of every
-environment, `prod`'s included.
+Changes made in the console start in the first environment too. A prompt
+or settings change, or an accepted proposal from Improve, makes a new
+version in the first environment. It reaches `prod` by promotion, like any
+build. Improve still learns from the runs of every environment, `prod`'s
+included.
 
 ## Before you start
 
-- **A pack deployed to Kindgi Cloud,** as in
-  [Deploy your agent to Kindgi Cloud](../../hosted/deploy-your-agent/).
-- **A tenant admin** of the workspace. Only a tenant admin sets the order of
-  environments, or changes it.
+- **A pack you deploy,** to Kindgi Cloud, as in
+  [Deploy your agent to Kindgi Cloud](../../hosted/deploy-your-agent/), or to
+  your own runtime, as in [Self-host Kindgi](../self-hosted/self-host/).
+- **A tenant admin.** Only a tenant admin sets the order of environments, or
+  changes it. On Kindgi Cloud, the tenant is your workspace.
 - **A project for each environment.** `kindgi projects create --name=staging-1`
   makes one ([Organize by org and project](../../guides/projects/organize-by-org-and-project/)).
-  An order has two or more projects. They all sit directly in your
-  workspace, or all in the same org. A project is in one order at most.
+  An order has two or more projects. They all sit directly in the tenant, or
+  all in the same org. A project is in one order at most.
+
+All the environments of an order are projects of one tenant, on one
+runtime.
 
 ## Name each environment's project
 
-Each environment in the pack's `kindgi.config.ts` names its project. Only
-the first one builds:
+Each environment in the pack's `kindgi.config.ts` names its project, by its
+slug, in `project`. Only the first environment builds, so only it has the
+build settings.
+
+On Kindgi Cloud:
 
 ```ts
 environments: {
@@ -94,10 +105,42 @@ environments: {
 },
 ```
 
-On Kindgi Cloud, `--env=<name>` then means that environment's project, for
-every command: `deploy`, `promote`, `secrets set`, `env set` and the rest.
-A `--env` that names no environment of the pack is refused, and so is one
-whose environment names no project.
+On your own runtime, each environment also names the runtime's `endpoint`,
+the same one for every environment. The first has the registry, tenant and
+signing key settings that
+[Self-host Kindgi](../self-hosted/self-host/) describes:
+
+```ts
+environments: {
+  'staging-1': {
+    endpoint: 'https://kindgi.acme.example',
+    registry: 'registry.acme.example',
+    tenantId: '<your tenant id>',
+    signingKey: '~/.kindgi/keys/acme-desk.pem',
+    signerKeyId: 'acme-desk',
+    project: 'staging-1',
+  },
+  'staging-2': { endpoint: 'https://kindgi.acme.example', project: 'staging-2' },
+  prod: { endpoint: 'https://kindgi.acme.example', project: 'production' },
+},
+```
+
+In a Python pack, the same keys go in `pyproject.toml`, under
+`[tool.kindgi.environments.<name>]`.
+
+`--env=<name>` then means that environment's project, for every command:
+`deploy`, `promote`, `secrets set`, `env set` and the rest. A `--project`
+that names another project is refused, and the error names both.
+
+On your own runtime, an environment without `project` keeps its usual
+meaning: the runtime its `endpoint` names, with the project from
+`--project`, or the Default project. If you run one runtime per environment,
+nothing changes.
+
+:::note[On Kindgi Cloud]
+Every environment names its project. A `--env` whose environment names no
+project is refused, and so is one that names no environment of the pack.
+:::
 
 ## Set the order
 
@@ -128,53 +171,58 @@ The Default project can be an environment too. Keep it as the last one,
 
 `prod` names the Default project by its slug, as every environment names
 its project. The slug is `default`, unless you've renamed it:
-
-```ts
-environments: {
-  staging: {
-    build: 'hosted',
-    project: 'staging',
-    signingKey: '~/.kindgi/keys/acme-desk.pem',
-  },
-  prod: { project: 'default' },
-},
-```
-
+`prod: { project: 'default' }`, with its `endpoint` on your own runtime.
 Then set the order, as a tenant admin:
 
 ```sh
 kindgi environments set staging prod
 ```
 
-- **Your live agents stay live.** If the Default project is in production,
-  it stays in, and you don't go live again.
+- **Your live agents stay live.** Their live versions don't change. On
+  Kindgi Cloud, a Default project in production stays in, and you don't go
+  live again.
 - **From then on, a deploy into the Default project is refused,** with a
   message that names `staging`. Deploy into `staging`, and promote to
   `prod`.
-- **The order's projects sit directly in your workspace,** as the Default
+- **The order's projects sit directly in the tenant,** as the Default
   project does, not in an org.
 
 ## Give each environment its values
 
-Store each value in the environment that reads it:
+Each environment reads its own project's values: the secrets, model keys and
+tool values stored for that project. Store each value in the environment
+that reads it:
 
 ```sh
 kindgi secrets set ORDERS_API_KEY --env=staging-2
 ```
 
-The same goes for model keys and a tool's per-project values
+With `--env=staging-2`, the secret is stored for `staging-2`'s project.
+Outside a pack, `--scope=project:<projectId>` does the same. A tool's
+per-project values work the same way, with `kindgi env set`
 ([Give a tool per-project values](../../guides/tools/give-a-tool-env-values/)).
-A value stored for the whole workspace, with `--scope=tenant`, is used by
-every environment that doesn't have its own. Keep `prod`'s live keys in
-`prod`.
+
+A value stored for the whole tenant, with `--scope=tenant`, is used by every
+environment that doesn't have its own. Keep `prod`'s live keys in `prod`.
+
+A model provider's key is read the same way: a run reads the key from its
+own project first. Store the key under the same name in each environment,
+and each one calls the model with its own key
+([Keys](../../guides/models/#keys)).
 
 ## Deploy into the first environment
 
-Ask your coding agent: "Deploy the pack to Kindgi Cloud, into `staging-1`."
-For reference:
+Ask your coding agent: "Deploy the pack into `staging-1`." For reference, on
+Kindgi Cloud:
 
 ```sh
 kindgi deploy --hosted --env=staging-1
+```
+
+On your own runtime:
+
+```sh
+kindgi deploy --env=staging-1 --token "$KINDGI_API_TOKEN"
 ```
 
 A deploy into a later environment is refused
@@ -183,8 +231,8 @@ first environment, and promote from there. Publishing an agent, a flow, a
 tool, a guardrail or a data block through the API into a later environment
 is refused the same way: only builds move between environments.
 
-Try the new version in `staging-1`, and make it live there, as in
-[Deploy your agent to Kindgi Cloud](../../hosted/deploy-your-agent/#try-it).
+Try the new version in `staging-1`, and make it live there
+([Release an agent version](../../guides/evals/release-an-agent-version/)).
 
 ## Promote to the next environment
 
@@ -196,14 +244,15 @@ kindgi promote --from=staging-1 --to=staging-2 --reason="Tried in staging-1"
 ```
 
 It prints what moves before it moves anything: the pack, its build, and
-each agent, flow, tool and test set with its version. Then it checks
-`staging-2`'s values, and then it promotes.
+each agent, flow, tool and test set with its version. Then it checks the
+build's signing key and `staging-2`'s values, and then it promotes.
 
 - **By default, it promotes `staging-1`'s newest build of the pack.** When
   there's more than one it could take, it lists them: name one with
   `--deployment=<id>`.
 - **`--make-live`** also makes each promoted agent version live in
   `staging-2`, through any gate there.
+- **Outside a pack,** `--from` and `--to` take the projects' slugs.
 
 If a value is missing, the promotion names each one, says what needs it,
 and moves nothing. Store the missing values in `staging-2`, then promote
@@ -217,29 +266,32 @@ Promote from the environment before `prod`, the same way:
 kindgi promote --from=staging-2 --to=prod --reason="Compared on the test set"
 ```
 
-The project of `prod` is the one you put in production, with **Go live**
-([Go live](../../hosted/deploy-your-agent/#go-live)). Only one project of your
-workspace is in production at a time
-([projects in production](../../hosted/limits/#projects-in-production)). The other
-environments aren't, so their runs count as staging.
-
 In `prod`, the promoted version waits while the live one serves. Try it by
-its version, make it live, and roll back if you need to, as in
-[Change your agent once it's live](../../hosted/deploy-your-agent/#change-your-agent-once-its-live).
+its version, make it live, and roll back if you need to
+([Release an agent version](../../guides/evals/release-an-agent-version/)).
+
+:::note[On Kindgi Cloud]
+The project of `prod` is the one you put in production, with **Go live**
+([Go live](../../hosted/deploy-your-agent/#go-live)). Only one project of
+your workspace is in production at a time
+([projects in production](../../hosted/limits/#projects-in-production)).
+The other environments aren't, so their runs count as staging.
+:::
 
 ## In the console
 
 - **Environments** has a column for each environment, with each agent's live
   version and the versions waiting. **Promote to staging-2** runs the same
-  check of the values first, and **Make live** and **Roll back** work on
-  their own column only.
+  checks first, and **Make live** and **Roll back** work on their own column
+  only.
 - **Values**, for each environment, lists what the build needs: what's set
-  there, what falls back to the workspace, and what's missing.
+  there, what falls back to the tenant's values, and what's missing.
 
 ## If something goes wrong
 
 - **A command with `--env` is refused.** The pack has no environment of that
-  name, or the environment names no project. Name its project in
+  name, or a `--project` names another project than the environment's. On
+  Kindgi Cloud, the environment may name no project: name it in
   `kindgi.config.ts`, as in
   [Name each environment's project](#name-each-environments-project).
 - **A deploy or a publish into a later environment is refused
@@ -249,6 +301,9 @@ its version, make it live, and roll back if you need to, as in
   it names in the environment you're promoting to, then promote again.
 - **A promotion that skips an environment is refused.** Promote to the next
   environment in the order.
+- **A promotion between two runtimes is refused.** Its two environments name
+  different endpoints, and the error names both. An order's environments
+  are all on one runtime.
 - **A promotion is refused because the signing key isn't trusted.** The key
   that signed the build was revoked after the deploy. Deploy a new build,
   signed with a trusted key, into the first environment.
@@ -261,8 +316,8 @@ its version, make it live, and roll back if you need to, as in
 
 ## Without environments
 
-Nothing changes for a workspace that doesn't set an order. Its projects
-work as [Deploy your agent to Kindgi Cloud](../../hosted/deploy-your-agent/) says.
+Nothing changes for a tenant that doesn't set an order. Its projects take
+deploys as before.
 
 To stop using an order, a tenant admin clears it with
 `kindgi environments clear`. Its projects then take builds directly again.
