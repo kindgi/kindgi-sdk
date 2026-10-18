@@ -216,6 +216,11 @@ For reference, the spec it writes looks like this:
 }
 ```
 
+:::note[On Kindgi Cloud]
+Use `prod` for the environment: `--env=prod` when you store the key, and
+`"envName": "prod"` in the spec.
+:::
+
 With the spec saved as `bedrock.json`,
 `kindgi providers register --spec=@bedrock.json` prints the provider's id:
 
@@ -538,6 +543,13 @@ At each boot, `kindgi dev` says what it did:
 `.kindgi/dev/providers.json`. A runtime that `kindgi dev` doesn't run, such as
 your staging or production one, gets its providers with
 `kindgi providers register`.
+
+:::note[On Kindgi Cloud]
+Register a preset with `--env=prod`: without `--env`, it reads `local`. A
+spec's key names `"envName": "prod"`. A model key is the workspace's: runs
+in every project use it. To try a change before it's live, see
+[Change your agent once it's live](../../hosted/deploy-your-agent/#change-your-agent-once-its-live).
+:::
 
 ## Keys
 
