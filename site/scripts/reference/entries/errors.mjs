@@ -2615,6 +2615,16 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['POST /v1/compliance/evidence/export'],
   },
+  'org-has-environment-order': {
+    description:
+      "An org can't be deleted while it's the parent of an environment order, because deleting it would orphan the order. A tenant admin clears the order first (PUT /v1/environment-orders/orgs/{orgId} with []), then deletes the org.",
+    details: [
+      {
+        key: 'orderId',
+        meaning: 'the environment order the org is the parent of',
+      },
+    ],
+  },
   'org-not-found': {
     description:
       "The org doesn't exist in the tenant: it never existed or was deleted. Also returned when creating or changing a project or team with an unknown `orgId`.",
