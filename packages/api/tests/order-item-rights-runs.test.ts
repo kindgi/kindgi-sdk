@@ -617,7 +617,8 @@ describe('conversations with an agent an order carries', () => {
     const b = await gone.call('staging', 'POST', '/v1/conversations', open({ projectId: PROD }));
     expect(a.status, a.text).toBe(403);
     expect(b.text).toBe(a.text);
-    expect(b.asked).toEqual([`staging call project:${PROD}`]);
+    expect(a.asked).toEqual([`staging call project:${PROD}`]);
+    expect(b.asked).toEqual(a.asked);
     expect(present.conversations).toEqual([]);
     expect(gone.conversations).toEqual([]);
   });

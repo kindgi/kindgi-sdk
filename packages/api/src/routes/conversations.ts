@@ -247,9 +247,10 @@ export function conversationsRouter(
       authorizer === undefined ? undefined : await itemRights?.multi(c, 'agent', agentId);
     // Opening it in a project the caller names needs `write` there, as a run
     // naming one outside its agent's projects does: its turns land there.
-    // Named one of the projects an agent more than one serves, `call` there
-    // is the whole check instead (`openIn`), as for a run. Checked first, so
-    // a caller without it learns nothing of which projects exist.
+    // Named one of its projects, for an agent more than one project serves,
+    // `call` there is the whole check instead (`openIn`), as for a run.
+    // Checked first, so a caller without it learns nothing of which projects
+    // exist.
     if (authorizer !== undefined && supplied !== undefined && served?.includes(supplied) !== true) {
       const named = ref('project', supplied as unknown as string);
       const decision = await authorizer.check(c, 'write', named);

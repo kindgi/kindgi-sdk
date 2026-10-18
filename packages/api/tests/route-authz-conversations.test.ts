@@ -46,7 +46,11 @@ const legacy = conversation();
 const Q = randomUUID();
 const inQ = conversation(Q);
 
-function harness(grants: readonly string[], { authzOn = true }: { authzOn?: boolean } = {}) {
+/** `projects`: the ones that exist; unset, the app has no project binding and checks none. */
+function harness(
+  grants: readonly string[],
+  { authzOn = true, projects }: { authzOn?: boolean; projects?: readonly string[] } = {},
+) {
   const asked: string[] = [];
   const decide = (action: Action, r: ResourceRef): Decision => {
     asked.push(`${action} ${r.type}:${r.id}`);
@@ -91,6 +95,12 @@ function harness(grants: readonly string[], { authzOn = true }: { authzOn?: bool
     conversationBinding: conversations,
     resolveToken,
     runHandler: {} as RunHandlerBinding,
+    ...(projects !== undefined && {
+      projectBinding: {
+        get: async (_t: TenantId, id: string) => (projects.includes(id) ? { id } : undefined),
+        getDefault: async () => undefined,
+      } as never,
+    }),
     ...(authzOn && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -170,6 +180,32 @@ describe('opening or closing one needs execute on its agent', () => {
     const allowed = harness([`execute agent:${AGENT}`, `write project:${P}`]);
     await allowed.call('POST', '/v1/conversations', body);
     expect(allowed.reached).toEqual(['open']);
+  });
+
+  test('both are asked before the named project is looked up: the same 403 whether or not it exists', async () => {
+    const body = (projectId: string) => ({ agentId: AGENT, agentVersion: '1.0.0', projectId });
+    const gone = randomUUID();
+    const error = async (res: Response) => {
+      const { requestId: _, ...rest } = (await res.json()).error;
+      return { status: res.status, error: rest };
+    };
+    // Write on both projects, no execute on the agent.
+    const noExecute = harness([`write project:${P}`, `write project:${gone}`], { projects: [P] });
+    const there = await error(await noExecute.call('POST', '/v1/conversations', body(P)));
+    const missing = await error(await noExecute.call('POST', '/v1/conversations', body(gone)));
+    expect(there.status).toBe(403);
+    expect(missing).toEqual(there);
+    expect(noExecute.asked).toEqual([
+      `write project:${P}`,
+      `execute agent:${AGENT}`,
+      `write project:${gone}`,
+      `execute agent:${AGENT}`,
+    ]);
+    expect(noExecute.reached).toEqual([]);
+    // With both rights, a project that doesn't exist is the 400.
+    const both = harness([`execute agent:${AGENT}`, `write project:${gone}`], { projects: [P] });
+    expect((await both.call('POST', '/v1/conversations', body(gone))).status).toBe(400);
+    expect(both.reached).toEqual([]);
   });
 });
 
