@@ -100,6 +100,11 @@ function azureAlert(resource: string): (line: string) => boolean {
         : (JSON.parse(literal) as string);
       if (/[$%]\{/.test(text)) throw new Error(`${resource}: Terraform fills in ${text}`);
       if (operator === 'matches regex') {
+        // KQL's regexes are RE2's, with no lookaround or backreference: one
+        // would pass here and fail in Log Analytics.
+        if (/\(\?<?[=!]|\\[1-9]|\\k</.test(text)) {
+          throw new Error(`${resource}: RE2 has no lookaround or backreference: ${text}`);
+        }
         const regex = new RegExp(text);
         return (log) => regex.test(log);
       }
