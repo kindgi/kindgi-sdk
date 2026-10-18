@@ -501,6 +501,13 @@ export type {
   ProviderUnregisterInput,
   ProviderUnregisterOutcome,
 } from './provider-binding.js';
+export type {
+  DeploymentValue,
+  DeploymentValueProblem,
+  DeploymentValueScope,
+  ModelKeyLocation,
+  ModelKeyLookup,
+} from './deployment-values.js';
 export {
   isCredentialHeaderName,
   MCP_AUTH_HEADERS_MAX,
