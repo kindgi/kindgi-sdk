@@ -1960,10 +1960,7 @@ export const CLI_GROUP_SEE_ALSO = {
   'sign-in': ['deploy/sign-in', 'deploy/people-and-keys'],
   'mcp-launch': ['guides/tools/mcp-servers'],
   projects: ['guides/projects/organize-by-org-and-project'],
-  environments: [
-    'guides/projects/organize-by-org-and-project',
-    'guides/evals/release-an-agent-version',
-  ],
+  environments: ['guides/projects/organize-by-org-and-project'],
   flows: ['guides/flows/write-a-flow', 'guides/flows/index'],
   capabilities: ['guides/agents/choose-a-model'],
   adapters: ['guides/models/index', 'guides/models/serve-your-own-model'],

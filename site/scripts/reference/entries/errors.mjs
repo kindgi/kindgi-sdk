@@ -2757,7 +2757,7 @@ export const ERROR_ENTRIES = {
   },
   'project-in-another-order': {
     description:
-      'A project in the request already belongs to another environment order. A project is in at most one order; clear it from the other order first.',
+      'A project in the request already belongs to another environment order. A project is in at most one order: set the other order without it, or clear that order, first.',
     details: [
       {
         key: 'projectId',
