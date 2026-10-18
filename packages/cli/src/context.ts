@@ -41,7 +41,14 @@ export interface CommandContext {
   readonly globals: GlobalFlags;
   readonly positionals: readonly string[];
   readonly options: Readonly<Record<string, OptionValue>>;
+  /** The resolved config: without a `kindgi dev` runtime's .kindgirc.json when `hosted`. */
   readonly config: ResolvedConfig;
+  /**
+   * `--hosted`, or the env the command acts in has `build: 'hosted'`
+   * (api-address.ts `hostedScope`): the command goes to the CLI's own
+   * address, never a `kindgi dev` runtime's.
+   */
+  readonly hosted: boolean;
   /**
    * Create an SDK client using the resolved config. Throws if apiUrl / token
    * are missing, or the token is a stored key that isn't for apiUrl.
@@ -194,6 +201,12 @@ export interface BuildContextInputs {
   readonly positionals: readonly string[];
   readonly options: Readonly<Record<string, OptionValue>>;
   readonly config: ResolvedConfig;
+  /** See `CommandContext.hosted`. Default: `false`. */
+  readonly hosted?: boolean;
+  /** Why there's no API address, when `config` has none: said in place of the general line. */
+  readonly noAddress?: string;
+  /** Called on each `token()` that returns a key, before it's sent: main's line ahead of it. */
+  readonly onToken?: () => void;
   /** The command as typed (`kindgi runs list`), for a refusal to name. Default: `kindgi`. */
   readonly commandLabel?: string;
   readonly fetchImpl?: typeof fetch;
@@ -225,7 +238,8 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
   const apiUrl = (): string => {
     if (inputs.config.apiUrl === undefined) {
       throw new Error(
-        'API URL not configured. Set KINDGI_API_URL, pass --url=..., or run `kindgi auth login`.',
+        inputs.noAddress ??
+          'API URL not configured. Set KINDGI_API_URL, pass --url=..., or run `kindgi auth login`.',
       );
     }
     return inputs.config.apiUrl;
@@ -239,6 +253,7 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     // A stored key goes only to the address stored with it.
     const refusal = ownAddressKeyRefusal(inputs.commandLabel ?? 'kindgi', inputs.config);
     if (refusal !== undefined) throw new Error(refusal);
+    inputs.onToken?.();
     return inputs.config.token;
   };
   const factory =
@@ -250,6 +265,7 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     positionals: inputs.positionals,
     options: inputs.options,
     config: inputs.config,
+    hosted: inputs.hosted ?? false,
     client: () => factory(apiUrl(), token()),
     clientFor: (url, tok) => factory(url, tok),
     apiUrl,

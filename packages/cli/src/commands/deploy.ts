@@ -32,7 +32,6 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { LOCAL_ENV_NAME, type PackEnv, packValues, readPackEnv } from '@kindgi/secrets-dotenv';
 
 import { deployApiAddress, hostedApiAddress } from '../api-address.js';
-import { HOSTED_BUILD } from '../build/hosted.js';
 import type { CommandContext } from '../context.js';
 import { isEnvelopeSigned } from '../deploy/envelope-loader.js';
 import { packServiceProblemText, packServiceRetiredText } from '../deploy/pack-service-text.js';
@@ -74,7 +73,9 @@ export const deployCommand: LeafCommand = {
   kind: 'leaf',
   name: 'deploy',
   description:
-    'Deploy a signed pack image to Kindgi. Reads deploy-envelope.json (or runs `kindgi build` inline) + POSTs to /v1/deployments.',
+    'Deploy a signed pack image to Kindgi. Reads deploy-envelope.json (or runs `kindgi build` inline) + POSTs to /v1/deployments. ' +
+    "`--hosted` (or the env block's `build: 'hosted'`) deploys to Kindgi hosted: an inline build runs on the hosted build service (as `kindgi build --hosted`), and after the deploy it waits, up to 5 minutes, for the deployment's pack service to be ready.",
+  hostedRun: { defaultEnv: 'staging' },
   usage:
     'kindgi deploy [--env <name>] [--from-envelope <path>] [--endpoint <url>] [--token <bearer>] ' +
     '[--tenant <id>] [--project <id|slug>] [--hosted] [--idempotency-key <str>] [--dry-run] [--sync-secrets] [--allow-missing-env] ' +
@@ -106,11 +107,6 @@ export const deployCommand: LeafCommand = {
       type: 'string',
       description:
         "The project to deploy into, one per client: its id, or its slug. A slug two orgs share is refused: pass the id. Default: a tenant-wide deploy, into the tenant's Default project.",
-    },
-    hosted: {
-      type: 'boolean',
-      description:
-        "Deploy to Kindgi hosted: an inline build runs on the hosted build service (as `kindgi build --hosted`), and after the deploy it waits, up to 5 minutes, for the deployment's pack service to be ready. Same as the env block's `build: 'hosted'`.",
     },
     'idempotency-key': {
       type: 'string',
@@ -1097,8 +1093,9 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   const outDirRaw = typeof outFlag === 'string' && outFlag !== '' ? outFlag : '.kindgi/build';
   const outDir = isAbsolute(outDirRaw) ? outDirRaw : resolve(packDir, outDirRaw);
 
-  const hosted = ctx.options.hosted === true || envBlock?.build === HOSTED_BUILD;
-  if (ctx.options.hosted === true && ctx.options['build-endpoint'] !== undefined) {
+  // --hosted, or the env block's `build: 'hosted'` (main.ts, `hostedRun`).
+  const hosted = ctx.hosted;
+  if (ctx.globals.hosted && ctx.options['build-endpoint'] !== undefined) {
     return {
       kind: 'error',
       stderr:

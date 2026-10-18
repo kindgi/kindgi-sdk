@@ -23,6 +23,7 @@
  *   - Unsigned envelope refused unless --dry-run.
  */
 
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -1367,6 +1368,27 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     expect(out.exitCode, out.stderr).toBe(0);
     expect(plain.readIds).toHaveLength(0);
     expect(out.stderr).not.toContain('Waiting for the pack service');
+  });
+
+  test("--env=prod with prod's `build: 'hosted'` and no `kindgi dev` file here: hosted, so it waits", async () => {
+    await writeAutoEnvelope();
+    const hosted = hostedFixtures(pending(), [ready]);
+    const out = await runCli({
+      ...baseInputs(
+        hosted.fixtures,
+        { env: signedIn },
+        {
+          environments: {
+            prod: { endpoint: API, build: 'hosted', signingKey: join(home, 'signing-key.pem') },
+          },
+        },
+      ),
+      argv: ['deploy', '--env=prod', `--path=${packDir}`],
+    });
+    expect(existsSync(join(cwd, '.kindgirc.json'))).toBe(false);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(hosted.readIds).toHaveLength(1);
+    expect(out.stderr).toContain('Waiting for the pack service');
   });
 
   test('a deployment with no pack service of its own has nothing to wait for', async () => {
