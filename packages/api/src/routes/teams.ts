@@ -20,6 +20,7 @@ import type { Cursor, OrgId, TeamId, TenantId, UserId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import type { PersonGrantsBinding } from '../person-grants-binding.js';
 import type { AppEnv } from '../types.js';
 import {
   membershipExistsError,
@@ -27,6 +28,7 @@ import {
   orgNotFoundError,
   slugConflictError,
 } from './hierarchy-errors.js';
+import { observerRoleRefusal } from './observer.js';
 import { clampLimit } from './pagination.js';
 
 /**
@@ -66,6 +68,12 @@ export function teamsRouter(
    * them, as a project's (`projectsRouter`). Without it, an id is taken as given.
    */
   directory?: IdentityDirectoryBinding,
+  /**
+   * Optional. People's grants: the tenant's observer is in no team, so
+   * adding them to one, or changing their role in one, is refused
+   * (`person-is-observer`). Without it, there's no observer to refuse.
+   */
+  personGrants?: PersonGrantsBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -381,6 +389,16 @@ export function teamsRouter(
         );
       }
     }
+    const observer = await observerRoleRefusal(
+      personGrants,
+      tenantId,
+      b.userId,
+      'an observer is in no team: ungrant tenant-observer first',
+    );
+    if (observer !== undefined) {
+      c.status(statusFor(observer.code) as never);
+      return c.json(toWireError(observer, requestId));
+    }
     const exists = (role: string) => {
       c.status(statusFor('membership-exists') as never);
       return c.json(toWireError(membershipExistsError(role), requestId));
@@ -495,6 +513,16 @@ export function teamsRouter(
           requestId,
         ),
       );
+    }
+    const observer = await observerRoleRefusal(
+      personGrants,
+      tenantId,
+      userId as unknown as string,
+      'an observer is in no team: ungrant tenant-observer first',
+    );
+    if (observer !== undefined) {
+      c.status(statusFor(observer.code) as never);
+      return c.json(toWireError(observer, requestId));
     }
     const updated = await updateMemberRole(tenantId, teamId, userId, b.role);
     if (updated.kind === 'refused') {

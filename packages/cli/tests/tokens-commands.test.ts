@@ -73,6 +73,7 @@ const SETTINGS = { required: false, onPreviousSecret: 0, unusable: 0 };
 /** What `users.*` answers, where a test needs another answer. */
 interface UsersAnswers {
   readonly create?: unknown;
+  readonly grants?: unknown;
   readonly list?: unknown;
   readonly resendInvite?: unknown;
   readonly removeSecondFactor?: unknown;
@@ -140,7 +141,7 @@ async function run(argv: readonly string[], answers: UsersAnswers = {}) {
             'users.removeSecondFactor',
             answers.removeSecondFactor ?? { removed: true },
           ),
-          grants: rec('users.grants', GRANTS),
+          grants: rec('users.grants', answers.grants ?? GRANTS),
           grant: rec('users.grant', { ...GRANTS, tenantAdmin: true }),
           ungrant: rec('users.ungrant', GRANTS),
           unregister: rec('users.unregister', {
@@ -341,6 +342,23 @@ describe('kindgi people', () => {
     expect(missing.out.stderr).toContain('--name is required');
   });
 
+  test("add --observer adds the tenant's observer, who gets no key", async () => {
+    const { out, calls } = await run([
+      'people',
+      'add',
+      '--name=Carol',
+      '--email=carol@acme.test',
+      '--observer',
+    ]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['users.create', { displayName: 'Carol', email: 'carol@acme.test', tenantRole: 'observer' }],
+    ]);
+    expect(out.stderr).toBe(
+      "Added as the tenant's observer: give them a project role to view its agents and runs. An observer holds no key.\n",
+    );
+  });
+
   test('add says where the invitation went, and when it expires', async () => {
     const { out } = await run(['people', 'add', '--name=Carol', '--email=carol@acme.test'], {
       create: { ...CAROL, invite: INVITE, inviteEmail: { sent: true } },
@@ -468,6 +486,16 @@ describe("kindgi people: a person's grants", () => {
     expect(out.stdout).toContain('reviewer roster');
     expect(out.stdout).toMatch(/tenant\s+member \(reads its settings\)/);
     expect(out.stdout).not.toMatch(/tenant\s+admin/);
+    expect(out.stdout).not.toContain('observer');
+  });
+
+  test("grants as a table: the tenant's observer, in place of a member", async () => {
+    const { out } = await run(['people', 'grants', 'u-9', '--table'], {
+      grants: { ...GRANTS, tenantMember: false, tenantObserver: true },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toMatch(/tenant\s+observer \(views only the projects it is given\)/);
+    expect(out.stdout).not.toContain('member (reads its settings)');
   });
 
   test('grant and ungrant tenant admin; nothing else is granted here', async () => {
@@ -479,8 +507,21 @@ describe("kindgi people: a person's grants", () => {
     expect(u.calls).toEqual([['users.ungrant', 'u-9', { kind: 'tenant-admin' }]]);
     const none = await run(['people', 'grant', 'u-9']);
     expect(none.out.exitCode).toBe(2);
-    expect(none.out.stderr).toContain('Give --tenant-admin');
+    expect(none.out.stderr).toContain('Give --tenant-admin or --tenant-observer');
     expect(none.calls).toEqual([]);
+  });
+
+  test("grant and ungrant the tenant's observer; one grant at a time", async () => {
+    const g = await run(['people', 'grant', 'u-9', '--tenant-observer']);
+    expect(g.out.exitCode, g.out.stderr).toBe(0);
+    expect(g.calls).toEqual([['users.grant', 'u-9', { kind: 'tenant-observer' }]]);
+    const u = await run(['people', 'ungrant', 'u-9', '--tenant-observer']);
+    expect(u.out.exitCode, u.out.stderr).toBe(0);
+    expect(u.calls).toEqual([['users.ungrant', 'u-9', { kind: 'tenant-observer' }]]);
+    const both = await run(['people', 'grant', 'u-9', '--tenant-admin', '--tenant-observer']);
+    expect(both.out.exitCode).toBe(2);
+    expect(both.out.stderr).toContain('Give --tenant-admin or --tenant-observer, one of them');
+    expect(both.calls).toEqual([]);
   });
 });
 

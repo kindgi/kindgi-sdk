@@ -95,12 +95,12 @@ describe("GET /v1/tenant's egress", () => {
     expect((await tenantOf(app, GLOBEX.token)).body.egress).toEqual(egress);
   });
 
-  test('any key of the tenant reads it: read on the tenant is enough, not admin', async () => {
+  test('anyone in the tenant reads it, its observer too: `belong` is enough, not `read`', async () => {
     const asked: string[] = [];
     const readOnly = {
       check: async (_p: unknown, action: string, resource: { type: string; id: string }) => {
         asked.push(`${action} ${resource.type}:${resource.id}`);
-        const allowed = action === 'read';
+        const allowed = action === 'belong';
         return { allowed, reason: 'test', failing: allowed ? undefined : 'actor' } as Decision;
       },
     } as unknown as AuthzCheckBinding;
@@ -109,7 +109,7 @@ describe("GET /v1/tenant's egress", () => {
     );
     expect(status).toBe(200);
     expect(body.egress).toEqual({ server: ['192.0.2.10'], deployments: [] });
-    expect(asked).toEqual([`read tenant:${ACME.tenantId}`]);
+    expect(asked).toEqual([`belong tenant:${ACME.tenantId}`]);
   });
 
   test("an entry that isn't an IP address: createApp throws, naming the list", () => {

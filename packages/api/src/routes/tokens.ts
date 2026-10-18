@@ -12,6 +12,7 @@ import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../c
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
+import type { PersonGrantsBinding } from '../person-grants-binding.js';
 import { FULL_SYSTEM_CAPABILITY, isSystemCapability } from '../system.js';
 import {
   API_TOKEN_ROLES,
@@ -22,6 +23,7 @@ import {
 } from '../token-admin.js';
 import type { AppEnv } from '../types.js';
 import { type Refusal, recordRefusal, refusalError } from './denied.js';
+import { observerRefusal } from './observer.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 import { parseTimeInput } from './time-input.js';
 import { tokenSignInKey } from './token-sign-in.js';
@@ -58,6 +60,12 @@ export interface TokensRouterOptions {
    * only system keys act for the operator.
    */
   readonly tenancy?: 'single' | 'multi';
+  /**
+   * A person's grants, read when a tenant admin mints a key for someone
+   * else: the tenant's observer holds no API keys, so a key for one is
+   * refused, 409 `person-is-observer`. Without it, nothing is read.
+   */
+  readonly personGrants?: PersonGrantsBinding;
 }
 
 export function tokensRouter(
@@ -83,6 +91,7 @@ export function tokensRouter(
     const refused =
       systemCapabilityRefusal(c, authorizer, parsed.value.capabilities, options.tenancy) ??
       (await mintRefusal(c, authorizer, owner, principal, parsed.value)) ??
+      (await observerKeyRefusal(c, options.personGrants, owner, principal)) ??
       (await expiryRefusal(c, admin, authorizer, parsed.value.expiresAt));
     if (refused !== undefined) return fail(c, refused, requestId);
 
@@ -240,6 +249,32 @@ function systemCapabilityRefusal(
   return refusalError(refusal);
 }
 
+/**
+ * A key a tenant admin mints for a person who is the tenant's observer:
+ * an observer holds no API keys, whoever mints them, so it's refused,
+ * 409 `person-is-observer`. Read only for someone else (the caller's own
+ * mint is `observerRefusal`'s), and only with the person's grants wired.
+ */
+async function observerKeyRefusal(
+  c: Context<AppEnv>,
+  personGrants: PersonGrantsBinding | undefined,
+  owner: TokenPrincipal | undefined,
+  principal: TokenPrincipal | undefined,
+): Promise<WireError | undefined> {
+  if (personGrants === undefined || principal?.kind !== 'user') return undefined;
+  if (samePrincipal(principal, owner)) return undefined;
+  const grants = await personGrants.read({
+    tenantId: c.get('tenantId') as TenantId,
+    userId: principal.userId,
+  });
+  if (grants?.tenantObserver !== true) return undefined;
+  return {
+    code: 'person-is-observer',
+    message: `${principal.userId} is this tenant's observer, and an observer holds no API keys`,
+    userId: principal.userId,
+  };
+}
+
 /** Why the route refuses this mint before the store sees it, if it does. */
 async function mintRefusal(
   c: Context<AppEnv>,
@@ -248,6 +283,11 @@ async function mintRefusal(
   principal: TokenPrincipal | undefined,
   body: ParsedMintBody,
 ): Promise<WireError | undefined> {
+  const observer = await observerRefusal(c, authorizer, 'mints no API keys');
+  if (observer !== undefined) {
+    recordRefusal(c, authorizer, observer);
+    return refusalError(observer);
+  }
   const forSomeoneElse = principal !== undefined && !samePrincipal(principal, owner);
   if ((forSomeoneElse || body.role === 'admin') && !(await isTenantAdmin(c, authorizer))) {
     return {
@@ -385,7 +425,10 @@ function toWire(record: ApiTokenRecord): Record<string, unknown> {
   };
 }
 
-type WireError = { readonly code: string; readonly message: string };
+/** A refusal's code and message, with the details it carries beside them. */
+type WireError = { readonly code: string; readonly message: string } & Readonly<
+  Record<string, unknown>
+>;
 
 function fail(c: Context<AppEnv>, error: WireError, requestId: string): Response {
   c.status(statusFor(error.code) as never);

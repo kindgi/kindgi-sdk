@@ -31,6 +31,8 @@ import {
   signingNotConfigured,
 } from '../signed-export.js';
 import type { AppEnv } from '../types.js';
+import { refused } from './denied.js';
+import { observerRefusal } from './observer.js';
 import { clampLimit, decodeCursor, encodeCursor } from './pagination.js';
 import { parseListScope } from './scope-params.js';
 import { parseTimeInput } from './time-input.js';
@@ -103,6 +105,12 @@ export function provenanceRouter(
     };
     r.use('/:runId', async (c, next) => (c.req.method === 'GET' ? onRunProject(c, next) : next()));
     r.use('/:runId/export', onRunProject);
+    // An export is a signed copy that leaves the runtime: the tenant's
+    // observer, who only views, makes none.
+    r.use('/:runId/export', async (c, next) => {
+      const observer = await observerRefusal(c, authorizer, 'exports no provenance');
+      return observer !== undefined ? refused(c, authorizer, observer) : next();
+    });
   }
   const exportSigning = options.exportSigning;
 

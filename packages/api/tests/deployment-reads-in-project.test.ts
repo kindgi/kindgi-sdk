@@ -48,8 +48,8 @@ const CALLERS: Readonly<
 const PROJECTS: readonly string[] = [A, B, DEFAULT];
 
 /**
- * The authorization model's answer: the tenant's `read` is a member's,
- * its `admin` an admin's; on a project, a tenant admin is its admin (from
+ * The authorization model's answer: the tenant's `read` and `belong` are
+ * a member's, its `admin` an admin's; on a project, a tenant admin is its admin (from
  * its parent, so not on one that isn't there), and `admin` includes
  * `write` (an editor's), which includes `read` (a viewer's).
  */
@@ -63,7 +63,8 @@ function decide(user: string, action: Action, resource: ResourceRef): Decision {
       : caller.projects?.[resource.id];
   const allowed =
     resource.type === 'tenant'
-      ? resource.id === tenantId && (action === 'read' || caller.tenantAdmin === true)
+      ? resource.id === tenantId &&
+        (action === 'read' || action === 'belong' || caller.tenantAdmin === true)
       : resource.type === 'project' &&
         role !== undefined &&
         (action === 'read' ||
@@ -266,7 +267,7 @@ describe('GET /v1/deployments: the rows whose project the caller reads', () => {
     ]);
     expect(await h.listed('admin', `?projectId=${B}`)).toEqual(['d-b']);
     expectRefused(await h.call('viewerA', `/v1/deployments?projectId=${B}`), 'viewerA');
-    expect(h.asked).toEqual([`read tenant:${tenantId}`, `read project:${B}`]);
+    expect(h.asked).toEqual([`belong tenant:${tenantId}`, `read project:${B}`]);
   });
 
   test('`?projectId=` naming a project that isn’t there: 403, the tenant admin’s too, so it tells no one what exists', async () => {
@@ -324,7 +325,7 @@ describe('one deployment: one the caller does not read answers as one that is no
       const out = await h.call(caller, '/v1/deployments/d-b/pack-env');
       expect(out.status, caller).toBe(501);
       expect(out.body.error.code, caller).toBe('pack-env-not-served');
-      expect(h.asked, caller).toEqual([`read tenant:${tenantId}`]);
+      expect(h.asked, caller).toEqual([`belong tenant:${tenantId}`]);
     }
   });
 });

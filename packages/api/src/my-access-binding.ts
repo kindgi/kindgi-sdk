@@ -24,6 +24,11 @@ export interface MyAccess {
    * doesn't say.
    */
   readonly tenantMember?: boolean;
+  /**
+   * The tenant's observer: reads only the projects they're given, and
+   * holds no tenant-wide read. Absent when the store doesn't say.
+   */
+  readonly tenantObserver?: boolean;
   /** The projects the principal may read. */
   readonly projects: readonly ProjectAccess[];
   /** The orgs the principal is a member or admin of. */

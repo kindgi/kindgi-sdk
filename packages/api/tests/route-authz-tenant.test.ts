@@ -6,15 +6,15 @@
  * policies, adapters, capabilities, signing keys, deployments and the
  * sign-in provider catalog (`/v1/auth/providers`) need
  * `read` on the tenant to read and `admin` to change (a deployment's
- * secrets sync asks `admin` where it writes them instead, and a
- * deployment's own reads ask its project too:
- * deployment-reads-in-project.test.ts); webhook endpoints
+ * reads ask only `belong`, the caller in the tenant, its observer too,
+ * and then its project: deployment-reads-in-project.test.ts; its secrets
+ * sync asks `admin` where it writes them instead); webhook endpoints
  * and compliance evidence need `admin` for every call. Each route, with
  * no grants, is refused 403 having asked the PDP for exactly that, and
  * every pair asked is one the authorization model defines
- * (`OBJECT_ACTIONS`: the tenant has no `write`). Changing the tenant's
- * config (its secrets and env) needs `admin`, on top of the `read` every
- * `/v1/tenant` route needs.
+ * (`OBJECT_ACTIONS`, with `CHECK_ONLY_ACTIONS`: the tenant has no
+ * `write`). The tenant's own record needs `belong`; its config `read`,
+ * and changing it (its secrets and env) `admin` on top.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -24,6 +24,7 @@ import { describe, expect, test } from 'vitest';
 import {
   type Action,
   type AuthzCheckBinding,
+  CHECK_ONLY_ACTIONS,
   type Decision,
   OBJECT_ACTIONS,
   type ObjectType,
@@ -109,6 +110,9 @@ function harness(
 
 const READ = 'read tenant';
 const ADMIN = 'admin tenant';
+// In the tenant at all, its observer too: a deployment's reads are then
+// checked on the project it serves.
+const BELONG = 'belong tenant';
 
 const ROUTES: readonly (readonly [string, string, string])[] = [
   ['GET', '/v1/capabilities', READ],
@@ -133,8 +137,8 @@ const ROUTES: readonly (readonly [string, string, string])[] = [
   ['GET', '/v1/signing-keys/k', READ],
   ['POST', '/v1/signing-keys', ADMIN],
   ['POST', '/v1/signing-keys/k/revoke', ADMIN],
-  ['GET', '/v1/deployments', READ],
-  ['GET', '/v1/deployments/d', READ],
+  ['GET', '/v1/deployments', BELONG],
+  ['GET', '/v1/deployments/d', BELONG],
   ['POST', '/v1/deployments', ADMIN],
   ['GET', '/v1/webhook-endpoints', ADMIN],
   ['GET', '/v1/webhook-endpoints/e', ADMIN],
@@ -171,7 +175,9 @@ describe('tenant-wide routes ask for the tenant', () => {
   test('every pair asked is one the authorization model defines', () => {
     for (const [, , needs] of ROUTES) {
       const [action, type] = needs.split(' ') as [Action, ObjectType];
-      expect(OBJECT_ACTIONS[type], needs).toContain(action);
+      expect([...OBJECT_ACTIONS[type], ...(CHECK_ONLY_ACTIONS[type] ?? [])], needs).toContain(
+        action,
+      );
     }
   });
 });
@@ -229,6 +235,35 @@ describe('the sign-in provider catalog: any GET needs `read`, any change `admin`
     const res = await call(app, method, path);
     expect(res.status).toBe(403);
     expect(asked).toEqual([ADMIN]);
+  });
+});
+
+describe("the tenant's own record: `belong`, which its observer holds, and not `read`", () => {
+  const get = (app: ReturnType<typeof harness>['app'], path: string) =>
+    app.request(path, { headers: { authorization: `Bearer ${TOKEN}` } });
+
+  test('GET /v1/tenant passes with `belong` alone, having asked only for it', async () => {
+    const { app, asked } = harness([BELONG]);
+    expect((await get(app, '/v1/tenant')).status).not.toBe(403);
+    expect(asked).toEqual([BELONG]);
+  });
+
+  test('GET /v1/tenant/config with `belong` alone is refused (403), having asked for `read`', async () => {
+    const { app, asked } = harness([BELONG]);
+    expect((await get(app, '/v1/tenant/config')).status).toBe(403);
+    expect(asked).toEqual([READ]);
+  });
+
+  test('any other path here needs `read`: one with no route yet is refused with `belong` alone', async () => {
+    const { app, asked } = harness([BELONG]);
+    expect((await get(app, '/v1/tenant/not-a-route')).status).toBe(403);
+    expect(asked).toEqual([READ]);
+  });
+
+  test('GET /v1/tenant with no grants is refused (403)', async () => {
+    const { app, asked } = harness();
+    expect((await get(app, '/v1/tenant')).status).toBe(403);
+    expect(asked).toEqual([BELONG]);
   });
 });
 

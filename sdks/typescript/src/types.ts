@@ -2218,6 +2218,14 @@ export interface UserSpec {
    * says `not-requested`.
    */
   readonly sendInvite?: boolean;
+  /**
+   * Their role in the tenant (default `member`): a `member` reads the
+   * tenant's settings; the tenant's `observer` reads only the projects
+   * they're then given, and holds no API key. A runtime that checks no
+   * one's access refuses `observer` (`501 observer-not-served`): offer it
+   * where `identity.me.permissions()` answers `tenant.observer`.
+   */
+  readonly tenantRole?: 'member' | 'observer';
   /** @deprecated Not on the wire: `users.create` throws `not-yet-wired` when it is set. */
   readonly orgId?: import('@kindgi/types').OrgId;
   /** @deprecated Not on the wire: `users.create` throws `not-yet-wired` when it is set. */
@@ -2493,6 +2501,12 @@ export interface PersonGrants {
   readonly tenantAdmin?: boolean;
   /** A tenant member: reads the tenant's settings, not its projects. Absent when not reported. */
   readonly tenantMember?: boolean;
+  /**
+   * The tenant's observer, in place of a member: reads only the projects
+   * they're given, holds no API key, and is neither a tenant admin nor a
+   * reviewer. Absent when not reported.
+   */
+  readonly tenantObserver?: boolean;
   readonly projects: readonly {
     readonly projectId: string;
     readonly role: 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
@@ -2501,8 +2515,12 @@ export interface PersonGrants {
   readonly reviewer?: { readonly role: 'standard' | 'senior' | 'admin' };
 }
 
-/** What `users.grant` / `users.ungrant` take: tenant admin. Matches `#PersonGrantBody`. */
-export type PersonGrant = { readonly kind: 'tenant-admin' };
+/**
+ * What `users.grant` / `users.ungrant` take: tenant admin, or the tenant's
+ * observer (granting it makes the person the observer in place of a
+ * member; ungranting it, a member again). Matches `#PersonGrantBody`.
+ */
+export type PersonGrant = { readonly kind: 'tenant-admin' } | { readonly kind: 'tenant-observer' };
 
 /** Input for `POST /v1/service-accounts` per `#CreateServiceAccountBody`. */
 export interface CreateServiceAccountInput {

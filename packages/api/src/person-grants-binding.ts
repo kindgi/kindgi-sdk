@@ -27,6 +27,13 @@ export interface PersonGrants {
    * authorization store, or doesn't report it.
    */
   readonly tenantMember?: boolean;
+  /**
+   * The tenant's observer, in place of a member: reads only the projects
+   * they're given, holds no API key, and is neither a tenant admin nor a
+   * reviewer. Absent when the runtime has no authorization store, or
+   * doesn't report it.
+   */
+  readonly tenantObserver?: boolean;
   /** Direct project memberships. */
   readonly projects: readonly { readonly projectId: string; readonly role: ProjectRole }[];
   /** Team memberships. */
@@ -35,8 +42,14 @@ export interface PersonGrants {
   readonly reviewer?: { readonly role: ReviewerRole };
 }
 
-/** What `grant` and `ungrant` take: tenant admin (project and team roles have membership routes). */
-export type PersonGrant = { readonly kind: 'tenant-admin' };
+/**
+ * What `grant` and `ungrant` take (project and team roles have membership
+ * routes): tenant admin, or the tenant's observer. Granting `tenant-observer`
+ * makes the person an observer in place of a member, and ungranting it a
+ * member in place of an observer, in one write, so a person holds exactly
+ * one of the two. The person's recorded role moves with it.
+ */
+export type PersonGrant = { readonly kind: 'tenant-admin' } | { readonly kind: 'tenant-observer' };
 
 export interface PersonRef {
   readonly tenantId: TenantId;

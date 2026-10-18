@@ -20,6 +20,7 @@ import type { Cursor, OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import type { PersonGrantsBinding } from '../person-grants-binding.js';
 import type { AppEnv } from '../types.js';
 import {
   membershipExistsError,
@@ -29,6 +30,7 @@ import {
   projectInEnvironmentOrderError,
   slugConflictError,
 } from './hierarchy-errors.js';
+import { observerRoleRefusal } from './observer.js';
 import { clampLimit } from './pagination.js';
 import { parseAssignableProjectRole } from './project-roles.js';
 
@@ -91,8 +93,29 @@ export function projectsRouter(
    * email) by email. Without it, an id is taken as given.
    */
   directory?: IdentityDirectoryBinding,
+  /**
+   * Optional. People's grants: the tenant's observer holds `viewer` at
+   * most, so a higher role for them is refused (`person-is-observer`).
+   * Without it, there's no observer to refuse.
+   */
+  personGrants?: PersonGrantsBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+
+  /** The refusal, answered 409, for a role above `viewer` given the tenant's observer. */
+  async function observerAboveViewer(
+    tenantId: TenantId,
+    userId: UserId,
+    role: ProjectRole,
+  ): Promise<{ readonly code: string; readonly message: string } | undefined> {
+    if (role === 'viewer') return undefined;
+    return observerRoleRefusal(
+      personGrants,
+      tenantId,
+      userId as unknown as string,
+      'give them viewer, or ungrant tenant-observer first',
+    );
+  }
 
   /**
    * Change a member's role. With an authorizer, the row and its FGA tuple
@@ -484,6 +507,11 @@ export function projectsRouter(
       return c.json(toWireError(resolved.error, requestId));
     }
     const userId = resolved.userId;
+    const observer = await observerAboveViewer(tenantId, userId, role.value);
+    if (observer !== undefined) {
+      c.status(statusFor(observer.code) as never);
+      return c.json(toWireError(observer, requestId));
+    }
     // Racy — the project can be deleted between the preliminary get and the add.
     const exists = (role: string) => {
       c.status(statusFor('membership-exists') as never);
@@ -594,6 +622,11 @@ export function projectsRouter(
     if (role.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: role.message }, requestId));
+    }
+    const observer = await observerAboveViewer(tenantId, userId, role.value);
+    if (observer !== undefined) {
+      c.status(statusFor(observer.code) as never);
+      return c.json(toWireError(observer, requestId));
     }
     const updated = await updateMemberRole(tenantId, projectId, userId, role.value);
     if (updated.kind === 'refused') {

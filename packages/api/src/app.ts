@@ -1591,6 +1591,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       '/tokens',
       tokensRouter(input.tokenAdmin, authorizer, {
         ...(input.tenancy !== undefined && { tenancy: input.tenancy }),
+        ...(input.personGrants !== undefined && { personGrants: input.personGrants }),
       }),
     );
   }
@@ -1603,7 +1604,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.reviewerRegistry !== undefined) {
     v1.route(
       '/approvals/reviewers',
-      reviewersRouter(input.reviewerRegistry, authorizer, input.reviewerBinding),
+      reviewersRouter(
+        input.reviewerRegistry,
+        authorizer,
+        input.reviewerBinding,
+        input.personGrants,
+      ),
     );
   }
   if (input.reviewerBinding !== undefined && input.hitlBinding !== undefined) {
@@ -1945,6 +1951,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.reviewerBinding !== undefined && { reviewerBinding: input.reviewerBinding }),
       ...(authorizer !== undefined && { authorizer }),
       ...(input.personGrants !== undefined && { personGrants: input.personGrants }),
+      ...(input.tokenAdmin !== undefined && { tokenAdmin: input.tokenAdmin }),
       ...(input.myAccess !== undefined && { myAccess: input.myAccess }),
       ...(input.envBinding !== undefined && { tenantConfig: input.envBinding }),
       ...(servedEnv !== undefined && {
@@ -2116,6 +2123,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         tenantHierarchyBinding,
         authorizer,
         input.identityDirectory,
+        input.personGrants,
       ),
     );
   }
@@ -2128,6 +2136,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         tenantHierarchyBinding,
         authorizer,
         input.identityDirectory,
+        input.personGrants,
       ),
     );
   }

@@ -65,6 +65,12 @@ export const ACTIONS = [
   // Running an agent in a project: asked of the project only
   // (`CHECK_ONLY_ACTIONS`).
   'call',
+  // Being in the tenant at all, as a member, an admin or an observer:
+  // asked of the tenant only (`CHECK_ONLY_ACTIONS`).
+  'belong',
+  // Being the tenant's observer, who can only view the projects they're
+  // given: asked of the tenant only (`CHECK_ONLY_ACTIONS`).
+  'only_view',
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];
@@ -83,6 +89,8 @@ export const ACTION_TO_RELATION: Record<Action, string> = {
   promote: 'can_promote',
   act_as: 'can_act_as',
   call: 'can_call',
+  belong: 'can_belong',
+  only_view: 'can_only_view',
 };
 
 // Which verbs are meaningful for which object types. A PEP uses this to
@@ -126,8 +134,17 @@ export const OBJECT_ACTIONS: Record<ObjectType, readonly Action[]> = {
  * project) for an agent, `execute` (an editor or an executor) for a flow
  * or a suite. They're the rights an item inherits from its project as
  * `execute`, asked of the project itself.
+ *
+ * A tenant's `belong` and `only_view` say who is in the tenant and who is
+ * its observer. An observer reads only the projects they're given, so the
+ * tenant's `read` isn't theirs. `belong` (a member, an admin or an
+ * observer) is what the tenant's own record and the deployments read
+ * floor ask instead. `only_view` is what the routes refused to an
+ * observer ask: minting an API key, a public run link, a provenance
+ * export.
  */
 export const CHECK_ONLY_ACTIONS: Partial<Record<ObjectType, readonly Action[]>> = {
+  tenant: ['belong', 'only_view'],
   project: ['call', 'execute'],
 };
 

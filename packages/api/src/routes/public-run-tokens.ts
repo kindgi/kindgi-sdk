@@ -12,6 +12,8 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
 import { MAX_PUBLIC_RUN_TOKEN_RUNS, type MintPublicRunTokenResult } from '../public-run-token.js';
 import type { AppEnv } from '../types.js';
+import { refused } from './denied.js';
+import { observerRefusal } from './observer.js';
 
 export interface PublicRunTokenIssuer {
   readonly mint: (
@@ -37,6 +39,8 @@ export function publicRunTokensRouter(
   const r = new Hono<AppEnv>();
 
   r.post('/', async (c) => {
+    const observer = await observerRefusal(c, authorizer, 'makes no public run links');
+    if (observer !== undefined) return refused(c, authorizer, observer);
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const error = (code: string, message: string, details: Record<string, unknown> = {}) => {
