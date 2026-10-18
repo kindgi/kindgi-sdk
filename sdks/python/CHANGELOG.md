@@ -78,8 +78,9 @@ same version, and the CLI's own changes are in
   client doesn't know yet.** A newer runtime may add one. 0.1.8 failed the
   whole call with `invalid-response` (`system_keys.list()` with a new scope,
   `audit.sign_ins.list()` with a new kind), as the Java client never did.
-  - Every enum a response carries is typed `Literal[...] | str`: a value it
-    doesn't know comes back as its text.
+  - Every enum a response carries is typed `Literal[...] | str`, one of a
+    single value too (`TrustedSigningKey.algorithm`): a value it doesn't
+    know comes back as its text.
   - Every union a response carries that a tag tells apart gains a member,
     `<Union>Unrecognized` (`LiveScopeUnrecognized`, `ScopeUnrecognized`, and
     17 more in `kindgi.client.models`), for a tag it doesn't know, with every
@@ -90,7 +91,9 @@ same version, and the CLI's own changes are in
     `Unrecognized` member, is refused before sending, with the error it got
     before. So a value read from a newer runtime can't be sent back from this
     client.
-  - A field with one fixed value stays closed, and so does
+  - A `const` stays closed: it only ever holds its one value. So do the tag
+    a union picks its member by (`secrets.rotate`'s `kind` too, as
+    `answer.kind == "async"` tells its two answers apart), and
     `webhooks.parse_event`: an endpoint gets only the event types it
     subscribes to.
   - Code that matches every known value (`assert_never`) now has the `str`, or

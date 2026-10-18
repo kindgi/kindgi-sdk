@@ -6,11 +6,12 @@
 A newer runtime may answer with an enum value, or a union member, that this
 client doesn't know yet: an additive change to the API. Read as a closed
 `Literal`, it would fail the whole response. So `scripts/gen_client.py`
-types every enum a response reaches as `Annotated[Literal[...] | str, OPEN]`
-(the known values, or any other text), and gives every tagged union a
-response reaches a fallback member, `<Union>Unrecognized`, chosen for any
-tag it doesn't know (`OpenUnion`), its fields kept as they came. A const
-stays closed.
+types every enum a response reaches, one of a single value too, as
+`Annotated[Literal[...] | str, OPEN]` (the known values, or any other
+text), and gives every tagged union a response reaches a fallback member,
+`<Union>Unrecognized`, chosen for any tag it doesn't know (`OpenUnion`), its
+fields kept as they came. A `const` stays closed, and so does the tag a
+union picks its member by.
 
 A request body this client sends (`_base._body`) is validated with `SEND`
 as its context, and there both stay closed: a value outside the known ones,
@@ -63,7 +64,7 @@ class OpenEnum:
         self, source: Any, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
         known = _literal_values(source)
-        if len(known) < 2:
+        if not known or str not in get_args(source):
             raise TypeError(f"OpenEnum is for `Literal[...] | str`, not {source!r}")
         expected = _either(known)
 

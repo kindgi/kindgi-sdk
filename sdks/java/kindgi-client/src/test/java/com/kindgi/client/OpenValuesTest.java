@@ -25,8 +25,8 @@ import org.junit.jupiter.api.Test;
  * Every generated enum and union reads a value a newer runtime sends that this client doesn't know
  * yet, through the client's own codec: an enum as {@code UNRECOGNIZED}, keeping the text, and a
  * tagged or deduced union as its {@code Unrecognized} variant, keeping the object. The Python
- * client is held to the same (its generator's open check), so neither SDK fails a response on an
- * additive value.
+ * client is held to the same by its generator's open check, apart from a field a Python union
+ * picks its member by ({@code secrets.rotate}'s {@code kind}), which stays closed there.
  */
 class OpenValuesTest {
   private static final String UNKNOWN = "kindgi-test-unknown";

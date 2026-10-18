@@ -21,3 +21,9 @@ def read_open(kindgi: Kindgi) -> None:
         assert_type(scope.kind, str)
     elif scope.kind == "tenant":
         assert_type(scope, models.LiveScopeTenant)
+
+
+def read_open_one_value(kindgi: Kindgi) -> None:
+    # An enum of one value may gain values: open as well. A `const` stays closed.
+    key = kindgi.signing_keys.trust(keyId="acme-1", publicKey="acme-public-key")
+    assert_type(key.algorithm, Literal["ed25519"] | str)

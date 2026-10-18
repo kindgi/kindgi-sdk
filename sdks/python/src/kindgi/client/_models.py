@@ -1332,7 +1332,7 @@ class TrustedSigningKey(BaseModel):
     The signer key id a deployment envelope names.
     """
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    algorithm: Literal["ed25519"]
+    algorithm: Annotated[Literal["ed25519"] | str, _open.OPEN]
     public_key: Annotated[str, Field(alias="publicKey")]
     """
     Base64 of the raw public-key bytes (32 for Ed25519).
@@ -2188,7 +2188,7 @@ class BuildJudgedSuiteResult(BaseModel):
     )
     suite_id: Annotated[str, Field(alias="suiteId")]
     version: str
-    kind: Literal["judged"]
+    kind: Annotated[Literal["judged"] | str, _open.OPEN]
     case_count: Annotated[int, Field(alias="caseCount", ge=0)]
     truncated: bool
     """
@@ -3331,7 +3331,9 @@ class ConversationCollectionPage(BaseModel):
     Opaque cursor for the next page. Absent when `hasMore: false`.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
-    opened_by: Annotated[Literal["me"] | None, Field(alias="openedBy")] = None
+    opened_by: Annotated[
+        Annotated[Literal["me"] | str, _open.OPEN] | None, Field(alias="openedBy")
+    ] = None
     """
     `me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.
     """
@@ -3531,7 +3533,7 @@ class Fact(BaseModel):
         Annotated[Literal["superseded", "deleted", "erased", "expired"] | str, _open.OPEN] | None,
         Field(alias="invalidationReason"),
     ] = None
-    review: Literal["pending"] | None = None
+    review: Annotated[Literal["pending"] | str, _open.OPEN] | None = None
     """
     `pending` while a person must approve it: a pending fact is never retrieved.
     """
@@ -3823,7 +3825,7 @@ class Warning1(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    code: Literal["erasure-unmatchable"]
+    code: Annotated[Literal["erasure-unmatchable"] | str, _open.OPEN]
     """
     `erasure-unmatchable`: this deployment has no erasure ledger key (`KINDGI_ERASURE_LEDGER_KEY`), so a replay after a restore can't find this person.
     """
@@ -6321,7 +6323,7 @@ class EvalComparison(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    baseline: Literal["recorded"] | EvalBaseline1 | EvalBaseline2
+    baseline: Annotated[Literal["recorded"] | str, _open.OPEN] | EvalBaseline1 | EvalBaseline2
     """
     What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
@@ -6663,7 +6665,9 @@ class StartEvalRunBody(BaseModel):
     flow_ref: Annotated[EvalRunFlowRef | None, Field(alias="flowRef")] = None
     dry_run: Annotated[bool | None, Field(alias="dryRun")] = None
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
-    baseline: Literal["recorded"] | EvalBaseline1 | EvalBaseline2 | None = None
+    baseline: (
+        Annotated[Literal["recorded"] | str, _open.OPEN] | EvalBaseline1 | EvalBaseline2 | None
+    ) = None
     """
     What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
@@ -11648,7 +11652,9 @@ class ApprovalCollectionPage(BaseModel):
     """
     The order the page is in: `asc` (oldest first) or `desc` (newest first). Absent from a runtime before Kindgi 0.1.6, which lists newest first and ignores `order`.
     """
-    decided_by: Annotated[Literal["me"] | None, Field(alias="decidedBy")] = None
+    decided_by: Annotated[
+        Annotated[Literal["me"] | str, _open.OPEN] | None, Field(alias="decidedBy")
+    ] = None
     """
     `me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.
     """
