@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, OrgId, ProjectId } from '@kindgi/types';
+import type { Cursor } from '@kindgi/types';
 import type { Transport } from '../transport.js';
 
 /**
@@ -18,20 +18,20 @@ export interface EnvironmentOrdersClient {
   /** Set the tenant's order (tenant admin). `[]` clears it. @wire `PUT /v1/environment-orders/tenant` */
   setTenantOrder(input: EnvironmentOrderSetInput): Promise<EnvironmentOrder>;
   /** An org's order. @wire `GET /v1/environment-orders/orgs/{orgId}` */
-  getOrgOrder(orgId: OrgId): Promise<EnvironmentOrder>;
+  getOrgOrder(orgId: string): Promise<EnvironmentOrder>;
   /** Set an org's order (tenant admin). `[]` clears it. @wire `PUT /v1/environment-orders/orgs/{orgId}` */
-  setOrgOrder(orgId: OrgId, input: EnvironmentOrderSetInput): Promise<EnvironmentOrder>;
+  setOrgOrder(orgId: string, input: EnvironmentOrderSetInput): Promise<EnvironmentOrder>;
 }
 
 export type EnvironmentOrderParent =
   | { readonly kind: 'tenant' }
-  | { readonly kind: 'org'; readonly orgId: OrgId };
+  | { readonly kind: 'org'; readonly orgId: string };
 
 export interface EnvironmentOrderEntry {
   /** 0-based position in the order. */
   readonly position: number;
   /** Absent when the caller can't read the project at this position. */
-  readonly projectId?: ProjectId;
+  readonly projectId?: string;
 }
 
 export interface EnvironmentOrder {
@@ -52,7 +52,7 @@ export interface EnvironmentOrderPage {
 
 export interface EnvironmentOrderSetInput {
   /** The projects, in order. Empty clears the order. */
-  readonly projectIds: readonly ProjectId[];
+  readonly projectIds: readonly string[];
 }
 
 export function makeEnvironmentOrdersClient(transport: Transport): EnvironmentOrdersClient {
@@ -77,20 +77,20 @@ export function makeEnvironmentOrdersClient(transport: Transport): EnvironmentOr
       return transport.request<EnvironmentOrder>({
         method: 'PUT',
         path: '/v1/environment-orders/tenant',
-        body: { projectIds: input.projectIds.map((id) => id as unknown as string) },
+        body: { projectIds: input.projectIds },
       });
     },
     getOrgOrder(orgId) {
       return transport.request<EnvironmentOrder>({
         method: 'GET',
-        path: `/v1/environment-orders/orgs/${encodeURIComponent(orgId as unknown as string)}`,
+        path: `/v1/environment-orders/orgs/${encodeURIComponent(orgId)}`,
       });
     },
     setOrgOrder(orgId, input) {
       return transport.request<EnvironmentOrder>({
         method: 'PUT',
-        path: `/v1/environment-orders/orgs/${encodeURIComponent(orgId as unknown as string)}`,
-        body: { projectIds: input.projectIds.map((id) => id as unknown as string) },
+        path: `/v1/environment-orders/orgs/${encodeURIComponent(orgId)}`,
+        body: { projectIds: input.projectIds },
       });
     },
   };

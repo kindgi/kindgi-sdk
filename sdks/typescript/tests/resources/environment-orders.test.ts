@@ -47,7 +47,7 @@ describe('environmentOrders.setTenantOrder', () => {
   it('PUTs /v1/environment-orders/tenant with projectIds', async () => {
     const stub = jsonFetch(ORDER);
     await client(stub.fetch).environmentOrders.setTenantOrder({
-      projectIds: ['p-a', 'p-b'] as never,
+      projectIds: ['p-a', 'p-b'],
     });
     expect(new URL(stub.calls[0]?.url).pathname).toBe('/v1/environment-orders/tenant');
     expect(stub.calls[0]?.method).toBe('PUT');
@@ -64,14 +64,14 @@ describe('environmentOrders.setTenantOrder', () => {
 describe('environmentOrders org routes', () => {
   it('GET encodes the org id in the path', async () => {
     const stub = jsonFetch({ parent: { kind: 'org', orgId: 'o 1' }, entries: [] });
-    await client(stub.fetch).environmentOrders.getOrgOrder('o 1' as never);
+    await client(stub.fetch).environmentOrders.getOrgOrder('o 1');
     expect(new URL(stub.calls[0]?.url).pathname).toBe('/v1/environment-orders/orgs/o%201');
   });
 
   it('PUT sends projectIds to the org path', async () => {
     const stub = jsonFetch({ parent: { kind: 'org', orgId: 'o1' }, entries: [] });
-    await client(stub.fetch).environmentOrders.setOrgOrder('o1' as never, {
-      projectIds: ['p-c', 'p-d'] as never,
+    await client(stub.fetch).environmentOrders.setOrgOrder('o1', {
+      projectIds: ['p-c', 'p-d'],
     });
     expect(new URL(stub.calls[0]?.url).pathname).toBe('/v1/environment-orders/orgs/o1');
     expect(stub.calls[0]?.method).toBe('PUT');
