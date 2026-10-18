@@ -88,7 +88,7 @@ describe('packEnvProblemLines', () => {
       ),
     ).toEqual([
       "A isn't set for prod. Set it with `kindgi env set NAME <value> --scope=tenant --env=prod`.",
-      "B and C are set only as secrets, which a pack service isn't given in its environment: a tool reads them per call (`ctx.secrets`).",
+      "B and C are set only as secrets, which this server keeps out of a pack service's environment: a tool reads them per call (`ctx.secrets`).",
       `D is set both as a secret (tenant) and as a plain value (project ${PROJECT}): remove one, so it's clear which the pack service gets.`,
     ]);
   });

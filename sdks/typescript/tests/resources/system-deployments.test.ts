@@ -130,6 +130,30 @@ describe('systemDeployments — wire round-trip', () => {
     );
   });
 
+  it("getPackEnv with secrets: 'values': asks for them, and gives them as sent", async () => {
+    const values = {
+      revision: `pe1-${'0'.repeat(64)}`,
+      names: [
+        {
+          name: 'ACME_API_KEY',
+          required: true,
+          kind: 'secret',
+          scope: { kind: 'project', id: 'p-1' },
+          missing: false,
+        },
+      ],
+      env: {},
+      secrets: { ACME_API_KEY: { value: 'sk-acme', revision: `ps1-${'1'.repeat(64)}` } },
+    };
+    const stub = jsonFetch(values);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const got = await client.systemDeployments.getPackEnv(TENANT, 'dep-1', { secrets: 'values' });
+    expect(got).toEqual(values);
+    expect(`${stub.calls[0]!.method} ${stub.calls[0]!.url}`).toBe(
+      `GET ${API}/v1/system/tenants/${TENANT}/deployments/dep-1/pack-env?secrets=values`,
+    );
+  });
+
   it('recordPackEnv: PUT …/pack-env with the revisions', async () => {
     const stub = jsonFetch(READY);
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });

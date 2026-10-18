@@ -193,6 +193,15 @@ const LimitQueryParam: ParameterSpec = {
   schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
 };
 
+const PackEnvSecretsQueryParam: ParameterSpec = {
+  name: 'secrets',
+  in: 'query',
+  required: false,
+  description:
+    '`values`: give the values of the names set only as a secret too, in `secrets`, each audited before the answer. Only for a key holding `system:pack-env` itself. Left out: such a name is `pack-env-secret-not-yet`, and no secret is read.',
+  schema: { type: 'string', enum: ['values'] },
+};
+
 const ParentRunIdQueryParam: ParameterSpec = {
   name: 'parentRunId',
   in: 'query',
@@ -2497,7 +2506,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemDeployments.listPackEnvChanged',
     summary: 'List deployments whose pack service runs on values that changed',
     description:
-      "Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision, but for one held as `pack-env-update-failed`, listed for an hour after it was first held so it's tried again). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.",
+      "Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision, but for one held as `pack-env-update-failed`, listed for an hour after it was first held so it's tried again, and one held for a cause the platform fixes, `pack-env-secret-unreadable` or `pack-env-secrets-unaudited`, listed every time with its `held`, as the revision doesn't move when that's fixed). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.",
     tags: ['system-deployments'],
     security: 'bearer',
     parameters: [CursorQueryParam, LimitQueryParam],
@@ -2520,18 +2529,19 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemDeployments.getPackEnv',
     summary: "Read the env a deployment's pack service is to be given",
     description:
-      "For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the plain values when nothing stands in the way. A name set only as a secret (`pack-env-secret-not-yet`), one set both ways (`pack-env-ambiguous`) or a required one set nowhere (`pack-env-missing`) is a `problem`, and then no value is given. Each value given out is on the audit record. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value.",
+      "For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set both ways (`pack-env-ambiguous`), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.",
     tags: ['system-deployments'],
     security: 'bearer',
-    parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam],
+    parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam, PackEnvSecretsQueryParam],
     responses: {
       '200': {
         description: 'Where each name is set, and the values when there is no problem.',
         schema: ref('SystemPackEnv'),
       },
       ...CommonAuthErrors,
+      '400': ErrorResponse('A `secrets` other than `values` (`bad-input`).'),
       '403': ErrorResponse(
-        "A tenant's key or session (`system-principal-required`), or a system key without `system:pack-env` (`system-scope-missing`).",
+        "A tenant's key or session (`system-principal-required`), a system key without `system:pack-env` (`system-scope-missing`), or with `secrets=values`, a key that doesn't hold `system:pack-env` itself, `kindgi:system` included (`system-scope-missing`).",
       ),
       '404': ErrorResponse(
         'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
@@ -2540,7 +2550,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The tenant is closing or suspended (`tenant-closing`, `tenant-suspended`), or the deployment's pack service was retired (`endpoint-retired`).",
       ),
       '501': ErrorResponse(
-        "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`).",
+        "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`). Or, with `secrets=values`, it has nowhere to audit a secret given out, so it gives none (`pack-env-secrets-unaudited`).",
+      ),
+      '503': ErrorResponse(
+        "With `secrets=values`: the secret store is out, a secret changed while it was read, twice, or the secrets' audit rows weren't written. Nothing is given: try again (`pack-env-unavailable`).",
       ),
     },
   },

@@ -318,6 +318,28 @@ export function systemScopeExtraRefusal(
   return deny(c, authorizer, 'system-scope-missing', `${why}: that takes ${scope}.`, { scope });
 }
 
+/**
+ * A system route's refusal of a request only a key holding `scope` itself
+ * may make: `kindgi:system` doesn't count (`403 system-scope-missing`,
+ * naming `scope`). `undefined` when the caller's own capabilities include
+ * it.
+ */
+export function systemScopeOwnRefusal(
+  c: Context<AppEnv>,
+  scope: SystemScope,
+  why: string,
+  authorizer?: Authorizer,
+): Response | undefined {
+  if ((c.get('capabilities') ?? []).includes(scope)) return undefined;
+  return deny(
+    c,
+    authorizer,
+    'system-scope-missing',
+    `${why}: that takes a key holding ${scope} itself, which ${FULL_SYSTEM_CAPABILITY} doesn't stand in for.`,
+    { scope },
+  );
+}
+
 /** A route only the full system capability may use: minting system keys. */
 export function requireFullSystem(authorizer?: Authorizer): MiddlewareHandler<AppEnv> {
   return async (c, next) => {

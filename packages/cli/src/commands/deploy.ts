@@ -829,6 +829,14 @@ const PACK_SERVICE_PROBLEMS: Readonly<Record<string, string>> = {
   'pack-env-secret-not-yet': 'a name the pack reads from its env is set only as a secret',
   'pack-env-ambiguous':
     'a name the pack reads from its env is set both as a secret and as a plain value',
+  'pack-env-secret-capacity':
+    'a name the pack reads from its env is set as a secret, and there is no room for a pack service that can be given one just now',
+  'pack-env-secret-too-large':
+    'a secret the pack reads from its env is over 32 KiB, the most a pack service can be given',
+  'pack-env-secret-unreadable':
+    "a secret the pack reads from its env can't be read just now: the platform's team is told, and it's tried again",
+  'pack-env-secrets-unaudited':
+    "the platform can't give the pack its secrets just now: its team is told, and it's tried again",
 };
 
 /** Why no pack service is wanted for a cleared deployment now, by its `retired` reason. */

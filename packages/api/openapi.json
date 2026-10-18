@@ -386,6 +386,7 @@
           "system-key-not-found": 404,
           "system-key-expiry-required": 403,
           "access-record-unavailable": 503,
+          "pack-env-unavailable": 503,
           "tenant-closing": 409,
           "tenant-suspended": 409,
           "project-suspended": 409,
@@ -492,6 +493,7 @@
           "environments-unsupported": 501,
           "pack-env-unsupported": 501,
           "pack-env-not-served": 501,
+          "pack-env-secrets-unaudited": 501,
           "provider-key-refused": 400,
           "provider-key-in-use": 409,
           "slug-conflict": 409,
@@ -3016,9 +3018,10 @@
             "enum": [
               "ambiguous",
               "secret-not-yet",
-              "missing"
+              "missing",
+              "unreadable"
             ],
-            "description": "Why it can't be given to the pack service. `ambiguous`: set both as a secret and as a plain value (`secretScope` names the secret's scope). `secret-not-yet`: set only as a secret, and a secret isn't given into a pack service's environment yet; a tool reads it per call (`ctx.secrets`). `missing`: a required name set nowhere. Absent when it can be given, and for an optional name set nowhere."
+            "description": "Why it can't be given to the pack service. `ambiguous`: set both as a secret and as a plain value (`secretScope` names the secret's scope). `secret-not-yet`: set only as a secret, and the orchestrator didn't ask for secret values (`secrets=values`); a tool reads it per call (`ctx.secrets`). `missing`: a required name set nowhere. `unreadable`: set as a secret, and it can't be read for a reason the platform fixes, not the owner. Absent when it can be given, and for an optional name set nowhere. The owner's check (`GET /v1/deployments/{deploymentId}/pack-env`) lists a name set only as a secret as `kind: 'secret'`, with no problem."
           },
           "secretScope": {
             "$ref": "#/components/schemas/PackEnvScope"
@@ -3030,9 +3033,10 @@
         "enum": [
           "pack-env-ambiguous",
           "pack-env-secret-not-yet",
-          "pack-env-missing"
+          "pack-env-missing",
+          "pack-env-secret-unreadable"
         ],
-        "description": "Why a deployment's pack service can't be given its declared environment, the first in this order: `pack-env-ambiguous` (a name is set both as a secret and as a plain value), `pack-env-secret-not-yet` (a name is set only as a secret), `pack-env-missing` (a required name is set nowhere). A later runtime may add codes, so treat an unknown one as a reason not yet named."
+        "description": "Why a deployment's pack service can't be given its declared environment, the first in this order: `pack-env-ambiguous` (a name is set both as a secret and as a plain value), `pack-env-secret-not-yet` (a name is set only as a secret, and its value wasn't asked for), `pack-env-missing` (a required name is set nowhere), `pack-env-secret-unreadable` (a name's secret is set, but it can't be read for a reason the platform fixes, not the owner; only a read with `secrets=values` finds it, and only when there's no other problem). A later runtime may add codes, so treat an unknown one as a reason not yet named."
       },
       "PackEnvHeldCode": {
         "type": "string",
@@ -3040,9 +3044,13 @@
           "pack-env-ambiguous",
           "pack-env-secret-not-yet",
           "pack-env-missing",
-          "pack-env-update-failed"
+          "pack-env-secret-unreadable",
+          "pack-env-update-failed",
+          "pack-env-secrets-unaudited",
+          "pack-env-secret-too-large",
+          "pack-env-secret-redeploy"
         ],
-        "description": "Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it, or `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. A later runtime may add codes, so treat an unknown one as a reason not yet named."
+        "description": "Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it; `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. The orchestrator couldn't give it its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out, so it gives none; the platform fixes it), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-secret-redeploy` (a name is now set only as a secret, and this pack service was made where no secret can be given to it; the next deploy's can be). A service held as `pack-env-secret-unreadable` or `pack-env-secrets-unaudited` is listed by `GET /v1/system/pack-env` every time, with its `held`, as the revision doesn't move when the platform fixes it. A later runtime may add codes, so treat an unknown one as a reason not yet named."
       },
       "SystemPackEnv": {
         "type": "object",
@@ -3051,7 +3059,7 @@
           "revision",
           "names"
         ],
-        "description": "What the deployment's pack service is to be given: where each declared name is set, and the plain values when nothing stands in the way. Each value given out is on the audit record (`env-resolved`, as the deployment's system read).",
+        "description": "What the deployment's pack service is to be given: where each declared name is set, and the values when nothing stands in the way, plain ones in `env` and, when asked for (`secrets=values`), secrets in `secrets`. Each value given out is on the audit record: `env-resolved` as the deployment's system read, and `secret-resolved` (caller `pack-env`), written before the answer.",
         "properties": {
           "revision": {
             "type": "string",
@@ -3073,6 +3081,31 @@
               "type": "string"
             },
             "description": "Each declared name that is set, by name, as plain values. Absent while there is a `problem`: then nothing is given, and the service keeps what it runs."
+          },
+          "secrets": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PackEnvSecretValue"
+            },
+            "description": "With `secrets=values` only: each declared name that is set only as a secret, by name (`{}` when there's none). Never put one into a plain env. Absent while there is a `problem`, and when it wasn't asked for."
+          }
+        }
+      },
+      "PackEnvSecretValue": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "value",
+          "revision"
+        ],
+        "description": "A secret given to the deployment's pack service: its value, read at the version `revision` names, and audited before the answer.",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string",
+            "description": "`ps1-…`: the same for the same value under the same name, and changes whenever what's given for the name does (a new version, another scope, a revoke or a delete). Made from the name's part of the deployment's `revision`, never from the value."
           }
         }
       },
@@ -3125,6 +3158,32 @@
           "appliedRevision": {
             "type": "string",
             "description": "The revision its service runs: given with its endpoint, or recorded since. Absent: none was. Send it back as `appliedRevision` with `PUT …/pack-env`."
+          },
+          "held": {
+            "$ref": "#/components/schemas/SystemPackEnvHold"
+          }
+        }
+      },
+      "SystemPackEnvHold": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "since"
+        ],
+        "description": "Only when it's held at its current revision for a cause the platform fixes, not the owner: it's listed every time, as the revision doesn't move when that's fixed. Read its values again when your back-off says. Absent otherwise.",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "pack-env-secret-unreadable",
+              "pack-env-secrets-unaudited"
+            ]
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was first held."
           }
         }
       },
@@ -3221,7 +3280,11 @@
               "service-start-failed",
               "pack-env-ambiguous",
               "pack-env-secret-not-yet",
-              "pack-env-missing"
+              "pack-env-missing",
+              "pack-env-secret-unreadable",
+              "pack-env-secrets-unaudited",
+              "pack-env-secret-too-large",
+              "pack-env-secret-capacity"
             ],
             "description": "Why the pack service couldn't be created, or was refused: one of `DEPLOYMENT_ENDPOINT_PROBLEM_CODES`. The tenant sees the code, never more."
           }
@@ -17978,7 +18041,7 @@
         "properties": {
           "code": {
             "type": "string",
-            "description": "One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start). It can't be given its declared environment (`GET /v1/deployments/{deploymentId}/pack-env` names the names): `pack-env-ambiguous`, `pack-env-secret-not-yet`, `pack-env-missing`."
+            "description": "One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start). It can't be given its declared environment (`GET /v1/deployments/{deploymentId}/pack-env` names the names): `pack-env-ambiguous`, `pack-env-secret-not-yet`, `pack-env-missing`, `pack-env-secret-unreadable` (a name's secret can't be read for a reason the platform fixes, not the owner; it's tried again). It can't be given its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out; the platform fixes it, and it's tried again), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-secret-capacity` (a name is set only as a secret, and there's no room just now for a pack service that can be given one, apart from other projects'; it's tried again)."
           },
           "since": {
             "type": "string",
@@ -18028,7 +18091,7 @@
               "code",
               "since"
             ],
-            "description": "`ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say), or didn't start (`pack-env-update-failed`). Gone once they can, or do. For a name that can't be given, `GET /v1/deployments/{deploymentId}/pack-env` names it. Absent from older servers.",
+            "description": "`ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say, or a secret can't be given), or didn't start (`pack-env-update-failed`). Gone once they can, or do. For a name that can't be given, `GET /v1/deployments/{deploymentId}/pack-env` names it. Absent from older servers.",
             "properties": {
               "code": {
                 "$ref": "#/components/schemas/PackEnvHeldCode"
@@ -27046,7 +27109,7 @@
             }
           }
         },
-        "description": "Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision, but for one held as `pack-env-update-failed`, listed for an hour after it was first held so it's tried again). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.",
+        "description": "Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision, but for one held as `pack-env-update-failed`, listed for an hour after it was first held so it's tried again, and one held for a cause the platform fixes, `pack-env-secret-unreadable` or `pack-env-secrets-unaudited`, listed every time with its `held`, as the revision doesn't move when that's fixed). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.",
         "parameters": [
           {
             "name": "cursor",
@@ -27095,6 +27158,16 @@
               }
             }
           },
+          "400": {
+            "description": "A `secrets` other than `values` (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
             "content": {
@@ -27106,7 +27179,7 @@
             }
           },
           "403": {
-            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:pack-env` (`system-scope-missing`).",
+            "description": "A tenant's key or session (`system-principal-required`), a system key without `system:pack-env` (`system-scope-missing`), or with `secrets=values`, a key that doesn't hold `system:pack-env` itself, `kindgi:system` included (`system-scope-missing`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -27136,7 +27209,17 @@
             }
           },
           "501": {
-            "description": "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`).",
+            "description": "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`). Or, with `secrets=values`, it has nowhere to audit a secret given out, so it gives none (`pack-env-secrets-unaudited`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "With `secrets=values`: the secret store is out, a secret changed while it was read, twice, or the secrets' audit rows weren't written. Nothing is given: try again (`pack-env-unavailable`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -27146,7 +27229,7 @@
             }
           }
         },
-        "description": "For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the plain values when nothing stands in the way. A name set only as a secret (`pack-env-secret-not-yet`), one set both ways (`pack-env-ambiguous`) or a required one set nowhere (`pack-env-missing`) is a `problem`, and then no value is given. Each value given out is on the audit record. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value.",
+        "description": "For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set both ways (`pack-env-ambiguous`), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.",
         "parameters": [
           {
             "name": "tenantId",
@@ -27168,6 +27251,18 @@
             },
             "required": true,
             "description": "The deployment's id, as `GET /v1/system/deployments` lists it."
+          },
+          {
+            "name": "secrets",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "values"
+              ]
+            },
+            "required": false,
+            "description": "`values`: give the values of the names set only as a secret too, in `secrets`, each audited before the answer. Only for a key holding `system:pack-env` itself. Left out: such a name is `pack-env-secret-not-yet`, and no secret is read."
           }
         ],
         "security": [

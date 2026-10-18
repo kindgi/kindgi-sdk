@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
+import type { Logger } from '@kindgi/log';
 import type { Scope } from '@kindgi/platform';
 import type { EnvName, ProjectId, TenantId } from '@kindgi/types';
 
@@ -19,6 +21,10 @@ import type {
   EnvRecord,
   PackEnvRecordInput,
   RunHandlerBinding,
+  SecretBinding,
+  SecretError,
+  SecretRecord,
+  SecretResolveInput,
   SetPackEndpointInput,
   SystemDeploymentsBinding,
   SystemPackEnvServed,
@@ -29,8 +35,9 @@ import type {
  * The pack env routes behind per-deployment routing. The orchestrator, on a
  * key of its own (`system:pack-env`), lists the deployments whose pack
  * service runs on values that changed, reads a deployment's values, and
- * records what its service runs. A tenant reads where each declared name is
- * set, never a value.
+ * records what its service runs; with `?secrets=values`, the values of the
+ * names set only as a secret too, each audited first. A tenant reads where
+ * each declared name is set, never a value.
  */
 
 const live = randomUUID() as TenantId;
@@ -48,11 +55,13 @@ const envName = 'prod' as EnvName;
 const PACK_ENV = 'kgi_sy_pack_env';
 const ORCHESTRATOR = 'kgi_sy_orchestrator';
 const FULL = 'kgi_sy_full';
+const FULL_AND_PACK_ENV = 'kgi_sy_full_and_pack_env';
 const TENANT_KEY = 'kgi_ak_tenant_reader';
 const SCOPES: Record<string, readonly string[]> = {
   [PACK_ENV]: ['system:pack-env'],
   [ORCHESTRATOR]: ['system:deployments'],
   [FULL]: ['kindgi:system'],
+  [FULL_AND_PACK_ENV]: ['kindgi:system', 'system:pack-env'],
 };
 const NOW = '2026-10-18T03:00:00.000Z';
 
@@ -93,7 +102,15 @@ function served(d: Deployment, applied?: string): SystemPackEnvServed {
 }
 
 function makeApp(
-  options: { readonly withPackEnv?: boolean; readonly perDeployment?: boolean } = {},
+  options: {
+    readonly withPackEnv?: boolean;
+    readonly perDeployment?: boolean;
+    /** A secret store, read with `get` and `resolve`. */
+    readonly secrets?: boolean;
+    /** Where values given out are audited: absent, none. */
+    readonly audit?: 'ok' | 'refused';
+    readonly logger?: Logger;
+  } = {},
 ) {
   const withPackEnv = options.withPackEnv ?? true;
   const perDeployment = options.perDeployment ?? true;
@@ -119,6 +136,62 @@ function makeApp(
       return e === envName ? (envRows.get(`${scopeKey(scope)}|${name}`) ?? null) : null;
     },
   } as EnvBinding;
+  const secretRows = new Map<string, SecretRecord & { readonly value: string }>();
+  const secretFaults = new Map<string, SecretError['code']>();
+  const resolved: SecretResolveInput[] = [];
+  const setSecret = (scope: Scope, name: string, value: string) => {
+    const at = new Date(clock++).toISOString();
+    secretRows.set(`${scopeKey(scope)}|${name}`, {
+      scope,
+      envName,
+      name,
+      currentVersion: 1,
+      createdAt: at,
+      updatedAt: at,
+      recordId: randomUUID(),
+      value,
+    });
+  };
+  const secrets = {
+    async get({ scope, envName: e, name }) {
+      const row = e === envName ? secretRows.get(`${scopeKey(scope)}|${name}`) : undefined;
+      if (row === undefined) return null;
+      const { value: _value, ...record } = row;
+      return record;
+    },
+    async resolve(input) {
+      resolved.push(input);
+      const fault = secretFaults.get(input.name);
+      const row = secretRows.get(`${scopeKey(input.scope)}|${input.name}`);
+      if (fault !== undefined || row === undefined) {
+        const code = fault ?? 'secret-not-found';
+        const message = `the store's own words about ${input.name}`;
+        return { kind: 'err', error: { code, message, name: input.name } as SecretError };
+      }
+      return {
+        kind: 'ok',
+        value: {
+          name: input.name,
+          versionId: row.currentVersion,
+          value: row.value,
+          scope: row.scope,
+        },
+      };
+    },
+  } as SecretBinding;
+  const appended: AuditEvent[][] = [];
+  const auditEvents =
+    options.audit === undefined
+      ? undefined
+      : ({
+          async append(batch: readonly AuditEvent[]) {
+            if (options.audit === 'refused') {
+              return { kind: 'err', error: { code: 'persistence-error', message: 'refused' } };
+            }
+            appended.push([...batch]);
+            return { kind: 'ok', value: undefined };
+          },
+        } as unknown as AuditEventBinding);
   const deployments = new Map<string, Deployment>();
   const registry = {
     async get({ tenantId, deploymentId }) {
@@ -212,6 +285,9 @@ function makeApp(
     imageRegistry: {} as never,
     imagePrefixes: { of: async () => undefined },
     envBinding: env,
+    ...(options.secrets === true && { secretsBinding: secrets }),
+    ...(auditEvents !== undefined && { auditEvents }),
+    ...(options.logger !== undefined && { logger: options.logger }),
     envName,
     projectBinding: {
       async get(_t: TenantId, id: ProjectId) {
@@ -236,9 +312,22 @@ function makeApp(
       status: res.status,
       body: (text === '' ? {} : JSON.parse(text)) as Record<string, unknown>,
       text,
+      headers: res.headers,
     };
   };
-  return { call, deployments, servedList, recorded, setInputs, setEnv, applied };
+  return {
+    call,
+    deployments,
+    servedList,
+    recorded,
+    setInputs,
+    setEnv,
+    applied,
+    setSecret,
+    secretFaults,
+    resolved,
+    appended,
+  };
 }
 
 const code = (r: { body: Record<string, unknown> }) =>
@@ -560,5 +649,326 @@ describe('GET /v1/deployments/{id}/pack-env', () => {
     const r = await a.call(TENANT_KEY, 'GET', '/v1/deployments/d/pack-env');
     expect(r.status).toBe(501);
     expect(code(r)).toBe('pack-env-not-served');
+  });
+});
+
+describe('GET …/pack-env?secrets=values: secret values, for the pack env key only', () => {
+  const SENTINEL = 'sk-sentinel-7d1f0a9c-never-elsewhere';
+  const withSecretPath = (d: string) => `${valuesPath(live, d)}?secrets=values`;
+  const projectAt: Scope = { kind: 'project', tenantId: live, projectId: staging };
+
+  /** A deployment declaring ACME_API_KEY, set only as a secret, and API_BASE, set as a plain value. */
+  function withSecret(
+    options: { readonly audit?: 'ok' | 'refused' | 'none'; readonly logger?: Logger } = {},
+  ) {
+    const audit = options.audit ?? 'ok';
+    const a = makeApp({
+      secrets: true,
+      ...(audit !== 'none' && { audit }),
+      ...(options.logger !== undefined && { logger: options.logger }),
+    });
+    a.deployments.set('d', {
+      ...deployment('d', staging, ready),
+      packEnv: { required: ['ACME_API_KEY', 'API_BASE'], optional: [] },
+    });
+    a.setEnv(projectAt, 'API_BASE', 'https://staging.acme.test');
+    a.setSecret(projectAt, 'ACME_API_KEY', SENTINEL);
+    return a;
+  }
+
+  test('gives it with its revision, audits it before the answer, and is never cached', async () => {
+    const a = withSecret();
+    const r = await a.call(PACK_ENV, 'GET', withSecretPath('d'));
+    expect(r.status).toBe(200);
+    expect(r.headers.get('cache-control')).toContain('no-store');
+    expect(r.body.problem).toBeUndefined();
+    expect(r.body.env).toEqual({ API_BASE: 'https://staging.acme.test' });
+    expect(r.body.secrets).toEqual({
+      ACME_API_KEY: { value: SENTINEL, revision: expect.stringMatching(/^ps1-[0-9a-f]{64}$/) },
+    });
+    expect(r.body.names).toContainEqual({
+      name: 'ACME_API_KEY',
+      required: true,
+      kind: 'secret',
+      scope: { kind: 'project', id: staging },
+      missing: false,
+    });
+    const rows = a.appended.flat().filter((e) => e.kind === 'secret-resolved');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      actor: 'system:d',
+      tenantId: live,
+      projectId: staging,
+      payload: {
+        doc: {
+          name: 'ACME_API_KEY',
+          caller: 'pack-env',
+          deploymentId: 'd',
+          revision: (r.body.secrets as Record<string, { revision: string }>).ACME_API_KEY?.revision,
+        },
+      },
+    });
+    expect(a.resolved).toHaveLength(1);
+  });
+
+  test.each([
+    [FULL, 'kindgi:system alone', 'system-scope-missing'],
+    [ORCHESTRATOR, 'system:deployments', 'system-scope-missing'],
+    [TENANT_KEY, "a tenant's key", 'system-principal-required'],
+  ])(
+    '%s (%s) asking for values: 403 %s, with nothing read and no row',
+    async (token, _why, refusal) => {
+      const a = withSecret();
+      const r = await a.call(token, 'GET', withSecretPath('d'));
+      expect(r.status).toBe(403);
+      expect(code(r)).toBe(refusal);
+      expect(r.text).not.toContain(SENTINEL);
+      expect(a.resolved).toHaveLength(0);
+      expect(a.appended).toHaveLength(0);
+    },
+  );
+
+  test('a key holding system:pack-env itself, beside kindgi:system, is given them', async () => {
+    const a = withSecret();
+    const r = await a.call(FULL_AND_PACK_ENV, 'GET', withSecretPath('d'));
+    expect(r.status).toBe(200);
+    expect(r.body.secrets).toEqual({ ACME_API_KEY: expect.objectContaining({ value: SENTINEL }) });
+  });
+
+  test("kindgi:system without the ask: today's answer, the name secret-not-yet, nothing read", async () => {
+    const a = withSecret();
+    const r = await a.call(FULL, 'GET', valuesPath(live, 'd'));
+    expect(r.status).toBe(200);
+    expect(r.body.problem).toBe('pack-env-secret-not-yet');
+    expect(r.body).not.toHaveProperty('secrets');
+    expect(r.body).not.toHaveProperty('env');
+    expect(a.resolved).toHaveLength(0);
+  });
+
+  test("without the ask, the answer is today's, byte for byte", async () => {
+    const a = withSecret();
+    const problem = await a.call(PACK_ENV, 'GET', valuesPath(live, 'd'));
+    expect(problem.text).toBe(
+      JSON.stringify({
+        revision: problem.body.revision,
+        names: [
+          {
+            name: 'ACME_API_KEY',
+            required: true,
+            kind: 'secret',
+            scope: { kind: 'project', id: staging },
+            missing: false,
+            problem: 'secret-not-yet',
+          },
+          {
+            name: 'API_BASE',
+            required: true,
+            kind: 'env',
+            scope: { kind: 'project', id: staging },
+            missing: false,
+          },
+        ],
+        problem: 'pack-env-secret-not-yet',
+      }),
+    );
+    a.deployments.set('d-plain', deployment('d-plain', staging, ready));
+    const plain = await a.call(PACK_ENV, 'GET', valuesPath(live, 'd-plain'));
+    expect(plain.text).toBe(
+      JSON.stringify({
+        revision: plain.body.revision,
+        names: [
+          {
+            name: 'API_BASE',
+            required: true,
+            kind: 'env',
+            scope: { kind: 'project', id: staging },
+            missing: false,
+          },
+          { name: 'LOG_LEVEL', required: false, kind: null, scope: null, missing: true },
+        ],
+        env: { API_BASE: 'https://staging.acme.test' },
+      }),
+    );
+    expect(a.resolved).toHaveLength(0);
+    expect(a.appended.flat().filter((e) => e.kind === 'secret-resolved')).toHaveLength(0);
+  });
+
+  test.each([['yes'], ['VALUES'], ['']])('secrets=%s: 400, with nothing read', async (raw) => {
+    const a = withSecret();
+    const r = await a.call(PACK_ENV, 'GET', `${valuesPath(live, 'd')}?secrets=${raw}`);
+    expect(r.status).toBe(400);
+    expect(code(r)).toBe('bad-input');
+    expect(a.resolved).toHaveLength(0);
+  });
+
+  test('a server with nowhere to audit them: 501 pack-env-secrets-unaudited, with nothing read', async () => {
+    const a = withSecret({ audit: 'none' });
+    const r = await a.call(PACK_ENV, 'GET', withSecretPath('d'));
+    expect(r.status).toBe(501);
+    expect(code(r)).toBe('pack-env-secrets-unaudited');
+    expect(a.resolved).toHaveLength(0);
+    // Without the ask, the same server answers as before.
+    expect((await a.call(PACK_ENV, 'GET', valuesPath(live, 'd'))).body.problem).toBe(
+      'pack-env-secret-not-yet',
+    );
+  });
+
+  test('rows that can not be written: 503 pack-env-unavailable, and no value', async () => {
+    const a = withSecret({ audit: 'refused' });
+    const r = await a.call(PACK_ENV, 'GET', withSecretPath('d'));
+    expect(r.status).toBe(503);
+    expect(code(r)).toBe('pack-env-unavailable');
+    expect(r.text).not.toContain(SENTINEL);
+    expect(r.text).not.toContain('staging.acme.test');
+  });
+
+  test('a store that is out: 503 pack-env-unavailable', async () => {
+    const a = withSecret();
+    a.secretFaults.set('ACME_API_KEY', 'secret-provider-unavailable');
+    const r = await a.call(PACK_ENV, 'GET', withSecretPath('d'));
+    expect(r.status).toBe(503);
+    expect(code(r)).toBe('pack-env-unavailable');
+    expect(r.text).not.toContain("the store's own words");
+  });
+
+  test("a secret the platform has to fix: 200 pack-env-secret-unreadable, no value, the store's words kept back", async () => {
+    const a = withSecret();
+    a.secretFaults.set('ACME_API_KEY', 'secret-decryption-failed');
+    const r = await a.call(PACK_ENV, 'GET', withSecretPath('d'));
+    expect(r.status).toBe(200);
+    expect(r.body.problem).toBe('pack-env-secret-unreadable');
+    expect(r.body.names).toContainEqual(
+      expect.objectContaining({ name: 'ACME_API_KEY', kind: 'secret', problem: 'unreadable' }),
+    );
+    expect(r.body).not.toHaveProperty('secrets');
+    expect(r.body).not.toHaveProperty('env');
+    expect(r.text).not.toContain("the store's own words");
+    expect(a.appended).toHaveLength(0);
+  });
+
+  test('the value is only ever in the answer: not in a log at any level, a row or a refusal', async () => {
+    const lines: string[] = [];
+    const record = (level: string) => (message: string, fields?: unknown, options?: unknown) =>
+      lines.push(
+        JSON.stringify({ level, message, fields, options }, (_k, v) =>
+          v instanceof Error ? { message: v.message, stack: v.stack } : v,
+        ),
+      );
+    const logger: Logger = {
+      error: record('error'),
+      warn: record('warn'),
+      info: record('info'),
+      debug: record('debug'),
+      trace: record('trace'),
+      child: () => logger,
+      isLevelEnabled: () => true,
+    };
+    const a = withSecret({ logger });
+    const given = await a.call(PACK_ENV, 'GET', withSecretPath('d'));
+    expect(given.text).toContain(SENTINEL);
+    const refusals = [
+      await a.call(FULL, 'GET', withSecretPath('d')),
+      await a.call(PACK_ENV, 'GET', `${valuesPath(live, 'd')}?secrets=nope`),
+      await a.call(PACK_ENV, 'GET', valuesPath(live, 'd')),
+    ];
+    a.secretFaults.set('ACME_API_KEY', 'secret-decryption-failed');
+    refusals.push(await a.call(PACK_ENV, 'GET', withSecretPath('d')));
+    a.secretFaults.set('ACME_API_KEY', 'secret-store-error');
+    refusals.push(await a.call(PACK_ENV, 'GET', withSecretPath('d')));
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.join('\n')).not.toContain(SENTINEL);
+    expect(JSON.stringify(a.appended)).not.toContain(SENTINEL);
+    for (const r of refusals) {
+      expect(r.text).not.toContain(SENTINEL);
+      expect([...r.headers.values()].join('\n')).not.toContain(SENTINEL);
+    }
+    expect([...given.headers.values()].join('\n')).not.toContain(SENTINEL);
+  });
+
+  test("the owner's check: set as a secret, with no problem, and its value never read", async () => {
+    const a = withSecret();
+    const r = await a.call(TENANT_KEY, 'GET', '/v1/deployments/d/pack-env');
+    expect(r.status).toBe(200);
+    expect(r.body.problem).toBeUndefined();
+    expect(r.body.data).toContainEqual({
+      name: 'ACME_API_KEY',
+      required: true,
+      kind: 'secret',
+      scope: { kind: 'project', id: staging },
+      missing: false,
+    });
+    expect(r.body).not.toHaveProperty('secrets');
+    expect(r.text).not.toContain(SENTINEL);
+    expect(a.resolved).toHaveLength(0);
+    // Its query is not the system route's: asking it for values reads none.
+    const asked = await a.call(TENANT_KEY, 'GET', '/v1/deployments/d/pack-env?secrets=values');
+    expect(asked.text).not.toContain(SENTINEL);
+    expect(a.resolved).toHaveLength(0);
+  });
+});
+
+describe('GET /v1/system/pack-env: a hold the platform fixes', () => {
+  const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+
+  test('is listed every time at its revision, with its hold; an owner hold is not', async () => {
+    const a = makeApp();
+    const rows: [string, string, string][] = [
+      ['d-unreadable', 'pack-env-secret-unreadable', ago(24 * 60)],
+      ['d-unaudited', 'pack-env-secrets-unaudited', ago(61)],
+      ['d-not-yet', 'pack-env-secret-not-yet', ago(1)],
+      ['d-too-large', 'pack-env-secret-too-large', ago(1)],
+      ['d-redeploy', 'pack-env-secret-redeploy', ago(1)],
+      ['d-missing', 'pack-env-missing', ago(1)],
+    ];
+    for (const [id, heldCode, since] of rows) {
+      const d = deployment(id, prod, ready);
+      a.deployments.set(id, d);
+      const revision = (await a.call(PACK_ENV, 'GET', valuesPath(live, id))).body
+        .revision as string;
+      a.servedList.push({
+        ...served(d, 'pe1-older'),
+        held: { revision, code: heldCode as 'pack-env-missing', since },
+      });
+    }
+    for (let pass = 0; pass < 2; pass++) {
+      const r = await a.call(PACK_ENV, 'GET', '/v1/system/pack-env');
+      expect(r.body.data).toEqual([
+        expect.objectContaining({
+          deploymentId: 'd-unreadable',
+          appliedRevision: 'pe1-older',
+          held: { code: 'pack-env-secret-unreadable', since: rows[0]?.[2] },
+        }),
+        expect.objectContaining({
+          deploymentId: 'd-unaudited',
+          held: { code: 'pack-env-secrets-unaudited', since: rows[1]?.[2] },
+        }),
+      ]);
+    }
+  });
+
+  test('held at an older revision: listed as a change, without its hold', async () => {
+    const a = makeApp();
+    const d = deployment('d', prod, ready);
+    a.deployments.set('d', d);
+    a.servedList.push({
+      ...served(d, 'pe1-older'),
+      held: { revision: 'pe1-older-still', code: 'pack-env-secret-unreadable', since: ago(5) },
+    });
+    const r = await a.call(PACK_ENV, 'GET', '/v1/system/pack-env');
+    expect(r.body.data).toEqual([expect.objectContaining({ deploymentId: 'd' })]);
+    expect(r.body.data).toEqual([expect.not.objectContaining({ held: expect.anything() })]);
+  });
+
+  test('a service retried after a revision that did not start carries no hold', async () => {
+    const a = makeApp();
+    const d = deployment('d', prod, ready);
+    a.deployments.set('d', d);
+    const revision = (await a.call(PACK_ENV, 'GET', valuesPath(live, 'd'))).body.revision as string;
+    a.servedList.push({
+      ...served(d, 'pe1-older'),
+      held: { revision, code: 'pack-env-update-failed', since: ago(5) },
+    });
+    const r = await a.call(PACK_ENV, 'GET', '/v1/system/pack-env');
+    expect(r.body.data).toEqual([expect.not.objectContaining({ held: expect.anything() })]);
   });
 });

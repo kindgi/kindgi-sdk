@@ -388,6 +388,9 @@ export function deploymentsRouter(
         ...(record.projectId !== undefined && { projectId: record.projectId }),
         envName,
         declaration: record.packEnv ?? { required: [], optional: [] },
+        // The orchestrator gives a secret, or records why it can't on the
+        // deployment's endpoint: here it's set, with no problem.
+        secretOnly: 'set',
       },
     );
     return c.json({
