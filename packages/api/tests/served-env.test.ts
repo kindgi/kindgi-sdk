@@ -509,6 +509,29 @@ describe('the tenant config: its values under the env the runtime serves, where 
     ]);
   });
 
+  test('a `config` entry sent with `sensitive: true`: a secret, so under the served env, where a tool reads it', async () => {
+    const h = makeApp({ envName: 'prod', refuseOtherEnvs: true });
+    const set = await h.call('PATCH', '/v1/tenant/config', {
+      kind: 'config',
+      key: 'ACME_SIGNING_KEY',
+      value: 'sig_test_1',
+      sensitive: true,
+    });
+    expect(set.status).toBe(200);
+    expect(h.writes).toEqual([['secret.set', 'prod', 'ACME_SIGNING_KEY']]);
+    const toolRead = await h.secretsBinding.resolve({
+      scope: tenant as Scope,
+      envName: 'prod' as EnvName,
+      name: 'ACME_SIGNING_KEY',
+      resolveContext: { caller: 'dispatch' },
+    });
+    expect(toolRead.kind === 'ok' ? toolRead.value.value : toolRead.error.code).toBe('sig_test_1');
+    const listed = await h.call('GET', '/v1/tenant/config');
+    expect(
+      (listed.body.data as { kind: string; key: string }[]).map((e) => [e.kind, e.key]),
+    ).toEqual([['secret', 'ACME_SIGNING_KEY']]);
+  });
+
   test('on a runtime that serves no env: under `default`, as before', async () => {
     vi.stubEnv('KINDGI_ENV_NAME', 'prod');
     const h = makeApp();
