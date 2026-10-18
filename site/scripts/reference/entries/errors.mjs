@@ -2653,13 +2653,13 @@ export const ERROR_ENTRIES = {
   },
   'pack-env-unavailable': {
     description:
-      "A deployment's pack env can't be given just now: its secret store is out, a secret changed while it was read (twice), or the audit rows for its secrets weren't written. No value is given, and the message says which. Ask again; there's nothing for the pack's owner to do.",
+      "A deployment's pack env can't be given just now: its secret store failed or is rate-limited, a secret changed while it was read (twice), or the audit rows for its secrets weren't written. No value is given, and the message says which. Ask again; there's nothing for the pack's owner to do.",
     details: [],
     seeAlso: ['GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env'],
   },
   'pack-env-secrets-unaudited': {
     description:
-      "A deployment's secret values were asked for (`secrets=values`) on a server with nowhere to audit them, so none is read or given. The server's operator sets up its audit store. Without `secrets=values`, the answer is as before. A pack service held for this shows it as its deployment's problem: the platform's to fix, with nothing for the pack's owner to do.",
+      "A deployment's secret values were asked for (`secrets=values`) on a server with nowhere to audit them, so none is read or given. The server's operator sets up its audit store. A request without `secrets=values` isn't refused for this. A pack service held for this shows it as its deployment's problem: the platform's to fix, with nothing for the pack's owner to do.",
     details: [],
     seeAlso: ['GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env'],
   },
