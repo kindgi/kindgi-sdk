@@ -57,8 +57,21 @@ const SET_IDLE_TIMEOUT = `set Global / serverIdleTimeout := Some(scala.concurren
 /** How long `kindgi dev` waits for its sbt server to shut down. */
 const SHUTDOWN_TIMEOUT_MS = 15_000;
 
+/** What prints the runtime classpath. */
+const EXPORT_COMMAND = 'export Runtime/fullClasspath';
+
 /** What each build runs: compile, then print the runtime classpath. */
-const BUILD_COMMANDS = 'compile; export Runtime/fullClasspath';
+const BUILD_COMMANDS = `compile; ${EXPORT_COMMAND}`;
+
+/**
+ * How many more times a build runs the export alone when sbt succeeds
+ * without printing the classpath. sbt's thin client sometimes drops the
+ * server's output: it exits 0 with `[success]`, and the classpath line never
+ * arrives. Measured with sbt 1.12's server and the 1.10 thin client: 24 of
+ * 1,240 rebuilds, none of 40 first builds, and one more export printed the
+ * classpath each time it was tried (14 of 14).
+ */
+const EXPORT_RETRIES = 2;
 
 export interface ScalaPackBuilderOptions {
   readonly packDir: string;
@@ -314,17 +327,25 @@ export function createScalaPackBuilder(options: ScalaPackBuilderOptions): PackBu
     }
   }
 
+  /** A failed sbt command's answer: its errors, located in the pack. */
+  async function failed(sbt: Awaited<ReturnType<typeof runProcess>>): Promise<PackBuild> {
+    const roots = [packDir, await realpath(packDir).catch(() => packDir)];
+    return { kind: 'err', errors: sbtErrors(`${sbt.stdout}\n${sbt.stderr}`, roots, sbt.code) };
+  }
+
   async function build(): Promise<PackBuild> {
     const env = await sbtEnv();
     await mkdir(code.workDir, { recursive: true });
-    const sbt = await client([...(await serverSteps()), BUILD_COMMANDS].join('; '), env);
-    if (sbt.code !== 0) {
-      const roots = [packDir, await realpath(packDir).catch(() => packDir)];
-      return { kind: 'err', errors: sbtErrors(`${sbt.stdout}\n${sbt.stderr}`, roots, sbt.code) };
-    }
+    let sbt = await client([...(await serverSteps()), BUILD_COMMANDS].join('; '), env);
+    if (sbt.code !== 0) return failed(sbt);
     fresh = false;
     buildChanged = false;
-    const classpath = exportedClasspath(sbt.stdout);
+    let classpath = exportedClasspath(sbt.stdout);
+    for (let retry = 0; classpath === undefined && retry < EXPORT_RETRIES; retry++) {
+      sbt = await client(EXPORT_COMMAND, env);
+      if (sbt.code !== 0) return failed(sbt);
+      classpath = exportedClasspath(sbt.stdout);
+    }
     if (classpath === undefined) {
       return {
         kind: 'err',
