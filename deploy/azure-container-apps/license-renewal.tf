@@ -158,7 +158,8 @@ resource "azurerm_container_app_job" "license_renewal" {
 # renewal that failed, and a key that expires within a week, which `kindgi
 # license renew` says on every run ("⚠ It expires in N days"). With the
 # usage key, a third: a run that sent no counts, which renew says on its
-# counts line ("counts: not sent (<why>)"). CLI tests pin both lines.
+# counts line ("counts: not sent (<why>)"). The CLI's tests run renew
+# against both queries (packages/cli/tests/license-commands.test.ts).
 
 resource "azurerm_monitor_metric_alert" "license_renewal_failed" {
   count               = local.license_renewal ? 1 : 0
