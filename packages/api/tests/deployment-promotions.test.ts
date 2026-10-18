@@ -27,6 +27,7 @@ import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/a
 import { generateEd25519KeyPair, signEd25519 } from '@kindgi/crypto';
 import type {
   Cursor,
+  LiveScope,
   ProjectId,
   SigningKeyId,
   TenantId,
@@ -44,6 +45,7 @@ import type {
   DeploymentBinding,
   DeploymentContents,
   DeploymentEndpoint,
+  GatePolicy,
   PromoteInput,
   PromotedToolSecretScopes,
   Promotion,
@@ -253,7 +255,10 @@ const notUsed = async (): Promise<never> => {
  * answers it live at once, with no gate. `pinned` is each `promote` input,
  * in order, so a test can read the scope the pin was set at.
  */
-function livePins(): { readonly releases: AgentReleaseBindings; readonly pinned: PromoteInput[] } {
+function livePins(opts: { readonly gated?: readonly string[] | undefined } = {}): {
+  readonly releases: AgentReleaseBindings;
+  readonly pinned: PromoteInput[];
+} {
   const pinned: PromoteInput[] = [];
   const promotions = {
     promote: async (input: PromoteInput) => {
@@ -278,11 +283,32 @@ function livePins(): { readonly releases: AgentReleaseBindings; readonly pinned:
     list: async () => ({ data: [] }),
     get: async () => null,
   };
+  // A gate policy on a carried agent's scope, so `makeLive` sees a gate it
+  // can't record (this binding has no `promotions.request`): `promotion-
+  // gate-unsupported`, decided before any pin.
+  const gated = new Set(opts.gated ?? []);
+  const gatePolicies = {
+    resolve: async ({ agentId, scope }: { agentId: string; scope: LiveScope }) =>
+      gated.has(agentId)
+        ? ({
+            id: `gate-${agentId}`,
+            version: '1',
+            tenantId,
+            agentId,
+            scope,
+            spec: {},
+            createdAt: '2026-10-01T00:00:00.000Z' as Timestamp,
+          } satisfies GatePolicy)
+        : null,
+  };
   return {
     pinned,
     releases: {
       live: { resolve: async () => null, list: async () => [] },
       promotions: promotions as unknown as AgentReleaseBindings['promotions'],
+      ...(gated.size > 0 && {
+        gatePolicies: gatePolicies as unknown as NonNullable<AgentReleaseBindings['gatePolicies']>,
+      }),
     },
   };
 }
@@ -303,6 +329,8 @@ function harness(
     readonly envName?: string | null;
     /** Wire a live-release binding (`livePins`), so `makeLive` can pin. */
     readonly live?: boolean;
+    /** Carried agents whose scope has a gate policy this binding can't record. */
+    readonly gated?: readonly string[];
     /** Items an order carries, so an agent spans more than one project. */
     readonly itemRows?: readonly ItemRow[];
   } = {},
@@ -326,7 +354,7 @@ function harness(
   const keyOf = (scope: { kind: string; projectId?: unknown }, name: string) =>
     `${scope.kind}:${(scope.projectId as string | undefined) ?? ''}:${name}`;
   const grants = opts.grants;
-  const live = opts.live === true ? livePins() : undefined;
+  const live = opts.live === true ? livePins({ gated: opts.gated }) : undefined;
   const items = opts.itemRows !== undefined ? itemProjects([...opts.itemRows]) : undefined;
   const app = createApp({
     ...createStubAppBindings(),
@@ -980,6 +1008,45 @@ describe('making the carried agents live in the target (makeLive)', () => {
     expect(res.status).toBe(501);
     expect(res.body.error.code).toBe('promotions-unsupported');
     // The build moved; only making it live is unsupported.
+    expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
+  });
+
+  // S2: everything decidable before a pin is decided for every agent first,
+  // so a later agent's gate the deployment can't record never leaves an
+  // earlier agent half-live.
+  test('a later carried agent whose scope is gated, in a deployment that can’t record a gated promotion: refused before any pin, nothing made live', async () => {
+    const GATED_AGENT = 'acme.ranker';
+    const h = harness({
+      live: true,
+      gated: [GATED_AGENT],
+      rows: [
+        built({
+          id: 'dep-s1',
+          projectId: S1,
+          contents: {
+            ...SHIPS,
+            agents: [
+              { id: AGENT, version: '1.0.0' },
+              { id: GATED_AGENT, version: '1.0.0' },
+            ],
+          },
+        }),
+      ],
+      grants: [
+        `read project:${S1}`,
+        `admin project:${S2}`,
+        `promote agent:${AGENT}`,
+        `promote agent:${GATED_AGENT}`,
+      ],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status).toBe(501);
+    expect(res.body.error.code).toBe('promotion-gate-unsupported');
+    // The first agent is not left live: the gate is decided before any pin.
+    expect(h.pinned).toEqual([]);
+    expect(res.body.live).toBeUndefined();
+    // The build still moved — only making the carried agents live is refused.
     expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
   });
 });

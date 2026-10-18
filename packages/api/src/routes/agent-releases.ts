@@ -434,7 +434,9 @@ export async function requestPromotion(
 
 /**
  * The answer to a promotion request: 201 promoted, 202 waiting for
- * approval, 422 `gate-failed` with the checks, or the error.
+ * approval, 422 `gate-failed` with the checks, or the error. `extra` is
+ * merged into whichever answer comes out — the caller carries fields it
+ * knows the outcome alone can't, such as a make-live's pins so far.
  */
 export function promotionResponse(
   c: Ctx,
@@ -449,12 +451,13 @@ export function promotionResponse(
         {
           code: 'promotion-gate-unsupported',
           message: `Gate policy ${outcome.policy.id} ${outcome.policy.version} applies to this promotion, and this deployment can't record a gated promotion yet.`,
+          ...extra,
         },
         requestId,
       ),
     );
   }
-  if (outcome.kind === 'err') return failed(c, requestId, outcome.error);
+  if (outcome.kind === 'err') return failed(c, requestId, outcome.error, extra);
   const { promotion } = outcome;
   if (promotion.status === 'refused') {
     const checks = promotion.checks ?? outcome.checks ?? [];
@@ -500,9 +503,14 @@ function badInput(c: Ctx, requestId: string, message: string) {
   return c.json(toWireError({ code: 'bad-input', message }, requestId));
 }
 
-function failed(c: Ctx, requestId: string, error: { code: string; message: string }) {
+function failed(
+  c: Ctx,
+  requestId: string,
+  error: { code: string; message: string },
+  extra: Readonly<Record<string, unknown>> = {},
+) {
   c.status(statusFor(error.code) as never);
-  return c.json(toWireError(error, requestId));
+  return c.json(toWireError({ ...error, ...extra }, requestId));
 }
 
 /** Optional short strings (`reason`, `evalRunId`): absent, or a non-empty string. */

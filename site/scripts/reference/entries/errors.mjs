@@ -732,7 +732,7 @@ export const ERROR_ENTRIES = {
   },
   'live-scope-spans-environments': {
     description:
-      "An agent that more than one project of an environment order serves is made live one project at a time. A live change for the whole tenant or an organization would reach every environment of the order at once, so it's refused. Name a project in the change's scope, or a segment of it. To take a build from one environment to the next and make it live there, promote it (`kindgi promote --make-live`). Nothing is changed.",
+      "An agent with a project in an environment order is made live one project at a time, whether one project serves it or several. A live change for the whole tenant or an organization would reach every environment of the order at once, so it's refused. Name a project in the change's scope, or a segment of it. To take a build from one environment to the next and make it live there, promote it (`kindgi promote --make-live`). Nothing is changed.",
     details: [],
   },
   'guardrail-config-invalid': {

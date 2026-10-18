@@ -74,7 +74,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { limitedCaller } from '../middleware/key-project.js';
 import { secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import type { AppEnv } from '../types.js';
-import { actorOf, promotionResponse, requestPromotion } from './agent-releases.js';
+import { actorOf, policyFor, promotionResponse, requestPromotion } from './agent-releases.js';
 import { deniedBy, refused } from './denied.js';
 import type { DeploymentsRouterBindings } from './deployments.js';
 import { scopeResourceRef } from './scope-params.js';
@@ -353,18 +353,71 @@ async function finishPromotion(
 }
 
 /**
+ * `promotion-gate-unsupported`, decidable before any pin: when this
+ * deployment can't record a gated promotion, the first carried agent
+ * whose scope a gate policy applies to is answered here, so nothing is
+ * pinned. `undefined` when every carried agent can promote without one.
+ */
+async function gateUnsupportedBefore(
+  c: Context<AppEnv>,
+  agentReleases: NonNullable<DeploymentsRouterBindings['agentReleases']>,
+  tenantId: TenantId,
+  pinnable: readonly (MovedVersion & { version: string })[],
+  scope: LiveScope,
+): Promise<Response | undefined> {
+  if (agentReleases.promotions.request !== undefined) return undefined;
+  for (const agent of pinnable) {
+    const policy = await policyFor(agentReleases, tenantId, agent.id, scope);
+    if (policy !== null) return promotionResponse(c, { kind: 'gate-unsupported', policy });
+  }
+  return undefined;
+}
+
+/**
+ * Authorize making every carried agent live in the target — a project scope
+ * at `toProjectId`, `liveChangeRefusal`, the one the live routes use — before
+ * any pin, so a refusal is the 403 answered with nothing pinned. The 403 to
+ * answer, or `undefined` when every agent is cleared (or the authorizer is
+ * off, as it is in a plain composition).
+ */
+async function authorizeCarried(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  rights: DeploymentsRouterBindings['itemRights'],
+  pinnable: readonly (MovedVersion & { version: string })[],
+  scope: LiveScope,
+): Promise<Response | undefined> {
+  if (authorizer === undefined) return undefined;
+  for (const agent of pinnable) {
+    const denied = await liveChangeRefusal(c, {
+      authorizer,
+      rights,
+      agentId: agent.id,
+      scope,
+      setsLive: true,
+    });
+    if (denied !== undefined) return denied;
+  }
+  return undefined;
+}
+
+/**
  * Pin every carried agent version live in the target project, through the
  * same gate a live route does (`requestPromotion`). The promotion is
- * already committed, so this runs after it. Each agent is authorized
- * first — a project scope at the target, `liveChangeRefusal`, the one the
- * live routes use — for all of them before any pin, so a refusal is the
- * 403 answered and nothing is pinned (fix the grant and promote again:
- * the move is idempotent, and so is a pin in place). The width check in
- * `liveChangeRefusal` never fires here: the scope is one project. Then
- * each version is requested through its scope's gate: live now, waiting
- * for an approval, or refused by a check, each reported in `live`.
- * Returns the pins, or the response to answer instead (a 403, or a gate
- * this deployment can't record).
+ * already committed, so this runs after it. Everything decidable before a
+ * pin is decided for every agent first, so a refusal is answered with
+ * nothing pinned: each agent is authorized — a project scope at the
+ * target, `liveChangeRefusal`, the one the live routes use — and, when
+ * this deployment can't record a gated promotion, any agent whose scope a
+ * gate policy applies to answers `promotion-gate-unsupported` here (fix
+ * the grant or the deployment and promote again: the move is idempotent,
+ * and so is a pin in place). The width check in `liveChangeRefusal` never
+ * fires here: the scope is one project. Then each version is requested
+ * through its scope's gate: live now, waiting for an approval, or refused
+ * by a check, each reported in `live`. An error only the write can give
+ * carries the pins already made in its `live`. Returns the pins, or the
+ * response to answer instead (a 403, a gate this deployment can't record,
+ * or a write error with the pins so far).
  */
 async function makeCarriedLive(
   c: Context<AppEnv>,
@@ -383,20 +436,10 @@ async function makeCarriedLive(
   const pinnable = result.moved.agents.filter(
     (a): a is MovedVersion & { version: string } => a.version !== undefined,
   );
-  // Authorize every agent first, so a refusal answers the 403 before a
-  // single version is pinned (the authorizer is off in a plain composition).
-  if (authorizer !== undefined) {
-    for (const agent of pinnable) {
-      const denied = await liveChangeRefusal(c, {
-        authorizer,
-        rights: bindings.itemRights,
-        agentId: agent.id,
-        scope,
-        setsLive: true,
-      });
-      if (denied !== undefined) return denied;
-    }
-  }
+  const denied = await authorizeCarried(c, authorizer, bindings.itemRights, pinnable, scope);
+  if (denied !== undefined) return denied;
+  const gated = await gateUnsupportedBefore(c, agentReleases, tenantId, pinnable, scope);
+  if (gated !== undefined) return gated;
   const live: DeploymentLivePin[] = [];
   for (const agent of pinnable) {
     const outcome = await requestPromotion(agentRegistry, agentReleases, releaseGateDeps, {
@@ -407,7 +450,11 @@ async function makeCarriedLive(
       requestedBy: actorOf(c),
       ...(reason !== undefined && { reason }),
     });
-    if (outcome.kind !== 'ok') return promotionResponse(c, outcome);
+    // The pre-checks leave only an error the write itself can give: answer
+    // it, carrying the pins already made so the caller sees what went live.
+    if (outcome.kind !== 'ok') {
+      return promotionResponse(c, outcome, live.length > 0 ? { live } : {});
+    }
     live.push(livePinOf(agent, outcome.promotion, outcome.checks));
   }
   return live;
@@ -419,7 +466,7 @@ function livePinOf(
   promotion: Promotion,
   outcomeChecks: readonly GateCheck[] | undefined,
 ): DeploymentLivePin {
-  const pinned = promotion.status !== 'pending-approval' && promotion.status !== 'refused';
+  const pinned = (promotion.status ?? 'promoted') === 'promoted';
   const checks = promotion.checks ?? outcomeChecks;
   const gate: DeploymentLivePinGate | undefined =
     !pinned || (checks !== undefined && checks.length > 0)

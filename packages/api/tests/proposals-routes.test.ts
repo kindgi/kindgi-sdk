@@ -1197,6 +1197,25 @@ describe('an agent an environment order carries: a tenant- or org-wide change sp
     const res = await call('POST', `/v1/proposals/${id}/rollback`, {});
     expect(res.body.error?.code).not.toBe('live-scope-spans-environments');
   });
+
+  // M1: the refusal is keyed on order membership, not project count. One
+  // project serves this agent, and it is the order's first environment, so a
+  // tenant-wide request still spans the order (its authz is today's promote
+  // on the agent, since one project serves it).
+  test('one project serves the agent, and it is the order’s first environment: a tenant-wide request still spans it (409)', async () => {
+    const one: ItemRow[] = [{ kind: 'agent', id: AGENT, projects: [projectId] }];
+    const h = await harness({
+      orders: [[projectId, PROD]],
+      items: one,
+      grants: [`publish agent:${AGENT}`, `promote agent:${AGENT}`, `read agent:${AGENT}`],
+    });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const draft = await h.call('POST', '/v1/proposals', { ...DRAFT, scope: { kind: 'tenant' } });
+    expect(draft.status, JSON.stringify(draft.body)).toBe(201);
+    const res = await h.call('POST', `/v1/proposals/${draft.body.id}/request`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error.code).toBe('live-scope-spans-environments');
+  });
 });
 
 describe('GET /v1/proposals', () => {

@@ -30131,7 +30131,7 @@
             }
           },
           "409": {
-            "description": "`promotion-superseded`: the scope's live version changed while the gate ran; check again. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent runs in more than one project of an environment order, and a tenant- or org-wide pin would span the order's environments; pin a project (or a segment of it) instead.",
+            "description": "`promotion-superseded`: the scope's live version changed while the gate ran; check again. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -31234,7 +31234,7 @@
             }
           },
           "409": {
-            "description": "`not-pinned`: the scope has no pin of its own. `nothing-to-roll-back`: no earlier version to go back to. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent runs in more than one project of an environment order, and a tenant- or org-wide rollback would span the order's environments; roll back a project (or a segment of it) instead.",
+            "description": "`not-pinned`: the scope has no pin of its own. `nothing-to-roll-back`: no earlier version to go back to. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide rollback would act in every environment of the order at once; roll back a project (or a segment of it) instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36045,7 +36045,7 @@
             }
           },
           "409": {
-            "description": "The proposal's status doesn't allow it. Or `live-scope-spans-environments`: the agent runs in more than one project of an environment order, and the proposal's tenant- or org-wide scope would span the order's environments; a proposal for a project (or a segment of it) can be requested.",
+            "description": "The proposal's status doesn't allow it. Or `live-scope-spans-environments`: the agent has a project in an environment order, and the proposal's tenant- or org-wide scope would act in every environment of the order at once; a proposal for a project (or a segment of it) can be requested.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36174,7 +36174,7 @@
             }
           },
           "409": {
-            "description": "It isn't promoted, or its version doesn't serve the scope anymore. Or `live-scope-spans-environments`: the agent runs in more than one project of an environment order, and the proposal's tenant- or org-wide scope would span the order's environments.",
+            "description": "It isn't promoted, or its version doesn't serve the scope anymore. Or `live-scope-spans-environments`: the agent has a project in an environment order, and the proposal's tenant- or org-wide scope would act in every environment of the order at once.",
             "content": {
               "application/json": {
                 "schema": {
