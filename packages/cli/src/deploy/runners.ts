@@ -26,6 +26,7 @@
 
 import type { DeployEnvelope } from '../build/envelope.js';
 import type { PackEnvNameRecord } from '../env/pack-env-hint.js';
+import type { ServedEnv } from '../value-target.js';
 
 // ---------------------------------------------------------------------
 // Envelope loader
@@ -335,6 +336,14 @@ export type FindProjectsResult =
     }
   | { readonly kind: 'error'; readonly message: string };
 
+/** `kindgi deploy --sync-secrets`: what the runtime says it serves (whoami's `servedEnv`). */
+export interface ServedEnvOptions {
+  readonly endpoint: string;
+  readonly token: string;
+  readonly fetchImpl: typeof fetch;
+  readonly signal?: AbortSignal;
+}
+
 /** `kindgi deploy --hosted`: the deployment as the runtime has it now. */
 export interface GetDeploymentOptions {
   readonly endpoint: string;
@@ -397,6 +406,11 @@ export interface DeployRunners {
    */
   readonly listProjects?: (opts: ListOptions) => Promise<ListProjectsResult>;
   readonly listEnvironmentOrders?: (opts: ListOptions) => Promise<ListEnvironmentOrdersResult>;
+  /**
+   * `--sync-secrets`: the env the runtime serves (`GET /v1/identity/whoami`),
+   * or `undefined` when it names none or can't be asked.
+   */
+  readonly servedEnv?: (opts: ServedEnvOptions) => Promise<ServedEnv | undefined>;
   /** `--hosted`: the deployment, read again while its pack service starts (`GET /v1/deployments/:id`). */
   readonly getDeployment?: (opts: GetDeploymentOptions) => Promise<GetDeploymentResult>;
   /** `--hosted`: where each name the pack declares is set, when a required one stands in the way. */

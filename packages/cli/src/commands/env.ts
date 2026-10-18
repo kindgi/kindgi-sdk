@@ -46,6 +46,7 @@ import type { EnvRunners } from '../env/runners.js';
 import { EnvValueNotRepresentableError, setKey, unsetKey } from '../env/writer.js';
 import { renderJson } from '../output.js';
 import type { PackConfigRecord } from '../pack-config.js';
+import { valueTargetFor } from '../value-target.js';
 import {
   describeScope,
   envErrorResult,
@@ -98,16 +99,17 @@ type PathsOutcome =
   | (CommandResult & { readonly kind: 'error' });
 
 /**
- * The env files for `--env` (default `staging`). `local` is the
- * project's own files (`.env`, `.env.local`, or `dev.envFiles`); any
- * other environment is `.env.<envName>`.
+ * The env files for `--env` (default `staging`, or `envName` when the
+ * caller decided it). `local` is the project's own files (`.env`,
+ * `.env.local`, or `dev.envFiles`); any other environment is
+ * `.env.<envName>`.
  */
-async function resolvePaths(ctx: CommandContext): Promise<PathsOutcome> {
+async function resolvePaths(ctx: CommandContext, decided?: string): Promise<PathsOutcome> {
   const pathFlag = ctx.options.path;
   const rawPath = typeof pathFlag === 'string' && pathFlag !== '' ? pathFlag : ctx.cwd;
   const packDir = isAbsolute(rawPath) ? rawPath : resolve(ctx.cwd, rawPath);
   const envFlag = ctx.options.env;
-  const envName = typeof envFlag === 'string' && envFlag !== '' ? envFlag : 'staging';
+  const envName = decided ?? (typeof envFlag === 'string' && envFlag !== '' ? envFlag : 'staging');
   const settings = await loadLocalEnvSettings(ctx, packDir);
   if (settings.kind === 'error') {
     return { kind: 'error', stderr: `kindgi env: ${settings.message}\n`, exitCode: 1 };
@@ -613,7 +615,7 @@ const pullCmd: LeafCommand = {
     env: {
       type: 'string',
       description:
-        "The environment to pull, written to its `.env.<name>` (`local`: the project's own env files). Default: `staging`.",
+        "The environment to pull, written to its `.env.<name>` (`local`: the project's own env files). Default: `staging`, or the env the runtime keeps its values under when it keeps them under one.",
     },
     path: {
       type: 'string',
@@ -634,13 +636,20 @@ const pullCmd: LeafCommand = {
     if (runnersOutcome.kind === 'error') return runnersOutcome;
     const runners = runnersOutcome.runners;
 
-    const resolved = await resolvePaths(ctx);
-    if (resolved.kind === 'error') return resolved;
-    const paths = resolved.paths;
     const scopeResult = parseScope(stringFlag(ctx, 'scope'));
     if (scopeResult.kind === 'err') {
       return { kind: 'error', stderr: scopeResult.stderr, exitCode: 2 };
     }
+    // A read: on a runtime that keeps its values under one env, `--env`
+    // defaults to that one rather than `staging`.
+    const target = await valueTargetFor(ctx, stringFlag(ctx, 'env'), {
+      write: false,
+      what: 'an env value',
+      fallback: 'staging',
+    });
+    const resolved = await resolvePaths(ctx, target.kind === 'ok' ? target.envName : undefined);
+    if (resolved.kind === 'error') return resolved;
+    const paths = resolved.paths;
     const overwrite = ctx.options['overwrite-existing'] === true;
 
     try {

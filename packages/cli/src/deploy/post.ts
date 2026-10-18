@@ -31,6 +31,7 @@ import { createHash } from 'node:crypto';
 
 import { stableStringify } from '../build/envelope.js';
 import type { DeployEnvelope } from '../build/envelope.js';
+import type { ServedEnv } from '../value-target.js';
 import type {
   DeploymentRecord,
   EnvironmentOrderRow,
@@ -47,6 +48,7 @@ import type {
   PostDeploymentOptions,
   PostDeploymentResult,
   ProjectRow,
+  ServedEnvOptions,
   SyncSecretsBody,
   SyncSecretsOptions,
   SyncSecretsResult,
@@ -274,6 +276,30 @@ export async function syncSecretsReal(opts: SyncSecretsOptions): Promise<SyncSec
       message: wire?.error?.message ?? `HTTP ${res.status}`,
     },
   };
+}
+
+/**
+ * whoami's `servedEnv`: the env the runtime serves, and whether it refuses
+ * values under any other. `undefined` when it names none (a runtime that
+ * serves no env, or an older one), or on any failure: the runtime still
+ * refuses the sync itself.
+ */
+export async function servedEnvReal(opts: ServedEnvOptions): Promise<ServedEnv | undefined> {
+  try {
+    const res = await opts.fetchImpl(`${opts.endpoint.replace(/\/+$/, '')}/v1/identity/whoami`, {
+      headers: { Authorization: `Bearer ${opts.token}` },
+      ...(opts.signal !== undefined && { signal: opts.signal }),
+    });
+    if (!res.ok) return undefined;
+    const served = (
+      (await res.json()) as { servedEnv?: { envName?: unknown; refusesOtherEnvs?: unknown } }
+    ).servedEnv;
+    return typeof served?.envName === 'string' && typeof served.refusesOtherEnvs === 'boolean'
+      ? { envName: served.envName, refusesOtherEnvs: served.refusesOtherEnvs }
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The most a page of a list holds. */

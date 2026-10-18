@@ -142,6 +142,8 @@ interface Fixtures {
     syncCalls: number;
     findCalls: number;
     listCalls: number;
+    /** The endpoint each served-env lookup asked. */
+    servedCalls: string[];
     capturedPost?: PostDeploymentOptions;
     capturedFindSlug?: string;
     capturedBuild?: RunBuildOptions;
@@ -167,6 +169,8 @@ interface FixtureOptions {
   readonly orders?: readonly EnvironmentOrderRow[];
   /** Which of those reads answers an error. */
   readonly failedList?: 'projects' | 'orders';
+  /** What the runtime says it serves (whoami's `servedEnv`); absent: no lookup runner. */
+  readonly servedEnv?: { readonly envName: string; readonly refusesOtherEnvs: boolean };
 }
 
 function makeFixtures(opts: FixtureOptions = {}): Fixtures {
@@ -177,6 +181,7 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
     syncCalls: 0,
     findCalls: 0,
     listCalls: 0,
+    servedCalls: [],
   };
   const envelope = opts.envelope ?? makeEnvelope();
   const runners: DeployRunners = {
@@ -199,6 +204,13 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
       };
     },
   };
+  if (opts.servedEnv !== undefined) {
+    const served = opts.servedEnv;
+    (runners as { servedEnv?: DeployRunners['servedEnv'] }).servedEnv = async (o) => {
+      state.servedCalls.push(o.endpoint);
+      return served;
+    };
+  }
   if (opts.projects !== undefined) {
     const projects = opts.projects;
     (runners as { findProjects?: DeployRunners['findProjects'] }).findProjects = async (o) => {
@@ -1678,6 +1690,56 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     expect(out.exitCode, out.stderr).toBe(0);
     expect(plain.fixtures.state.postCalls).toBe(1);
     expect(plain.fixtures.state.syncCalls).toBe(0);
+  });
+
+  test('on a runtime that refuses other envs, --sync-secrets under another env is refused before anything is built or sent', async () => {
+    await writeAutoEnvelope();
+    await writeFile(join(packDir, '.env.staging'), 'FOO=bar\n', 'utf8');
+    const run = hostedFixtures(pending(), [ready], {
+      servedEnv: { envName: 'prod', refusesOtherEnvs: true },
+    });
+    const out = await deploy(run.fixtures, '--hosted', '--sync-secrets');
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      'env-not-served: this runtime keeps its values under `prod` only, so the secrets in .env.staging under `staging` would never be read. Use --env=prod.\n',
+    );
+    expect(run.fixtures.state.servedCalls).toEqual([API]);
+    expect(run.fixtures.state.buildCalls).toBe(0);
+    expect(run.fixtures.state.postCalls).toBe(0);
+    expect(run.fixtures.state.syncCalls).toBe(0);
+  });
+
+  test.each([
+    ['under the env it serves', 'prod', { envName: 'prod', refusesOtherEnvs: true }],
+    ['on a runtime that takes any env', 'staging', { envName: 'prod', refusesOtherEnvs: false }],
+  ])('--sync-secrets %s: synced', async (_, envName, servedEnv) => {
+    await writeAutoEnvelope();
+    await writeFile(join(packDir, `.env.${envName}`), 'FOO=bar\n', 'utf8');
+    const run = hostedFixtures(pending(), [ready], { servedEnv });
+    const out = await runCli({
+      ...baseInputs(
+        run.fixtures,
+        { env: signedIn },
+        {
+          environments: {
+            [envName]: { signingKey: join(home, 'signing-key.pem'), tenantId: 'tenant-acme' },
+          },
+        },
+      ),
+      argv: ['deploy', `--env=${envName}`, '--hosted', '--sync-secrets', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(run.fixtures.state.capturedSync?.body.envName).toBe(envName);
+  });
+
+  test('without --sync-secrets, the runtime is not asked what it serves', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [ready], {
+      servedEnv: { envName: 'prod', refusesOtherEnvs: true },
+    });
+    const out = await deploy(run.fixtures, '--hosted');
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(run.fixtures.state.servedCalls).toEqual([]);
   });
 
   test("a project that isn't there fails before any build", async () => {

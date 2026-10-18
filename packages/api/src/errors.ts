@@ -522,6 +522,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'scope-mismatch': 400,
   'env-name-required': 400,
   'env-name-mismatch': 400,
+  // A runtime that refuses other envs keeps every value under the one it
+  // serves: a value or a reference under another would never be read.
+  'env-not-served': 409,
   'env-cross-scope': 400,
   'reserved-name-prefix': 400,
   /** A name the secrets store can't write (the dev store's env-file keys); the message says its rule. */

@@ -77,6 +77,7 @@ import {
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
 import { callerAdministers, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding.js';
+import { type ServedEnvRule, readReferencesOnce, refuseUnservedValue } from '../served-env.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
@@ -256,6 +257,12 @@ export interface DeploymentsRouterBindings {
   readonly packEnvServed?: boolean;
   /** Where a pack's declared names are looked for, with `secretsBinding` and `projectBinding`. */
   readonly envBinding?: EnvBinding;
+  /**
+   * On a runtime that refuses other envs: a secret sync under another env
+   * answers `409 env-not-served` before any write (`refuseUnservedValue`).
+   * Absent: any env.
+   */
+  readonly servedEnv?: ServedEnvRule;
   /**
    * Called for each tool and guardrail a new deployment registered, as
    * `POST /v1/tools` and `POST /v1/guardrails` call them, so a runtime
@@ -1365,6 +1372,24 @@ export function deploymentsRouter(
         parsed.push({ kind: 'ref', name: e.name, ref: e.ref as string });
       } else {
         parsed.push({ kind: 'value', name: e.name, value: e.value as string });
+      }
+    }
+
+    // Every entry is checked against the env this runtime serves before any
+    // write, so a refusal leaves nothing half-written.
+    const servedEnv =
+      bindings.servedEnv !== undefined ? readReferencesOnce(bindings.servedEnv) : undefined;
+    for (const entry of parsed) {
+      const unserved = await refuseUnservedValue(servedEnv, {
+        tenantId,
+        scope,
+        envName,
+        name: entry.name,
+        kind: 'secret',
+      });
+      if (unserved !== undefined) {
+        c.status(statusFor(unserved.code) as never);
+        return c.json(toWireError(unserved, requestId));
       }
     }
 

@@ -3114,6 +3114,21 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['POST /v1/secrets/{name}/rotate', 'PUT /v1/env/{name}'],
   },
+  'env-not-served': {
+    description:
+      'This runtime keeps every value under the one env it serves (`KINDGI_REFUSE_OTHER_ENVS`), and the request would store a value under another, where it would never be read: a secret or env value written under another env, or a model provider, MCP endpoint or webhook endpoint naming its secret under another. Nothing is stored. Use the env the runtime serves; `GET /v1/identity/whoami` names it (`servedEnv`). Reads and deletes under any env still work.',
+    details: [
+      {
+        key: 'envName',
+        meaning: 'the env the request named',
+      },
+      {
+        key: 'servedEnv',
+        meaning: 'the env this runtime serves, to use instead',
+      },
+    ],
+    seeAlso: ['POST /v1/secrets', 'PUT /v1/env/{name}', 'POST /v1/providers'],
+  },
   'env-cross-scope': {
     description: "The API doesn't send this code.",
     details: [],

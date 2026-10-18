@@ -65,6 +65,7 @@ import { loadPackConfig } from '../pack-config.js';
 import type { OptionValue } from '../parse.js';
 import { type RateLimitRefusal, isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
 import { SLUG } from '../slug.js';
+import { resolveValueTarget } from '../value-target.js';
 import { runBuild } from './build.js';
 import type { EnvironmentConfig, PackConfig } from './build.js';
 import type { CommandResult, LeafCommand } from './types.js';
@@ -270,6 +271,26 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   // the clear is refused. Checked before anything is built or sent.
   const envRefusal = checkPackEnv(args, line);
   if (envRefusal !== undefined) return envRefusal;
+
+  // On a runtime that keeps its values under one env, the
+  // secret sync goes under that one or not at all: refused here, before a
+  // build or an upload, as the runtime would refuse the sync after the
+  // deployment.
+  if (args.syncSecrets && runners.servedEnv !== undefined) {
+    const target = resolveValueTarget({
+      flag: args.envName,
+      served: await runners.servedEnv({
+        endpoint: args.endpoint,
+        token: args.token,
+        fetchImpl: ctx.fetch,
+        ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+      }),
+      write: true,
+      what: `the secrets in .env.${args.envName}`,
+      mayOmit: false,
+    });
+    if (target.kind === 'refused') return failure(target.stderr);
+  }
 
   // ---- 1. The project to deploy into (--project) ---------------------
   //

@@ -18,6 +18,7 @@ import type { EnvName } from '@kindgi/types';
 import type { CommandContext } from '../context.js';
 import { extractKindgiError } from '../errors.js';
 import { renderJson } from '../output.js';
+import { valueTargetFor } from '../value-target.js';
 import { commandResultFromThrown, stringFlag } from './helpers.js';
 import type { CommandResult } from './types.js';
 
@@ -115,22 +116,32 @@ interface ScopedTarget {
   readonly envName: string;
 }
 
-/** `--scope` and the `--env` it requires. */
-function scopedTarget(
+/**
+ * `--scope` and the `--env` it requires: on a runtime that keeps its values
+ * under one env, that one by default, and a `set` under
+ * another is refused (`valueTargetFor`).
+ */
+async function scopedTarget(
   ctx: CommandContext,
   verb: 'set' | 'list' | 'unset',
-): { readonly kind: 'ok'; readonly target: ScopedTarget } | (CommandResult & { kind: 'error' }) {
+): Promise<
+  { readonly kind: 'ok'; readonly target: ScopedTarget } | (CommandResult & { kind: 'error' })
+> {
   const parsed = parseScope(stringFlag(ctx, 'scope'));
   if (parsed.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
-  const envName = stringFlag(ctx, 'env');
-  if (envName === undefined) {
+  const target = await valueTargetFor(ctx, stringFlag(ctx, 'env'), {
+    write: verb === 'set',
+    what: 'an env value',
+  });
+  if (target.kind === 'missing') {
     return {
       kind: 'error',
       stderr: `Missing required flag: --env=<name>. \`kindgi env ${verb} --scope\` acts on the runtime's env values, which are per env: name the one the runtime serves (\`KINDGI_ENV\`; under \`kindgi dev\`, \`--env=local\`).\n`,
       exitCode: 2,
     };
   }
-  return { kind: 'ok', target: { scope: parsed.scope, envName } };
+  if (target.kind === 'refused') return { kind: 'error', stderr: target.stderr, exitCode: 2 };
+  return { kind: 'ok', target: { scope: parsed.scope, envName: target.envName } };
 }
 
 /**
@@ -159,7 +170,7 @@ export async function setScoped(
   key: string,
   value: string,
 ): Promise<CommandResult> {
-  const t = scopedTarget(ctx, 'set');
+  const t = await scopedTarget(ctx, 'set');
   if (t.kind === 'error') return t;
   const { scope, envName } = t.target;
   const where = `${describeScope(scope)} in env ${envName}`;
@@ -227,7 +238,7 @@ export async function setScoped(
 
 /** `kindgi env list --scope=… --env=…`: values shown (env isn't secret). */
 export async function listScoped(ctx: CommandContext): Promise<CommandResult> {
-  const t = scopedTarget(ctx, 'list');
+  const t = await scopedTarget(ctx, 'list');
   if (t.kind === 'error') return t;
   const { scope, envName } = t.target;
   try {
@@ -264,7 +275,7 @@ const FALLBACK: Readonly<Record<ScopeRef['kind'], string>> = {
 
 /** `kindgi env unset <KEY> --scope=… --env=…`. Idempotent. */
 export async function unsetScoped(ctx: CommandContext, key: string): Promise<CommandResult> {
-  const t = scopedTarget(ctx, 'unset');
+  const t = await scopedTarget(ctx, 'unset');
   if (t.kind === 'error') return t;
   const { scope, envName } = t.target;
   const where = `${describeScope(scope)} in env ${envName}`;

@@ -24,6 +24,7 @@ import {
   presetRegistration,
   presetSettingFlag,
 } from '../providers/preset-loader.js';
+import { valueTargetFor } from '../value-target.js';
 import {
   type TableSpec,
   readJsonInput,
@@ -142,7 +143,7 @@ const register: LeafCommand = {
     env: {
       type: 'string',
       description:
-        "With `--preset`, the environment of the key's secret (default `local`; in a pack, the key must already be in its env files).",
+        "With `--preset`, the environment of the key's secret: default `local` (in a pack, the key must already be in its env files), or on a runtime that keeps its values under one env, that one.",
     },
   },
   run: (ctx) =>
@@ -235,7 +236,19 @@ async function presetInput(ctx: CommandContext, name: string): Promise<RegisterP
   }
   const modelsFlag = stringFlag(ctx, 'models');
   const secret = stringFlag(ctx, 'secret');
-  const envName = stringFlag(ctx, 'env') ?? LOCAL_ENV_NAME;
+  // The key's env: `local` (the pack's env files) by default, but on a
+  // runtime that keeps its values under one env, that one;
+  // another is refused there.
+  const target = await valueTargetFor(ctx, stringFlag(ctx, 'env'), {
+    write: true,
+    what: "a provider's key",
+    fallback: LOCAL_ENV_NAME,
+  });
+  if (target.kind !== 'ok') {
+    // Never `missing`: there's a fallback.
+    throw new UsageError(target.kind === 'refused' ? target.stderr.trimEnd() : 'Missing --env');
+  }
+  const envName = target.envName;
   const maxOutput = stringFlag(ctx, 'max-output-tokens');
   if (maxOutput !== undefined && !/^[1-9]\d*$/.test(maxOutput)) {
     throw new UsageError(
