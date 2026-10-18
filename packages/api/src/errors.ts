@@ -476,6 +476,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // (`pack-env-not-served`), where its pack services take it from how they're run.
   'pack-env-unsupported': 501,
   'pack-env-not-served': 501,
+  // A project named in `PUT /v1/environment-orders/*` already belongs to another order.
+  'project-in-another-order': 409,
   // A model provider's key is used by its provider only: named by a tool or
   // an endpoint (400), or registered for a provider while one uses it (409).
   'provider-key-refused': 400,

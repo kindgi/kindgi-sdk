@@ -240,7 +240,7 @@ export async function listScoped(ctx: CommandContext): Promise<CommandResult> {
       revision: r.revision,
       updatedAt: r.updatedAt,
     }));
-    const lines = ['', `  Environment: ${envName}`, `  Scope:       ${describeScope(scope)}`, ''];
+    const lines = ['', `  Value set: ${envName}`, `  Scope:     ${describeScope(scope)}`, ''];
     lines.push(values.length === 0 ? '  (no values set here)' : `  ${values.length} key(s):`);
     for (const v of values) lines.push(`    ${v.key.padEnd(24, ' ')} ${v.value}`);
     lines.push('', "  A tool gets the project's value, else its org's, else the tenant's.", '', '');
