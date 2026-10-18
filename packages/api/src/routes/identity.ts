@@ -11,7 +11,7 @@ import {
   REVIEWER_ROLE_RANK,
   type ReviewerRole,
 } from '@kindgi/authz';
-import type { Cursor, SessionId, TenantId, UserId } from '@kindgi/types';
+import type { Cursor, EnvName, SessionId, TenantId, UserId } from '@kindgi/types';
 
 import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../caller.js';
 import type { EnvBinding } from '../env-binding.js';
@@ -104,6 +104,13 @@ export interface IdentityRouterOptions {
    * (`console.readOnlyNotice`).
    */
   readonly tenantConfig?: EnvBinding;
+  /**
+   * Optional. The env this runtime serves (`KINDGI_ENV`), and whether it
+   * refuses values under any other (`refuseOtherEnvs`). whoami answers it
+   * as `servedEnv`, for a client to default to it. Absent: whoami leaves
+   * the field out.
+   */
+  readonly servedEnv?: { readonly envName: EnvName; readonly refusesOtherEnvs: boolean };
 }
 
 export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv> {
@@ -115,6 +122,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     personGrants,
     myAccess,
     tenantConfig,
+    servedEnv,
   } = options;
   const r = new Hono<AppEnv>();
 
@@ -164,6 +172,12 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     if (sessionId !== undefined && sessionStore !== undefined) {
       const session = await sessionStore.get({ tenantId, sessionId });
       if (session !== null) body.expiresAt = session.expiresAt;
+    }
+    if (servedEnv !== undefined) {
+      body.servedEnv = {
+        envName: servedEnv.envName,
+        refusesOtherEnvs: servedEnv.refusesOtherEnvs,
+      };
     }
     return c.json(body);
   });

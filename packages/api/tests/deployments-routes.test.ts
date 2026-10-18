@@ -13,7 +13,7 @@ import { type Flow, type FlowPins, flowPinsDigest } from '@kindgi/flow';
 import type { Guardrail } from '@kindgi/guardrails';
 import type { Project, ProjectBinding } from '@kindgi/platform';
 import { latestVersion } from '@kindgi/tools';
-import type { Cursor, ProjectId, Semver, SigningKeyId, TenantId } from '@kindgi/types';
+import type { Cursor, EnvName, ProjectId, Semver, SigningKeyId, TenantId } from '@kindgi/types';
 
 import type { Scope } from '@kindgi/platform';
 import { makeEnvName } from '@kindgi/types';
@@ -3333,6 +3333,8 @@ async function makeSyncApp(
     /** The project the seeded deployment was deployed into; absent: tenant-wide. */
     deployedInto?: ProjectId;
     resolveTokenOverride?: TokenResolver;
+    /** The env the runtime serves, refusing every other (`refuseOtherEnvs`). */
+    servedEnv?: string;
   } = {},
 ): Promise<SyncFixtures> {
   const secretsFixture = makeFixtureSecretBinding(opts.seedSecrets ?? []);
@@ -3346,6 +3348,10 @@ async function makeSyncApp(
     signingKeyRegistry: makeMockSigningKeyRegistry([]),
     imageRegistry: makeMockImageRegistry([]),
     ...(!opts.omitSecretsBinding && { secretsBinding: secretsFixture.binding }),
+    ...(opts.servedEnv !== undefined && {
+      envName: opts.servedEnv as EnvName,
+      refuseOtherEnvs: true,
+    }),
   });
 
   // Seed one deployment so the sync route has a valid target.
@@ -5307,5 +5313,50 @@ describe("POST /v1/deployments: a pack check carries its pack's id where checks 
   test('with one pack service (no per-deployment routing), the build warning stays the only word', async () => {
     const fixture = withCheck('shared.checks.contact');
     expect((await post(makeApp({ fixture }).app, fixture.wire)).status).toBe(201);
+  });
+});
+
+describe('POST /v1/deployments/:deploymentId/secrets on a runtime that refuses other envs', () => {
+  const sync = (app: ReturnType<typeof createApp>, deploymentId: string, envName: string) =>
+    app.request(`/v1/deployments/${deploymentId}/secrets`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${SECRETS_TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        envName,
+        secrets: [
+          { name: 'stripe.key', value: 'sk_test_x' },
+          { name: 'search.key', value: 'sk_test_y' },
+        ],
+      }),
+    });
+
+  test('under another env: 409 env-not-served naming the served env, and nothing is written', async () => {
+    const { app, deploymentId, secretsFixture } = await makeSyncApp({
+      servedEnv: 'prod',
+      deployedInto: 'proj-a' as ProjectId,
+    });
+    const res = await sync(app, deploymentId, 'staging');
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: Record<string, unknown> };
+    expect(body.error).toMatchObject({
+      code: 'env-not-served',
+      message:
+        'This runtime keeps its values under `prod` only, so the secret `stripe.key` under `staging` would never be read. Store it under `prod`',
+      details: { envName: 'staging', servedEnv: 'prod' },
+    });
+    expect(secretsFixture.recordedSets).toEqual([]);
+  });
+
+  test('under the served env: synced as before', async () => {
+    const { app, deploymentId, secretsFixture } = await makeSyncApp({
+      servedEnv: 'prod',
+      deployedInto: 'proj-a' as ProjectId,
+    });
+    const res = await sync(app, deploymentId, 'prod');
+    expect(res.status).toBe(200);
+    expect(secretsFixture.recordedSets.map((s) => [s.envName, s.name])).toEqual([
+      ['prod', 'stripe.key'],
+      ['prod', 'search.key'],
+    ]);
   });
 });

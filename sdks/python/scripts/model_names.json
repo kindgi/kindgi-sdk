@@ -628,6 +628,7 @@
   "SecretVersionRecord": ["SecretVersionRecord"],
   "Secrets": ["DeploymentSecretsSyncRequest.secrets{name,ref}"],
   "Secrets1": ["DeploymentSecretsSyncRequest.secrets{name,value}"],
+  "ServedEnv": ["WhoamiResult.servedEnv"],
   "ServiceAccount": ["ServiceAccount"],
   "ServiceAccountGrantBody": ["ServiceAccountGrantBody"],
   "ServiceAccountGrantProject": ["ServiceAccountGrantProject"],

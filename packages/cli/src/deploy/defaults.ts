@@ -18,6 +18,7 @@ import {
   findProjectsReal,
   getDeploymentReal,
   postDeploymentReal,
+  servedEnvReal,
   syncSecretsReal,
 } from './post.js';
 import type { DeployRunners } from './runners.js';
@@ -41,6 +42,8 @@ export const REAL_DEPLOY_RUNNERS: DeployRunners = {
   syncSecrets: syncSecretsReal,
   // `--project <slug>` only: an id goes as it is.
   findProjects: findProjectsReal,
+  // `--sync-secrets` only: the env the runtime keeps its values under.
+  servedEnv: servedEnvReal,
   // `--hosted` only: the wait for the deployment's pack service.
   getDeployment: getDeploymentReal,
   // runBuild deliberately omitted — the command composes it from

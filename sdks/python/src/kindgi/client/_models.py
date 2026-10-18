@@ -7495,6 +7495,25 @@ class LogoutResult(BaseModel):
     revoked: bool
 
 
+class ServedEnv(BaseModel):
+    """
+    The env this runtime serves (`KINDGI_ENV`): where the values its tools read are kept. With `refusesOtherEnvs`, it's the only one: a secret, env value or secret reference under another env is refused (`409 env-not-served`), so a client defaults to `envName`. Absent when the runtime serves no env, and from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    env_name: Annotated[str, Field(alias="envName")]
+    """
+    The env name.
+    """
+    refuses_other_envs: Annotated[bool, Field(alias="refusesOtherEnvs")]
+    """
+    Whether values under any other env are refused.
+    """
+
+
 class UserInvite(BaseModel):
     """
     An open invitation. `pending` signs in. `expired` (past `expiresAt`, 7 days after it was made or last renewed) is refused at every way of signing in until a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`).
@@ -14001,4 +14020,8 @@ class WhoamiResult(BaseModel):
     tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
     """
     Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.
+    """
+    served_env: Annotated[ServedEnv | None, Field(alias="servedEnv")] = None
+    """
+    The env this runtime serves (`KINDGI_ENV`): where the values its tools read are kept. With `refusesOtherEnvs`, it's the only one: a secret, env value or secret reference under another env is refused (`409 env-not-served`), so a client defaults to `envName`. Absent when the runtime serves no env, and from older servers.
     """

@@ -368,6 +368,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_REFUSE_OTHER_ENVS',
+    description:
+      '`true`: this runtime keeps every value under the env it serves (`KINDGI_ENV`, which must then be set), as Kindgi Cloud does. A secret or env value written under another env, or a model provider, MCP endpoint or webhook endpoint naming its secret under another, is refused (`409 env-not-served`): it would never be read. Reads and deletes under any env still work, and a secret that a registration made before names under its own env can still be written, so it can be rotated. Unset or `false`: any env is taken.',
+    example: 'true',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH',
     description:
       'Absolute path to the Ed25519 private key (PKCS#8 PEM, mode 0600) that signs public run tokens (`kgi_pt_…`): the short-lived, read-only tokens a browser uses to follow a run. Use a key for this alone (`openssl genpkey -algorithm ed25519`). Unset: in development mode the server signs with a key generated at startup (tokens end at restart); otherwise public run tokens are off.',

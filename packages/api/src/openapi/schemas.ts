@@ -9117,6 +9117,20 @@ export const WhoamiResultSchema: JsonSchema = {
       description:
         'Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.',
     },
+    servedEnv: {
+      type: 'object',
+      description:
+        "The env this runtime serves (`KINDGI_ENV`): where the values its tools read are kept. With `refusesOtherEnvs`, it's the only one: a secret, env value or secret reference under another env is refused (`409 env-not-served`), so a client defaults to `envName`. Absent when the runtime serves no env, and from older servers.",
+      required: ['envName', 'refusesOtherEnvs'],
+      properties: {
+        envName: { type: 'string', description: 'The env name.' },
+        refusesOtherEnvs: {
+          type: 'boolean',
+          description: 'Whether values under any other env are refused.',
+        },
+      },
+      additionalProperties: false,
+    },
   },
 };
 

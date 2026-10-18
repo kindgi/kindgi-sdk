@@ -12,6 +12,7 @@ import { makeEnvName } from '@kindgi/types';
 import type { EnvBinding, EnvRecord, EnvSetOutcome } from '../env-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { type ServedEnvRule, refuseUnservedValue } from '../served-env.js';
 import type { AppEnv } from '../types.js';
 import { capabilityRefusal } from './denied.js';
 import { clampLimit } from './pagination.js';
@@ -38,11 +39,16 @@ import { auditWrite } from './write-audit.js';
  * `auditEvents`: where each write is recorded (`env-set`, `env-deleted`): the
  * caller, the scope, the request and the backend's answer, never a value.
  * Absent: none.
+ *
+ * `servedEnv`: on a runtime that refuses other envs, a set under another env
+ * answers `409 env-not-served` (`refuseUnservedValue`); reads and deletes
+ * pass. Absent: any env.
  */
 export function envRouter(
   envBinding: EnvBinding,
   authorizer?: Authorizer,
   auditEvents?: AuditEventBinding,
+  servedEnv?: ServedEnvRule,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -251,6 +257,18 @@ export function envRouter(
     }
 
     const setScope = scopeResult.scope;
+    const unserved = await refuseUnservedValue(servedEnv, {
+      tenantId,
+      scope: setScope,
+      envName: envNameResult.envName,
+      name,
+      kind: 'env value',
+    });
+    if (unserved !== undefined) {
+      c.status(statusFor(unserved.code) as never);
+      return c.json(toWireError(unserved, requestId));
+    }
+
     const outcome: EnvSetOutcome = await envBinding.set({
       scope: setScope,
       envName: envNameResult.envName,

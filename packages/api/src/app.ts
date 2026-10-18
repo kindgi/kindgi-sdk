@@ -199,6 +199,7 @@ import { webhooksRouter } from './routes/webhooks.js';
 import type { S3CredentialBinding } from './s3-credential-binding.js';
 import type { SecondFactorBinding } from './second-factor-binding.js';
 import { type SecretBinding, observeSecretWrites } from './secrets-binding.js';
+import { type ServedEnvRule, secretReferencesOf } from './served-env.js';
 import type { ServiceAccountBinding } from './service-account-binding.js';
 import type { SessionStoreBinding } from './session-store-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from './signing-key-binding.js';
@@ -1177,6 +1178,16 @@ export interface CreateAppInput {
    */
   readonly envName?: import('@kindgi/types').EnvName;
   /**
+   * This runtime is the only reader of its stores and keeps every value
+   * under the env it serves (`envName`), as Kindgi Cloud does. A secret or
+   * env value set under another env, and a provider, MCP endpoint or webhook
+   * endpoint that names its secret under another, answers `409
+   * env-not-served` (`served-env.ts`). whoami's `servedEnv` says so, for
+   * clients to default to it. Needs `envName` (or the webhook receiver's).
+   * Absent or false: any env, as before.
+   */
+  readonly refuseOtherEnvs?: boolean;
+  /**
    * Optional. Backs the async-rotation wire (`POST /v1/secrets/:name/rotate`
    * → 202 Accepted; poll via `GET /v1/secrets/:name/rotations/:rotationId`;
    * subscribe via `GET /v1/secrets/:name/rotations/:rotationId/events`).
@@ -1648,6 +1659,26 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   // The env this deployment serves: where a tool's declared secrets are read.
   const servedEnv = input.envName ?? input.webhookReceiver?.envName;
+  if (input.refuseOtherEnvs === true && servedEnv === undefined) {
+    throw new Error(
+      'createApp: `refuseOtherEnvs` needs `envName`, the env this runtime serves (KINDGI_ENV)',
+    );
+  }
+  const servedEnvRule: ServedEnvRule | undefined =
+    input.refuseOtherEnvs === true && servedEnv !== undefined
+      ? {
+          envName: servedEnv,
+          references: secretReferencesOf({
+            ...(input.providerRegistry !== undefined && { providers: input.providerRegistry }),
+            ...(input.mcpEndpointRegistry !== undefined && {
+              mcpEndpoints: input.mcpEndpointRegistry,
+            }),
+            ...(input.webhookEndpoints !== undefined && {
+              webhookEndpoints: input.webhookEndpoints,
+            }),
+          }),
+        }
+      : undefined;
   if (input.toolRegistry !== undefined) {
     v1.route(
       '/tools',
@@ -1809,7 +1840,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.onProviderWrite,
         input.adapterFactories,
         authorizer,
-        { secretUsers },
+        { secretUsers, ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }) },
       ),
     );
   }
@@ -1821,6 +1852,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         providerKeys,
         ...(input.secretsBinding !== undefined && { secrets: input.secretsBinding }),
         ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+        ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
       }),
     );
   }
@@ -1838,6 +1870,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.personGrants !== undefined && { personGrants: input.personGrants }),
       ...(input.myAccess !== undefined && { myAccess: input.myAccess }),
       ...(input.envBinding !== undefined && { tenantConfig: input.envBinding }),
+      ...(servedEnv !== undefined && {
+        servedEnv: { envName: servedEnv, refusesOtherEnvs: servedEnvRule !== undefined },
+      }),
     }),
   );
   if (input.secondFactor !== undefined) {
@@ -1910,7 +1945,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.webhookEndpoints !== undefined) {
     v1.route(
       '/webhook-endpoints',
-      webhookEndpointsRouter(input.webhookEndpoints, authorizer, { providerKeys }),
+      webhookEndpointsRouter(input.webhookEndpoints, authorizer, {
+        providerKeys,
+        ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
+      }),
     );
   }
   if (input.policyRegistry !== undefined) {
@@ -2056,7 +2094,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // store — an in-memory reference is used when the caller doesn't
   // plug in a durable one.
   if (input.envBinding !== undefined) {
-    v1.route('/env', envRouter(input.envBinding, authorizer, input.auditEvents));
+    v1.route('/env', envRouter(input.envBinding, authorizer, input.auditEvents, servedEnvRule));
   }
   // Audit query surface. Admin-only PEP applied inside the router
   // (self-contained; no plumbing here).
@@ -2071,6 +2109,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         rotationStatusStore: input.rotationStatusStore ?? createInMemoryRotationStatusStore(),
         ...(authorizer !== undefined && { authorizer }),
         ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+        ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
       }),
     );
   }
@@ -2144,6 +2183,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // operator-actionable message.
           ...(secretsBinding !== undefined && { secretsBinding }),
           ...(servedEnv !== undefined && { envName: servedEnv }),
+          ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
           // A deploy registers tools and guardrails: the same cache hooks
           // `POST /v1/tools` / `POST /v1/guardrails` call.
           ...(input.onToolWrite !== undefined && { onToolWrite: input.onToolWrite }),

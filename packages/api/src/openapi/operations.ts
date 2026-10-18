@@ -1456,6 +1456,24 @@ const SecretWriteErrors: Readonly<Record<string, ResponseSpec>> = {
   ...SecretProviderErrors,
 };
 
+/**
+ * `env-not-served` for a value: on a runtime that keeps every value under
+ * the env it serves (`refuseOtherEnvs`), one under another env.
+ */
+const ENV_NOT_SERVED_VALUE =
+  "`env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), so a value under another env would never be read. `details.envName` is the env asked for, `details.servedEnv` the one to use. A secret at the tenant's scope that a provider, MCP endpoint or webhook endpoint registered before names under that env is still written: it's read there. Nothing is stored.";
+
+/** `env-not-served` for a registration that names its secret under another env. */
+const ENV_NOT_SERVED_REFERENCE =
+  "`env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the secret reference names another. Name it under `details.servedEnv`. Nothing is stored.";
+
+/** The 409 a write answers anyway, and `env-not-served`. */
+function conflictOrEnvNotServed(text: string): ResponseSpec {
+  return ErrorResponse(
+    `Idempotency-Key was reused with a different body, or resource-state conflict. Or ${text}`,
+  );
+}
+
 /** A change to the tenant's identity providers: not a tenant admin, or the operator manages sign-in. */
 const ProviderChangeRefused: ResponseSpec = ErrorResponse(
   "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
@@ -5002,7 +5020,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '400': ErrorResponse('Validation failed (see `details.reason`).'),
       '409': ErrorResponse(
-        "Provider already registered at that id. Or `provider-key-in-use`: `secret_ref` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint or a webhook trigger uses; `details.usedBy` lists each (`kind`, `id`, a tool's `version`). Store the provider's key under its own name. Nothing is stored.",
+        `Provider already registered at that id. Or \`provider-key-in-use\`: \`secret_ref\` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint or a webhook trigger uses; \`details.usedBy\` lists each (\`kind\`, \`id\`, a tool's \`version\`). Store the provider's key under its own name. Nothing is stored. Or ${ENV_NOT_SERVED_REFERENCE}`,
       ),
       '422': ErrorResponse(
         "`provider-config-invalid`: a `send_traceparent` that isn't a boolean, or the provider's adapter refuses the registration (its `adapter_config`, its metadata, or a missing `secret_ref`); `details.issues` lists each (`path`, a JSON pointer, and `message`), the registration's own fields first, as other validation errors do. Nothing is stored.",
@@ -5276,7 +5294,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse(
         '`host-access-denied`: a `stdio` endpoint on a deployment that refuses commands on its host (`KINDGI_TENANT_HOST_ACCESS=deployed` or `isolated`); or `authz-denied`.',
       ),
-      '409': ErrorResponse('MCP endpoint already registered at that id.'),
+      '409': ErrorResponse(
+        `MCP endpoint already registered at that id. Or ${ENV_NOT_SERVED_REFERENCE}`,
+      ),
       '429': SCHEMA_COMPILE_BUDGET,
     },
   },
@@ -7089,6 +7109,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...SecretWriteErrors,
       '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
       '404': ErrorResponse('No deployment with that id, or referenced secret does not exist.'),
+      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
     },
   },
 
@@ -8826,7 +8847,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Env record.', schema: ref('EnvRecord') },
       ...CommonMutationErrors,
       '403': ErrorResponse('Bearer token missing `env:write` capability.'),
-      '409': ErrorResponse('`ifRevision` mismatch (env-write-conflict).'),
+      '409': ErrorResponse(
+        `\`ifRevision\` mismatch (env-write-conflict). Or ${ENV_NOT_SERVED_VALUE}`,
+      ),
     },
   },
   {
@@ -8998,6 +9021,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       ...SecretWriteErrors,
       '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
+      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
     },
   },
   {
@@ -9034,6 +9058,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...SecretProviderErrors,
       '403': ErrorResponse('Bearer token missing `secrets:rotate` capability.'),
       '404': ErrorResponse('Unknown secret.'),
+      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
       '501': ErrorResponse(
         "The store doesn't rotate (`secret-operation-unsupported`): under `kindgi dev` secrets live in the env files and have no versions; the message says what to do instead.",
       ),
@@ -9718,6 +9743,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist (`webhook-secret-not-found`) or is too weak (`webhook-secret-too-weak`), or it's a model provider's key (`provider-key-refused`).",
       ),
       '404': ErrorResponse('`filter.projectId` names no project (`project-not-found`).'),
+      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
     },
   },
   {
@@ -9786,6 +9812,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist or is too weak, or it's a model provider's key (`provider-key-refused`).",
       ),
       '404': ErrorResponse('No endpoint with that id, or `filter.projectId` names no project.'),
+      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
     },
   },
   {
