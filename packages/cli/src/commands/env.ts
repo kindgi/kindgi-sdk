@@ -199,7 +199,7 @@ const listCmd: LeafCommand = {
     env: {
       type: 'string',
       description:
-        "The environment: `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`.",
+        "The value set (one environment's values): `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`.",
     },
     reveal: {
       type: 'boolean',
@@ -351,7 +351,7 @@ const setCmd: LeafCommand = {
     env: {
       type: 'string',
       description:
-        "The environment: `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`.",
+        "The value set (one environment's values): `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`.",
     },
     force: {
       type: 'boolean',
@@ -492,7 +492,7 @@ const unsetCmd: LeafCommand = {
     env: {
       type: 'string',
       description:
-        "The environment: `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`.",
+        "The value set (one environment's values): `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`.",
     },
     path: {
       type: 'string',
@@ -1015,7 +1015,7 @@ export const envCommand: Command = {
   kind: 'group',
   name: 'env',
   description:
-    "Manage env values: the pack's local env files, and with --scope the runtime's (a tool's `ctx.env`, per project, org or tenant).",
+    "The values in one environment — a value set: the pack's local env files, and with --scope the runtime's (a tool's `ctx.env`, per project, org or tenant). For the order projects go live through, see `kindgi environments`.",
   subcommands: [listCmd, setCmd, unsetCmd, pullCmd, initCmd, planCmd],
 };
 

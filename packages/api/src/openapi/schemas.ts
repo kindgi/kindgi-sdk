@@ -11456,6 +11456,74 @@ export const EnvironmentPageSchema: JsonSchema = {
   },
 };
 
+/** The tenant itself, or one of its orgs, as an environment order's parent. */
+export const EnvironmentOrderParentSchema: JsonSchema = {
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind'],
+      properties: { kind: { type: 'string', enum: ['tenant'] } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'orgId'],
+      properties: {
+        kind: { type: 'string', enum: ['org'] },
+        orgId: { type: 'string' },
+      },
+    },
+  ],
+};
+
+/** One project in an environment order. `projectId` is absent when the caller can't read it. */
+export const EnvironmentOrderEntrySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['position'],
+  properties: {
+    position: { type: 'integer', minimum: 0 },
+    projectId: { type: 'string' },
+  },
+};
+
+/** The projects a tenant (or one of its orgs) runs through to live, in order. */
+export const EnvironmentOrderSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['parent', 'entries'],
+  properties: {
+    parent: { $ref: '#/components/schemas/EnvironmentOrderParent' },
+    entries: { type: 'array', items: { $ref: '#/components/schemas/EnvironmentOrderEntry' } },
+  },
+};
+
+export const EnvironmentOrderPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/EnvironmentOrder' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+/**
+ * Set an environment order: the projects, in order. `[]` clears it; one
+ * project is refused (an order needs two or more); a project in another
+ * order is refused (`project-in-another-order`).
+ */
+export const EnvironmentOrderSetRequestSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectIds'],
+  properties: {
+    projectIds: { type: 'array', items: { type: 'string' } },
+  },
+};
+
 export const EnvSetInputSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -13641,6 +13709,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['EnvListPage', EnvListPageSchema],
   ['Environment', EnvironmentSchema],
   ['EnvironmentPage', EnvironmentPageSchema],
+  ['EnvironmentOrderParent', EnvironmentOrderParentSchema],
+  ['EnvironmentOrderEntry', EnvironmentOrderEntrySchema],
+  ['EnvironmentOrder', EnvironmentOrderSchema],
+  ['EnvironmentOrderPage', EnvironmentOrderPageSchema],
+  ['EnvironmentOrderSetRequest', EnvironmentOrderSetRequestSchema],
   ['EnvSetInput', EnvSetInputSchema],
   ['EnvSetOutcome', EnvSetOutcomeSchema],
   ['SecretRecord', SecretRecordSchema],

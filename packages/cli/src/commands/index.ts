@@ -16,6 +16,7 @@ import { devCommand } from './dev.js';
 import { doctorCommand } from './doctor.js';
 import { egressCommand } from './egress.js';
 import { envCommand } from './env.js';
+import { environmentsCommand } from './environments.js';
 import { evalRunsCommand } from './eval-runs.js';
 import { evalSuitesCommand } from './eval-suites.js';
 import { exportsCommand } from './exports.js';
@@ -64,6 +65,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   deployCommand,
   testCommand,
   envCommand,
+  environmentsCommand,
   secretsCommand,
   ssoCommand,
   signInCommand,

@@ -168,6 +168,12 @@
   "EnvSetOutcomeRevisionConflict": ["EnvSetOutcomeRevisionConflict"],
   "EnvSetRequest": ["EnvSetRequest"],
   "Environment": ["Environment"],
+  "EnvironmentOrder": ["EnvironmentOrder"],
+  "EnvironmentOrderEntry": ["EnvironmentOrderEntry"],
+  "EnvironmentOrderPage": ["EnvironmentOrderPage"],
+  "EnvironmentOrderParentOrg": ["EnvironmentOrderParentOrg"],
+  "EnvironmentOrderParentTenant": ["EnvironmentOrderParentTenant"],
+  "EnvironmentOrderSetRequest": ["EnvironmentOrderSetRequest"],
   "EnvironmentPage": ["EnvironmentPage"],
   "Error": ["WireError.error"],
   "EvalBaseline1": [
