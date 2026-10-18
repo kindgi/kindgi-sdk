@@ -80,7 +80,8 @@ included.
 - **A project for each environment.** `kindgi projects create --name=staging-1`
   makes one ([Organize by org and project](../../guides/projects/organize-by-org-and-project/)).
   An order has two or more projects. They all sit directly in the tenant, or
-  all in the same org. A project is in one order at most.
+  all in the same org. A project is in one order at most. While it's in
+  one, it can't be deleted, or moved into or out of an org.
 
 All the environments of an order are projects of one tenant, on one
 runtime.
@@ -325,6 +326,10 @@ The other environments aren't, so their runs count as staging.
 - **Setting the order is refused (`project-in-another-order`).** One of its
   projects is in another order already. Set that order without it, or
   clear it, first.
+- **Deleting a project, or moving it into or out of an org, is refused
+  (`project-in-environment-order`).** The project is in an environment
+  order. Set the order without it, or clear it, first. Renaming it, or
+  changing its slug, is never refused for that.
 - **A project outside the order can't take the pack.** It's refused as a
   project of another pack
   ([A project for each client](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
