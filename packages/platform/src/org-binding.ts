@@ -87,19 +87,19 @@ export interface OrgBinding {
    * deletes nothing. A storage that holds environment orders (the Kindgi
    * runtime's) answers `org-has-environment-order` instead, naming the
    * order, when the org is the parent of one, and deletes nothing: a tenant
-   * admin clears the order first. Nothing (`void`): the org is deleted, or
-   * wasn't there (or was already deleted).
+   * admin clears the order first. `ok`: the org is deleted, or wasn't there
+   * (or was already deleted — idempotent).
    */
-  // biome-ignore lint/suspicious/noConfusingVoidType: `void`, not `undefined`, so a binding whose `delete` returns `Promise<void>` still conforms.
-  delete(tenantId: TenantId, orgId: OrgId): Promise<void | OrgDeleteConflict>;
+  delete(tenantId: TenantId, orgId: OrgId): Promise<OrgDeleteOutcome>;
 }
 
-/** Why `OrgBinding.delete` deleted nothing. */
-export type OrgDeleteConflict =
+/** What `OrgBinding.delete` did. */
+export type OrgDeleteOutcome =
+  | { readonly kind: 'ok' }
   | {
       /**
        * The org's projects would leave it with `slugs` that projects without
-       * an org already have. Rename or move them first.
+       * an org already have. Rename or move them first. Nothing is deleted.
        */
       readonly kind: 'slug-conflict';
       readonly slugs: readonly string[];
@@ -109,7 +109,7 @@ export type OrgDeleteConflict =
        * The org is the parent of an environment order, so deleting it would
        * orphan the order. Refused until a tenant admin clears the order
        * (`PUT /v1/environment-orders/orgs/{orgId}` with `[]`). The answer
-       * names the order (`details.orderId`).
+       * names the order (`details.orderId`). Nothing is deleted.
        */
       readonly kind: 'org-has-environment-order';
       readonly orderId: string;

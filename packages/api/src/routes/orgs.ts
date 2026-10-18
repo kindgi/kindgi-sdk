@@ -270,12 +270,12 @@ export function orgsRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const orgId = c.req.param('orgId') as OrgId;
     const outcome = await binding.delete(tenantId, orgId);
-    if (outcome?.kind === 'slug-conflict') {
+    if (outcome.kind === 'slug-conflict') {
       const error = orgDeleteSlugConflictError(outcome.slugs);
       c.status(statusFor(error.code) as never);
       return c.json(toWireError(error, requestId));
     }
-    if (outcome?.kind === 'org-has-environment-order') {
+    if (outcome.kind === 'org-has-environment-order') {
       const error = orgHasEnvironmentOrderError(outcome.orderId);
       c.status(statusFor(error.code) as never);
       return c.json(toWireError(error, requestId));

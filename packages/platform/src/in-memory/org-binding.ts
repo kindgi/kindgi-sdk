@@ -20,7 +20,7 @@ import type { OrgId, Page, TenantId, Timestamp } from '@kindgi/types';
 import type {
   OrgBinding,
   OrgCreateOutcome,
-  OrgDeleteConflict,
+  OrgDeleteOutcome,
   OrgListFilter,
   OrgUpdateOutcome,
 } from '../org-binding.js';
@@ -130,16 +130,16 @@ export function makeInMemoryOrgBinding(options: InMemoryOrgBindingOptions = {}):
       return { kind: 'ok' };
     },
 
-    // biome-ignore lint/suspicious/noConfusingVoidType: `void`, not `undefined` — a success deletes and returns nothing, as the `OrgBinding.delete` interface does.
-    async delete(tenantId: TenantId, orgId: OrgId): Promise<void | OrgDeleteConflict> {
+    async delete(tenantId: TenantId, orgId: OrgId): Promise<OrgDeleteOutcome> {
       // Idempotent: a no-op when absent, already deleted or in another tenant.
-      if (live(tenantId, orgId) === undefined) return;
+      if (live(tenantId, orgId) === undefined) return { kind: 'ok' };
       // A live org that is the parent of an environment order isn't deleted;
       // a tenant admin clears the order first. No await between the answer
       // and the tombstone — one step, as the durable binding's lock makes it.
       const orderId = await options.environmentOrderOf?.(tenantId, orgId);
       if (orderId !== undefined) return { kind: 'org-has-environment-order', orderId };
       deleted.add(orgId);
+      return { kind: 'ok' };
     },
   };
 }

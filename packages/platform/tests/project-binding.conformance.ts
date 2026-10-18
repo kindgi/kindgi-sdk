@@ -199,6 +199,45 @@ export function runProjectBindingConformance(
         expect(got?.slug).toBe('dev-2');
       });
 
+      it("allows a patch naming an org-less project's current (no) org — a no-op move, not a refusal", async () => {
+        const binding = makeBinding();
+        const { projects } = binding;
+        const { put } = orderOps(binding);
+        // The project has no org; `orgId: null` names that same parent, so the
+        // patch isn't a move and isn't refused — only an actual change of parent
+        // is. A form that always sends `orgId` can still rename an ordered project.
+        const id = await createProject(projects, T1, { name: 'Staging', slug: 'staging' });
+        const orderId = await put(T1, id);
+        expect(await projects.update(T1, id, { name: 'Staging-2', orgId: null })).toEqual({
+          kind: 'ok',
+        });
+        expect((await projects.get(T1, id))?.orgId).toBeUndefined();
+        // Still in its order: an actual move is still refused, naming the order.
+        expect(await projects.update(T1, id, { orgId: ORG_A })).toEqual({
+          kind: 'project-in-environment-order',
+          orderId,
+        });
+      });
+
+      it("allows a patch naming an org project's current org, and refuses it leaving the order", async () => {
+        const binding = makeBinding();
+        const { projects } = binding;
+        const { put } = orderOps(binding);
+        // The project is under ORG_A; `orgId: ORG_A` names that same parent — a
+        // no-op move, allowed — while leaving the org (`orgId: null`) is a real
+        // move and refused while the project is in the order.
+        const id = await createProject(projects, T1, { name: 'Prod', slug: 'prod', orgId: ORG_A });
+        const orderId = await put(T1, id);
+        expect(await projects.update(T1, id, { name: 'Prod-2', orgId: ORG_A })).toEqual({
+          kind: 'ok',
+        });
+        expect((await projects.get(T1, id))?.orgId).toBe(ORG_A);
+        expect(await projects.update(T1, id, { orgId: null })).toEqual({
+          kind: 'project-in-environment-order',
+          orderId,
+        });
+      });
+
       it('deletes a project once it is cleared from its order', async () => {
         const binding = makeBinding();
         const { projects } = binding;

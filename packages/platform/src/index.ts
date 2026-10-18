@@ -16,8 +16,8 @@ export { scopeKey } from './scope.js';
 export type {
   OrgBinding,
   OrgCreateOutcome,
+  OrgDeleteOutcome,
   OrgListFilter,
-  OrgDeleteConflict,
   OrgUpdateOutcome,
 } from './org-binding.js';
 export type {
