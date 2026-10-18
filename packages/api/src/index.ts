@@ -26,6 +26,7 @@ export type {
 } from './routes/license.js';
 export { WRITE_AUDIT_KINDS } from './routes/write-audit.js';
 export type { ProductionGateOptions } from './routes/project-production.js';
+export type { EgressAddresses } from './routes/tenant.js';
 export { USAGE_CLASSES, USAGE_KINDS, type UsageClass, type UsageKind } from './usage.js';
 export type { WriteAuditKind } from './routes/write-audit.js';
 export {
@@ -70,6 +71,7 @@ export { PACK_ENDPOINT_AUTHS } from './routes/system-deployments.js';
 export type {
   DeploymentRef,
   PackEndpointAuth,
+  PackEnvRecordInput,
   SetPackEndpointInput,
   SetPackEndpointOutcome,
   SystemDeploymentEntry,
@@ -77,7 +79,25 @@ export type {
   SystemDeploymentsBinding,
   SystemDeploymentsOptions,
   SystemDeploymentToRetire,
+  SystemPackEnvOptions,
+  SystemPackEnvServed,
 } from './routes/system-deployments.js';
+export {
+  PACK_ENV_HELD_CODES,
+  PACK_ENV_PROBLEM_CODES,
+  PACK_ENV_RETRY_MS,
+  packEnvCheck,
+} from './pack-env.js';
+export type {
+  PackEnvCheck,
+  PackEnvCheckInput,
+  PackEnvDeclaration,
+  PackEnvDeps,
+  PackEnvHeldCode,
+  PackEnvNameStatus,
+  PackEnvProblemCode,
+  PackEnvScopeRef,
+} from './pack-env.js';
 export { tenantStateGate } from './middleware/tenant-state.js';
 export type { TenantStateBinding } from './middleware/tenant-state.js';
 export { systemTenantsRouter, systemWhoamiRouter } from './routes/system-tenants.js';
@@ -126,6 +146,39 @@ export type {
   SignInOptionsInput,
 } from './identity-provider-binding.js';
 export type {
+  Site,
+  SiteBinding,
+  SiteChangeOutcome,
+  SiteEnrollInput,
+  SiteEnrollOutcome,
+  SiteEnrollmentCode,
+  SiteEnrollmentCodeOutcome,
+  SiteGetInput,
+  SiteInvalid,
+  SiteKey,
+  SiteListInput,
+  SitePage,
+  SiteRegisterInput,
+  SiteRegisterOutcome,
+  SiteRevokeKeyInput,
+  SiteRole,
+  SiteRoleGrant,
+  SiteSetPausedInput,
+  SiteSignInInput,
+  SiteSignInOutcome,
+  SiteSignInRefusal,
+  SiteUpdateInput,
+} from './site-binding.js';
+export {
+  SITE_DEFAULTS,
+  applySiteChange,
+  checkSiteSettings,
+  hasHiddenCharacters,
+  siteOrigin,
+  withoutHiddenCharacters,
+} from './routes/sites.js';
+export { SITE_REQUEST_MAX_BYTES, publicEd25519Key } from './routes/site-auth.js';
+export type {
   Session,
   SessionCreateInput,
   SessionCreateOutput,
@@ -138,6 +191,7 @@ export type {
   SessionRevokeAllForUserOutcome,
   SessionRevokeInput,
   SessionRevokeOutcome,
+  SessionSecondFactor,
   SessionStoreBinding,
   SessionTouchInput,
   SessionTouchOutcome,
@@ -150,14 +204,19 @@ export type {
   IdentityGetUserInput,
   IdentityListSessionsInput,
   IdentityListUsersInput,
+  IdentityResendInviteInput,
+  IdentityResendInviteResult,
   IdentityRevokeSessionsInput,
   IdentityUnregisterUserInput,
   IdentityUnregisterUserRefusal,
   IdentityUnregisterUserResult,
+  InviteEmail,
+  InviteEmailUnsent,
   RevokeSessionsResult,
   SessionSummary,
   SessionSummaryPage,
   UserCollectionPage,
+  UserInvite,
   UserRecord,
 } from './identity-directory-binding.js';
 export {
@@ -235,6 +294,18 @@ export type {
   PersonRef,
 } from './person-grants-binding.js';
 export type { PersonCapabilitiesBinding } from './person-capabilities-binding.js';
+export type {
+  SecondFactorBinding,
+  SecondFactorConfirmOutcome,
+  SecondFactorProof,
+  SecondFactorRecoveryCodesOutcome,
+  SecondFactorRef,
+  SecondFactorRefusal,
+  SecondFactorRemoveOutcome,
+  SecondFactorSettings,
+  SecondFactorStartOutcome,
+  SecondFactorStatus,
+} from './second-factor-binding.js';
 export type {
   AccessPrincipal,
   ProjectAccessBinding,
@@ -743,6 +814,7 @@ export { sealedCursors } from './middleware/sealed-cursors.js';
 export type {
   ToolGetInput,
   ToolGetVersionInput,
+  ToolKindMismatch,
   ToolListInput,
   ToolListVersionsInput,
   ToolPage,
@@ -978,7 +1050,12 @@ export type {
   SecretVersionPage,
   SecretVersionRecord,
 } from './secrets-binding.js';
-export { RESERVED_SECRET_NAME_PREFIX } from './secrets-binding.js';
+export {
+  RESERVED_SECRET_NAME_PREFIX,
+  SECRET_NAME_ALLOWED,
+  SECRET_NAME_MAX_LENGTH,
+  secretNameGrammarRefusal,
+} from './secrets-binding.js';
 export { resolveAtScope, scopeOfRecorded } from './secret-scope.js';
 // A model provider's key is used by its provider only.
 export {
@@ -1054,6 +1131,7 @@ export type { JsonSchema } from './openapi/schemas.js';
 
 export type {
   RetentionBinding,
+  RetentionLimits,
   RetentionPolicyConflict,
   RetentionScheduledInput,
   RetentionScheduledItem,

@@ -52,7 +52,10 @@ prints the dependency to add to it:
 …
 ```
 
-Add it to `pom.xml`'s `<dependencies>`:
+Ask your coding agent: "Add the Kindgi dependency to our pom.xml."
+Kindgi's skills in your app tell it how
+([How it knows Kindgi](../coding-agents/)). For reference, it adds this to
+`pom.xml`'s `<dependencies>`:
 
 ```xml
 <dependency>
@@ -93,7 +96,8 @@ and its JDK (`JAVA_HOME`, or `dev.javaHome`). `MAVEN_ARGS` and `MAVEN_OPTS`
 reach Maven, never the pack.
 
 A tool is a class in a `kindgi.tools` package under your own, and calls your
-app's code directly:
+app's code directly. Ask your coding agent: "Make a Kindgi tool from our
+customer order lookup." For reference, the tool looks like this:
 
 ```java
 // src/main/java/com/acme/kindgi/tools/CustomerOrders.java

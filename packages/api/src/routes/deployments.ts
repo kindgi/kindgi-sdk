@@ -16,6 +16,7 @@ import {
   createCheckRegistry,
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
+import { resolvePackEnv } from '@kindgi/handler-runtime/pack-env';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
 import { SchemaCompileBudgetError, compileInlineSchema } from '@kindgi/schema';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
@@ -46,6 +47,7 @@ import {
   type DeploymentRegisterOutcome,
   endpointToWire,
 } from '../deployment-binding.js';
+import type { EnvBinding } from '../env-binding.js';
 import { type WireErrorBody, statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
 import { type FlowPinsLive, publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
@@ -55,6 +57,7 @@ import type { ImageRegistryBinding, ImageRegistryError } from '../image-registry
 import type { LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
+import { packEnvCheck } from '../pack-env.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { PublishRefused } from '../publish-refused.js';
 import {
@@ -68,7 +71,7 @@ import {
 } from '../reference-scope.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
 import { secretScopesFor, toolSecretRefs } from '../secret-scope.js';
-import type { SecretBinding } from '../secrets-binding.js';
+import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
@@ -225,6 +228,16 @@ export interface DeploymentsRouterBindings {
   /** The env this deployment serves: where a pack tool's declared secrets are read (`secret-scope.ts`). */
   readonly envName?: EnvName;
   /**
+   * Whether the server gives each deployment's pack service the values of
+   * the env its pack declares, from the env store (`pack-env.ts`): a server
+   * that runs a pack service per deployment. Otherwise a pack service takes
+   * its env from how it's run, and `GET /:deploymentId/pack-env` answers
+   * `501 pack-env-not-served`.
+   */
+  readonly packEnvServed?: boolean;
+  /** Where a pack's declared names are looked for, with `secretsBinding` and `projectBinding`. */
+  readonly envBinding?: EnvBinding;
+  /**
    * Called for each tool and guardrail a new deployment registered, as
    * `POST /v1/tools` and `POST /v1/guardrails` call them, so a runtime
    * that caches the catalogs (its tool and guardrail bridges) sees the
@@ -272,7 +285,6 @@ export function deploymentsRouter(
 
   // ---------- GET / (list, cursor-paginated) ----------
   r.get('/', async (c) => {
-    const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const limit = clampLimit(c.req.query('limit'));
 
@@ -280,39 +292,30 @@ export function deploymentsRouter(
     const imageRefPrefixRaw = c.req.query('imageRefPrefix');
     const signerKeyIdRaw = c.req.query('signerKeyId');
 
-    try {
-      const page = await bindings.deploymentRegistry.list({
-        tenantId,
-        limit,
-        ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
-        ...(imageRefPrefixRaw !== undefined &&
-          imageRefPrefixRaw.length > 0 && {
-            imageRefPrefix: imageRefPrefixRaw,
-          }),
-        ...(signerKeyIdRaw !== undefined &&
-          signerKeyIdRaw.length > 0 && {
-            signerKeyId: signerKeyIdRaw as SigningKeyId,
-          }),
-      });
-      return c.json({
-        data: page.data.map(serializeDeployment),
-        hasMore: page.nextCursor !== undefined,
-        ...(page.nextCursor !== undefined && {
-          nextCursor: page.nextCursor as unknown as string,
+    // A throw from list() propagates to the app's central error handler
+    // (middleware/error-mapper.ts): a busy database answers this GET with a
+    // 503 + Retry-After, anything else a 500 whose body carries no raw error
+    // text (the whole error goes to the log).
+    const page = await bindings.deploymentRegistry.list({
+      tenantId,
+      limit,
+      ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
+      ...(imageRefPrefixRaw !== undefined &&
+        imageRefPrefixRaw.length > 0 && {
+          imageRefPrefix: imageRefPrefixRaw,
         }),
-      });
-    } catch (cause) {
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Deployment list failed: ${errMessage(cause)}`,
-          },
-          requestId,
-        ),
-      );
-    }
+      ...(signerKeyIdRaw !== undefined &&
+        signerKeyIdRaw.length > 0 && {
+          signerKeyId: signerKeyIdRaw as SigningKeyId,
+        }),
+    });
+    return c.json({
+      data: page.data.map(serializeDeployment),
+      hasMore: page.nextCursor !== undefined,
+      ...(page.nextCursor !== undefined && {
+        nextCursor: page.nextCursor as unknown as string,
+      }),
+    });
   });
 
   // ---------- GET /:deploymentId ----------
@@ -336,6 +339,62 @@ export function deploymentsRouter(
       );
     }
     return c.json(serializeDeployment(record));
+  });
+
+  // ---------- GET /:deploymentId/pack-env ----------
+  // Where each name its pack declares is set, at the deployment's scopes:
+  // never a value.
+  r.get('/:deploymentId/pack-env', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const deploymentId = c.req.param('deploymentId');
+    const env = bindings.envBinding;
+    const envName = bindings.envName;
+    if (bindings.packEnvServed !== true || env === undefined || envName === undefined) {
+      c.status(statusFor('pack-env-not-served') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'pack-env-not-served',
+            message:
+              "This server doesn't give a deployment's pack service the env its pack declares: its pack services take theirs from how they're run (`kindgi env plan`).",
+          },
+          requestId,
+        ),
+      );
+    }
+    const record = await bindings.deploymentRegistry.get({ tenantId, deploymentId });
+    if (record === null) {
+      c.status(statusFor('deployment-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'deployment-not-found',
+            message: `No deployment with id "${deploymentId}" under this tenant`,
+            deploymentId,
+          },
+          requestId,
+        ),
+      );
+    }
+    const check = await packEnvCheck(
+      {
+        env,
+        ...(bindings.secretsBinding !== undefined && { secrets: bindings.secretsBinding }),
+        ...(bindings.projectBinding !== undefined && { projects: bindings.projectBinding }),
+      },
+      {
+        tenantId,
+        ...(record.projectId !== undefined && { projectId: record.projectId }),
+        envName,
+        declaration: record.packEnv ?? { required: [], optional: [] },
+      },
+    );
+    return c.json({
+      envName,
+      data: check.names,
+      ...(check.problem !== undefined && { problem: check.problem }),
+    });
   });
 
   // ---------- POST / (register a signed deployment) ----------
@@ -412,16 +471,9 @@ export function deploymentsRouter(
       publicKey: publicKeyBase64,
     });
     if (trusted.kind === 'err') {
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Trust check failed: ${trusted.error.message}`,
-          },
-          requestId,
-        ),
-      );
+      // To the central error handler: a 500 with no raw text; the trust-check
+      // error is logged via the cause, which keeps its code.
+      throw new Error('Trust check failed', { cause: trusted.error });
     }
     if (!trusted.value) {
       c.status(statusFor('signer-not-trusted') as never);
@@ -551,6 +603,22 @@ export function deploymentsRouter(
           {
             code: 'image-unverifiable',
             message: 'Image /app/index.json is not a JSON object',
+            imageRef: wire.imageRef,
+          },
+          requestId,
+        ),
+      );
+    }
+    // The names its pack service reads from its process env, as the build
+    // validated them: a signed index that doesn't is refused, never kept.
+    const declaredEnv = resolvePackEnv(imageIndex.env);
+    if (declaredEnv.kind === 'err') {
+      c.status(statusFor('image-unverifiable') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'image-unverifiable',
+            message: `Image /app/index.json's env is malformed: ${declaredEnv.message}`,
             imageRef: wire.imageRef,
           },
           requestId,
@@ -874,7 +942,8 @@ export function deploymentsRouter(
       // error handler answers. None runs past the first write here.
       if (cause instanceof SchemaCompileBudgetError) throw cause;
       // A primitive refused with a typed outcome is the caller's to fix:
-      // that outcome's own status and code. Anything thrown is a 500.
+      // that outcome's own status and code. Anything else propagates to the
+      // central error handler (a 500 for this write).
       if (cause instanceof PublishRefused) {
         if (cause.projectId !== undefined) {
           c.get('log').info(`${cause.message}: deploy refused`, {
@@ -891,6 +960,7 @@ export function deploymentsRouter(
               message: `${cause.message}; nothing was deployed`,
               primitive: cause.primitive,
               id: cause.id,
+              ...(cause.endpointId !== undefined && { endpointId: cause.endpointId }),
             },
             requestId,
           ),
@@ -909,16 +979,9 @@ export function deploymentsRouter(
           ),
         );
       }
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Registry upsert failed: ${errMessage(cause)}`,
-          },
-          requestId,
-        ),
-      );
+      // Not a mapped outcome: to the central error handler (a 500 for this
+      // write — the rollback above already ran; the whole error is logged).
+      throw cause;
     }
 
     // ---- Deployment record ----
@@ -944,6 +1007,7 @@ export function deploymentsRouter(
         primitives,
         ...(wire.projectId !== undefined && { projectId: wire.projectId }),
         ...(typeof imageIndex.packId === 'string' && { packId: imageIndex.packId }),
+        ...(declaredEnv.value !== undefined && { packEnv: declaredEnv.value }),
         packChecks: [
           ...new Set(
             validated.guardrails
@@ -964,31 +1028,15 @@ export function deploymentsRouter(
       });
     } catch (cause) {
       await rollback(rolled);
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Deployment record failed: ${errMessage(cause)}`,
-          },
-          requestId,
-        ),
-      );
+      // To the central error handler: a 500 with no raw text; the error is logged.
+      throw cause;
     }
 
     if (outcome.kind === 'error') {
       await rollback(rolled);
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Deployment record failed: ${outcome.message}`,
-            cause: outcome.code,
-          },
-          requestId,
-        ),
-      );
+      // To the central error handler: a 500 with no raw text; the outcome's
+      // code and message go to the log.
+      throw new Error(`Deployment record failed (${outcome.code}): ${outcome.message}`);
     }
     if (outcome.kind === 'already-registered') {
       // Digest-based idempotency: same digest already recorded. Roll back
@@ -1165,6 +1213,29 @@ export function deploymentsRouter(
       } else {
         parsed.push({ kind: 'value', name: e.name, value: e.value as string });
       }
+    }
+
+    // A new inline secret's name is held to the shared grammar before any
+    // write, so a refusal leaves nothing half-written. A name that passes
+    // needs no store read; a name that fails is refused unless it's already
+    // stored (an `add-version` to a name written before this release).
+    for (const entry of parsed) {
+      if (entry.kind !== 'value') continue;
+      const nameRefusal = secretNameGrammarRefusal(entry.name);
+      if (nameRefusal === undefined) continue;
+      const existing = await bindings.secretsBinding.get({ scope, envName, name: entry.name });
+      if (existing !== null) continue;
+      c.status(statusFor(nameRefusal.code) as never);
+      return c.json(
+        toWireError(
+          {
+            code: nameRefusal.code,
+            message: `secrets[${entry.name}]: ${nameRefusal.message}`,
+            name: entry.name,
+          },
+          requestId,
+        ),
+      );
     }
 
     let resolvedCount = 0;
@@ -2311,6 +2382,9 @@ function serializeDeployment(d: Deployment): Record<string, unknown> {
     activatedAt: d.activatedAt,
     ...(d.projectId !== undefined && { projectId: d.projectId as unknown as string }),
     ...(d.endpoint !== undefined && { endpoint: endpointToWire(d.endpoint) }),
+    ...(d.packEnv !== undefined && {
+      packEnv: { required: [...d.packEnv.required], optional: [...d.packEnv.optional] },
+    }),
     primitives: {
       tools: d.primitives.tools,
       guardrails: d.primitives.guardrails,
@@ -2350,10 +2424,6 @@ async function notifyWrites(
       // Advisory, as on `POST /v1/guardrails`.
     }
   }
-}
-
-function errMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }
 
 /**

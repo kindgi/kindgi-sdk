@@ -497,7 +497,7 @@ describe('kindgi exports create', () => {
     const refused = await cli(server({}, { admin: false }));
     expect(refused.exitCode).toBe(1);
     expect(refused.stderr).toContain(
-      "You aren't a tenant admin here, so the export would skip team-memberships, team-project-grants, users,",
+      "You aren't a tenant admin here, so the export would skip team-memberships, team-project-grants, sites, users,",
     );
     expect(refused.stderr).toContain('pass --yes');
     await expect(readdir(out)).rejects.toThrow();
@@ -724,7 +724,7 @@ describe('kindgi exports create', () => {
     await rm(out, { recursive: true, force: true });
     expect((await cli(server(answers))).exitCode).toBe(0);
     expect((await manifest()).consistency).toBe(
-      'The tenant is closing: nothing in it changes but deletes and erasures, so the files agree with each other, but for a delete or an erasure made while the export ran.',
+      'The tenant is closing: nothing in it changes but deletes, revocations and erasures, so the files agree with each other, but for one of those made while the export ran.',
     );
 
     // Suspended when it started, active again by the end.

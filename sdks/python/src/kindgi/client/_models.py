@@ -895,6 +895,7 @@ class SystemKey(BaseModel):
             "system:tenants:purge",
             "system:suspend",
             "system:deployments",
+            "system:pack-env",
             "system:license",
             "kindgi:system",
         ]
@@ -925,6 +926,7 @@ class MintSystemKeyBody(BaseModel):
                 "system:tenants:purge",
                 "system:suspend",
                 "system:deployments",
+                "system:pack-env",
                 "system:license",
                 "kindgi:system",
             ]
@@ -969,6 +971,7 @@ class MintSystemKeyResult(BaseModel):
             "system:tenants:purge",
             "system:suspend",
             "system:deployments",
+            "system:pack-env",
             "system:license",
             "kindgi:system",
         ]
@@ -1014,6 +1017,7 @@ class Datum2(BaseModel):
             "system:tenants:purge",
             "system:suspend",
             "system:deployments",
+            "system:pack-env",
             "system:license",
             "kindgi:system",
         ]
@@ -1063,6 +1067,7 @@ class RevokeSystemKeyResult(BaseModel):
             "system:tenants:purge",
             "system:suspend",
             "system:deployments",
+            "system:pack-env",
             "system:license",
             "kindgi:system",
         ]
@@ -1151,6 +1156,205 @@ class SetPackEndpointBody(BaseModel):
     """
     The pack service's token (`KINDGI_PACK_SERVICE_TOKEN`), printable ASCII without spaces. Stored wrapped; never returned, logged or recorded.
     """
+    pack_env_revision: Annotated[
+        str | None, Field(alias="packEnvRevision", max_length=128, min_length=1)
+    ] = None
+    """
+    The `revision` from `GET …/pack-env` whose values the service was made with, when its pack declares an environment. Kept as the one it runs, so `GET /v1/system/pack-env` lists it once they change.
+    """
+
+
+class PackEnvDeclaration(BaseModel):
+    """
+    The names the pack service reads from its process environment, as the image's `index.json` declares them (`env`), each list in name order. Names only, never a value. On a deployment: absent when it declares none, and from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    required: list[str]
+    """
+    Names the pack service needs, set and non-empty, to be ready.
+    """
+    optional: list[str]
+    """
+    Names the pack reads when present.
+    """
+
+
+class PackEnvScope(BaseModel):
+    """
+    Where a value is set: the deployment's project, the project's org, or the tenant.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["project", "org", "tenant"]
+    id: str | None = None
+    """
+    The project's or the org's id. Absent for the tenant.
+    """
+
+
+class PackEnvNameStatus(BaseModel):
+    """
+    One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (`secretScope`, for `ambiguous` only, names the secret's scope). Each name is looked for at the deployment's project, then its org, then the tenant (most specific wins); a tenant-wide deployment's, at the tenant's Default project. Never a value.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: str
+    required: bool
+    kind: Literal["env", "secret"] | None
+    """
+    What it is set as: a plain value (`env`) or a secret. `null` when it is set nowhere.
+    """
+    scope: PackEnvScope | None
+    """
+    Where it is set: the plain value's scope when `ambiguous`. `null` when it is set nowhere.
+    """
+    missing: bool
+    """
+    Set nowhere, as a plain value or a secret (optional names too).
+    """
+    problem: Literal["ambiguous", "secret-not-yet", "missing"] | None = None
+    """
+    Why it can't be given to the pack service. `ambiguous`: set both as a secret and as a plain value (`secretScope` names the secret's scope). `secret-not-yet`: set only as a secret, and a secret isn't given into a pack service's environment yet; a tool reads it per call (`ctx.secrets`). `missing`: a required name set nowhere. Absent when it can be given, and for an optional name set nowhere.
+    """
+    secret_scope: Annotated[PackEnvScope | None, Field(alias="secretScope")] = None
+
+
+class SystemPackEnv(BaseModel):
+    """
+    What the deployment's pack service is to be given: where each declared name is set, and the plain values when nothing stands in the way. Each value given out is on the audit record (`env-resolved`, as the deployment's system read).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    revision: str
+    """
+    Changes whenever what would be given changes: a value written or removed, a secret set or revoked. Made from scopes, row ids, revisions and update times, never from a value. Send it back with the endpoint (`packEnvRevision`) or `PUT …/pack-env`.
+    """
+    names: list[PackEnvNameStatus]
+    """
+    Every declared name, required ones first, each list in name order.
+    """
+    problem: Literal["pack-env-ambiguous", "pack-env-secret-not-yet", "pack-env-missing"] | None = (
+        None
+    )
+    """
+    Why a deployment's pack service can't be given its declared environment, the first in this order: `pack-env-ambiguous` (a name is set both as a secret and as a plain value), `pack-env-secret-not-yet` (a name is set only as a secret), `pack-env-missing` (a required name is set nowhere). A later runtime may add codes, so treat an unknown one as a reason not yet named.
+    """
+    env: dict[str, str] | None = None
+    """
+    Each declared name that is set, by name, as plain values. Absent while there is a `problem`: then nothing is given, and the service keeps what it runs.
+    """
+
+
+class SystemPackEnvEntry(BaseModel):
+    """
+    A deployment whose pack service runs on declared env values that changed since: ids, the image, and the revision it runs. Never a value. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    deployment_id: Annotated[str, Field(alias="deploymentId", min_length=1)]
+    pack_id: Annotated[str, Field(alias="packId", min_length=1)]
+    """
+    The pack it deploys (the image index's `packId`).
+    """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project the deploy was scoped to. Absent for a tenant-wide deploy.
+    """
+    image_ref: Annotated[str, Field(alias="imageRef")]
+    """
+    Digest-pinned, as registered: the pack service is created from exactly this.
+    """
+    image_digest: Annotated[str, Field(alias="imageDigest", pattern="^sha256:[0-9a-f]{64}$")]
+    artifact_version: Annotated[str, Field(alias="artifactVersion")]
+    activated_at: Annotated[AwareDatetime, Field(alias="activatedAt")]
+    applied_revision: Annotated[str | None, Field(alias="appliedRevision")] = None
+    """
+    The revision its service runs: given with its endpoint, or recorded since. Absent: none was. Send it back as `appliedRevision` with `PUT …/pack-env`.
+    """
+
+
+class SystemPackEnvPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[SystemPackEnvEntry]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class RecordPackEnvBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    revision: Annotated[str, Field(max_length=128, min_length=1)]
+    """
+    The `revision` from `GET …/pack-env`. Without `held`: the service now runs its values. With `held`: they weren't given, and the service keeps what it runs.
+    """
+    held: (
+        Literal[
+            "pack-env-ambiguous",
+            "pack-env-secret-not-yet",
+            "pack-env-missing",
+            "pack-env-update-failed",
+        ]
+        | None
+    ) = None
+    """
+    Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it, or `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. A later runtime may add codes, so treat an unknown one as a reason not yet named.
+    """
+    applied_revision: Annotated[
+        str | None, Field(alias="appliedRevision", max_length=128, min_length=1)
+    ] = None
+    """
+    The revision the service was found running, as `GET /v1/system/pack-env` listed it. Absent: none was recorded. Another revision recorded since is a conflict (`pack-env-conflict`).
+    """
+
+
+class PackEnvNames(BaseModel):
+    """
+    Where each name the deployment's pack declares is set, at the env the server serves. Never a value.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    env_name: Annotated[str, Field(alias="envName")]
+    """
+    The env the values are read at (`KINDGI_ENV`).
+    """
+    data: list[PackEnvNameStatus]
+    """
+    Every declared name, required ones first, each list in name order.
+    """
+    problem: Literal["pack-env-ambiguous", "pack-env-secret-not-yet", "pack-env-missing"] | None = (
+        None
+    )
+    """
+    Why a deployment's pack service can't be given its declared environment, the first in this order: `pack-env-ambiguous` (a name is set both as a secret and as a plain value), `pack-env-secret-not-yet` (a name is set only as a secret), `pack-env-missing` (a required name is set nowhere). A later runtime may add codes, so treat an unknown one as a reason not yet named.
+    """
 
 
 class RecordDeploymentProblemBody(BaseModel):
@@ -1168,6 +1372,9 @@ class RecordDeploymentProblemBody(BaseModel):
         "tenant-not-provisioned",
         "capacity-unavailable",
         "service-start-failed",
+        "pack-env-ambiguous",
+        "pack-env-secret-not-yet",
+        "pack-env-missing",
     ]
     """
     Why the pack service couldn't be created, or was refused: one of `DEPLOYMENT_ENDPOINT_PROBLEM_CODES`. The tenant sees the code, never more.
@@ -1629,6 +1836,14 @@ class ApprovalDecisionRecord(BaseModel):
     """
     decided_at: Annotated[AwareDatetime, Field(alias="decidedAt")]
     rationale: str | None = None
+    session_provider: Annotated[str | None, Field(alias="sessionProvider")] = None
+    """
+    The provider of the session the reviewer decided with: `site:<id>` for a site's sign-in, an identity provider's id for a single sign-on session. Absent for an API key, and on decisions an older runtime recorded.
+    """
+    decider_name: Annotated[str | None, Field(alias="deciderName")] = None
+    """
+    The reviewer's display name when they decided: a person renamed since still shows as they were. Absent on decisions an older runtime recorded.
+    """
 
 
 class ReviewDecision(BaseModel):
@@ -3072,6 +3287,10 @@ class ReinstateToolVersionResult(BaseModel):
 
 
 class Retry(BaseModel):
+    """
+    The attempts a `retry` asks for. In 0.1 nothing acts on it: there's no second attempt.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -3093,11 +3312,20 @@ class GuardrailAction(BaseModel):
         ),
     ]
     """
-    What happens when the guardrail fires. Open string: the built-in actions are listed in `examples`; any other name needs an action handler registered under it where the guardrail is evaluated.
+    What a failed check does to the agent turn. Open string: the built-in actions are listed in `examples`, and any other non-empty name is accepted. In 0.1 the runtime acts only on `halt`: the turn fails with `guardrail-violation` and its response is not stored. Any other value is recorded as a violation, as `log-only` is, and the turn completes: nothing runs the turn again, escalates or calls a compensating tool.
     """
     retry: Retry | None = None
+    """
+    The attempts a `retry` asks for. In 0.1 nothing acts on it: there's no second attempt.
+    """
     escalate_to: Annotated[str | None, Field(alias="escalateTo")] = None
+    """
+    Where an `escalate` goes. In 0.1 nothing escalates.
+    """
     compensate_with: Annotated[str | None, Field(alias="compensateWith")] = None
+    """
+    The tool id a `compensate` names. In 0.1 that tool isn't called.
+    """
 
 
 class GuardrailScope(BaseModel):
@@ -3337,6 +3565,10 @@ class Conversation(BaseModel):
     """
     The project the conversation is in: the project of the run that opened it, or `projectId` on open (when omitted, the agent's own project, or the tenant's Default project for an agent filed under none). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.
     """
+    opened_by: Annotated[str | None, Field(alias="openedBy")] = None
+    """
+    Who opened it: the caller's principal (`user:<id>`, `service_account:<id>`), or, for one a turn opened, whoever the run acts for. Set by the server, never from a request's body. Absent on conversations an older runtime opened, and when the caller had no principal; those aren't listed by `?openedBy=me`.
+    """
     scope: dict[str, Any]
     """
     Free-form scope object (currently `{ tenantId }` in tests; enterprises extend with `matterId`, `engagementId`, etc.).
@@ -3424,6 +3656,10 @@ class ConversationCollectionPage(BaseModel):
     Opaque cursor for the next page. Absent when `hasMore: false`.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
+    opened_by: Annotated[Literal["me"] | None, Field(alias="openedBy")] = None
+    """
+    `me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.
+    """
 
 
 class ConversationMessageCollectionPage(BaseModel):
@@ -6053,20 +6289,27 @@ class RetentionScheduledItem(BaseModel):
     unregistered_at: Annotated[AwareDatetime, Field(alias="unregisteredAt")]
     purge_at: Annotated[AwareDatetime, Field(alias="purgeAt")]
     """
-    `unregisteredAt` plus the policy's grace: when a sweep purges the row.
+    `unregisteredAt` plus `graceSeconds`: when a sweep purges the row.
     """
     past_grace: Annotated[bool, Field(alias="pastGrace")]
     """
     Whether a sweep would purge the row now.
     """
-    policy_id: Annotated[str, Field(alias="policyId")]
+    policy_id: Annotated[str | None, Field(alias="policyId")] = None
     """
-    The retention policy that applies.
+    The retention policy that covers the domain. Absent when none does, and this server's limit decides (`limitApplied`); always present on a server with no limit.
     """
-    policy_version: Annotated[str, Field(alias="policyVersion")]
+    policy_version: Annotated[str | None, Field(alias="policyVersion")] = None
+    """
+    The policy's version. Absent with `policyId`.
+    """
     grace_seconds: Annotated[int, Field(alias="graceSeconds")]
     """
-    The policy's grace, in seconds (`-1`: a hold, never purged).
+    How long the row is kept, in seconds (`-1`: a hold, never purged): the policy's grace, or this server's limit (`limitApplied`).
+    """
+    limit_applied: Annotated[Literal[True] | None, Field(alias="limitApplied")] = None
+    """
+    Present when this server's retention limit for the domain set `graceSeconds`: no policy covers the domain, or its policy keeps rows longer than the limit, or holds them.
     """
 
 
@@ -6142,7 +6385,7 @@ class RetentionScheduledPage(BaseModel):
         Field(alias="unpolicedDomains"),
     ]
     """
-    Domains no retention policy covers: their tombstones are kept.
+    Domains no retention policy covers and this server sets no retention limit for: their tombstones are kept.
     """
     conflicts: list[RetentionPolicyConflict] | None = None
     """
@@ -6238,6 +6481,10 @@ class PerDomainItem(BaseModel):
     policy_id: Annotated[str | None, Field(alias="policyId")] = None
     """
     The retention policy that applied.
+    """
+    limit_applied: Annotated[Literal[True] | None, Field(alias="limitApplied")] = None
+    """
+    Present when this server's retention limit set the grace (see `RetentionScheduledItem.limitApplied`).
     """
     missing_adapter: Annotated[Literal[True] | None, Field(alias="missingAdapter")] = None
     """
@@ -7283,9 +7530,12 @@ class SignInEvent(BaseModel):
         "sign-in-link-capped",
         "sessions-revoked",
         "sessions-ended",
+        "second-factor-set-up",
+        "second-factor-removed",
+        "recovery-codes-replaced",
     ]
     """
-    `signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token).
+    `signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token, or a session made without a second factor in a workspace that requires one: `reason` says which); `second-factor-set-up`, `second-factor-removed` (`byUserId` is the admin who removed it, if not the person) and `recovery-codes-replaced`. Never a key or a code.
     """
     outcome: str
     """
@@ -7452,6 +7702,216 @@ class LogoutResult(BaseModel):
     revoked: bool
 
 
+class UserInvite(BaseModel):
+    """
+    An open invitation. `pending` signs in. `expired` (past `expiresAt`, 7 days after it was made or last renewed) is refused at every way of signing in until a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    state: Literal["pending", "expired"]
+    expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
+    sent_at: Annotated[AwareDatetime | None, Field(alias="sentAt")] = None
+    """
+    When it was last emailed; absent when it never was.
+    """
+
+
+class InviteEmail(BaseModel):
+    """
+    Whether the invitation was emailed, and why not: `no-email` (the person has no email, so isn't invited), `not-requested` (`sendInvite: false`), `not-configured` (the deployment sends no email), `send-failed` (the mail server refused it or didn't answer), `capped` (the workspace, or the whole deployment, has sent as many invitation emails as it may in 24 hours). An invitation not emailed is still open: tell them yourself.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    sent: bool
+    reason: (
+        Literal["no-email", "not-requested", "not-configured", "send-failed", "capped"] | None
+    ) = None
+
+
+class UserCreated(BaseModel):
+    """
+    The person just added, and whether their invitation was emailed (`inviteEmail`: absent from a runtime that sends no invitations).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId")]
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    primary_email: Annotated[str | None, Field(alias="primaryEmail")] = None
+    display_name: Annotated[str | None, Field(alias="displayName")] = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    last_active_at: Annotated[AwareDatetime | None, Field(alias="lastActiveAt")] = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.
+    """
+    invite: UserInvite | None = None
+    """
+    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).
+    """
+    first_signed_in_at: Annotated[AwareDatetime | None, Field(alias="firstSignedInAt")] = None
+    """
+    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).
+    """
+    metadata: dict[str, Any] | None = None
+    invite_email: Annotated[InviteEmail | None, Field(alias="inviteEmail")] = None
+
+
+class SecondFactorProof(BaseModel):
+    """
+    Exactly one: a code from the authenticator app, or one of the recovery codes (used up by this).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: Annotated[str | None, Field(max_length=64, min_length=1)] = None
+    recovery_code: Annotated[
+        str | None, Field(alias="recoveryCode", max_length=64, min_length=1)
+    ] = None
+
+
+class SecondFactorConfirmBody(BaseModel):
+    """
+    A code from the new key, as the authenticator app shows it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: Annotated[str, Field(max_length=64, min_length=1)]
+
+
+class SecondFactorStatus(BaseModel):
+    """
+    A person's second factor, and whether their workspace requires one. With `setUp`, `since`, `recoveryCodesLeft` and `usable` are given; without it, `started`. Never a key or a code.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    set_up: Annotated[bool, Field(alias="setUp")]
+    started: bool | None = None
+    """
+    A key was given to set one up, and isn't confirmed yet.
+    """
+    since: AwareDatetime | None = None
+    recovery_codes_left: Annotated[int | None, Field(alias="recoveryCodesLeft", ge=0)] = None
+    usable: bool | None = None
+    """
+    `false`: its key can't be opened any more (the sign-in secret changed past it). A recovery code still works, as does setting it up again, or an admin removing it.
+    """
+    required: bool
+    """
+    The workspace requires a second factor at sign-in.
+    """
+
+
+class SecondFactorKey(BaseModel):
+    """
+    A new key to set up, shown this once: `uri` for an authenticator app (as a QR code), `key` to type in. Nothing changes until it is confirmed.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: str
+    """
+    The key, in base32.
+    """
+    uri: str
+    """
+    The `otpauth://totp/` URI.
+    """
+
+
+class SecondFactorRecoveryCodes(BaseModel):
+    """
+    The 10 recovery codes, shown this once. Each signs in once in place of a code from the app; any earlier ones stop working.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    recovery_codes: Annotated[list[str], Field(alias="recoveryCodes")]
+
+
+class SecondFactorRemoved(BaseModel):
+    """
+    `false` when there was none to remove.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    removed: bool
+
+
+class SecondFactor(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    required: bool
+    """
+    Signing in by the deployment's own ways in takes a second factor. Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. API keys aren't covered.
+    """
+    on_previous_secret: Annotated[int, Field(alias="onPreviousSecret", ge=0)]
+    """
+    People whose key is still kept under the deployment's previous sign-in secret: each moves to the current one at their next code. Keep the previous secret configured until this is 0.
+    """
+    unusable: Annotated[int, Field(ge=0)]
+    """
+    People whose key opens under neither secret: they need a recovery code, or an admin to remove it.
+    """
+
+
+class AuthSettings(BaseModel):
+    """
+    The workspace's sign-in settings.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    second_factor: Annotated[SecondFactor, Field(alias="secondFactor")]
+
+
+class SecondFactor1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    required: bool
+
+
+class AuthSettingsPatch(BaseModel):
+    """
+    Require a second factor at sign-in, or stop requiring one.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    second_factor: Annotated[SecondFactor1, Field(alias="secondFactor")]
+
+
 class CreateUserBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -7461,6 +7921,10 @@ class CreateUserBody(BaseModel):
     primary_email: Annotated[str | None, Field(alias="primaryEmail")] = None
     """
     Unique among the tenant's people.
+    """
+    send_invite: Annotated[bool | None, Field(alias="sendInvite")] = None
+    """
+    Email them the invitation (default `true`). `false` still invites them, for an admin who tells them another way. A person without an email isn't invited.
     """
 
 
@@ -8078,7 +8542,31 @@ class DeploymentEndpointProblem(BaseModel):
     )
     code: str
     """
-    One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start).
+    One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start). It can't be given its declared environment (`GET /v1/deployments/{deploymentId}/pack-env` names the names): `pack-env-ambiguous`, `pack-env-secret-not-yet`, `pack-env-missing`.
+    """
+    since: AwareDatetime
+    """
+    When it was recorded.
+    """
+
+
+class PackEnvProblem(BaseModel):
+    """
+    `ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say), or didn't start (`pack-env-update-failed`). Gone once they can, or do. For a name that can't be given, `GET /v1/deployments/{deploymentId}/pack-env` names it. Absent from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: Literal[
+        "pack-env-ambiguous",
+        "pack-env-secret-not-yet",
+        "pack-env-missing",
+        "pack-env-update-failed",
+    ]
+    """
+    Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it, or `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. A later runtime may add codes, so treat an unknown one as a reason not yet named.
     """
     since: AwareDatetime
     """
@@ -8108,6 +8596,10 @@ class DeploymentEndpoint(BaseModel):
     retired: str | None = None
     """
     `cleared` only: why no pack service is wanted for it now. `superseded` is for good: newer deployments ship every tool version and check it does, so no new call reaches it; a tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.
+    """
+    pack_env_problem: Annotated[PackEnvProblem | None, Field(alias="packEnvProblem")] = None
+    """
+    `ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say), or didn't start (`pack-env-update-failed`). Gone once they can, or do. For a name that can't be given, `GET /v1/deployments/{deploymentId}/pack-env` names it. Absent from older servers.
     """
 
 
@@ -8252,6 +8744,7 @@ class EvidenceKind(RootModel[str]):
                 "person-added",
                 "person-granted",
                 "person-ungranted",
+                "trigger-owner-set",
             ],
             min_length=1,
         ),
@@ -8413,6 +8906,7 @@ class ComplianceEvidence(BaseModel):
                 "person-added",
                 "person-granted",
                 "person-ungranted",
+                "trigger-owner-set",
             ],
             min_length=1,
         ),
@@ -8499,6 +8993,7 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "person-added",
                 "person-granted",
                 "person-ungranted",
+                "trigger-owner-set",
             ],
             min_length=1,
         ),
@@ -8567,6 +9062,7 @@ class Filter(BaseModel):
                 "person-added",
                 "person-granted",
                 "person-ungranted",
+                "trigger-owner-set",
             ],
             min_length=1,
         ),
@@ -9184,6 +9680,25 @@ class TenantLimits(BaseModel):
     """
 
 
+class EgressAddresses(BaseModel):
+    """
+    The IP addresses this deployment's calls to other sites come from, for a site that admits only known addresses. They're the same for every tenant on the deployment, so admitting them admits every tenant's calls: a site still checks its own credentials. They say where calls come from, not where they go. Absent when the deployment publishes none. An empty list: none of that kind.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    server: list[str]
+    """
+    Where the server's own calls come from, such as its calls to MCP servers and model providers, and its webhook deliveries.
+    """
+    deployments: list[str]
+    """
+    Where calls made by the code deployed to it come from.
+    """
+
+
 class ProductionAllowedBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -9566,6 +10081,23 @@ class Config8(BaseModel):
     input: Any | None = None
 
 
+class TakeTriggerOwnerBody(BaseModel):
+    """
+    Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_as_service_account_id: Annotated[
+        str | None, Field(alias="runAsServiceAccountId", min_length=1)
+    ] = None
+    """
+    A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs.
+    """
+
+
 class WebhookTriggerUnregisterResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -9907,6 +10439,283 @@ class LicensePreview(BaseModel):
     """
     `expiring`: 30 days or fewer left. `expired`: past it: this server runs on, but won't start again; run a newer release.
     """
+
+
+class SiteRoleGrant(BaseModel):
+    """
+    What a person with one of the site's roles gets in the site's project. Reading the project comes with every role; nothing above it ever does.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    ask: bool
+    """
+    Whether they may start turns with the project's agents.
+    """
+    reviewer: Literal["standard", "senior"] | None = None
+    """
+    The reviewer role they decide approvals with, at most the site's `reviewerCeiling`; absent: they decide none.
+    """
+
+
+class SiteKey(BaseModel):
+    """
+    One of the site's live public keys. Kindgi never has a private half.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kid: str
+    thumbprint: str
+    """
+    The key's RFC 7638 thumbprint, to compare with the one the site shows.
+    """
+    added_at: Annotated[AwareDatetime, Field(alias="addedAt")]
+
+
+class AllowedRole(RootModel[str]):
+    root: Annotated[str, Field(pattern="^[a-z0-9_-]{1,64}$")]
+    """
+    A role on the site, as the site names it (a WordPress role: `shop_manager`).
+    """
+
+
+class Site(BaseModel):
+    """
+    A site that signs its own people in to one project: it vouches for whoever is signed in there, so they ask the project's agents and decide its approvals as themselves. Each person it signs in is a person of the tenant, shown as "<name>, via <displayName>".
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    site_id: Annotated[UUID, Field(alias="siteId")]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    display_name: Annotated[str, Field(alias="displayName")]
+    """
+    Set by a tenant admin, never by the site: shown after every name the site signs in.
+    """
+    origin: str
+    """
+    The site's origin (`https://acme-store.example`).
+    """
+    approvals_url: Annotated[str, Field(alias="approvalsUrl")]
+    """
+    Where an approval opens on the site; `{approvalId}` is replaced. A site's people get it in their reviewer email.
+    """
+    allowed_roles: Annotated[list[AllowedRole], Field(alias="allowedRoles")]
+    role_map: Annotated[dict[str, SiteRoleGrant], Field(alias="roleMap")]
+    """
+    Role → grant. A person with several allowed roles gets the most any of them gives.
+    """
+    reviewer_ceiling: Annotated[Literal["standard", "senior"], Field(alias="reviewerCeiling")]
+    vouching: bool
+    """
+    Whether the site's statements are accepted.
+    """
+    people_cap: Annotated[int, Field(alias="peopleCap", ge=1)]
+    """
+    At most this many live people from the site.
+    """
+    new_people_per_day: Annotated[int, Field(alias="newPeoplePerDay", ge=1)]
+    """
+    At most this many new people from the site per day.
+    """
+    keys: list[SiteKey]
+    audience: str | None = None
+    """
+    What the site's statements carry as `aud`: this deployment's public URL, given at enrollment.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str | None, Field(alias="createdBy")] = None
+    paused_at: Annotated[AwareDatetime | None, Field(alias="pausedAt")] = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+
+
+class SiteCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Site]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class RegisterSiteBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    display_name: Annotated[str, Field(alias="displayName", max_length=100, min_length=1)]
+    origin: str
+    """
+    An https:// origin with no path; http:// only for localhost, 127.0.0.1 or [::1].
+    """
+    approvals_url: Annotated[str, Field(alias="approvalsUrl")]
+    """
+    A URL on the site's own origin with `{approvalId}` in it.
+    """
+    allowed_roles: Annotated[
+        list[AllowedRole] | None, Field(alias="allowedRoles", max_length=20, min_length=1)
+    ] = None
+    """
+    The roles that may sign in at all. Default `["administrator", "shop_manager"]`.
+    """
+    role_map: Annotated[dict[str, SiteRoleGrant] | None, Field(alias="roleMap")] = None
+    """
+    Default: both default roles may ask, and decide as `standard` reviewers. Without a `roleMap`, the map keeps only the entries of the roles in `allowedRoles`: the default map's for a new site, the site's own for a change. An allowed role with no entry signs in to read the project only.
+    """
+    reviewer_ceiling: Annotated[
+        Literal["standard", "senior"] | None, Field(alias="reviewerCeiling")
+    ] = None
+    """
+    Default `standard`.
+    """
+    vouching: bool | None = None
+    """
+    Default `true`.
+    """
+    people_cap: Annotated[int | None, Field(alias="peopleCap", ge=1, le=10000)] = None
+    """
+    Default 50.
+    """
+    new_people_per_day: Annotated[int | None, Field(alias="newPeoplePerDay", ge=1, le=1000)] = None
+    """
+    Default 20.
+    """
+
+
+class UpdateSiteBody(BaseModel):
+    """
+    The settings to change; the rest stay as they are.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    display_name: Annotated[
+        str | None, Field(alias="displayName", max_length=100, min_length=1)
+    ] = None
+    origin: str | None = None
+    """
+    An https:// origin with no path; http:// only for localhost, 127.0.0.1 or [::1].
+    """
+    approvals_url: Annotated[str | None, Field(alias="approvalsUrl")] = None
+    """
+    A URL on the site's own origin with `{approvalId}` in it.
+    """
+    allowed_roles: Annotated[
+        list[AllowedRole] | None, Field(alias="allowedRoles", max_length=20, min_length=1)
+    ] = None
+    """
+    The roles that may sign in at all. Default `["administrator", "shop_manager"]`.
+    """
+    role_map: Annotated[dict[str, SiteRoleGrant] | None, Field(alias="roleMap")] = None
+    """
+    Default: both default roles may ask, and decide as `standard` reviewers. Without a `roleMap`, the map keeps only the entries of the roles in `allowedRoles`: the default map's for a new site, the site's own for a change. An allowed role with no entry signs in to read the project only.
+    """
+    reviewer_ceiling: Annotated[
+        Literal["standard", "senior"] | None, Field(alias="reviewerCeiling")
+    ] = None
+    """
+    Default `standard`.
+    """
+    vouching: bool | None = None
+    """
+    Default `true`.
+    """
+    people_cap: Annotated[int | None, Field(alias="peopleCap", ge=1, le=10000)] = None
+    """
+    Default 50.
+    """
+    new_people_per_day: Annotated[int | None, Field(alias="newPeoplePerDay", ge=1, le=1000)] = None
+    """
+    Default 20.
+    """
+
+
+class SiteEnrollmentCode(BaseModel):
+    """
+    A one-time code the site posts with its public key (`POST /v1/auth/sites/enroll`). Shown once. Using it replaces the site's keys and ends its live sessions.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: str
+    expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
+
+
+class RegisterSiteResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    site: Site
+    enrollment: SiteEnrollmentCode
+
+
+class EnrollSiteBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: Annotated[str, Field(max_length=200, min_length=1)]
+    public_key: Annotated[dict[str, Any], Field(alias="publicKey")]
+    """
+    The site's Ed25519 public key, a JWK: `kty: OKP`, `crv: Ed25519`, `x` and `kid`.
+    """
+
+
+class EnrollSiteResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    site_id: Annotated[UUID, Field(alias="siteId")]
+    """
+    What the site's statements carry as `iss`.
+    """
+    audience: str
+    """
+    What the site's statements carry as `aud`.
+    """
+
+
+class SiteSignInBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    statement: str
+    """
+    The person's statement, signed by the site: a compact JWS, `alg: EdDSA`, `typ: kindgi-site+jwt`, with the site's `kid`. Claims: `iss` (the site id), `aud`, `sub` (the person's stable id on the site), `iat`, `exp` (at most 60 s after `iat`), `jti` (used once), `name`, `roles`, and an optional `email` for notifications.
+    """
+
+
+class SiteSignInResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    token: str
+    """
+    A session token (`kgi_sk_…`) limited to the site's project. Shown once; not refreshable.
+    """
+    expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
+    user_id: Annotated[str, Field(alias="userId")]
+    actor: str
+    """
+    The person as approvals name them: `user:<userId>`.
+    """
+    project_id: Annotated[UUID, Field(alias="projectId")]
 
 
 class SystemOpenapiResponse(BaseModel):
@@ -10989,6 +11798,10 @@ class ApprovalCollectionPage(BaseModel):
     """
     The order the page is in: `asc` (oldest first) or `desc` (newest first). Absent from a runtime before Kindgi 0.1.6, which lists newest first and ignores `order`.
     """
+    decided_by: Annotated[Literal["me"] | None, Field(alias="decidedBy")] = None
+    """
+    `me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.
+    """
 
 
 class CompleteApprovalResult(BaseModel):
@@ -11426,6 +12239,12 @@ class RegisterToolBody(BaseModel):
     mutating: bool | None = None
     """
     Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
+    """
+    needs_approval_when_unattended: Annotated[
+        bool | None, Field(alias="needsApprovalWhenUnattended")
+    ] = None
+    """
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.
     """
     sandbox: Literal["none", "context-isolated", "strict"] | None = None
     """
@@ -11950,6 +12769,7 @@ class DeploymentRecord(BaseModel):
     """
     The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's Default project).
     """
+    pack_env: Annotated[PackEnvDeclaration | None, Field(alias="packEnv")] = None
     endpoint: DeploymentEndpoint | None = None
     primitives: DeploymentPrimitiveCounts
     contents: DeploymentContents
@@ -12003,6 +12823,7 @@ class Tenant(BaseModel):
     On a runtime serving many tenants: `closing` (readable and exportable for its window, nothing changes) or `suspended` (the same, until restored). `closing` wins. Absent: active.
     """
     limits: TenantLimits | None = None
+    egress: EgressAddresses | None = None
 
 
 class TenantLimitsResult(BaseModel):
@@ -12230,6 +13051,9 @@ class SecretSetRequest(BaseModel):
     Per-environment slug. `[a-z][a-z0-9-]{0,62}` — RFC-1035-like label.
     """
     name: Annotated[str, Field(min_length=1)]
+    """
+    A new secret name: 1 to 255 ASCII letters, digits, `.`, `-` and `_`, starting with a letter, digit or `_`, with any `.` between two non-`.` characters. The server holds a newly-created name to this shape (`create-new`, or an `add-version` of a name not yet stored); a name already stored outside this shape still reads, rotates and takes new versions.
+    """
     value: str
     write_mode: Annotated[Literal["create-new", "add-version"], Field(alias="writeMode")]
     tags: dict[str, str] | None = None
@@ -12387,6 +13211,12 @@ class RegisterScheduleBody(BaseModel):
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
     The schedule's project. Absent → the tenant's default project.
+    """
+    run_as_service_account_id: Annotated[
+        str | None, Field(alias="runAsServiceAccountId", min_length=1)
+    ] = None
+    """
+    A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. Absent: the caller owns it.
     """
     config: Config6
     catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
@@ -12580,6 +13410,12 @@ class RegisterWebhookTriggerBody(BaseModel):
         int | None, Field(alias="rateLimitPerMinute", ge=1, le=6000)
     ] = None
     label: str | None = None
+    run_as_service_account_id: Annotated[
+        str | None, Field(alias="runAsServiceAccountId", min_length=1)
+    ] = None
+    """
+    A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it.
+    """
 
 
 class PatchWebhookTriggerBody(BaseModel):
@@ -12826,6 +13662,12 @@ class Run(BaseModel):
     agent: RunAgent | None = None
     waiting_for: Annotated[RunWaitingFor | None, Field(alias="waitingFor")] = None
     trigger: RunTrigger | None = None
+    started_by: Annotated[
+        Literal["person", "key", "schedule", "webhook", "event"] | None, Field(alias="startedBy")
+    ] = None
+    """
+    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
+    """
     replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
     """
     Set on a replay run (an eval run re-running a past run): the run it replays.
@@ -12900,6 +13742,12 @@ class Datum(BaseModel):
     agent: RunAgent | None = None
     waiting_for: Annotated[RunWaitingFor | None, Field(alias="waitingFor")] = None
     trigger: RunTrigger | None = None
+    started_by: Annotated[
+        Literal["person", "key", "schedule", "webhook", "event"] | None, Field(alias="startedBy")
+    ] = None
+    """
+    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
+    """
     replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
     """
     Set on a replay run (an eval run re-running a past run): the run it replays.
@@ -12973,6 +13821,12 @@ class Tool(BaseModel):
     mutating: bool | None = None
     """
     Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
+    """
+    needs_approval_when_unattended: Annotated[
+        bool | None, Field(alias="needsApprovalWhenUnattended")
+    ] = None
+    """
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.
     """
     sandbox: Literal["none", "context-isolated", "strict"] | None = None
     """
@@ -13052,6 +13906,12 @@ class ToolVersionRow(BaseModel):
     mutating: bool | None = None
     """
     Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
+    """
+    needs_approval_when_unattended: Annotated[
+        bool | None, Field(alias="needsApprovalWhenUnattended")
+    ] = None
+    """
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.
     """
     sandbox: Literal["none", "context-isolated", "strict"] | None = None
     """
@@ -13282,11 +14142,32 @@ class UserRecord(BaseModel):
     """
     When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.
     """
+    invite: UserInvite | None = None
+    """
+    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).
+    """
+    first_signed_in_at: Annotated[AwareDatetime | None, Field(alias="firstSignedInAt")] = None
+    """
+    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).
+    """
     metadata: dict[str, Any] | None = None
     grants: PersonGrants | None = None
     """
     The person's grants: only on `GET /v1/identity/users?include=grants`, and only from a runtime that reads grants.
     """
+
+
+class InviteRenewed(BaseModel):
+    """
+    The person, with their invitation's new expiry, and whether it was emailed.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user: UserRecord
+    invite_email: Annotated[InviteEmail, Field(alias="inviteEmail")]
 
 
 class UnregisterUserResult(BaseModel):
@@ -13347,11 +14228,11 @@ class WhoamiResult(BaseModel):
     """
     role: Literal["admin", "member"] | None = None
     """
-    The caller's API key role, when the key has one.
+    The caller's API key role, when the key has one, or its session's role ceiling.
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    The project the caller's API key is limited to, when it is.
+    The project the caller's API key or session is limited to, when it is.
     """
     tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
     """

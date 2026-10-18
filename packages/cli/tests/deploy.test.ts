@@ -36,6 +36,7 @@ import type {
   DeploymentEndpointRecord,
   DeploymentRecord,
   GetDeploymentResult,
+  GetPackEnvResult,
   LoadEnvelopeResult,
   PostDeploymentOptions,
   PostDeploymentResult,
@@ -44,6 +45,7 @@ import type {
   SyncSecretsOptions,
   SyncSecretsResult,
 } from '../src/deploy/runners.js';
+import type { PackEnvNameRecord } from '../src/env/pack-env-hint.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
 import { fakeRateLimitWaits } from './rate-limit-waits.js';
 
@@ -1188,17 +1190,20 @@ describe('kindgi deploy --project: one project per client', () => {
     expect(body(fixtures)?.projectId).toBeUndefined();
   });
 
-  test('a slug of no project is refused, saying where to see them; nothing is sent', async () => {
+  test('a slug of no project is refused, saying where to see them and how to make one; nothing is sent', async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures({ projects });
     const out = await deploy(fixtures, '--project=initech-shop');
     expect(out.exitCode).not.toBe(0);
     expect(out.stderr).toContain(
-      '--project initech-shop: no project of this tenant has that slug. `kindgi projects list` shows them.',
+      '--project initech-shop: no project of this tenant has that slug. `kindgi projects list` shows them; `kindgi projects create --name=<name> --slug=initech-shop` makes one.',
     );
-    // No command makes one.
-    expect(out.stderr).not.toContain('kindgi projects create');
     expect(fixtures.state.postCalls).toBe(0);
+    // A slug `projects create` wouldn't take isn't offered as one.
+    const upper = await deploy(makeFixtures({ projects }), '--project=Initech');
+    expect(upper.stderr).toContain(
+      '`kindgi projects create --name=<name> --slug=<slug>` makes one.',
+    );
   });
 
   test('a slug two orgs share is refused, naming both ids; nothing is sent', async () => {
@@ -1730,6 +1735,163 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
         endpoint: API,
         token: 'kgi_tk_folder',
       });
+    });
+  });
+
+  describe("the pack service's env on Kindgi Cloud", () => {
+    /** Cloud's env block, with the pack's env declared and staging's `env` block as given. */
+    const declared = (stagingEnv?: Record<string, unknown>): Record<string, unknown> => {
+      const base = cloud();
+      const staging = (base.environments as { staging: Record<string, unknown> }).staging;
+      return {
+        env: { required: ['API_BASE', 'SHOP_URL'], optional: ['LOG_LEVEL'] },
+        environments: {
+          staging: { ...staging, ...(stagingEnv !== undefined && { env: stagingEnv }) },
+        },
+      };
+    };
+    const hostedWith = (fixtures: Fixtures, config: Record<string, unknown>, ...flags: string[]) =>
+      runCli({
+        ...baseInputs(fixtures, { env: signedIn }, config),
+        argv: ['deploy', '--env=staging', `--path=${packDir}`, '--hosted', ...flags],
+      });
+    const name = (n: string, extra: Partial<PackEnvNameRecord> = {}): PackEnvNameRecord => ({
+      name: n,
+      required: true,
+      kind: 'env',
+      scope: { kind: 'project', id: PROJECT },
+      missing: false,
+      ...extra,
+    });
+    const unset = (n: string): PackEnvNameRecord =>
+      name(n, { kind: null, scope: null, missing: true, problem: 'missing' });
+    /** `hostedFixtures`, whose reads of the deployment's env answer `packEnv` in turn (then the last again). */
+    function withPackEnv(
+      run: ReturnType<typeof hostedFixtures>,
+      packEnv: readonly (GetPackEnvResult | readonly PackEnvNameRecord[])[],
+    ) {
+      const reads: string[] = [];
+      const runners: DeployRunners = {
+        ...run.fixtures.runners,
+        getPackEnv: async (o): Promise<GetPackEnvResult> => {
+          reads.push(o.deploymentId);
+          const next = packEnv[Math.min(reads.length - 1, packEnv.length - 1)];
+          if (next === undefined) return { kind: 'not-served' };
+          if (!Array.isArray(next)) return next as GetPackEnvResult;
+          const data = next as readonly PackEnvNameRecord[];
+          return {
+            kind: 'ok',
+            packEnv: {
+              envName: 'prod',
+              data,
+              ...(data.some((n) => n.problem !== undefined) && { problem: 'pack-env-missing' }),
+            },
+          };
+        },
+      };
+      return { ...run, fixtures: { ...run.fixtures, runners }, packEnvReads: reads };
+    }
+
+    test('environments.<env>.env in kindgi.config: refused before anything is built or sent, naming each name and how to set it', async () => {
+      await writeAutoEnvelope();
+      const run = hostedFixtures(pending(), [ready]);
+      const out = await hostedWith(
+        run.fixtures,
+        declared({
+          API_BASE: 'https://api.acme.test',
+          SHOP_URL: { secret: 'acme-shop-url', version: '2' },
+          EXTRA: 'x',
+        }),
+        `--project=${PROJECT}`,
+      );
+      expect(out.exitCode).toBe(1);
+      expect(run.fixtures.state.postCalls).toBe(0);
+      expect(run.fixtures.state.capturedBuild).toBeUndefined();
+      expect(out.stderr).toContain(
+        `kindgi deploy: on Kindgi Cloud the pack service gets the env values set in your workspace, not environments.staging.env in kindgi.config (API_BASE, EXTRA, SHOP_URL). Set each with \`kindgi env set NAME <value> --scope=project:${PROJECT} --env=staging\`, then remove environments.staging.env from kindgi.config and deploy again. A secret is read per call in a tool (\`ctx.secrets\`): a pack service on Kindgi Cloud is given plain values only.`,
+      );
+    });
+
+    test('a tenant-wide hosted deploy is told to set them at the tenant; a malformed block is refused too', async () => {
+      await writeAutoEnvelope();
+      const run = hostedFixtures(pending(), [ready]);
+      const out = await hostedWith(run.fixtures, declared({ API_BASE: 'https://api.acme.test' }));
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain('`kindgi env set NAME <value> --scope=tenant --env=staging`');
+      expect(out.stderr).not.toContain('A secret is read per call');
+      const malformed = hostedFixtures(pending(), [ready]);
+      const bad = await hostedWith(malformed.fixtures, declared({ API_BASE: 42 }));
+      expect(bad.exitCode).toBe(1);
+      expect(malformed.fixtures.state.postCalls).toBe(0);
+      expect(bad.stderr).toContain('not environments.staging.env in kindgi.config. Set each with');
+    });
+
+    test("no environments.<env>.env: kindgi.config's required names aren't checked; the server says what's missing, and it waits", async () => {
+      await writeAutoEnvelope();
+      const run = withPackEnv(
+        hostedFixtures(pending(), [
+          pending('pack-env-missing'),
+          pending('pack-env-missing'),
+          ready,
+        ]),
+        [
+          [unset('API_BASE'), unset('SHOP_URL')],
+          [unset('API_BASE'), unset('SHOP_URL')],
+          [unset('SHOP_URL')],
+        ],
+      );
+      const out = await hostedWith(run.fixtures, declared(), `--project=${PROJECT}`);
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(out.stderr).not.toContain('has no value in environments.staging.env');
+      expect(run.packEnvReads).toEqual(['dep-01H8XM', 'dep-01H8XM']);
+      const waited = out.stderr.slice(out.stderr.indexOf('Waiting for the pack service'));
+      expect(waited.split('\n').slice(0, 5)).toEqual([
+        'Waiting for the pack service',
+        '    … pending',
+        `      API_BASE and SHOP_URL aren't set for prod. Set each with \`kindgi env set NAME <value> --scope=project:${PROJECT} --env=prod\`.`,
+        "    … pending (pack-env-missing): a name the pack needs in its env isn't set",
+        '    ✓ ready',
+      ]);
+    });
+
+    test('a name set only as a secret, or both ways: it says which, and where', async () => {
+      await writeAutoEnvelope();
+      const run = withPackEnv(hostedFixtures(pending(), [ready]), [
+        [
+          name('API_BASE', { kind: 'secret', problem: 'secret-not-yet' }),
+          name('SHOP_URL', {
+            scope: { kind: 'tenant' },
+            problem: 'ambiguous',
+            secretScope: { kind: 'org', id: 'org-1' },
+          }),
+        ],
+      ]);
+      const out = await hostedWith(run.fixtures, declared(), `--project=${PROJECT}`);
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(out.stderr).toContain(
+        "      API_BASE is set only as a secret, which a pack service isn't given in its environment: a tool reads it per call (`ctx.secrets`).",
+      );
+      expect(out.stderr).toContain(
+        "      SHOP_URL is set both as a secret (org org-1) and as a plain value (tenant): remove one, so it's clear which the pack service gets.",
+      );
+    });
+
+    test("a server that doesn't give pack services their env, or can't be read: nothing more is said", async () => {
+      for (const answer of [
+        { kind: 'not-served' } as const,
+        { kind: 'error', message: 'GET … answered HTTP 503' } as const,
+      ]) {
+        await writeAutoEnvelope();
+        const run = withPackEnv(hostedFixtures(pending(), [ready]), [answer]);
+        const out = await hostedWith(run.fixtures, declared(), `--project=${PROJECT}`);
+        expect(out.exitCode, out.stderr).toBe(0);
+        const waited = out.stderr.slice(out.stderr.indexOf('Waiting for the pack service'));
+        expect(waited.split('\n').slice(0, 3)).toEqual([
+          'Waiting for the pack service',
+          '    … pending',
+          '    ✓ ready',
+        ]);
+      }
     });
   });
 });

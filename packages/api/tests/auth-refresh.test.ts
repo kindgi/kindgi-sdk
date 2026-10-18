@@ -54,6 +54,9 @@ function makeStore() {
         expiresAt: input.expiresAt,
         scopes: input.scopes,
         ...(input.metadata !== undefined && { metadata: input.metadata }),
+        ...(input.projectId !== undefined && { projectId: input.projectId }),
+        ...(input.role !== undefined && { role: input.role }),
+        ...(input.secondFactor !== undefined && { secondFactor: input.secondFactor }),
         createdAt: new Date().toISOString() as Timestamp,
       });
       return { sessionId: id, expiresAt: input.expiresAt };
@@ -136,6 +139,53 @@ describe('POST /v1/auth/refresh', () => {
     // The old token is rotated; the new one works.
     expect((await refresh(app, encodeSessionToken(first.sessionId))).status).toBe(401);
     expect((await refresh(app, body.sessionToken)).status).toBe(200);
+  });
+
+  test.each([
+    ['a project', { projectId: randomUUID() as never }],
+    ['a role', { role: 'member' as const }],
+  ])('a session limited to %s is not refreshed, and stays as it was', async (_what, limit) => {
+    const { store, created, revoked } = makeStore();
+    const app = makeApp(store);
+    const first = await store.create({
+      tenantId,
+      userId: 'user-jane' as never,
+      providerId: 'site:acme-store',
+      expiresAt: EXPIRES,
+      scopes: [],
+      ...limit,
+    });
+
+    const res = await refresh(app, encodeSessionToken(first.sessionId));
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'limited-session-not-refreshable',
+    );
+    // Nothing minted, nothing rotated: the session runs on to its own end.
+    expect(created).toHaveLength(1);
+    expect(revoked).toEqual([]);
+  });
+
+  test('the new session keeps how and when the second factor was given', async () => {
+    const { store, created } = makeStore();
+    const app = makeApp(store);
+    const secondFactor = { method: 'totp' as const, at: '2026-10-17T00:00:00.000Z' as Timestamp };
+    const first = await store.create({
+      tenantId,
+      userId: 'user-ada' as never,
+      providerId: 'google',
+      expiresAt: EXPIRES,
+      scopes: [],
+      secondFactor,
+    });
+
+    const res = await refresh(app, encodeSessionToken(first.sessionId));
+    expect(res.status).toBe(200);
+    const { sessionId } = (await res.json()) as { sessionId: string };
+    expect(created[1]?.secondFactor).toEqual(secondFactor);
+    expect((await store.get({ tenantId, sessionId: sessionId as never }))?.secondFactor).toEqual(
+      secondFactor,
+    );
   });
 
   test("provider tokens a store still returns aren't handed to the new session", async () => {

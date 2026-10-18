@@ -19,6 +19,7 @@ import type {
   WebhookSignatureScheme,
 } from '@kindgi/types';
 
+import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
@@ -29,6 +30,7 @@ import {
 } from '../reference-scope.js';
 import { recordedSecretScope, secretScopesFor } from '../secret-scope.js';
 import type { SecretBinding } from '../secrets-binding.js';
+import { secretNameGrammarRefusal } from '../secrets-binding.js';
 import {
   type RegisterWebhookTriggerInput,
   type TriggerFire,
@@ -41,7 +43,14 @@ import {
 import type { AppEnv } from '../types.js';
 import { generateSigningSecret } from '../webhook-signing-secret.js';
 import { clampLimit } from './pagination.js';
-import { type TriggerOwnerNames, ownerJson, ownerNamesOf, ownerOf } from './trigger-owners.js';
+import {
+  type TriggerOwnerNames,
+  ownerJson,
+  ownerNamesOf,
+  recordOwnerSet,
+  resolveTriggerOwner,
+  triggerOwnerDeps,
+} from './trigger-owners.js';
 import { UUID_RE } from './uuid-param.js';
 import { auditWrite } from './write-audit.js';
 
@@ -188,13 +197,14 @@ export function webhooksRouter(
   }
 
   /**
-   * A name `generateSecret` can't store the signing secret under
-   * (`nameRefusal`): the store's rule, as a typed `400`. Naming a secret
-   * that's already stored never asks: the dev store reads names it can't
-   * write (a key typed into `.env` by hand).
+   * A name `generateSecret` can't store the signing secret under: the shared
+   * name grammar ({@link secretNameGrammarRefusal}) first, then the store's
+   * own rule (`nameRefusal`), as a typed `400`. Naming a secret that's already
+   * stored never asks: the dev store reads names it can't write (a key typed
+   * into `.env` by hand).
    */
   function nameRefused(c: Context<AppEnv>, name: string): Response | undefined {
-    const refusal = secrets?.nameRefusal?.(name);
+    const refusal = secretNameGrammarRefusal(name) ?? secrets?.nameRefusal?.(name);
     if (refusal === undefined) return undefined;
     c.status(statusFor(refusal.code) as never);
     return c.json(
@@ -298,6 +308,20 @@ export function webhooksRouter(
       hmacSecretScope = await hmacScopeFor(c, item, hmacSecretName.value);
     }
 
+    // Who its runs act as: the caller, or the service account named with
+    // `runAsServiceAccountId` (gated by `act_as`; see `resolveTriggerOwner`).
+    const runAsRaw = body.runAsServiceAccountId;
+    if (runAsRaw !== undefined && (typeof runAsRaw !== 'string' || runAsRaw.length === 0)) {
+      return bad(c, requestId, '`runAsServiceAccountId` must be a service-account id');
+    }
+    const resolved = await resolveTriggerOwner(
+      c,
+      runAsRaw as string | undefined,
+      triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
+    );
+    if (resolved.kind === 'refused') return resolved.response;
+    const owner = resolved.owner;
+
     const rawConfig = (body.config ?? {}) as Record<string, unknown>;
     const registerInput: RegisterWebhookTriggerInput = {
       kind: 'webhook',
@@ -305,7 +329,7 @@ export function webhooksRouter(
       flowId: flowId.value,
       flowVersion: flowVersion.value,
       ...(project !== undefined && { projectId: project as ProjectId }),
-      owner: ownerOf(c),
+      owner,
       config: { ...('input' in rawConfig && { input: rawConfig.input }) },
       // The route mints the routable id: a random UUID, so the receive URL
       // can't be guessed. The signature is still what authorises a request.
@@ -356,6 +380,21 @@ export function webhooksRouter(
         c.status(statusFor(stored.code) as never);
         return c.json(toWireError({ code: stored.code, message: stored.message }, requestId));
       }
+    }
+    // A named service-account owner is a delegation: audit it. A plain
+    // register (owner = caller) is the trigger's creation, not a change.
+    if (runAsRaw !== undefined) {
+      await recordOwnerSet({
+        auditEvents,
+        tenantId,
+        ...(project !== undefined && { projectId: project as ProjectId }),
+        triggerId: result.value.triggerId,
+        triggerKind: 'webhook',
+        to: owner,
+        by: callerRef(c),
+        correlationId: requestId,
+        log: c.get('log'),
+      });
     }
     c.status(201);
     return webhookJson(c, result.value as WebhookTriggerRecord, generated);
@@ -566,9 +605,37 @@ export function webhooksRouter(
     if (binding.setOwner === undefined) return unsupported(c, requestId, 'changing the owner');
     const refused = await denied(c, 'execute', ref('flow', found.value.flowId));
     if (refused !== undefined) return refused;
+    // The caller takes it over, or names a service account with
+    // `runAsServiceAccountId` in an optional body (gated by `act_as`).
+    const parsed = await parseJsonObject(c, requestId, { allowEmpty: true });
+    if (parsed.kind === 'err') return parsed.response;
+    const runAsRaw = parsed.value.runAsServiceAccountId;
+    if (runAsRaw !== undefined && (typeof runAsRaw !== 'string' || runAsRaw.length === 0)) {
+      return bad(c, requestId, '`runAsServiceAccountId` must be a service-account id');
+    }
+    const resolved = await resolveTriggerOwner(
+      c,
+      runAsRaw as string | undefined,
+      triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
+    );
+    if (resolved.kind === 'refused') return resolved.response;
     const { tenantId, triggerId } = found.value;
-    const result = await binding.setOwner({ tenantId, triggerId, owner: ownerOf(c) });
+    const previousOwner = found.value.owner;
+    const result = await binding.setOwner({ tenantId, triggerId, owner: resolved.owner });
     if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
+    // Every owner change is audited, a plain caller take-over included.
+    await recordOwnerSet({
+      auditEvents,
+      tenantId,
+      ...(found.value.projectId !== undefined && { projectId: found.value.projectId as ProjectId }),
+      triggerId,
+      triggerKind: 'webhook',
+      from: previousOwner,
+      to: resolved.owner,
+      by: callerRef(c),
+      correlationId: requestId,
+      log: c.get('log'),
+    });
     return webhookJson(c, result.value as WebhookTriggerRecord);
   });
 
@@ -786,18 +853,37 @@ type ParseErr = { readonly kind: 'err'; readonly response: Response };
 async function parseJsonObject(
   c: Context<AppEnv>,
   requestId: string,
+  opts: { readonly allowEmpty?: boolean } = {},
 ): Promise<ParseOk<Record<string, unknown>> | ParseErr> {
   let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    c.status(statusFor('bad-input') as never);
-    return {
-      kind: 'err',
-      response: c.json(
-        toWireError({ code: 'bad-input', message: 'Request body must be valid JSON' }, requestId),
-      ),
-    };
+  if (opts.allowEmpty === true) {
+    // An endpoint whose body is optional (take-over): no body, or an empty
+    // one, reads as `{}`; anything present must still be a JSON object.
+    const text = await c.req.text();
+    if (text.trim().length === 0) return { kind: 'ok', value: {} };
+    try {
+      body = JSON.parse(text);
+    } catch {
+      c.status(statusFor('bad-input') as never);
+      return {
+        kind: 'err',
+        response: c.json(
+          toWireError({ code: 'bad-input', message: 'Request body must be valid JSON' }, requestId),
+        ),
+      };
+    }
+  } else {
+    try {
+      body = await c.req.json();
+    } catch {
+      c.status(statusFor('bad-input') as never);
+      return {
+        kind: 'err',
+        response: c.json(
+          toWireError({ code: 'bad-input', message: 'Request body must be valid JSON' }, requestId),
+        ),
+      };
+    }
   }
   if (body === null || typeof body !== 'object' || Array.isArray(body)) {
     c.status(statusFor('bad-input') as never);

@@ -158,6 +158,10 @@
           "type": "boolean",
           "description": "Whether the tool may change something (`tool.schema.json` `mutating`). `false` makes it read-only: it runs in a dry run, and per-tool approval gates don't ask before it by default. Absent means it may."
         },
+        "needsApprovalWhenUnattended": {
+          "type": "boolean",
+          "description": "Whether a person must say yes to every call of the tool in a run no person started (`tool.schema.json` `needsApprovalWhenUnattended`). Absent means `false`."
+        },
         "spec": {
           "$ref": "#/$defs/openObject",
           "description": "A declarative tool's spec (`tool.schema.json` `spec`, e.g. `kind: 'http'`). A runtime runs a tool that has one itself, resolving its `secretRef`s, rather than calling the pack service."

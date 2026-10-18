@@ -22,8 +22,11 @@ runs once if at least one fired.
 
 ## Join two branches
 
-`acme.handle-order` holds a large order, then emails the customer either way.
-It adds one tool, `acme.email-customer`. Write the tool and the flow:
+Ask your coding agent: "I want a flow that holds a large order, then emails
+the customer either way." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+tool and the flow look like this. This guide calls the flow
+`acme.handle-order`, and it adds one tool, `acme.email-customer`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

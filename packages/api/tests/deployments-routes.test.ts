@@ -104,6 +104,7 @@ function makeInMemoryDeploymentBinding(): DeploymentBinding {
         publishedAt: input.publishedAt,
         activatedAt: new Date().toISOString(),
         ...(input.projectId !== undefined && { projectId: input.projectId }),
+        ...(input.packEnv !== undefined && { packEnv: input.packEnv }),
         primitives: input.primitives,
         contents: input.contents,
       };
@@ -871,6 +872,48 @@ describe("POST /v1/deployments — the image's index is what registers", () => {
         code: 'image-unverifiable',
         message: 'Image /app/index.json is not a JSON object',
       });
+    }
+  });
+
+  test('the names its pack service reads (`env`) are kept on the deployment, as the build wrote them', async () => {
+    const env = { required: ['API_BASE', 'SHOP_URL'], optional: ['LOG_LEVEL'] };
+    const fixture = buildSignedDeploy({ index: { ...indexWith('20260920.1'), env } });
+    const { app, deploymentRegistry } = makeApp({ fixture });
+    const res = await post(app, fixture.wire);
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { packEnv?: unknown }).packEnv).toEqual(env);
+    const [stored] = (await deploymentRegistry.list({ tenantId, limit: 10 })).data;
+    expect(stored?.packEnv).toEqual(env);
+  });
+
+  test('an index without `env` keeps no declaration', async () => {
+    const fixture = buildSignedDeploy();
+    const { app, deploymentRegistry } = makeApp({ fixture });
+    const res = await post(app, fixture.wire);
+    expect(res.status).toBe(201);
+    expect('packEnv' in ((await res.json()) as object)).toBe(false);
+    const [stored] = (await deploymentRegistry.list({ tenantId, limit: 10 })).data;
+    expect(stored?.packEnv).toBeUndefined();
+  });
+
+  test('an image whose index declares a malformed `env` is refused, and nothing is written', async () => {
+    for (const env of [
+      { required: ['KINDGI_TOKEN'] },
+      { required: 'API_BASE' },
+      { required: ['API_BASE'], optional: ['API_BASE'] },
+      { secrets: ['API_KEY'] },
+    ]) {
+      const fixture = buildSignedDeploy({ index: { ...indexWith('20260920.1'), env } });
+      const { app, deploymentRegistry, toolRegistry } = makeApp({ fixture });
+      const res = await post(app, fixture.wire);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { code: string; message: string } };
+      expect(body.error.code).toBe('image-unverifiable');
+      expect(body.error.message).toMatch(/^Image \/app\/index\.json's env is malformed: /);
+      expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(0);
+      expect(
+        await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+      ).toBeNull();
     }
   });
   test("its tools' schema compiles count against the tenant's budget, first ones included: refused, nothing is written", async () => {
@@ -2036,6 +2079,105 @@ describe('POST /v1/deployments — manifest validation', () => {
   });
 });
 
+// ------- 500 bodies route through the central handler -------
+
+describe('POST /v1/deployments — 500s route through the central handler', () => {
+  test('a trust-check error is a fixed-message 500 that leaks no raw detail', async () => {
+    const fixture = buildSignedDeploy();
+    const signingKeyRegistry: SigningKeyRegistryBinding = {
+      ...makeMockSigningKeyRegistry([]),
+      isTrusted: async () => ({
+        kind: 'err',
+        error: {
+          code: 'signing-key-store-error',
+          message: 'trust store query failed: SELECT 1 FROM trust_keys WHERE tenant = $1',
+        },
+      }),
+    };
+    const { app, toolRegistry, guardrailRegistry } = makeApp({ fixture, signingKeyRegistry });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(500);
+    const raw = JSON.stringify(await res.json());
+    // A mutant restoring the interpolated `Trust check failed: ${...}` body is killed.
+    expect(JSON.parse(raw).error.code).toBe('internal-server-error');
+    expect(raw).not.toContain('trust store query failed');
+    expect(raw).not.toContain('SELECT 1 FROM trust_keys');
+    // The trust check precedes any write: nothing landed.
+    expect(
+      await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+    ).toBeNull();
+    expect(
+      await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
+    ).toBeNull();
+  });
+
+  test('a deployment-record throw is a fixed-message 500, leaks nothing, and rolls back', async () => {
+    const fixture = buildSignedDeploy();
+    const deploymentRegistry: DeploymentBinding = {
+      ...makeInMemoryDeploymentBinding(),
+      register: async () => {
+        throw new Error(
+          'insert into deployments failed: duplicate key value violates "deployments_pkey"',
+        );
+      },
+    };
+    const { app, toolRegistry, guardrailRegistry } = makeApp({ fixture, deploymentRegistry });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(500);
+    const raw = JSON.stringify(await res.json());
+    // A mutant that restores a route-built 500 body here is killed.
+    expect(JSON.parse(raw).error.code).toBe('internal-server-error');
+    expect(raw).not.toContain('insert into deployments failed');
+    expect(raw).not.toContain('deployments_pkey');
+    // The tool + guardrail written before the record step are rolled back.
+    expect(
+      await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+    ).toBeNull();
+    expect(
+      await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
+    ).toBeNull();
+  });
+
+  test('a deployment-record error outcome is a fixed-message 500, leaks nothing, and rolls back', async () => {
+    const fixture = buildSignedDeploy();
+    const deploymentRegistry: DeploymentBinding = {
+      ...makeInMemoryDeploymentBinding(),
+      register: async () => ({
+        kind: 'error',
+        code: 'constraint-violation',
+        message: 'row rejected: CHECK (artifact_version ~ ...) on table deployments',
+      }),
+    };
+    const { app, toolRegistry, guardrailRegistry } = makeApp({ fixture, deploymentRegistry });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(500);
+    const raw = JSON.stringify(await res.json());
+    // A mutant that restores the interpolated `Deployment record failed (...)` body is killed.
+    expect(JSON.parse(raw).error.code).toBe('internal-server-error');
+    expect(raw).not.toContain('row rejected');
+    expect(raw).not.toContain('artifact_version');
+    // Rolled back.
+    expect(
+      await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+    ).toBeNull();
+    expect(
+      await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
+    ).toBeNull();
+  });
+});
+
 // ---------------- rollback ----------------
 
 describe('POST /v1/deployments — rollback', () => {
@@ -2085,6 +2227,11 @@ describe('POST /v1/deployments — rollback', () => {
       body: JSON.stringify(fixture.wire),
     });
     expect(res.status).toBe(500);
+    // The fixed 500 body carries no raw detail of the thrown cause. A mutant
+    // that restores a route-built body at the upsert fall-through is killed.
+    const raw = JSON.stringify(await res.json());
+    expect(JSON.parse(raw).error.code).toBe('internal-server-error');
+    expect(raw).not.toContain('forced failure');
     // Tool + guardrail should have been rolled back.
     const tool = await toolRegistry.get({
       tenantId,
@@ -2161,6 +2308,63 @@ describe('POST /v1/deployments — rollback', () => {
     expect(
       await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
     ).toBeNull();
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
+  test("a tool whose id is an MCP endpoint's tool → 409 tool-kind-mismatch, naming the endpoint; rolled back, nothing deployed", async () => {
+    const tool = (id: string) => ({
+      id,
+      description: 'x',
+      version: '1.0.0',
+      input: { type: 'object' },
+      output: { type: 'object' },
+    });
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [tool('acme.verify-citation'), tool('acme.search')],
+        guardrails: [],
+        agents: [],
+        flows: [],
+      },
+    });
+    const tools = makeInMemoryToolRegistry();
+    // As a registry holding MCP endpoint `acme`'s tool `search`.
+    const toolRegistry: ToolRegistryBinding = {
+      ...tools,
+      publish: async (input) =>
+        (input.tool.id as unknown as string) === 'acme.search'
+          ? {
+              kind: 'kind-mismatch',
+              toolId: input.tool.id,
+              version: input.tool.version as never,
+              endpointId: 'acme',
+            }
+          : tools.publish(input),
+    };
+    const { app, deploymentRegistry } = makeApp({ fixture, toolRegistry });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details?: Record<string, unknown> };
+    };
+    expect(body.error.code).toBe('tool-kind-mismatch');
+    expect(body.error.message).toBe(
+      "The tool acme.search@1.0.0 wasn't published: its id is MCP endpoint \"acme\"'s tool (give the pack's tool another name, or unregister the endpoint first); nothing was deployed",
+    );
+    expect(body.error.details).toEqual({
+      primitive: 'tool',
+      id: 'acme.search@1.0.0',
+      endpointId: 'acme',
+    });
+    // What it published before is rolled back.
+    expect(await tools.get({ tenantId, toolId: 'acme.verify-citation' as never })).toBeNull();
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
   });
 
@@ -2427,6 +2631,66 @@ describe('GET /v1/deployments', () => {
 
     // suppress unused
     expect(app.request).toBeTypeOf('function');
+  });
+
+  // The list handler lets a throw from the registry propagate to the central
+  // error handler instead of catching it and building its own 500. A mutant
+  // that restores the inline `catch (cause)` 500 is killed by both tests:
+  // the busy case stops being a 503, and the generic case starts leaking
+  // `Deployment list failed: <cause>`.
+  test('a database-busy registry answers 503 + Retry-After, not a 500', async () => {
+    const busy: DeploymentBinding = {
+      ...makeInMemoryDeploymentBinding(),
+      list: async () => {
+        const cause = new Error('connect ECONNREFUSED 10.0.0.5:5432') as Error & { code?: string };
+        cause.code = 'database-busy';
+        throw cause;
+      },
+    };
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      deploymentRegistry: busy,
+      signingKeyRegistry: makeMockSigningKeyRegistry([]),
+      imageRegistry: makeMockImageRegistry([]),
+    });
+    const res = await app.request('/v1/deployments', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('retry-after')).toBe('5');
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe('database-busy');
+  });
+
+  test('a generic registry throw is a 500 whose body carries no raw error text', async () => {
+    const leak =
+      'Failed query: SELECT * FROM deployments WHERE tenant = $1; params: alice@example.com';
+    const throwing: DeploymentBinding = {
+      ...makeInMemoryDeploymentBinding(),
+      list: async () => {
+        throw new Error(leak);
+      },
+    };
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      deploymentRegistry: throwing,
+      signingKeyRegistry: makeMockSigningKeyRegistry([]),
+      imageRegistry: makeMockImageRegistry([]),
+    });
+    const res = await app.request('/v1/deployments', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(500);
+    const raw = await res.text();
+    expect(raw).not.toContain('alice@example.com');
+    expect(raw).not.toContain('Deployment list failed');
+    const body = JSON.parse(raw) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('internal-server-error');
+    expect(['Unhandled server error', 'A database query failed.']).toContain(body.error.message);
   });
 
   test('imageRefPrefix filter narrows results', async () => {
@@ -3436,6 +3700,77 @@ describe('POST /v1/deployments/:deploymentId/secrets — happy paths', () => {
     const body = (await res.json()) as { resolved: number; added: number };
     expect(body.resolved).toBe(1);
     expect(body.added).toBe(1);
+    expect(secretsFixture.recordedSets).toHaveLength(1);
+  });
+});
+
+describe('POST /v1/deployments/:deploymentId/secrets — a new inline name is held to the shared grammar', () => {
+  test('refuses a new { name, value } whose name is out of grammar, writing nothing', async () => {
+    const { app, deploymentId, secretsFixture } = await makeSyncApp();
+    const res = await app.request(`/v1/deployments/${deploymentId}/secrets`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${SECRETS_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        envName: 'staging',
+        secrets: [{ name: 'acme/new-inline', value: 'v' }],
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'secret-name-invalid',
+    );
+    expect(secretsFixture.recordedSets).toHaveLength(0);
+  });
+
+  test('the refusal leaves nothing half-written when a valid entry comes before the bad one', async () => {
+    const { app, deploymentId, secretsFixture } = await makeSyncApp();
+    const res = await app.request(`/v1/deployments/${deploymentId}/secrets`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${SECRETS_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        envName: 'staging',
+        secrets: [
+          { name: 'fine.one', value: 'v1' },
+          { name: '.bad', value: 'v2' },
+        ],
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'secret-name-invalid',
+    );
+    expect(secretsFixture.recordedSets).toHaveLength(0);
+  });
+
+  test('an existing out-of-grammar name still takes a new inline value (add-version)', async () => {
+    const { app, deploymentId, secretsFixture } = await makeSyncApp({
+      seedSecrets: [
+        {
+          scope: { kind: 'tenant', tenantId } as Scope,
+          envName: 'staging',
+          name: 'acme/legacy',
+          currentVersion: 3,
+        },
+      ],
+    });
+    const res = await app.request(`/v1/deployments/${deploymentId}/secrets`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${SECRETS_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        envName: 'staging',
+        secrets: [{ name: 'acme/legacy', value: 'rotated' }],
+      }),
+    });
+    expect(res.status).toBe(200);
     expect(secretsFixture.recordedSets).toHaveLength(1);
   });
 });

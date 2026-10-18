@@ -25,6 +25,7 @@
  */
 
 import type { DeployEnvelope } from '../build/envelope.js';
+import type { PackEnvNameRecord } from '../env/pack-env-hint.js';
 
 // ---------------------------------------------------------------------
 // Envelope loader
@@ -323,6 +324,21 @@ export type GetDeploymentResult =
   | { readonly kind: 'ok'; readonly record: DeploymentRecord }
   | { readonly kind: 'error'; readonly message: string };
 
+/** `GET /v1/deployments/:id/pack-env`: where each name the deployment's pack declares is set, never a value. */
+export interface PackEnvRecord {
+  /** The env the values are read at. */
+  readonly envName: string;
+  readonly data: readonly PackEnvNameRecord[];
+  /** `pack-env-missing` and the like, when something stands in the way. */
+  readonly problem?: string;
+}
+
+export type GetPackEnvResult =
+  | { readonly kind: 'ok'; readonly packEnv: PackEnvRecord }
+  /** The server's pack services take their env from how they're run (501), or it's older (404). */
+  | { readonly kind: 'not-served' }
+  | { readonly kind: 'error'; readonly message: string };
+
 export interface DeployRunners {
   /** Read `deploy-envelope.json` from disk + structurally validate. */
   readonly loadEnvelope: (opts: LoadEnvelopeOptions) => Promise<LoadEnvelopeResult>;
@@ -352,6 +368,8 @@ export interface DeployRunners {
   readonly findProjects?: (opts: FindProjectsOptions) => Promise<FindProjectsResult>;
   /** `--hosted`: the deployment, read again while its pack service starts (`GET /v1/deployments/:id`). */
   readonly getDeployment?: (opts: GetDeploymentOptions) => Promise<GetDeploymentResult>;
+  /** `--hosted`: where each name the pack declares is set, when a required one stands in the way. */
+  readonly getPackEnv?: (opts: GetDeploymentOptions) => Promise<GetPackEnvResult>;
   /** `--hosted`: the pause between those reads. Default: a timer, cut short by Ctrl+C. */
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   /** `--hosted`: the clock the wait is measured on, in milliseconds. Default: `Date.now()`. */

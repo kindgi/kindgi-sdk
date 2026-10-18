@@ -74,6 +74,13 @@ export interface EnvRecord {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly tags?: Readonly<Record<string, string>>;
+  /**
+   * The store's own id for the row, never on the wire. A removed value set
+   * again is a new row with a new id, so it's told from the old one even
+   * when both are at revision 1 with the same update time. A store with no
+   * row id leaves it unset.
+   */
+  readonly recordId?: string;
 }
 
 export interface EnvListInput {

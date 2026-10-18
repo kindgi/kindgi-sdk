@@ -212,6 +212,61 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'second-factor-required': {
+    description:
+      "The workspace requires a second factor at sign-in. Signing in to the console with an API token is refused, since a token can't give one: sign in another way, with your second factor. Taking your own second factor off is refused too: replace it (`POST /v1/identity/me/second-factor` with a code), or ask a tenant admin to remove it.",
+    details: [
+      {
+        key: 'action',
+        meaning: 'the action that was refused (token sign-in only)',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on, as type:id (token sign-in only)',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the check refused it (token sign-in only)',
+      },
+    ],
+    seeAlso: ['deploy/self-hosted/sign-in'],
+  },
+  'second-factor-invalid': {
+    description:
+      "The code from the authenticator app, or the recovery code, isn't right: try the code the app shows now. Replacing a second factor that's set up takes a code from it. Too many wrong codes lock it for a while (`second-factor-locked`).",
+    details: [],
+    seeAlso: ['deploy/self-hosted/sign-in'],
+  },
+  'second-factor-locked': {
+    description:
+      'Too many wrong codes lately for this person: no code is checked until the `Retry-After` header says. Nothing changed.',
+    details: [],
+    seeAlso: ['deploy/self-hosted/sign-in'],
+  },
+  'second-factor-unusable': {
+    description:
+      "The person's authenticator key can't be opened any more: the deployment's sign-in secret changed, and the previous one isn't configured. A recovery code still works, and so does setting the second factor up again with one; otherwise a tenant admin removes it.",
+    details: [],
+    seeAlso: ['deploy/self-hosted/sign-in'],
+  },
+  'second-factor-enroll-first': {
+    description:
+      'Requiring a second factor from a session made without one would end that session at its next request. Set up your own second factor and sign in again with it, then require one. An API key may change the setting.',
+    details: [],
+    seeAlso: ['deploy/self-hosted/sign-in'],
+  },
+  'second-factor-not-set-up': {
+    description:
+      'The person has no second factor set up: there are no recovery codes to replace, and nothing to take off. Set one up with `POST /v1/identity/me/second-factor`.',
+    details: [],
+    seeAlso: ['deploy/self-hosted/sign-in'],
+  },
+  'second-factor-not-started': {
+    description:
+      'There is no new key to confirm, or the one given is over an hour old. Start again with `POST /v1/identity/me/second-factor`, and confirm with a code from the new key.',
+    details: [],
+    seeAlso: ['deploy/self-hosted/sign-in'],
+  },
   'token-sign-in-not-allowed': {
     description:
       "The key can't open a console session: it belongs to a service account, or it is narrowed to a member role or one project. Use a full key of a person, or the identity provider.",
@@ -562,6 +617,32 @@ export const ERROR_ENTRIES = {
       {
         key: 'toolId',
         meaning: "the tool's id (single publish)",
+      },
+      {
+        key: 'primitive',
+        meaning: 'on a deployment: the kind of item refused (`tool`)',
+      },
+      {
+        key: 'id',
+        meaning: 'on a deployment: the refused item, as `id@version`',
+      },
+    ],
+  },
+  'tool-kind-mismatch': {
+    description:
+      "A tool's active versions are all one kind: an MCP endpoint's tool, which the runtime registers from the endpoint's listing, or tools published here. This version is the other kind, so nothing was written. Publish or deploy it under another id, or unregister the endpoint (or the other kind's versions) first.",
+    details: [
+      {
+        key: 'toolId',
+        meaning: "the tool's id (single publish or reinstate)",
+      },
+      {
+        key: 'version',
+        meaning: 'the version refused (single publish or reinstate)',
+      },
+      {
+        key: 'endpointId',
+        meaning: "when the id is an MCP endpoint's tool: that endpoint's id",
       },
       {
         key: 'primitive',
@@ -947,6 +1028,16 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'invite-capped': {
+    description:
+      "Too many invitations sent: to this person, from the tenant, or from the whole deployment. The limits are the server's. Nothing changed and nothing was sent. Try again after the `Retry-After` header, or, if their invitation hasn't expired, tell them to sign in.",
+    details: [
+      {
+        key: 'userId',
+        meaning: 'the person whose invitation was to be sent again',
+      },
+    ],
+  },
   'turn-memory-limit-reached': {
     description:
       "The runtime's agent turns hold more memory than its limit leaves this turn: the tenant's share (`KINDGI_TURN_MEMORY_PER_TENANT_MIB`) or the runtime's whole (`KINDGI_TURN_MEMORY_MIB`). The turn's run fails, and every tool call it finished is in the conversation, so a new turn there doesn't call it again. Retry later, or use a smaller conversation.",
@@ -1105,7 +1196,7 @@ export const ERROR_ENTRIES = {
   },
   'export-key-error': {
     description:
-      "Signing the export with the deployment's export key failed. The message carries the reason.",
+      "Signing the export with the deployment's export key failed. The reason is in the runtime's log, not the message.",
     details: [],
     seeAlso: ['POST /v1/approvals/{approvalId}/audit-bundle', 'POST /v1/provenance/{runId}/export'],
   },
@@ -1437,6 +1528,33 @@ export const ERROR_ENTRIES = {
         meaning: 'the scope the policy already holds',
       },
     ],
+  },
+  'retention-over-limit': {
+    description:
+      "The retention policy keeps its domain's records longer than this server's limit for that domain, or holds them (`graceSeconds: -1`). Publish it with a `graceSeconds` at or under the limit. A version over the limit stays retired: reinstating it is refused the same way. A `*` policy isn't refused: in a limited domain, the server keeps records no longer than the limit.",
+    details: [
+      {
+        key: 'domain',
+        meaning: "the policy's retention domain",
+      },
+      {
+        key: 'graceSeconds',
+        meaning: "the policy's grace, in seconds (`-1`: a hold)",
+      },
+      {
+        key: 'limitSeconds',
+        meaning: "this server's limit for the domain, in seconds",
+      },
+      {
+        key: 'policyId',
+        meaning: 'the policy id (on a reinstate)',
+      },
+      {
+        key: 'version',
+        meaning: 'the version (on a reinstate)',
+      },
+    ],
+    seeAlso: ['deploy/retention'],
   },
   'block-not-found': {
     description:
@@ -1963,6 +2081,16 @@ export const ERROR_ENTRIES = {
     description: "The person was removed from the tenant, so they can't be granted anything.",
     details: [],
   },
+  'identity-user-not-invited': {
+    description:
+      'The person has no invitation to send again: they have signed in already, were added before invitations, or have no email. Nothing changed.',
+    details: [
+      {
+        key: 'userId',
+        meaning: 'the person',
+      },
+    ],
+  },
   'person-grants-unsupported': {
     description:
       "The runtime runs without an authorization store, so it can't read or change a person's grants.",
@@ -2247,7 +2375,7 @@ export const ERROR_ENTRIES = {
   },
   'license-operator-only': {
     description:
-      "`GET /v1/license` and `GET /v1/license/usage` are for the deployment's own token, or a system key holding `system:license`. Where the deployment serves a single tenant, that tenant's admins also read the license's countdown, never its use. Other callers are refused, and the refusal recorded.",
+      "`GET /v1/license` and `GET /v1/license/usage` are for the deployment's own token, or a system key holding `system:license`. Where the deployment is set up to serve one tenant (without `KINDGI_TENANCY=multi`) and its database holds only that one, that tenant's admins also read the license's countdown, never its use. Other callers are refused, and the refusal recorded.",
     details: [],
   },
   'invalid-provider-config': {
@@ -2267,6 +2395,75 @@ export const ERROR_ENTRIES = {
       "`POST /v1/auth/refresh` was called with a browser (cookie) session. These sessions aren't refreshed; sign in again when the session ends.",
     details: [],
     seeAlso: ['guides/sso/sessions'],
+  },
+  'limited-session-not-refreshable': {
+    description:
+      "`POST /v1/auth/refresh` was called with a session limited to a project or a role. Such a session isn't refreshed, so no copy of it can come back without its limits. Get a new one where you got this one.",
+    details: [],
+  },
+  'limited-session-cannot-mint': {
+    description:
+      "`POST /v1/tokens` was called by a session limited to a project or a role. A limited session mints no keys: a key would outlive whatever ends the session. Mint the key with an API key, or with a session that isn't limited.",
+    details: [
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+  },
+  'site-not-found': {
+    description:
+      "No site with that id in the project the path names, or, revoking a key, no key with that id on the site. `GET /v1/projects/{projectId}/sites` lists the project's sites.",
+    details: [],
+  },
+  'site-invalid': {
+    description:
+      "A site's settings were refused. Registering one needs a `displayName`, an `origin` and an `approvalsUrl`, and a setting the API doesn't know is refused. An `origin` is `https://` with no path, query, fragment or credentials (`http://` only on a loopback host); an `approvalsUrl` is on that origin, with `{approvalId}` in it; `allowedRoles` holds 1 to 20 role names of up to 64 characters (a-z, 0-9, `_` and `-`); a `roleMap` names only roles in `allowedRoles`, and its reviewer roles are `standard` or `senior`, never above `reviewerCeiling`; a `displayName` is 1 to 100 characters, with no control, format or invisible characters; `peopleCap` is a whole number from 1 to 10,000, and `newPeoplePerDay` from 1 to 1,000. The message says the rule that was broken.",
+    details: [
+      {
+        key: 'field',
+        meaning: 'the setting that was refused',
+      },
+    ],
+  },
+  'site-enrollment-refused': {
+    description:
+      '`POST /v1/auth/sites/enroll` was refused: the enrollment code is wrong, used or expired, or its site is paused or unregistered. Each of these gets the same answer. Ask a tenant admin for a new enrollment code.',
+    details: [],
+  },
+  'site-key-invalid': {
+    description:
+      "The key a site posts to `POST /v1/auth/sites/enroll` isn't an Ed25519 public JWK: `kty` `OKP`, `crv` `Ed25519`, `x` the 32-byte public key in base64url, and a `kid` of 1 to 64 letters, digits, `.`, `_` and `-`. A JWK with a private part (`d`) is refused too: post the public half only. The message says which part is wrong.",
+    details: [],
+  },
+  'site-sign-in-refused': {
+    description:
+      "`POST /v1/auth/site-sign-in` refused the site's statement about a person. Until the statement's signature checks out, every refusal has the reason `not-verified`, so a caller learns nothing about the site. After it, the reason is the check that refused it: `site-paused`, `site-not-vouching`, `wrong-audience`, `expired`, `issued-in-the-future`, `too-long-lived`, `replayed`, `role-not-allowed`, `person-removed` or `people-cap`.",
+    details: [
+      {
+        key: 'reason',
+        meaning:
+          "why: `not-verified` until the statement's signature checks out, then the check that refused it",
+      },
+    ],
+  },
+  'site-request-too-large': {
+    description:
+      'A body sent to `POST /v1/auth/sites/enroll` or `POST /v1/auth/site-sign-in` is over 4096 bytes. Those routes take a few small fields: send only those.',
+    details: [],
+  },
+  'site-person-grants-managed': {
+    description:
+      "The request would change what a person a site signs in may do: give them or take away a grant, a tenant role, a project or team membership or its role, or a reviewer role, or mint them a key. Such a person holds only what their site's sign-in writes: their next sign-in would undo a change, and a key would outlive a paused or unregistered site. Change their role on the site, remove the person, or pause the site instead.",
+    details: [],
   },
   'token-sign-in-needs-an-api-token': {
     description:
@@ -2437,6 +2634,58 @@ export const ERROR_ENTRIES = {
       },
     ],
     seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem'],
+  },
+  'endpoint-not-ready': {
+    description:
+      "What a deployment's pack service runs was recorded for a service that isn't `ready`. A new service's revision goes with its endpoint (`packEnvRevision`); record one for a `ready` service only.",
+    details: [
+      {
+        key: 'status',
+        meaning: "the deployment's endpoint status now: `pending` or `cleared`",
+      },
+    ],
+    seeAlso: [
+      'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env',
+      'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
+    ],
+  },
+  'endpoint-retired': {
+    description:
+      "The env of a deployment whose pack service was retired was asked for: it isn't given out. A retired deployment's service is listed to go (`GET /v1/system/deployments?endpoint=retire`).",
+    details: [
+      {
+        key: 'retired',
+        meaning: 'why its pack service was retired, as the retire list gives it',
+      },
+    ],
+    seeAlso: ['GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env'],
+  },
+  'pack-env-conflict': {
+    description:
+      "What a pack service runs was recorded against a revision that's no longer the one recorded: another record came first. Read the deployment's pack env again, and record against what's there now.",
+    details: [
+      {
+        key: 'appliedRevision',
+        meaning: 'the revision the service is recorded as running now, when there is one',
+      },
+    ],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env'],
+  },
+  'pack-env-unsupported': {
+    description:
+      "This server doesn't give a pack service its declared env: its pack services take theirs from how they're run. The system pack env routes answer this on a server that doesn't run a pack service per deployment.",
+    details: [],
+    seeAlso: [
+      'GET /v1/system/pack-env',
+      'GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env',
+      'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env',
+    ],
+  },
+  'pack-env-not-served': {
+    description:
+      "This server doesn't give a deployment's pack service the env its pack declares, so it lists none of its names: its pack services take theirs from how they're run. `kindgi env plan` lists the names a pack reads.",
+    details: [],
+    seeAlso: ['GET /v1/deployments/{deploymentId}/pack-env'],
   },
   'compliance-evidence-not-found': {
     description: 'No exportable compliance evidence record with that id exists under the tenant.',
@@ -2655,7 +2904,7 @@ export const ERROR_ENTRIES = {
   'tenant-config-not-found': {
     description: "The API doesn't send this code.",
     details: [],
-    seeAlso: ['deploy/operate'],
+    seeAlso: ['deploy/self-hosted/operate'],
   },
   'tenant-config-revision-conflict': {
     description:
@@ -2687,7 +2936,7 @@ export const ERROR_ENTRIES = {
         meaning: 'the kind of policy that failed: `hitl`, `model-routing` or `tool-errors`',
       },
     ],
-    seeAlso: ['deploy/operate'],
+    seeAlso: ['deploy/self-hosted/operate'],
   },
   'env-not-found': {
     description:
@@ -2770,7 +3019,7 @@ export const ERROR_ENTRIES = {
   },
   'secret-name-invalid': {
     description:
-      "The secrets store can't write a secret under this name. Under `kindgi dev`, a secret is a key in your env files, so its name is capital letters, digits and underscores, not starting with a digit (`ACME_WOO_ORDERS`, not `acme-woo-orders`), and never `KINDGI_*`, the runtime's own configuration. The message says the rule and a name that works.",
+      "The name isn't one a new secret can have. A new secret's name is 1 to 255 ASCII letters, digits, `.`, `-` and `_`, starting with a letter, digit or `_`, not ending with `.` and with no two `.` in a row, and a secrets store can narrow that. Under `kindgi dev`, a secret is a key in your env files, so its name is capital letters, digits and underscores, not starting with a digit (`ACME_WOO_ORDERS`, not `acme-woo-orders`), and never `KINDGI_*`, the runtime's own configuration. The message says the rule, and under `kindgi dev` a name that works.",
     details: [],
     seeAlso: ['guides/secrets/store-a-secret'],
   },
@@ -2810,13 +3059,13 @@ export const ERROR_ENTRIES = {
     description:
       "The runtime couldn't encrypt the secret value (the key service refused to produce a data key), so nothing was stored.",
     details: [],
-    seeAlso: ['guides/secrets/store-a-secret', 'deploy/secret-manager'],
+    seeAlso: ['guides/secrets/store-a-secret', 'deploy/self-hosted/secret-manager'],
   },
   'secret-decryption-failed': {
     description:
       "The runtime couldn't decrypt a stored secret value (the key service failed to unwrap its key).",
     details: [],
-    seeAlso: ['guides/secrets/store-a-secret', 'deploy/secret-manager'],
+    seeAlso: ['guides/secrets/store-a-secret', 'deploy/self-hosted/secret-manager'],
   },
   'secret-provider-unavailable': {
     description:
@@ -2827,7 +3076,7 @@ export const ERROR_ENTRIES = {
     description:
       "The external secret provider rejected the runtime's credentials, so the secret can't be read or written. Ask an admin to fix the provider access.",
     details: [],
-    seeAlso: ['deploy/secret-manager'],
+    seeAlso: ['deploy/self-hosted/secret-manager'],
   },
   'secret-provider-rate-limited': {
     description: 'The external secret provider is rate limiting the runtime. Wait and retry.',
@@ -2838,7 +3087,7 @@ export const ERROR_ENTRIES = {
           'how long the provider asked to wait, in milliseconds, when it said (in binding results)',
       },
     ],
-    seeAlso: ['deploy/secret-manager'],
+    seeAlso: ['deploy/self-hosted/secret-manager'],
   },
   'secret-store-error': {
     description:
@@ -3069,8 +3318,8 @@ export const OUTSIDE_THE_MAP = [
     code: 'sign-in-unavailable',
     status: 500,
     description:
-      "Signing in failed on the server, for example because its database didn't answer. Nothing about the cause is sent to the browser; a sign-in page shows the code instead of JSON. Try again.",
-    seeAlso: ['deploy/sign-in'],
+      "Signing in failed on the server, for example because its database didn't answer. Nothing about the cause is sent to the browser; a sign-in page shows the code instead of JSON. The runtime's log says why, as an `sso` warning: `sign-in request failed: <reason>`. Try again.",
+    seeAlso: ['deploy/self-hosted/sign-in'],
   },
 ];
 
@@ -3084,80 +3333,80 @@ export const ACCESS_ERRORS = {
       status: 400,
       description:
         "The body isn't a renewal request. A body over the size limit is answered the same way, with status `413`.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'unauthorized',
       status: 401,
       description:
         "No renewer has this deployment's key, or the request's signature doesn't verify. Enroll the deployment with `kindgi license enroll`, then add it at access.kindgi.com.",
-      seeAlso: ['deploy/renew-the-license-key', 'reference/cli/license'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key', 'reference/cli/license'],
     },
     {
       error: 'stale-request',
       status: 401,
       description:
         "The request's time is more than 5 minutes off. Check the clock of the machine that sent it.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'replayed',
       status: 401,
       description: 'This exact request was used before. Send a new one.',
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'rate-limited',
       status: 429,
       description: 'Too many renewals for this key. The next one can go an hour later.',
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'renewer-stopped',
       status: 403,
       description:
         "This deployment's renewal was stopped. Enroll it again with `kindgi license enroll`, or sign in at access.kindgi.com for a key.",
-      seeAlso: ['deploy/renew-the-license-key', 'reference/cli/license'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key', 'reference/cli/license'],
     },
     {
       error: 'denied',
       status: 403,
       description: "Dev access isn't available for this account. Write to contact@kindgi.com.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'key-revoked',
       status: 403,
       description: "The account's license key was revoked. Write to contact@kindgi.com.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'not-entitled',
       status: 403,
       description:
         "The license has no contract term on record, so access.kindgi.com doesn't renew it. Write to contact@kindgi.com.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'term-ended',
       status: 403,
       description:
         "The license's contract term has ended, so it isn't renewed. The key you have runs until its own date. Write to contact@kindgi.com to extend the term.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'held-for-review',
       status: 403,
       description:
         "This renewal's counts (`kindgi license renew --runtime`) are above what a non-production key covers, so it got no new key: write to contact@kindgi.com about a production license. Kindgi can release the deployment after a review, and its renewals then aren't held until a date. The key you have runs until its own date. A renewal before the key is due gets the same key back.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'unavailable',
       status: 503,
       description:
         'No key could be issued: the service failed to store or sign it. Try again later.',
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
   ],
 };
