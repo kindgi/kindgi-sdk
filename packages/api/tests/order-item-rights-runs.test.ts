@@ -144,7 +144,8 @@ const homeOf = (id: string) => (id === SERVED ? STAGING : id === SOLO ? OTHER : 
 const record = (id: string) =>
   homeOf(id) === undefined ? null : { id, version: '1.0.0', projectId: homeOf(id), tenantId };
 
-function harness(opts: { served?: boolean } = {}) {
+/** `projects`: the ones that exist; unset, the app has no project binding and checks none. */
+function harness(opts: { served?: boolean; projects?: readonly ProjectId[] } = {}) {
   /** Each run started: what, and the project it was filed under. */
   const invoked: string[] = [];
   /** Each conversation opened or closed. */
@@ -161,7 +162,7 @@ function harness(opts: { served?: boolean } = {}) {
     resumeRun: async () => ({ kind: 'err', error: { code: 'bad-input', message: 'x' } }),
   } as unknown as RunHandlerBinding;
   const stubs = createStubAppBindings();
-  const conversation = (conversationId: string, projectId: ProjectId) => ({
+  const conversation = (conversationId: string, projectId: ProjectId, openedBy?: string) => ({
     conversationId,
     tenantId,
     agentId: SERVED,
@@ -169,12 +170,13 @@ function harness(opts: { served?: boolean } = {}) {
     projectId,
     scope: {},
     createdAt: '2026-10-01T00:00:00.000Z',
+    ...(openedBy !== undefined && { openedBy }),
   });
   const conversationBinding = {
     ...stubs.conversationBinding,
     getConversation: async (_t: TenantId, id: string) =>
       id === IN_PROD
-        ? { kind: 'ok', value: conversation(IN_PROD, PROD) }
+        ? { kind: 'ok', value: conversation(IN_PROD, PROD, 'user:prod') }
         : id === IN_STAGING
           ? { kind: 'ok', value: conversation(IN_STAGING, STAGING) }
           : id === IN_OTHER
@@ -264,6 +266,13 @@ function harness(opts: { served?: boolean } = {}) {
     flowRegistry: registry as unknown as FlowRegistryBinding,
     authz: authz.authz,
     ...(opts.served !== false && { itemProjects: items }),
+    ...(opts.projects !== undefined && {
+      projectBinding: {
+        get: async (_t: TenantId, id: ProjectId) =>
+          opts.projects?.includes(id) ? { id } : undefined,
+        getDefault: async () => undefined,
+      } as unknown as CreateAppInput['projectBinding'],
+    }),
     environmentOrders: environmentOrders([[STAGING, PROD]]),
   } as CreateAppInput);
   const call = async (who: string, method: string, path: string, body?: unknown) => {
@@ -356,6 +365,7 @@ describe('running an agent an order carries', () => {
     const staging = await call('staging', 'POST', '/v1/runs', turn(IN_PROD));
     expect(staging.status, staging.text).toBe(403);
     expect(staging.body.error.message).toContain(`in project ${PROD} needs caller or editor`);
+    // Prod opened it: their turn takes call there, not write (`turn-access.ts`).
     const prod = await call('prod', 'POST', '/v1/runs', turn(IN_PROD));
     expect(prod.status, prod.text).not.toBe(403);
     expect(invoked).toEqual([`agent ${SERVED} in -`]);
@@ -594,6 +604,22 @@ describe('conversations with an agent an order carries', () => {
     expect(res.status, res.text).not.toBe(403);
     expect(res.asked).toEqual([`prod call project:${PROD}`]);
     expect(conversations).toEqual([`open ${SERVED} in ${PROD}`]);
+  });
+
+  test('named one of its projects, a caller without call there gets the same answer whether it exists or not', async () => {
+    // PROD gone, as a project deleted while still in the order: the
+    // existence check refuses prod, who may open one there.
+    const present = harness({ projects: [STAGING, PROD] });
+    const gone = harness({ projects: [STAGING] });
+    const prod = await gone.call('prod', 'POST', '/v1/conversations', open({ projectId: PROD }));
+    expect(prod.status, prod.text).toBe(400);
+    const a = await present.call('staging', 'POST', '/v1/conversations', open({ projectId: PROD }));
+    const b = await gone.call('staging', 'POST', '/v1/conversations', open({ projectId: PROD }));
+    expect(a.status, a.text).toBe(403);
+    expect(b.text).toBe(a.text);
+    expect(b.asked).toEqual([`staging call project:${PROD}`]);
+    expect(present.conversations).toEqual([]);
+    expect(gone.conversations).toEqual([]);
   });
 
   test("unnamed, it opens in the agent's own project, checked there; a prod key's opens in prod", async () => {
@@ -873,22 +899,27 @@ describe('observations of an agent an order carries', () => {
   });
 });
 
-/** `where a start lands`: each case's answer at #1036 (kindgi-sdk 68a40e43), with the whole set. */
+/**
+ * `where a start lands`: each case's answer at #1036 (kindgi-sdk 68a40e43), with the whole set,
+ * and with #1034's turn checks (`turn-access.ts`): a turn into a conversation `all` didn't open
+ * also asks write on its project, and one in a project the key can't read answers as if the
+ * conversation weren't there, before anything runs.
+ */
 const WHOLE_SET_ANSWERS: readonly string[] = [
   'agent acme.desk named - conversation - key -: 404 asked [all call project:STAGING], agent acme.desk in -',
   'agent acme.desk named - conversation - key STAGING: 404 asked [all call project:STAGING], agent acme.desk in STAGING',
   'agent acme.desk named - conversation - key PROD: 404 asked [all call project:PROD], agent acme.desk in PROD',
   'agent acme.desk named - conversation - key OTHER: 403 (Permission denied: running agent "acme.desk" in project STAGING needs caller or editor on STAGING (the API key is limited to project OTHER)) asked [], nothing ran',
-  'agent acme.desk named - conversation IN_PROD key -: 404 asked [all call project:PROD], agent acme.desk in -',
+  'agent acme.desk named - conversation IN_PROD key -: 404 asked [all call project:PROD, all write project:PROD], agent acme.desk in -',
   'agent acme.desk named - conversation IN_PROD key STAGING: 403 (Permission denied: running agent "acme.desk" in project PROD needs caller or editor on PROD (the API key is limited to project STAGING)) asked [], nothing ran',
-  'agent acme.desk named - conversation IN_PROD key PROD: 404 asked [all call project:PROD], agent acme.desk in -',
+  'agent acme.desk named - conversation IN_PROD key PROD: 404 asked [all call project:PROD, all write project:PROD], agent acme.desk in -',
   'agent acme.desk named - conversation IN_PROD key OTHER: 403 (Permission denied: running agent "acme.desk" in project PROD needs caller or editor on PROD (the API key is limited to project OTHER)) asked [], nothing ran',
-  'agent acme.desk named - conversation IN_STAGING key -: 404 asked [all call project:STAGING], agent acme.desk in -',
-  'agent acme.desk named - conversation IN_STAGING key STAGING: 404 asked [all call project:STAGING], agent acme.desk in -',
+  'agent acme.desk named - conversation IN_STAGING key -: 404 asked [all call project:STAGING, all write project:STAGING], agent acme.desk in -',
+  'agent acme.desk named - conversation IN_STAGING key STAGING: 404 asked [all call project:STAGING, all write project:STAGING], agent acme.desk in -',
   'agent acme.desk named - conversation IN_STAGING key PROD: 403 (Permission denied: running agent "acme.desk" in project STAGING needs caller or editor on STAGING (the API key is limited to project PROD)) asked [], nothing ran',
   'agent acme.desk named - conversation IN_STAGING key OTHER: 403 (Permission denied: running agent "acme.desk" in project STAGING needs caller or editor on STAGING (the API key is limited to project OTHER)) asked [], nothing ran',
-  'agent acme.desk named - conversation IN_OTHER key -: 404 asked [all execute agent:acme.desk], agent acme.desk in -',
-  'agent acme.desk named - conversation IN_OTHER key STAGING: 404 asked [all execute agent:acme.desk], agent acme.desk in -',
+  'agent acme.desk named - conversation IN_OTHER key -: 404 asked [all execute agent:acme.desk, all write project:OTHER], agent acme.desk in -',
+  'agent acme.desk named - conversation IN_OTHER key STAGING: 404 asked [all execute agent:acme.desk], nothing ran',
   'agent acme.desk named - conversation IN_OTHER key PROD: 403 (Permission denied: the API key is limited to project PROD) asked [], nothing ran',
   'agent acme.desk named - conversation IN_OTHER key OTHER: 403 (Permission denied: the API key is limited to project OTHER) asked [], nothing ran',
   'agent acme.desk named STAGING conversation - key -: 404 asked [all call project:STAGING], agent acme.desk in STAGING',
@@ -907,18 +938,18 @@ const WHOLE_SET_ANSWERS: readonly string[] = [
   'agent acme.solo named - conversation - key STAGING: 403 (Permission denied: the API key is limited to project STAGING) asked [], nothing ran',
   'agent acme.solo named - conversation - key PROD: 403 (Permission denied: the API key is limited to project PROD) asked [], nothing ran',
   'agent acme.solo named - conversation - key OTHER: 404 asked [all execute agent:acme.solo], agent acme.solo in -',
-  'agent acme.solo named - conversation IN_PROD key -: 404 asked [all execute agent:acme.solo], agent acme.solo in -',
+  'agent acme.solo named - conversation IN_PROD key -: 404 asked [all execute agent:acme.solo, all write project:PROD], agent acme.solo in -',
   'agent acme.solo named - conversation IN_PROD key STAGING: 403 (Permission denied: the API key is limited to project STAGING) asked [], nothing ran',
   'agent acme.solo named - conversation IN_PROD key PROD: 403 (Permission denied: the API key is limited to project PROD) asked [], nothing ran',
-  'agent acme.solo named - conversation IN_PROD key OTHER: 404 asked [all execute agent:acme.solo], agent acme.solo in -',
-  'agent acme.solo named - conversation IN_STAGING key -: 404 asked [all execute agent:acme.solo], agent acme.solo in -',
+  'agent acme.solo named - conversation IN_PROD key OTHER: 404 asked [all execute agent:acme.solo], nothing ran',
+  'agent acme.solo named - conversation IN_STAGING key -: 404 asked [all execute agent:acme.solo, all write project:STAGING], agent acme.solo in -',
   'agent acme.solo named - conversation IN_STAGING key STAGING: 403 (Permission denied: the API key is limited to project STAGING) asked [], nothing ran',
   'agent acme.solo named - conversation IN_STAGING key PROD: 403 (Permission denied: the API key is limited to project PROD) asked [], nothing ran',
-  'agent acme.solo named - conversation IN_STAGING key OTHER: 404 asked [all execute agent:acme.solo], agent acme.solo in -',
-  'agent acme.solo named - conversation IN_OTHER key -: 404 asked [all execute agent:acme.solo], agent acme.solo in -',
+  'agent acme.solo named - conversation IN_STAGING key OTHER: 404 asked [all execute agent:acme.solo], nothing ran',
+  'agent acme.solo named - conversation IN_OTHER key -: 404 asked [all execute agent:acme.solo, all write project:OTHER], agent acme.solo in -',
   'agent acme.solo named - conversation IN_OTHER key STAGING: 403 (Permission denied: the API key is limited to project STAGING) asked [], nothing ran',
   'agent acme.solo named - conversation IN_OTHER key PROD: 403 (Permission denied: the API key is limited to project PROD) asked [], nothing ran',
-  'agent acme.solo named - conversation IN_OTHER key OTHER: 404 asked [all execute agent:acme.solo], agent acme.solo in -',
+  'agent acme.solo named - conversation IN_OTHER key OTHER: 404 asked [all execute agent:acme.solo, all write project:OTHER], agent acme.solo in -',
   'agent acme.solo named STAGING conversation - key -: 404 asked [all execute agent:acme.solo, all write project:STAGING], agent acme.solo in STAGING',
   'agent acme.solo named STAGING conversation - key STAGING: 403 (Permission denied: the API key is limited to project STAGING) asked [], nothing ran',
   'agent acme.solo named STAGING conversation - key PROD: 403 (This API key is limited to project PROD; the request names project STAGING) asked [], nothing ran',

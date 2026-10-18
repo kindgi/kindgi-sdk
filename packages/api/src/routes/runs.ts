@@ -276,10 +276,6 @@ export function runsRouter(
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
 
-    // Whose memory the turn runs with: a conversation's stored participant
-    // (it wins, as the turn reads it), else the one the body names. Running
-    // as someone takes what reading their memory takes.
-    const named = typeof turnInput.participantId === 'string' ? turnInput.participantId : undefined;
     // Who may add a turn to the conversation it continues, and under which
     // project (`turnRefusal`). Another id than a uuid names no conversation
     // (the run handler answers it), so only the body's participant is checked.
@@ -292,6 +288,10 @@ export function runsRouter(
       });
       if (refusal !== undefined) return refusal;
     }
+    // Whose memory the turn runs with: a conversation's stored participant
+    // (it wins, as the turn reads it), else the one the body names. Running
+    // as someone takes what reading their memory takes.
+    const named = typeof turnInput.participantId === 'string' ? turnInput.participantId : undefined;
     if (authorizer !== undefined && (named !== undefined || opened !== null)) {
       const participantId = opened?.participantId ?? named;
       if (participantId !== undefined) {

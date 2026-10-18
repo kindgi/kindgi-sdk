@@ -241,10 +241,16 @@ export function conversationsRouter(
       return c.json(toWireError(parsed.error, requestId));
     }
     const supplied = parsed.value.projectId;
-    // Opening it in a project the caller names needs `write` there, as a
-    // run naming one does: its turns land there. Checked first, so a
-    // caller without it learns nothing of which projects exist.
-    if (authorizer !== undefined && supplied !== undefined) {
+    const agentId = parsed.value.agentId as unknown as string;
+    // The agent's projects when more than one serves it (`item-rights.ts`).
+    const served =
+      authorizer === undefined ? undefined : await itemRights?.multi(c, 'agent', agentId);
+    // Opening it in a project the caller names needs `write` there, as a run
+    // naming one outside its agent's projects does: its turns land there.
+    // Named one of the projects an agent more than one serves, `call` there
+    // is the whole check instead (`openIn`), as for a run. Checked first, so
+    // a caller without it learns nothing of which projects exist.
+    if (authorizer !== undefined && supplied !== undefined && served?.includes(supplied) !== true) {
       const named = ref('project', supplied as unknown as string);
       const decision = await authorizer.check(c, 'write', named);
       if (!decision.allowed) {
@@ -264,6 +270,21 @@ export function conversationsRouter(
         );
       }
     }
+    // Omitted: the agent's own project, as for a run. An agent the registry
+    // doesn't place (or from before projects): the tenant's Default. No
+    // Default (or no project binding): no project, never a refusal.
+    const own = async () =>
+      (
+        await agentRegistry?.getVersion({
+          tenantId,
+          agentId: parsed.value.agentId,
+          version: parsed.value.agentVersion,
+        })
+      )?.projectId ?? (await projectBinding?.getDefault(tenantId))?.id;
+    // Also before the named project's existence: a caller refused there gets
+    // the same answer whether it exists or not.
+    const open = await openIn(c, authorizer, itemRights, served, agentId, supplied, own);
+    if (open.refused !== undefined) return open.refused;
     if (
       supplied !== undefined &&
       projectBinding !== undefined &&
@@ -280,26 +301,6 @@ export function conversationsRouter(
         ),
       );
     }
-    // Omitted: the agent's own project, as for a run. An agent the registry
-    // doesn't place (or from before projects): the tenant's Default. No
-    // Default (or no project binding): no project, never a refusal.
-    const own = async () =>
-      (
-        await agentRegistry?.getVersion({
-          tenantId,
-          agentId: parsed.value.agentId,
-          version: parsed.value.agentVersion,
-        })
-      )?.projectId ?? (await projectBinding?.getDefault(tenantId))?.id;
-    const open = await openIn(
-      c,
-      authorizer,
-      itemRights,
-      parsed.value.agentId as unknown as string,
-      supplied,
-      own,
-    );
-    if (open.refused !== undefined) return open.refused;
     const projectId = open.projectId;
     // Its agent, at the version its turns run, must be its project's to
     // reach (`reference-scope.ts`).
@@ -492,28 +493,22 @@ export function conversationsRouter(
 }
 
 /**
- * What a conversation is checked on: its project, or its agent for one
- * opened before conversations recorded a project. (A `conversation`
- * object has no parent tuple, so a check on it would refuse everyone.)
- */
-/**
  * Where a conversation opens, and whether the caller may open it there:
  * `execute` on its agent, or, for an agent more than one project serves
- * opened in one of its projects, that project's `call` alone
- * (`item-rights.ts`). Unnamed, a project-scoped key's conversation goes to
- * the key's project when it serves the agent, as its unnamed run does;
- * else to `own()`. A refused caller is never placed.
+ * (`served`, its projects) opened in one of its projects, that project's
+ * `call` alone (`item-rights.ts`). Unnamed, a project-scoped key's
+ * conversation goes to the key's project when it serves the agent, as its
+ * unnamed run does; else to `own()`. A refused caller is never placed.
  */
 async function openIn(
   c: Context<AppEnv>,
   authorizer: Authorizer | undefined,
   itemRights: ItemRights | undefined,
+  served: readonly ProjectId[] | undefined,
   agentId: string,
   supplied: ProjectId | undefined,
   own: () => Promise<ProjectId | undefined>,
 ): Promise<{ readonly projectId?: ProjectId | undefined; readonly refused?: Response }> {
-  const served =
-    authorizer === undefined ? undefined : await itemRights?.multi(c, 'agent', agentId);
   if (served === undefined || itemRights === undefined) {
     const refused = await deniedBy(authorizer, c, 'execute', ref('agent', agentId));
     if (refused !== undefined) return { refused };
@@ -538,6 +533,11 @@ async function openIn(
   return refused !== undefined ? { refused } : { projectId };
 }
 
+/**
+ * What a conversation is checked on: its project, or its agent for one
+ * opened before conversations recorded a project. (A `conversation`
+ * object has no parent tuple, so a check on it would refuse everyone.)
+ */
 function conversationRef(conv: Conversation): ResourceRef {
   return conv.projectId !== undefined
     ? ref('project', conv.projectId as unknown as string)
