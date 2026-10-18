@@ -17,13 +17,14 @@ description: >
   router picks the (provider, model) tuple per invocation. Load this
   when the user asks to "register a provider", "use Claude / GPT /
   Groq / Llama / Gemini", "wire Anthropic", "use Vertex", "use Bedrock", "set up an API key for the agent",
+  "give the pack on Kindgi Cloud its model key",
   or when an agent has been authored but the pack has no provider
   registered yet. Authoring agents themselves is covered by
   kindgi-authoring-agents; getting-started is covered by
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.15"
+version: "0.9.16"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 sources:
@@ -111,6 +112,35 @@ the agent's capability, and the turn's result then carries a
 `fallback-provider` warning. `dev-echo` is one; a cheap local model can be
 yours.
 
+## On Kindgi Cloud: the key and its provider go under `prod`
+
+A pack deployed with `kindgi deploy --hosted` runs on your workspace's
+runtime on Kindgi Cloud, and that runtime serves the `prod` environment,
+before and after you go live. The examples below use `--env=local`, for
+`kindgi dev`. For Kindgi Cloud, name `prod` instead:
+
+```sh
+kindgi secrets set ANTHROPIC_API_KEY --env=prod --scope=tenant   # a no-echo prompt
+kindgi providers register --preset=anthropic --env=prod
+kindgi deploy --hosted --env=prod
+```
+
+- The runtime reads a provider's key in the environment its
+  `secret_ref.envName` names, at tenant scope. Keep the key and the
+  provider both on `prod`. A key set under `prod`, with a provider
+  registered without `--env` (so under `local`), isn't found at the first
+  turn (mistake 1). By hand, `provider.json` has
+  `"secret_ref": { "envName": "prod", … }`.
+- `kindgi secrets set` has no default environment: name `--env` every time.
+- The deployment `kindgi deploy` sends names no environment. Its
+  `--env=prod` picks the pack's own `prod` settings, such as its signing
+  key.
+- Another provider takes the same two lines, with its preset and its key's
+  name.
+
+The whole flow, from signing the CLI in to going live:
+https://docs.kindgi.com/v0.1/hosted/deploy-your-agent/#your-model-key-and-its-provider
+
 ## Path A — Hosted, native Anthropic
 
 Best fidelity to Anthropic's API (prompt caching, latest models, tool
@@ -125,6 +155,7 @@ then parse, check against the schema and repair, on every provider.
 kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
 # Prompts interactively (echo disabled). Paste the key, press enter.
 ```
+For a pack on Kindgi Cloud, `--env=prod` instead (On Kindgi Cloud, above).
 Writes to `.kindgi/secrets.env` at the pack root via the dotenv secret
 binding — or add `ANTHROPIC_API_KEY=…` to that file yourself; `kindgi dev`
 also reads the app's `.env` / `.env.local`. If the pack lives inside an app
@@ -198,7 +229,8 @@ In a Java or Scala pack's `kindgi.config.json`, the same keys:
   if its region or models differ, a ⚠ line names the
   `kindgi providers unregister` that lets the config's version apply.
 - A runtime `kindgi dev` doesn't run (staging, production) still gets its
-  providers with `kindgi providers register`.
+  providers with `kindgi providers register` (on Kindgi Cloud, with
+  `--env=prod`).
 
 **Step 2 (by hand) — write `provider.json`** at the pack root. One connection,
 two models — matches how the Anthropic SDK actually works (the API
@@ -746,13 +778,17 @@ defineAgent({
    `@kindgi/adapter-model-in-process`; `kindgi providers presets` shows
    the id each preset uses.
 
-1. **`envName` mismatch between the setter (`kindgi secrets set` or `env set`) and `provider.json`.**
-   Both writers use `--env=<name>` (default `local`): `local` is the
-   project's env files (`.env`, `.env.local`), any other name is
-   `.env.<envName>`. If your `provider.json` has
-   `"secret_ref": {"envName": "production", ...}`, the SecretBinding
-   refuses to cross-resolve — you get `secret-not-found` at agent-turn
-   time. Match them.
+1. **`envName` mismatch between the key and the provider's `secret_ref`.**
+   The runtime reads a provider's key in the environment its
+   `secret_ref.envName` names, at tenant scope. The SecretBinding refuses
+   to cross-resolve, so a key held under another environment gives
+   `secret-not-found` at agent-turn time. Where each one lands:
+   `kindgi secrets set` needs `--env=<name>`; `kindgi providers register
+   --preset` writes `--env`'s name, or `local` without it; a `--spec` file
+   names its own (`"secret_ref": {"envName": "production", ...}`). Under
+   `kindgi dev`, `local` is the project's env files (`.env`, `.env.local`)
+   and `.kindgi/secrets.env`; any other name is `.env.<envName>`. Match
+   them. On Kindgi Cloud, both are `prod`.
 
 2. **Missing `features` on the model.** Agent declares
    `capabilities: [{needs: [{feature: 'tool-use'}]}]`; at least one
@@ -843,6 +879,10 @@ kindgi runs start \
   --agent=my-pack.some-agent \
   --input='{"userMessage": "test"}'
 ```
+
+On Kindgi Cloud there's no `kindgi dev`: set the key and register the
+provider with `--env=prod` (steps 1 and 2), deploy with
+`kindgi deploy --hosted --env=prod`, then run the agent.
 
 If the run completes with `status: "completed"`, the whole chain works
 end-to-end. If it fails with `secret-not-found`, check point (1). If it
