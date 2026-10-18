@@ -163,6 +163,8 @@ interface FixtureOptions {
   readonly projects?: readonly { id: string; name: string; slug: string; orgId?: string }[];
   /** The environment orders the token reads; with `projects`, the reads a refusal into a later environment makes. */
   readonly orders?: readonly EnvironmentOrderRow[];
+  /** Which of those reads answers an error. */
+  readonly failedList?: 'projects' | 'orders';
 }
 
 function makeFixtures(opts: FixtureOptions = {}): Fixtures {
@@ -210,15 +212,17 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
   }
   if (opts.projects !== undefined && opts.orders !== undefined) {
     const { projects, orders } = opts;
+    const failed = { kind: 'error', message: 'GET answered 503' } as const;
     (runners as { listProjects?: DeployRunners['listProjects'] }).listProjects = async () => {
       state.listCalls += 1;
-      return { kind: 'ok', projects };
+      return opts.failedList === 'projects' ? failed : { kind: 'ok', projects };
     };
-    (runners as { listEnvironmentOrders?: DeployRunners['listEnvironmentOrders'] }).listEnvironmentOrders =
-      async () => {
-        state.listCalls += 1;
-        return { kind: 'ok', orders };
-      };
+    (
+      runners as { listEnvironmentOrders?: DeployRunners['listEnvironmentOrders'] }
+    ).listEnvironmentOrders = async () => {
+      state.listCalls += 1;
+      return opts.failedList === 'orders' ? failed : { kind: 'ok', orders };
+    };
   }
   if (!opts.omitSyncRunner) {
     (runners as { syncSecrets?: DeployRunners['syncSecrets'] }).syncSecrets = async (o) => {
@@ -646,7 +650,7 @@ describe('kindgi deploy — response handling', () => {
         error: {
           code: 'environment-takes-promotions',
           message:
-            'This project is a later environment of its environment order (position 2), and a later environment takes builds only by promotion from the one before it. Deploy into the order\'s first environment and promote the build from there. Nothing was deployed.',
+            "This project is a later environment of its environment order (position 2), and a later environment takes builds only by promotion from the one before it. Deploy into the order's first environment and promote the build from there. Nothing was deployed.",
           ...details,
         },
       }) as const;
@@ -683,7 +687,7 @@ describe('kindgi deploy — response handling', () => {
       );
     });
 
-    test('without the first environment (the caller can\'t read it), says the rule and where the order is, and reads nothing', async () => {
+    test("without the first environment (the caller can't read it), says the rule and where the order is, and reads nothing", async () => {
       await writeAutoEnvelope();
       const fixtures = makeFixtures({ postResult: refused({ position: 1 }), projects, orders });
       const staging = (testConfig().environments as { staging: Record<string, unknown> }).staging;
@@ -699,6 +703,31 @@ describe('kindgi deploy — response handling', () => {
       );
       expect(out.stderr).not.toContain('      kindgi promote --from=');
     });
+
+    test.each(['projects', 'orders'] as const)(
+      'when reading the %s fails, says the rule and where the order is',
+      async (failedList) => {
+        await writeAutoEnvelope();
+        const fixtures = makeFixtures({
+          postResult: refused({ position: 2, firstProjectId: STAGING }),
+          projects,
+          orders,
+          failedList,
+        });
+        const staging = (testConfig().environments as { staging: Record<string, unknown> }).staging;
+        const out = await runCli({
+          ...baseInputs(fixtures, {}, environments(staging)),
+          argv: ['deploy', '--env=staging', `--path=${packDir}`],
+        });
+        expect(out.exitCode).toBe(1);
+        expect(fixtures.state.listCalls).toBe(2);
+        expect(out.stderr).toContain('code:    environment-takes-promotions');
+        expect(out.stderr.replace(/\s+/g, ' ')).toContain(
+          '`kindgi environments list` shows the order.',
+        );
+        expect(out.stderr).not.toContain('      kindgi promote --from=');
+      },
+    );
   });
 
   test('a refusal the server replays (a runtime before 0.1.3): says so, and how to retry', async () => {

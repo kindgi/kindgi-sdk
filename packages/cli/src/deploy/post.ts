@@ -292,37 +292,51 @@ async function listAllReal(
   const rows: unknown[] = [];
   let cursor: string | undefined;
   do {
-    const url = `${base}?limit=${PAGE_LIMIT}${cursor === undefined ? '' : `&cursor=${encodeURIComponent(cursor)}`}`;
-    let res: Response;
-    try {
-      res = await opts.fetchImpl(url, {
-        headers: { Authorization: `Bearer ${opts.token}` },
-        ...(opts.signal !== undefined && { signal: opts.signal }),
-      });
-    } catch (err) {
-      return { kind: 'error', message: `GET ${base} failed: ${(err as Error).message}` };
-    }
-    let page: { data?: unknown; hasMore?: unknown; nextCursor?: unknown };
-    try {
-      page = (await res.json()) as typeof page;
-    } catch {
-      return {
-        kind: 'error',
-        message: `GET ${base} returned HTTP ${res.status} with a body that isn't JSON`,
-      };
-    }
-    if (!res.ok || !Array.isArray(page.data)) {
-      const code = (page as { error?: { code?: unknown } }).error?.code;
-      return {
-        kind: 'error',
-        message: `GET ${base} answered HTTP ${res.status}${typeof code === 'string' ? ` (${code})` : ''}`,
-      };
-    }
+    const page = await readPage(opts, base, cursor);
+    if (page.kind === 'error') return page;
     rows.push(...page.data);
-    cursor =
-      page.hasMore === true && typeof page.nextCursor === 'string' ? page.nextCursor : undefined;
+    cursor = page.nextCursor;
   } while (cursor !== undefined);
   return { kind: 'ok', rows };
+}
+
+/** One page of that list, from `cursor`; `nextCursor` while there's more. */
+async function readPage(
+  opts: ListOptions,
+  base: string,
+  cursor: string | undefined,
+): Promise<
+  | { readonly kind: 'ok'; readonly data: readonly unknown[]; readonly nextCursor?: string }
+  | { readonly kind: 'error'; readonly message: string }
+> {
+  const url = `${base}?limit=${PAGE_LIMIT}${cursor === undefined ? '' : `&cursor=${encodeURIComponent(cursor)}`}`;
+  let res: Response;
+  try {
+    res = await opts.fetchImpl(url, {
+      headers: { Authorization: `Bearer ${opts.token}` },
+      ...(opts.signal !== undefined && { signal: opts.signal }),
+    });
+  } catch (err) {
+    return { kind: 'error', message: `GET ${base} failed: ${(err as Error).message}` };
+  }
+  let page: { data?: unknown; hasMore?: unknown; nextCursor?: unknown };
+  try {
+    page = (await res.json()) as typeof page;
+  } catch {
+    return {
+      kind: 'error',
+      message: `GET ${base} returned HTTP ${res.status} with a body that isn't JSON`,
+    };
+  }
+  if (!res.ok || !Array.isArray(page.data)) {
+    const code = (page as { error?: { code?: unknown } }).error?.code;
+    return {
+      kind: 'error',
+      message: `GET ${base} answered HTTP ${res.status}${typeof code === 'string' ? ` (${code})` : ''}`,
+    };
+  }
+  const more = page.hasMore === true && typeof page.nextCursor === 'string';
+  return { kind: 'ok', data: page.data, ...(more && { nextCursor: page.nextCursor as string }) };
 }
 
 /** Every project the token can read (`GET /v1/projects`, every page). */

@@ -63,7 +63,11 @@ describe('promotionPath', () => {
           { name: 'staging-copy', ref: STAGING },
         ],
       }),
-    ).toEqual([{ kind: 'env', name: 'staging' }, { kind: 'hidden' }, { kind: 'project', name: 'Prod' }]);
+    ).toEqual([
+      { kind: 'env', name: 'staging' },
+      { kind: 'hidden' },
+      { kind: 'project', name: 'Prod' },
+    ]);
   });
 
   test('a slug two projects share names neither', () => {
@@ -92,7 +96,14 @@ describe('promotionPath', () => {
       promotionPath({
         ...input,
         position: 1,
-        orders: [{ entries: [{ position: 0, projectId: QA }, { position: 1, projectId: STAGING }] }],
+        orders: [
+          {
+            entries: [
+              { position: 0, projectId: QA },
+              { position: 1, projectId: STAGING },
+            ],
+          },
+        ],
       }),
     ).toBeUndefined();
     expect(promotionPath({ ...input, position: 3, orders: [order] })).toBeUndefined();
@@ -110,10 +121,7 @@ describe('promotionHint', () => {
       ]),
     ).toEqual({
       text: 'Builds reach prod only by promotion from the environment before it. A build enters its environment order at staging, the first environment: deploy there, then promote the build one environment at a time.',
-      commands: [
-        'kindgi promote --from=staging --to=qa',
-        'kindgi promote --from=qa --to=prod',
-      ],
+      commands: ['kindgi promote --from=staging --to=qa', 'kindgi promote --from=qa --to=prod'],
     });
   });
 

@@ -182,7 +182,9 @@ describe('listProjectsReal and listEnvironmentOrdersReal: every page', () => {
       { data: [{ id: 'p-2', slug: 'acme-prod', orgId: 'org-a' }], hasMore: false },
       urls,
     );
-    expect(await listProjectsReal({ endpoint: 'https://api.example.com', token: 'tok', fetchImpl })).toEqual({
+    expect(
+      await listProjectsReal({ endpoint: 'https://api.example.com', token: 'tok', fetchImpl }),
+    ).toEqual({
       kind: 'ok',
       projects: [
         { id: 'p-1', name: 'Staging', slug: 'acme-staging' },
@@ -214,7 +216,11 @@ describe('listProjectsReal and listEnvironmentOrdersReal: every page', () => {
       urls,
     );
     expect(
-      await listEnvironmentOrdersReal({ endpoint: 'https://api.example.com', token: 'tok', fetchImpl }),
+      await listEnvironmentOrdersReal({
+        endpoint: 'https://api.example.com',
+        token: 'tok',
+        fetchImpl,
+      }),
     ).toEqual({
       kind: 'ok',
       orders: [

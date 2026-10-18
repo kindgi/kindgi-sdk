@@ -58,7 +58,9 @@ export interface ModelKeyLocation {
   readonly name: string;
   /**
    * When the key at `scope` was revoked. A run doesn't fall back to a wider
-   * scope past a revoked key: it refuses (`secret-revoked`).
+   * scope past a revoked key: it refuses (`secret-revoked`). A hard-revoked
+   * key is erased, so it's at no scope: the wider one answers, for the run
+   * and for this lookup alike.
    */
   readonly revokedAt?: string;
 }
