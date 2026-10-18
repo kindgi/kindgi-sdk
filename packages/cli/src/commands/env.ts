@@ -28,6 +28,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import * as readline from 'node:readline';
 import type { ReadStream } from 'node:tty';
 
+import type { ScopeRef } from '@kindgi/client';
 import { type LayeredEnv, readEnvLayers } from '@kindgi/dotenv-file';
 import { type EnvTarget, envVarsForTarget, renderEnvExample } from '@kindgi/env-schema';
 import { displayEnvPath, isRuntimeKey, resolvePackEnvFiles } from '@kindgi/secrets-dotenv';
@@ -46,8 +47,9 @@ import type { EnvRunners } from '../env/runners.js';
 import { EnvValueNotRepresentableError, setKey, unsetKey } from '../env/writer.js';
 import { renderJson } from '../output.js';
 import type { PackConfigRecord } from '../pack-config.js';
-import { valueTargetFor } from '../value-target.js';
+import { valueTargetFor, withEnvironmentNote } from '../value-target.js';
 import {
+  PROJECT_SCOPE_ALONE,
   describeScope,
   envErrorResult,
   listAllEnv,
@@ -218,7 +220,7 @@ const listCmd: LeafCommand = {
     scope: {
       type: 'string',
       description:
-        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`.",
+        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`. On a runtime that keeps its values under one env, `--scope=project` with `--env` naming one of the pack's environments is that environment's project.",
     },
   },
   run: async (ctx): Promise<CommandResult> => {
@@ -365,7 +367,7 @@ const setCmd: LeafCommand = {
     scope: {
       type: 'string',
       description:
-        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`.",
+        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`. On a runtime that keeps its values under one env, `--scope=project` with `--env` naming one of the pack's environments is that environment's project.",
     },
   },
   run: async (ctx): Promise<CommandResult> => {
@@ -501,7 +503,7 @@ const unsetCmd: LeafCommand = {
     scope: {
       type: 'string',
       description:
-        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`.",
+        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`. On a runtime that keeps its values under one env, `--scope=project` with `--env` naming one of the pack's environments is that environment's project.",
     },
   },
   run: async (ctx): Promise<CommandResult> => {
@@ -609,7 +611,7 @@ const pullCmd: LeafCommand = {
   kind: 'leaf',
   name: 'pull',
   description:
-    'Fetch remote env values via /v1/env/* and merge into .env.<envName>. Requires --scope.',
+    "Fetch remote env values via /v1/env/* and merge into .env.<envName>. Requires --scope, unless --env names one of the pack's environments with a project, on a runtime that keeps its values under one env.",
   usage: 'kindgi env pull [--env <name>] --scope=<kind>[:id] [--path <dir>] [--overwrite-existing]',
   optionSpec: {
     env: {
@@ -624,7 +626,7 @@ const pullCmd: LeafCommand = {
     scope: {
       type: 'string',
       description:
-        'Whose values to pull: `tenant`, `org:<orgId>` or `project:<projectId>`. Required.',
+        "Whose values to pull: `tenant`, `org:<orgId>` or `project:<projectId>`. Required. On a runtime that keeps its values under one env, `--env` naming one of the pack's environments pulls its project's values into its `.env.<name>`, with `--scope=project` or with no `--scope`.",
     },
     'overwrite-existing': {
       type: 'boolean',
@@ -636,24 +638,48 @@ const pullCmd: LeafCommand = {
     if (runnersOutcome.kind === 'error') return runnersOutcome;
     const runners = runnersOutcome.runners;
 
-    const scopeResult = parseScope(stringFlag(ctx, 'scope'));
-    if (scopeResult.kind === 'err') {
+    const rawScope = stringFlag(ctx, 'scope');
+    // Left out, or `project` alone: the pack environment's project, known
+    // once --env is. A pull has no local mode for a missing --scope to mean.
+    const scopeResult =
+      rawScope === undefined || rawScope === 'project' ? undefined : parseScope(rawScope);
+    if (scopeResult?.kind === 'err') {
       return { kind: 'error', stderr: scopeResult.stderr, exitCode: 2 };
     }
     // A read: on a runtime that keeps its values under one env, `--env`
-    // defaults to that one rather than `staging`.
+    // defaults to that one rather than `staging`. There, a pack environment
+    // with a project is pulled from that project, under the env it serves,
+    // into the environment's own `.env.<name>`.
     const target = await valueTargetFor(ctx, stringFlag(ctx, 'env'), {
       write: false,
       what: 'an env value',
       fallback: 'staging',
+      ...(rawScope !== undefined && { scope: rawScope }),
     });
-    const resolved = await resolvePaths(ctx, target.kind === 'ok' ? target.envName : undefined);
+    if (target.kind === 'refused') return { kind: 'error', stderr: target.stderr, exitCode: 2 };
+    const environment = target.kind === 'ok' ? target.environment : undefined;
+    const scope: ScopeRef | undefined =
+      environment !== undefined
+        ? { kind: 'project', projectId: environment.projectId }
+        : scopeResult?.scope;
+    if (scope === undefined) {
+      // No --scope: parseScope's "Missing required flag"; `project`: no environment named one.
+      const missing = rawScope === undefined ? parseScope(undefined) : undefined;
+      const stderr = missing?.kind === 'err' ? missing.stderr : PROJECT_SCOPE_ALONE;
+      return { kind: 'error', stderr, exitCode: 2 };
+    }
+    const resolved = await resolvePaths(
+      ctx,
+      environment?.name ?? (target.kind === 'ok' ? target.envName : undefined),
+    );
     if (resolved.kind === 'error') return resolved;
     const paths = resolved.paths;
+    const remoteEnv =
+      target.kind === 'ok' && environment !== undefined ? target.envName : paths.envName;
     const overwrite = ctx.options['overwrite-existing'] === true;
 
     try {
-      const remote = await listAllEnv(ctx, scopeResult.scope, paths.envName as unknown as EnvName);
+      const remote = await listAllEnv(ctx, scope, remoteEnv as unknown as EnvName);
       const raw = (await runners.readFile(paths.envFilePath)) ?? '';
       const existing = (await readFileView(ctx, runners, paths)).values;
       const { contents, added, overwritten, skipped } = mergeRemote(
@@ -676,17 +702,17 @@ const pullCmd: LeafCommand = {
       };
       const banner = [
         '',
-        `  Pulled ${remote.length} remote env value(s) for env=${paths.envName}, scope=${describeScope(scopeResult.scope)}.`,
+        `  Pulled ${remote.length} remote env value(s) for env=${remoteEnv}, scope=${describeScope(scope)}.`,
         `    added:       ${added.length}`,
         `    overwritten: ${overwritten.length}  ${overwrite ? '' : '(pass --overwrite-existing to replace)'}`,
         `    skipped:     ${skipped.length}`,
         '',
       ].join('\n');
       const rendered = renderJson(summary, ctx.globals.format);
-      return {
-        kind: 'ok',
-        rendered: { stdout: rendered.stdout, stderr: `${banner}\n` },
-      };
+      return withEnvironmentNote(
+        { kind: 'ok', rendered: { stdout: rendered.stdout, stderr: `${banner}\n` } },
+        { envName: remoteEnv, ...(environment !== undefined && { environment }) },
+      );
     } catch (err) {
       return envErrorResult(err, ctx, 'kindgi env pull');
     }

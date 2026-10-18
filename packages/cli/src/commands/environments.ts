@@ -7,82 +7,20 @@ import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import { type Column, renderJson, renderTable } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
+import {
+  PROJECT_ID_RE,
+  listAllProjects,
+  resolveAgainst,
+  resolveProjectRefs,
+} from '../project-ref.js';
 import { projectOfEnv } from './build.js';
 import { commandResultFromThrown, runSdk, stringFlag } from './helpers.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
-
-/** A project id, as `kindgi deploy --project` tells one from a slug. */
-const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** The fields of a project row this command reads from `GET /v1/projects`. */
-interface ProjectRow {
-  readonly id: string;
-  readonly slug?: string;
-  readonly name?: string;
-  readonly orgId?: string;
-}
 
 /** The pack root the environment names are read from: `--path`, else the cwd. */
 function packDirOf(ctx: CommandContext): string {
   const raw = stringFlag(ctx, 'path') ?? '.';
   return isAbsolute(raw) ? raw : resolve(ctx.cwd, raw);
-}
-
-/** Every project of the tenant, following `nextCursor` to the last page. */
-async function listAllProjects(ctx: CommandContext): Promise<ProjectRow[]> {
-  const rows: ProjectRow[] = [];
-  let cursor: string | undefined;
-  for (;;) {
-    const page = await ctx.client().projects.list(cursor !== undefined ? { cursor } : {});
-    rows.push(...((page.data ?? []) as readonly ProjectRow[]));
-    if (page.hasMore !== true) break;
-    const next = (page as { readonly nextCursor?: unknown }).nextCursor;
-    if (typeof next !== 'string' || next === '') break;
-    cursor = next;
-  }
-  return rows;
-}
-
-type Resolution =
-  | { readonly kind: 'ok'; readonly id: string }
-  | { readonly kind: 'none' }
-  | { readonly kind: 'ambiguous'; readonly matches: readonly ProjectRow[] };
-
-/**
- * A project id-or-slug against a listing: an id goes as it is; a slug is
- * matched, and a slug that names several projects (a slug is unique within an
- * org, so two orgs may share one) is ambiguous.
- */
-function resolveAgainst(rows: readonly ProjectRow[], ref: string): Resolution {
-  if (PROJECT_ID_RE.test(ref)) return { kind: 'ok', id: ref };
-  const matches = rows.filter((r) => r.slug === ref);
-  if (matches.length === 0) return { kind: 'none' };
-  if (matches.length > 1) return { kind: 'ambiguous', matches };
-  const only = matches[0];
-  return only === undefined ? { kind: 'none' } : { kind: 'ok', id: only.id };
-}
-
-/** Resolve each id-or-slug to a project id, refusing a slug that names none or several. */
-async function resolveRefs(ctx: CommandContext, refs: readonly string[]): Promise<string[]> {
-  const needsList = refs.some((r) => !PROJECT_ID_RE.test(r));
-  const rows = needsList ? await listAllProjects(ctx) : [];
-  return refs.map((ref) => {
-    const resolved = resolveAgainst(rows, ref);
-    if (resolved.kind === 'none') {
-      throw new UsageError(
-        `No project of this tenant has the slug "${ref}". \`kindgi projects list\` shows them; pass a project id instead.`,
-      );
-    }
-    if (resolved.kind === 'ambiguous') {
-      const named = resolved.matches
-        .map((m) => `${m.id} (${m.name ?? '?'}${m.orgId === undefined ? '' : `, org ${m.orgId}`})`)
-        .join(', ');
-      throw new UsageError(
-        `"${ref}" is the slug of ${resolved.matches.length} projects, in different orgs: ${named}. Pass the project id instead.`,
-      );
-    }
-    return resolved.id;
-  });
 }
 
 /**
@@ -223,7 +161,7 @@ const set: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'environments set', async () => {
       const orgId = stringFlag(ctx, 'org');
-      const projectIds = await resolveRefs(ctx, await refsForSet(ctx));
+      const projectIds = await resolveProjectRefs(ctx, await refsForSet(ctx));
       return orgId !== undefined
         ? await ctx.client().environmentOrders.setOrgOrder(orgId, { projectIds })
         : await ctx.client().environmentOrders.setTenantOrder({ projectIds });

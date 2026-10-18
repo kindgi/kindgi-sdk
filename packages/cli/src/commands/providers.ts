@@ -157,7 +157,7 @@ const register: LeafCommand = {
         const spec = (await readJsonInput(specText)) as RegisterProviderInput;
         return renderJson(await ctx.client().providers.register(spec), ctx.globals.format);
       }
-      const input = await presetInput(ctx, presetName as string);
+      const { input, keyHint } = await presetInput(ctx, presetName as string);
       const outcome = await ctx.client().providers.register(input);
       const wanted = input.metadata.defaultModel;
       const models = input.metadata.models
@@ -170,7 +170,7 @@ const register: LeafCommand = {
       const kept = await runtimeNotes(ctx, input);
       return {
         stdout: renderJson(outcome, ctx.globals.format).stdout,
-        stderr: `✓ Registered ${input.metadata.id}: ${models}${key}\n${kept}`,
+        stderr: `✓ Registered ${input.metadata.id}: ${models}${key}\n${keyHint}${kept}`,
       };
     }),
 };
@@ -226,7 +226,10 @@ async function runtimeNotes(ctx: CommandContext, input: RegisterProviderInput): 
  * there at turn time, so a missing key is caught here rather than on the
  * first agent turn.
  */
-async function presetInput(ctx: CommandContext, name: string): Promise<RegisterProviderInput> {
+async function presetInput(
+  ctx: CommandContext,
+  name: string,
+): Promise<{ readonly input: RegisterProviderInput; readonly keyHint: string }> {
   const presets = await loadProviderPresets();
   const preset = presets[name];
   if (preset === undefined) {
@@ -238,7 +241,9 @@ async function presetInput(ctx: CommandContext, name: string): Promise<RegisterP
   const secret = stringFlag(ctx, 'secret');
   // The key's env: `local` (the pack's env files) by default, but on a
   // runtime that keeps its values under one env, that one;
-  // another is refused there.
+  // another is refused there. A pack environment named there is that env
+  // too: a registration is the tenant's, and the key is stored per
+  // environment, in its project.
   const target = await valueTargetFor(ctx, stringFlag(ctx, 'env'), {
     write: true,
     what: "a provider's key",
@@ -275,7 +280,12 @@ async function presetInput(ctx: CommandContext, name: string): Promise<RegisterP
     const missing = await missingPackSecret(ctx, ref.name, preset);
     if (missing !== undefined) throw new Error(missing);
   }
-  return built.input;
+  const environment = target.environment;
+  const keyHint =
+    environment !== undefined && ref !== undefined
+      ? `  Store the key per environment: \`kindgi secrets set ${ref.name} --env=${environment.name}\`, and the same with each other environment's name.\n`
+      : '';
+  return { input: built.input, keyHint };
 }
 
 /** Why `name` can't be resolved from the pack's env files, or `undefined` when it can (or this isn't a pack). */

@@ -18,7 +18,7 @@ import type { EnvName } from '@kindgi/types';
 import type { CommandContext } from '../context.js';
 import { extractKindgiError } from '../errors.js';
 import { renderJson } from '../output.js';
-import { valueTargetFor } from '../value-target.js';
+import { type ResolvedEnvironment, valueTargetFor, withEnvironmentNote } from '../value-target.js';
 import { commandResultFromThrown, stringFlag } from './helpers.js';
 import type { CommandResult } from './types.js';
 
@@ -111,15 +111,24 @@ export function envErrorResult(err: unknown, ctx: CommandContext, label: string)
   return commandResultFromThrown(err, ctx, label);
 }
 
+/** Why `--scope=project`, with no id, names no project here. */
+export const PROJECT_SCOPE_ALONE =
+  "--scope=project alone is the project of the pack's environment --env names, on a runtime that keeps its values under one env. Here, name the project: --scope=project:<projectId>.\n";
+
 interface ScopedTarget {
   readonly scope: ScopeRef;
   readonly envName: string;
+  /** `--env` named one of the pack's environments: its project is `scope`. */
+  readonly environment?: ResolvedEnvironment;
 }
 
 /**
  * `--scope` and the `--env` it requires: on a runtime that keeps its values
  * under one env, that one by default, and a `set` under
- * another is refused (`valueTargetFor`).
+ * another is refused (`valueTargetFor`). There, `--env` may name one of the
+ * pack's environments with a project, and `--scope=project` is that
+ * project, under the env the runtime serves. `--scope` stays required:
+ * without it, `kindgi env` edits the pack's own env files.
  */
 async function scopedTarget(
   ctx: CommandContext,
@@ -127,11 +136,14 @@ async function scopedTarget(
 ): Promise<
   { readonly kind: 'ok'; readonly target: ScopedTarget } | (CommandResult & { kind: 'error' })
 > {
-  const parsed = parseScope(stringFlag(ctx, 'scope'));
-  if (parsed.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
+  const raw = stringFlag(ctx, 'scope');
+  // `project` alone is the pack environment's project: known once --env is.
+  const parsed = raw === 'project' ? undefined : parseScope(raw);
+  if (parsed?.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
   const target = await valueTargetFor(ctx, stringFlag(ctx, 'env'), {
     write: verb === 'set',
     what: 'an env value',
+    ...(raw !== undefined && { scope: raw }),
   });
   if (target.kind === 'missing') {
     return {
@@ -141,6 +153,18 @@ async function scopedTarget(
     };
   }
   if (target.kind === 'refused') return { kind: 'error', stderr: target.stderr, exitCode: 2 };
+  const { environment } = target;
+  if (environment !== undefined) {
+    return {
+      kind: 'ok',
+      target: {
+        scope: { kind: 'project', projectId: environment.projectId },
+        envName: target.envName,
+        environment,
+      },
+    };
+  }
+  if (parsed === undefined) return { kind: 'error', stderr: PROJECT_SCOPE_ALONE, exitCode: 2 };
   return { kind: 'ok', target: { scope: parsed.scope, envName: target.envName } };
 }
 
@@ -155,7 +179,7 @@ export function credentialWarning(key: string, target: ScopedTarget): string | u
   if (!CREDENTIAL_NAME.test(key)) return undefined;
   return (
     `${key} looks like a credential. Env values aren't secret: they're recorded with each run that uses them, ` +
-    `and shown in its journal. Store a credential as a secret: kindgi secrets set ${key} --env=${target.envName} --scope=${describeScope(target.scope)}`
+    `and shown in its journal. Store a credential as a secret: kindgi secrets set ${key} --env=${target.environment?.name ?? target.envName}${target.environment !== undefined ? '' : ` --scope=${describeScope(target.scope)}`}`
   );
 }
 
@@ -172,9 +196,18 @@ export async function setScoped(
 ): Promise<CommandResult> {
   const t = await scopedTarget(ctx, 'set');
   if (t.kind === 'error') return t;
-  const { scope, envName } = t.target;
+  return withEnvironmentNote(await setScopedAt(ctx, key, value, t.target), t.target);
+}
+
+async function setScopedAt(
+  ctx: CommandContext,
+  key: string,
+  value: string,
+  target: ScopedTarget,
+): Promise<CommandResult> {
+  const { scope, envName } = target;
   const where = `${describeScope(scope)} in env ${envName}`;
-  const warning = credentialWarning(key, t.target);
+  const warning = credentialWarning(key, target);
   const env = ctx.client().env;
   try {
     const existing = await env.get({ scope, envName: envName as EnvName, name: key });
@@ -235,7 +268,11 @@ export async function setScoped(
 export async function listScoped(ctx: CommandContext): Promise<CommandResult> {
   const t = await scopedTarget(ctx, 'list');
   if (t.kind === 'error') return t;
-  const { scope, envName } = t.target;
+  return withEnvironmentNote(await listScopedAt(ctx, t.target), t.target);
+}
+
+async function listScopedAt(ctx: CommandContext, target: ScopedTarget): Promise<CommandResult> {
+  const { scope, envName } = target;
   try {
     const records = [...(await listAllEnv(ctx, scope, envName as EnvName))].sort((a, b) =>
       a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
@@ -272,7 +309,15 @@ const FALLBACK: Readonly<Record<ScopeRef['kind'], string>> = {
 export async function unsetScoped(ctx: CommandContext, key: string): Promise<CommandResult> {
   const t = await scopedTarget(ctx, 'unset');
   if (t.kind === 'error') return t;
-  const { scope, envName } = t.target;
+  return withEnvironmentNote(await unsetScopedAt(ctx, key, t.target), t.target);
+}
+
+async function unsetScopedAt(
+  ctx: CommandContext,
+  key: string,
+  target: ScopedTarget,
+): Promise<CommandResult> {
+  const { scope, envName } = target;
   const where = `${describeScope(scope)} in env ${envName}`;
   try {
     const { deleted } = await ctx
