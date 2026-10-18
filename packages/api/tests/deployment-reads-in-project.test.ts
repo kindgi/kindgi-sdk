@@ -44,16 +44,23 @@ const CALLERS: Readonly<
   viewerDefault: { projects: { [DEFAULT]: 'viewer' } },
 };
 
+/** The tenant's projects: a tenant admin is admin on these, and on no other id. */
+const PROJECTS: readonly string[] = [A, B, DEFAULT];
+
 /**
  * The authorization model's answer: the tenant's `read` is a member's,
- * its `admin` an admin's; on a project, a tenant admin is its admin, and
- * `admin` includes `write` (an editor's), which includes `read` (a
- * viewer's).
+ * its `admin` an admin's; on a project, a tenant admin is its admin (from
+ * its parent, so not on one that isn't there), and `admin` includes
+ * `write` (an editor's), which includes `read` (a viewer's).
  */
 function decide(user: string, action: Action, resource: ResourceRef): Decision {
   const caller = CALLERS[user] ?? {};
   const role: Role | undefined =
-    caller.tenantAdmin === true ? 'admin' : caller.projects?.[resource.id];
+    caller.tenantAdmin === true
+      ? PROJECTS.includes(resource.id)
+        ? 'admin'
+        : undefined
+      : caller.projects?.[resource.id];
   const allowed =
     resource.type === 'tenant'
       ? resource.id === tenantId && (action === 'read' || caller.tenantAdmin === true)
@@ -108,7 +115,8 @@ const ROWS = [
   deployment('d-default', DEFAULT),
 ];
 
-function registry(): DeploymentBinding {
+/** `ignoresProject`: a binding that lists every row whatever `projectId` it's given. */
+function registry(ignoresProject = false): DeploymentBinding {
   const notAsked = async (): Promise<never> => {
     throw new Error('not asked in these tests');
   };
@@ -119,6 +127,7 @@ function registry(): DeploymentBinding {
     async list({ limit, cursor, projectId }) {
       const listed = ROWS.filter(
         (d) =>
+          ignoresProject ||
           projectId === undefined ||
           d.projectId === projectId ||
           (projectId === DEFAULT && d.projectId === undefined),
@@ -132,8 +141,16 @@ function registry(): DeploymentBinding {
   } as DeploymentBinding;
 }
 
-function harness(opts: { readonly authorizer?: false; readonly packEnvServed?: false } = {}) {
+function harness(
+  opts: {
+    readonly authorizer?: false;
+    readonly packEnvServed?: false;
+    readonly ignoresProject?: true;
+  } = {},
+) {
   const asked: string[] = [];
+  /** Each secret written, as `<scope kind> <name>`. */
+  const written: string[] = [];
   const check = (principal: unknown, action: Action, resource: ResourceRef) => {
     asked.push(`${action} ${resource.type}:${resource.id}`);
     return decide((principal as { actor: { id: string } }).actor.id, action, resource);
@@ -143,7 +160,7 @@ function harness(opts: { readonly authorizer?: false; readonly packEnvServed?: f
     resolveToken,
     runHandler: {} as RunHandlerBinding,
     envName: 'prod' as never,
-    deploymentRegistry: registry(),
+    deploymentRegistry: registry(opts.ignoresProject === true),
     signingKeyRegistry: {} as never,
     imageRegistry: {} as never,
     projectBinding: {
@@ -153,6 +170,10 @@ function harness(opts: { readonly authorizer?: false; readonly packEnvServed?: f
     } as never,
     secretsBinding: {
       get: async () => null,
+      set: async (input: { scope: { kind: string }; name: string }) => {
+        written.push(`${input.scope.kind} ${input.name}`);
+        return { kind: 'ok', versionId: 1 };
+      },
     } as never,
     envBinding: { get: async () => null } as never,
     ...(opts.packEnvServed !== false && {
@@ -171,6 +192,7 @@ function harness(opts: { readonly authorizer?: false; readonly packEnvServed?: f
   } as never);
   const call = async (caller: string, path: string, body?: unknown) => {
     asked.length = 0;
+    written.length = 0;
     const res = await app.request(path, {
       ...(body !== undefined && {
         method: 'POST',
@@ -189,11 +211,27 @@ function harness(opts: { readonly authorizer?: false; readonly packEnvServed?: f
     expect(out.status, out.text).toBe(200);
     return (out.body.data as { deploymentId: string }[]).map((d) => d.deploymentId).sort();
   };
-  return { call, listed, asked };
+  return { call, listed, asked, written };
 }
 
-/** A secrets sync with nothing to sync: its answer says the rights passed. */
-const SYNC = { envName: 'prod', secrets: [] };
+/** A secrets sync of one value: a refusal writes nothing. */
+const SYNC = { envName: 'prod', secrets: [{ name: 'ACME_API_KEY', value: 'not-a-real-key' }] };
+const SYNCED = {
+  resolved: 0,
+  added: 1,
+  references: [{ name: 'ACME_API_KEY', ref: 'secret:prod/ACME_API_KEY#1', version: 1 }],
+};
+
+/**
+ * A refusal the route returned: its body, not only the status, which the
+ * refusal sets on the context however the route answers.
+ */
+function expectRefused(out: { status: number; body: Record<string, any> }, who: string): void {
+  expect(out.status, who).toBe(403);
+  expect(out.body.error?.code, who).toBe('permission-denied');
+  expect(out.body.data, who).toBeUndefined();
+  expect(out.body.resolved, who).toBeUndefined();
+}
 
 const notFound = (id: string) => ({
   code: 'deployment-not-found',
@@ -227,9 +265,24 @@ describe('GET /v1/deployments: the rows whose project the caller reads', () => {
       'd-none',
     ]);
     expect(await h.listed('admin', `?projectId=${B}`)).toEqual(['d-b']);
-    const refused = await h.call('viewerA', `/v1/deployments?projectId=${B}`);
-    expect(refused.status).toBe(403);
+    expectRefused(await h.call('viewerA', `/v1/deployments?projectId=${B}`), 'viewerA');
     expect(h.asked).toEqual([`read tenant:${tenantId}`, `read project:${B}`]);
+  });
+
+  test('`?projectId=` naming a project that isn’t there: 403, the tenant admin’s too, so it tells no one what exists', async () => {
+    const h = harness();
+    for (const caller of ['admin', 'viewerA']) {
+      expectRefused(await h.call(caller, `/v1/deployments?projectId=${randomUUID()}`), caller);
+    }
+  });
+
+  test('`?projectId=` keeps only what the caller reads, whatever the binding returns', async () => {
+    const h = harness({ ignoresProject: true });
+    expect(await h.listed('viewerA', `?projectId=${A}`)).toEqual(['d-a']);
+    expect(await h.listed('viewerDefault', `?projectId=${DEFAULT}`)).toEqual([
+      'd-default',
+      'd-none',
+    ]);
   });
 });
 
@@ -281,10 +334,11 @@ describe('POST /v1/deployments/{id}/secrets: the deployment’s read, then `admi
     const h = harness();
     const synced = await h.call('adminB', '/v1/deployments/d-b/secrets', SYNC);
     expect(synced.status, synced.text).toBe(200);
-    expect(synced.body).toEqual({ resolved: 0, added: 0, references: [] });
-    const editor = await h.call('editorB', '/v1/deployments/d-b/secrets', SYNC);
-    expect(editor.status).toBe(403);
+    expect(synced.body).toEqual(SYNCED);
+    expect(h.written).toEqual(['project ACME_API_KEY']);
+    expectRefused(await h.call('editorB', '/v1/deployments/d-b/secrets', SYNC), 'editorB');
     expect(h.asked).toEqual([`read project:${B}`, `admin project:${B}`]);
+    expect(h.written).toEqual([]);
   });
 
   test('a deployment the caller does not read: 404, as one that is not there', async () => {
@@ -293,15 +347,19 @@ describe('POST /v1/deployments/{id}/secrets: the deployment’s read, then `admi
       const out = await h.call(caller, '/v1/deployments/d-b/secrets', SYNC);
       expect(out.status, caller).toBe(404);
       expect(out.body.error, caller).toMatchObject(notFound('d-b'));
+      expect(h.written, caller).toEqual([]);
     }
   });
 
   test('a tenant-wide deployment writes tenant-wide: the tenant’s admin, not the Default’s reader', async () => {
     const h = harness();
     const viewer = await h.call('viewerDefault', '/v1/deployments/d-none/secrets', SYNC);
-    expect(viewer.status).toBe(403);
+    expectRefused(viewer, 'viewerDefault');
     expect(h.asked).toEqual([`read project:${DEFAULT}`, `admin tenant:${tenantId}`]);
-    expect((await h.call('admin', '/v1/deployments/d-none/secrets', SYNC)).status).toBe(200);
+    expect(h.written).toEqual([]);
+    const admin = await h.call('admin', '/v1/deployments/d-none/secrets', SYNC);
+    expect(admin.body).toEqual(SYNCED);
+    expect(h.written).toEqual(['tenant ACME_API_KEY']);
   });
 });
 

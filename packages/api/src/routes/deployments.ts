@@ -343,9 +343,10 @@ export function deploymentsRouter(
     // no project), and one pack's.
     const projectIdRaw = c.req.query('projectId');
     const packIdRaw = c.req.query('packId');
-    // One project's needs `read` on it, and then every row is the caller's
-    // to read. Otherwise the page keeps only the rows whose project they
-    // read, so it can come back short, its cursor still the next page's.
+    // One project's needs `read` on it (one that isn't there is refused to
+    // everyone, so it tells no one what exists). Either way the page keeps
+    // only the rows whose project the caller reads, whatever the binding
+    // returned, so it can come back short, its cursor still the next page's.
     const oneProject = projectIdRaw !== undefined && projectIdRaw.length > 0;
     const refused = oneProject
       ? await deniedBy(authorizer, c, 'read', ref('project', projectIdRaw))
@@ -371,9 +372,7 @@ export function deploymentsRouter(
       ...(oneProject && { projectId: projectIdRaw as ProjectId }),
       ...(packIdRaw !== undefined && packIdRaw.length > 0 && { packId: packIdRaw }),
     });
-    const readable = oneProject
-      ? page.data
-      : await readableDeployments(c, bindings, authorizer, page.data);
+    const readable = await readableDeployments(c, bindings, authorizer, page.data);
     return c.json({
       data: readable.map(serializeDeployment),
       hasMore: page.nextCursor !== undefined,
