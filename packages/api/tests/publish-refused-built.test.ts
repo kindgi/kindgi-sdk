@@ -63,6 +63,7 @@ const answered = (refused: InstanceType<typeof SourcePublishRefused>) => ({
   primitive: refused.primitive,
   id: refused.id,
   projectId: refused.projectId,
+  endpointId: refused.endpointId,
 });
 
 describe('PublishRefused, built by tsc: every refusal keeps its primitive and id', () => {
@@ -77,6 +78,7 @@ describe('PublishRefused, built by tsc: every refusal keeps its primitive and id
       primitive: 'guardrail',
       id: 'acme.min-length',
       projectId: undefined,
+      endpointId: undefined,
     });
   });
 
@@ -103,15 +105,37 @@ describe('PublishRefused, built by tsc: every refusal keeps its primitive and id
     });
   });
 
+  test("a registry's kind-mismatch: `tool-kind-mismatch`, with the endpoint when the id is one's", () => {
+    const endpoints = new Built('tool', 'acme.search@1.0.0', {
+      kind: 'kind-mismatch',
+      endpointId: 'acme',
+    } as never);
+    expect(answered(endpoints)).toMatchObject({
+      code: 'tool-kind-mismatch',
+      primitive: 'tool',
+      id: 'acme.search@1.0.0',
+      endpointId: 'acme',
+    });
+    const published = new Built('tool', 'acme.search@1.0.0', { kind: 'kind-mismatch' } as never);
+    expect(answered(published)).toMatchObject({
+      code: 'tool-kind-mismatch',
+      primitive: 'tool',
+      id: 'acme.search@1.0.0',
+      endpointId: undefined,
+    });
+  });
+
   test('the built class and the source the other tests run answer alike', () => {
-    const outcomes = [
-      { code: 'guardrail-already-registered', reason: 'its definition differs' },
-      { kind: 'project-mismatch', projectId: 'p-owner' },
-      { kind: 'project-not-found' },
-    ] as never[];
-    for (const outcome of outcomes) {
-      expect(answered(new Built('guardrail', 'acme.check', outcome))).toStrictEqual(
-        answered(new SourcePublishRefused('guardrail', 'acme.check', outcome)),
+    const refusals = [
+      ['guardrail', { code: 'guardrail-already-registered', reason: 'its definition differs' }],
+      ['guardrail', { kind: 'project-mismatch', projectId: 'p-owner' }],
+      ['guardrail', { kind: 'project-not-found' }],
+      ['tool', { kind: 'kind-mismatch', endpointId: 'acme' }],
+      ['tool', { kind: 'kind-mismatch' }],
+    ] as const;
+    for (const [primitive, outcome] of refusals) {
+      expect(answered(new Built(primitive, 'acme.check', outcome as never))).toStrictEqual(
+        answered(new SourcePublishRefused(primitive, 'acme.check', outcome as never)),
       );
     }
   });
