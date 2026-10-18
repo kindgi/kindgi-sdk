@@ -81,11 +81,12 @@ A run uses four kinds of values, each kept in its own place.
   on, only the scopes whoever registers it administers count. If none holds
   the secret yet, a deploy (runtime 0.1.8.1 or later) records where its
   `--sync-secrets` writes: the project the deploy named, or the tenant for
-  a deploy without `--project`. A promotion records the project it
-  promotes into. A tool registered any other way records the broadest of
-  those scopes: the tenant for a tenant admin, the project for a project
-  admin. That version then reads the
-  secret there and nowhere else. A value set later at another scope isn't
+  a deploy without `--project`. A promotion records where the promoted
+  deployment's `--sync-secrets` writes: the project it promotes into, or
+  the tenant when that's the Default project. A tool registered any other
+  way records the broadest of those scopes: the tenant for a tenant admin,
+  the project for a project admin. That version then reads the secret
+  there and nowhere else. A value set later at another scope isn't
   read until a new version of the tool is registered. An MCP endpoint's
   credentials and a webhook trigger's signing secret are also read only at
   a scope recorded for them: when the endpoint is registered, or when the
