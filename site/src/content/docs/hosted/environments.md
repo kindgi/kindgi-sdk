@@ -96,8 +96,9 @@ environments: {
 ```
 
 On Kindgi Cloud, `--env=<name>` then means that environment's project, for
-every command: `deploy`, `promote`, `secrets set` and the rest. A `--env`
-that names no environment of the pack is refused.
+every command: `deploy`, `promote`, `secrets set`, `env set` and the rest.
+A `--env` that names no environment of the pack is refused, and so is one
+whose environment names no project.
 
 ## Set the order
 
@@ -118,7 +119,11 @@ shows the live version and the versions waiting.
 ## If your agents already run in the Default project
 
 The Default project can be an environment too. Keep it as the last one,
-`prod`, and put one or more staging projects before it:
+`prod`, and put one or more staging projects before it.
+
+`kindgi projects get-default` prints the Default project, with its slug.
+`prod` names the Default project by that slug, as every environment names
+its project:
 
 ```ts
 environments: {
@@ -127,12 +132,11 @@ environments: {
     project: 'staging',
     signingKey: '~/.kindgi/keys/acme-desk.pem',
   },
-  prod: {},
+  prod: { project: '<default-project-slug>' },
 },
 ```
 
-`prod` names no project, so it's the Default project. Then set the order,
-as a tenant admin:
+Then set the order, as a tenant admin:
 
 ```sh
 kindgi environments set staging prod
@@ -227,6 +231,10 @@ its version, make it live, and roll back if you need to, as in
 
 ## If something goes wrong
 
+- **A command with `--env` is refused.** The pack has no environment of that
+  name, or the environment names no project. Name its project in
+  `kindgi.config.ts`, as in
+  [Name each environment's project](#name-each-environments-project).
 - **A deploy into a later environment is refused.** Deploy into the first
   environment, then promote.
 - **A promotion is refused because values are missing.** Store each value
