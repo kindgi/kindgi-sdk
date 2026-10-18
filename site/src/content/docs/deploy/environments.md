@@ -102,7 +102,7 @@ build settings.
 
 On Kindgi Cloud:
 
-```ts
+```ts excerpt
 environments: {
   'staging-1': {
     build: 'hosted',
@@ -120,7 +120,7 @@ registry and signing key settings that
 [Self-host Kindgi](../self-hosted/self-host/) describes: builds and signing
 happen only there, and a promotion keeps the build's signature.
 
-```ts
+```ts excerpt
 environments: {
   'staging-1': {
     endpoint: 'https://kindgi.acme.example',
