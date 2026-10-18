@@ -127,16 +127,21 @@ kindgi deploy --hosted --env=prod
 
 - The runtime reads a provider's key in the environment its
   `secret_ref.envName` names, at tenant scope. Keep the key and the
-  provider both on `prod`. A key set under `prod`, with a provider
-  registered without `--env` (so under `local`), isn't found at the first
-  turn (mistake 1). By hand, `provider.json` has
+  provider both on `prod`. A provider registered without `--env` reads
+  `local`, not the `prod` key: `register` refuses when the pack's own env
+  files lack the key (its message names `--env`), and otherwise the first
+  turn can't find the key (mistake 1). By hand, `provider.json` has
   `"secret_ref": { "envName": "prod", … }`.
 - `kindgi secrets set` has no default environment: name `--env` every time.
 - The deployment `kindgi deploy` sends names no environment. Its
   `--env=prod` picks the pack's own `prod` settings, such as its signing
   key.
-- Another provider takes the same two lines, with its preset and its key's
-  name.
+- OpenAI, the Gemini API, Groq and OpenRouter take the same two lines,
+  with their preset and key: `openai` and `OPENAI_API_KEY`, `gemini-api`
+  and `GEMINI_API_KEY`, `groq` and `GROQ_API_KEY`, `openrouter` and
+  `OPENROUTER_API_KEY`. Bedrock, Vertex AI and Azure OpenAI don't fit
+  them: see Amazon Bedrock and Path D below, and `kindgi providers
+  presets` for `azure-openai`'s settings.
 
 The whole flow, from signing the CLI in to going live:
 https://docs.kindgi.com/v0.1/hosted/deploy-your-agent/#your-model-key-and-its-provider
@@ -153,11 +158,10 @@ then parse, check against the schema and repair, on every provider.
 **Step 1 — set the key:**
 ```sh
 kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
-# Prompts interactively (echo disabled). Paste the key, press enter.
+# Prompts twice, echo disabled: paste the key, then again to confirm.
 ```
-For a pack on Kindgi Cloud, `--env=prod` instead (On Kindgi Cloud, above).
-Writes to `.kindgi/secrets.env` at the pack root via the dotenv secret
-binding — or add `ANTHROPIC_API_KEY=…` to that file yourself; `kindgi dev`
+Under `kindgi dev`, this writes to `.kindgi/secrets.env` at the pack root
+via the dotenv secret binding — or add `ANTHROPIC_API_KEY=…` to that file yourself; `kindgi dev`
 also reads the app's `.env` / `.env.local`. If the pack lives inside an app
 whose env file already has the key, it works as it is; `kindgi secrets copy`
 gives Kindgi its own copy and never edits the app's files (the app may use
@@ -165,6 +169,9 @@ the key itself: leave removing it to the person). Keep env files gitignored. For
 `echo -n "$KEY" | kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant --from-stdin`,
 or read from a mode-0600 file with `--from-file <path>`. Never pass a
 credential on argv.
+
+For a pack on Kindgi Cloud, `--env=prod` instead: the key goes to your
+workspace's runtime, not to a file (On Kindgi Cloud, above).
 
 **Step 2 — register it, from the preset:**
 ```sh
