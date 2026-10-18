@@ -49,7 +49,7 @@ import {
   serializeDeployment,
 } from '../deployment-binding.js';
 import { canonicalizeEnvelope, normaliseSha256Hex } from '../deployment-envelope.js';
-import type { DeploymentValuesDeps } from '../deployment-values.js';
+import { type DeploymentValuesDeps, deploymentValues } from '../deployment-values.js';
 import type { EnvBinding } from '../env-binding.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
@@ -75,13 +75,19 @@ import {
   reservedToolMetadataMessage,
 } from '../reference-scope.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
-import { secretScopesFor, toolSecretRefs } from '../secret-scope.js';
+import { callerAdministers, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
-import { capabilityRefusal } from './denied.js';
-import { isPromotionRoute, mountDeploymentPromotions } from './deployment-promotions.js';
+import { capabilityRefusal, deniedBy } from './denied.js';
+import {
+  carriedFor,
+  isPromotionRoute,
+  mountDeploymentPromotions,
+  servingProjectOf,
+  valuesDepsFor,
+} from './deployment-promotions.js';
 import { requireEnvName } from './env.js';
 import type { GuardrailWriteHook } from './guardrails.js';
 import { clampLimit } from './pagination.js';
@@ -433,6 +439,82 @@ export function deploymentsRouter(
       data: check.names,
       ...(check.problem !== undefined && { problem: check.problem }),
     });
+  });
+
+  // ---------- GET /:deploymentId/values ----------
+  // What the deployment needs set in a project before it serves there,
+  // names only (`deployment-values.ts`). It asks what listing secrets in
+  // that project asks, `admin` on it, on top of the tenant `read` above.
+  r.get('/:deploymentId/values', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const deploymentId = c.req.param('deploymentId');
+    const named = c.req.query('projectId');
+    if (named !== undefined && !UUID_RE.test(named)) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: '`projectId` must be a project id (a UUID)' },
+          requestId,
+        ),
+      );
+    }
+    const record = await bindings.deploymentRegistry.get({ tenantId, deploymentId });
+    if (record === null) {
+      c.status(statusFor('deployment-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'deployment-not-found',
+            message: `No deployment with id "${deploymentId}" under this tenant`,
+            deploymentId,
+          },
+          requestId,
+        ),
+      );
+    }
+    const own = await servingProjectOf(bindings, record);
+    const projectId = (named as ProjectId | undefined) ?? own;
+    if (projectId === undefined) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message:
+              "`projectId` is required: this runtime doesn't record the deployment's project",
+          },
+          requestId,
+        ),
+      );
+    }
+    const refused = await deniedBy(authorizer, c, 'admin', ref('project', projectId));
+    if (refused !== undefined) return refused;
+    if (named !== undefined && (await bindings.projectBinding?.get(tenantId, projectId)) === null) {
+      c.status(statusFor('project-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'project-not-found',
+            message: `\`projectId\` "${named}" names no project of this tenant`,
+          },
+          requestId,
+        ),
+      );
+    }
+    // In a project other than its own, the one a promotion would take it
+    // to, a tool's secret counts only at a scope the caller administers, as
+    // their promotion would record it, so the list says what that
+    // promotion's check would. In its own project, every scope counts: the
+    // list says where a run there finds each value.
+    const administers = projectId === own ? undefined : callerAdministers(c, authorizer, tenantId);
+    const { carried } = await carriedFor(bindings, record);
+    const data = await deploymentValues(valuesDepsFor(bindings, administers), {
+      deployment: record,
+      carried,
+      projectId,
+    });
+    return c.json({ data });
   });
 
   // ---------- POST / (register a signed deployment) ----------

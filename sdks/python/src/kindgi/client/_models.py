@@ -8640,6 +8640,17 @@ class DeploymentValue(BaseModel):
     """
 
 
+class DeploymentValueList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[DeploymentValue]
+    """
+    Every value the deployment needs in the project: each tool's secrets and env values (in the deployment's order), then each model key by provider, then the pack service's env.
+    """
+
+
 class DeploymentPromotionBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",

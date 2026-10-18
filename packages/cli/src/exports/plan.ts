@@ -557,6 +557,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/environment-orders/tenant': 'the same records as environment-orders',
   '/v1/environment-orders/orgs/{orgId}': 'the same records as environment-orders',
   '/v1/providers/{providerId}/check': "a live check of a provider's settings",
+  '/v1/deployments/{deploymentId}/values':
+    'computed from deployments, tools, agents, providers, secrets and env values',
   '/v1/retention/scheduled': 'computed from the retention policies and the records',
   '/v1/deployments/{deploymentId}/pack-env': 'computed from deployments, env and secrets',
   // Not listed by any route.

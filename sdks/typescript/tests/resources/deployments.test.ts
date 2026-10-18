@@ -99,6 +99,34 @@ describe('deployments — wire round-trips', () => {
     );
   });
 
+  it('values.list reads what a deployment needs in a project, with or without projectId', async () => {
+    const PROJECT = '3f2b8c1e-4a5d-4e6f-9a0b-1c2d3e4f5a6b';
+    const VALUE = {
+      name: 'ACME_TOKEN',
+      kind: 'secret',
+      neededBy: { type: 'tool', id: 'acme.search', version: '1.0.0' },
+      foundAt: 'tenant',
+    };
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ data: [VALUE] }) },
+      { status: 200, body: JSON.stringify({ data: [] }) },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const own = await client.deployments.values.list('d1');
+    const there = await client.deployments.values.list('d1', { projectId: PROJECT });
+    expect(own.data).toEqual([VALUE]);
+    expect(there.data).toEqual([]);
+    expect(
+      stub.calls.map((c) => {
+        const url = new URL(c.url);
+        return `${c.method} ${url.pathname}${url.search}`;
+      }),
+    ).toEqual([
+      'GET /v1/deployments/d1/values',
+      `GET /v1/deployments/d1/values?projectId=${PROJECT}`,
+    ]);
+  });
+
   it('promote and promoteCheck send where to; list filters by environment and pack', async () => {
     const moves = {
       imageDigest: 'sha256:abc',
