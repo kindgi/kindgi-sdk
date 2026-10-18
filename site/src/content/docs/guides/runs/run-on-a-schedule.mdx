@@ -295,10 +295,10 @@ At each fire, it counts the "no" judgments on the agent's runs in its scope
 since the agent's last pass there, the way the pass will count them:
 everyone's until the tenant, the project, or the agent being improved has a
 [restricted judge class](../../evals/judge-a-runs-output/#restrict-who-may-judge-as-a-class),
-then only the ones recorded under one. A `classWeights` in the schedule's
-input counts that way instead. The last pass is one that didn't fail or get
-cancelled, whoever started it. With enough of them, across enough runs, from
-enough judges, it starts a pass on a fresh test set of those runs,
+then only the ones recorded under one. With `classWeights` in the schedule's
+input, it counts the way that value says. The last pass is one that didn't
+fail or get cancelled, whoever started it. With enough of them, across enough
+runs, from enough judges, it starts a pass on a fresh test set of those runs,
 `improve.<pass-id>`. Otherwise the fire is `skipped`, and its note says which
 count was short.
 
