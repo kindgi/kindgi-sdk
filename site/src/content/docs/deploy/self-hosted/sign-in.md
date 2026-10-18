@@ -29,6 +29,9 @@ stay Kindgi's.
   ([Keep secrets in your own secret manager](../secret-manager/), or the
   default Postgres one).
 - **`openssl`,** to make sign-in's own secret.
+- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+  pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Turn it on
 
@@ -401,7 +404,7 @@ sign in.
 A tenant admin can require one for the whole workspace:
 
 ```sh
-kindgi sign-in settings --require-second-factor=on
+npx --yes @kindgi/cli@0.1 sign-in settings --require-second-factor=on
 ```
 
 - Someone without one sets one up at their next sign-in.
@@ -425,7 +428,7 @@ factor for the rest of that time (`second-factor-locked`). For a lost phone, a t
 theirs, and they're told by email where the deployment sends it:
 
 ```sh
-kindgi people reset-second-factor <user-id>
+npx --yes @kindgi/cli@0.1 people reset-second-factor <user-id>
 ```
 
 An admin's own isn't removed this way: they take it off on My access, with a

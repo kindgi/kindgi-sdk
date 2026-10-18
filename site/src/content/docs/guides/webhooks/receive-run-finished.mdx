@@ -111,9 +111,36 @@ bytes.
 Store it as a secret, under a name. The CLI asks for the value and doesn't
 echo it:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
+pnpm exec kindgi secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
+```
+
+</TabItem>
+</Tabs>
 
 - `ACME_WEBHOOK_SECRET` is the secret's name. The endpoint refers to it by
   this name.

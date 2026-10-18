@@ -22,9 +22,36 @@ started, the runs inside one run, or one agent's turns.
 
 The newest runs come first. List two:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs list --limit=2
+pnpm exec kindgi runs list --limit=2
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs list --limit=2
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs list --limit=2
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs list --limit=2
+```
+
+</TabItem>
+</Tabs>
 
 `--limit=2` is the most runs on a page. It prints the page:
 
@@ -471,9 +498,36 @@ version that ran and the conversation. That goes for an agent run and for
 the turn a flow's agent step starts. List one agent's turns, at every
 version:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs list --agent=acme.chat-desk --table
+pnpm exec kindgi runs list --agent=acme.chat-desk --table
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs list --agent=acme.chat-desk --table
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs list --agent=acme.chat-desk --table
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs list --agent=acme.chat-desk --table
+```
+
+</TabItem>
+</Tabs>
 
 `--agent` is the agent's id, and `--table` prints a table instead of JSON:
 

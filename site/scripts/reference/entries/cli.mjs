@@ -958,11 +958,13 @@ export const CLI_DEFAULTS = {
 
 /** The global flags' defaults, as `CLI_DEFAULTS`. */
 export const GLOBAL_FLAG_DEFAULTS = {
+  hosted:
+    "off, unless the env the command acts in has `build: 'hosted'` in `kindgi.config.ts` (`--env`, else `staging` for `kindgi build` and `kindgi deploy`)",
   json: 'on when no format flag is given: pretty JSON (commands for people, such as `kindgi dev`, print JSON only when asked)',
   table: 'off; a command with no table prints JSON',
   token:
-    "`KINDGI_API_TOKEN`, then a stored key: `./.kindgirc.json`'s, then `~/.kindgi/config.json`'s, and when those are for different addresses, the one stored with the API URL. A stored key goes only to the address stored with it: a command that would send it elsewhere is refused before it sends anything. None of them set: a command that calls the API fails",
-  url: '`KINDGI_API_URL`, then `./.kindgirc.json`, then `~/.kindgi/config.json`; none of them set: a command that calls the API fails',
+    "`KINDGI_API_TOKEN`, then a stored key: `./.kindgirc.json`'s, then `~/.kindgi/config.json`'s, and when those are for different addresses, the one stored with the API URL. A stored key goes only to the address stored with it: a command that would send it elsewhere is refused before it sends anything. With `--hosted`, a `kindgi dev` runtime's `./.kindgirc.json` isn't read. None of them set: a command that calls the API fails",
+  url: "`KINDGI_API_URL`, then `./.kindgirc.json`, then `~/.kindgi/config.json`; with `--hosted`, a `kindgi dev` runtime's `./.kindgirc.json` isn't read. None of them set: a command that calls the API fails",
 };
 
 /**
@@ -972,8 +974,9 @@ export const GLOBAL_FLAG_DEFAULTS = {
 export const CLI_EXAMPLES = {
   'auth login': [
     {
-      purpose: 'Save the API URL and token to ~/.kindgi/config.json.',
-      line: 'kindgi auth login --url=https://kindgi.acme.example --token=<api-token>',
+      purpose:
+        'Save the API URL, and the API token exported as `KINDGI_API_TOKEN`, to ~/.kindgi/config.json.',
+      line: 'kindgi auth login --url=https://kindgi.acme.example',
     },
   ],
   'auth whoami': [

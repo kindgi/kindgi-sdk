@@ -93,7 +93,7 @@ plugin's **Kindgi → Settings** page shows the two addresses to register:
 - its approvals URL.
 
 ```sh
-kindgi sites register --project=<project-id> --name='Acme store' \
+pnpm exec kindgi sites register --project=<project-id> --name='Acme store' \
   --origin=https://acme-store.example \
   --approvals-url='https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}'
 ```
