@@ -2781,12 +2781,22 @@ class AgentsResource:
             timeout=timeout,
         )
 
-    def get(self, agent_id: str | UUID, /, *, timeout: float | None = None) -> _models.Agent:
-        """Fetch the latest version of an agent. `GET /v1/agents/{agentId}`"""
+    def get(
+        self,
+        agent_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.Agent:
+        """Fetch the latest version of an agent. `GET /v1/agents/{agentId}`
+
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        """
         return self._client._request(
             _OPERATIONS["agents.get"],
             path={"agentId": agent_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.Agent,
             timeout=timeout,
@@ -3102,12 +3112,22 @@ class FlowsResource:
             timeout=timeout,
         )
 
-    def get(self, flow_id: str | UUID, /, *, timeout: float | None = None) -> _models.Flow:
-        """Fetch the latest version of a flow. `GET /v1/flows/{flowId}`"""
+    def get(
+        self,
+        flow_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.Flow:
+        """Fetch the latest version of a flow. `GET /v1/flows/{flowId}`
+
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        """
         return self._client._request(
             _OPERATIONS["flows.get"],
             path={"flowId": flow_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.Flow,
             timeout=timeout,
@@ -3254,15 +3274,22 @@ class ToolsResource:
             timeout=timeout,
         )
 
-    def get(self, tool_id: str | UUID, /, *, timeout: float | None = None) -> _models.Tool:
+    def get(
+        self,
+        tool_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.Tool:
         """Fetch a tool manifest (latest active version). `GET /v1/tools/{toolId}`
 
-        Returns the latest active version of the tool. When all versions are unregistered (retired), the head row still exists but has no active version — the response is 410 tool-gone with the id, distinct from 404 tool-not-found (never registered).
+        Returns the latest active version of the tool. When all versions are unregistered (retired), the head row still exists but has no active version — the response is 410 tool-gone with the id, distinct from 404 tool-not-found (never registered). An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
         """
         return self._client._request(
             _OPERATIONS["tools.get"],
             path={"toolId": tool_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.Tool,
             timeout=timeout,
@@ -5771,12 +5798,22 @@ class EvalSuitesResource:
             timeout=timeout,
         )
 
-    def get(self, suite_id: str | UUID, /, *, timeout: float | None = None) -> _models.EvalSuite:
-        """Fetch an eval suite (latest version). `GET /v1/eval-suites/{suiteId}`"""
+    def get(
+        self,
+        suite_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.EvalSuite:
+        """Fetch an eval suite (latest version). `GET /v1/eval-suites/{suiteId}`
+
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        """
         return self._client._request(
             _OPERATIONS["evalSuites.get"],
             path={"suiteId": suite_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.EvalSuite,
             timeout=timeout,
@@ -6023,12 +6060,22 @@ class BlocksResource:
             timeout=timeout,
         )
 
-    def get(self, block_id: str | UUID, /, *, timeout: float | None = None) -> _models.Block:
-        """Fetch a data block (latest version). `GET /v1/blocks/{blockId}`"""
+    def get(
+        self,
+        block_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.Block:
+        """Fetch a data block (latest version). `GET /v1/blocks/{blockId}`
+
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        """
         return self._client._request(
             _OPERATIONS["blocks.get"],
             path={"blockId": block_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.Block,
             timeout=timeout,
@@ -11221,12 +11268,22 @@ class AsyncAgentsResource:
             timeout=timeout,
         )
 
-    async def get(self, agent_id: str | UUID, /, *, timeout: float | None = None) -> _models.Agent:
-        """Fetch the latest version of an agent. `GET /v1/agents/{agentId}`"""
+    async def get(
+        self,
+        agent_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.Agent:
+        """Fetch the latest version of an agent. `GET /v1/agents/{agentId}`
+
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        """
         return await self._client._request(
             _OPERATIONS["agents.get"],
             path={"agentId": agent_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.Agent,
             timeout=timeout,
@@ -11544,12 +11601,22 @@ class AsyncFlowsResource:
             timeout=timeout,
         )
 
-    async def get(self, flow_id: str | UUID, /, *, timeout: float | None = None) -> _models.Flow:
-        """Fetch the latest version of a flow. `GET /v1/flows/{flowId}`"""
+    async def get(
+        self,
+        flow_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.Flow:
+        """Fetch the latest version of a flow. `GET /v1/flows/{flowId}`
+
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        """
         return await self._client._request(
             _OPERATIONS["flows.get"],
             path={"flowId": flow_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.Flow,
             timeout=timeout,
@@ -11696,15 +11763,22 @@ class AsyncToolsResource:
             timeout=timeout,
         )
 
-    async def get(self, tool_id: str | UUID, /, *, timeout: float | None = None) -> _models.Tool:
+    async def get(
+        self,
+        tool_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.Tool:
         """Fetch a tool manifest (latest active version). `GET /v1/tools/{toolId}`
 
-        Returns the latest active version of the tool. When all versions are unregistered (retired), the head row still exists but has no active version — the response is 410 tool-gone with the id, distinct from 404 tool-not-found (never registered).
+        Returns the latest active version of the tool. When all versions are unregistered (retired), the head row still exists but has no active version — the response is 410 tool-gone with the id, distinct from 404 tool-not-found (never registered). An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
         """
         return await self._client._request(
             _OPERATIONS["tools.get"],
             path={"toolId": tool_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.Tool,
             timeout=timeout,
@@ -14220,13 +14294,21 @@ class AsyncEvalSuitesResource:
         )
 
     async def get(
-        self, suite_id: str | UUID, /, *, timeout: float | None = None
+        self,
+        suite_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
     ) -> _models.EvalSuite:
-        """Fetch an eval suite (latest version). `GET /v1/eval-suites/{suiteId}`"""
+        """Fetch an eval suite (latest version). `GET /v1/eval-suites/{suiteId}`
+
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        """
         return await self._client._request(
             _OPERATIONS["evalSuites.get"],
             path={"suiteId": suite_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.EvalSuite,
             timeout=timeout,
@@ -14473,12 +14555,22 @@ class AsyncBlocksResource:
             timeout=timeout,
         )
 
-    async def get(self, block_id: str | UUID, /, *, timeout: float | None = None) -> _models.Block:
-        """Fetch a data block (latest version). `GET /v1/blocks/{blockId}`"""
+    async def get(
+        self,
+        block_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.Block:
+        """Fetch a data block (latest version). `GET /v1/blocks/{blockId}`
+
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        """
         return await self._client._request(
             _OPERATIONS["blocks.get"],
             path={"blockId": block_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.Block,
             timeout=timeout,

@@ -15,6 +15,11 @@ same version, and the CLI's own changes are in
   edits made since to its agents and flows. `deployments.promote_check`
   answers what would move and which values aren't ready in the target,
   writing nothing. `deployments.list` takes `project_id` and `pack_id`.
+- `kindgi`: **`agents.get`, `flows.get`, `tools.get`, `eval_suites.get` and
+  `blocks.get` take `project_id`**: for an item an environment order
+  carries, the newest version that can run in that project, which the caller
+  must read. Without it, the newest version the caller can see. An older
+  runtime ignores it and answers the latest version.
 - `kindgi`: **a webhook or schedule trigger can run as a service account.**
   `run_as_service_account_id` on `webhooks.register`,
   `webhooks.take_ownership`, `schedules.register` and

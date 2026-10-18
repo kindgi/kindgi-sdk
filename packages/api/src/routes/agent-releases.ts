@@ -13,6 +13,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { EvalRun, EvalRunBinding } from '../eval-run-binding.js';
 import type { GatePolicy } from '../gate-policy-binding.js';
 import { type GateApproval, type GateCheck, type GateResult, evaluateGate } from '../gate.js';
+import type { ItemRights } from '../item-rights.js';
 import type { JudgedComparisonSummary } from '../judged-dispatcher.js';
 import type {
   AgentReleaseBindings,
@@ -73,7 +74,29 @@ export function mountAgentReleaseRoutes(
   deps: AgentReleaseGateDeps = {},
   /** What a project-scoped promotion's project may run (`reference-scope.ts`); absent → as named. */
   referenceScope?: ReferenceScopeBinding,
+  /** Rights on an agent more than one project serves (`item-rights.ts`); absent → the agent's own. */
+  itemRights?: ItemRights,
 ): void {
+  /**
+   * The versions among `versions` the caller can see: all of them, unless
+   * more than one project serves the agent (`item-rights.ts`, rule 2).
+   */
+  async function seen(
+    c: Ctx,
+    agentId: string,
+    versions: readonly string[],
+  ): Promise<ReadonlySet<string>> {
+    const projects = await itemRights?.multi(c, 'agent', agentId);
+    if (itemRights === undefined || projects === undefined) return new Set(versions);
+    return new Set(
+      await itemRights.visibleVersions(c, 'agent', agentId, projects, versions, (v) => v),
+    );
+  }
+  /** A promotion the caller can see: every version it names is one. */
+  const named = (p: Promotion): string[] =>
+    [p.fromVersion, p.toVersion].filter((v): v is Semver => v !== null).map(String);
+  const shows = (p: Promotion, visible: ReadonlySet<string>) =>
+    named(p).every((v) => visible.has(v));
   /** A project or segment promotion of an agent that project doesn't reach: refused. */
   const outOfScope = (tenantId: TenantId, agentId: string, scope: LiveScope) =>
     liveScopeOutOfScope(referenceScope, tenantId, agentId, scope);
@@ -115,7 +138,23 @@ export function mountAgentReleaseRoutes(
       ...(projectId !== undefined && { projectId: projectId as ProjectId }),
       ...(segments.segments !== undefined && { segments: segments.segments }),
     });
-    if (resolved !== null) {
+    return answerLive(c, tenantId, agentId, resolved);
+  });
+
+  /**
+   * What `GET …/live` answers: the live version `resolved` names, else
+   * (nothing pinned on the way up) the latest registered version, which is
+   * what a run gets. A version the caller can't see answers as no agent
+   * does (`item-rights.ts`).
+   */
+  async function answerLive(
+    c: Ctx,
+    tenantId: TenantId,
+    agentId: string,
+    resolved: Awaited<ReturnType<typeof releases.live.resolve>>,
+  ) {
+    const hidden = async (version: string) => !(await seen(c, agentId, [version])).has(version);
+    if (resolved !== null && !(await hidden(resolved.version as unknown as string))) {
       return c.json({
         agentId,
         version: resolved.version as unknown as string,
@@ -123,23 +162,30 @@ export function mountAgentReleaseRoutes(
         liveScope: liveScopeToWire(resolved.scope),
       });
     }
-    // Nothing pinned on the way up: what a run gets is the latest registered version.
-    const latest = await registry.get({ tenantId, agentId: agentId as AgentId });
-    if (latest === null) {
+    const latest =
+      resolved === null ? await registry.get({ tenantId, agentId: agentId as AgentId }) : null;
+    if (latest === null || (await hidden(latest.version as unknown as string))) {
       c.status(statusFor('agent-not-found') as never);
       return c.json(
         toWireError(
           { code: 'agent-not-found', message: `No agent "${agentId}" is registered` },
-          requestId,
+          c.get('requestId'),
         ),
       );
     }
     return c.json({ agentId, version: latest.version as unknown as string, via: 'latest' });
-  });
+  }
 
   r.get('/:agentId/live-versions', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
-    const pins = await releases.live.list({ tenantId, agentId: c.req.param('agentId') });
+    const agentId = c.req.param('agentId');
+    const all = await releases.live.list({ tenantId, agentId });
+    const visible = await seen(
+      c,
+      agentId,
+      all.map((p) => p.version as unknown as string),
+    );
+    const pins = all.filter((p) => visible.has(p.version as unknown as string));
     return c.json({
       data: pins.map((p) => ({
         agentId: p.agentId,
@@ -221,15 +267,17 @@ export function mountAgentReleaseRoutes(
     const cursor = c.req.query('cursor');
     const refused = refuseUnissuedCursor(c, releases.promotions, 'promotions', cursor);
     if (refused !== undefined) return refused;
+    const agentId = c.req.param('agentId');
     const page = await releases.promotions.list({
       tenantId: c.get('tenantId') as TenantId,
-      agentId: c.req.param('agentId'),
+      agentId,
       limit: clampLimit(c.req.query('limit')),
       ...(scope.scope !== undefined && { scope: scope.scope }),
       ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
     });
+    const visible = await seen(c, agentId, [...new Set(page.data.flatMap(named))]);
     return c.json({
-      data: page.data.map(serializePromotion),
+      data: page.data.filter((p) => shows(p, visible)).map(serializePromotion),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -241,7 +289,11 @@ export function mountAgentReleaseRoutes(
       c.get('tenantId') as TenantId,
       c.req.param('promotionId'),
     );
-    if (found === null || found.agentId !== c.req.param('agentId')) {
+    if (
+      found === null ||
+      found.agentId !== c.req.param('agentId') ||
+      !shows(found, await seen(c, found.agentId, named(found)))
+    ) {
       c.status(statusFor('promotion-not-found') as never);
       return c.json(
         toWireError(

@@ -48,6 +48,8 @@ import type { IdentityDirectoryBinding } from './identity-directory-binding.js';
 import type { IdentityProviderBinding } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
 import type { ImprovementPassBinding } from './improvement-pass-binding.js';
+import type { ItemProjectsBinding } from './item-projects-binding.js';
+import { itemRightsOf, itemServingOf } from './item-rights.js';
 import type { JudgingQueueBinding } from './judging-queue-binding.js';
 import type { JudgmentRegistryBinding } from './judgment-binding.js';
 import type { AgentReleaseBindings } from './live-version-binding.js';
@@ -1189,6 +1191,16 @@ export interface CreateAppInput {
    */
   readonly environmentOrders?: EnvironmentOrderBinding;
   /**
+   * Optional. Which projects serve each agent, flow, eval suite, tool,
+   * guardrail and block. An item more than one project serves is governed
+   * by rights on those projects (`item-rights.ts`), not by the project it
+   * was first published in. Without `authz` there are no rights to ask,
+   * but it still decides which version `?projectId=` answers on a single
+   * read. Absent: every item has one project, and every check is the
+   * item's own. The host application supplies it.
+   */
+  readonly itemProjects?: ItemProjectsBinding;
+  /**
    * The env this deployment serves (`KINDGI_ENV`): where the secrets a
    * tool's code declares are looked for when the tool is published, to
    * record where they're read (`secret-scope.ts`). Absent: the webhook
@@ -1466,6 +1478,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   v1.use('*', tenantScopeMiddleware());
   const authorizer: Authorizer | undefined =
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
+  // Rights on an item more than one project serves (`item-rights.ts`).
+  const itemRights = itemRightsOf(authorizer, input.itemProjects, input.environmentOrders);
+  // With no authorizer, which projects serve an item still decides what
+  // `?projectId=` answers on its single read.
+  const itemServing =
+    input.itemProjects !== undefined ? itemServingOf(input.itemProjects) : undefined;
   // A system principal acts in no tenant: it reaches /v1/system/* (and the
   // deployment's license), nothing else, and each of its requests is recorded.
   v1.use(
@@ -1513,6 +1531,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.eventBus !== undefined && { eventBus: input.eventBus }),
         ...(input.hitlBinding !== undefined && { hitl: input.hitlBinding }),
         ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+        ...(itemRights !== undefined && { itemRights }),
         ...(input.agentRegistry !== undefined &&
           input.flowRegistry !== undefined && {
             targetExists: async (tenantId, target) =>
@@ -1543,6 +1562,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       authorizer,
       input.referenceScope,
       input.agentRegistry,
+      itemRights,
     ),
   );
   if (publicRunTokenLimits !== undefined) {
@@ -1597,7 +1617,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   if (input.enableObservations === true && input.supervisor !== undefined) {
-    v1.route('/observations', observationsRouter(input.supervisor, authorizer));
+    v1.route('/observations', observationsRouter(input.supervisor, authorizer, itemRights));
   }
   if (input.agentRegistry !== undefined) {
     v1.route(
@@ -1625,6 +1645,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         },
         input.referenceScope,
         input.environmentOrders,
+        itemRights,
+        itemServing,
       ),
     );
   }
@@ -1646,6 +1668,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           : undefined,
         input.referenceScope,
         input.environmentOrders,
+        itemRights,
+        itemServing,
       ),
     );
   }
@@ -1681,6 +1705,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.environmentOrders !== undefined && {
           environmentOrders: input.environmentOrders,
         }),
+        ...(itemRights !== undefined && { itemRights }),
+        ...(itemServing !== undefined && { itemServing }),
       }),
     );
   }
@@ -1694,6 +1720,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.checkGuardrailConfig,
         input.referenceScope,
         input.environmentOrders,
+        itemRights,
       ),
     );
   }
@@ -1742,10 +1769,14 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.environmentOrders !== undefined && { orders: input.environmentOrders }),
         },
         authorizer,
-        (r) => mountImproveRoute(r, improveDeps, authorizer),
+        (r) => mountImproveRoute(r, improveDeps, authorizer, itemRights),
+        itemRights,
       ),
     );
-    v1.route('/improvement-passes', improvementPassesRouter(input.improvementPasses, authorizer));
+    v1.route(
+      '/improvement-passes',
+      improvementPassesRouter(input.improvementPasses, authorizer, itemRights),
+    );
   }
   v1.route('/export-signing-keys', exportSigningKeysRouter(exportSigning));
   if (input.license !== undefined) {
@@ -1906,11 +1937,15 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           },
           input.referenceScope,
           input.auditEvents,
+          itemRights,
         ),
       );
     }
     if (kinds.has('event')) {
-      v1.route('/event-triggers', eventTriggersRouter(input.triggerRegistry, authorizer));
+      v1.route(
+        '/event-triggers',
+        eventTriggersRouter(input.triggerRegistry, authorizer, itemRights),
+      );
     }
     if (kinds.has('webhook')) {
       v1.route(
@@ -1928,6 +1963,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             }),
           },
           providerKeys,
+          ...(itemRights !== undefined && { itemRights }),
           ...(receiveUrl !== undefined && { receiveUrl }),
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
         }),
@@ -1949,10 +1985,22 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   if (input.evalSuiteRegistry !== undefined) {
-    v1.route('/eval-suites', evalSuitesRouter(input.evalSuiteRegistry, authorizer));
+    v1.route(
+      '/eval-suites',
+      evalSuitesRouter(input.evalSuiteRegistry, authorizer, itemRights, itemServing),
+    );
   }
   if (input.blockRegistry !== undefined) {
-    v1.route('/blocks', blocksRouter(input.blockRegistry, authorizer, input.environmentOrders));
+    v1.route(
+      '/blocks',
+      blocksRouter(
+        input.blockRegistry,
+        authorizer,
+        input.environmentOrders,
+        itemRights,
+        itemServing,
+      ),
+    );
   }
   if (input.judgmentRegistry !== undefined) {
     v1.route(
@@ -1991,6 +2039,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.judgmentRegistry,
         input.evalCaseStore,
         authorizer,
+        itemRights,
       ),
     );
   }
@@ -2223,6 +2272,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       authorizer,
       input.referenceScope,
       input.projectSuspended,
+      itemRights,
     );
     v1.route('/eval-suites', evalRuns.start);
     v1.route('/eval-runs', evalRuns.readback);
