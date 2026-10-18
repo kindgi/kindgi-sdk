@@ -71,6 +71,10 @@ const AZURE_RENEWAL_TF = fileURLToPath(
   new URL('../../../deploy/azure-container-apps/license-renewal.tf', import.meta.url),
 );
 
+// `| where Log_s <operator> <string>`, the string verbatim (@"…") or plain ("…").
+const WHERE_LOG_S =
+  /^\| where Log_s (matches regex|contains|!contains) (@"(?:[^"]|"")*"|"(?:[^"\\]|\\.)*")$/;
+
 function azureAlert(resource: string): (line: string) => boolean {
   const tf = readFileSync(AZURE_RENEWAL_TF, 'utf8');
   const at = tf.indexOf(`"azurerm_monitor_scheduled_query_rules_alert_v2" "${resource}"`);
@@ -85,8 +89,10 @@ function azureAlert(resource: string): (line: string) => boolean {
         '| where column_ifexists("ContainerJobName_s", "") == "${var.name_prefix}-license-renew"',
     )
     .map((line): ((log: string) => boolean) => {
-      const where = /^\| where Log_s (matches regex|contains|!contains) (@"(?:[^"]|"")*"|"(?:[^"\\]|\\.)*")$/.exec(line);
-      if (where === null) throw new Error(`${resource}: a query line this test doesn't read: ${line}`);
+      const where = WHERE_LOG_S.exec(line);
+      if (where === null) {
+        throw new Error(`${resource}: a query line this test doesn't read: ${line}`);
+      }
       const [, operator, literal = ''] = where;
       // A verbatim string (@"…") doubles its quotes; a plain one escapes as JSON does.
       const text = literal.startsWith('@')
@@ -718,13 +724,13 @@ describe('kindgi license renew', () => {
     const renewed = await renew(() => Response.json({ licenseKey: NEXT_KEY }));
     expect(renewed.exitCode).toBe(0);
     expect(renewed.stdout).toMatch(/^renewed: /);
-    expect(fires(notSent, renewed)).toBe(true);
+    expect(fires(notSent, renewed), 'renewed').toBe(true);
     writeFileSync(join(dir, 'kindgi.env'), `KINDGI_API_PORT=8080\nKINDGI_LICENSE_KEY=${current}\n`);
 
     const unchanged = await renew(() => Response.json({ licenseKey: current }));
     expect(unchanged.exitCode).toBe(0);
     expect(unchanged.stdout).toMatch(/^unchanged: /);
-    expect(fires(notSent, unchanged)).toBe(true);
+    expect(fires(notSent, unchanged), 'unchanged').toBe(true);
 
     const refused = await renew(() =>
       Response.json(
@@ -733,14 +739,14 @@ describe('kindgi license renew', () => {
       ),
     );
     expect(refused.exitCode).toBe(1);
-    expect(fires(notSent, refused)).toBe(true);
+    expect(fires(notSent, refused), 'refused').toBe(true);
 
     const sent = await renew(
       () => Response.json({ licenseKey: current }),
       runtime(async () => USAGE).clientFactory,
     );
     expect(sent.stdout).toMatch(/^counts: sent \(/m);
-    expect(fires(notSent, sent)).toBe(false);
+    expect(fires(notSent, sent), 'sent').toBe(false);
 
     const production = licenseKey({ use: 'production' });
     writeFileSync(
@@ -751,7 +757,7 @@ describe('kindgi license renew', () => {
     expect(productions.exitCode).toBe(0);
     // Its counts line is there, and the alert leaves it out.
     expect(productions.stdout).toMatch(/^counts: not sent \(/m);
-    expect(fires(notSent, productions)).toBe(false);
+    expect(fires(notSent, productions), "a production key's").toBe(false);
   });
 
   test('--runtime and --runtime-token go together; --runtime is a URL', async () => {
