@@ -15,7 +15,7 @@ import { checkPackPython, resolvePackCode, resolvePackPython } from '../src/dev/
 import { createPythonPackBuilder, isPythonSourceChange } from '../src/dev/python-builder.js';
 import type { WatchEvents } from '../src/dev/shared-watch.js';
 import { untilReported } from './fs-events.js';
-import { removedWhileRead, scriptedWatch } from './scripted-watch.js';
+import { removedWhileRead, scriptedWatch, watchLimitReached } from './scripted-watch.js';
 
 // The Python SDK's own virtualenv in the sibling kindgi-sdk checkout (`uv sync` in sdks/python).
 const sdkPython = fileURLToPath(
@@ -310,7 +310,7 @@ describe('the Python pack builder', () => {
   // On Linux, Node's recursive watch reads each folder it's told of; one
   // removed while it reads it is an 'error' on the watcher (./scripted-watch.ts).
   test.skipIf(systemPython === undefined)(
-    'a folder removed while the watch reads it: the error builds, and the watch goes on',
+    'a folder removed while the watch reads it: its removal builds, the error not, and the watch goes on',
     async () => {
       vi.useFakeTimers();
       onTestFinished(() => {
@@ -335,8 +335,11 @@ describe('the Python pack builder', () => {
       expect(vi.getTimerCount()).toBe(1);
       await rm(tools, { recursive: true });
       watcher.emit('error', removedWhileRead(tools));
-      expect(vi.getTimerCount()).toBe(2);
+      expect(vi.getTimerCount()).toBe(1);
       expect(watcher.closed).toBe(false);
+      // The removal, as the watch reports it.
+      watcher.emit('change', 'rename', join('tools', 'bad.py'));
+      expect(vi.getTimerCount()).toBe(2);
       await vi.advanceTimersByTimeAsync(50);
       vi.useRealTimers();
       // The build says how the sources are now: the bad file went with its folder.
@@ -345,6 +348,38 @@ describe('the Python pack builder', () => {
       });
       await builder.dispose();
       expect(watcher.closed).toBe(true);
+    },
+  );
+
+  test.skipIf(systemPython === undefined)(
+    'a failed watch builds, so the result says how the sources are',
+    async () => {
+      vi.useFakeTimers();
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      const { watchFs, watcher } = scriptedWatch();
+      const builder = createPythonPackBuilder({
+        packDir,
+        python: [systemPython as string],
+        env,
+        debounceMs: 50,
+        watchFs,
+        share: false,
+        scanSources: async () => 'unchanged',
+      });
+      const builds: unknown[] = [];
+      await builder.watch((build) => builds.push(build));
+      // One timer: the scan's interval.
+      expect(vi.getTimerCount()).toBe(1);
+      watcher.emit('error', watchLimitReached(join(packDir, 'tools')));
+      expect(vi.getTimerCount()).toBe(2);
+      await vi.advanceTimersByTimeAsync(50);
+      vi.useRealTimers();
+      await vi.waitFor(() => expect(builds).toEqual([{ kind: 'ok', bundleMap: {} }]), {
+        timeout: 30_000,
+      });
+      await builder.dispose();
     },
   );
 

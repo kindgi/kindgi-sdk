@@ -38,7 +38,12 @@ import {
   scanSignature,
   startScanBackstop,
 } from './scan-backstop.js';
-import { SHARE_WATCH_BY_DEFAULT, type WatchEvents, directoryWatches } from './shared-watch.js';
+import {
+  SHARE_WATCH_BY_DEFAULT,
+  type WatchEvents,
+  directoryWatches,
+  folderGoneWhileRead,
+} from './shared-watch.js';
 
 const SKIPPED_DIRS = ['target', 'node_modules', 'build', 'out', 'project/project'];
 const DEFAULT_DEBOUNCE_MS = 150;
@@ -362,10 +367,14 @@ export function createScalaPackBuilder(options: ScalaPackBuilderOptions): PackBu
           if (filename === null || !isScalaSourceChange(filename.toString())) return;
           schedule(filename.toString());
         });
-        // As when shared. On Linux, Node's recursive watch also fails this way
-        // when a folder is removed while it's reading it, and goes on
-        // watching; an 'error' nothing listens for would end `kindgi dev`.
-        watcher.on('error', reloadAndBuild);
+        // The watch failed: reload and build, as when shared. An 'error'
+        // nothing listens for would end `kindgi dev`. On Linux, Node's
+        // recursive watch also emits one for a folder removed while it read
+        // it, and goes on: the removal comes as a change, which the filter
+        // above decides on, so that one builds nothing.
+        watcher.on('error', (error) => {
+          if (!folderGoneWhileRead(error)) reloadAndBuild();
+        });
       }
       backstop = await startScanBackstop({
         scan,

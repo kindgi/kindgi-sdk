@@ -5,7 +5,8 @@
  * `directoryWatches`: one watch per folder, shared. Its subscribers each
  * get every event, by path relative to the folder; one that throws never
  * stops the others; a failure reaches each once; the last to leave closes
- * the watch.
+ * the watch. `folderGoneWhileRead`: which of a pack's own watch's errors
+ * aren't a failed watch.
  */
 
 import { realpathSync } from 'node:fs';
@@ -15,7 +16,12 @@ import { join, sep } from 'node:path';
 
 import { describe, expect, test, vi } from 'vitest';
 
-import { type WatchEvents, directoryWatches } from '../src/dev/shared-watch.js';
+import {
+  type WatchEvents,
+  directoryWatches,
+  folderGoneWhileRead,
+} from '../src/dev/shared-watch.js';
+import { removedWhileRead, watchLimitReached } from './scripted-watch.js';
 
 /** vi.waitFor's own default (1 s) is too short on a loaded machine; a passing wait returns as soon as it holds. */
 const WAIT = { timeout: 15_000 } as const;
@@ -174,5 +180,26 @@ describe('directoryWatches', () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('folderGoneWhileRead', () => {
+  test("only ENOENT from scandir: Linux's folder removed while the watch read it", () => {
+    expect(folderGoneWhileRead(removedWhileRead('/pack/tools'))).toBe(true);
+    expect(folderGoneWhileRead(watchLimitReached('/pack/tools'))).toBe(false);
+    const gone = Object.assign(new Error("ENOENT: no such file or directory, watch '/pack'"), {
+      code: 'ENOENT',
+      syscall: 'watch',
+    });
+    expect(folderGoneWhileRead(gone)).toBe(false);
+    const unreadable = Object.assign(
+      new Error("EACCES: permission denied, scandir '/pack/tools'"),
+      {
+        code: 'EACCES',
+        syscall: 'scandir',
+      },
+    );
+    expect(folderGoneWhileRead(unreadable)).toBe(false);
+    expect(folderGoneWhileRead(undefined)).toBe(false);
   });
 });

@@ -59,6 +59,19 @@ interface SharedWatch {
 /** Whether a pack's watchers share one watch unless told otherwise: on macOS (FSEvents). */
 export const SHARE_WATCH_BY_DEFAULT = process.platform === 'darwin';
 
+/**
+ * Whether a pack's own `fs.watch` 'error' (its watch not shared) is Linux's
+ * folder removed while the watch read it. Node's recursive watch there
+ * watches each folder itself, and reads a folder's entries when it's told
+ * of a change in it: a folder removed between the two is ENOENT from
+ * `scandir`, and the watch goes on. The removal still comes as a change, so
+ * this one isn't a failed watch.
+ */
+export function folderGoneWhileRead(error: unknown): boolean {
+  const { code, syscall } = (error ?? {}) as NodeJS.ErrnoException;
+  return code === 'ENOENT' && syscall === 'scandir';
+}
+
 const registries = new WeakMap<WatchEvents, DirectoryWatches>();
 
 /** The shared watches made with `watch` (one registry per events source, so tests stay apart). */

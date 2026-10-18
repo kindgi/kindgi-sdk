@@ -27,7 +27,7 @@ import {
   resolvePackCode,
   resolvePackJava,
 } from '../src/dev/pack-code.js';
-import { removedWhileRead, scriptedWatch } from './scripted-watch.js';
+import { removedWhileRead, scriptedWatch, watchLimitReached } from './scripted-watch.js';
 
 let packDir: string;
 beforeEach(async () => {
@@ -202,34 +202,34 @@ describe('the Java pack builder', () => {
   });
 
   // As the Python builder's (pack-code.test.ts): on Linux, Node's recursive
-  // watch emits an 'error' for a folder removed while it reads it.
-  test('a folder removed while the watch reads it: the error builds, and the watch goes on', async () => {
+  // watch emits an 'error' for a folder removed while it reads it, as well as
+  // when it fails.
+  test('an error for a folder removed while read builds nothing; a failed watch builds; the watch goes on', async () => {
     vi.useFakeTimers();
     onTestFinished(() => {
       vi.useRealTimers();
     });
     const { watchFs, watcher } = scriptedWatch();
+    const workDir = join(packDir, '.kindgi', 'dev', 'java');
     const builder = createJavaPackBuilder({
       packDir,
-      code: {
-        language: 'java',
-        java: 'java',
-        maven: ['mvn'],
-        workDir: join(packDir, '.kindgi', 'dev', 'java'),
-      },
+      code: { language: 'java', java: 'java', maven: ['mvn'], workDir },
       env: async () => ({ PATH: process.env.PATH ?? '' }),
       debounceMs: 50,
       watchFs,
       share: false,
       scanSources: async () => 'unchanged',
     });
-    const tools = join(packDir, 'src', 'main', 'java', 'com', 'acme', 'tools');
-    await mkdir(tools, { recursive: true });
+    // A folder a build makes and removes, in its own output.
+    const made = join(workDir, 'classes');
+    await mkdir(made, { recursive: true });
     await builder.watch(() => undefined);
     // One timer: the scan's interval.
     expect(vi.getTimerCount()).toBe(1);
-    await rm(join(packDir, 'src'), { recursive: true });
-    watcher.emit('error', removedWhileRead(tools));
+    await rm(made, { recursive: true });
+    watcher.emit('error', removedWhileRead(made));
+    expect(vi.getTimerCount()).toBe(1);
+    watcher.emit('error', watchLimitReached(join(packDir, 'src')));
     // A build, due in 50 ms (stopped before it runs: no Maven here).
     expect(vi.getTimerCount()).toBe(2);
     expect(watcher.closed).toBe(false);

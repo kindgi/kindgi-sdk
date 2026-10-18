@@ -35,7 +35,8 @@ export function scriptedWatch(): {
 /**
  * The error Node's recursive watch emits on Linux when a folder it watches
  * is removed while it's reading it: between its `stat` and its `readdir`,
- * as an `rm -r` running beside it does. The watch goes on.
+ * as an `rm -r` running beside it does. The watch goes on, and reports the
+ * removal as a change.
  */
 export function removedWhileRead(folder: string): NodeJS.ErrnoException {
   return Object.assign(new Error(`ENOENT: no such file or directory, scandir '${folder}'`), {
@@ -44,4 +45,16 @@ export function removedWhileRead(folder: string): NodeJS.ErrnoException {
     syscall: 'scandir',
     path: folder,
   });
+}
+
+/**
+ * A watch that failed: the error Node's recursive watch emits on Linux when
+ * the system's limit on watches is reached and a folder can't be watched.
+ * Its changes would go unreported, so the builder builds.
+ */
+export function watchLimitReached(folder: string): NodeJS.ErrnoException {
+  return Object.assign(
+    new Error(`ENOSPC: System limit for number of file watchers reached, watch '${folder}'`),
+    { errno: -28, code: 'ENOSPC', syscall: 'watch', path: folder },
+  );
 }

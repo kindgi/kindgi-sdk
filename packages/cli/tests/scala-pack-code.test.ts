@@ -27,7 +27,7 @@ import {
   sbtErrors,
   sbtServerRunning,
 } from '../src/dev/scala-builder.js';
-import { removedWhileRead, scriptedWatch } from './scripted-watch.js';
+import { removedWhileRead, scriptedWatch, watchLimitReached } from './scripted-watch.js';
 
 let packDir: string;
 
@@ -295,9 +295,10 @@ describe('the Scala pack builder', () => {
   );
 
   // As the Python builder's (pack-code.test.ts): on Linux, Node's recursive
-  // watch emits an 'error' for a folder removed while it reads it.
+  // watch emits an 'error' for a folder removed while it reads it, as well as
+  // when it fails.
   test.skipIf(process.platform === 'win32')(
-    'a folder removed while the watch reads it: the error reloads and builds, and the watch goes on',
+    'an error for a folder removed while read builds nothing; a failed watch reloads and builds',
     async () => {
       const { code, log } = await fakes();
       const { watchFs, watcher } = scriptedWatch();
@@ -319,13 +320,16 @@ describe('the Scala pack builder', () => {
         vi.useRealTimers();
       });
       const builds: unknown[] = [];
-      const tools = join(packDir, 'src', 'main', 'scala', 'acme');
-      await mkdir(tools, { recursive: true });
+      // A folder sbt makes and removes, in its own output.
+      const made = join(packDir, 'target', 'streams', 'tmp');
+      await mkdir(made, { recursive: true });
       await builder.watch((build) => builds.push(build));
       // One timer: the scan's interval.
       expect(vi.getTimerCount()).toBe(1);
-      await rm(join(packDir, 'src'), { recursive: true });
-      watcher.emit('error', removedWhileRead(tools));
+      await rm(made, { recursive: true });
+      watcher.emit('error', removedWhileRead(made));
+      expect(vi.getTimerCount()).toBe(1);
+      watcher.emit('error', watchLimitReached(join(packDir, 'src')));
       expect(vi.getTimerCount()).toBe(2);
       expect(watcher.closed).toBe(false);
       await vi.advanceTimersByTimeAsync(50);
@@ -335,7 +339,7 @@ describe('the Scala pack builder', () => {
       });
       await builder.dispose();
       expect(watcher.closed).toBe(true);
-      // The error can't say what changed: the build reloaded.
+      // The failed watch can't say what changed: the build reloaded.
       expect((await readFile(log, 'utf8')).trim().split('\n')).toEqual([
         'reload; compile; export Runtime/fullClasspath',
         'reload; compile; export Runtime/fullClasspath',

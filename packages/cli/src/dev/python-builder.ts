@@ -25,7 +25,12 @@ import {
   scanSignature,
   startScanBackstop,
 } from './scan-backstop.js';
-import { SHARE_WATCH_BY_DEFAULT, type WatchEvents, directoryWatches } from './shared-watch.js';
+import {
+  SHARE_WATCH_BY_DEFAULT,
+  type WatchEvents,
+  directoryWatches,
+  folderGoneWhileRead,
+} from './shared-watch.js';
 
 const SKIPPED_DIRS = ['__pycache__', 'node_modules', 'venv', 'site-packages'];
 const DEFAULT_DEBOUNCE_MS = 150;
@@ -175,11 +180,14 @@ export function createPythonPackBuilder(options: PythonPackBuilderOptions): Pack
           if (filename === null || !isPythonSourceChange(filename.toString())) return;
           schedule();
         });
-        // The watch failed: build, as when shared. On Linux, Node's recursive
-        // watch also says so when a folder is removed while it's reading it,
-        // and goes on watching; an 'error' nothing listens for would end
-        // `kindgi dev`.
-        watcher.on('error', schedule);
+        // The watch failed: build, as when shared. An 'error' nothing
+        // listens for would end `kindgi dev`. On Linux, Node's recursive
+        // watch also emits one for a folder removed while it read it, and
+        // goes on: the removal comes as a change, which the filter above
+        // decides on, so that one builds nothing.
+        watcher.on('error', (error) => {
+          if (!folderGoneWhileRead(error)) schedule();
+        });
       }
       backstop = await startScanBackstop({
         scan,
