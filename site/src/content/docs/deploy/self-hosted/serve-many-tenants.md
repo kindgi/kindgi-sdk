@@ -66,7 +66,7 @@ apart, and the two that let you allow and count them:
 | Setting | What it does |
 |---|---|
 | `KINDGI_TENANT_HOST_ACCESS=isolated` | What a tenant registers reaches public hosts only: not the metadata server, this host or private networks, and never with the server's own cloud credentials. The server then refuses `KINDGI_DEV`, `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow` and `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`. |
-| `KINDGI_PACK_ROUTING=per-deployment` | Each call goes to the pack service of the newest deployment in the run's project that shipped the tool or check, never to one pack service every tenant shares. A run with no project uses the Default project, whose deployments are the ones that named no project. It needs `KINDGI_SECRETS_BACKEND=postgres`, because each endpoint's token is sealed under the secrets' key. `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused. |
+| `KINDGI_PACK_ROUTING=per-deployment` | Each call goes to the pack service of the newest deployment in the run's project that shipped the tool or check, never to one pack service every tenant shares. A run with no project uses the Default project, whose deployments include each one that named no project. It needs `KINDGI_SECRETS_BACKEND=postgres`, because each endpoint's token is sealed under the secrets' key. `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused. |
 | `KINDGI_PACK_ENDPOINT_HOSTS` | The hosts a deployment's pack service may be on, comma-separated: a host name, `*.` and a domain, or `*-`, a tail and a domain. |
 | `KINDGI_OPENFGA_API_URL` and `KINDGI_OPENFGA_PRESHARED_KEY` | The authorization store, and the key it requires of its callers, so only the server reads and writes tenants' grants ([Require a key for OpenFGA](../../authorization/#require-a-key-for-openfga)). |
 | `KINDGI_PRODUCTION_GATE=on` | A tenant puts a project in production only once you allow it ([Limits and production](#limits-and-production)). |
@@ -188,9 +188,10 @@ service is, and checks it. It never creates or deletes one.
 1. **List the deployments that need a service:**
    `GET /v1/system/deployments?endpoint=missing`, oldest first across tenants.
    A deployment needs one while it's routed: it's the newest in its project
-   with routes for some tool version or pack check, it has no endpoint or a cleared one, and
-   nothing about it is closing or suspended. Each entry has the tenant's id,
-   the deployment's id, its pack (and project, if it has one), and its image:
+   with routes for some tool version or pack check, it has no endpoint or a
+   cleared one, and nothing about it is closing or suspended. Each entry has
+   the tenant's id, the deployment's id, its pack (and project, if it has
+   one), and its image:
    the digest-pinned `imageRef`, its digest, the artifact version and when it
    went live. It has nothing else of the tenant.
 2. **Run the image as a service** whose host begins with the deployment's own
@@ -232,7 +233,8 @@ service is, and checks it. It never creates or deletes one.
 
 A call to a deployment's tool never goes anywhere else. With no endpoint yet
 it fails with `pack-endpoint-pending`, and after a clear with
-`pack-endpoint-cleared`.
+`pack-endpoint-cleared`. A tenant sees its deployment's `endpoint`: `pending`
+(with the problem, if one is recorded), `ready` or `cleared`.
 
 A call never goes to a deployment in another project, either. When no
 deployment in the run's project ships what it names, it fails with
@@ -247,8 +249,7 @@ deployment isn't in the run's project, or doesn't ship what the call names:
 
 ```text
 Deployment <deployment-id> isn't in project "<project name>", or doesn't ship tool acme.lookup@1.0.0. This call first ran on deployment <deployment-id>, and a re-run doesn't move to another.
-``` A tenant sees its deployment's `endpoint`: `pending`
-(with the problem, if one is recorded), `ready` or `cleared`.
+```
 
 ## Limits and production
 
@@ -283,10 +284,10 @@ restoring clears both. A closing tenant can't be suspended (`409 tenant-closing`
   next at its first time after the restore.
 - **A project:** `PUT /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`.
   Nothing new runs in it (`409 project-suspended`), and no pack service's
-  endpoint is recorded for it. While the Default project is suspended, a
-  pack call that names no project is refused too. Its running runs are cancelled, its schedules
+  endpoint is recorded for it. Its running runs are cancelled, its schedules
   and webhooks are skipped, and its deployments list to retire. The rest of
-  the tenant is untouched.
+  the tenant is untouched. While the Default project is suspended, a pack
+  call that names no project is refused too.
 - **A pack:** `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`.
   Its calls fail with `pack-suspended`, never going to an older deployment,
   and it lists to retire. Restored, it serves again from the endpoint
