@@ -40,6 +40,7 @@ import {
   deriveIdempotencyKey,
   deriveSyncSecretsIdempotencyKey,
 } from '../deploy/post.js';
+import { type PromotionStop, promotionPath } from '../deploy/promotion-path.js';
 import { renderResponse } from '../deploy/response.js';
 import type {
   DeployRunners,
@@ -50,6 +51,7 @@ import type {
   RunBuildResult,
   SyncSecretsBody,
 } from '../deploy/runners.js';
+import { envProjectRefs } from '../env-projects.js';
 import {
   packEnvProblemLines,
   packEnvSecretSetCommand,
@@ -64,8 +66,10 @@ import {
 import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import type { OptionValue } from '../parse.js';
+import { PROJECT_ID_RE } from '../project-ref.js';
 import { type RateLimitRefusal, isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
 import { SLUG } from '../slug.js';
+import { type PackEnvironments, environmentsOf, resolveValueTarget } from '../value-target.js';
 import { runBuild } from './build.js';
 import type { EnvironmentConfig, PackConfig } from './build.js';
 import type { CommandResult, LeafCommand } from './types.js';
@@ -222,6 +226,10 @@ interface ResolvedDeployArgs {
    */
   readonly syncSecrets: boolean;
   readonly envBlock: EnvironmentConfig | undefined;
+  /** Each environment of the pack config that names its project, to name the environments a refusal into a later one points at. */
+  readonly envProjects: readonly { readonly name: string; readonly ref: string }[];
+  /** The pack's environments, each with the project it names, if any. */
+  readonly environments: PackEnvironments;
   /** The pack service's process env in this environment (`env` + `environments.<env>.env`). */
   readonly packEnv: PackEnvPlan;
   readonly allowMissingEnv: boolean;
@@ -267,11 +275,43 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   const envRefusal = checkPackEnv(args, line);
   if (envRefusal !== undefined) return envRefusal;
 
+  // On a runtime that keeps its values under one env, a pack environment
+  // with a `project` is that project, and its secret sync goes there, under
+  // the env the runtime serves. Any other env's sync is refused here,
+  // before a build or an upload, as the runtime would refuse the sync after
+  // the deployment.
+  let syncEnvName = args.envName;
+  let environmentProject: string | undefined;
+  const named = args.environments[args.envName] !== undefined;
+  if ((args.syncSecrets || named) && runners.servedEnv !== undefined) {
+    const target = resolveValueTarget({
+      flag: args.envName,
+      served: await runners.servedEnv({
+        endpoint: args.endpoint,
+        token: args.token,
+        fetchImpl: ctx.fetch,
+        ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+      }),
+      write: args.syncSecrets,
+      what: `the secrets in .env.${args.envName}`,
+      mayOmit: false,
+      environments: args.environments,
+    });
+    if (target.kind === 'refused') return failure(target.stderr);
+    if (target.kind === 'ok' && target.environment !== undefined) {
+      environmentProject = target.environment.projectRef;
+      syncEnvName = target.envName;
+      line(`  Project:     ${environmentProject}  (environments.${args.envName}.project)`);
+      if (args.syncSecrets) line(`  Secrets:     under ${syncEnvName}, the env the runtime serves`);
+      line('');
+    }
+  }
+
   // ---- 1. The project to deploy into (--project) ---------------------
   //
   // Resolved first: a project that isn't there fails before a build, and
   // a hosted build carries the project's id as its label.
-  const project = await resolveProject(args, runners, ctx);
+  const project = await resolveDeployProject(args, environmentProject, runners, ctx);
   if (project.kind === 'error') return failure(project.message);
   const hostedEnvRefusal = refuseHostedConfigEnv(args, project.id);
   if (hostedEnvRefusal !== undefined) return hostedEnvRefusal;
@@ -402,6 +442,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   );
 
   // ---- 10. Render response ---------------------------------------------
+  const promotionPath = await promotionPathOf(args, runners, ctx, result);
   const rendered = renderResponse(result, {
     envName: args.envName,
     endpoint: args.endpoint,
@@ -412,6 +453,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
     signerKeyId: envelope.signerKeyId ?? '(unsigned)',
     envelopePath: args.envelopePath,
     idempotencyKey,
+    promotionPath,
   });
   for (const l of rendered.banner) line(l);
 
@@ -436,7 +478,14 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   const deployedRecord =
     result.kind === 'created' || result.kind === 'replayed' ? result.record : null;
   if (args.syncSecrets && deployedRecord !== null) {
-    const syncOutcome = await runSecretsSync(ctx, args, runners, deployedRecord.deploymentId, line);
+    const syncOutcome = await runSecretsSync(
+      ctx,
+      args,
+      syncEnvName,
+      runners,
+      deployedRecord.deploymentId,
+      line,
+    );
     Object.assign(syncSummary, syncOutcome);
   }
 
@@ -501,6 +550,8 @@ function deployRefusal(result: PostDeploymentResult): RateLimitRefusal | undefin
 async function runSecretsSync(
   ctx: CommandContext,
   args: ResolvedDeployArgs,
+  /** The env the values go under: `--env`, or the one a runtime that keeps its values under one serves. */
+  envName: string,
   runners: DeployRunners,
   deploymentId: string,
   line: (s: string) => void,
@@ -527,7 +578,7 @@ async function runSecretsSync(
   }
 
   const syncBody: SyncSecretsBody = {
-    envName: args.envName,
+    envName,
     secrets: file.entries.map((e) => ({ name: e.name, value: e.value })),
   };
   const idempotencyKey = deriveSyncSecretsIdempotencyKey(deploymentId, syncBody);
@@ -1005,7 +1056,32 @@ function sleepUnlessStopped(ms: number, signal?: AbortSignal): Promise<void> {
 // The project a deploy goes into
 // ---------------------------------------------------------------------
 
-const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+type ProjectOutcome =
+  | { readonly kind: 'ok'; readonly id?: string }
+  | { readonly kind: 'error'; readonly message: string };
+
+/**
+ * The project to deploy into: `--project`, else the pack environment's
+ * `project` when the runtime keeps its values under one env (`fromEnvironment`).
+ * A `--project` that isn't that environment's project is refused.
+ */
+async function resolveDeployProject(
+  args: ResolvedDeployArgs,
+  fromEnvironment: string | undefined,
+  runners: DeployRunners,
+  ctx: CommandContext,
+): Promise<ProjectOutcome> {
+  const flag = await resolveProject(args.projectRef, '--project', args, runners, ctx);
+  if (flag.kind === 'error' || fromEnvironment === undefined) return flag;
+  const where = `environments.${args.envName}.project`;
+  const environment = await resolveProject(fromEnvironment, where, args, runners, ctx);
+  if (environment.kind === 'error' || args.projectRef === undefined) return environment;
+  if (flag.id === environment.id) return environment;
+  return {
+    kind: 'error',
+    message: `--project ${args.projectRef} isn't the ${args.envName} environment's project, ${fromEnvironment} (${where}). Leave --project out, or deploy with the --env whose project it is.\n`,
+  };
+}
 
 /**
  * `--project`: an id goes as it is (the server answers 404 for one of no
@@ -1014,20 +1090,18 @@ const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
  * share one). Absent: tenant-wide.
  */
 async function resolveProject(
+  ref: string | undefined,
+  where: string,
   args: ResolvedDeployArgs,
   runners: DeployRunners,
   ctx: CommandContext,
-): Promise<
-  | { readonly kind: 'ok'; readonly id?: string }
-  | { readonly kind: 'error'; readonly message: string }
-> {
-  const ref = args.projectRef;
+): Promise<ProjectOutcome> {
   if (ref === undefined) return { kind: 'ok' };
   if (PROJECT_ID_RE.test(ref)) return { kind: 'ok', id: ref };
   if (runners.findProjects === undefined) {
     return {
       kind: 'error',
-      message: `--project ${ref}: this build can't look a slug up. Pass the project's id.\n`,
+      message: `${where} ${ref}: this build can't look a slug up. Pass the project's id.\n`,
     };
   }
   const found = await runners.findProjects({
@@ -1040,14 +1114,14 @@ async function resolveProject(
   if (found.kind === 'error') {
     return {
       kind: 'error',
-      message: `--project ${ref}: couldn't list the tenant's projects: ${found.message}\n`,
+      message: `${where} ${ref}: couldn't list the tenant's projects: ${found.message}\n`,
     };
   }
   const [only, ...more] = found.projects;
   if (only === undefined) {
     return {
       kind: 'error',
-      message: `--project ${ref}: no project of this tenant has that slug. \`kindgi projects list\` shows them; \`kindgi projects create --name=<name> --slug=${SLUG.test(ref) ? ref : '<slug>'}\` makes one.\n`,
+      message: `${where} ${ref}: no project of this tenant has that slug. \`kindgi projects list\` shows them; \`kindgi projects create --name=<name> --slug=${SLUG.test(ref) ? ref : '<slug>'}\` makes one.\n`,
     };
   }
   if (more.length > 0) {
@@ -1056,7 +1130,7 @@ async function resolveProject(
     );
     return {
       kind: 'error',
-      message: `--project ${ref}: ${found.projects.length} projects of this tenant have that slug, in different orgs: ${ids.join(', ')}. Pass the id.\n`,
+      message: `${where} ${ref}: ${found.projects.length} projects of this tenant have that slug, in different orgs: ${ids.join(', ')}. Pass the id.\n`,
     };
   }
   return { kind: 'ok', id: only.id };
@@ -1210,10 +1284,54 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       dryRun,
       syncSecrets,
       envBlock,
+      envProjects: envProjectRefs(cfg),
+      environments: environmentsOf(cfg),
       packEnv: packEnv.plan,
       allowMissingEnv: ctx.options['allow-missing-env'] === true,
     },
   };
+}
+
+/**
+ * A deploy refused into a later environment of its order
+ * (`409 environment-takes-promotions`): each environment from the order's
+ * first to that one, named from the pack config, for the hint. `undefined`
+ * for any other answer, and when the refusal doesn't name the first (the
+ * caller can't read it) or the reads fail: the hint then says the rule
+ * without names.
+ */
+async function promotionPathOf(
+  args: ResolvedDeployArgs,
+  runners: DeployRunners,
+  ctx: CommandContext,
+  result: PostDeploymentResult,
+): Promise<readonly PromotionStop[] | undefined> {
+  if (result.kind !== 'wire-error' || result.error.code !== 'environment-takes-promotions') {
+    return undefined;
+  }
+  const { position, firstProjectId } = result.error;
+  if (position === undefined || firstProjectId === undefined) return undefined;
+  if (runners.listProjects === undefined || runners.listEnvironmentOrders === undefined) {
+    return undefined;
+  }
+  const opts = {
+    endpoint: args.endpoint,
+    token: args.token,
+    fetchImpl: ctx.fetch,
+    ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+  };
+  const [projects, orders] = await Promise.all([
+    runners.listProjects(opts),
+    runners.listEnvironmentOrders(opts),
+  ]);
+  if (projects.kind === 'error' || orders.kind === 'error') return undefined;
+  return promotionPath({
+    firstProjectId,
+    position,
+    orders: orders.orders,
+    projects: projects.projects,
+    environments: args.envProjects,
+  });
 }
 
 async function loadDeployConfig(

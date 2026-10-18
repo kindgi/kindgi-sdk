@@ -16,6 +16,22 @@ same version, and the CLI's own changes are in
   service per deployment. Never a value. For whatever runs the pack
   services, on a `system:pack-env` key: `system_deployments.list_pack_env_changed`,
   `get_pack_env` and `record_pack_env`.
+- `kindgi`: **`agents.get`, `flows.get`, `tools.get`, `eval_suites.get` and
+  `blocks.get` take `project_id`**: for an item an environment order
+  carries, the newest version that can run in that project, which the caller
+  must read. Without it, the newest version the caller can see. An older
+  runtime ignores it and answers the latest version.
+- `kindgi`: **a deployment is promoted to the next environment of its
+  environment order.** `deployments.promote` moves the same build, with the
+  edits made since to its agents and flows. `deployments.promote_check`
+  answers what would move and which values aren't ready in the target,
+  writing nothing. `deployments.list` takes `project_id` and `pack_id`.
+- `kindgi`: **`deployments.values.list(deployment_id, project_id=…)` lists
+  what a deployment needs set in a project**, names only
+  (`GET /v1/deployments/{deploymentId}/values`). Each `DeploymentValue` says
+  what needs it, where a run finds it (`found_at`) and why it isn't ready
+  (`problem`), never the value. Without `project_id`, it's the deployment's
+  own project.
 - `kindgi`: **a webhook or schedule trigger can run as a service account.**
   `run_as_service_account_id` on `webhooks.register`,
   `webhooks.take_ownership`, `schedules.register` and
@@ -89,7 +105,7 @@ same version, and the CLI's own changes are in
     know comes back as its text.
   - Every union a response carries that a tag tells apart gains a member,
     `<Union>Unrecognized` (`LiveScopeUnrecognized`, `ScopeUnrecognized`, and
-    17 more in `kindgi.client.models`), for a tag it doesn't know, with every
+    18 more in `kindgi.client.models`), for a tag it doesn't know, with every
     field kept.
   - A stream event of a kind it doesn't know comes back as the typed event,
     not a `dict`. An event that doesn't match its schema is still a `dict`.

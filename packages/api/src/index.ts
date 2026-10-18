@@ -520,6 +520,29 @@ export type {
   ProviderUnregisterInput,
   ProviderUnregisterOutcome,
 } from './provider-binding.js';
+export { deploymentValues } from './deployment-values.js';
+export type {
+  DeploymentValue,
+  DeploymentValueProblem,
+  DeploymentValueScope,
+  DeploymentValuesDeps,
+  DeploymentValuesInput,
+  ModelKeyLocation,
+  ModelKeyLookup,
+} from './deployment-values.js';
+export { carriedVersions } from './carried-versions.js';
+export type {
+  CarriedVersion,
+  CarriedVersions,
+  CarriedVersionsDeps,
+  CarriedVersionsInput,
+  LeftBehindVersion,
+} from './carried-versions.js';
+export {
+  carriedFor,
+  servingProjectOf,
+  valuesDepsFor,
+} from './routes/deployment-promotions.js';
 export {
   isCredentialHeaderName,
   MCP_AUTH_HEADERS_MAX,
@@ -980,8 +1003,11 @@ export type {
   DeploymentEndpointProblemCode,
   DeploymentEndpointStatus,
   DeploymentPrimitiveCounts,
+  DeploymentPromoteInput,
+  DeploymentPromoteOutcome,
   DeploymentRegisterInput,
   DeploymentRegisterOutcome,
+  PromotedToolSecretScopes,
   SystemDeploymentRetireReason,
 } from './deployment-binding.js';
 export type {
@@ -1029,6 +1055,34 @@ export type {
   EnvSetOutcome,
   ResolveContext,
 } from './env-binding.js';
+export type {
+  EnvironmentOrder,
+  EnvironmentOrderBinding,
+  EnvironmentOrderCursor,
+  EnvironmentOrderEntry,
+  EnvironmentOrderGetInput,
+  EnvironmentOrderKey,
+  EnvironmentOrderListInput,
+  EnvironmentOrderListPage,
+  EnvironmentOrderLocation,
+  EnvironmentOrderOfInput,
+  EnvironmentOrderParent,
+  EnvironmentOrderSetInput,
+  EnvironmentOrderSetOutcome,
+  HasEnvironmentOrderInput,
+} from './environment-orders-binding.js';
+export type {
+  ItemProjectsBinding,
+  ItemProjectsInput,
+  ItemProjectsOfManyInput,
+  ItemServedElsewhere,
+  ItemServesIn,
+  NewestVisibleOfManyInput,
+  OrderItemKind,
+  ServesInInput,
+  VersionProjectsInput,
+  VersionProjectsOfManyInput,
+} from './item-projects-binding.js';
 export type {
   SecretBinding,
   SecretError,

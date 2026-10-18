@@ -27,7 +27,7 @@ export const ERROR_ENTRIES = {
   },
   'reference-out-of-scope': {
     description:
-      "A request names an item its project can't reach: a tool, agent, flow, guardrail, data block, check or eval suite that isn't registered in the project, its org or the tenant. Nothing is written. Register the item where the project reaches it, or use it from the project that has it.",
+      "A request names an item its project can't reach: a tool, agent, flow, guardrail, data block, check or eval suite that isn't registered in the project, its org or the tenant, or a version of an agent, flow or eval suite that the project doesn't run, such as one made in an earlier environment and not yet promoted. Nothing is written. Register the item where the project reaches it, use it from the project that has it, or promote the version first.",
     details: [
       {
         key: 'issues',
@@ -314,7 +314,8 @@ export const ERROR_ENTRIES = {
     ],
   },
   'conversation-not-found': {
-    description: "The conversation doesn't exist in your tenant. Check the conversation id.",
+    description:
+      "The conversation doesn't exist in your tenant, or a turn names one in a project your key can't read. Check the conversation id.",
     details: [
       {
         key: 'conversationId',
@@ -688,6 +689,74 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['POST /v1/deployments/{deploymentId}/secrets'],
   },
+  'environment-takes-promotions': {
+    description:
+      "The project you named (or the Default project, when you named none) is a later environment of an environment order, and a later environment takes builds only by promotion from the one before it. Deploy into the order's first environment and promote the build from there. A publish through the API into a later environment is refused the same way, and so is an edited version of an agent that names one: new versions are made in the first environment. Nothing is written.",
+    details: [
+      {
+        key: 'firstProjectId',
+        meaning:
+          "the order's first environment, where builds and new versions go; present when you can read that project",
+      },
+      {
+        key: 'position',
+        meaning: "the project's place in the order, from 0 (the first)",
+      },
+    ],
+  },
+  'promotion-not-next-environment': {
+    description:
+      "A deployment is promoted only to the next environment of its environment order, one environment at a time. The project named isn't that one, or the deployment is in the order's last environment, or in no order. `kindgi environments list` shows the order. Nothing is written.",
+    details: [
+      {
+        key: 'position',
+        meaning:
+          "the next environment's place in the order, from 0 (the first); absent when there's none",
+      },
+      {
+        key: 'nextProjectId',
+        meaning: "the next environment's project; present when you can read it",
+      },
+    ],
+    seeAlso: ['POST /v1/deployments/{deploymentId}/promotions'],
+  },
+  'promotion-values-not-ready': {
+    description:
+      "Values the build needs in the target environment aren't ready there: a secret, env value or model key set nowhere a run there looks; one revoked where a run reads it; a pack env name set only as a secret, or both as a secret and as a plain value; or no model provider registered for an agent that runs on any provider. Each one is in `details.values`: set them in the target, then promote again. The promotion check lists the same, writing nothing. Nothing is written.",
+    details: [
+      {
+        key: 'values',
+        meaning:
+          'each value not ready: its `name`, `kind`, what needs it (`neededBy`), where a run finds it (`foundAt`, when it is set) and why it is not ready (`problem`); never a value',
+      },
+    ],
+    seeAlso: [
+      'POST /v1/deployments/{deploymentId}/promotions',
+      'POST /v1/deployments/{deploymentId}/promotions/check',
+    ],
+  },
+  'deployment-superseded': {
+    description:
+      'A deployment is promoted only while it serves. With `details.environment` `source`: newer deployments in its environment serve every tool version it ships, so it no longer serves there; promote the newer one. With `target`: the target environment has this build already, superseded there; promote the newer build from the environment before it. Nothing is written.',
+    details: [
+      {
+        key: 'environment',
+        meaning: '`source` (the deployment promoted) or `target` (the environment it goes to)',
+      },
+      {
+        key: 'newerDeploymentId',
+        meaning:
+          'the newest deployment there that serves every tool version this one ships; present when there is one',
+      },
+    ],
+    seeAlso: ['POST /v1/deployments/{deploymentId}/promotions'],
+  },
+  'promotions-unsupported': {
+    description:
+      "This runtime can't promote deployments: it has nowhere to write a promotion. The promotion check still answers. Nothing is written.",
+    details: [],
+    seeAlso: ['POST /v1/deployments/{deploymentId}/promotions'],
+  },
   'guardrail-config-invalid': {
     description:
       "The guardrail's `config` doesn't satisfy the config schema of the check it names, so the check would refuse it on every call. Fix the config and register again.",
@@ -744,6 +813,25 @@ export const ERROR_ENTRIES = {
       },
     ],
     seeAlso: ['guides/agents/conversations'],
+  },
+  'conversation-project-mismatch': {
+    description:
+      "The run names a project other than the conversation's. A conversation belongs to one project, and its turns run there. Name its project, or omit `projectId` to continue it in its own.",
+    details: [
+      {
+        key: 'conversationId',
+        meaning: 'the conversation the turn was posted into',
+      },
+      {
+        key: 'projectId',
+        meaning: 'the project the run named',
+      },
+      {
+        key: 'conversationProjectId',
+        meaning: "the conversation's own project",
+      },
+    ],
+    seeAlso: ['POST /v1/runs', 'guides/agents/conversations'],
   },
   'invalid-agent': {
     description:
@@ -1818,7 +1906,7 @@ export const ERROR_ENTRIES = {
   },
   'key-project-mismatch': {
     description:
-      'Your key is limited to one project, and the request names another project, or asks to mint a key not limited to your project. Use the project the key is limited to.',
+      "Your key is limited to one project, and the request names another project, or asks to mint a key not limited to your project. Use the project the key is limited to. A promotion reads one project and writes another, so a key or session limited to a project can't promote, or check a promotion.",
     details: [
       {
         key: 'keyProjectId',
@@ -2509,12 +2597,12 @@ export const ERROR_ENTRIES = {
   },
   'signature-invalid': {
     description:
-      "The deployment's signature isn't valid: it isn't base64, can't be verified, or doesn't match the signed envelope of image digest, version, index hash, tenant and publish time.",
+      "The deployment's signature isn't valid: it isn't base64, can't be verified, or doesn't match the signed envelope of image digest, version, index hash, tenant and publish time. A promotion checks the signature again, over the fields the deployment keeps, and is refused the same way.",
     details: [],
   },
   'signer-not-trusted': {
     description:
-      "The key that signed the deployment isn't on the tenant's trust list. Trust the key, then deploy again.",
+      "The key that signed the deployment isn't on the tenant's trust list. Trust the key, then deploy again. A promotion is refused the same way when the key that signed the build is no longer trusted: the build isn't promoted.",
     details: [
       {
         key: 'signerKeyId',
@@ -2554,33 +2642,53 @@ export const ERROR_ENTRIES = {
     ],
   },
   'deployment-not-found': {
-    description: 'No deployment with that id exists under the tenant.',
+    description:
+      "No deployment with that id exists under the tenant. A promotion of a deployment in a project you can't read is answered the same way.",
     details: [
       {
         key: 'deploymentId',
         meaning: "the deployment id that wasn't found",
       },
     ],
-    seeAlso: ['GET /v1/deployments/{deploymentId}', 'POST /v1/deployments/{deploymentId}/secrets'],
+    seeAlso: [
+      'GET /v1/deployments/{deploymentId}',
+      'POST /v1/deployments/{deploymentId}/secrets',
+      'POST /v1/deployments/{deploymentId}/promotions',
+      'POST /v1/deployments/{deploymentId}/promotions/check',
+    ],
   },
   'project-suspended': {
     description:
-      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an eval run started in it, an improvement pass for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. An eval run or a pass already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or pass: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project.",
-    details: [],
+      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an eval run started in it, an improvement pass for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. An eval run or a pass already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or pass: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which.",
+    details: [
+      {
+        key: 'environment',
+        meaning:
+          'from a promotion: `source` (the deployment promoted) or `target` (the environment it goes to)',
+      },
+    ],
     seeAlso: [
       'POST /v1/deployments',
       'POST /v1/eval-suites/{suiteId}/runs',
       'POST /v1/proposals/improve',
       'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
+      'POST /v1/deployments/{deploymentId}/promotions',
     ],
   },
   'pack-suspended': {
     description:
-      "The operator suspended this deployment's pack, so its pack service can't be set. Lift the suspension first.",
-    details: [],
+      "The operator suspended this deployment's pack, so its pack service can't be set. Lift the suspension first. A promotion of its builds from or into an environment where it's suspended is refused too: `details.environment` says which.",
+    details: [
+      {
+        key: 'environment',
+        meaning:
+          'from a promotion: `source` (the deployment promoted) or `target` (the environment it goes to)',
+      },
+    ],
     seeAlso: [
       'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended',
       'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
+      'POST /v1/deployments/{deploymentId}/promotions',
     ],
   },
   'endpoint-url-invalid': {
@@ -2714,6 +2822,16 @@ export const ERROR_ENTRIES = {
       'Signing the compliance evidence export failed on the server. Retry; if it persists, contact the operator.',
     details: [],
     seeAlso: ['POST /v1/compliance/evidence/export'],
+  },
+  'org-has-environment-order': {
+    description:
+      "An org can't be deleted while it's the parent of an environment order, because deleting it would orphan the order. A tenant admin clears the order first (PUT /v1/environment-orders/orgs/{orgId} with []), then deletes the org.",
+    details: [
+      {
+        key: 'orderId',
+        meaning: 'the environment order the org is the parent of',
+      },
+    ],
   },
   'org-not-found': {
     description:
@@ -2854,6 +2972,26 @@ export const ERROR_ENTRIES = {
     description:
       "The runtime's env store or secrets store can't list the env names it holds, so the tenant's environments can't be listed whole. The message names the store.",
     details: [],
+  },
+  'project-in-another-order': {
+    description:
+      'A project in the request already belongs to another environment order. A project is in at most one order: set the other order without it, or clear that order, first.',
+    details: [
+      {
+        key: 'projectId',
+        meaning: 'the project already in another order',
+      },
+    ],
+  },
+  'project-in-environment-order': {
+    description:
+      "A project can't be deleted, or moved to another parent, while it's a member of an environment order. Clear it from the order first, then delete or move it.",
+    details: [
+      {
+        key: 'orderId',
+        meaning: 'the environment order the project belongs to',
+      },
+    ],
   },
   'provider-key-refused': {
     description:
@@ -3017,6 +3155,21 @@ export const ERROR_ENTRIES = {
       'The `envName` in the body differs from the `envName` in the query string. Send one, or make them equal.',
     details: [],
     seeAlso: ['POST /v1/secrets/{name}/rotate', 'PUT /v1/env/{name}'],
+  },
+  'env-not-served': {
+    description:
+      'This runtime keeps every value under the one env it serves (`KINDGI_REFUSE_OTHER_ENVS`), and the request would store a value under another, where it would never be read: a secret or env value written under another env, or a model provider, MCP endpoint or webhook endpoint naming its secret under another. Nothing is stored. Use the env the runtime serves; `GET /v1/identity/whoami` names it (`servedEnv`). Reads and deletes under any env still work.',
+    details: [
+      {
+        key: 'envName',
+        meaning: 'the env the request named',
+      },
+      {
+        key: 'servedEnv',
+        meaning: 'the env this runtime serves, to use instead',
+      },
+    ],
+    seeAlso: ['POST /v1/secrets', 'PUT /v1/env/{name}', 'POST /v1/providers'],
   },
   'env-cross-scope': {
     description: "The API doesn't send this code.",

@@ -38,6 +38,7 @@ export const ENV_DEFAULTS = {
   KINDGI_LICENSE_RENEWER_REF: 'none: expiry warnings print a placeholder in the renew command',
   KINDGI_ENV:
     'none: `local` in development mode, else no env (a tool that declares secrets or env values fails its calls)',
+  KINDGI_REFUSE_OTHER_ENVS: '`false`: a value or a registration under any env is taken',
   KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH:
     'none: in development mode a key generated at start; otherwise public run tokens are off',
   KINDGI_PUBLIC_TOKEN_SIGNING_KEY:

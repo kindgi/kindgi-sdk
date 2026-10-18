@@ -104,12 +104,39 @@ export interface EnvironmentConfig {
   readonly signerKeyId?: string;
   readonly tenantId?: string;
   readonly buildTarget?: string;
+  /**
+   * The project this environment is, by id or slug — what `prod` means in
+   * `kindgi environments set prod …`, `kindgi promote`, and the deploy /
+   * secrets env resolution. Resolved to a project id the way
+   * `kindgi deploy --project` resolves one.
+   */
+  readonly project?: string;
 }
 
 export interface PackConfig {
   readonly pack?: { readonly id?: string; readonly version?: string };
   readonly environments?: Readonly<Record<string, EnvironmentConfig>>;
   readonly [k: string]: unknown;
+}
+
+/**
+ * The project (id or slug) a pack config names for an environment, or
+ * `undefined` when the environment — or its `project` — is unset. One place
+ * decides what "the prod project" is, so `kindgi environments set`,
+ * `kindgi promote` and the deploy / secrets env resolution agree. The caller
+ * resolves the returned id-or-slug to a project id the same way
+ * `kindgi deploy --project` does.
+ */
+export function projectOfEnv(
+  config: { readonly environments?: unknown } | undefined,
+  name: string,
+): string | undefined {
+  const environments = config?.environments;
+  if (environments === null || typeof environments !== 'object') return undefined;
+  const block = (environments as Record<string, unknown>)[name];
+  if (block === null || typeof block !== 'object') return undefined;
+  const project = (block as { readonly project?: unknown }).project;
+  return typeof project === 'string' && project !== '' ? project : undefined;
 }
 
 export const DEFAULT_OUT_DIR = '.kindgi/build';
