@@ -160,7 +160,7 @@ export type {
   SitePage,
   SitePersonRestoreInput,
   SitePersonRestoreOutcome,
-  SitePersonRestoreUndid,
+  SitePersonRestoreRefusal,
   SiteRegisterInput,
   SiteRegisterOutcome,
   SiteRevokeKeyInput,

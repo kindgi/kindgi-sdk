@@ -336,9 +336,10 @@ another reviewer decides." instead of **Approve**.
   (`kindgi sites restore-person <site-id> <user-id>`). They're the same
   person, with their history, and their next sign-in gives them what their
   roles give then. `kindgi people list --include-removed` finds their id.
-  It's refused when they also sign in another way (through another site,
-  or the workspace's own sign-in), since that would let them in there too:
-  add them again instead, as a new person.
+  It's for someone removed in Kindgi: someone who left the store stays
+  gone (below). It's refused when they also sign in another way (through
+  another site, or the workspace's own sign-in), since that would let them
+  in there too: add them again instead, as a new person.
 
 ## When someone leaves the store
 
@@ -350,7 +351,8 @@ someone who can't open the page any more doesn't keep what they had:
   personal-data tools. Kindgi ends their grants, their reviewer role (and
   its emails) and every session they hold, so a page they still have open
   can't approve anything. Then it refuses them: "This person was removed:
-  their site can't sign them in again".
+  their site can't sign them in again". The plugin forgets them too, so if
+  they come back, they're a new person in Kindgi, without the history.
 - **Taking away their roles** ends the same, but not for good. Give them a
   role that may sign in again, and they're the same person in Kindgi, with
   their history.

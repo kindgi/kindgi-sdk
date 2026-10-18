@@ -10519,9 +10519,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/projects/:projectId/sites/:siteId/people/:userId/restore',
     openapiPath: '/v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore',
     operationId: 'projects.sites.restorePerson',
-    summary: "Let a removed site's person back in",
+    summary: 'Let a person removed in Kindgi back in, through their site',
     description:
-      "Undoes what removed one of the site's people: their removal from the tenant (`removed`: they're one of its people again), the site's word that they left it (`left`: the same link to them is made live again, so they're the same person, with their history), or both. Only the person and the link come back. Their grants come back the next time the site signs them in, from its role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` when there's nothing to undo, `people-cap` when making the link live again would take the site past its `peopleCap` (`details.peopleCap`), and `linked-elsewhere` when undoing `removed` would let them in another way too (through another site, or the tenant's own sign-in): add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.",
+      "For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the tenant whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the tenant's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.",
     tags: ['sites'],
     security: 'bearer',
     parameters: [
@@ -10538,7 +10538,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     ],
     responses: {
       '200': {
-        description: 'The person, and what was undone.',
+        description: 'The person, in the tenant again.',
         schema: ref('SitePersonRestoreResult'),
       },
       ...CommonMutationErrors,
@@ -10547,7 +10547,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No site with that id in this project (`site-not-found`), or the site has no link to that person (`site-person-not-found`).',
       ),
       '409': ErrorResponse(
-        'Refused, with nothing changed (`site-person-restore-refused`, `details.reason`: `not-removed`, `people-cap` or `linked-elsewhere`), or an idempotency conflict.',
+        'Refused, with nothing changed (`site-person-restore-refused`, `details.reason`: `not-removed`, `left` or `linked-elsewhere`), or an idempotency conflict.',
       ),
     },
   },

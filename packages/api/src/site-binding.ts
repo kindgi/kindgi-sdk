@@ -61,21 +61,22 @@ export interface SiteBinding {
   /** Revoke one of the site's keys. Its live sessions end. */
   revokeKey(input: SiteRevokeKeyInput): Promise<SiteChangeOutcome>;
   /**
-   * Let one of the site's people back in, undoing what removed them: their
-   * removal from the tenant (`removed`: they're one of its people again),
-   * the site's word that they left it (`left`: the same link un-retired,
-   * never a new one, so they're the same person, with their history), or
-   * both. Only the person and the link come back: their grants come back
-   * the next time the site signs them in, from its role map then, and
-   * their keys and sessions stay gone. A site's people hold no tenant
-   * membership, so none is written.
+   * Let one of the site's people back in after a removal made in Kindgi
+   * (`unregisterUser`), while the site still knows them: their link to the
+   * site is live, so their next sign-in through it is theirs again. They're
+   * the same person, with their history. Only the person comes back: their
+   * grants come back the next time the site signs them in, from its role
+   * map then, and their keys and sessions stay gone. A site's people hold
+   * no tenant membership, so none is written.
    *
-   * Refused, with nothing changed, when there's nothing to undo
-   * (`not-removed`); when un-retiring the link would take the site past
-   * its `peopleCap`, as a new person would (`people-cap`); and when undoing
-   * `removed` would let them in another way too, through another site's
-   * live link or a sign-in account of the tenant's own
-   * (`linked-elsewhere`). Audited (`site-person-restored`). An
+   * A link the site retired (it said they left) stays retired: a site
+   * forgets a person who leaves, and signs them in as a new person if they
+   * come back, so that link would never see a statement again. Refused,
+   * with nothing changed: `not-removed` for someone in the tenant with a
+   * live link; `left` for a retired link, removed in Kindgi too or not;
+   * and `linked-elsewhere` when letting them back in would let them in
+   * another way too, through another site's live link or a sign-in
+   * account of the tenant's own. Audited (`site-person-restored`). An
    * unregistered site is `not-found`, as for its other changes; a paused
    * one isn't. Optional: the route is mounted only when the binding has it.
    */
@@ -257,24 +258,17 @@ export interface SitePersonRestoreInput extends SiteGetInput {
   readonly by: string;
 }
 
-/**
- * What a restore undid, in this order: `removed`, the person's removal
- * from the tenant; `left`, the site's word that they left it.
- */
-export type SitePersonRestoreUndid = 'removed' | 'left';
+/** Why a restore was refused (see `SiteBinding.restorePerson`). */
+export type SitePersonRestoreRefusal = 'not-removed' | 'left' | 'linked-elsewhere';
 
 export type SitePersonRestoreOutcome =
-  | {
-      readonly kind: 'ok';
-      readonly user: UserRecord;
-      readonly undid: readonly SitePersonRestoreUndid[];
-    }
+  /** The person, in the tenant again. */
+  | { readonly kind: 'ok'; readonly user: UserRecord }
   /** No site with that id in this project, or an unregistered one. */
   | { readonly kind: 'not-found' }
   /** The site has no link to that person, live or retired. */
   | { readonly kind: 'person-not-found' }
-  | { readonly kind: 'refused'; readonly reason: 'not-removed' | 'linked-elsewhere' }
-  | { readonly kind: 'refused'; readonly reason: 'people-cap'; readonly peopleCap: number };
+  | { readonly kind: 'refused'; readonly reason: SitePersonRestoreRefusal };
 
 export type SiteEnrollmentCodeOutcome =
   | { readonly kind: 'ok'; readonly enrollment: SiteEnrollmentCode }

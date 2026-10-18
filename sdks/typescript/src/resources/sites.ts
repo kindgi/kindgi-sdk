@@ -95,10 +95,10 @@ export interface SitesClient {
   /** @wire POST /v1/projects/:projectId/sites/:siteId/keys/:kid/revoke */
   revokeKey(projectId: string, siteId: string, kid: string, options?: Idempotent): Promise<Site>;
   /**
-   * Let a removed person of the site back in: undoes their removal from the
-   * tenant, the site's word that they left it, or both (`undid`). Only the
-   * person and their link come back; their grants come back the next time
-   * the site signs them in.
+   * Let one of the site's people removed in Kindgi back in, while the site
+   * still knows them: the same person, with their history. Their grants
+   * come back the next time the site signs them in. Someone the site said
+   * left stays gone: if they come back, it signs them in as a new person.
    * @wire POST /v1/projects/:projectId/sites/:siteId/people/:userId/restore
    */
   restorePerson(

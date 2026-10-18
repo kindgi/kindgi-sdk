@@ -15406,7 +15406,7 @@ class UserCollectionPage(BaseModel):
 
 class SitePersonRestoreResult(BaseModel):
     """
-    A site's person let back in (`POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`), and what was undone.
+    A site's person let back in after a removal made in Kindgi (`POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`).
     """
 
     model_config = ConfigDict(
@@ -15414,13 +15414,6 @@ class SitePersonRestoreResult(BaseModel):
         populate_by_name=True,
     )
     user: UserRecord
-    undid: Annotated[
-        list[Annotated[Literal["removed", "left"] | str, _open.OPEN]],
-        Field(max_length=2, min_length=1),
-    ]
-    """
-    What was undone, in this order: `removed`, their removal from the tenant; `left`, the site's word that they left it.
-    """
 
 
 class WhoamiResult(BaseModel):

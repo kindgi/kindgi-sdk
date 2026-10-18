@@ -1605,7 +1605,7 @@ export const CLI_EXAMPLES = {
   'sites restore-person': [
     {
       purpose:
-        'Let a person their site said left, or who was removed in Kindgi, back in: the same person, with their history.',
+        'Let a person removed in Kindgi back in through their site: the same person, with their history.',
       line: 'kindgi sites restore-person <site-id> <user-id>',
     },
   ],

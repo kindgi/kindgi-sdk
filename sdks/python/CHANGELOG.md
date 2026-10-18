@@ -10,6 +10,12 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **`projects.sites.restore_person` lets one of a site's people
+  removed in Kindgi back in**, while the site still knows them: the same
+  person, with their history. Their grants come back the next time the site
+  signs them in. Refused (`site-person-restore-refused`) for someone who
+  isn't removed, someone their site said left, and someone who also signs
+  in another way. Tenant admins only.
 - `kindgi`: **`deployments.pack_env` shows where each name a deployment's
   pack declares is set** (`project`, `org` or `tenant`) and why it can't be
   given to its pack service, if it can't, on a server that runs a pack

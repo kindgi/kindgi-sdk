@@ -12,7 +12,7 @@ import type {
   Site,
   SiteBinding,
   SiteChangeOutcome,
-  SitePersonRestoreOutcome,
+  SitePersonRestoreRefusal,
   SiteRegisterInput,
   SiteRole,
   SiteRoleGrant,
@@ -194,16 +194,15 @@ export function sitesRouter(
           toWireError(
             {
               code: 'site-person-restore-refused',
-              message: restoreRefusedText(outcome),
+              message: restoreRefusedText(outcome.reason),
               reason: outcome.reason,
               userId,
-              ...(outcome.reason === 'people-cap' && { peopleCap: outcome.peopleCap }),
             },
             c.get('requestId'),
           ),
         );
       }
-      return c.json({ user: serializeUser(outcome.user), undid: outcome.undid });
+      return c.json({ user: serializeUser(outcome.user) });
     });
   }
 
@@ -211,14 +210,12 @@ export function sitesRouter(
 }
 
 /** Why a restore was refused, as the person asking reads it: nothing changed. */
-function restoreRefusedText(
-  outcome: Extract<SitePersonRestoreOutcome, { readonly kind: 'refused' }>,
-): string {
-  switch (outcome.reason) {
+function restoreRefusedText(reason: SitePersonRestoreRefusal): string {
+  switch (reason) {
     case 'not-removed':
-      return "This person isn't removed, and their site hasn't said they left it: there's nothing to undo";
-    case 'people-cap':
-      return `The site has as many people as its cap allows (${outcome.peopleCap}): raise its \`peopleCap\`, or remove someone first`;
+      return "This person isn't removed: there's nothing to undo";
+    case 'left':
+      return 'Their site said they left it, and forgot them: if they come back, it signs them in as a new person';
     case 'linked-elsewhere':
       return "This person also signs in another way (through another site, or the tenant's own sign-in), and letting them back in would let them in there too. Add them again instead, as a new person: with an email, they're invited";
   }

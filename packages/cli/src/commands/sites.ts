@@ -287,7 +287,7 @@ const restorePerson: LeafCommand = {
   kind: 'leaf',
   name: 'restore-person',
   description:
-    "Let a removed person of a site back in, by their user id (`kindgi people list` finds them; `--include-removed` for someone removed in Kindgi): undoes their removal, the site's word that they left it, or both (`undid`). They're the same person, with their history; their grants come back the next time the site signs them in. Refused, with nothing changed, when there's nothing to undo, at the site's people cap, and when they also sign in another way. Tenant admins only.",
+    "Let one of a site's people removed in Kindgi back in, by their user id (`kindgi people list --include-removed` finds it): the same person, with their history, and their grants come back the next time the site signs them in. Refused, with nothing changed, for someone who isn't removed, someone their site said left (if they come back, it signs them in as a new person), and someone who also signs in another way. Tenant admins only.",
   usage: 'kindgi sites restore-person <site-id> <user-id> [--project=<project-id>]',
   optionSpec: PROJECT_FLAG,
   run: (ctx) =>
