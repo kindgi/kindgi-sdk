@@ -266,7 +266,8 @@ service is, and checks it. It never creates or deletes one.
    the platform fixes those and its revision doesn't move: read it again on
    your own back-off. If a running service can't be given a secret where you
    run it, and a name is now set only as one, hold it as
-   `pack-env-secret-redeploy`: the next deploy's service can be given it.
+   `pack-env-secret-redeploy`: a new deployment's service can be given it,
+   from a new build of the pack.
 6. **Retire what should go:** `GET /v1/system/deployments?endpoint=retire`
    lists deployments with an endpoint whose service should go, each with its
    `reason`. Clear the endpoint first, with `DELETE …/endpoint`, then delete

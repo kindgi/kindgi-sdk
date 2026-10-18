@@ -97,8 +97,8 @@ export const PACK_ENV_SECRET_GIVE_CODES = [
  * - one of `PACK_ENV_SECRET_GIVE_CODES`;
  * - `pack-env-secret-redeploy`: a name is now set only as a secret, and this
  *   pack service was made where no secret can be given to it. It runs on the
- *   values it was last given. The next deploy's pack service can be given
- *   secrets.
+ *   values it was last given. A new deployment's pack service, from a new
+ *   build of the pack, can be given secrets.
  */
 export const PACK_ENV_HELD_CODES = [
   ...PACK_ENV_PROBLEM_CODES,

@@ -267,7 +267,7 @@ describe('kindgi deployments get', () => {
       lines(
         ...HEAD,
         HELD_SERVICE,
-        "    ! Since 2026-10-18T10:02:00.000Z: a name the pack reads from its env is newly set only as a secret, which this pack service can't be given. Deploy again, and the new deployment's pack service can be given it (pack-env-secret-redeploy).",
+        "    ! Since 2026-10-18T10:02:00.000Z: a name the pack reads from its env is newly set only as a secret, which this pack service can't be given. Build the pack again and deploy that build: the new deployment's pack service can be given it (pack-env-secret-redeploy).",
       ),
     );
     const unreadable = await run(['deployments', 'get', 'dep-acme-1'], {

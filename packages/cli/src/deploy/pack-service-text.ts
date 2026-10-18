@@ -62,15 +62,16 @@ export function packServiceRetiredText(reason: string): string {
  * a pending one has for it), newest values it was given and didn't start
  * with, or a name newly set only as a secret, which it can't be given. The
  * second is tried again for an hour from when it was recorded
- * (`PACK_ENV_RETRY_MS` in `@kindgi/api`); for the third, deploy again.
- * `undefined` for a code a later runtime names: it's said by its code.
+ * (`PACK_ENV_RETRY_MS` in `@kindgi/api`); for the third, build the pack
+ * again and deploy that build, which makes a new deployment. `undefined`
+ * for a code a later runtime names: it's said by its code.
  */
 export function packEnvHeldText(code: string): string | undefined {
   if (code === 'pack-env-update-failed') {
     return "its newest values were given to it, but it didn't start with them. It's tried again for an hour from then";
   }
   if (code === 'pack-env-secret-redeploy') {
-    return "a name the pack reads from its env is newly set only as a secret, which this pack service can't be given. Deploy again, and the new deployment's pack service can be given it";
+    return "a name the pack reads from its env is newly set only as a secret, which this pack service can't be given. Build the pack again and deploy that build: the new deployment's pack service can be given it";
   }
   return code.startsWith('pack-env-') ? PACK_SERVICE_PROBLEMS[code] : undefined;
 }
