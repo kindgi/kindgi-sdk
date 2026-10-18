@@ -58,17 +58,23 @@ describe('untilReported', () => {
   test('a folder removed while the control read it is no failure', async () => {
     const { skip } = context();
     let passedOn = false;
+    let round = 0;
     await untilReported(
       { skip },
       watched,
       () => passedOn,
       async () => {
         const control = controls.at(-1);
-        control?.emit('error', removedWhileRead('pack/tools'));
-        control?.emit('change', 'rename', 'a.py');
-        passedOn = true;
+        // The error in a round of its own, so that the next one looks at it.
+        if (round++ === 0) {
+          control?.emit('error', removedWhileRead('pack/tools'));
+        } else {
+          control?.emit('change', 'rename', 'a.py');
+          passedOn = true;
+        }
       },
     );
+    expect(round).toBe(2);
     expect(skip).not.toHaveBeenCalled();
     expect(controls.at(-1)?.closed).toBe(true);
   });
