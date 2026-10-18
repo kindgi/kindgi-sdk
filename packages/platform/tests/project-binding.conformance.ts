@@ -211,7 +211,9 @@ export function runProjectBindingConformance(
         expect(await projects.update(T1, id, { name: 'Staging-2', orgId: null })).toEqual({
           kind: 'ok',
         });
-        expect((await projects.get(T1, id))?.orgId).toBeUndefined();
+        const afterNoOrg = await projects.get(T1, id);
+        expect(afterNoOrg?.name).toBe('Staging-2');
+        expect(afterNoOrg?.orgId).toBeUndefined();
         // Still in its order: an actual move is still refused, naming the order.
         expect(await projects.update(T1, id, { orgId: ORG_A })).toEqual({
           kind: 'project-in-environment-order',
@@ -231,7 +233,9 @@ export function runProjectBindingConformance(
         expect(await projects.update(T1, id, { name: 'Prod-2', orgId: ORG_A })).toEqual({
           kind: 'ok',
         });
-        expect((await projects.get(T1, id))?.orgId).toBe(ORG_A);
+        const afterSameOrg = await projects.get(T1, id);
+        expect(afterSameOrg?.name).toBe('Prod-2');
+        expect(afterSameOrg?.orgId).toBe(ORG_A);
         expect(await projects.update(T1, id, { orgId: null })).toEqual({
           kind: 'project-in-environment-order',
           orderId,
