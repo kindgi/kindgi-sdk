@@ -1072,8 +1072,11 @@ export type {
   ItemProjectsBinding,
   ItemProjectsInput,
   ItemProjectsOfManyInput,
+  ItemServedElsewhere,
+  ItemServesIn,
   NewestVisibleOfManyInput,
   OrderItemKind,
+  ServesInInput,
   VersionProjectsInput,
   VersionProjectsOfManyInput,
 } from './item-projects-binding.js';
