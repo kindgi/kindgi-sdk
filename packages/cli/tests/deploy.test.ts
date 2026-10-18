@@ -702,6 +702,31 @@ describe('kindgi deploy — response handling', () => {
       );
     });
 
+    test("two environments that name one project: the config's first names it", async () => {
+      await writeAutoEnvelope();
+      const fixtures = makeFixtures({
+        postResult: refused({ position: 2, firstProjectId: STAGING }),
+        projects,
+        orders,
+      });
+      const staging = (testConfig().environments as { staging: Record<string, unknown> }).staging;
+      // `preview`, after the others in the config, names staging's project too.
+      const config = {
+        environments: {
+          ...environments(staging).environments,
+          preview: { endpoint: 'https://api.staging.example.com', project: STAGING },
+        },
+      };
+      const out = await runCli({
+        ...baseInputs(fixtures, {}, config),
+        argv: ['deploy', '--env=staging', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        '\n      kindgi promote --from=staging --to=qa\n      kindgi promote --from=qa --to=prod\n',
+      );
+    });
+
     test("without the first environment (the caller can't read it), says the rule and where the order is, and reads nothing", async () => {
       await writeAutoEnvelope();
       const fixtures = makeFixtures({ postResult: refused({ position: 1 }), projects, orders });
