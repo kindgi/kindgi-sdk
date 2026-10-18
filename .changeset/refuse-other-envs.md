@@ -8,7 +8,6 @@
 **A runtime that keeps its values under one env refuses a value it would never read.** A runtime that serves one env, `prod` say, reads every value under it, so a secret set under `production` was stored and never read. Such a runtime can now refuse those values: `createApp({ envName, refuseOtherEnvs: true })` (`KINDGI_REFUSE_OTHER_ENVS=true` on the server, with `KINDGI_ENV`). Off by default; a runtime that leaves it off takes any env, as before.
 - **What it refuses, with `409 env-not-served`:**
   - a secret set or rotated, or an env value put, under another env (`POST /v1/secrets`, `POST /v1/secrets/{name}/rotate`, `PUT /v1/env/{name}`), and a deployment's secret sync under another env (`POST /v1/deployments/{deploymentId}/secrets`), before anything is written;
-  - a tenant config entry (`PATCH /v1/tenant/config`), which is written under `KINDGI_ENV_NAME` or `default`, when that isn't the served env: the error points to `POST /v1/secrets` and `PUT /v1/env/{name}`;
   - a model provider, MCP endpoint or webhook endpoint created or changed with its secret named under another env.
 - **The error** names the env the runtime serves and what to do (`details: { envName, servedEnv }`).
 - **What it still takes:**

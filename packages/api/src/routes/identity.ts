@@ -35,7 +35,7 @@ import { callerReviewerRole } from '../reviewer-role.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
-import { resolveTenantConfigEnvName } from './tenant.js';
+import { DEFAULT_TENANT_CONFIG_ENV_NAME } from './tenant.js';
 
 /**
  * Identity routes — the canonical caller-identity surface.
@@ -707,7 +707,8 @@ async function consoleReadOnlyNotice(
   try {
     const entry = await tenantConfig.get({
       scope: { kind: 'tenant', tenantId: c.get('tenantId') as TenantId },
-      envName: resolveTenantConfigEnvName(),
+      // A tenant setting: under `default`, whatever env the runtime serves.
+      envName: DEFAULT_TENANT_CONFIG_ENV_NAME,
       name: READ_ONLY_NOTICE_KEY,
     });
     const text = entry?.value.replace(/\s+/g, ' ').trim() ?? '';

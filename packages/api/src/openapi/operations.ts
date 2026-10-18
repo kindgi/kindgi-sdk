@@ -1463,13 +1463,6 @@ const SecretWriteErrors: Readonly<Record<string, ResponseSpec>> = {
 const ENV_NOT_SERVED_VALUE =
   "`env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), so a value under another env would never be read. `details.envName` is the env asked for, `details.servedEnv` the one to use. A secret that a provider, MCP endpoint or webhook endpoint registered before names under that env, at the scope it's read at, is still written: it's read there. Nothing is stored otherwise.";
 
-/**
- * `env-not-served` for the tenant config, which takes no env: it writes
- * under `KINDGI_ENV_NAME`, or `default`.
- */
-const ENV_NOT_SERVED_TENANT_CONFIG =
-  "`env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the tenant config writes under another (`details.envName`), where the value would never be read. Store it with `POST /v1/secrets` or `PUT /v1/env/{name}` at the tenant's scope under `details.servedEnv`. Nothing is stored.";
-
 /** `env-not-served` for a registration that names its secret under another env. */
 const ENV_NOT_SERVED_REFERENCE =
   "`env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the secret reference names another. Name it under `details.servedEnv`. Nothing is stored.";
@@ -8711,7 +8704,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tenant.config.list',
     summary: "List the tenant's config entries",
     description:
-      'Cursor-paginated: the env entries (in the env binding order), then the secret entries (in the secrets binding order); a page holds at most `limit` entries and `nextCursor` resumes where it ended. Optional `?kind=` narrows to one slot (env / config / secret); `?keyPrefix=` matches on entry key. **Secret values are ALWAYS redacted on this admin surface** — the dispatch path is the only reader that receives raw material.',
+      'Cursor-paginated: the env entries (in the env binding order), then the `config` entries when they live apart from them, then the secret entries (in the secrets binding order); a page holds at most `limit` entries and `nextCursor` resumes where it ended. Optional `?kind=` narrows to one slot (env / config / secret); `?keyPrefix=` matches on entry key. `env` and `secret` entries are the ones under the env the runtime serves (`servedEnv` in whoami), where its tools read them; `config` entries, the tenant settings, are under `default` whatever it serves. On a runtime that serves none, all of them are under `default`. **Secret values are ALWAYS redacted on this admin surface** — the dispatch path is the only reader that receives raw material.',
     tags: ['tenant'],
     security: 'bearer',
     parameters: [
@@ -8748,7 +8741,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tenant.config.upsert',
     summary: 'Upsert a tenant-config entry',
     description:
-      'Set / update an entry keyed by `(kind, key)`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.',
+      'Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a tenant setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.',
     tags: ['tenant'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -8760,9 +8753,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       ...SecretWriteErrors,
-      '409': ErrorResponse(
-        `\`ifRevision\` was set and did not match the stored revision. Or ${ENV_NOT_SERVED_TENANT_CONFIG}`,
-      ),
+      '409': ErrorResponse('`ifRevision` was set and did not match the stored revision.'),
     },
   },
 

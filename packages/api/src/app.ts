@@ -2085,7 +2085,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(authorizer !== undefined && { authorizer }),
       ...(input.production?.next !== undefined && { productionNext: input.production.next }),
       ...(input.egress !== undefined && { egress: input.egress }),
-      ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
+      // Its entries live where the runtime's tools read them.
+      ...(servedEnv !== undefined && { envName: servedEnv }),
     }),
   );
   // ---------- env + secrets ----------

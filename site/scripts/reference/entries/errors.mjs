@@ -2920,11 +2920,11 @@ export const ERROR_ENTRIES = {
   },
   'env-not-served': {
     description:
-      'This runtime keeps every value under the one env it serves (`KINDGI_REFUSE_OTHER_ENVS`), and the request would store a value under another, where it would never be read: a secret or env value written under another env (the tenant config too, which writes under `KINDGI_ENV_NAME` or `default`), or a model provider, MCP endpoint or webhook endpoint naming its secret under another. Nothing is stored. Use the env the runtime serves; `GET /v1/identity/whoami` names it (`servedEnv`). Reads and deletes under any env still work.',
+      'This runtime keeps every value under the one env it serves (`KINDGI_REFUSE_OTHER_ENVS`), and the request would store a value under another, where it would never be read: a secret or env value written under another env, or a model provider, MCP endpoint or webhook endpoint naming its secret under another. Nothing is stored. Use the env the runtime serves; `GET /v1/identity/whoami` names it (`servedEnv`). Reads and deletes under any env still work.',
     details: [
       {
         key: 'envName',
-        meaning: "the env the request named, or the tenant config's",
+        meaning: 'the env the request named',
       },
       {
         key: 'servedEnv',

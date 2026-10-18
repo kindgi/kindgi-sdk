@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import { type AuthzCheckBinding, type Decision, OBJECT_ACTIONS } from '@kindgi/authz';
-import type { ApiTokenId, ReviewerId, TenantId, UserId } from '@kindgi/types';
+import type { ApiTokenId, EnvName, ReviewerId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -155,15 +155,15 @@ const ALICE_ACCESS: MyAccess = {
   capabilities: { admin: { project: ['read', 'write', 'admin'] } },
 };
 
-/** A tenant config holding only the console's read-only line (or failing to be read). */
-function configWith(notice: string | Error | undefined): EnvBinding {
+/** A tenant config holding only the console's read-only line, under `under` (or failing to be read). */
+function configWith(notice: string | Error | undefined, under = 'default'): EnvBinding {
   return {
-    get: async ({ name }: { name: string }) => {
+    get: async ({ name, envName }: { name: string; envName: string }) => {
       if (notice instanceof Error) throw notice;
-      return notice !== undefined && name === 'console.readOnlyNotice'
+      return notice !== undefined && name === 'console.readOnlyNotice' && envName === under
         ? {
             scope: { kind: 'tenant', tenantId },
-            envName: 'default',
+            envName: under,
             name,
             value: notice,
             revision: 1,
@@ -175,12 +175,13 @@ function configWith(notice: string | Error | undefined): EnvBinding {
   } as unknown as EnvBinding;
 }
 
-function harness(myAccess?: MyAccessBinding, envBinding?: EnvBinding) {
+function harness(myAccess?: MyAccessBinding, envBinding?: EnvBinding, envName?: string) {
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
     runHandler: noopRunHandler,
     reviewerBinding,
+    ...(envName !== undefined && { envName: envName as EnvName }),
     ...(myAccess !== undefined && { myAccess }),
     ...(envBinding !== undefined && { envBinding }),
     authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding },
@@ -315,6 +316,17 @@ describe('GET /v1/identity/me/permissions', () => {
     test('served to every caller, as a tenant admin set it', async () => {
       const r = await harness(store, configWith(READ_ONLY))(BOB);
       expect(r.body.readOnlyNotice).toBe(READ_ONLY);
+    });
+
+    test('a tenant setting: read under `default`, whatever env the runtime serves', async () => {
+      // Set before the runtime served `prod`, under `default`: it still shows.
+      expect((await harness(store, configWith(READ_ONLY), 'prod')(BOB)).body).toEqual(
+        expect.objectContaining({ readOnlyNotice: READ_ONLY }),
+      );
+      // Under the served env: not where a setting lives.
+      expect(
+        (await harness(store, configWith(READ_ONLY, 'prod'), 'prod')(BOB)).body.readOnlyNotice,
+      ).toBeUndefined();
     });
 
     test('absent when none is set, or with no tenant config', async () => {

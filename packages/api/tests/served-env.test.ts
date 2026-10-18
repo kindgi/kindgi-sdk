@@ -12,8 +12,10 @@
  * - except a secret that a registration already names under that env, at the
  *   scope it reads it at, which is still written, so a value in use can be
  *   rotated;
- * - the tenant config, which writes under `KINDGI_ENV_NAME` or `default`: the
- *   same 409 when that isn't the served env;
+ * - the tenant config keeps its values (`env`, `secret`) under the env the
+ *   runtime serves, where its tools read, with or without the switch, and
+ *   its settings (`config`) under `default`, where they always were (all of
+ *   them under `default` on a runtime that serves none);
  * - reads and deletes under any env pass;
  * - whoami says what's served (`servedEnv`).
  *
@@ -100,12 +102,18 @@ const hookEndpoint = (envName: string) => ({
 /** What a write reached: each store or registry call, by name. */
 type Write = readonly [op: string, envName: string, name: string];
 
-function makeApp(served: { envName?: string; refuseOtherEnvs?: boolean } = {}) {
+/** `stored`: env values already stored, as before an upgrade. */
+function makeApp(
+  served: { envName?: string; refuseOtherEnvs?: boolean } = {},
+  stored: readonly EnvRecord[] = [],
+) {
   const writes: Write[] = [];
   const secrets = new Map<string, SecretRecord>();
+  const secretValues = new Map<string, string>();
   const values = new Map<string, EnvRecord>();
   const key = (scope: Scope, envName: string, name: string) =>
     `${scope.kind}:${scope.kind === 'project' ? scope.projectId : ''}::${envName}::${name}`;
+  for (const r of stored) values.set(key(r.scope, r.envName, r.name), r);
   const secretsBinding = {
     async list(input) {
       return {
@@ -128,7 +136,15 @@ function makeApp(served: { envName?: string; refuseOtherEnvs?: boolean } = {}) {
         updatedAt: '2026-10-01T00:00:00.000Z',
       };
       secrets.set(key(input.scope, input.envName, input.name), record);
+      secretValues.set(key(input.scope, input.envName, input.name), input.value);
       return { kind: 'ok', record, versionId: 1 };
+    },
+    // The read a tool makes: exact, at the scope and env asked for.
+    async resolve(input) {
+      const value = secretValues.get(key(input.scope, input.envName, input.name));
+      return value === undefined
+        ? { kind: 'err', error: { code: 'secret-not-found', message: input.name } }
+        : { kind: 'ok', value: { name: input.name, versionId: 1, value, scope: input.scope } };
     },
     async rotate(input) {
       writes.push(['secret.rotate', input.envName, input.name]);
@@ -239,7 +255,7 @@ function makeApp(served: { envName?: string; refuseOtherEnvs?: boolean } = {}) {
     });
     return { status: res.status, body: (await res.json()) as Record<string, any> };
   };
-  return { call, writes };
+  return { call, writes, secretsBinding, envBinding };
 }
 
 const tenant = { kind: 'tenant', tenantId };
@@ -408,56 +424,96 @@ describe("a runtime that refuses other envs: an MCP endpoint's secret, at the sc
   });
 });
 
-describe('a runtime that refuses other envs: the tenant config', () => {
+describe('the tenant config: its values under the env the runtime serves, where its tools read; its settings under `default`', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
-  const upsert = (kind: 'secret' | 'env') => ({ kind, key: 'ACME_REGION', value: 'eu' });
+  const upsert = (kind: 'secret' | 'env', key: string, value: string) => ({ kind, key, value });
 
-  test('written under `default`, not the served env: 409, pointing to the routes that take an env, and nothing is stored', async () => {
-    vi.stubEnv('KINDGI_ENV_NAME', '');
-    const h = refusing();
-    const asSecret = await h.call('PATCH', '/v1/tenant/config', upsert('secret'));
-    expect([asSecret.status, asSecret.body.error]).toEqual([
-      409,
-      expect.objectContaining({
-        code: 'env-not-served',
-        message: REFUSAL(
-          "the secret `ACME_REGION` under `default` would never be read. Store it under `prod`, with `POST /v1/secrets` at the tenant's scope",
-        ),
-        details: { envName: 'default', servedEnv: 'prod' },
-      }),
-    ]);
-    const asValue = await h.call('PATCH', '/v1/tenant/config', upsert('env'));
-    expect([asValue.status, asValue.body.error?.message]).toEqual([
-      409,
-      REFUSAL(
-        "the env value `ACME_REGION` under `default` would never be read. Store it under `prod`, with `PUT /v1/env/{name}` at the tenant's scope",
-      ),
-    ]);
-    expect(h.writes).toEqual([]);
-  });
+  /** Sets a secret and an env value through `PATCH /v1/tenant/config`, then reads them back as a tool and as the config. */
+  async function setAndRead(h: ReturnType<typeof makeApp>, envName: string) {
+    const set = [
+      await h.call('PATCH', '/v1/tenant/config', upsert('secret', 'ACME_TOKEN', 'tok_test_1')),
+      await h.call('PATCH', '/v1/tenant/config', upsert('env', 'ACME_REGION', 'eu')),
+    ];
+    const at = { scope: tenant as Scope, envName: envName as EnvName };
+    const toolRead = await h.secretsBinding.resolve({
+      ...at,
+      name: 'ACME_TOKEN',
+      resolveContext: { caller: 'dispatch' },
+    });
+    const valueRead = await h.envBinding.get({ ...at, name: 'ACME_REGION' });
+    const listed = await h.call('GET', '/v1/tenant/config');
+    return {
+      statuses: set.map((r) => r.status),
+      secret: toolRead.kind === 'ok' ? toolRead.value.value : toolRead.error.code,
+      value: valueRead?.value,
+      listed: (listed.body.data as { kind: string; key: string }[]).map((e) => [e.kind, e.key]),
+    };
+  }
 
-  test('written under the served env (`KINDGI_ENV_NAME`): stored as before', async () => {
-    vi.stubEnv('KINDGI_ENV_NAME', 'prod');
+  const READ_BACK = {
+    statuses: [200, 200],
+    secret: 'tok_test_1',
+    value: 'eu',
+    listed: [
+      ['env', 'ACME_REGION'],
+      ['secret', 'ACME_TOKEN'],
+    ],
+  };
+
+  test('on a runtime that refuses other envs: stored under the served env, read by a tool, and listed', async () => {
     const h = refusing();
-    expect((await h.call('PATCH', '/v1/tenant/config', upsert('secret'))).status).toBe(200);
-    expect((await h.call('PATCH', '/v1/tenant/config', upsert('env'))).status).toBe(200);
+    expect(await setAndRead(h, 'prod')).toEqual(READ_BACK);
     expect(h.writes).toEqual([
-      ['secret.set', 'prod', 'ACME_REGION'],
+      ['secret.set', 'prod', 'ACME_TOKEN'],
       ['env.set', 'prod', 'ACME_REGION'],
     ]);
   });
 
-  test('without the switch: under `default`, as before', async () => {
-    vi.stubEnv('KINDGI_ENV_NAME', '');
+  test('on a runtime that serves an env and takes others: the same, and `KINDGI_ENV_NAME` is not read', async () => {
+    vi.stubEnv('KINDGI_ENV_NAME', 'default');
     const h = makeApp({ envName: 'prod' });
-    expect((await h.call('PATCH', '/v1/tenant/config', upsert('secret'))).status).toBe(200);
-    expect((await h.call('PATCH', '/v1/tenant/config', upsert('env'))).status).toBe(200);
-    expect(h.writes).toEqual([
-      ['secret.set', 'default', 'ACME_REGION'],
-      ['env.set', 'default', 'ACME_REGION'],
+    expect(await setAndRead(h, 'prod')).toEqual(READ_BACK);
+    expect(h.writes.map(([, envName]) => envName)).toEqual(['prod', 'prod']);
+  });
+
+  test("a `config` entry, the tenant's own setting: under `default` whatever the runtime serves, so one set before still applies", async () => {
+    const before: EnvRecord = {
+      scope: tenant as Scope,
+      envName: 'default' as EnvName,
+      name: 'console.readOnlyNotice',
+      value: 'Read-only here.',
+      revision: 1,
+      createdAt: '2026-10-01T00:00:00.000Z',
+      updatedAt: '2026-10-01T00:00:00.000Z',
+    };
+    const h = makeApp({ envName: 'prod', refuseOtherEnvs: true }, [before]);
+    const set = await h.call('PATCH', '/v1/tenant/config', {
+      kind: 'config',
+      key: 'acme.theme',
+      value: 'dark',
+    });
+    expect(set.status).toBe(200);
+    expect(h.writes).toEqual([['env.set', 'default', 'acme.theme']]);
+    const listed = await h.call('GET', '/v1/tenant/config');
+    expect(
+      (listed.body.data as { kind: string; key: string; value: string }[]).map((e) => [
+        e.kind,
+        e.key,
+        e.value,
+      ]),
+    ).toEqual([
+      ['config', 'console.readOnlyNotice', 'Read-only here.'],
+      ['config', 'acme.theme', 'dark'],
     ]);
+  });
+
+  test('on a runtime that serves no env: under `default`, as before', async () => {
+    vi.stubEnv('KINDGI_ENV_NAME', 'prod');
+    const h = makeApp();
+    expect(await setAndRead(h, 'default')).toEqual(READ_BACK);
+    expect(h.writes.map(([, envName]) => envName)).toEqual(['default', 'default']);
   });
 });
 

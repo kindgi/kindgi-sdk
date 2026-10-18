@@ -15,7 +15,6 @@ import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { SecretBinding, SecretRecord } from '../secrets-binding.js';
 import { secretNameGrammarRefusal } from '../secrets-binding.js';
-import { type ServedEnvRule, refuseUnservedValue } from '../served-env.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 
@@ -57,9 +56,11 @@ import { clampLimit } from './pagination.js';
  *                         when `ifRevision` mismatches.
  *
  * Env dimension. The wire shape doesn't carry `envName`, but both
- * bindings require it. The router
- * derives it from `KINDGI_ENV_NAME` at request time, falling back to
- * `'default'` if unset. Deployments that want per-env writes should use
+ * bindings require it. `env` and `secret` entries live under the env the
+ * runtime serves (`envName`), where its tools read them; `config` entries
+ * are the tenant's own settings, not an environment's, and live under
+ * `'default'` whatever the runtime serves. On a runtime that serves none,
+ * all of them are under `'default'`. Writes under another env go through
  * the dedicated `/v1/env/*` + `/v1/secrets/*` routes.
  *
  * Mount policy. `/config` mounts when either `envBinding` OR
@@ -85,13 +86,11 @@ export interface TenantRouterOptions {
    */
   readonly egress?: EgressAddresses;
   /**
-   * On a runtime that refuses other envs: a `PATCH /config` whose env
-   * (`resolveTenantConfigEnvName`) isn't the served one answers `409
-   * env-not-served`, pointing to `/v1/secrets` and `/v1/env/{name}`, unless
-   * a reference reads the secret there (`refuseUnservedValue`). Absent: any
-   * env.
+   * The env the runtime serves (`createApp`'s `envName`): `/config` reads
+   * and writes its `env` and `secret` entries under it. Absent:
+   * `DEFAULT_TENANT_CONFIG_ENV_NAME`. `config` entries are always there.
    */
-  readonly servedEnv?: ServedEnvRule;
+  readonly envName?: EnvName;
 }
 
 /**
@@ -137,8 +136,12 @@ interface CompatConfigEntry {
   readonly updatedAt: string;
 }
 
-/** The binding a `GET /config` page reads from: env entries first, then secrets. */
-type ConfigSource = 'env' | 'secret';
+/**
+ * What a `GET /config` page reads from: env entries first, then the
+ * tenant's settings when they live under another env than its values
+ * (`config`), then secrets.
+ */
+type ConfigSource = 'env' | 'config' | 'secret';
 
 /** Position in the merged list: a binding, and that binding's own cursor. */
 interface ConfigCursor {
@@ -164,7 +167,7 @@ function decodeConfigCursor(raw: string): ConfigCursor | null {
     const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown;
     if (parsed === null || typeof parsed !== 'object') return null;
     const { source, cursor } = parsed as { source?: unknown; cursor?: unknown };
-    if (source !== 'env' && source !== 'secret') return null;
+    if (source !== 'env' && source !== 'config' && source !== 'secret') return null;
     if (cursor !== undefined && (typeof cursor !== 'string' || cursor.length === 0)) return null;
     return cursor === undefined ? { source } : { source, cursor };
   } catch {
@@ -172,7 +175,11 @@ function decodeConfigCursor(raw: string): ConfigCursor | null {
   }
 }
 
-const DEFAULT_ENV_NAME: EnvName = ((): EnvName => {
+/**
+ * Where the tenant config's `config` entries live, whatever the runtime
+ * serves, and its `env` and `secret` entries on a runtime that serves none.
+ */
+export const DEFAULT_TENANT_CONFIG_ENV_NAME: EnvName = ((): EnvName => {
   const raw = 'default';
   const validated = makeEnvName(raw);
   // Defensive: the constant grammar accepts 'default'; the null branch
@@ -181,23 +188,14 @@ const DEFAULT_ENV_NAME: EnvName = ((): EnvName => {
   return validated ?? (raw as EnvName);
 })();
 
-/** The environment the tenant config's `env` and `config` entries live in. */
-export function resolveTenantConfigEnvName(): EnvName {
-  const raw = process.env.KINDGI_ENV_NAME;
-  if (raw === undefined || raw.length === 0) return DEFAULT_ENV_NAME;
-  const validated = makeEnvName(raw);
-  return validated ?? DEFAULT_ENV_NAME;
-}
-
 export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
-  const {
-    tenantHierarchyBinding,
-    envBinding,
-    secretsBinding,
-    authorizer,
-    productionNext,
-    servedEnv,
-  } = options;
+  const { tenantHierarchyBinding, envBinding, secretsBinding, authorizer, productionNext } =
+    options;
+  const envName = options.envName ?? DEFAULT_TENANT_CONFIG_ENV_NAME;
+  // The tenant's settings stay where they always were: they aren't an
+  // environment's, and nothing set before moves.
+  const settingsEnvName = DEFAULT_TENANT_CONFIG_ENV_NAME;
+  const settingsApart = envName !== settingsEnvName;
   const egress = publishedEgress(options.egress);
   const r = new Hono<AppEnv>();
 
@@ -280,21 +278,28 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
     }
     const keyPrefix = c.req.query('keyPrefix');
     const cursorRaw = c.req.query('cursor');
-    const envName = resolveTenantConfigEnvName();
     const scope: Scope = { kind: 'tenant', tenantId };
 
-    // Paging across two bindings with opaque cursors: the list is the
-    // env entries (in the env binding's order) followed by the secret
-    // entries (in the secrets binding's order). `env` and `config` both
-    // draw from `envBinding`; `secret` from `secretsBinding`. The wire
-    // cursor records which binding the next page starts in and that
-    // binding's own cursor. Each binding page is requested with the
-    // slots still free and taken whole, so a page never exceeds `limit`
-    // and the binding's `nextCursor` is always an exact resume point.
-    const wantsEnv = kindFilter === undefined || kindFilter === 'env' || kindFilter === 'config';
+    // Paging across the bindings with opaque cursors: the list is the
+    // env entries (in the env binding's order), then the settings when
+    // they live apart (the env binding under `settingsEnvName`), then the
+    // secret entries (in the secrets binding's order). `env` and `config`
+    // both draw from `envBinding`; `secret` from `secretsBinding`. Where
+    // the settings live with the values, `env` lists both, as it always
+    // has. The wire cursor records which source the next page starts in
+    // and that binding's own cursor. Each binding page is requested with
+    // the slots still free and taken whole, so a page never exceeds
+    // `limit` and the binding's `nextCursor` is always an exact resume
+    // point.
+    const wantsEnv =
+      kindFilter === undefined ||
+      kindFilter === 'env' ||
+      (kindFilter === 'config' && !settingsApart);
+    const wantsSettings = settingsApart && (kindFilter === undefined || kindFilter === 'config');
     const wantsSecret = kindFilter === undefined || kindFilter === 'secret';
     const sources: readonly ConfigSource[] = [
       ...(wantsEnv && envBinding !== undefined ? (['env'] as const) : []),
+      ...(wantsSettings && envBinding !== undefined ? (['config'] as const) : []),
       ...(wantsSecret && secretsBinding !== undefined ? (['secret'] as const) : []),
     ];
 
@@ -324,10 +329,13 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
         ...(keyPrefix !== undefined && keyPrefix.length > 0 && { namePrefix: keyPrefix }),
         ...(at.cursor !== undefined && { cursor: at.cursor as Cursor }),
       };
-      if (at.source === 'env') {
-        const page = await (envBinding as EnvBinding).list(input);
+      const { source } = at;
+      if (source === 'env' || source === 'config') {
+        const page = await (envBinding as EnvBinding).list(
+          source === 'config' ? { ...input, envName: settingsEnvName } : input,
+        );
         return {
-          entries: page.data.map((rec) => envRecordToCompat(rec, tenantId)),
+          entries: page.data.map((rec) => envRecordToCompat(rec, tenantId, source)),
           ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor }),
         };
       }
@@ -441,7 +449,6 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
     const kind = b.kind;
     const explicitSensitive = b.sensitive as boolean | undefined;
     const ifRevision = b.ifRevision as number | undefined;
-    const envName = resolveTenantConfigEnvName();
     const scope: Scope = { kind: 'tenant', tenantId };
 
     // `kind` collapse: `env` and `config` both name the env binding; a
@@ -463,18 +470,6 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
             requestId,
           ),
         );
-      }
-      const unserved = await refuseUnservedValue(servedEnv, {
-        tenantId,
-        scope,
-        envName,
-        name: key,
-        kind: 'secret',
-        storeWith: "`POST /v1/secrets` at the tenant's scope",
-      });
-      if (unserved !== undefined) {
-        c.status(statusFor(unserved.code) as never);
-        return c.json(toWireError(unserved, requestId));
       }
       const currentRecord = await secretsBinding.get({ scope, envName, name: key });
       const writeMode = currentRecord === null ? 'create-new' : 'add-version';
@@ -555,21 +550,9 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
         ),
       );
     }
-    const unserved = await refuseUnservedValue(servedEnv, {
-      tenantId,
-      scope,
-      envName,
-      name: key,
-      kind: 'env value',
-      storeWith: "`PUT /v1/env/{name}` at the tenant's scope",
-    });
-    if (unserved !== undefined) {
-      c.status(statusFor(unserved.code) as never);
-      return c.json(toWireError(unserved, requestId));
-    }
     const outcome = await envBinding.set({
       scope,
-      envName,
+      envName: kind === 'config' ? settingsEnvName : envName,
       name: key,
       value,
       ...(ifRevision !== undefined && { ifRevision }),
@@ -615,10 +598,14 @@ function isCompatConfigKind(x: unknown): x is CompatConfigKind {
   return x === 'env' || x === 'config' || x === 'secret';
 }
 
-function envRecordToCompat(rec: EnvRecord, tenantId: TenantId): CompatConfigEntry {
+function envRecordToCompat(
+  rec: EnvRecord,
+  tenantId: TenantId,
+  kind: 'env' | 'config',
+): CompatConfigEntry {
   return {
     tenantId,
-    kind: 'env',
+    kind,
     key: rec.name,
     value: rec.value,
     sensitive: false,
