@@ -60,6 +60,11 @@ Each environment has its own values and its own data. Only the build moves.
   with, in its own environment.
 - **Live versions and rollbacks.** Each environment has its own live
   versions. Rolling back `prod` doesn't change `staging-2`.
+- **An agent that isn't in a build.** Promotion moves builds, so an agent
+  made in a project outside any pack stays there. To move it, add it to the
+  pack and deploy it to the first environment: it reaches the others by
+  promotion. An agent the tenant or an org holds isn't in any one
+  environment, so it has nothing to move.
 - **Test sets move forward only.** A test set can be used in the environment
   it was made in and in every later one, never in an earlier one. A test set
   made in `prod` can hold production data, and data never moves back toward
