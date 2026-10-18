@@ -36,7 +36,9 @@ Each environment has its own values and its own data. Only the build moves.
 - **It moves the exact build.** The next environment gets the same signed
   image, with the same agent, flow and tool versions, under the same version
   numbers. Nothing is rebuilt, so what runs in `prod` is what ran in
-  `staging-2`.
+  `staging-2`. A version made since the build, such as a prompt change to
+  one of its agents, moves with it. An edit of a version this build doesn't
+  ship stays, and moves with a build that ships it.
 - **Values never move.** Each environment has its own secrets, model keys
   and tool values. A promoted build reads the next environment's values,
   never the ones it had before.
@@ -47,10 +49,9 @@ Each environment has its own values and its own data. Only the build moves.
 - **It goes one environment at a time, in order.** Only the first
   environment takes new builds. The others take promotions only, so nothing
   reaches `prod` without passing through every environment before it.
-- **It doesn't make anything live unless you ask.** Where an agent has a
-  live version, the promoted version waits until you make it live there, as
-  after a deploy. `--make-live` does both in one step, and a gate that needs
-  a reviewer still applies.
+- **It doesn't replace a live version.** Where an agent has a live
+  version, the promoted version waits until you make it live there, as after
+  a deploy.
 
 ## What stays in its environment
 
@@ -250,8 +251,10 @@ kindgi deploy --env=staging-1
 ```
 
 A deploy into a later environment is refused
-(`environment-takes-promotions`), and nothing is deployed. Deploy into the
-first environment, and promote from there. Publishing an agent, a flow, a
+(`environment-takes-promotions`), and nothing is deployed. The refusal
+names the first environment, and prints a `kindgi promote` line for each
+step from there. Deploy into the first environment, and promote from there.
+Publishing an agent, a flow, a
 tool, a guardrail or a data block through the API into a later environment
 is refused the same way: only builds move between environments.
 
@@ -268,19 +271,26 @@ kindgi promote --from=staging-1 --to=staging-2 --reason="Tried in staging-1"
 ```
 
 It prints what moves before it moves anything: the pack, its build, and
-each agent, flow, tool and test set with its version. Then it checks the
-build's signing key and `staging-2`'s values, and then it promotes.
+each agent, flow, tool and guardrail with its version. A version made in
+`staging-1` since the build is marked as carried, and an edit that stays in
+`staging-1` says why. Test sets don't move: `staging-2` reads the ones made
+in `staging-1`. Then it lists any value the build needs that isn't set in
+`staging-2`, and then it promotes.
 
-- **By default, it promotes `staging-1`'s newest build of the pack.** When
-  there's more than one it could take, it lists them: name one with
+- **It promotes the pack's build that serves in `staging-1`.** When more
+  than one does, it lists them, newest first: name one with
   `--deployment=<id>`.
-- **`--make-live`** also makes each promoted agent version live in
-  `staging-2`, through any gate there.
-- **Outside a pack,** `--from` and `--to` take the projects' slugs.
+- **`--check`** prints what would move and the values not set in
+  `staging-2`, and changes nothing.
+- **Run it in the pack.** `--from` and `--to` are environment names, and it
+  reads their projects from `kindgi.config.ts`.
+- **It takes `read` on `staging-1` and `admin` on `staging-2`,** when
+  authorization is on.
 
-If a value is missing, the promotion names each one, says what needs it,
-and moves nothing. Store the missing values in `staging-2`, then promote
-again. Promoting the same build again doesn't make a second copy.
+If a value isn't set in `staging-2`, the promotion names each one, what
+needs it and the command that sets it, and moves nothing. Set them in
+`staging-2`, then promote again. Promoting the same build again doesn't
+make a second copy.
 
 ## Go live in `prod`
 
@@ -321,16 +331,26 @@ The other environments aren't, so their runs count as staging.
 - **A deploy or a publish into a later environment is refused
   (`environment-takes-promotions`).** Deploy or publish into the first
   environment, then promote.
-- **A promotion is refused because values are missing.** Store each value
-  it names in the environment you're promoting to, then promote again.
-- **A promotion that skips an environment is refused.** Promote to the next
-  environment in the order.
-- **A promotion between two runtimes or tenants is refused.** Its two
-  environments name different endpoints or tenants, and the error names
-  both. An order's environments are one tenant, on one runtime.
-- **A promotion is refused because the signing key isn't trusted.** The key
-  that signed the build was revoked after the deploy. Deploy a new build,
-  signed with a trusted key, into the first environment.
+- **`kindgi promote` finds no build to promote, or more than one.** With
+  none serving in `--from`, it says so, and why the newest was taken down:
+  deploy into the first environment, or name a deployment with
+  `--deployment=<id>`. With more than one, it lists them: name one.
+- **A promotion is refused because values aren't ready
+  (`promotion-values-not-ready`).** Set each value it names in the
+  environment you're promoting to, then promote again. `--check` lists them
+  without promoting.
+- **A promotion that skips an environment is refused
+  (`promotion-not-next-environment`).** Promote to the next environment in
+  the order. `kindgi environments list` shows it.
+- **A promotion is refused because the build no longer serves
+  (`deployment-superseded`).** A newer deployment serves in its place:
+  promote that one. When it's the environment you're promoting to that has
+  this build already, superseded there, promote the newer build from the
+  environment before it.
+- **A promotion is refused because the signing key isn't trusted
+  (`signer-not-trusted`).** The key that signed the build is no longer on
+  the trust list. Deploy a new build, signed with a trusted key, into the
+  first environment.
 - **Setting the order is refused (`project-in-another-order`).** One of its
   projects is in another order already. Set that order without it, or
   clear it, first.
