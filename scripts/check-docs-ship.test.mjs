@@ -113,7 +113,7 @@ describe('the command', () => {
   }
   const CONTRACT = 'packages/cli/src/commands/acme.ts';
   const CONTRACT_2 = 'packages/cli/src/commands/acme-two.ts';
-  const PAGE = 'site/src/content/docs/acme.md';
+  const PAGE = 'site/src/content/docs/acme.mdx';
 
   /**
    * A bare origin and two clones of it: `work`, where the check runs, and
@@ -309,6 +309,27 @@ describe('the command', () => {
     assert.match(out.stdout, new RegExp(`${own.slice(0, 7)}: No-docs: own needs none`));
   });
 
+  test("in Actions, the event's base is older than the merge's: what lies between isn't its", () => {
+    const f = fixture();
+    const { work } = f;
+    work.git('checkout', '-q', '-b', 'late');
+    const head = work.commit('late', { [CONTRACT]: 'export const a = 11;\n' });
+    work.pull(32, head);
+    work.git('checkout', '-q', 'main');
+    const stale = work.commit('main moves on (#31)', { 'notes.txt': 'y\n' });
+    work.commit('another pull request, with its page (#33)', { [PAGE]: '# Acme\n' });
+    work.git('push', '-q', 'origin', 'main');
+    work.git('checkout', '-q', '--detach', 'main');
+    work.git('merge', '-q', '--no-ff', '--no-edit', head);
+    const event = f.event(32, stale, head);
+
+    const out = f.check(['--event', event]);
+    assert.equal(out.status, 1, out.stdout);
+    assert.match(out.stderr, /commands\/acme\.ts/);
+    // Against the event's base commit, the other pull request's page let it through.
+    assert.equal(f.check([stale, '--event', event]).status, 0);
+  });
+
   test('one branch open as two pull requests: the other number is still its own head', () => {
     const f = fixture();
     const { work } = f;
@@ -386,7 +407,7 @@ describe('the command', () => {
     assert.equal(strict.status, 1, strict.stdout);
     assert.match(strict.stderr, /can't fetch the squashed pull requests' heads/);
 
-    f.gh({ number: 51, baseRefName: 'main', baseRefOid: base, headRefOid: head });
+    f.gh({ number: 51, state: 'OPEN', baseRefName: 'main', baseRefOid: base, headRefOid: head });
     const local = f.check();
     assert.equal(local.status, 0, local.stderr);
     assert.match(local.stdout, /warning: can't fetch the squashed pull requests' heads/);
@@ -447,7 +468,13 @@ describe('the command', () => {
     const moved = other.commit('the base, reviewed', { 'base-notes.txt': 'z\n' });
     other.git('push', '-q', 'origin', 'base-pr');
     other.pull(60, moved);
-    f.gh({ number: 61, baseRefName: 'base-pr', baseRefOid: moved, headRefOid: head });
+    f.gh({
+      number: 61,
+      state: 'OPEN',
+      baseRefName: 'base-pr',
+      baseRefOid: moved,
+      headRefOid: head,
+    });
 
     const out = f.check(['--pr', '61']);
     assert.equal(out.status, 1, out.stdout);
@@ -478,6 +505,55 @@ describe('the command', () => {
     assert.match(out.stdout, new RegExp(`${line.slice(0, 7)}: No-docs: mine needs none`));
   });
 
+  test("outside Actions, gh's closed or merged pull request for the branch isn't its own", () => {
+    const f = fixture();
+    const { work } = f;
+    work.git('checkout', '-q', '-b', 'reused');
+    const line = work.commit('reused\n\nNo-docs: reused needs none', {
+      [CONTRACT]: 'export const a = 12;\n',
+    });
+    work.pull(72, line);
+    const main = work.git('rev-parse', 'main');
+    // An older pull request from a branch of the same name, merged.
+    f.gh({ number: 71, state: 'MERGED', baseRefName: 'main', baseRefOid: main, headRefOid: B });
+
+    const out = f.check();
+    assert.equal(out.status, 0, out.stderr);
+    assert.match(
+      out.stdout,
+      /warning: no open pull request found \(#71 is merged\); comparing with origin\/main/,
+    );
+    assert.match(out.stdout, new RegExp(`${line.slice(0, 7)}: No-docs: reused needs none`));
+    // Asked for by number, it is checked as that one: #72's head isn't its own.
+    const asked = f.check(['--pr', '71']);
+    assert.equal(asked.status, 1, asked.stdout);
+    assert.match(asked.stderr, /\(carried by #72\): No-docs: reused needs none/);
+  });
+
+  test("outside Actions, a pull request whose base can't be had: it says which, and every commit counts", () => {
+    const f = fixture();
+    const { work } = f;
+    work.git('checkout', '-q', '-b', 'based');
+    const line = work.commit('based\n\nNo-docs: based needs none', {
+      [CONTRACT]: 'export const a = 13;\n',
+    });
+    work.pull(73, line);
+
+    f.gh({ number: 73, state: 'OPEN', baseRefName: 'main', baseRefOid: C, headRefOid: line });
+    const gone = f.check();
+    assert.equal(gone.status, 0, gone.stderr);
+    assert.match(
+      gone.stdout,
+      /warning: can't use pull request #73 \(its base commit ccccccc isn't here after a fetch\); comparing with origin\/main/,
+    );
+    assert.match(gone.stdout, new RegExp(`${line.slice(0, 7)}: No-docs: based needs none`));
+
+    f.gh({ number: 73, state: 'OPEN', baseRefName: 'deleted', baseRefOid: C, headRefOid: line });
+    const unfetched = f.check();
+    assert.equal(unfetched.status, 0, unfetched.stderr);
+    assert.match(unfetched.stdout, /warning: can't use pull request #73 \(fetching its base: /);
+  });
+
   test('listing the heads fails: in Actions the check fails; elsewhere it warns and goes on', () => {
     const f = fixture();
     const { work } = f;
@@ -493,7 +569,7 @@ describe('the command', () => {
     assert.equal(strict.status, 1, strict.stdout);
     assert.match(strict.stderr, /can't list the other pull requests' heads/);
 
-    f.gh({ number: 80, baseRefName: 'main', baseRefOid: main, headRefOid: head });
+    f.gh({ number: 80, state: 'OPEN', baseRefName: 'main', baseRefOid: main, headRefOid: head });
     const local = f.check();
     assert.equal(local.status, 0, local.stderr);
     assert.match(local.stdout, /warning: can't list the other pull requests' heads/);

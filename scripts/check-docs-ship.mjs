@@ -32,16 +32,18 @@
  * code by itself; this check is about the pages people write.
  *
  * In GitHub Actions it reads the `pull_request` event (`GITHUB_EVENT_PATH`):
- * the base is the event's base commit, and the pull request is the event's.
- * Elsewhere `gh pr view` finds the branch's pull request, and its base. The
- * heads come from `git ls-remote origin`, and a squashed pull request's
- * head is fetched when it isn't here. In Actions, a step that fails fails
- * the check; elsewhere it prints a warning, and those commits count.
+ * the pull request is the event's, and the base is what GitHub's merge of
+ * its head (HEAD there) merged into, else the event's base commit.
+ * Elsewhere `gh pr view` finds the branch's open pull request, and its
+ * base. The heads come from `git ls-remote origin`, and a squashed pull
+ * request's head is fetched when it isn't here. In Actions, a step that
+ * fails fails the check; elsewhere it prints a warning, and those commits
+ * count.
  *
  * Usage: `pnpm run check:docs-ship [<base ref>] [--pr <n>] [--event <path>]`
  *   <base ref>      compare with this instead of the pull request's base
  *                   (without a pull request: `origin/main`)
- *   --pr <n>        the pull request to check the branch as
+ *   --pr <n>        the pull request to check the branch as, open or not
  *   --event <path>  a `pull_request` event to read instead of
  *                   `GITHUB_EVENT_PATH`
  */
@@ -192,27 +194,45 @@ function parseArgs(args) {
 
 /**
  * The branch's pull request outside Actions, from `gh pr view`, with its
- * base commit fetched when it isn't here yet.
+ * base commit fetched when it isn't here yet. Without a number, only an
+ * open one: gh can answer with a closed or merged one for the branch name.
  */
 function viewPull(number) {
-  const view = JSON.parse(
-    execFileSync(
-      'gh',
-      [
-        'pr',
-        'view',
-        ...(number === undefined ? [] : [number]),
-        '--json',
-        'number,baseRefName,baseRefOid,headRefOid',
-      ],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
-    ),
-  );
+  let view;
+  try {
+    view = JSON.parse(
+      execFileSync(
+        'gh',
+        [
+          'pr',
+          'view',
+          ...(number === undefined ? [] : [number]),
+          '--json',
+          'number,state,baseRefName,baseRefOid,headRefOid',
+        ],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+      ),
+    );
+  } catch (err) {
+    throw new Error(`no pull request found (${why(err)})`);
+  }
+  if (number === undefined && view.state !== 'OPEN') {
+    throw new Error(
+      `no open pull request found (#${view.number} is ${String(view.state).toLowerCase()})`,
+    );
+  }
   const pull = { number: view.number, base: view.baseRefOid, head: view.headRefOid };
   const base = [{ sha: pull.base }];
-  if (missing(base).length > 0) git('fetch', '--quiet', 'origin', `refs/heads/${view.baseRefName}`);
+  const unusable = (what) => new Error(`can't use pull request #${pull.number} (${what})`);
   if (missing(base).length > 0) {
-    throw new Error(`its base commit ${pull.base.slice(0, 7)} isn't here after a fetch`);
+    try {
+      git('fetch', '--quiet', 'origin', `refs/heads/${view.baseRefName}`);
+    } catch (err) {
+      throw unusable(`fetching its base: ${why(err)}`);
+    }
+  }
+  if (missing(base).length > 0) {
+    throw unusable(`its base commit ${pull.base.slice(0, 7)} isn't here after a fetch`);
   }
   return pull;
 }
@@ -231,9 +251,7 @@ function findPull(options) {
     return { pull: viewPull(options.pr), strict: false };
   } catch (err) {
     const base = options.base ?? 'origin/main';
-    warn(
-      `no pull request found (${why(err)}); comparing with ${base}, and every commit since counts.`,
-    );
+    warn(`${err.message}; comparing with ${base}, and every commit since counts.`);
     return { pull: undefined, strict: false };
   }
 }
@@ -326,10 +344,22 @@ function carriers(skipped, mergeBase, inHistory, squashed) {
   return carrier;
 }
 
+/**
+ * The pull request's base. In Actions, HEAD is GitHub's merge of its head
+ * into its base, and that merge's first parent is the base this diff is
+ * against. The event's base commit is recorded at another moment and can
+ * differ: when it's older, what lies between the two is other pull
+ * requests'.
+ */
+function pullBase(pull) {
+  const [, first, second, ...more] = git('rev-list', '--parents', '-n', '1', 'HEAD').split(' ');
+  return second === pull.head && more.length === 0 ? first : pull.base;
+}
+
 function main(args) {
   const options = parseArgs(args);
   const { pull, strict } = findPull(options);
-  const base = options.base ?? pull?.base ?? 'origin/main';
+  const base = options.base ?? (pull === undefined ? 'origin/main' : pullBase(pull));
   const mergeBase = git('merge-base', base, 'HEAD');
   const changed = git('diff', '--name-only', `${mergeBase}...HEAD`).split('\n').filter(Boolean);
   remindSkills(changed);
