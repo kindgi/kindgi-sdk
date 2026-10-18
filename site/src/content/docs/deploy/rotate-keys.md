@@ -19,7 +19,7 @@ one stops working.
 - **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
   `npx --yes @kindgi/cli@0.1` ([Install](../../start/install/)). Inside a pack
   project, `pnpm exec kindgi` runs the project's pinned CLI instead. The build
-  and deploy steps need the pack's folder, so they're written that way.
+  and deploy steps need the pack's folder, so they use `pnpm exec kindgi`.
 
 Each rotation ends with a restart, as
 [Restart the runtime](../restart-and-check-health/#restart-the-runtime)

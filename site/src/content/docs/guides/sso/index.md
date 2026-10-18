@@ -22,8 +22,8 @@ page does the same steps ([From the console](#from-the-console)).
 - **Sign-in is on for your runtime,** and your domain is verified for your
   workspace ([Turn on sign-in](../../deploy/sign-in/)).
 - **You're an admin of the workspace.**
-- **The `kindgi` CLI reaches your runtime as you:** `KINDGI_API_URL` is the
-  runtime's address, and `KINDGI_API_TOKEN` is your API key
+- **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
+  exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`
   ([People and keys](../../deploy/people-and-keys/#api-keys)).
 - **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
   `npx --yes @kindgi/cli@0.1` ([Install](../../start/install/)). Inside a pack

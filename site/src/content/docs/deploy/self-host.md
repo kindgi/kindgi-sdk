@@ -30,7 +30,7 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
 - **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
   `npx --yes @kindgi/cli@0.1` ([Install](../../start/install/)). Inside a pack
   project, `pnpm exec kindgi` runs the project's pinned CLI instead. The build
-  and deploy steps need the pack's folder, so they're written that way.
+  and deploy steps need the pack's folder, so they use `pnpm exec kindgi`.
 - **Ollama**, with `llama3.1` pulled, for the flow in step 8.
 - **A pack.** This page uses the sample. `--template=sample` picks it, and
   `acme-pack` is its folder and its pack id:
