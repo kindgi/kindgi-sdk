@@ -82,6 +82,12 @@ export const CLI_DEFAULTS = {
     tenant:
       "none (no check); an inline build takes the env block's `tenantId`, else `KINDGI_TENANT_ID`",
   },
+  'deployments list': {
+    cursor: 'none',
+    'image-ref-prefix': 'none',
+    limit: '`25` (at most `100`)',
+    'signer-key-id': 'none',
+  },
   test: {
     path: 'the current directory',
     reporter: "vitest's own reporter",
@@ -990,6 +996,24 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Print the console URL of a given runtime without opening a browser.',
       line: 'kindgi console --no-open --url=http://127.0.0.1:4000',
+    },
+  ],
+  'deployments get': [
+    {
+      purpose:
+        "See a deployment's pack service now: when it runs on the values it was last given, why, and the command that sets what's missing.",
+      line: 'kindgi deployments get <deployment-id>',
+    },
+    {
+      purpose: 'The deployment as the API answers it, with its pack service in `endpoint`.',
+      line: 'kindgi deployments get <deployment-id> --json',
+    },
+  ],
+  'deployments list': [
+    {
+      purpose:
+        "Find a deployment's id, with each one's pack service: ready, held on its last values (with the code), pending or cleared.",
+      line: 'kindgi deployments list --table',
     },
   ],
   'env unset': [
@@ -1921,6 +1945,7 @@ export const CLI_GROUP_SEE_ALSO = {
   sites: ['deploy/self-hosted/sign-in', 'sites/wordpress'],
   'sign-in': ['deploy/self-hosted/sign-in', 'deploy/people-and-keys'],
   'mcp-launch': ['guides/tools/mcp-servers'],
+  deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
   flows: ['guides/flows/write-a-flow', 'guides/flows/index'],
   capabilities: ['guides/agents/choose-a-model'],

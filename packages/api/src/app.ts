@@ -1728,12 +1728,31 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route('/system/keys', systemKeysRouter(input.systemKeys, authorizer));
   }
   if (input.systemDeployments !== undefined && input.systemTenantDirectory !== undefined) {
+    // Each deployment's pack service gets the env its pack declares, from
+    // the env store at the deployment's scopes (`pack-env.ts`).
+    const packEnv =
+      input.deploymentRegistry !== undefined &&
+      input.envBinding !== undefined &&
+      servedEnv !== undefined
+        ? {
+            deployments: input.deploymentRegistry,
+            stores: {
+              env: input.envBinding,
+              ...(secretsBinding !== undefined && { secrets: secretsBinding }),
+              ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+            },
+            envName: servedEnv,
+            ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+            ...(input.logger !== undefined && { log: input.logger }),
+          }
+        : undefined;
     v1.route(
       '/system',
       systemDeploymentsRouter({
         ...input.systemDeployments,
         directory: input.systemTenantDirectory,
         ...(authorizer !== undefined && { authorizer }),
+        ...(packEnv !== undefined && { packEnv }),
       }),
     );
   }
@@ -2144,6 +2163,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // operator-actionable message.
           ...(secretsBinding !== undefined && { secretsBinding }),
           ...(servedEnv !== undefined && { envName: servedEnv }),
+          // A runtime running a pack service per deployment gives each the
+          // env its pack declares, from the env store.
+          ...(input.systemDeployments !== undefined && { packEnvServed: true }),
+          ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
           // A deploy registers tools and guardrails: the same cache hooks
           // `POST /v1/tools` / `POST /v1/guardrails` call.
           ...(input.onToolWrite !== undefined && { onToolWrite: input.onToolWrite }),

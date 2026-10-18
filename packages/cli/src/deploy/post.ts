@@ -33,6 +33,8 @@ import type {
   FindProjectsResult,
   GetDeploymentOptions,
   GetDeploymentResult,
+  GetPackEnvResult,
+  PackEnvRecord,
   PostDeploymentBody,
   PostDeploymentOptions,
   PostDeploymentResult,
@@ -152,13 +154,19 @@ export async function postDeploymentReal(
   }
 
   // 4xx / 5xx — the api-server wraps errors in `{ error: { code,
-  // message, ...details } }` via `toWireError` in
+  // message, details? } }` via `toWireError` in
   // `packages/api/src/errors.ts`.
   const wire = body as { error?: { code?: string; message?: string; details?: unknown } } | null;
   const code = wire?.error?.code ?? `http-${res.status}`;
   const message = wire?.error?.message ?? `HTTP ${res.status}`;
-  const details = extractDetails(wire?.error);
-  const limit = (wire?.error?.details as { readonly limit?: unknown } | undefined)?.limit;
+  const wireDetails = wire?.error?.details as
+    | { readonly issues?: unknown; readonly limit?: unknown; readonly cause?: unknown }
+    | undefined;
+  const details = Array.isArray(wireDetails?.issues)
+    ? (wireDetails.issues as readonly Record<string, unknown>[])
+    : undefined;
+  const limit = wireDetails?.limit;
+  const cause = wireDetails?.cause;
   const retryAfter = res.headers.get('retry-after')?.trim();
   return {
     kind: 'wire-error',
@@ -172,19 +180,9 @@ export async function postDeploymentReal(
       message,
       ...(details !== undefined && { details }),
       ...(typeof limit === 'string' && { limit }),
+      ...(typeof cause === 'string' && { cause }),
     },
   };
-}
-
-function extractDetails(
-  err: { [k: string]: unknown } | undefined,
-): readonly Record<string, unknown>[] | undefined {
-  if (err === undefined) return undefined;
-  const issues = (err as { issues?: unknown }).issues;
-  if (Array.isArray(issues)) {
-    return issues as readonly Record<string, unknown>[];
-  }
-  return undefined;
 }
 
 /**
@@ -348,4 +346,38 @@ export async function getDeploymentReal(opts: GetDeploymentOptions): Promise<Get
     };
   }
   return { kind: 'ok', record: body as DeploymentRecord };
+}
+
+/** `GET /v1/deployments/:id/pack-env`: where each name the deployment's pack declares is set. */
+export async function getPackEnvReal(opts: GetDeploymentOptions): Promise<GetPackEnvResult> {
+  const url = `${opts.endpoint.replace(/\/+$/, '')}/v1/deployments/${encodeURIComponent(opts.deploymentId)}/pack-env`;
+  let res: Response;
+  try {
+    res = await opts.fetchImpl(url, {
+      headers: { Authorization: `Bearer ${opts.token}` },
+      ...(opts.signal !== undefined && { signal: opts.signal }),
+    });
+  } catch (err) {
+    return { kind: 'error', message: `GET ${url} failed: ${(err as Error).message}` };
+  }
+  // 501: its pack services take their env from how they're run; 404: a server before the route.
+  if (res.status === 501 || res.status === 404) return { kind: 'not-served' };
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    return {
+      kind: 'error',
+      message: `GET ${url} answered HTTP ${res.status} with a body that isn't JSON`,
+    };
+  }
+  const packEnv = body as Partial<PackEnvRecord> | null;
+  if (!res.ok || typeof packEnv?.envName !== 'string' || !Array.isArray(packEnv.data)) {
+    const code = (body as { error?: { code?: unknown } } | null)?.error?.code;
+    return {
+      kind: 'error',
+      message: `GET ${url} answered HTTP ${res.status}${typeof code === 'string' ? ` (${code})` : ''}`,
+    };
+  }
+  return { kind: 'ok', packEnv: packEnv as PackEnvRecord };
 }
