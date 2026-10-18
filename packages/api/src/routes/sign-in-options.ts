@@ -48,7 +48,39 @@ export interface SignInOptionsRouteOptions {
     readonly captchaSiteKey?: string;
     readonly allowedFor?: (emailDomain: string) => Promise<boolean>;
   };
+  /** The deployment's terms and privacy policy, for a sign-in page to link. */
+  readonly legal?: SignInLegalLinks;
   readonly rateLimit?: SignInOptionsRateLimit;
+}
+
+/**
+ * The deployment's terms and privacy policy, which a sign-in page links:
+ * each an absolute https URL, each on its own. The answer's `legal` has
+ * only the ones set, and is left out when neither is.
+ */
+export interface SignInLegalLinks {
+  readonly termsUrl?: string;
+  readonly privacyUrl?: string;
+}
+
+/** createApp's `signInLegal`: throws unless each link set is an absolute https URL. */
+export function checkSignInLegal(legal: SignInLegalLinks | undefined): void {
+  for (const field of ['termsUrl', 'privacyUrl'] as const) {
+    const url = legal?.[field];
+    if (url !== undefined && !isAbsoluteHttpsUrl(url)) {
+      throw new Error(
+        `createApp: signInLegal.${field} must be an absolute https URL (got ${url}).`,
+      );
+    }
+  }
+}
+
+function isAbsoluteHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 export interface SignInOptionsRateLimit {
@@ -88,6 +120,18 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
   const windowMs = options.rateLimit?.windowMs ?? DEFAULT_WINDOW_MS;
   const clientKey = options.rateLimit?.clientKey ?? nearestForwardedClient;
   const store = options.rateLimit?.store ?? createInMemoryRateLimitStore();
+  const termsUrl = options.legal?.termsUrl;
+  const privacyUrl = options.legal?.privacyUrl;
+  // The answer's `legal`: only what's set, and no key at all when neither is.
+  const legalPart =
+    termsUrl === undefined && privacyUrl === undefined
+      ? {}
+      : {
+          legal: {
+            ...(termsUrl !== undefined && { termsUrl }),
+            ...(privacyUrl !== undefined && { privacyUrl }),
+          },
+        };
   let lastWarnedAt: number | undefined;
   let uncounted = 0;
 
@@ -168,6 +212,7 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
           },
         }),
       },
+      ...legalPart,
     });
   });
   return router;

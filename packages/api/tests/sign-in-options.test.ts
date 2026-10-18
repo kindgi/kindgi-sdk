@@ -15,6 +15,7 @@ import type {
   IdentityProviderBinding,
   RateLimitStore,
   RunHandlerBinding,
+  SignInLegalLinks,
   SignInOptionsInput,
   SignInOptionsRateLimit,
   TokenResolver,
@@ -41,6 +42,7 @@ function makeApp(
       captchaSiteKey?: string;
       allowedFor?: (emailDomain: string) => Promise<boolean>;
     };
+    legal?: SignInLegalLinks;
     logLines?: string[];
   } = {},
 ) {
@@ -75,6 +77,7 @@ function makeApp(
     identityProvider,
     ...(opts.rateLimit !== undefined && { signInOptionsRateLimit: opts.rateLimit }),
     ...(opts.emailLink !== undefined && { signInEmailLink: opts.emailLink }),
+    ...(opts.legal !== undefined && { signInLegal: opts.legal }),
     ...(opts.logLines !== undefined && {
       logger: createLogger({ write: (line) => opts.logLines?.push(line) }),
     }),
@@ -216,6 +219,44 @@ describe('sign-in options', () => {
       expect((await lookup(app, 'a@acme.com', `${spoofed}, 203.0.113.50`)).status).toBe(200);
     }
     expect((await lookup(app, 'a@acme.com', '10.9.9.3, 203.0.113.50')).status).toBe(429);
+  });
+});
+
+describe("sign-in options: the deployment's terms and privacy policy", () => {
+  const TERMS = 'https://acme.example/terms';
+  const PRIVACY = 'https://acme.example/privacy';
+
+  test.each([
+    ['unset', undefined],
+    ['neither set', {}],
+  ])('%s: the answer has no `legal` key', async (_, legal) => {
+    const { app } = makeApp(legal === undefined ? {} : { legal });
+    for (const email of [undefined, 'a@acme.com']) {
+      const body = (await (await lookup(app, email)).json()) as Record<string, unknown>;
+      expect(Object.keys(body)).not.toContain('legal');
+    }
+  });
+
+  test.each([
+    ['both', { termsUrl: TERMS, privacyUrl: PRIVACY }],
+    ['the terms alone', { termsUrl: TERMS }],
+    ['the privacy policy alone', { privacyUrl: PRIVACY }],
+  ])('%s: `legal` has only what is set, with or without an email', async (_, legal) => {
+    const { app } = makeApp({ legal });
+    for (const email of [undefined, 'a@acme.com', 'guest@gmail.com']) {
+      const body = (await (await lookup(app, email)).json()) as { legal?: unknown };
+      expect(body.legal).toEqual(legal);
+    }
+  });
+
+  test.each([
+    ['termsUrl', { termsUrl: 'http://acme.example/terms' }],
+    ['privacyUrl', { privacyUrl: '/privacy' }],
+    ['termsUrl', { termsUrl: 'javascript:alert(1)' }],
+  ])('createApp refuses a %s that is not an absolute https URL', (field, legal) => {
+    expect(() => makeApp({ legal })).toThrow(
+      `createApp: signInLegal.${field} must be an absolute https URL`,
+    );
   });
 });
 

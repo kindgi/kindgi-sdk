@@ -335,6 +335,7 @@
   "JudgmentWithCopies": ["JudgmentWithCopies"],
   "KeptItem": ["ComparisonCaseResult.changes.kept"],
   "LabelsAdditionalProperty": ["ProviderMetadata.labels"],
+  "Legal": ["SignInOptions.legal"],
   "LicensePreview": ["LicensePreview"],
   "LicenseStatus": ["LicenseStatus"],
   "LicenseUsage": ["LicenseUsage"],

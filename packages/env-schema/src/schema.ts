@@ -620,6 +620,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_AUTH_TERMS_URL',
+    description:
+      "The deployment's terms, which the console's sign-in page links as \"Terms\" (sign-in options' `legal.termsUrl`). An absolute https URL; anything else, and the runtime refuses to start. Set on its own or with `KINDGI_AUTH_PRIVACY_URL`.",
+    example: 'https://example.com/terms',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_PRIVACY_URL',
+    description:
+      "The deployment's privacy policy, which the console's sign-in page links as \"Privacy\" (sign-in options' `legal.privacyUrl`). An absolute https URL; anything else, and the runtime refuses to start. Set on its own or with `KINDGI_AUTH_TERMS_URL`.",
+    example: 'https://example.com/privacy',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_TRUSTED_PROXIES',
     description:
       "Which proxies in front of the runtime to trust for the client's address, which rate limits and audit records use. Unset: the connection's peer, and `X-Forwarded-For` is ignored (anyone can send it). A hop count (`1` behind one proxy such as a cloud load balancer or ingress, `2` behind two) or comma-separated IPs/CIDR ranges of your proxies: the client is the first `X-Forwarded-For` hop, from the right, that isn't one of them; never the leftmost on its own. Behind a proxy without this, every client counts as the proxy, so rate limits are shared by everyone.",
