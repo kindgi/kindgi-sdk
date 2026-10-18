@@ -378,7 +378,18 @@ export interface ResolveContext {
   readonly runId?: string;
   readonly deploymentId?: string;
   readonly nodeId?: string;
-  readonly caller: 'dispatch' | 'deploy-sync' | 'admin-cli' | 'boot-bridge' | 'webhook-receiver';
+  /**
+   * `pack-env`: the orchestrator's read of a deployment's pack env, which
+   * writes its own row per value it gives out, so a store doesn't emit one
+   * for it.
+   */
+  readonly caller:
+    | 'dispatch'
+    | 'deploy-sync'
+    | 'admin-cli'
+    | 'boot-bridge'
+    | 'webhook-receiver'
+    | 'pack-env';
 }
 
 export interface SecretResolveOutcome {
