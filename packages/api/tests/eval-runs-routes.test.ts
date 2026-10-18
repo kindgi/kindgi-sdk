@@ -461,6 +461,7 @@ describe("API — eval-runs start: the version it runs must be the project's to 
     'agent:acme.drafting@1.1.0',
     'flow:acme.triage@2.0.0',
     'agent:acme.elsewhere@',
+    'tool:acme.offsite@',
   ];
   /** A subject that counts its cases, so a refused start is seen to run none. */
   const counting = () => {
@@ -573,6 +574,90 @@ describe("API — eval-runs start: the version it runs must be the project's to 
     expect(error.message).toBe(
       `This project can't reference agent "acme.elsewhere": it isn't registered in this project, its org or the tenant`,
     );
+  });
+
+  describe("a flow candidate's versions", () => {
+    const flowRef = { flowId: 'acme.triage', version: '1.0.0' };
+
+    test("an agent at a version the project doesn't reach is refused at its own path, naming the version, and no case runs", async () => {
+      const { calls, subject } = counting();
+      const { app, registry, binding } = makeApp({ subject, referenceScope: reach(UNREACHED) });
+      await seedSuite(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
+      const res = await start(app, { flowRef, versions: { agents: { 'acme.drafting': '1.1.0' } } });
+      expect(res.status).toBe(400);
+      const error = await refusal(res);
+      expect(error.code).toBe('reference-out-of-scope');
+      expect(error.message).toBe(
+        `This project can't reference agent "acme.drafting" 1.1.0: it isn't registered in this project, its org or the tenant`,
+      );
+      expect(error.details?.issues).toEqual([
+        {
+          path: '/versions/agents/acme.drafting',
+          kind: 'agent',
+          id: 'acme.drafting',
+          message: `agent "acme.drafting" 1.1.0 isn't registered in this project, its org or the tenant`,
+        },
+      ]);
+      expect(calls.n).toBe(0);
+      expect((await binding.list({ tenantId, limit: 10 })).data).toEqual([]);
+    });
+
+    test('the same agent at a version the project does reach starts: 201, asked at that version', async () => {
+      const asked: ItemReference[] = [];
+      const { app, registry } = makeApp({ referenceScope: reach(UNREACHED, asked) });
+      await seedSuite(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
+      const res = await start(app, { flowRef, versions: { agents: { 'acme.drafting': '1.0.0' } } });
+      expect(res.status).toBe(201);
+      expect(asked.filter((r) => r.kind === 'agent')).toStrictEqual([
+        { kind: 'agent', id: 'acme.drafting', version: '1.0.0' },
+      ]);
+    });
+
+    test('a tool is asked about by its id: reached, it starts; not, it is refused at its own path, with no version named', async () => {
+      const asked: ItemReference[] = [];
+      const { app, registry } = makeApp({ referenceScope: reach(UNREACHED, asked) });
+      await seedSuite(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
+      const res = await start(app, { flowRef, versions: { tools: { 'acme.lookup': '2.0.0' } } });
+      expect(res.status).toBe(201);
+      expect(asked.filter((r) => r.kind === 'tool')).toStrictEqual([
+        { kind: 'tool', id: 'acme.lookup' },
+      ]);
+      const error = await refusal(
+        await start(app, { flowRef, versions: { tools: { 'acme.offsite': '2.0.0' } } }),
+      );
+      expect(error.code).toBe('reference-out-of-scope');
+      expect(error.details?.issues).toEqual([
+        {
+          path: '/versions/tools/acme.offsite',
+          kind: 'tool',
+          id: 'acme.offsite',
+          message: `tool "acme.offsite" isn't registered in this project, its org or the tenant`,
+        },
+      ]);
+    });
+
+    test('each refused entry is named at its own path, beside the flow', async () => {
+      const { app, registry } = makeApp({ referenceScope: reach(UNREACHED) });
+      await seedSuite(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
+      const error = await refusal(
+        await start(app, {
+          flowRef: { flowId: 'acme.triage', version: '2.0.0' },
+          versions: {
+            agents: { 'acme.drafting': '1.1.0', 'acme.desk': '1.0.0' },
+            tools: { 'acme.offsite': '2.0.0', 'acme.lookup': '2.0.0' },
+          },
+        }),
+      );
+      expect(error.code).toBe('reference-out-of-scope');
+      expect(error.message).toBe(
+        `This project can't reference 3 of the items named (flow "acme.triage" 2.0.0, agent "acme.drafting" 1.1.0, tool "acme.offsite"): none is registered in this project, its org or the tenant`,
+      );
+      expect(error.details?.issues?.map((i) => i.path)).toEqual([
+        '/flowRef/flowId',
+        '/versions/agents/acme.drafting',
+        '/versions/tools/acme.offsite',
+      ]);
+    });
   });
 });
 

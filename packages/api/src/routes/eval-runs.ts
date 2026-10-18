@@ -32,7 +32,7 @@ import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import { parseComparison } from './eval-comparison.js';
 import { type SettingsOverridesCheck, checkSettingsOverrides } from './eval-overrides.js';
-import { type FlowVersionsCheck, checkFlowVersions } from './eval-versions.js';
+import { type FlowVersionsCheck, checkFlowVersions, versionsReferences } from './eval-versions.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
 import { formatSseFrame, pause, readingOf } from './sse.js';
@@ -203,7 +203,8 @@ function startRouter(
     if (refused !== undefined) return refused;
     // The suite and what it runs must be the run's project's to reach
     // (`reference-scope.ts`): at the version named, when one is, since each
-    // case replays that version in the run's project.
+    // case replays that version in the run's project. That holds for a flow
+    // candidate's `versions` too, each at its own path.
     const outOfScope = await referencesOutOfScope(referenceScope, tenantId, projectId, [
       { path: '/suiteId', kind: 'suite', id: suiteId },
       agentRef !== undefined
@@ -219,6 +220,7 @@ function startRouter(
             id: flowRef?.flowId as unknown as string,
             ...(flowRef?.version !== undefined && { version: flowRef.version }),
           },
+      ...versionsReferences(parsed.value.comparison?.versions),
     ]);
     if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     if (projectSuspended !== undefined && (await projectSuspended(tenantId, projectId))) {

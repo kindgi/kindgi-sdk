@@ -27,7 +27,7 @@ export const ERROR_ENTRIES = {
   },
   'reference-out-of-scope': {
     description:
-      "A request names an item its project can't reach: a tool, agent, flow, guardrail, data block, check or eval suite that isn't registered in the project, its org or the tenant. Nothing is written. Register the item where the project reaches it, or use it from the project that has it.",
+      "A request names an item its project can't reach: a tool, agent, flow, guardrail, data block, check or eval suite that isn't registered in the project, its org or the tenant, or a version of an agent, flow or eval suite that the project doesn't run, such as one made in an earlier environment and not yet promoted. Nothing is written. Register the item where the project reaches it, use it from the project that has it, or promote the version first.",
     details: [
       {
         key: 'issues',
