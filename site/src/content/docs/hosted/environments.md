@@ -121,9 +121,8 @@ shows the live version and the versions waiting.
 The Default project can be an environment too. Keep it as the last one,
 `prod`, and put one or more staging projects before it.
 
-`kindgi projects get-default` prints the Default project, with its slug.
-`prod` names the Default project by that slug, as every environment names
-its project:
+`prod` names the Default project by its slug, `default`, as every
+environment names its project:
 
 ```ts
 environments: {
@@ -132,7 +131,7 @@ environments: {
     project: 'staging',
     signingKey: '~/.kindgi/keys/acme-desk.pem',
   },
-  prod: { project: '<default-project-slug>' },
+  prod: { project: 'default' },
 },
 ```
 
