@@ -7,6 +7,7 @@ import type { EnvName, TenantId } from '@kindgi/types';
 import { type MCPEndpointRegistryBinding, mcpEndpointSecretRefs } from './mcp-endpoint-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
 import { pages } from './provider-keys.js';
+import { sameScope, scopeOfRecorded } from './secret-scope.js';
 import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
 
 /**
@@ -18,18 +19,24 @@ import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
  *
  * Except what a reference still reads: a provider, MCP endpoint or webhook
  * endpoint registered before names its own env, and is read there, at the
- * tenant's scope. A secret at that exact (env, name) can still be written,
- * so a value in use can be rotated. Reads and deletes are never refused: a
- * value stored before can still be found and removed.
+ * scope it's read at. A secret at that exact (scope, env, name) can still
+ * be written, so a value in use can be rotated. Reads and deletes are never
+ * refused: a value stored before can still be found and removed.
  */
 export interface ServedEnvRule {
   readonly envName: EnvName;
-  /** Each secret a provider, MCP endpoint or webhook endpoint of the tenant names, with its env. */
+  /** Each secret a provider, MCP endpoint or webhook endpoint of the tenant names, with its env and scope. */
   references(tenantId: TenantId): Promise<readonly SecretReference[]>;
 }
 
-/** A registration's reference to a secret: read under its own env, at the tenant's scope. */
+/**
+ * A registration's reference to a secret, read under its own env at
+ * `scope`: a provider's and a webhook endpoint's at the tenant's; an MCP
+ * endpoint's at the scope recorded for the secret (none recorded: the
+ * tenant's).
+ */
 export interface SecretReference {
+  readonly scope: Scope;
   readonly envName: string;
   readonly name: string;
   readonly by: {
@@ -51,17 +58,20 @@ const PAGE = 100;
 /**
  * Every reference to a secret the tenant's registrations hold. Past the
  * page cap a reference is missed, and a write it would let through is
- * refused: the safe way round.
+ * refused: the safe way round. An MCP endpoint's secret recorded at no
+ * scope (`null`) is read nowhere, so it's no reference.
  */
 export function secretReferencesOf(
   deps: SecretReferencesDeps,
 ): (tenantId: TenantId) => Promise<readonly SecretReference[]> {
   return async (tenantId) => {
+    const tenant: Scope = { kind: 'tenant', tenantId };
     const out: SecretReference[] = [];
     if (deps.providers !== undefined) {
       for (const entry of await deps.providers.resolveForRuntime({ tenantId })) {
         if (entry.secretRef === undefined) continue;
         out.push({
+          scope: tenant,
           envName: entry.secretRef.envName,
           name: entry.secretRef.name,
           by: { kind: 'provider', id: entry.metadata.id },
@@ -74,7 +84,10 @@ export function secretReferencesOf(
         mcp.list({ tenantId, limit: PAGE, ...(cursor !== undefined && { cursor }) }),
       )) {
         for (const ref of mcpEndpointSecretRefs(e)) {
+          const recorded = e.secretScopes?.[ref.name];
+          if (recorded === null) continue;
           out.push({
+            scope: recorded === undefined ? tenant : scopeOfRecorded(tenantId, recorded),
             envName: ref.envName,
             name: ref.name,
             by: { kind: 'mcp-endpoint', id: e.endpointId },
@@ -88,6 +101,7 @@ export function secretReferencesOf(
         hooks.list({ tenantId, limit: PAGE, ...(cursor !== undefined && { cursor }) }),
       )) {
         out.push({
+          scope: tenant,
           envName: e.secretRef.envName,
           name: e.secretRef.name,
           by: { kind: 'webhook-endpoint', id: e.endpointId as unknown as string },
@@ -95,6 +109,24 @@ export function secretReferencesOf(
       }
     }
     return out;
+  };
+}
+
+/**
+ * The rule with each tenant's references read once, for a request that
+ * checks many values (a deployment's secret sync).
+ */
+export function readReferencesOnce(rule: ServedEnvRule): ServedEnvRule {
+  const read = new Map<TenantId, Promise<readonly SecretReference[]>>();
+  return {
+    envName: rule.envName,
+    references: (tenantId) => {
+      const known = read.get(tenantId);
+      if (known !== undefined) return known;
+      const refs = rule.references(tenantId);
+      read.set(tenantId, refs);
+      return refs;
+    },
   };
 }
 
@@ -108,8 +140,9 @@ export type EnvNotServed = {
 
 /**
  * Why a secret or env value can't be stored under `envName`, or nothing.
- * A secret at the tenant's scope that a reference names under that env is
- * let through: the reference reads it there.
+ * A secret that a reference names under that env, at the scope it's read
+ * at, is let through: the reference reads it there. `storeWith` names the
+ * route to store it with instead, for a route that takes no env.
  */
 export async function refuseUnservedValue(
   rule: ServedEnvRule | undefined,
@@ -119,19 +152,28 @@ export async function refuseUnservedValue(
     readonly envName: EnvName;
     readonly name: string;
     readonly kind: 'secret' | 'env value';
+    readonly storeWith?: string;
   },
 ): Promise<EnvNotServed | undefined> {
   if (rule === undefined || input.envName === rule.envName) return undefined;
-  if (input.kind === 'secret' && input.scope.kind === 'tenant') {
+  if (input.kind === 'secret') {
     const refs = await rule.references(input.tenantId);
-    if (refs.some((ref) => ref.envName === input.envName && ref.name === input.name)) {
+    if (
+      refs.some(
+        (ref) =>
+          ref.envName === input.envName &&
+          ref.name === input.name &&
+          sameScope(ref.scope, input.scope),
+      )
+    ) {
       return undefined;
     }
   }
+  const how = input.storeWith !== undefined ? `, with ${input.storeWith}` : '';
   return envNotServed(
     rule.envName,
     input.envName,
-    `the ${input.kind} \`${input.name}\` under \`${input.envName}\` would never be read. Store it under \`${rule.envName}\``,
+    `the ${input.kind} \`${input.name}\` under \`${input.envName}\` would never be read. Store it under \`${rule.envName}\`${how}`,
   );
 }
 

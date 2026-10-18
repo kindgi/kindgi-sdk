@@ -15,6 +15,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { SecretBinding, SecretRecord } from '../secrets-binding.js';
 import { secretNameGrammarRefusal } from '../secrets-binding.js';
+import { type ServedEnvRule, refuseUnservedValue } from '../served-env.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 
@@ -83,6 +84,14 @@ export interface TenantRouterOptions {
    * empty: no `egress`. Each entry is an IPv4 or IPv6 address.
    */
   readonly egress?: EgressAddresses;
+  /**
+   * On a runtime that refuses other envs: a `PATCH /config` whose env
+   * (`resolveTenantConfigEnvName`) isn't the served one answers `409
+   * env-not-served`, pointing to `/v1/secrets` and `/v1/env/{name}`, unless
+   * a reference reads the secret there (`refuseUnservedValue`). Absent: any
+   * env.
+   */
+  readonly servedEnv?: ServedEnvRule;
 }
 
 /**
@@ -181,8 +190,14 @@ export function resolveTenantConfigEnvName(): EnvName {
 }
 
 export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
-  const { tenantHierarchyBinding, envBinding, secretsBinding, authorizer, productionNext } =
-    options;
+  const {
+    tenantHierarchyBinding,
+    envBinding,
+    secretsBinding,
+    authorizer,
+    productionNext,
+    servedEnv,
+  } = options;
   const egress = publishedEgress(options.egress);
   const r = new Hono<AppEnv>();
 
@@ -449,6 +464,18 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
           ),
         );
       }
+      const unserved = await refuseUnservedValue(servedEnv, {
+        tenantId,
+        scope,
+        envName,
+        name: key,
+        kind: 'secret',
+        storeWith: "`POST /v1/secrets` at the tenant's scope",
+      });
+      if (unserved !== undefined) {
+        c.status(statusFor(unserved.code) as never);
+        return c.json(toWireError(unserved, requestId));
+      }
       const currentRecord = await secretsBinding.get({ scope, envName, name: key });
       const writeMode = currentRecord === null ? 'create-new' : 'add-version';
       // A new sensitive key is held to the shared secret-name grammar before it
@@ -527,6 +554,18 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
           requestId,
         ),
       );
+    }
+    const unserved = await refuseUnservedValue(servedEnv, {
+      tenantId,
+      scope,
+      envName,
+      name: key,
+      kind: 'env value',
+      storeWith: "`PUT /v1/env/{name}` at the tenant's scope",
+    });
+    if (unserved !== undefined) {
+      c.status(statusFor(unserved.code) as never);
+      return c.json(toWireError(unserved, requestId));
     }
     const outcome = await envBinding.set({
       scope,

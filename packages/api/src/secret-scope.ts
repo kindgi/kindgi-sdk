@@ -141,7 +141,8 @@ export async function resolveAtScope(
   };
 }
 
-function sameScope(a: Scope, b: Scope): boolean {
+/** Whether two scopes are the same one. */
+export function sameScope(a: Scope, b: Scope): boolean {
   if (a.tenantId !== b.tenantId) return false;
   if (a.kind === 'project') return b.kind === 'project' && a.projectId === b.projectId;
   if (a.kind === 'org') return b.kind === 'org' && a.orgId === b.orgId;

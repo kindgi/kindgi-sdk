@@ -9,8 +9,11 @@
  *   naming the served env, and nothing is stored;
  * - a provider, MCP endpoint or webhook endpoint naming its secret under
  *   another env: the same 409, and nothing is registered;
- * - except a secret at the tenant's scope that a registration already names
- *   under that env, which is still written, so a value in use can be rotated;
+ * - except a secret that a registration already names under that env, at the
+ *   scope it reads it at, which is still written, so a value in use can be
+ *   rotated;
+ * - the tenant config, which writes under `KINDGI_ENV_NAME` or `default`: the
+ *   same 409 when that isn't the served env;
  * - reads and deletes under any env pass;
  * - whoami says what's served (`servedEnv`).
  *
@@ -20,7 +23,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import type { Scope } from '@kindgi/platform';
 import type { EnvName, TenantId } from '@kindgi/types';
@@ -53,6 +56,10 @@ const runHandler: RunHandlerBinding = {
 const PROVIDER_KEY = 'ANTHROPIC_API_KEY';
 const HOOK_SECRET = 'HOOK_SECRET';
 const MCP_TOKEN = 'DOCS_MCP_TOKEN';
+/** An MCP endpoint's secret recorded at the project. */
+const MCP_PROJECT_TOKEN = 'WIKI_MCP_TOKEN';
+/** An MCP endpoint's secret recorded at no scope: read nowhere. */
+const MCP_UNREAD_TOKEN = 'TICKETS_MCP_TOKEN';
 const REFUSAL = (rest: string) => `This runtime keeps its values under \`prod\` only, so ${rest}`;
 
 const metadata = {
@@ -67,12 +74,17 @@ const metadata = {
     },
   ],
 };
-const mcpEndpoint = (envName: string, name = 'DOCS_TOKEN') => ({
+const mcpEndpoint = (
+  envName: string,
+  name = 'DOCS_TOKEN',
+  secretScopes?: Record<string, object | null>,
+) => ({
   endpointId: 'acme-docs',
   name: 'Docs MCP',
   transport: 'streamable-http',
   config: { transport: 'streamable-http', url: 'https://docs.acme.example/mcp' },
   auth: { scheme: 'basic', username: 'agent', secretRef: { envName, name } },
+  ...(secretScopes !== undefined && { secretScopes }),
 });
 const hookEndpoint = (envName: string) => ({
   endpointId: 'whe-1',
@@ -181,7 +193,17 @@ function makeApp(served: { envName?: string; refuseOtherEnvs?: boolean } = {}) {
       get: async () => null,
     } as never,
     mcpEndpointRegistry: {
-      list: async () => ({ data: [mcpEndpoint('local', MCP_TOKEN)] }),
+      // One with no scope recorded (read at the tenant's), one recorded at
+      // the project, one recorded at none.
+      list: async () => ({
+        data: [
+          mcpEndpoint('local', MCP_TOKEN),
+          mcpEndpoint('local', MCP_PROJECT_TOKEN, {
+            [MCP_PROJECT_TOKEN]: { kind: 'project', projectId },
+          }),
+          mcpEndpoint('local', MCP_UNREAD_TOKEN, { [MCP_UNREAD_TOKEN]: null }),
+        ],
+      }),
       get: async () => null,
       register: async ({ endpoint }: { endpoint: ReturnType<typeof mcpEndpoint> }) => {
         writes.push([
@@ -339,6 +361,103 @@ describe('a runtime that refuses other envs: a secret a registration still reads
       [atProject, otherEnv, otherName, value].map((r) => [r.status, r.body.error?.code]),
     ).toEqual(Array(4).fill([409, 'env-not-served']));
     expect(h.writes).toEqual([]);
+  });
+});
+
+describe("a runtime that refuses other envs: an MCP endpoint's secret, at the scope recorded for it", () => {
+  test('recorded at a project: written there, under the env it names; refused at the tenant', async () => {
+    const h = refusing();
+    const atProject = await h.call(
+      'POST',
+      '/v1/secrets',
+      secret('local', MCP_PROJECT_TOKEN, project),
+    );
+    expect(atProject.status).toBe(201);
+    const rotated = await h.call(
+      'POST',
+      `/v1/secrets/${MCP_PROJECT_TOKEN}/rotate?envName=local&scopeKind=project&scopeId=${projectId}`,
+      { newValue: 'sk_test_y' },
+    );
+    expect(rotated.status).toBe(201);
+    const atTenant = await h.call('POST', '/v1/secrets', secret('local', MCP_PROJECT_TOKEN));
+    expect([atTenant.status, atTenant.body.error?.code]).toEqual([409, 'env-not-served']);
+    expect(h.writes).toEqual([
+      ['secret.set', 'local', MCP_PROJECT_TOKEN],
+      ['secret.rotate', 'local', MCP_PROJECT_TOKEN],
+    ]);
+  });
+
+  test('none recorded: read at the tenant, as before, so refused at a project', async () => {
+    const h = refusing();
+    const atProject = await h.call('POST', '/v1/secrets', secret('local', MCP_TOKEN, project));
+    expect([atProject.status, atProject.body.error?.code]).toEqual([409, 'env-not-served']);
+    expect((await h.call('POST', '/v1/secrets', secret('local', MCP_TOKEN))).status).toBe(201);
+    expect(h.writes).toEqual([['secret.set', 'local', MCP_TOKEN]]);
+  });
+
+  test('recorded at no scope: read nowhere, so refused at both', async () => {
+    const h = refusing();
+    const refused = [
+      await h.call('POST', '/v1/secrets', secret('local', MCP_UNREAD_TOKEN)),
+      await h.call('POST', '/v1/secrets', secret('local', MCP_UNREAD_TOKEN, project)),
+    ];
+    expect(refused.map((r) => [r.status, r.body.error?.code])).toEqual(
+      Array(2).fill([409, 'env-not-served']),
+    );
+    expect(h.writes).toEqual([]);
+  });
+});
+
+describe('a runtime that refuses other envs: the tenant config', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+  const upsert = (kind: 'secret' | 'env') => ({ kind, key: 'ACME_REGION', value: 'eu' });
+
+  test('written under `default`, not the served env: 409, pointing to the routes that take an env, and nothing is stored', async () => {
+    vi.stubEnv('KINDGI_ENV_NAME', '');
+    const h = refusing();
+    const asSecret = await h.call('PATCH', '/v1/tenant/config', upsert('secret'));
+    expect([asSecret.status, asSecret.body.error]).toEqual([
+      409,
+      expect.objectContaining({
+        code: 'env-not-served',
+        message: REFUSAL(
+          "the secret `ACME_REGION` under `default` would never be read. Store it under `prod`, with `POST /v1/secrets` at the tenant's scope",
+        ),
+        details: { envName: 'default', servedEnv: 'prod' },
+      }),
+    ]);
+    const asValue = await h.call('PATCH', '/v1/tenant/config', upsert('env'));
+    expect([asValue.status, asValue.body.error?.message]).toEqual([
+      409,
+      REFUSAL(
+        "the env value `ACME_REGION` under `default` would never be read. Store it under `prod`, with `PUT /v1/env/{name}` at the tenant's scope",
+      ),
+    ]);
+    expect(h.writes).toEqual([]);
+  });
+
+  test('written under the served env (`KINDGI_ENV_NAME`): stored as before', async () => {
+    vi.stubEnv('KINDGI_ENV_NAME', 'prod');
+    const h = refusing();
+    expect((await h.call('PATCH', '/v1/tenant/config', upsert('secret'))).status).toBe(200);
+    expect((await h.call('PATCH', '/v1/tenant/config', upsert('env'))).status).toBe(200);
+    expect(h.writes).toEqual([
+      ['secret.set', 'prod', 'ACME_REGION'],
+      ['env.set', 'prod', 'ACME_REGION'],
+    ]);
+  });
+
+  test('without the switch: under `default`, as before', async () => {
+    vi.stubEnv('KINDGI_ENV_NAME', '');
+    const h = makeApp({ envName: 'prod' });
+    expect((await h.call('PATCH', '/v1/tenant/config', upsert('secret'))).status).toBe(200);
+    expect((await h.call('PATCH', '/v1/tenant/config', upsert('env'))).status).toBe(200);
+    expect(h.writes).toEqual([
+      ['secret.set', 'default', 'ACME_REGION'],
+      ['env.set', 'default', 'ACME_REGION'],
+    ]);
   });
 });
 

@@ -46451,7 +46451,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), so a value under another env would never be read. `details.envName` is the env asked for, `details.servedEnv` the one to use. A secret at the tenant's scope that a provider, MCP endpoint or webhook endpoint registered before names under that env is still written: it's read there. Nothing is stored.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), so a value under another env would never be read. `details.envName` is the env asked for, `details.servedEnv` the one to use. A secret that a provider, MCP endpoint or webhook endpoint registered before names under that env, at the scope it's read at, is still written: it's read there. Nothing is stored otherwise.",
             "content": {
               "application/json": {
                 "schema": {
@@ -51378,7 +51378,7 @@
             }
           },
           "409": {
-            "description": "`ifRevision` was set and did not match the stored revision.",
+            "description": "`ifRevision` was set and did not match the stored revision. Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the tenant config writes under another (`details.envName`), where the value would never be read. Store it with `POST /v1/secrets` or `PUT /v1/env/{name}` at the tenant's scope under `details.servedEnv`. Nothing is stored.",
             "content": {
               "application/json": {
                 "schema": {
@@ -51818,7 +51818,7 @@
             }
           },
           "409": {
-            "description": "`ifRevision` mismatch (env-write-conflict). Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), so a value under another env would never be read. `details.envName` is the env asked for, `details.servedEnv` the one to use. A secret at the tenant's scope that a provider, MCP endpoint or webhook endpoint registered before names under that env is still written: it's read there. Nothing is stored.",
+            "description": "`ifRevision` mismatch (env-write-conflict). Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), so a value under another env would never be read. `details.envName` is the env asked for, `details.servedEnv` the one to use. A secret that a provider, MCP endpoint or webhook endpoint registered before names under that env, at the scope it's read at, is still written: it's read there. Nothing is stored otherwise.",
             "content": {
               "application/json": {
                 "schema": {
@@ -52198,7 +52198,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), so a value under another env would never be read. `details.envName` is the env asked for, `details.servedEnv` the one to use. A secret at the tenant's scope that a provider, MCP endpoint or webhook endpoint registered before names under that env is still written: it's read there. Nothing is stored.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), so a value under another env would never be read. `details.envName` is the env asked for, `details.servedEnv` the one to use. A secret that a provider, MCP endpoint or webhook endpoint registered before names under that env, at the scope it's read at, is still written: it's read there. Nothing is stored otherwise.",
             "content": {
               "application/json": {
                 "schema": {
@@ -52810,7 +52810,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), so a value under another env would never be read. `details.envName` is the env asked for, `details.servedEnv` the one to use. A secret at the tenant's scope that a provider, MCP endpoint or webhook endpoint registered before names under that env is still written: it's read there. Nothing is stored.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), so a value under another env would never be read. `details.envName` is the env asked for, `details.servedEnv` the one to use. A secret that a provider, MCP endpoint or webhook endpoint registered before names under that env, at the scope it's read at, is still written: it's read there. Nothing is stored otherwise.",
             "content": {
               "application/json": {
                 "schema": {

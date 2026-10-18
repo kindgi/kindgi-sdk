@@ -69,7 +69,7 @@ import {
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
 import { secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding.js';
-import { type ServedEnvRule, refuseUnservedValue } from '../served-env.js';
+import { type ServedEnvRule, readReferencesOnce, refuseUnservedValue } from '../served-env.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
@@ -1148,8 +1148,10 @@ export function deploymentsRouter(
 
     // Every entry is checked against the env this runtime serves before any
     // write, so a refusal leaves nothing half-written.
+    const servedEnv =
+      bindings.servedEnv !== undefined ? readReferencesOnce(bindings.servedEnv) : undefined;
     for (const entry of parsed) {
-      const unserved = await refuseUnservedValue(bindings.servedEnv, {
+      const unserved = await refuseUnservedValue(servedEnv, {
         tenantId,
         scope,
         envName,

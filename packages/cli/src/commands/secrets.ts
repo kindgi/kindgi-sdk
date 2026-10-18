@@ -40,7 +40,7 @@ import {
   realTtySeam,
   stripTrailingNewline,
 } from '../terminal-input.js';
-import { valueTargetFor } from '../value-target.js';
+import { valueTargetFor, withLocalEnvHint } from '../value-target.js';
 import {
   commandResultFromThrown,
   integerFlag,
@@ -85,13 +85,16 @@ type ScopeResult =
  * Parse `--scope=<kind>[:id]` into the kind and its id. There's no
  * tenant id: the server takes the tenant from the bearer, and the CLI
  * doesn't know it, so what it prints from its own input names none.
+ *
+ * `--env` defaults to the env a runtime that refuses other envs serves.
+ * Another env is sent as given, a write too: a provider, MCP endpoint or
+ * webhook endpoint registered before may still read its secret there, at
+ * the scope it reads it at, and only the runtime knows. It refuses the
+ * rest (`409 env-not-served`).
  */
-async function parseScopeAndEnv(
-  ctx: CommandContext,
-  access: 'read' | 'write',
-): Promise<ScopeResult> {
+async function parseScopeAndEnv(ctx: CommandContext): Promise<ScopeResult> {
   const target = await valueTargetFor(ctx, stringFlag(ctx, 'env'), {
-    write: access === 'write',
+    write: false,
     what: 'a secret',
   });
   if (target.kind === 'missing') {
@@ -315,7 +318,7 @@ const listCmd: LeafCommand = {
     },
   },
   run: async (ctx): Promise<CommandResult> => {
-    const parsed = await parseScopeAndEnv(ctx, 'read');
+    const parsed = await parseScopeAndEnv(ctx);
     if (parsed.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
     try {
       const page = await secretsFrom(ctx).list({
@@ -350,7 +353,7 @@ const getCmd: LeafCommand = {
   usage: 'kindgi secrets get <NAME> --env=<name> --scope=<kind>[:id]',
   optionSpec: SCOPE_OPTION_SPEC,
   run: async (ctx): Promise<CommandResult> => {
-    const parsed = await parseScopeAndEnv(ctx, 'read');
+    const parsed = await parseScopeAndEnv(ctx);
     if (parsed.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
     let name: string;
     try {
@@ -439,7 +442,7 @@ const setCmd: LeafCommand = {
     },
   },
   run: async (ctx): Promise<CommandResult> => {
-    const parsed = await parseScopeAndEnv(ctx, 'write');
+    const parsed = await parseScopeAndEnv(ctx);
     if (parsed.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
     let name: string;
     try {
@@ -510,7 +513,11 @@ const setCmd: LeafCommand = {
         },
       };
     } catch (err) {
-      return commandResultFromThrown(err, ctx, 'kindgi secrets set');
+      return withLocalEnvHint(
+        commandResultFromThrown(err, ctx, 'kindgi secrets set'),
+        err,
+        parsed.value.envName,
+      );
     }
   },
 };
@@ -554,7 +561,7 @@ const rotateCmd: LeafCommand = {
     },
   },
   run: async (ctx): Promise<CommandResult> => {
-    const parsed = await parseScopeAndEnv(ctx, 'write');
+    const parsed = await parseScopeAndEnv(ctx);
     if (parsed.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
     let name: string;
     try {
@@ -602,7 +609,11 @@ const rotateCmd: LeafCommand = {
       });
       return renderRotationOutcome(ctx, name, parsed.value, outcome);
     } catch (err) {
-      return commandResultFromThrown(err, ctx, 'kindgi secrets rotate');
+      return withLocalEnvHint(
+        commandResultFromThrown(err, ctx, 'kindgi secrets rotate'),
+        err,
+        parsed.value.envName,
+      );
     }
   },
 };
@@ -679,7 +690,7 @@ const revokeCmd: LeafCommand = {
     },
   },
   run: async (ctx): Promise<CommandResult> => {
-    const parsed = await parseScopeAndEnv(ctx, 'read');
+    const parsed = await parseScopeAndEnv(ctx);
     if (parsed.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
     let name: string;
     try {
@@ -733,7 +744,7 @@ const pullCmd: LeafCommand = {
     },
   },
   run: async (ctx): Promise<CommandResult> => {
-    const parsed = await parseScopeAndEnv(ctx, 'read');
+    const parsed = await parseScopeAndEnv(ctx);
     if (parsed.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
     const runners = pickEnvRunners(ctx);
     if (runners === null) {

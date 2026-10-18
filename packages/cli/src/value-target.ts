@@ -4,7 +4,9 @@
 import type { KindgiClient } from '@kindgi/client';
 import { LOCAL_ENV_NAME } from '@kindgi/secrets-dotenv';
 
+import type { CommandResult } from './commands/types.js';
 import type { CommandContext } from './context.js';
+import { extractKindgiError } from './errors.js';
 
 /**
  * What a runtime says it serves (whoami's `servedEnv`): the env its tools'
@@ -72,13 +74,9 @@ export function resolveValueTarget(input: {
   if (served?.refusesOtherEnvs === true) {
     if (flag === undefined) return { kind: 'ok', envName: served.envName, from: 'served' };
     if (flag !== served.envName && input.write) {
-      const local =
-        flag === LOCAL_ENV_NAME
-          ? "`local` is a `kindgi dev` runtime's env: in a pack where `kindgi dev` runs, the CLI talks to that runtime, unless --url or KINDGI_API_URL names another.\n"
-          : '';
       return {
         kind: 'refused',
-        stderr: `env-not-served: this runtime keeps its values under \`${served.envName}\` only, so ${input.what} under \`${flag}\` would never be read. Use --env=${served.envName}${input.mayOmit === false ? '' : ', or leave --env out'}.\n${local}`,
+        stderr: `env-not-served: this runtime keeps its values under \`${served.envName}\` only, so ${input.what} under \`${flag}\` would never be read. Use --env=${served.envName}${input.mayOmit === false ? '' : ', or leave --env out'}.\n${localEnvHint(flag)}`,
       };
     }
     return { kind: 'ok', envName: flag, from: 'flag' };
@@ -102,4 +100,27 @@ export async function valueTargetFor(
 ): Promise<ValueTarget> {
   const served = flag === undefined || options.write ? await servedEnvOf(ctx.client) : undefined;
   return resolveValueTarget({ flag, served, ...options });
+}
+
+/** Where `local` is, when that's the env a refused value named; otherwise nothing. */
+function localEnvHint(envName: string): string {
+  return envName === LOCAL_ENV_NAME
+    ? "`local` is a `kindgi dev` runtime's env: in a pack where `kindgi dev` runs, the CLI talks to that runtime, unless --url or KINDGI_API_URL names another.\n"
+    : '';
+}
+
+/**
+ * A command's result for `thrown`, with where `local` is added when the
+ * runtime refused a value under `local` (`409 env-not-served`). For a write
+ * the CLI sends anyway, since only the runtime knows whether a registration
+ * still reads it there.
+ */
+export function withLocalEnvHint(
+  result: CommandResult,
+  thrown: unknown,
+  envName: string,
+): CommandResult {
+  const wire = extractKindgiError(thrown) as { readonly reason?: unknown } | null;
+  if (result.kind !== 'error' || wire?.reason !== 'env-not-served') return result;
+  return { ...result, stderr: `${result.stderr}${localEnvHint(envName)}` };
 }

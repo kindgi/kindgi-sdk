@@ -1461,7 +1461,14 @@ const SecretWriteErrors: Readonly<Record<string, ResponseSpec>> = {
  * the env it serves (`refuseOtherEnvs`), one under another env.
  */
 const ENV_NOT_SERVED_VALUE =
-  "`env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), so a value under another env would never be read. `details.envName` is the env asked for, `details.servedEnv` the one to use. A secret at the tenant's scope that a provider, MCP endpoint or webhook endpoint registered before names under that env is still written: it's read there. Nothing is stored.";
+  "`env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), so a value under another env would never be read. `details.envName` is the env asked for, `details.servedEnv` the one to use. A secret that a provider, MCP endpoint or webhook endpoint registered before names under that env, at the scope it's read at, is still written: it's read there. Nothing is stored otherwise.";
+
+/**
+ * `env-not-served` for the tenant config, which takes no env: it writes
+ * under `KINDGI_ENV_NAME`, or `default`.
+ */
+const ENV_NOT_SERVED_TENANT_CONFIG =
+  "`env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the tenant config writes under another (`details.envName`), where the value would never be read. Store it with `POST /v1/secrets` or `PUT /v1/env/{name}` at the tenant's scope under `details.servedEnv`. Nothing is stored.";
 
 /** `env-not-served` for a registration that names its secret under another env. */
 const ENV_NOT_SERVED_REFERENCE =
@@ -8753,7 +8760,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       ...SecretWriteErrors,
-      '409': ErrorResponse('`ifRevision` was set and did not match the stored revision.'),
+      '409': ErrorResponse(
+        `\`ifRevision\` was set and did not match the stored revision. Or ${ENV_NOT_SERVED_TENANT_CONFIG}`,
+      ),
     },
   },
 

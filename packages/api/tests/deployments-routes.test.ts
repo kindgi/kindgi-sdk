@@ -3335,6 +3335,8 @@ async function makeSyncApp(
     resolveTokenOverride?: TokenResolver;
     /** The env the runtime serves, refusing every other (`refuseOtherEnvs`). */
     servedEnv?: string;
+    /** The providers registered, whose keys a sync under their env may still write. */
+    providerRegistry?: unknown;
   } = {},
 ): Promise<SyncFixtures> {
   const secretsFixture = makeFixtureSecretBinding(opts.seedSecrets ?? []);
@@ -3351,6 +3353,9 @@ async function makeSyncApp(
     ...(opts.servedEnv !== undefined && {
       envName: opts.servedEnv as EnvName,
       refuseOtherEnvs: true,
+    }),
+    ...(opts.providerRegistry !== undefined && {
+      providerRegistry: opts.providerRegistry as never,
     }),
   });
 
@@ -5358,5 +5363,28 @@ describe('POST /v1/deployments/:deploymentId/secrets on a runtime that refuses o
       ['prod', 'stripe.key'],
       ['prod', 'search.key'],
     ]);
+  });
+  test("keys providers registered before still name under their env: synced, reading the tenant's registrations once", async () => {
+    let reads = 0;
+    const { app, deploymentId, secretsFixture } = await makeSyncApp({
+      servedEnv: 'prod',
+      providerRegistry: {
+        resolveForRuntime: async () => {
+          reads += 1;
+          return ['stripe.key', 'search.key'].map((name) => ({
+            metadata: { id: `acme-${name}` },
+            adapterId: '@kindgi/adapter-model-anthropic',
+            secretRef: { envName: 'staging', name },
+          }));
+        },
+      },
+    });
+    const res = await sync(app, deploymentId, 'staging');
+    expect(res.status).toBe(200);
+    expect(secretsFixture.recordedSets.map((s) => [s.envName, s.name])).toEqual([
+      ['staging', 'stripe.key'],
+      ['staging', 'search.key'],
+    ]);
+    expect(reads).toBe(1);
   });
 });

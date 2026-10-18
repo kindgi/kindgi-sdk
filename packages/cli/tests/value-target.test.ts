@@ -5,7 +5,9 @@
  * The env a value command acts under (`value-target.ts`). On a runtime that
  * keeps its values under one env (whoami's `servedEnv`):
  * `--env` defaults to that one, and a write under another is refused before
- * anything is sent. Anywhere else, each command's own default, as before.
+ * anything is sent. Except a secret's: a registration made before may still
+ * read it there, so `secrets set|rotate` send it and show the runtime's
+ * answer. Anywhere else, each command's own default, as before.
  * (`deploy --sync-secrets`: deploy.test.ts.)
  */
 
@@ -14,6 +16,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+
+import { KindgiApiError } from '@kindgi/client';
 
 import type { SecretsValueInputSeam } from '../src/commands/secrets.js';
 import type { EnvRunners } from '../src/env/runners.js';
@@ -24,6 +28,10 @@ const REFUSES: ServedEnv = { envName: 'prod', refusesOtherEnvs: true };
 const TAKES_ANY: ServedEnv = { envName: 'prod', refusesOtherEnvs: false };
 const REFUSAL = (what: string, env: string) =>
   `env-not-served: this runtime keeps its values under \`prod\` only, so ${what} under \`${env}\` would never be read. Use --env=prod, or leave --env out.\n`;
+const LOCAL_HINT =
+  "`local` is a `kindgi dev` runtime's env: in a pack where `kindgi dev` runs, the CLI talks to that runtime, unless --url or KINDGI_API_URL names another.\n";
+/** A provider registered before names its key under `local`: the runtime still takes it there. */
+const READ_UNDER_LOCAL = 'ANTHROPIC_API_KEY';
 
 describe('resolveValueTarget', () => {
   test('a runtime that refuses other envs: its env by default; a write under another refused, a read or a delete taken', () => {
@@ -83,11 +91,28 @@ afterEach(async () => {
   await rm(packDir, { recursive: true, force: true });
 });
 
-/** A runtime answering whoami with `served`, recording every other call. */
+/**
+ * A runtime answering whoami with `served`, recording every other call. One
+ * that refuses other envs refuses a secret under another env as the server
+ * does (`409 env-not-served`), unless it's the key a provider reads there.
+ */
 function runtime(served: ServedEnv | undefined) {
   const calls: [string, Record<string, unknown>][] = [];
   const record = (op: string) => async (input: Record<string, unknown>) => {
     calls.push([op, input]);
+    if (
+      (op === 'secrets.set' || op === 'secrets.rotate') &&
+      served?.refusesOtherEnvs === true &&
+      input.envName !== served.envName &&
+      !(input.envName === 'local' && input.name === READ_UNDER_LOCAL)
+    ) {
+      throw new KindgiApiError({
+        code: 'conflict',
+        reason: 'env-not-served',
+        message: `This runtime keeps its values under \`prod\` only, so the secret \`${String(input.name)}\` under \`${String(input.envName)}\` would never be read. Store it under \`prod\``,
+        fields: { envName: input.envName, servedEnv: 'prod' },
+      });
+    }
     return op === 'secrets.set'
       ? {
           kind: 'ok',
@@ -112,6 +137,7 @@ function runtime(served: ServedEnv | undefined) {
     },
     secrets: {
       set: record('secrets.set'),
+      rotate: record('secrets.rotate'),
       list: record('secrets.list'),
       revoke: record('secrets.revoke'),
     },
@@ -163,19 +189,52 @@ describe('kindgi secrets on a runtime that refuses other envs', () => {
     expect(JSON.parse(out.stdout)).toMatchObject({ envName: 'prod' });
   });
 
-  test('set under another env: refused, and nothing is sent', async () => {
+  test('set under another env: sent, so the key a provider registered before still reads there is written', async () => {
     const rt = runtime(REFUSES);
     const out = await cli(rt, [
       'secrets',
       'set',
+      READ_UNDER_LOCAL,
+      '--env=local',
+      '--scope=tenant',
+      '--from-stdin',
+    ]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(rt.calls.map(([op, i]) => [op, i.envName, i.name])).toEqual([
+      ['secrets.set', 'local', READ_UNDER_LOCAL],
+    ]);
+  });
+
+  test("set or rotate under another env nothing reads: the runtime's refusal, with where `local` is", async () => {
+    const rt = runtime(REFUSES);
+    const set = await cli(rt, [
+      'secrets',
+      'set',
+      'stripe.key',
+      '--env=local',
+      '--scope=tenant',
+      '--from-stdin',
+    ]);
+    expect(set.exitCode).toBe(1);
+    expect(set.stderr).toBe(
+      `Error [env-not-served]: This runtime keeps its values under \`prod\` only, so the secret \`stripe.key\` under \`local\` would never be read. Store it under \`prod\`\n${LOCAL_HINT}`,
+    );
+    const rotated = await cli(rt, [
+      'secrets',
+      'rotate',
       'stripe.key',
       '--env=staging',
       '--scope=tenant',
       '--from-stdin',
     ]);
-    expect(out.exitCode).toBe(2);
-    expect(out.stderr).toBe(REFUSAL('a secret', 'staging'));
-    expect(rt.calls).toEqual([]);
+    expect(rotated.exitCode).toBe(1);
+    expect(rotated.stderr).toBe(
+      'Error [env-not-served]: This runtime keeps its values under `prod` only, so the secret `stripe.key` under `staging` would never be read. Store it under `prod`\n',
+    );
+    expect(rt.calls.map(([op, i]) => [op, i.envName])).toEqual([
+      ['secrets.set', 'local'],
+      ['secrets.rotate', 'staging'],
+    ]);
   });
 
   test('list or revoke under another env: sent, to find and remove a value stored before', async () => {
@@ -228,10 +287,10 @@ describe('kindgi env --scope on a runtime that refuses other envs', () => {
       'ACME_REGION',
       'eu',
       '--scope=tenant',
-      '--env=staging',
+      '--env=local',
     ]);
     expect(refused.exitCode).toBe(2);
-    expect(refused.stderr).toBe(REFUSAL('an env value', 'staging'));
+    expect(refused.stderr).toBe(`${REFUSAL('an env value', 'local')}${LOCAL_HINT}`);
     expect(rt.calls.map(([op, i]) => [op, i.envName])).toEqual([['env.set', 'prod']]);
   });
 
