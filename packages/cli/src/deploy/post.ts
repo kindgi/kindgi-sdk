@@ -31,6 +31,7 @@ import { createHash } from 'node:crypto';
 
 import { stableStringify } from '../build/envelope.js';
 import type { DeployEnvelope } from '../build/envelope.js';
+import type { ServedEnv } from '../value-target.js';
 import type {
   DeploymentRecord,
   EnvironmentOrderRow,
@@ -38,13 +39,16 @@ import type {
   FindProjectsResult,
   GetDeploymentOptions,
   GetDeploymentResult,
+  GetPackEnvResult,
   ListEnvironmentOrdersResult,
   ListOptions,
   ListProjectsResult,
+  PackEnvRecord,
   PostDeploymentBody,
   PostDeploymentOptions,
   PostDeploymentResult,
   ProjectRow,
+  ServedEnvOptions,
   SyncSecretsBody,
   SyncSecretsOptions,
   SyncSecretsResult,
@@ -161,18 +165,27 @@ export async function postDeploymentReal(
   }
 
   // 4xx / 5xx — the api-server wraps errors in `{ error: { code,
-  // message, ...details } }` via `toWireError` in
+  // message, details? } }` via `toWireError` in
   // `packages/api/src/errors.ts`.
   const wire = body as { error?: { code?: string; message?: string; details?: unknown } } | null;
   const code = wire?.error?.code ?? `http-${res.status}`;
   const message = wire?.error?.message ?? `HTTP ${res.status}`;
-  const details = extractDetails(wire?.error);
-  const extra = wire?.error?.details as
-    | { readonly limit?: unknown; readonly position?: unknown; readonly firstProjectId?: unknown }
+  const wireDetails = wire?.error?.details as
+    | {
+        readonly issues?: unknown;
+        readonly limit?: unknown;
+        readonly cause?: unknown;
+        readonly position?: unknown;
+        readonly firstProjectId?: unknown;
+      }
     | undefined;
-  const limit = extra?.limit;
-  const position = extra?.position;
-  const firstProjectId = extra?.firstProjectId;
+  const details = Array.isArray(wireDetails?.issues)
+    ? (wireDetails.issues as readonly Record<string, unknown>[])
+    : undefined;
+  const limit = wireDetails?.limit;
+  const cause = wireDetails?.cause;
+  const position = wireDetails?.position;
+  const firstProjectId = wireDetails?.firstProjectId;
   const retryAfter = res.headers.get('retry-after')?.trim();
   return {
     kind: 'wire-error',
@@ -186,19 +199,12 @@ export async function postDeploymentReal(
       message,
       ...(details !== undefined && { details }),
       ...(typeof limit === 'string' && { limit }),
+      ...(typeof cause === 'string' && { cause }),
       ...(Number.isSafeInteger(position) &&
         (position as number) >= 0 && { position: position as number }),
       ...(typeof firstProjectId === 'string' && firstProjectId !== '' && { firstProjectId }),
     },
   };
-}
-
-/** The issues a `400 deployment-validation-failed` names, in its `details.issues`. */
-function extractDetails(
-  err: { readonly details?: unknown } | undefined,
-): readonly Record<string, unknown>[] | undefined {
-  const issues = (err?.details as { readonly issues?: unknown } | undefined)?.issues;
-  return Array.isArray(issues) ? (issues as readonly Record<string, unknown>[]) : undefined;
 }
 
 /**
@@ -272,6 +278,30 @@ export async function syncSecretsReal(opts: SyncSecretsOptions): Promise<SyncSec
       message: wire?.error?.message ?? `HTTP ${res.status}`,
     },
   };
+}
+
+/**
+ * whoami's `servedEnv`: the env the runtime serves, and whether it refuses
+ * values under any other. `undefined` when it names none (a runtime that
+ * serves no env, or an older one), or on any failure: the runtime still
+ * refuses the sync itself.
+ */
+export async function servedEnvReal(opts: ServedEnvOptions): Promise<ServedEnv | undefined> {
+  try {
+    const res = await opts.fetchImpl(`${opts.endpoint.replace(/\/+$/, '')}/v1/identity/whoami`, {
+      headers: { Authorization: `Bearer ${opts.token}` },
+      ...(opts.signal !== undefined && { signal: opts.signal }),
+    });
+    if (!res.ok) return undefined;
+    const served = (
+      (await res.json()) as { servedEnv?: { envName?: unknown; refusesOtherEnvs?: unknown } }
+    ).servedEnv;
+    return typeof served?.envName === 'string' && typeof served.refusesOtherEnvs === 'boolean'
+      ? { envName: served.envName, refusesOtherEnvs: served.refusesOtherEnvs }
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The most a page of a list holds. */
@@ -427,4 +457,38 @@ export async function getDeploymentReal(opts: GetDeploymentOptions): Promise<Get
     };
   }
   return { kind: 'ok', record: body as DeploymentRecord };
+}
+
+/** `GET /v1/deployments/:id/pack-env`: where each name the deployment's pack declares is set. */
+export async function getPackEnvReal(opts: GetDeploymentOptions): Promise<GetPackEnvResult> {
+  const url = `${opts.endpoint.replace(/\/+$/, '')}/v1/deployments/${encodeURIComponent(opts.deploymentId)}/pack-env`;
+  let res: Response;
+  try {
+    res = await opts.fetchImpl(url, {
+      headers: { Authorization: `Bearer ${opts.token}` },
+      ...(opts.signal !== undefined && { signal: opts.signal }),
+    });
+  } catch (err) {
+    return { kind: 'error', message: `GET ${url} failed: ${(err as Error).message}` };
+  }
+  // 501: its pack services take their env from how they're run; 404: a server before the route.
+  if (res.status === 501 || res.status === 404) return { kind: 'not-served' };
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    return {
+      kind: 'error',
+      message: `GET ${url} answered HTTP ${res.status} with a body that isn't JSON`,
+    };
+  }
+  const packEnv = body as Partial<PackEnvRecord> | null;
+  if (!res.ok || typeof packEnv?.envName !== 'string' || !Array.isArray(packEnv.data)) {
+    const code = (body as { error?: { code?: unknown } } | null)?.error?.code;
+    return {
+      kind: 'error',
+      message: `GET ${url} answered HTTP ${res.status}${typeof code === 'string' ? ` (${code})` : ''}`,
+    };
+  }
+  return { kind: 'ok', packEnv: packEnv as PackEnvRecord };
 }

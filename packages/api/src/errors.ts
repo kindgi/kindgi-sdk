@@ -96,6 +96,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'tool-gone': 410,
   'tool-already-registered': 409,
   'tool-project-mismatch': 409,
+  // A tool's active versions are all one kind: an MCP endpoint's, or published here.
+  'tool-kind-mismatch': 409,
   'guardrail-already-registered': 409,
   // A deploy's guardrail id is live in another project: a deploy never takes it.
   'guardrail-project-mismatch': 409,
@@ -103,6 +105,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'flow-already-registered': 409,
   'flow-project-mismatch': 409,
   'conversation-closed': 409,
+  // A turn names a project other than its conversation's: a conversation belongs to one.
+  'conversation-project-mismatch': 409,
   'invalid-agent': 400,
   'invalid-tool-definition': 400,
   'invalid-schema': 400,
@@ -283,6 +287,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'system-key-expiry-required': 403,
   /** The operator's access record can't be written, so a system request that would change something was not acted on. */
   'access-record-unavailable': 503,
+  /**
+   * A pack service's secret values, not given just now: the secret store is
+   * out, a secret changed while it was read (twice), or their audit rows
+   * weren't written. No `Retry-After`: the orchestrator's back-off decides.
+   */
+  'pack-env-unavailable': 503,
   /** A system route naming a tenant in a state it refuses. */
   'tenant-closing': 409,
   'tenant-suspended': 409,
@@ -301,6 +311,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'endpoint-info-mismatch': 422,
   /** A problem recorded for a deployment whose endpoint isn't pending. */
   'endpoint-not-pending': 409,
+  /** What a pack service runs, recorded for a deployment whose endpoint isn't ready. */
+  'endpoint-not-ready': 409,
+  /** A retired deployment's pack env asked for: it isn't given out. */
+  'endpoint-retired': 409,
+  /** What a pack service runs, recorded over another revision recorded since. */
+  'pack-env-conflict': 409,
   /** Creating a tenant with a slug another tenant has. */
   'tenant-slug-taken': 409,
   /** A deployment's image outside its tenant's repository (`details.imagePrefix`, the tenant's own). */
@@ -464,11 +480,22 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'project-access-unsupported': 501,
   // The tenant's env names, from a runtime whose env or secret store can't list them.
   'environments-unsupported': 501,
+  // A pack service's declared env, from a server that doesn't give it one:
+  // the system routes (`pack-env-unsupported`), and a deployment's names
+  // (`pack-env-not-served`), where its pack services take it from how they're run.
+  'pack-env-unsupported': 501,
+  'pack-env-not-served': 501,
+  /** Secret values asked for from a server with nowhere to audit them: none is read or given. */
+  'pack-env-secrets-unaudited': 501,
   // A project named in `PUT /v1/environment-orders/*` already belongs to another order.
   'project-in-another-order': 409,
   // A build, a publish or a derived version aimed at a later environment of
   // an order: a later environment takes builds by promotion only.
   'environment-takes-promotions': 409,
+  // Deleting or moving (to another parent) a project that is a member of an environment order.
+  'project-in-environment-order': 409,
+  // Deleting an org that is the parent of an environment order; a tenant admin clears the order first.
+  'org-has-environment-order': 409,
   // A promotion to a project that isn't the next environment of the
   // deployment's order (`details.nextProjectId` when the caller reads it).
   'promotion-not-next-environment': 409,
@@ -506,6 +533,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'scope-mismatch': 400,
   'env-name-required': 400,
   'env-name-mismatch': 400,
+  // A runtime that refuses other envs keeps every value under the one it
+  // serves: a value or a reference under another would never be read.
+  'env-not-served': 409,
   'env-cross-scope': 400,
   'reserved-name-prefix': 400,
   /** A name the secrets store can't write (the dev store's env-file keys); the message says its rule. */

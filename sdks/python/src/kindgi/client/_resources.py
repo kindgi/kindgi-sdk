@@ -114,6 +114,23 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "systemDeployments.listPackEnvChanged": Operation(
+        "systemDeployments.listPackEnvChanged", "GET", "/v1/system/pack-env", "json", False
+    ),
+    "systemDeployments.getPackEnv": Operation(
+        "systemDeployments.getPackEnv",
+        "GET",
+        "/v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env",
+        "json",
+        False,
+    ),
+    "systemDeployments.recordPackEnv": Operation(
+        "systemDeployments.recordPackEnv",
+        "PUT",
+        "/v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env",
+        "json",
+        True,
+    ),
     "systemDeployments.recordProblem": Operation(
         "systemDeployments.recordProblem",
         "PUT",
@@ -753,8 +770,14 @@ OPERATIONS: dict[str, Operation] = {
     "deployments.get": Operation(
         "deployments.get", "GET", "/v1/deployments/{deploymentId}", "json", False
     ),
+    "deployments.packEnv": Operation(
+        "deployments.packEnv", "GET", "/v1/deployments/{deploymentId}/pack-env", "json", False
+    ),
     "deployments.syncSecrets": Operation(
         "deployments.syncSecrets", "POST", "/v1/deployments/{deploymentId}/secrets", "json", True
+    ),
+    "deployments.values.list": Operation(
+        "deployments.values.list", "GET", "/v1/deployments/{deploymentId}/values", "json", False
     ),
     "deployments.promote": Operation(
         "deployments.promote", "POST", "/v1/deployments/{deploymentId}/promotions", "json", False
@@ -2079,6 +2102,74 @@ class SystemDeploymentsResource:
             path={"tenantId": tenant_id, "deploymentId": deployment_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            response=_models.DeploymentEndpoint,
+            timeout=timeout,
+        )
+
+    def list_pack_env_changed(
+        self,
+        /,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemPackEnvPage:
+        """List deployments whose pack service runs on values that changed. `GET /v1/system/pack-env`
+
+        Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision, but for one held as `pack-env-update-failed`, listed for an hour after it was first held so it's tried again, and one held for a cause the platform fixes, `pack-env-secret-unreadable` or `pack-env-secrets-unaudited`, listed every time with its `held`, as the revision doesn't move when that's fixed). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemDeployments.listPackEnvChanged"],
+            path={},
+            query={"cursor": cursor, "limit": limit},
+            headers={},
+            response=_models.SystemPackEnvPage,
+            timeout=timeout,
+        )
+
+    def get_pack_env(
+        self,
+        tenant_id: str | UUID,
+        deployment_id: str | UUID,
+        /,
+        *,
+        secrets: Literal["values"] | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemPackEnv:
+        """Read the env a deployment's pack service is to be given. `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
+
+        For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set both ways (`pack-env-ambiguous`), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.
+        """
+        return self._client._request(
+            _OPERATIONS["systemDeployments.getPackEnv"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={"secrets": secrets},
+            headers={},
+            response=_models.SystemPackEnv,
+            timeout=timeout,
+        )
+
+    def record_pack_env(
+        self,
+        tenant_id: str | UUID,
+        deployment_id: str | UUID,
+        body: _models.RecordPackEnvBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentEndpoint:
+        """Record the env revision a deployment's pack service runs. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
+
+        After giving a `ready` pack service its values: the `revision` it now runs. Or, with `held`, that this revision's values couldn't be given (a required one was removed, say), or were given and its new revision didn't start (`pack-env-update-failed`): the service keeps what it runs, and the tenant sees the code on the endpoint (`packEnvProblem`) until a later revision is given. The same code for the same revision keeps the time it was first recorded. Compare-and-set: `appliedRevision` is the one the service was found running, and another recorded since is `pack-env-conflict`. A new service's revision goes with its endpoint instead (`packEnvRevision`). Takes `system:pack-env`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemDeployments.recordPackEnv"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RecordPackEnvBody, body, fields),
             response=_models.DeploymentEndpoint,
             timeout=timeout,
         )
@@ -6919,11 +7010,40 @@ class IdentityResource:
         )
 
 
+class DeploymentsValuesResource:
+    """`client.deployments.values` — the `deployments.values` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        deployment_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.DeploymentValueList:
+        """List the values a deployment needs in a project. `GET /v1/deployments/{deploymentId}/values`
+
+        Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), and `read` on the tenant, as every deployments route does.
+        """
+        return self._client._request(
+            _OPERATIONS["deployments.values.list"],
+            path={"deploymentId": deployment_id},
+            query={"projectId": project_id},
+            headers={},
+            response=_models.DeploymentValueList,
+            timeout=timeout,
+        )
+
+
 class DeploymentsResource:
     """`client.deployments` — the `deployments` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
+        self.values = DeploymentsValuesResource(client)
 
     def list(
         self,
@@ -6990,6 +7110,22 @@ class DeploymentsResource:
             query={},
             headers={},
             response=_models.DeploymentRecord,
+            timeout=timeout,
+        )
+
+    def pack_env(
+        self, deployment_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.PackEnvNames:
+        """Show where each name a deployment's pack declares is set. `GET /v1/deployments/{deploymentId}/pack-env`
+
+        On a server that runs a pack service per deployment and gives it the env its pack declares: each declared name, where it's set (the deployment's project, then its org, then the tenant, at the env the server serves) and why it can't be given, if it can't. Never a value. A name set only as a secret can't be given into the pack service's environment yet: a tool reads it per call (`ctx.secrets`).
+        """
+        return self._client._request(
+            _OPERATIONS["deployments.packEnv"],
+            path={"deploymentId": deployment_id},
+            query={},
+            headers={},
+            response=_models.PackEnvNames,
             timeout=timeout,
         )
 
@@ -7351,7 +7487,7 @@ class OrgsResource:
     ) -> None:
         """Delete an org (idempotent). `DELETE /v1/orgs/{orgId}`
 
-        A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.
+        A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). When the org is the parent of an environment order, nothing is deleted either: `409 org-has-environment-order` names the order (a tenant admin clears it first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.
         """
         return self._client._request(
             _OPERATIONS["orgs.delete"],
@@ -8466,7 +8602,7 @@ class TenantConfigResource:
     ) -> _models.TenantConfigCollectionPage:
         """List the tenant's config entries. `GET /v1/tenant/config`
 
-        Cursor-paginated: the env entries (in the env binding order), then the secret entries (in the secrets binding order); a page holds at most `limit` entries and `nextCursor` resumes where it ended. Optional `?kind=` narrows to one slot (env / config / secret); `?keyPrefix=` matches on entry key. **Secret values are ALWAYS redacted on this admin surface** — the dispatch path is the only reader that receives raw material.
+        Cursor-paginated: the env entries (in the env binding order), then the `config` entries when they live apart from them, then the secret entries (in the secrets binding order); a page holds at most `limit` entries and `nextCursor` resumes where it ended. Optional `?kind=` narrows to one slot (env / config / secret); `?keyPrefix=` matches on entry key. `env` and `secret` entries are the ones under the env the runtime serves (`servedEnv` in whoami), where its tools read them; `config` entries, the tenant settings, are under `default` whatever it serves. On a runtime that serves none, all of them are under `default`. **Secret values are ALWAYS redacted on this admin surface** — the dispatch path is the only reader that receives raw material.
         """
         return self._client._request(
             _OPERATIONS["tenant.config.list"],
@@ -8488,7 +8624,7 @@ class TenantConfigResource:
     ) -> _models.UpsertTenantConfigResult:
         """Upsert a tenant-config entry. `PATCH /v1/tenant/config`
 
-        Set / update an entry keyed by `(kind, key)`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.
+        Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a tenant setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.
         """
         return self._client._request(
             _OPERATIONS["tenant.config.upsert"],
@@ -8575,7 +8711,7 @@ class EnvironmentOrdersResource:
     ) -> _models.EnvironmentOrder:
         """Set the tenant's environment order. `PUT /v1/environment-orders/tenant`
 
-        Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the tenant and in no other order. A write that changes nothing is a no-op.
+        Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the tenant and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.
         """
         return self._client._request(
             _OPERATIONS["environmentOrders.setTenant"],
@@ -8615,7 +8751,7 @@ class EnvironmentOrdersResource:
     ) -> _models.EnvironmentOrder:
         """Set an org's environment order. `PUT /v1/environment-orders/orgs/{orgId}`
 
-        Replace the org's order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live under this org and in no other order. A write that changes nothing is a no-op.
+        Replace the org's order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live under this org and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.
         """
         return self._client._request(
             _OPERATIONS["environmentOrders.setOrg"],
@@ -9324,7 +9460,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
 
-        Changes the flow version (which needs `execute` on the flow), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.
+        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.
         """
         return self._client._request(
             _OPERATIONS["webhooks.update"],
@@ -10560,6 +10696,74 @@ class AsyncSystemDeploymentsResource:
             path={"tenantId": tenant_id, "deploymentId": deployment_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            response=_models.DeploymentEndpoint,
+            timeout=timeout,
+        )
+
+    async def list_pack_env_changed(
+        self,
+        /,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemPackEnvPage:
+        """List deployments whose pack service runs on values that changed. `GET /v1/system/pack-env`
+
+        Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision, but for one held as `pack-env-update-failed`, listed for an hour after it was first held so it's tried again, and one held for a cause the platform fixes, `pack-env-secret-unreadable` or `pack-env-secrets-unaudited`, listed every time with its `held`, as the revision doesn't move when that's fixed). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemDeployments.listPackEnvChanged"],
+            path={},
+            query={"cursor": cursor, "limit": limit},
+            headers={},
+            response=_models.SystemPackEnvPage,
+            timeout=timeout,
+        )
+
+    async def get_pack_env(
+        self,
+        tenant_id: str | UUID,
+        deployment_id: str | UUID,
+        /,
+        *,
+        secrets: Literal["values"] | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemPackEnv:
+        """Read the env a deployment's pack service is to be given. `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
+
+        For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set both ways (`pack-env-ambiguous`), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemDeployments.getPackEnv"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={"secrets": secrets},
+            headers={},
+            response=_models.SystemPackEnv,
+            timeout=timeout,
+        )
+
+    async def record_pack_env(
+        self,
+        tenant_id: str | UUID,
+        deployment_id: str | UUID,
+        body: _models.RecordPackEnvBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentEndpoint:
+        """Record the env revision a deployment's pack service runs. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
+
+        After giving a `ready` pack service its values: the `revision` it now runs. Or, with `held`, that this revision's values couldn't be given (a required one was removed, say), or were given and its new revision didn't start (`pack-env-update-failed`): the service keeps what it runs, and the tenant sees the code on the endpoint (`packEnvProblem`) until a later revision is given. The same code for the same revision keeps the time it was first recorded. Compare-and-set: `appliedRevision` is the one the service was found running, and another recorded since is `pack-env-conflict`. A new service's revision goes with its endpoint instead (`packEnvRevision`). Takes `system:pack-env`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemDeployments.recordPackEnv"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RecordPackEnvBody, body, fields),
             response=_models.DeploymentEndpoint,
             timeout=timeout,
         )
@@ -15420,11 +15624,40 @@ class AsyncIdentityResource:
         )
 
 
+class AsyncDeploymentsValuesResource:
+    """`client.deployments.values` — the `deployments.values` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        deployment_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.DeploymentValueList:
+        """List the values a deployment needs in a project. `GET /v1/deployments/{deploymentId}/values`
+
+        Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), and `read` on the tenant, as every deployments route does.
+        """
+        return await self._client._request(
+            _OPERATIONS["deployments.values.list"],
+            path={"deploymentId": deployment_id},
+            query={"projectId": project_id},
+            headers={},
+            response=_models.DeploymentValueList,
+            timeout=timeout,
+        )
+
+
 class AsyncDeploymentsResource:
     """`client.deployments` — the `deployments` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
+        self.values = AsyncDeploymentsValuesResource(client)
 
     async def list(
         self,
@@ -15491,6 +15724,22 @@ class AsyncDeploymentsResource:
             query={},
             headers={},
             response=_models.DeploymentRecord,
+            timeout=timeout,
+        )
+
+    async def pack_env(
+        self, deployment_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.PackEnvNames:
+        """Show where each name a deployment's pack declares is set. `GET /v1/deployments/{deploymentId}/pack-env`
+
+        On a server that runs a pack service per deployment and gives it the env its pack declares: each declared name, where it's set (the deployment's project, then its org, then the tenant, at the env the server serves) and why it can't be given, if it can't. Never a value. A name set only as a secret can't be given into the pack service's environment yet: a tool reads it per call (`ctx.secrets`).
+        """
+        return await self._client._request(
+            _OPERATIONS["deployments.packEnv"],
+            path={"deploymentId": deployment_id},
+            query={},
+            headers={},
+            response=_models.PackEnvNames,
             timeout=timeout,
         )
 
@@ -15852,7 +16101,7 @@ class AsyncOrgsResource:
     ) -> None:
         """Delete an org (idempotent). `DELETE /v1/orgs/{orgId}`
 
-        A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.
+        A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). When the org is the parent of an environment order, nothing is deleted either: `409 org-has-environment-order` names the order (a tenant admin clears it first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.
         """
         return await self._client._request(
             _OPERATIONS["orgs.delete"],
@@ -16969,7 +17218,7 @@ class AsyncTenantConfigResource:
     ) -> _models.TenantConfigCollectionPage:
         """List the tenant's config entries. `GET /v1/tenant/config`
 
-        Cursor-paginated: the env entries (in the env binding order), then the secret entries (in the secrets binding order); a page holds at most `limit` entries and `nextCursor` resumes where it ended. Optional `?kind=` narrows to one slot (env / config / secret); `?keyPrefix=` matches on entry key. **Secret values are ALWAYS redacted on this admin surface** — the dispatch path is the only reader that receives raw material.
+        Cursor-paginated: the env entries (in the env binding order), then the `config` entries when they live apart from them, then the secret entries (in the secrets binding order); a page holds at most `limit` entries and `nextCursor` resumes where it ended. Optional `?kind=` narrows to one slot (env / config / secret); `?keyPrefix=` matches on entry key. `env` and `secret` entries are the ones under the env the runtime serves (`servedEnv` in whoami), where its tools read them; `config` entries, the tenant settings, are under `default` whatever it serves. On a runtime that serves none, all of them are under `default`. **Secret values are ALWAYS redacted on this admin surface** — the dispatch path is the only reader that receives raw material.
         """
         return await self._client._request(
             _OPERATIONS["tenant.config.list"],
@@ -16991,7 +17240,7 @@ class AsyncTenantConfigResource:
     ) -> _models.UpsertTenantConfigResult:
         """Upsert a tenant-config entry. `PATCH /v1/tenant/config`
 
-        Set / update an entry keyed by `(kind, key)`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.
+        Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a tenant setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.
         """
         return await self._client._request(
             _OPERATIONS["tenant.config.upsert"],
@@ -17078,7 +17327,7 @@ class AsyncEnvironmentOrdersResource:
     ) -> _models.EnvironmentOrder:
         """Set the tenant's environment order. `PUT /v1/environment-orders/tenant`
 
-        Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the tenant and in no other order. A write that changes nothing is a no-op.
+        Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the tenant and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.
         """
         return await self._client._request(
             _OPERATIONS["environmentOrders.setTenant"],
@@ -17118,7 +17367,7 @@ class AsyncEnvironmentOrdersResource:
     ) -> _models.EnvironmentOrder:
         """Set an org's environment order. `PUT /v1/environment-orders/orgs/{orgId}`
 
-        Replace the org's order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live under this org and in no other order. A write that changes nothing is a no-op.
+        Replace the org's order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live under this org and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.
         """
         return await self._client._request(
             _OPERATIONS["environmentOrders.setOrg"],
@@ -17827,7 +18076,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
 
-        Changes the flow version (which needs `execute` on the flow), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.
+        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.
         """
         return await self._client._request(
             _OPERATIONS["webhooks.update"],

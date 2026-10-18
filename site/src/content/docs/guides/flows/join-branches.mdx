@@ -326,10 +326,40 @@ runs once, at the end of it.
 
 Run it for a small order and a large one:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}'
-kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-200"}'
+pnpm exec kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}'
+pnpm exec kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-200"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}'
+uv run kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.handle-order --input='{"orderId":"A-100"}'
+./kindgiw runs start --flow=acme.handle-order --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.handle-order --input='{"orderId":"A-100"}'
+./kindgiw runs start --flow=acme.handle-order --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--flow` is the flow, and `--input` its input. The two runs return:
 

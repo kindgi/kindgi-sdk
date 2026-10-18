@@ -25,6 +25,8 @@
  */
 
 import type { DeployEnvelope } from '../build/envelope.js';
+import type { PackEnvNameRecord } from '../env/pack-env-hint.js';
+import type { ServedEnv } from '../value-target.js';
 
 // ---------------------------------------------------------------------
 // Envelope loader
@@ -162,9 +164,16 @@ export type PostDeploymentResult =
       readonly error: {
         readonly code: string;
         readonly message: string;
+        /** The wire's `details.issues`: each primitive the server refused, and why. */
         readonly details?: readonly Record<string, unknown>[];
-        /** Which limit refused it (the wire's `details.limit`, on a `429`), when the server named one. */
+        /**
+         * Which limit refused it (the wire's `details.limit`), when the
+         * server named one: on a `429`, or on an `image-unverifiable`
+         * whose cause is `image-limit-exceeded`.
+         */
         readonly limit?: string;
+        /** Why the image couldn't be verified (the wire's `details.cause`), when the server named it. */
+        readonly cause?: string;
         /** The project's position in its environment order (the wire's `details.position`, on a `409 environment-takes-promotions`). */
         readonly position?: number;
         /** That order's first environment (the wire's `details.firstProjectId`), when the caller may read it. */
@@ -334,6 +343,17 @@ export type FindProjectsResult =
     }
   | { readonly kind: 'error'; readonly message: string };
 
+/**
+ * `kindgi deploy --sync-secrets`, or an `--env` whose pack environment names a
+ * project: what the runtime says it serves (whoami's `servedEnv`).
+ */
+export interface ServedEnvOptions {
+  readonly endpoint: string;
+  readonly token: string;
+  readonly fetchImpl: typeof fetch;
+  readonly signal?: AbortSignal;
+}
+
 /** `kindgi deploy --hosted`: the deployment as the runtime has it now. */
 export interface GetDeploymentOptions {
   readonly endpoint: string;
@@ -345,6 +365,21 @@ export interface GetDeploymentOptions {
 
 export type GetDeploymentResult =
   | { readonly kind: 'ok'; readonly record: DeploymentRecord }
+  | { readonly kind: 'error'; readonly message: string };
+
+/** `GET /v1/deployments/:id/pack-env`: where each name the deployment's pack declares is set, never a value. */
+export interface PackEnvRecord {
+  /** The env the values are read at. */
+  readonly envName: string;
+  readonly data: readonly PackEnvNameRecord[];
+  /** `pack-env-missing` and the like, when something stands in the way. */
+  readonly problem?: string;
+}
+
+export type GetPackEnvResult =
+  | { readonly kind: 'ok'; readonly packEnv: PackEnvRecord }
+  /** The server's pack services take their env from how they're run (501), or it's older (404). */
+  | { readonly kind: 'not-served' }
   | { readonly kind: 'error'; readonly message: string };
 
 export interface DeployRunners {
@@ -381,8 +416,16 @@ export interface DeployRunners {
    */
   readonly listProjects?: (opts: ListOptions) => Promise<ListProjectsResult>;
   readonly listEnvironmentOrders?: (opts: ListOptions) => Promise<ListEnvironmentOrdersResult>;
+  /**
+   * `--sync-secrets`, or an `--env` whose pack environment names a project:
+   * the env the runtime serves (`GET /v1/identity/whoami`), or `undefined`
+   * when it names none or can't be asked.
+   */
+  readonly servedEnv?: (opts: ServedEnvOptions) => Promise<ServedEnv | undefined>;
   /** `--hosted`: the deployment, read again while its pack service starts (`GET /v1/deployments/:id`). */
   readonly getDeployment?: (opts: GetDeploymentOptions) => Promise<GetDeploymentResult>;
+  /** `--hosted`: where each name the pack declares is set, when a required one stands in the way. */
+  readonly getPackEnv?: (opts: GetDeploymentOptions) => Promise<GetPackEnvResult>;
   /** `--hosted`: the pause between those reads. Default: a timer, cut short by Ctrl+C. */
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   /** `--hosted`: the clock the wait is measured on, in milliseconds. Default: `Date.now()`. */

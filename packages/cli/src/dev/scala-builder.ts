@@ -38,7 +38,12 @@ import {
   scanSignature,
   startScanBackstop,
 } from './scan-backstop.js';
-import { SHARE_WATCH_BY_DEFAULT, type WatchEvents, directoryWatches } from './shared-watch.js';
+import {
+  SHARE_WATCH_BY_DEFAULT,
+  type WatchEvents,
+  directoryWatches,
+  mayHideChange,
+} from './shared-watch.js';
 
 const SKIPPED_DIRS = ['target', 'node_modules', 'build', 'out', 'project/project'];
 const DEFAULT_DEBOUNCE_MS = 150;
@@ -90,15 +95,22 @@ export function isSbtBuildChange(relPath: string): boolean {
 export function isScalaSourceChange(relPath: string): boolean {
   const normalized = relPath.split(/[\\/]/).join('/');
   const segments = normalized.split('/');
-  if (
-    segments.slice(0, -1).some((s) => s.startsWith('.') || SKIPPED_DIRS.includes(s)) ||
-    SKIPPED_DIRS.some((d) => d.includes('/') && normalized.startsWith(`${d}/`))
-  ) {
-    return false;
-  }
+  if (isSkippedFolder(segments.slice(0, -1).join('/'))) return false;
   const name = segments[segments.length - 1] ?? '';
   if (name.startsWith('.')) return false;
   return isSbtBuildChange(normalized) || (segments[0] === 'src' && segments[1] === 'main');
+}
+
+/**
+ * Whether `folder` (relative to the pack root, `/`-separated) is one no build
+ * reads, or in one: a dot folder, or one in `SKIPPED_DIRS` (sbt's `target/`,
+ * the meta-build's `project/project`).
+ */
+function isSkippedFolder(folder: string): boolean {
+  return (
+    folder.split('/').some((s) => s.startsWith('.') || SKIPPED_DIRS.includes(s)) ||
+    SKIPPED_DIRS.some((d) => d.includes('/') && `${folder}/`.startsWith(`${d}/`))
+  );
 }
 
 /** The sources and build files a build reads, with their mtimes and sizes (`scan-backstop.ts`). */
@@ -343,31 +355,38 @@ export function createScalaPackBuilder(options: ScalaPackBuilderOptions): PackBu
           void (backstop?.mark() ?? Promise.resolve()).then(build).then(onBuild);
         }, options.debounceMs ?? DEFAULT_DEBOUNCE_MS);
       };
+      // A failed watch or a rescan can't say what changed: reload, to be
+      // sure the build is current.
+      const reloadAndBuild = (): void => {
+        buildChanged = true;
+        schedule();
+      };
       if (options.share ?? SHARE_WATCH_BY_DEFAULT) {
         unsubscribe = directoryWatches(options.watchEvents ?? watchEventsReal).subscribe(
           packDir,
           (rel) => {
             if (rel !== undefined && isScalaSourceChange(rel)) schedule(rel);
           },
-          // A rescan can't say what changed: reload, to be sure the build is current.
-          () => {
-            buildChanged = true;
-            schedule();
-          },
+          reloadAndBuild,
         );
       } else {
         watcher = watchFs(packDir, { recursive: true }, (_event, filename) => {
           if (filename === null || !isScalaSourceChange(filename.toString())) return;
           schedule(filename.toString());
         });
+        // The watch failed: reload and build, as when shared. An 'error'
+        // nothing listens for would end `kindgi dev`. On Linux, Node's
+        // recursive watch goes on after one, and some hide no change to the
+        // code: a folder removed while it read it, or a path in a folder no
+        // build reads (`mayHideChange`). Those build nothing.
+        watcher.on('error', (error) => {
+          if (mayHideChange(error, packDir, isSkippedFolder)) reloadAndBuild();
+        });
       }
       backstop = await startScanBackstop({
         scan,
         intervalMs: options.scanIntervalMs ?? DEFAULT_SCAN_INTERVAL_MS,
-        onChange: () => {
-          buildChanged = true;
-          schedule();
-        },
+        onChange: reloadAndBuild,
       });
     },
     // New or removed files need no entry list: sbt compiles what is there.

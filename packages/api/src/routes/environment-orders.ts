@@ -12,12 +12,39 @@ import { callerIdentity, isTenantAdmin } from '../caller.js';
 import type {
   EnvironmentOrder,
   EnvironmentOrderBinding,
+  EnvironmentOrderCursor,
   EnvironmentOrderParent,
 } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { UUID_RE } from './uuid-param.js';
+
+/** The parent a page ended on, as the wire cursor: base64url JSON the route alone reads. */
+function encodeCursor(cursor: EnvironmentOrderCursor): string {
+  return Buffer.from(JSON.stringify({ orgId: cursor.orgId }), 'utf8').toString('base64url');
+}
+
+/**
+ * Decode the wire `cursor`: a decoded parent, `undefined` for no cursor, or
+ * `'bad'` for one this list never gave. Only `null` or a uuid org id is a
+ * cursor this list mints, so anything else is `'bad'` — never a silent
+ * restart, and never a non-uuid handed to the binding's keyset.
+ */
+function parseCursor(raw: string | undefined): EnvironmentOrderCursor | undefined | 'bad' {
+  if (raw === undefined || raw === '') return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown;
+    if (parsed === null || typeof parsed !== 'object') return 'bad';
+    const orgId = (parsed as { orgId?: unknown }).orgId;
+    if (orgId === null) return { orgId: null };
+    if (typeof orgId === 'string' && UUID_RE.test(orgId)) return { orgId };
+    return 'bad';
+  } catch {
+    return 'bad';
+  }
+}
 
 /**
  * `/v1/environment-orders`: the order a tenant runs a project through on
@@ -36,7 +63,9 @@ import { clampLimit } from './pagination.js';
  * tenant admin writes an order; an org admin or a project admin is refused,
  * even on an org's own order. A write replaces the whole order with the
  * projects given, in order; `[]` clears it, and a write that changes
- * nothing writes and records nothing.
+ * nothing writes and records nothing. Removing a project from an order or
+ * reordering leaves running deployments where they are; a project in no
+ * order takes builds directly again.
  */
 /** An order on the wire; a project the caller can't read is position-only. */
 interface WireOrder {
@@ -55,11 +84,20 @@ export function environmentOrdersRouter(deps: {
   r.get('/', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const limit = clampLimit(c.req.query('limit'));
-    const cursor = c.req.query('cursor');
+    const after = parseCursor(c.req.query('cursor'));
+    if (after === 'bad') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: "`cursor` isn't one this list gave" },
+          c.get('requestId'),
+        ),
+      );
+    }
     const page = await binding.list({
       tenantId,
       limit,
-      ...(cursor !== undefined && cursor !== '' && { after: cursor }),
+      ...(after !== undefined && { after }),
     });
     const visible: WireOrder[] = [];
     for (const order of page.orders) {
@@ -69,8 +107,8 @@ export function environmentOrdersRouter(deps: {
     }
     return c.json({
       data: visible,
-      hasMore: page.nextCursor !== undefined,
-      ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor }),
+      hasMore: page.nextAfter !== undefined,
+      ...(page.nextAfter !== undefined && { nextCursor: encodeCursor(page.nextAfter) }),
     });
   });
 
@@ -97,7 +135,14 @@ async function getOrder(
 ): Promise<Response> {
   const tenantId = c.get('tenantId') as TenantId;
   const order = await binding.get({ tenantId, parent });
-  return c.json(await serializeOrderVisible(c, authorizer, order));
+  const wire = await serializeOrderVisible(c, authorizer, order);
+  // Follow the list's rule: an order the caller can read no project in
+  // reads as empty. A single read never reveals an order the list hides —
+  // not its member count by position, nor that it exists at all (an order
+  // the caller can't see reads the same as none).
+  const readsNone =
+    order.entries.length > 0 && !wire.entries.some((e) => e.projectId !== undefined);
+  return c.json(readsNone ? { parent: wire.parent, entries: [] } : wire);
 }
 
 async function setOrder(

@@ -77,6 +77,11 @@ import {
   SYSTEM_DEPLOYMENT_RETIRE_REASONS,
 } from '../deployment-binding.js';
 import { ERROR_CODE_TO_STATUS } from '../errors.js';
+import {
+  PACK_ENV_HELD_CODES,
+  PACK_ENV_PLATFORM_HOLDS,
+  PACK_ENV_PROBLEM_CODES,
+} from '../pack-env.js';
 import { PACK_ENDPOINT_AUTHS } from '../routes/system-deployments.js';
 import { FULL_SYSTEM_CAPABILITY, SYSTEM_SCOPES } from '../system.js';
 
@@ -1602,6 +1607,235 @@ export const SetPackEndpointBodySchema: JsonSchema = {
       description:
         "The pack service's token (`KINDGI_PACK_SERVICE_TOKEN`), printable ASCII without spaces. Stored wrapped; never returned, logged or recorded.",
     },
+    packEnvRevision: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 128,
+      description:
+        'The `revision` from `GET …/pack-env` whose values the service was made with, when its pack declares an environment. Kept as the one it runs, so `GET /v1/system/pack-env` lists it once they change.',
+    },
+  },
+};
+
+/** A pack's declared process environment, as the image's `index.json` carries it. */
+export const PackEnvDeclarationSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['required', 'optional'],
+  description:
+    "The names the pack service reads from its process environment, as the image's `index.json` declares them (`env`), each list in name order. Names only, never a value. On a deployment: absent when it declares none, and from older servers.",
+  properties: {
+    required: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Names the pack service needs, set and non-empty, to be ready.',
+    },
+    optional: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Names the pack reads when present.',
+    },
+  },
+};
+
+export const PackEnvScopeSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description: "Where a value is set: the deployment's project, the project's org, or the tenant.",
+  properties: {
+    kind: { type: 'string', enum: ['project', 'org', 'tenant'] },
+    id: {
+      type: 'string',
+      description: "The project's or the org's id. Absent for the tenant.",
+    },
+  },
+};
+
+export const PackEnvNameStatusSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'required', 'kind', 'scope', 'missing'],
+  description:
+    "One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (`secretScope`, for `ambiguous` only, names the secret's scope). Each name is looked for at the deployment's project, then its org, then the tenant (most specific wins); a tenant-wide deployment's, at the tenant's Default project. Never a value.",
+  properties: {
+    name: { type: 'string' },
+    required: { type: 'boolean' },
+    kind: {
+      oneOf: [{ type: 'string', enum: ['env', 'secret'] }, { type: 'null' }],
+      description:
+        'What it is set as: a plain value (`env`) or a secret. `null` when it is set nowhere.',
+    },
+    scope: {
+      oneOf: [{ $ref: '#/components/schemas/PackEnvScope' }, { type: 'null' }],
+      description:
+        "Where it is set: the plain value's scope when `ambiguous`. `null` when it is set nowhere.",
+    },
+    missing: {
+      type: 'boolean',
+      description: 'Set nowhere, as a plain value or a secret (optional names too).',
+    },
+    problem: {
+      type: 'string',
+      enum: ['ambiguous', 'secret-not-yet', 'missing', 'unreadable'],
+      description:
+        "Why it can't be given to the pack service. `ambiguous`: set both as a secret and as a plain value (`secretScope` names the secret's scope). `secret-not-yet`: set only as a secret, and the orchestrator didn't ask for secret values (`secrets=values`); a tool reads it per call (`ctx.secrets`). `missing`: a required name set nowhere. `unreadable`: set as a secret, and it can't be read for a reason the platform fixes, not the owner. Absent when it can be given, and for an optional name set nowhere. The owner's check (`GET /v1/deployments/{deploymentId}/pack-env`) lists a name set only as a secret as `kind: 'secret'`, with no problem.",
+    },
+    secretScope: { $ref: '#/components/schemas/PackEnvScope' },
+  },
+};
+
+export const PackEnvProblemCodeSchema: JsonSchema = {
+  type: 'string',
+  enum: [...PACK_ENV_PROBLEM_CODES],
+  description:
+    "Why a deployment's pack service can't be given its declared environment, the first in this order: `pack-env-ambiguous` (a name is set both as a secret and as a plain value), `pack-env-secret-not-yet` (a name is set only as a secret, and its value wasn't asked for), `pack-env-missing` (a required name is set nowhere), `pack-env-secret-unreadable` (a name's secret is set, but it can't be read for a reason the platform fixes, not the owner; only a read with `secrets=values` finds it, and only when there's no other problem). A later runtime may add codes, so treat an unknown one as a reason not yet named.",
+};
+
+export const PackEnvHeldCodeSchema: JsonSchema = {
+  type: 'string',
+  enum: [...PACK_ENV_HELD_CODES],
+  description:
+    "Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it; `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. The orchestrator couldn't give it its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out, so it gives none; the platform fixes it), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-secret-redeploy` (a name is now set only as a secret, and this pack service was made where no secret can be given to it; a new deployment's can be, from a new build of the pack). A service held as `pack-env-secret-unreadable` or `pack-env-secrets-unaudited` is listed by `GET /v1/system/pack-env` every time, with its `held`, as the revision doesn't move when the platform fixes it. A later runtime may add codes, so treat an unknown one as a reason not yet named.",
+};
+
+export const SystemPackEnvSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['revision', 'names'],
+  description:
+    "What the deployment's pack service is to be given: where each declared name is set, and the values when nothing stands in the way, plain ones in `env` and, when asked for (`secrets=values`), secrets in `secrets`. Each value given out is on the audit record: `env-resolved` as the deployment's system read, and `secret-resolved` (caller `pack-env`, with the request id as its `correlationId` and the system key's id), written before the answer.",
+  properties: {
+    revision: {
+      type: 'string',
+      description:
+        'Changes whenever what would be given changes: a value written or removed, a secret set or revoked. Made from scopes, row ids, revisions and update times, never from a value. Send it back with the endpoint (`packEnvRevision`) or `PUT …/pack-env`.',
+    },
+    names: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/PackEnvNameStatus' },
+      description: 'Every declared name, required ones first, each list in name order.',
+    },
+    problem: { $ref: '#/components/schemas/PackEnvProblemCode' },
+    env: {
+      type: 'object',
+      additionalProperties: { type: 'string' },
+      description:
+        'Each declared name that is set, by name, as plain values. Absent while there is a `problem`: then nothing is given, and the service keeps what it runs.',
+    },
+    secrets: {
+      type: 'object',
+      additionalProperties: { $ref: '#/components/schemas/PackEnvSecretValue' },
+      description:
+        "With `secrets=values` only: each declared name that is set only as a secret, by name (`{}` when there's none). Never put one into a plain env. Absent while there is a `problem`, and when it wasn't asked for.",
+    },
+  },
+};
+
+export const PackEnvSecretValueSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['value', 'revision'],
+  description:
+    "A secret given to the deployment's pack service: its value, read at the version `revision` names, and audited before the answer.",
+  properties: {
+    value: { type: 'string' },
+    revision: {
+      type: 'string',
+      description:
+        "`ps1-…`: the same for the same value under the same name, and changes whenever what's given for the name does (a new version, another scope, a revoke or a delete). Made from the name's part of the deployment's `revision`, never from the value.",
+    },
+  },
+};
+
+export const SystemPackEnvEntrySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A deployment whose pack service runs on declared env values that changed since: ids, the image, and the revision it runs. Never a value. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`).',
+  required: [
+    'tenantId',
+    'deploymentId',
+    'packId',
+    'imageRef',
+    'imageDigest',
+    'artifactVersion',
+    'activatedAt',
+  ],
+  properties: {
+    ...SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES,
+    appliedRevision: {
+      type: 'string',
+      description:
+        'The revision its service runs: given with its endpoint, or recorded since. Absent: none was. Send it back as `appliedRevision` with `PUT …/pack-env`.',
+    },
+    held: { $ref: '#/components/schemas/SystemPackEnvHold' },
+  },
+};
+
+export const SystemPackEnvHoldSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['code', 'since'],
+  description:
+    "Only when it's held at its current revision for a cause the platform fixes, not the owner: it's listed every time, as the revision doesn't move when that's fixed. Read its values again when your back-off says. Absent otherwise.",
+  properties: {
+    code: { type: 'string', enum: [...PACK_ENV_PLATFORM_HOLDS] },
+    since: { type: 'string', format: 'date-time', description: 'When it was first held.' },
+  },
+};
+
+export const SystemPackEnvPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/SystemPackEnvEntry' } },
+    nextCursor: {
+      type: 'string',
+      description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
+    },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const RecordPackEnvBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['revision'],
+  properties: {
+    revision: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 128,
+      description:
+        "The `revision` from `GET …/pack-env`. Without `held`: the service now runs its values. With `held`: they weren't given, and the service keeps what it runs.",
+    },
+    held: { $ref: '#/components/schemas/PackEnvHeldCode' },
+    appliedRevision: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 128,
+      description:
+        'The revision the service was found running, as `GET /v1/system/pack-env` listed it. Absent: none was recorded. Another revision recorded since is a conflict (`pack-env-conflict`).',
+    },
+  },
+};
+
+export const PackEnvNamesSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['envName', 'data'],
+  description:
+    "Where each name the deployment's pack declares is set, at the env the server serves. Never a value.",
+  properties: {
+    envName: { type: 'string', description: 'The env the values are read at (`KINDGI_ENV`).' },
+    data: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/PackEnvNameStatus' },
+      description: 'Every declared name, required ones first, each list in name order.',
+    },
+    problem: { $ref: '#/components/schemas/PackEnvProblemCode' },
   },
 };
 
@@ -9117,6 +9351,20 @@ export const WhoamiResultSchema: JsonSchema = {
       description:
         'Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.',
     },
+    servedEnv: {
+      type: 'object',
+      description:
+        "The env this runtime serves (`KINDGI_ENV`): where the values its tools read are kept. With `refusesOtherEnvs`, it's the only one: a secret, env value or secret reference under another env is refused (`409 env-not-served`), so a client defaults to `envName`. Absent when the runtime serves no env, and from older servers.",
+      required: ['envName', 'refusesOtherEnvs'],
+      properties: {
+        envName: { type: 'string', description: 'The env name.' },
+        refusesOtherEnvs: {
+          type: 'boolean',
+          description: 'Whether values under any other env are refused.',
+        },
+      },
+      additionalProperties: false,
+    },
   },
 };
 
@@ -10238,6 +10486,7 @@ export const DeploymentRecordSchema: JsonSchema = {
       description:
         "The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's Default project).",
     },
+    packEnv: { $ref: '#/components/schemas/PackEnvDeclaration' },
     promotedFromDeploymentId: {
       type: 'string',
       minLength: 1,
@@ -10499,6 +10748,21 @@ export const DeploymentPromotionCheckSchema: JsonSchema = {
   },
 };
 
+/** Wire response for `GET /v1/deployments/:deploymentId/values`. */
+export const DeploymentValueListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      description:
+        "Every value the deployment needs in the project: each tool's secrets and env values (in the deployment's order), then each model key by provider, then the pack service's env.",
+      items: { $ref: '#/components/schemas/DeploymentValue' },
+    },
+  },
+};
+
 /**
  * A deployment's pack service, as a tenant sees it (never its URL or
  * token). Present only when the server routes pack calls per deployment.
@@ -10528,6 +10792,17 @@ export const DeploymentEndpointSchema: JsonSchema = {
       description:
         '`cleared` only: why no pack service is wanted for it now. `superseded` is for good: newer deployments ship every tool version and check it does, so no new call reaches it; a tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.',
     },
+    packEnvProblem: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['code', 'since'],
+      description:
+        "`ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say, or a secret can't be given), or didn't start (`pack-env-update-failed`). Gone once they can, or do. For a name that can't be given, `GET /v1/deployments/{deploymentId}/pack-env` names it. Absent from older servers.",
+      properties: {
+        code: { $ref: '#/components/schemas/PackEnvHeldCode' },
+        since: { type: 'string', format: 'date-time', description: 'When it was recorded.' },
+      },
+    },
   },
 };
 
@@ -10542,7 +10817,7 @@ export const DeploymentEndpointProblemSchema: JsonSchema = {
     code: {
       type: 'string',
       description:
-        "One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start).",
+        "One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start). It can't be given its declared environment (`GET /v1/deployments/{deploymentId}/pack-env` names the names): `pack-env-ambiguous`, `pack-env-secret-not-yet`, `pack-env-missing`, `pack-env-secret-unreadable` (a name's secret can't be read for a reason the platform fixes, not the owner; it's tried again). It can't be given its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out; the platform fixes it, and it's tried again), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-secret-capacity` (a name is set only as a secret, and there's no room just now for a pack service that can be given one, apart from other projects'; it's tried again).",
     },
     since: {
       type: 'string',
@@ -13484,6 +13759,18 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SystemDeploymentEntry', SystemDeploymentEntrySchema],
   ['SystemDeploymentPage', SystemDeploymentPageSchema],
   ['SetPackEndpointBody', SetPackEndpointBodySchema],
+  ['PackEnvDeclaration', PackEnvDeclarationSchema],
+  ['PackEnvScope', PackEnvScopeSchema],
+  ['PackEnvNameStatus', PackEnvNameStatusSchema],
+  ['PackEnvProblemCode', PackEnvProblemCodeSchema],
+  ['PackEnvHeldCode', PackEnvHeldCodeSchema],
+  ['SystemPackEnv', SystemPackEnvSchema],
+  ['PackEnvSecretValue', PackEnvSecretValueSchema],
+  ['SystemPackEnvEntry', SystemPackEnvEntrySchema],
+  ['SystemPackEnvHold', SystemPackEnvHoldSchema],
+  ['SystemPackEnvPage', SystemPackEnvPageSchema],
+  ['RecordPackEnvBody', RecordPackEnvBodySchema],
+  ['PackEnvNames', PackEnvNamesSchema],
   ['RecordDeploymentProblemBody', RecordDeploymentProblemBodySchema],
   ['SetPackSuspendedBody', SetPackSuspendedBodySchema],
   ['PackSuspension', PackSuspensionSchema],
@@ -13884,6 +14171,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeploymentRecord', DeploymentRecordSchema],
   ['DeploymentValueNeededBy', DeploymentValueNeededBySchema],
   ['DeploymentValue', DeploymentValueSchema],
+  ['DeploymentValueList', DeploymentValueListSchema],
   ['DeploymentPromotionBody', DeploymentPromotionBodySchema],
   ['DeploymentPromotionCheckBody', DeploymentPromotionCheckBodySchema],
   ['PromotionMovedVersion', PromotionMovedVersionSchema],

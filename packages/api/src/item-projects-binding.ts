@@ -18,6 +18,26 @@ export interface ItemProjectsOfManyInput {
   readonly ids: readonly string[];
 }
 
+export interface ServesInInput extends ItemProjectsInput {
+  readonly projectId: ProjectId;
+}
+
+/** Whether a project serves an item, and the item's own project. */
+export interface ItemServesIn {
+  /** The project the item was first published in: `projectsOf`'s first. */
+  readonly own: ProjectId;
+  /** Whether the project asked about is one of `projectsOf`'s. */
+  readonly serves: boolean;
+}
+
+/** Whether a project besides its own serves an item, and the item's own project. */
+export interface ItemServedElsewhere {
+  /** The project the item was first published in: `projectsOf`'s first. */
+  readonly own: ProjectId;
+  /** Whether `projectsOf` has more than one project. */
+  readonly elsewhere: boolean;
+}
+
 export interface VersionProjectsInput extends ItemProjectsInput {
   readonly version: string;
 }
@@ -75,6 +95,19 @@ export interface ItemProjectsBinding {
   projectsOfMany(
     input: ItemProjectsOfManyInput,
   ): Promise<ReadonlyMap<string, readonly ProjectId[]>>;
+  /**
+   * `projectsOf` asked of one project: whether it's one of the item's, and
+   * the item's own. Exactly what `projectsOf` answers, reading only what
+   * serves the item there, so a run start needn't read everywhere else it
+   * runs. `projectId` is whatever the caller named, so it may name no
+   * project: then it isn't one of the item's. `undefined`: no such item.
+   */
+  servesIn(input: ServesInInput): Promise<ItemServesIn | undefined>;
+  /**
+   * Whether `projectsOf` has more than one project, and the item's own,
+   * stopping at the first other project found. `undefined`: no such item.
+   */
+  servedElsewhere(input: ItemProjectsInput): Promise<ItemServedElsewhere | undefined>;
   /**
    * A version's projects: the project it was made in first (the item's
    * own, for a version from before environments), then every other

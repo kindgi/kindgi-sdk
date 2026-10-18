@@ -63,6 +63,7 @@ import {
   readingOf,
   toRunProgressEvent,
 } from './sse.js';
+import { type TurnConversation, turnRefusal } from './turn-access.js';
 import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 
 const KERNEL_RUN_CHANNEL_PREFIX = 'kernel:run:';
@@ -105,17 +106,15 @@ export interface RunsRouterOptions {
    */
   readonly referenceScope?: ReferenceScopeBinding;
   /**
-   * A conversation's stored participant and project: a turn posted into it
-   * runs as that participant, whatever the body names, so who may post it
-   * is checked against them (`participantRefusal`). `null`: no such
-   * conversation (the run handler answers it). Any other failure throws, so
-   * the turn never runs unchecked. Required, as `targetProject` is: a
-   * router without them would check no stored participant.
+   * What a turn posted into a conversation is checked against
+   * (`turnRefusal`, `participantRefusal`). `null`: no such conversation.
+   * Any other failure throws, so the turn never runs unchecked. Required,
+   * as `targetProject` is: a router without it would check no conversation.
    */
   readonly conversationOf: (
     tenantId: TenantId,
     conversationId: string,
-  ) => Promise<{ readonly participantId?: string; readonly projectId?: string } | null>;
+  ) => Promise<TurnConversation | null>;
   /**
    * Rights on an agent or flow more than one project serves
    * (`item-rights.ts`): running it in one of its projects is that
@@ -277,14 +276,23 @@ export function runsRouter(
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
 
+    // Who may add a turn to the conversation it continues, and under which
+    // project (`turnRefusal`). Another id than a uuid names no conversation
+    // (the run handler answers it), so only the body's participant is checked.
+    const opened = await conversation();
+    if (conversationId !== undefined && UUID_RE.test(conversationId)) {
+      const refusal = await turnRefusal(c, authorizer, {
+        conversationId,
+        conversation: opened,
+        namedProjectId: parsed.value.projectId as unknown as string | undefined,
+      });
+      if (refusal !== undefined) return refusal;
+    }
     // Whose memory the turn runs with: a conversation's stored participant
     // (it wins, as the turn reads it), else the one the body names. Running
     // as someone takes what reading their memory takes.
     const named = typeof turnInput.participantId === 'string' ? turnInput.participantId : undefined;
-    if (authorizer !== undefined && (named !== undefined || conversationId !== undefined)) {
-      // Another id than a uuid names no conversation, so only the body's
-      // participant is checked.
-      const opened = await conversation();
+    if (authorizer !== undefined && (named !== undefined || opened !== null)) {
       const participantId = opened?.participantId ?? named;
       if (participantId !== undefined) {
         const projectId =
@@ -909,8 +917,13 @@ async function refusedAsBefore(
  * project the run lands in, by the runtime's order: the one named; else,
  * for an agent, the conversation's; else a project-scoped key's own, when
  * it serves the target (and the run is filed there: `start` names it);
- * else the first. `undefined`: no such item, or a run landing outside its
- * projects, checked as before.
+ * else the first. `undefined`: no such item, one project serving it, or a
+ * run landing outside its projects, checked as before.
+ *
+ * It asks only about the project the run lands in, never for every
+ * project the item is in. A project that serves the item and isn't its
+ * first means more than one does (`servesIn`); for its first, one other
+ * project is enough to know (`servedElsewhere`).
  */
 async function servedRun(
   c: Context<AppEnv>,
@@ -919,25 +932,63 @@ async function servedRun(
   start: ParsedStartRunBody,
   conversation: () => Promise<{ readonly projectId?: string } | null>,
 ): Promise<{ start: ParsedStartRunBody; refused: Response | undefined } | undefined> {
-  const served = await itemRights?.multi(c, target.kind, target.id);
-  if (itemRights === undefined || served === undefined) return undefined;
+  if (itemRights === undefined) return undefined;
   const named = start.projectId as unknown as string | undefined;
-  const continued =
-    named === undefined && target.kind === 'agent' ? (await conversation())?.projectId : undefined;
+  if (named !== undefined) {
+    return (await servedThere(c, itemRights, target, named))
+      ? { start, refused: await runIn(c, itemRights, target, named) }
+      : undefined;
+  }
+  const served = await itemRights.servedElsewhere(c, target.kind, target.id);
+  if (served === undefined || !served.elsewhere) return undefined;
+  const continued = target.kind === 'agent' ? (await conversation())?.projectId : undefined;
+  if (continued !== undefined) {
+    return (await oneOfItsProjects(c, itemRights, target, served.own, continued))
+      ? { start, refused: await runIn(c, itemRights, target, continued) }
+      : undefined;
+  }
   const keyProject = c.get('tokenProjectId');
   const keyed =
-    named === undefined &&
-    continued === undefined &&
     keyProject !== undefined &&
-    served.includes(keyProject as ProjectId)
+    (await oneOfItsProjects(c, itemRights, target, served.own, keyProject))
       ? keyProject
       : undefined;
-  const landing = named ?? continued ?? keyed ?? (served[0] as unknown as string | undefined);
-  if (landing === undefined || !served.includes(landing as ProjectId)) return undefined;
   return {
     start: keyed === undefined ? start : { ...start, projectId: keyed as ProjectId },
-    refused: await runIn(c, itemRights, target, landing),
+    refused: await runIn(c, itemRights, target, keyed ?? served.own),
   };
+}
+
+/**
+ * Whether `projectId` is one of the target's projects, and more than one
+ * serves it: its first one alone isn't enough.
+ */
+async function servedThere(
+  c: Context<AppEnv>,
+  itemRights: ItemRights,
+  target: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  projectId: string,
+): Promise<boolean> {
+  const there = await itemRights.servesIn(c, target.kind, target.id, projectId);
+  if (there === undefined || !there.serves) return false;
+  return (
+    projectId !== there.own ||
+    (await itemRights.servedElsewhere(c, target.kind, target.id))?.elsewhere === true
+  );
+}
+
+/** Whether `projectId` is one of the target's projects, `own` (its first) among them. */
+async function oneOfItsProjects(
+  c: Context<AppEnv>,
+  itemRights: ItemRights,
+  target: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  own: string,
+  projectId: string,
+): Promise<boolean> {
+  return (
+    projectId === own ||
+    (await itemRights.servesIn(c, target.kind, target.id, projectId))?.serves === true
+  );
 }
 
 /** Hand a parsed start body to the binding: an agent turn or a flow run. */

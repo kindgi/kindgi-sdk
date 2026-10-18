@@ -38,6 +38,7 @@ export const ENV_DEFAULTS = {
   KINDGI_LICENSE_RENEWER_REF: 'none: expiry warnings print a placeholder in the renew command',
   KINDGI_ENV:
     'none: `local` in development mode, else no env (a tool that declares secrets or env values fails its calls)',
+  KINDGI_REFUSE_OTHER_ENVS: '`false`: a value or a registration under any env is taken',
   KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH:
     'none: in development mode a key generated at start; otherwise public run tokens are off',
   KINDGI_PUBLIC_TOKEN_SIGNING_KEY:
@@ -277,15 +278,15 @@ export const ENV_EXAMPLES = {
 
 /** "See also" for each group's variables that no guide names: page slugs. */
 export const ENV_GROUP_SEE_ALSO = {
-  core: ['deploy/self-host', 'deploy/operate'],
-  logging: ['deploy/logs'],
-  secrets: ['deploy/secret-manager', 'guides/secrets/index'],
-  gcp: ['deploy/cloud-run', 'deploy/secret-manager'],
-  aws: ['deploy/secret-manager'],
-  azure: ['deploy/azure-container-apps', 'deploy/secret-manager'],
-  vault: ['deploy/secret-manager'],
-  'local-key': ['deploy/self-host'],
-  'pack-service': ['deploy/self-host', 'concepts/architecture'],
-  'image-registry': ['deploy/self-host', 'concepts/security'],
-  dev: ['guides/secrets/dev-sandbox', 'deploy/self-host'],
+  core: ['deploy/self-hosted/self-host', 'deploy/self-hosted/operate'],
+  logging: ['deploy/self-hosted/logs'],
+  secrets: ['deploy/self-hosted/secret-manager', 'guides/secrets/index'],
+  gcp: ['deploy/self-hosted/cloud-run', 'deploy/self-hosted/secret-manager'],
+  aws: ['deploy/self-hosted/secret-manager'],
+  azure: ['deploy/self-hosted/azure-container-apps', 'deploy/self-hosted/secret-manager'],
+  vault: ['deploy/self-hosted/secret-manager'],
+  'local-key': ['deploy/self-hosted/self-host'],
+  'pack-service': ['deploy/self-hosted/self-host', 'concepts/architecture'],
+  'image-registry': ['deploy/self-hosted/self-host', 'concepts/security'],
+  dev: ['guides/secrets/dev-sandbox', 'deploy/self-hosted/self-host'],
 };

@@ -11,6 +11,13 @@ import type {
   VersionDerivationReason,
 } from '@kindgi/types';
 
+import {
+  PACK_ENV_PROBLEM_CODES,
+  PACK_ENV_SECRET_GIVE_CODES,
+  type PackEnvDeclaration,
+  type PackEnvHeldCode,
+} from './pack-env.js';
+
 /**
  * Caller-plugged surface for the deployment ledger — the audit anchor
  * row written by `POST /v1/deployments`. Mirrors the
@@ -132,6 +139,9 @@ export function serializeDeployment(d: Deployment): Record<string, unknown> {
     }),
     ...(d.packId !== undefined && { packId: d.packId }),
     ...(d.endpoint !== undefined && { endpoint: endpointToWire(d.endpoint) }),
+    ...(d.packEnv !== undefined && {
+      packEnv: { required: [...d.packEnv.required], optional: [...d.packEnv.optional] },
+    }),
     primitives: {
       tools: d.primitives.tools,
       guardrails: d.primitives.guardrails,
@@ -202,6 +212,25 @@ export type SystemDeploymentRetireReason = (typeof SYSTEM_DEPLOYMENT_RETIRE_REAS
  * - `tenant-not-provisioned`: the tenant has nowhere to run pack services yet;
  * - `capacity-unavailable`: no room for another pack service just now;
  * - `service-start-failed`: the image was deployed but didn't start.
+ *
+ * The pack's declared environment can't be given to it (`pack-env.ts`), and
+ * `GET /v1/deployments/{id}/pack-env` names each name:
+ * - `pack-env-ambiguous`: a name is set both as a secret and as a plain value;
+ * - `pack-env-secret-not-yet`: a name is set only as a secret, and the
+ *   orchestrator doesn't give secrets;
+ * - `pack-env-missing`: a required name is set nowhere;
+ * - `pack-env-secret-unreadable`: a name's secret is set, but it can't be
+ *   read for a reason the platform fixes, not the owner. It's tried again.
+ *
+ * The orchestrator couldn't give the pack service its secrets:
+ * - `pack-env-secrets-unaudited`: the runtime has nowhere to audit a secret
+ *   it gives out, so it gives none. The platform fixes it, and it's tried
+ *   again;
+ * - `pack-env-secret-too-large`: a secret's value is over 32768 bytes, the
+ *   most a pack service can be given;
+ * - `pack-env-secret-capacity`: a name is set only as a secret, and there's
+ *   no room just now for a pack service that can be given one, apart from
+ *   other projects'. It's tried again.
  */
 export const DEPLOYMENT_ENDPOINT_PROBLEM_CODES = [
   'endpoint-url-invalid',
@@ -213,6 +242,9 @@ export const DEPLOYMENT_ENDPOINT_PROBLEM_CODES = [
   'tenant-not-provisioned',
   'capacity-unavailable',
   'service-start-failed',
+  ...PACK_ENV_PROBLEM_CODES,
+  ...PACK_ENV_SECRET_GIVE_CODES,
+  'pack-env-secret-capacity',
 ] as const;
 
 export type DeploymentEndpointProblemCode = (typeof DEPLOYMENT_ENDPOINT_PROBLEM_CODES)[number];
@@ -252,6 +284,17 @@ export interface DeploymentEndpoint {
    * last until the tenant, project or pack is restored.
    */
   readonly retired?: SystemDeploymentRetireReason;
+  /**
+   * `ready` only: the pack service runs on the values it was last given,
+   * since the newest ones can't be given to it (a required one was removed,
+   * say), or didn't start (`pack-env-update-failed`). It's gone once they
+   * can, or do (from runtime 0.1.8.1).
+   */
+  readonly packEnvProblem?: {
+    readonly code: PackEnvHeldCode;
+    /** When it was recorded. ISO-8601. */
+    readonly since: string;
+  };
 }
 
 /**
@@ -273,6 +316,13 @@ export function endpointToWire(endpoint: DeploymentEndpoint): DeploymentEndpoint
       }),
     ...(waiting && { waiting: true }),
     ...(retired !== undefined && { retired }),
+    ...(endpoint.status === 'ready' &&
+      endpoint.packEnvProblem !== undefined && {
+        packEnvProblem: {
+          code: endpoint.packEnvProblem.code,
+          since: endpoint.packEnvProblem.since,
+        },
+      }),
   };
 }
 
@@ -308,6 +358,12 @@ export interface Deployment {
    * project and whose secrets sync tenant-wide.
    */
   readonly projectId?: ProjectId;
+  /**
+   * The names its pack service reads from its process environment, as the
+   * image's index declares them (`env`). Absent when it declares none, and
+   * from a binding that doesn't keep them (from runtime 0.1.8.1).
+   */
+  readonly packEnv?: PackEnvDeclaration;
   /**
    * When this deployment was created by promoting another into a later
    * environment of its order, the source deployment it was promoted from.
@@ -424,6 +480,12 @@ export interface DeploymentRegisterInput {
    * keeps them, as it keeps `contents.tools` for tool calls.
    */
   readonly packChecks?: readonly string[];
+  /**
+   * The names the image's pack service reads from its process environment
+   * (the index's `env`), validated. A binding that runs a pack service per
+   * deployment keeps them, so whatever runs it can give it their values.
+   */
+  readonly packEnv?: PackEnvDeclaration;
 }
 
 export type DeploymentRegisterOutcome =

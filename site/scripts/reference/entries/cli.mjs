@@ -82,6 +82,14 @@ export const CLI_DEFAULTS = {
     tenant:
       "none (no check); an inline build takes the env block's `tenantId`, else `KINDGI_TENANT_ID`",
   },
+  'deployments list': {
+    cursor: 'none',
+    'image-ref-prefix': 'none',
+    limit: '`25` (at most `100`)',
+    pack: 'none: every pack',
+    project: 'none: every project',
+    'signer-key-id': 'none',
+  },
   test: {
     path: 'the current directory',
     reporter: "vitest's own reporter",
@@ -952,11 +960,13 @@ export const CLI_DEFAULTS = {
 
 /** The global flags' defaults, as `CLI_DEFAULTS`. */
 export const GLOBAL_FLAG_DEFAULTS = {
+  hosted:
+    "off, unless the env the command acts in has `build: 'hosted'` in `kindgi.config.ts` (`--env`, else `staging` for `kindgi build` and `kindgi deploy`)",
   json: 'on when no format flag is given: pretty JSON (commands for people, such as `kindgi dev`, print JSON only when asked)',
   table: 'off; a command with no table prints JSON',
   token:
-    "`KINDGI_API_TOKEN`, then a stored key: `./.kindgirc.json`'s, then `~/.kindgi/config.json`'s, and when those are for different addresses, the one stored with the API URL. A stored key goes only to the address stored with it: a command that would send it elsewhere is refused before it sends anything. None of them set: a command that calls the API fails",
-  url: '`KINDGI_API_URL`, then `./.kindgirc.json`, then `~/.kindgi/config.json`; none of them set: a command that calls the API fails',
+    "`KINDGI_API_TOKEN`, then a stored key: `./.kindgirc.json`'s, then `~/.kindgi/config.json`'s, and when those are for different addresses, the one stored with the API URL. A stored key goes only to the address stored with it: a command that would send it elsewhere is refused before it sends anything. With `--hosted`, a `kindgi dev` runtime's `./.kindgirc.json` isn't read. None of them set: a command that calls the API fails",
+  url: "`KINDGI_API_URL`, then `./.kindgirc.json`, then `~/.kindgi/config.json`; with `--hosted`, a `kindgi dev` runtime's `./.kindgirc.json` isn't read. None of them set: a command that calls the API fails",
 };
 
 /**
@@ -966,8 +976,9 @@ export const GLOBAL_FLAG_DEFAULTS = {
 export const CLI_EXAMPLES = {
   'auth login': [
     {
-      purpose: 'Save the API URL and token to ~/.kindgi/config.json.',
-      line: 'kindgi auth login --url=https://kindgi.acme.example --token=<api-token>',
+      purpose:
+        'Save the API URL, and the API token exported as `KINDGI_API_TOKEN`, to ~/.kindgi/config.json.',
+      line: 'kindgi auth login --url=https://kindgi.acme.example',
     },
   ],
   'auth whoami': [
@@ -1009,6 +1020,29 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Print the console URL of a given runtime without opening a browser.',
       line: 'kindgi console --no-open --url=http://127.0.0.1:4000',
+    },
+  ],
+  'deployments get': [
+    {
+      purpose:
+        "See a deployment's pack service now: when it runs on the values it was last given, why, and the command that sets what's missing.",
+      line: 'kindgi deployments get <deployment-id>',
+    },
+    {
+      purpose: 'The deployment as the API answers it, with its pack service in `endpoint`.',
+      line: 'kindgi deployments get <deployment-id> --json',
+    },
+  ],
+  'deployments list': [
+    {
+      purpose:
+        "Find a deployment's id, with each one's pack service: ready, held on its last values (with the code), pending or cleared.",
+      line: 'kindgi deployments list --table',
+    },
+    {
+      purpose:
+        "One environment's deployments, by its project's slug or id. The Default project's include the deployments that name no project.",
+      line: 'kindgi deployments list --project=staging --table',
     },
   ],
   'env unset': [
@@ -1981,10 +2015,11 @@ export const CLI_EXAMPLES = {
 export const CLI_GROUP_SEE_ALSO = {
   auth: ['start/install', 'deploy/people-and-keys'],
   upgrade: ['start/quickstart-java', 'start/quickstart-scala'],
-  console: ['deploy/sign-in', 'start/introduction'],
-  sites: ['deploy/sign-in', 'guides/approvals/ask-and-approve-in-wordpress'],
-  'sign-in': ['deploy/sign-in', 'deploy/people-and-keys'],
+  console: ['deploy/self-hosted/sign-in', 'start/introduction'],
+  sites: ['deploy/self-hosted/sign-in', 'sites/wordpress'],
+  'sign-in': ['deploy/self-hosted/sign-in', 'deploy/people-and-keys'],
   'mcp-launch': ['guides/tools/mcp-servers'],
+  deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
   environments: ['guides/projects/organize-by-org-and-project'],
   promote: ['guides/projects/organize-by-org-and-project'],
@@ -1992,7 +2027,7 @@ export const CLI_GROUP_SEE_ALSO = {
   capabilities: ['guides/agents/choose-a-model'],
   adapters: ['guides/models/index', 'guides/models/serve-your-own-model'],
   feedback: ['start/coding-agents'],
-  egress: ['deploy/egress-addresses'],
-  health: ['deploy/operate'],
+  egress: ['deploy/self-hosted/egress-addresses'],
+  health: ['deploy/self-hosted/operate'],
   version: ['start/install'],
 };

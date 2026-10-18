@@ -29,6 +29,10 @@ import type {
   DeploymentRegistrationBody,
   DeploymentSecretsSyncRequest,
   DeploymentSecretsSyncResponse,
+  DeploymentValueList,
+  PackEnvNameStatus,
+  PackEnvNames,
+  DeploymentValue as WireDeploymentValue,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 
@@ -37,6 +41,23 @@ export type DeploymentPage = DeploymentCollectionPage;
 export type RegisterDeploymentInput = DeploymentRegistrationBody;
 export type SyncSecretsInput = DeploymentSecretsSyncRequest;
 export type SyncSecretsResult = DeploymentSecretsSyncResponse;
+export type { PackEnvNameStatus, PackEnvNames };
+export type DeploymentValue = WireDeploymentValue;
+export type DeploymentValues = DeploymentValueList;
+
+export interface DeploymentValuesClient {
+  /**
+   * What the deployment needs set in a project before it serves there,
+   * names only, never a value: each tool's secrets and env values, a
+   * model key for each agent version it ships or carries, then the pack
+   * service's env. Each says what needs it, where a run finds it
+   * (`foundAt`) and why it isn't ready (`problem`). Without `projectId`,
+   * the deployment's own project. Takes `admin` on the project.
+   *
+   * @wire GET /v1/deployments/:deploymentId/values
+   */
+  list(deploymentId: string, options?: { readonly projectId?: string }): Promise<DeploymentValues>;
+}
 export type PromoteDeploymentInput = DeploymentPromotionBody;
 export type CheckDeploymentPromotionInput = DeploymentPromotionCheckBody;
 export type { DeploymentPromotion, DeploymentPromotionCheck };
@@ -73,6 +94,17 @@ export interface DeploymentsClient {
     input: SyncSecretsInput,
     options?: { readonly idempotencyKey?: string },
   ): Promise<SyncSecretsResult>;
+  /** The values a deployment needs in a project. */
+  readonly values: DeploymentValuesClient;
+  /**
+   * Where each name the deployment's pack declares is set, on a server that
+   * gives each pack service the env its pack declares; never a value. 501
+   * `pack-env-not-served` where pack services take their env from how
+   * they're run.
+   *
+   * @wire GET /v1/deployments/:deploymentId/pack-env
+   */
+  packEnv(deploymentId: string): Promise<PackEnvNames>;
   /**
    * Promote a deployment to the next environment of its order: the target
    * gets a deployment of its own with the same build. A target that has
@@ -131,6 +163,12 @@ export function makeDeploymentsClient(transport: Transport): DeploymentsClient {
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },
+    async packEnv(deploymentId) {
+      return transport.request<PackEnvNames>({
+        method: 'GET',
+        path: `/v1/deployments/${encodeURIComponent(deploymentId)}/pack-env`,
+      });
+    },
     async promote(deploymentId, input) {
       return transport.request<DeploymentPromotion>({
         method: 'POST',
@@ -144,6 +182,17 @@ export function makeDeploymentsClient(transport: Transport): DeploymentsClient {
         path: `/v1/deployments/${encodeURIComponent(deploymentId)}/promotions/check`,
         body: input,
       });
+    },
+    values: {
+      async list(deploymentId, options) {
+        return transport.request<DeploymentValues>({
+          method: 'GET',
+          path: `/v1/deployments/${encodeURIComponent(deploymentId)}/values`,
+          query: {
+            ...(options?.projectId !== undefined && { projectId: options.projectId }),
+          },
+        });
+      },
     },
   };
 }

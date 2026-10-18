@@ -259,9 +259,36 @@ The runtime connects, lists the server's tools and registers them. The
 
 The tools are now your tenant's:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi tools get inventory.stock_level
+pnpm exec kindgi tools get inventory.stock_level
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi tools get inventory.stock_level
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw tools get inventory.stock_level
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw tools get inventory.stock_level
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -347,9 +374,36 @@ Start a turn with a model that calls tools. Here it's Llama 3.1 on Ollama,
 as [Models](../../models/) sets up. `--agent` is the agent, and `--input`
 its input:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
+pnpm exec kindgi runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 "appended": [
@@ -623,7 +677,7 @@ It keeps working, and:
   23:53:20.206 WARN  [mcp] MCP endpoint "inventory-moved" skipped: mcp-auth-failed: MCP endpoint "inventory-moved" redirected (HTTP 307) a request carrying a credential header in its config.headers (X-Api-Key, X-Api-Secret): register the URL it redirects to endpointId=inventory-moved transport=streamable-http
   ```
 - **is named, never its value:** by the runtime at every start (`WARN`
-  `mcp-header-credential`), by its [`check mcp-header-credentials`](../../../deploy/operate/#checks-you-can-run-before-upgrading),
+  `mcp-header-credential`), by its [`check mcp-header-credentials`](../../../deploy/self-hosted/operate/#checks-you-can-run-before-upgrading),
   and by `kindgi doctor` against the runtime it points at:
 
   ```text
@@ -645,7 +699,7 @@ called it." For reference, it adds `"sendTraceparent": true` to the
 registration, and each tool call to the server carries the W3C `traceparent`
 of the run that made it, as a request header. The server's logs can then be
 matched to the run, as [Follow a request or a
-run](../../../deploy/logs/#follow-a-request-or-a-run) shows. Only the ids go:
+run](../../../deploy/self-hosted/logs/#follow-a-request-or-a-run) shows. Only the ids go:
 the trace id and a span id, never the tool's input or output. It's off by
 default, and HTTP transports only. A `stdio` server gets no headers, so `true`
 there is refused with `invalid-mcp-endpoint`, reason
@@ -765,7 +819,7 @@ The runtime lists an endpoint's tools when the endpoint is registered. It
 doesn't watch the server. To pick up new or changed tools, unregister the
 endpoint and register it again. A runtime serving one tenant, the default,
 also lists every endpoint's tools each time it starts, so restarting it works
-too. A runtime [serving many tenants](../../../deploy/serve-many-tenants/)
+too. A runtime [serving many tenants](../../../deploy/self-hosted/serve-many-tenants/)
 (`KINDGI_TENANCY=multi`) lists none when it starts: there, only unregistering
 and registering again does. `inventory` in the path is the endpoint's id:
 

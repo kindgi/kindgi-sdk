@@ -25,6 +25,7 @@ import { createApp } from '../src/index.js';
 import type {
   EnvironmentOrder,
   EnvironmentOrderBinding,
+  EnvironmentOrderKey,
   EnvironmentOrderParent,
   RunHandlerBinding,
   TokenResolver,
@@ -161,7 +162,7 @@ function fakeBinding(opts: FakeOptions): EnvironmentOrderBinding {
         const parent: EnvironmentOrderParent = key.startsWith('org:')
           ? { kind: 'org', orgId: key.slice('org:'.length) as unknown as OrgId }
           : { kind: 'tenant' };
-        return { orderId: key, parent, projects: [...pids], position };
+        return { orderId: key as EnvironmentOrderKey, parent, projects: [...pids], position };
       }
       return undefined;
     },
@@ -248,6 +249,14 @@ describe('reading an order', () => {
     expect(r.status).toBe(200);
     expect(r.body.entries).toEqual([{ position: 0, projectId: p.a }, { position: 1 }]);
   });
+
+  test('an order the caller can read no project in reads as empty, like the list hides it', async () => {
+    const h = makeApp({ initial: { [`org:${org2}`]: [p.e, p.f] } }); // viewer reads neither
+    const r = await h.call(`/v1/environment-orders/orgs/${org2}`, { who: 'viewer' });
+    expect(r.status).toBe(200);
+    // Not its member count by position, and the same as an org with no order at all.
+    expect(r.body).toEqual({ parent: { kind: 'org', orgId: org2 }, entries: [] });
+  });
 });
 
 describe('listing orders', () => {
@@ -272,6 +281,19 @@ describe('listing orders', () => {
     const r = await h.call('/v1/environment-orders', { who: 'viewer' });
     const parents = (r.body.data as EnvironmentOrder[]).map((o) => o.parent);
     expect(parents).toEqual([{ kind: 'tenant' }, { kind: 'org', orgId: org1 }]);
+  });
+
+  test('a cursor this list never gave is a 400, listing nothing', async () => {
+    const h = makeApp({ initial: { tenant: [p.a, p.b] } });
+    // Undecodable, and decodable but not a uuid org id: neither is a cursor the list mints.
+    const notUuid = Buffer.from(JSON.stringify({ orgId: 'not-a-uuid' }), 'utf8').toString(
+      'base64url',
+    );
+    for (const cursor of ['not-a-real-cursor', notUuid]) {
+      const r = await h.call(`/v1/environment-orders?cursor=${cursor}`);
+      expect([r.status, r.body.error?.code]).toEqual([400, 'bad-input']);
+      expect(r.body.data).toBeUndefined();
+    }
   });
 });
 

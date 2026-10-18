@@ -13,7 +13,7 @@ import { type Flow, type FlowPins, flowPinsDigest } from '@kindgi/flow';
 import type { Guardrail } from '@kindgi/guardrails';
 import type { Project, ProjectBinding } from '@kindgi/platform';
 import { latestVersion } from '@kindgi/tools';
-import type { Cursor, ProjectId, Semver, SigningKeyId, TenantId } from '@kindgi/types';
+import type { Cursor, EnvName, ProjectId, Semver, SigningKeyId, TenantId } from '@kindgi/types';
 
 import type { Scope } from '@kindgi/platform';
 import { makeEnvName } from '@kindgi/types';
@@ -30,6 +30,7 @@ import type {
   FlowRegistryBinding,
   GuardrailRegistryBinding,
   ImageRegistryBinding,
+  ImageRegistryError,
   LiveResolveInput,
   ProviderRegistryBinding,
   RunHandlerBinding,
@@ -104,6 +105,7 @@ function makeInMemoryDeploymentBinding(): DeploymentBinding {
         publishedAt: input.publishedAt,
         activatedAt: new Date().toISOString(),
         ...(input.projectId !== undefined && { projectId: input.projectId }),
+        ...(input.packEnv !== undefined && { packEnv: input.packEnv }),
         primitives: input.primitives,
         contents: input.contents,
       };
@@ -873,6 +875,48 @@ describe("POST /v1/deployments — the image's index is what registers", () => {
       });
     }
   });
+
+  test('the names its pack service reads (`env`) are kept on the deployment, as the build wrote them', async () => {
+    const env = { required: ['API_BASE', 'SHOP_URL'], optional: ['LOG_LEVEL'] };
+    const fixture = buildSignedDeploy({ index: { ...indexWith('20260920.1'), env } });
+    const { app, deploymentRegistry } = makeApp({ fixture });
+    const res = await post(app, fixture.wire);
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { packEnv?: unknown }).packEnv).toEqual(env);
+    const [stored] = (await deploymentRegistry.list({ tenantId, limit: 10 })).data;
+    expect(stored?.packEnv).toEqual(env);
+  });
+
+  test('an index without `env` keeps no declaration', async () => {
+    const fixture = buildSignedDeploy();
+    const { app, deploymentRegistry } = makeApp({ fixture });
+    const res = await post(app, fixture.wire);
+    expect(res.status).toBe(201);
+    expect('packEnv' in ((await res.json()) as object)).toBe(false);
+    const [stored] = (await deploymentRegistry.list({ tenantId, limit: 10 })).data;
+    expect(stored?.packEnv).toBeUndefined();
+  });
+
+  test('an image whose index declares a malformed `env` is refused, and nothing is written', async () => {
+    for (const env of [
+      { required: ['KINDGI_TOKEN'] },
+      { required: 'API_BASE' },
+      { required: ['API_BASE'], optional: ['API_BASE'] },
+      { secrets: ['API_KEY'] },
+    ]) {
+      const fixture = buildSignedDeploy({ index: { ...indexWith('20260920.1'), env } });
+      const { app, deploymentRegistry, toolRegistry } = makeApp({ fixture });
+      const res = await post(app, fixture.wire);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { code: string; message: string } };
+      expect(body.error.code).toBe('image-unverifiable');
+      expect(body.error.message).toMatch(/^Image \/app\/index\.json's env is malformed: /);
+      expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(0);
+      expect(
+        await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+      ).toBeNull();
+    }
+  });
   test("its tools' schema compiles count against the tenant's budget, first ones included: refused, nothing is written", async () => {
     const fixture = buildSignedDeploy();
     const {
@@ -1602,6 +1646,106 @@ describe('POST /v1/deployments — image verification', () => {
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe('image-unverifiable');
   });
+
+  test("a failed registry read names the binding's code in details.cause, and a limit's bound in details.limit", async () => {
+    const fixture = buildSignedDeploy();
+    const served = makeMockImageRegistry([
+      { imageRef: fixture.imageRef, digest: fixture.digest, indexBytes: fixture.indexBytes },
+    ]);
+    const cases: readonly {
+      readonly step: 'head' | 'extractFile';
+      readonly error: ImageRegistryError;
+      readonly message: string;
+      readonly details: Readonly<Record<string, unknown>>;
+    }[] = [
+      {
+        step: 'head',
+        error: { code: 'image-limit-exceeded', message: 'manifest over 4 MiB', limit: 'manifest' },
+        message: 'Image head probe failed: manifest over 4 MiB',
+        details: { imageRef: fixture.imageRef, cause: 'image-limit-exceeded', limit: 'manifest' },
+      },
+      {
+        step: 'extractFile',
+        error: { code: 'image-limit-exceeded', message: 'unpacks past 4 GiB', limit: 'unpack' },
+        message: 'Extract /app/index.json failed: unpacks past 4 GiB',
+        details: { imageRef: fixture.imageRef, cause: 'image-limit-exceeded', limit: 'unpack' },
+      },
+      {
+        step: 'extractFile',
+        error: {
+          code: 'image-limit-exceeded',
+          message: 'try again in 12 min',
+          limit: 'tenant-unpack-hour',
+        },
+        message: 'Extract /app/index.json failed: try again in 12 min',
+        details: {
+          imageRef: fixture.imageRef,
+          cause: 'image-limit-exceeded',
+          limit: 'tenant-unpack-hour',
+        },
+      },
+      // A binding's own `cause` (an Error here) never reaches the wire.
+      {
+        step: 'extractFile',
+        error: { code: 'image-unreadable', message: 'not a tar', cause: new Error('bad header') },
+        message: 'Extract /app/index.json failed: not a tar',
+        details: { imageRef: fixture.imageRef, cause: 'image-unreadable' },
+      },
+      {
+        step: 'head',
+        error: {
+          code: 'image-registry-unreachable',
+          message: 'connect ECONNREFUSED',
+          cause: new Error('ECONNREFUSED'),
+        },
+        message: 'Image head probe failed: connect ECONNREFUSED',
+        details: { imageRef: fixture.imageRef, cause: 'image-registry-unreachable' },
+      },
+    ];
+    for (const { step, error, message, details } of cases) {
+      const refused = async () => ({ kind: 'err' as const, error });
+      const imageRegistry: ImageRegistryBinding =
+        step === 'head' ? { ...served, head: refused } : { ...served, extractFile: refused };
+      const { app, deploymentRegistry } = makeApp({ fixture, imageRegistry });
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(fixture.wire),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as {
+        error: { code: string; message: string; details?: Record<string, unknown> };
+      };
+      expect(body.error).toMatchObject({ code: 'image-unverifiable', message });
+      expect(body.error.details).toEqual(details);
+      expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(0);
+    }
+  });
+
+  test('a check after a read that succeeded names no cause', async () => {
+    const fixture = buildSignedDeploy();
+    const { app } = makeApp({
+      fixture,
+      imageRegistry: makeMockImageRegistry([
+        {
+          imageRef: fixture.imageRef,
+          digest: `sha256:${'0'.repeat(64)}`,
+          indexBytes: fixture.indexBytes,
+        },
+      ]),
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; details?: Record<string, unknown> };
+    };
+    expect(body.error.code).toBe('image-unverifiable');
+    expect(body.error.details).toEqual({ imageRef: fixture.imageRef });
+  });
 });
 
 // ---------------- manifest validation ----------------
@@ -2165,6 +2309,63 @@ describe('POST /v1/deployments — rollback', () => {
     expect(
       await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
     ).toBeNull();
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
+  test("a tool whose id is an MCP endpoint's tool → 409 tool-kind-mismatch, naming the endpoint; rolled back, nothing deployed", async () => {
+    const tool = (id: string) => ({
+      id,
+      description: 'x',
+      version: '1.0.0',
+      input: { type: 'object' },
+      output: { type: 'object' },
+    });
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [tool('acme.verify-citation'), tool('acme.search')],
+        guardrails: [],
+        agents: [],
+        flows: [],
+      },
+    });
+    const tools = makeInMemoryToolRegistry();
+    // As a registry holding MCP endpoint `acme`'s tool `search`.
+    const toolRegistry: ToolRegistryBinding = {
+      ...tools,
+      publish: async (input) =>
+        (input.tool.id as unknown as string) === 'acme.search'
+          ? {
+              kind: 'kind-mismatch',
+              toolId: input.tool.id,
+              version: input.tool.version as never,
+              endpointId: 'acme',
+            }
+          : tools.publish(input),
+    };
+    const { app, deploymentRegistry } = makeApp({ fixture, toolRegistry });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details?: Record<string, unknown> };
+    };
+    expect(body.error.code).toBe('tool-kind-mismatch');
+    expect(body.error.message).toBe(
+      "The tool acme.search@1.0.0 wasn't published: its id is MCP endpoint \"acme\"'s tool (give the pack's tool another name, or unregister the endpoint first); nothing was deployed",
+    );
+    expect(body.error.details).toEqual({
+      primitive: 'tool',
+      id: 'acme.search@1.0.0',
+      endpointId: 'acme',
+    });
+    // What it published before is rolled back.
+    expect(await tools.get({ tenantId, toolId: 'acme.verify-citation' as never })).toBeNull();
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
   });
 
@@ -3373,6 +3574,10 @@ async function makeSyncApp(
     /** The project the seeded deployment was deployed into; absent: tenant-wide. */
     deployedInto?: ProjectId;
     resolveTokenOverride?: TokenResolver;
+    /** The env the runtime serves, refusing every other (`refuseOtherEnvs`). */
+    servedEnv?: string;
+    /** The providers registered, whose keys a sync under their env may still write. */
+    providerRegistry?: unknown;
   } = {},
 ): Promise<SyncFixtures> {
   const secretsFixture = makeFixtureSecretBinding(opts.seedSecrets ?? []);
@@ -3386,6 +3591,13 @@ async function makeSyncApp(
     signingKeyRegistry: makeMockSigningKeyRegistry([]),
     imageRegistry: makeMockImageRegistry([]),
     ...(!opts.omitSecretsBinding && { secretsBinding: secretsFixture.binding }),
+    ...(opts.servedEnv !== undefined && {
+      envName: opts.servedEnv as EnvName,
+      refuseOtherEnvs: true,
+    }),
+    ...(opts.providerRegistry !== undefined && {
+      providerRegistry: opts.providerRegistry as never,
+    }),
   });
 
   // Seed one deployment so the sync route has a valid target.
@@ -5460,5 +5672,73 @@ describe('POST /v1/deployments into an environment order: a later environment ta
     expect(((await refused.json()) as { error: { code: string } }).error.code).toBe(
       'guardrail-project-mismatch',
     );
+  });
+});
+
+describe('POST /v1/deployments/:deploymentId/secrets on a runtime that refuses other envs', () => {
+  const sync = (app: ReturnType<typeof createApp>, deploymentId: string, envName: string) =>
+    app.request(`/v1/deployments/${deploymentId}/secrets`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${SECRETS_TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        envName,
+        secrets: [
+          { name: 'stripe.key', value: 'sk_test_x' },
+          { name: 'search.key', value: 'sk_test_y' },
+        ],
+      }),
+    });
+
+  test('under another env: 409 env-not-served naming the served env, and nothing is written', async () => {
+    const { app, deploymentId, secretsFixture } = await makeSyncApp({
+      servedEnv: 'prod',
+      deployedInto: 'proj-a' as ProjectId,
+    });
+    const res = await sync(app, deploymentId, 'staging');
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: Record<string, unknown> };
+    expect(body.error).toMatchObject({
+      code: 'env-not-served',
+      message:
+        'This runtime keeps its values under `prod` only, so the secret `stripe.key` under `staging` would never be read. Store it under `prod`',
+      details: { envName: 'staging', servedEnv: 'prod' },
+    });
+    expect(secretsFixture.recordedSets).toEqual([]);
+  });
+
+  test('under the served env: synced as before', async () => {
+    const { app, deploymentId, secretsFixture } = await makeSyncApp({
+      servedEnv: 'prod',
+      deployedInto: 'proj-a' as ProjectId,
+    });
+    const res = await sync(app, deploymentId, 'prod');
+    expect(res.status).toBe(200);
+    expect(secretsFixture.recordedSets.map((s) => [s.envName, s.name])).toEqual([
+      ['prod', 'stripe.key'],
+      ['prod', 'search.key'],
+    ]);
+  });
+  test("keys providers registered before still name under their env: synced, reading the tenant's registrations once", async () => {
+    let reads = 0;
+    const { app, deploymentId, secretsFixture } = await makeSyncApp({
+      servedEnv: 'prod',
+      providerRegistry: {
+        resolveForRuntime: async () => {
+          reads += 1;
+          return ['stripe.key', 'search.key'].map((name) => ({
+            metadata: { id: `acme-${name}` },
+            adapterId: '@kindgi/adapter-model-anthropic',
+            secretRef: { envName: 'staging', name },
+          }));
+        },
+      },
+    });
+    const res = await sync(app, deploymentId, 'staging');
+    expect(res.status).toBe(200);
+    expect(secretsFixture.recordedSets.map((s) => [s.envName, s.name])).toEqual([
+      ['staging', 'stripe.key'],
+      ['staging', 'search.key'],
+    ]);
+    expect(reads).toBe(1);
   });
 });

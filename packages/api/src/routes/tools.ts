@@ -23,7 +23,13 @@ import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { reservedToolMetadataKeys, reservedToolMetadataMessage } from '../reference-scope.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import { type SecretScopeDeps, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
-import type { ToolRecord, ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
+import type {
+  ToolKindMismatch,
+  ToolRecord,
+  ToolRegistryBinding,
+  ToolReinstateVersionOutcome,
+  ToolVersionRow,
+} from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
@@ -510,6 +516,10 @@ export function toolsRouter(
     if (outcome.kind === 'project-mismatch') {
       return projectMismatch(c, 'tool', outcome.toolId as unknown as string, outcome.projectId);
     }
+    if (outcome.kind === 'kind-mismatch') {
+      c.status(statusFor('tool-kind-mismatch') as never);
+      return c.json(toWireError(kindMismatch(outcome, 'publish'), requestId));
+    }
     if (outcome.kind === 'project-not-found') {
       // Caller supplied a `projectId` that does not resolve within
       // this tenant. Distinct signal from `already-registered` so the
@@ -618,19 +628,10 @@ export function toolsRouter(
     }
 
     const outcome = await binding.reinstateVersion({ tenantId, toolId, version });
-    if (outcome.kind === 'not-found') {
-      c.status(statusFor('tool-not-found') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'tool-not-found',
-            message: `No tool "${toolId as unknown as string}" at version "${version as unknown as string}" to reinstate`,
-            toolId: toolId as unknown as string,
-            version: version as unknown as string,
-          },
-          requestId,
-        ),
-      );
+    if (outcome.kind !== 'ok') {
+      const refusal = reinstateRefusal(outcome);
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, requestId));
     }
     if (onWrite !== undefined) {
       try {
@@ -652,6 +653,49 @@ export function toolsRouter(
   });
 
   return r;
+}
+
+/** A reinstate's refusal: no such version (`404 tool-not-found`), or `409 tool-kind-mismatch`. */
+function reinstateRefusal(outcome: Exclude<ToolReinstateVersionOutcome, { readonly kind: 'ok' }>) {
+  if (outcome.kind === 'kind-mismatch') return kindMismatch(outcome, 'reinstate');
+  const toolId = outcome.toolId as unknown as string;
+  const version = outcome.version as unknown as string;
+  return {
+    code: 'tool-not-found' as const,
+    message: `No tool "${toolId}" at version "${version}" to reinstate`,
+    toolId,
+    version,
+  };
+}
+
+/**
+ * `409 tool-kind-mismatch`'s body: the version is of another kind than the
+ * tool's active versions (`ToolKindMismatch`), and nothing was written.
+ * `endpointId` is the one the tool's versions name in their metadata,
+ * which reading the tool shows.
+ */
+function kindMismatch(outcome: ToolKindMismatch, write: 'publish' | 'reinstate') {
+  const toolId = outcome.toolId as unknown as string;
+  const version = outcome.version as unknown as string;
+  const { endpointId } = outcome;
+  const done = write === 'publish' ? 'published' : 'reinstated';
+  const fix =
+    endpointId === undefined
+      ? 'unregister its published versions first'
+      : write === 'publish'
+        ? 'publish this one under another id, or unregister the endpoint first'
+        : 'unregister the endpoint first';
+  const is =
+    endpointId === undefined
+      ? `Tool "${toolId}" is a tool published here, and version "${version}" is an MCP endpoint's`
+      : `Tool "${toolId}" is MCP endpoint "${endpointId}"'s tool, and version "${version}" isn't`;
+  return {
+    code: 'tool-kind-mismatch' as const,
+    message: `${is}, so it can't be ${done} under that id; ${fix}`,
+    toolId,
+    version,
+    ...(endpointId !== undefined && { endpointId }),
+  };
 }
 
 /**

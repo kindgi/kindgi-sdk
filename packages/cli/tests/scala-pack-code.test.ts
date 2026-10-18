@@ -9,7 +9,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } from 'vitest';
 
 import { runJavaIndexer } from '../src/dev/defaults.js';
 import {
@@ -27,6 +27,12 @@ import {
   sbtErrors,
   sbtServerRunning,
 } from '../src/dev/scala-builder.js';
+import {
+  permissionDenied,
+  removedWhileRead,
+  scriptedWatch,
+  watchLimitReached,
+} from './scripted-watch.js';
 
 let packDir: string;
 
@@ -289,6 +295,63 @@ describe('the Scala pack builder', () => {
       expect((await readFile(log, 'utf8')).trim().split('\n')).toEqual([
         'reload; compile; export Runtime/fullClasspath',
         'compile; export Runtime/fullClasspath',
+      ]);
+    },
+  );
+
+  // As the Python builder's (pack-code.test.ts): on Linux, Node's recursive
+  // watch emits an 'error' for a folder removed while it reads it, as well as
+  // when it fails.
+  test.skipIf(process.platform === 'win32')(
+    'an error for a folder removed while read, or in the build output, builds nothing; a failed watch reloads and builds',
+    async () => {
+      const { code, log } = await fakes();
+      const { watchFs, watcher } = scriptedWatch();
+      const builder = createScalaPackBuilder({
+        packDir,
+        code,
+        env: async () => ({ PATH: process.env.PATH ?? '' }),
+        debounceMs: 50,
+        watchFs,
+        share: false,
+        scanSources: async () => 'unchanged',
+        serverRunning: async () => true,
+      });
+      // A running server: the first build reloads it, and a later one
+      // reloads only when something says to.
+      expect(await builder.build()).toEqual({ kind: 'ok', bundleMap: {} });
+      vi.useFakeTimers();
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      const builds: unknown[] = [];
+      // A folder sbt makes and removes, in its own output.
+      const made = join(packDir, 'target', 'streams', 'tmp');
+      await mkdir(made, { recursive: true });
+      await builder.watch((build) => builds.push(build));
+      // One timer: the scan's interval.
+      expect(vi.getTimerCount()).toBe(1);
+      await rm(made, { recursive: true });
+      watcher.emit('error', removedWhileRead(made));
+      expect(vi.getTimerCount()).toBe(1);
+      // In sbt's output, and the meta-build's.
+      watcher.emit('error', watchLimitReached(join(packDir, 'target', 'streams', 'compile')));
+      watcher.emit('error', permissionDenied(join(packDir, 'project', 'project'), 'scandir'));
+      expect(vi.getTimerCount()).toBe(1);
+      watcher.emit('error', watchLimitReached(join(packDir, 'src')));
+      expect(vi.getTimerCount()).toBe(2);
+      expect(watcher.closed).toBe(false);
+      await vi.advanceTimersByTimeAsync(50);
+      vi.useRealTimers();
+      await vi.waitFor(() => expect(builds).toEqual([{ kind: 'ok', bundleMap: {} }]), {
+        timeout: 30_000,
+      });
+      await builder.dispose();
+      expect(watcher.closed).toBe(true);
+      // The failed watch can't say what changed: the build reloaded.
+      expect((await readFile(log, 'utf8')).trim().split('\n')).toEqual([
+        'reload; compile; export Runtime/fullClasspath',
+        'reload; compile; export Runtime/fullClasspath',
       ]);
     },
   );

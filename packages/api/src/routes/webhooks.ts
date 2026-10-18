@@ -293,13 +293,14 @@ export function webhooksRouter(
         : await denied(c, 'write', ref('project', project))) ??
       (await flowRefused(c, flowId.value, project));
     if (refused !== undefined) return refused;
-    // The flow it runs must be its project's to reach (`reference-scope.ts`).
+    // The flow it runs, at its version, must be its project's to reach
+    // (`reference-scope.ts`).
     if (project !== undefined) {
       const outOfScope = await referencesOutOfScope(
         referenceScope,
         tenantId,
         project as ProjectId,
-        [{ path: '/flowId', kind: 'flow', id: flowId.value }],
+        [{ path: '/flowId', kind: 'flow', id: flowId.value, version: flowVersion.value }],
       );
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
@@ -526,6 +527,21 @@ export function webhooksRouter(
         found.value.projectId as unknown as string,
       );
       if (refused !== undefined) return refused;
+      // The version it moves to must be its project's to reach, as at registration.
+      const outOfScope = await referencesOutOfScope(
+        referenceScope,
+        tenantId,
+        found.value.projectId,
+        [
+          {
+            path: '/flowVersion',
+            kind: 'flow',
+            id: found.value.flowId as unknown as string,
+            version: body.flowVersion,
+          },
+        ],
+      );
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
     if (typeof body.hmacSecretName === 'string') {
       const keyRefused = await providerKeyRefused(c, body.hmacSecretName);

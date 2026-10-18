@@ -309,6 +309,12 @@ never reads `.kindgirc.json`. It's the same lookup as the TypeScript SDK's
   that name is another schema's (`JudgedRunContextFlow`). A union's members
   are named by the value that tells them apart (`ScopeTenant`, `ScopeOrg`,
   `ScopeProject`).
+- **Newer runtimes are expected.** An enum in an answer is typed
+  `Literal[...] | str`: a value this client doesn't know comes back as its
+  text. A union in an answer has a member for a kind it doesn't know,
+  `<Union>Unrecognized` (`ScopeUnrecognized`), with every field kept. A
+  request body is checked against the values this client knows before it's
+  sent, so a value read from a newer runtime can't be sent back.
 - Path parameters are positional; query and header parameters keyword-only.
 - An operation that takes an `Idempotency-Key` gets one when you pass none.
   Retries (`max_retries=2`, honouring `Retry-After`):

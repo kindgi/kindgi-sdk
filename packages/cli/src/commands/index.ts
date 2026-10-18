@@ -12,6 +12,7 @@ import { capabilitiesCommand } from './capabilities.js';
 import { consoleCommand } from './console.js';
 import { conversationsCommand } from './conversations.js';
 import { deployCommand } from './deploy.js';
+import { deploymentsCommand } from './deployments.js';
 import { devCommand } from './dev.js';
 import { doctorCommand } from './doctor.js';
 import { egressCommand } from './egress.js';
@@ -64,6 +65,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   consoleCommand,
   buildCommand,
   deployCommand,
+  deploymentsCommand,
   promoteCommand,
   testCommand,
   envCommand,

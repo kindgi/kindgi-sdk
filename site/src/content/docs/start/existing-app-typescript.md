@@ -345,7 +345,7 @@ The build ends with the image and a check of what's in it:
     ✓ /app/index.json in the image matches the local index byte for byte
 ```
 
-[Self-host with Docker](../../deploy/self-host/) pushes, signs and deploys it.
+[Self-host with Docker](../../deploy/self-hosted/self-host/) pushes, signs and deploys it.
 
 ## Next
 

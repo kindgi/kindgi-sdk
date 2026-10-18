@@ -71,6 +71,7 @@ export { PACK_ENDPOINT_AUTHS } from './routes/system-deployments.js';
 export type {
   DeploymentRef,
   PackEndpointAuth,
+  PackEnvRecordInput,
   SetPackEndpointInput,
   SetPackEndpointOutcome,
   SystemDeploymentEntry,
@@ -78,7 +79,25 @@ export type {
   SystemDeploymentsBinding,
   SystemDeploymentsOptions,
   SystemDeploymentToRetire,
+  SystemPackEnvOptions,
+  SystemPackEnvServed,
 } from './routes/system-deployments.js';
+export {
+  PACK_ENV_HELD_CODES,
+  PACK_ENV_PROBLEM_CODES,
+  PACK_ENV_RETRY_MS,
+  packEnvCheck,
+} from './pack-env.js';
+export type {
+  PackEnvCheck,
+  PackEnvCheckInput,
+  PackEnvDeclaration,
+  PackEnvDeps,
+  PackEnvHeldCode,
+  PackEnvNameStatus,
+  PackEnvProblemCode,
+  PackEnvScopeRef,
+} from './pack-env.js';
 export { tenantStateGate } from './middleware/tenant-state.js';
 export type { TenantStateBinding } from './middleware/tenant-state.js';
 export { systemTenantsRouter, systemWhoamiRouter } from './routes/system-tenants.js';
@@ -818,6 +837,7 @@ export { sealedCursors } from './middleware/sealed-cursors.js';
 export type {
   ToolGetInput,
   ToolGetVersionInput,
+  ToolKindMismatch,
   ToolListInput,
   ToolListVersionsInput,
   ToolPage,
@@ -1000,6 +1020,7 @@ export type {
   ImagePlatform,
   ImagePushInput,
   ImagePushOutcome,
+  ImageReadLimit,
   ImageRegistryBinding,
   ImageRegistryError,
 } from './image-registry-binding.js';
@@ -1037,8 +1058,10 @@ export type {
 export type {
   EnvironmentOrder,
   EnvironmentOrderBinding,
+  EnvironmentOrderCursor,
   EnvironmentOrderEntry,
   EnvironmentOrderGetInput,
+  EnvironmentOrderKey,
   EnvironmentOrderListInput,
   EnvironmentOrderListPage,
   EnvironmentOrderLocation,
@@ -1052,8 +1075,11 @@ export type {
   ItemProjectsBinding,
   ItemProjectsInput,
   ItemProjectsOfManyInput,
+  ItemServedElsewhere,
+  ItemServesIn,
   NewestVisibleOfManyInput,
   OrderItemKind,
+  ServesInInput,
   VersionProjectsInput,
   VersionProjectsOfManyInput,
 } from './item-projects-binding.js';

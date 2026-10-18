@@ -95,6 +95,39 @@ describe('postDeploymentReal', () => {
       expect(result.kind === 'wire-error' && result.error).not.toHaveProperty('limit');
     }
   });
+
+  test("an image refusal's cause and limit are carried from details", async () => {
+    const result = await post(
+      answering(400, {
+        error: {
+          code: 'image-unverifiable',
+          message: 'Extract /app/index.json failed: unpacks past 4 GiB',
+          details: { imageRef: 'r', cause: 'image-limit-exceeded', limit: 'unpack' },
+        },
+      }),
+    );
+    expect(result).toMatchObject({
+      kind: 'wire-error',
+      status: 400,
+      error: { code: 'image-unverifiable', cause: 'image-limit-exceeded', limit: 'unpack' },
+    });
+    const noCause = await post(
+      answering(400, {
+        error: { code: 'image-unverifiable', message: 'x', details: { cause: 7 } },
+      }),
+    );
+    expect(noCause.kind === 'wire-error' && noCause.error).not.toHaveProperty('cause');
+  });
+
+  test("a validation refusal's details.issues are carried", async () => {
+    const issues = [{ primitive: 'tool', index: 0, path: '/input', message: 'bad schema' }];
+    const result = await post(
+      answering(400, {
+        error: { code: 'deployment-validation-failed', message: 'x', details: { issues } },
+      }),
+    );
+    expect(result).toMatchObject({ kind: 'wire-error', error: { details: issues } });
+  });
 });
 
 describe('postDeploymentReal: what a refusal names, from its details', () => {
