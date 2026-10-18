@@ -143,13 +143,18 @@ The cost is 0 on `dev-echo`, which costs nothing:
 
 `kindgi proposals passes get <pass-id>` reads the same pass back later.
 
-### It learns from trusted judgments
+### Whose judgments it learns from
 
-A pass counts only judgments recorded under a
-[restricted judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class)
-by default, `classWeights: "restricted-only"`. So who may steer it is a
-choice you make. `"as-recorded"` counts every judgment, by its class's
-weight: set it in the API or the clients.
+By default, once your test set's project, its tenant, or the agent you're
+improving there has a [restricted judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class),
+a pass counts only the judgments recorded under one
+(`classWeights: "restricted-only"`), so who may steer a pass is a choice
+you make. That's the test set's project, which can differ from the one the
+agent is made in. Until then it counts every judgment, each by its class's
+weight (`classWeights: "as-recorded"`), since counting only restricted
+classes would count nothing. A class restricted for a different agent,
+or in a different project, doesn't count. Set `classWeights` in the API
+or the clients to choose either, whatever classes exist.
 
 ## Draft a prompt instead
 
@@ -253,8 +258,9 @@ when it ends ([Webhook events and deliveries](../../webhooks/webhook-events/#imp
 
 ## Run passes on a schedule
 
-A schedule can start a pass when enough new trusted judgments have come in,
-as [Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
+A schedule can start a pass when enough new judgments have come in, counted
+the way the pass will count them, as
+[Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
 shows.
 
 ## Next

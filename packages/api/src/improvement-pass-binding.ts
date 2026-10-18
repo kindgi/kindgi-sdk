@@ -97,7 +97,12 @@ export interface ImproveThreshold {
 export interface ImproveScheduleInput {
   readonly tiers: readonly ImprovementTier[];
   readonly objective: ProposalObjective;
-  readonly classWeights: EvalClassWeights;
+  /**
+   * Which judgments each pass's comparisons count. Omitted: each fire
+   * resolves the project default — everyone (`as-recorded`) until the
+   * project names an expert class, then `restricted-only`.
+   */
+  readonly classWeights?: EvalClassWeights;
   readonly model?: ImprovementModel;
   readonly candidates?: number;
   /** Each pass's budget; never more than what's left of the month's cap. */

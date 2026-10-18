@@ -59,7 +59,14 @@ export function inMemoryJudgments(): JudgmentRegistryBinding {
         .filter((k) => k.unregisteredAt === undefined)
         .filter((k) => input.scope === undefined || sameScope(k.scope, input.scope))
         .reverse();
-      return page(rows, input.limit);
+      const from = input.cursor === undefined ? 0 : Number(input.cursor);
+      const data = rows.slice(from, from + input.limit);
+      const next = from + data.length;
+      return {
+        data,
+        hasMore: next < rows.length,
+        ...(next < rows.length && { nextCursor: String(next) as Cursor }),
+      };
     },
     async getClass(input) {
       const k = classes.find((c) => c.id === input.judgeClassId) ?? null;
