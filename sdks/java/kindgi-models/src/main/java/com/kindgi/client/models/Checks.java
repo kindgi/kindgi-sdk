@@ -165,8 +165,9 @@ public final class Checks {
   }
 
   /**
-   * Throws when any check failed, naming the checked value by its class: a union's variant after
-   * its union ({@code StartRunBody.WithAgent}), as the API's other checks name its fields.
+   * Throws when any check failed, naming the checked value by its class: a nested model after the
+   * classes it's in ({@code CreateSystemTenantBody.FirstAdmin}), a union's variant after its union
+   * ({@code StartRunBody.WithAgent}), as the API's other checks name its fields.
    *
    * @param type the checked value's class
    * @throws ValidationException listing every problem

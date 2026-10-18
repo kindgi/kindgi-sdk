@@ -124,6 +124,9 @@ class ChecksTest {
     assertThatThrownBy(() -> new Sized(List.of("a", "b")).validate())
         .isInstanceOf(ValidationException.class)
         .hasMessage("ChecksTest.Sized is invalid: items: must have at most 1 item");
+    assertThatThrownBy(() -> new CreateSystemTenantBody.FirstAdmin("admin@acme.test", "").validate())
+        .isInstanceOf(ValidationException.class)
+        .hasMessage("CreateSystemTenantBody.FirstAdmin is invalid: name: must be at least 1 character long");
 
     Checks sending = Checks.sending();
     new Holder(UNKNOWN, List.of(), Map.of()).validate(sending);
