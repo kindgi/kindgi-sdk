@@ -100,9 +100,15 @@ test('a fence inside a list, and a longer fence holding a shorter one', () => {
   assert.deepEqual(bareLaunches(source), [{ line: 4, text: 'kindgi dev' }]);
 });
 
-test('a page that says what `kindgi` stands for in it is not read', () => {
-  const says = (marker) => `${marker}\n${page('sh', 'kindgi doctor --json')}`;
-  assert.deepEqual(bareLaunches(says('<!-- cli-launch: the rule above maps it -->')), []);
-  assert.deepEqual(bareLaunches(says('{/* cli-launch: the rule above maps it */}')), []);
-  assert.equal(bareLaunches(says('<!-- timeless: another check -->')).length, 1);
+test('a page that starts the CLI from the registry passes; a bare `kindgi` fails', () => {
+  const before = page(
+    'sh',
+    'npx --yes @kindgi/cli@0.1 doctor --json',
+    'uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-agents --template=python',
+    '<read the clipboard> | npx --yes @kindgi/cli@0.1 auth registry --password-stdin',
+  );
+  assert.deepEqual(bareLaunches(before), []);
+  // A comment on the page doesn't take it out of the check.
+  const bare = `<!-- cli-launch: the rule above maps it -->\n${page('sh', 'kindgi doctor --json')}`;
+  assert.deepEqual(bareLaunches(bare), [{ line: 5, text: 'kindgi doctor --json' }]);
 });
