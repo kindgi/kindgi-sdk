@@ -56,12 +56,17 @@ export interface DeploymentBinding {
    * (`ImageRegistryBinding.head`), and validates every primitive in the
    * index before calling — the binding receives a well-formed input.
    *
-   * Idempotent per `imageDigest`: when the same digest is re-registered
-   * under the same tenant the binding MUST return
-   * `{ kind: 'already-registered', deployment }` with the existing row
-   * (existing `artifactVersion` — the issuer-supplied value the row
-   * originally pinned). Different digest → new row with the caller's
-   * newly-supplied `artifactVersion` persisted verbatim.
+   * Idempotent per `(projectId, imageDigest)`: when the same digest is
+   * re-registered in the same project of the same tenant the binding MUST
+   * return `{ kind: 'already-registered', deployment }` with the existing
+   * row (existing `artifactVersion` — the issuer-supplied value the row
+   * originally pinned). A registration with no `projectId` and one naming
+   * the tenant's Default project by its id are the SAME project for this
+   * check: either finds the other, so a digest is registered once per
+   * project however the Default is named (a tenant with no Default keeps a
+   * project-less registration tenant-wide). A different project, or a
+   * different digest → a new row, with the caller's newly-supplied
+   * `artifactVersion` persisted verbatim.
    */
   register(input: DeploymentRegisterInput): Promise<DeploymentRegisterOutcome>;
   /**
@@ -71,10 +76,14 @@ export interface DeploymentBinding {
    */
   get(input: DeploymentGetInput): Promise<Deployment | null>;
   /**
-   * Fetch a deployment by its `imageDigest` (the sha256 of the pinned
-   * OCI image). Used for the idempotency check on `register` and for
-   * cross-referencing image identity from the sandbox layer at
-   * dispatch. `null` when no record exists.
+   * Fetch a deployment by its `imageDigest` (the sha256 of the pinned OCI
+   * image), within `projectId` — or, absent, among the tenant-wide
+   * deployments (the tenant's Default project). A digest registered with no
+   * project and one registered under the tenant's Default by its id resolve
+   * to each other here too (the Default named either way is one project).
+   * Used for the idempotency check on `register` and for cross-referencing
+   * image identity from the sandbox layer at dispatch. `null` when no
+   * record exists.
    */
   getByImageDigest(input: DeploymentGetByImageDigestInput): Promise<Deployment | null>;
   /**
@@ -285,6 +294,12 @@ export interface Deployment {
    */
   readonly packEnv?: PackEnvDeclaration;
   /**
+   * When this deployment was created by promoting another into a later
+   * environment of its order, the source deployment it was promoted from.
+   * Absent for a deployment registered directly.
+   */
+  readonly promotedFromDeploymentId?: string;
+  /**
    * Its pack service's status, when the server routes pack calls per
    * deployment. Absent otherwise (one pack service for every deployment),
    * and from a binding that doesn't track it.
@@ -431,6 +446,13 @@ export interface DeploymentGetInput {
 export interface DeploymentGetByImageDigestInput {
   readonly tenantId: TenantId;
   readonly imageDigest: string;
+  /**
+   * Which project to look up within: a digest deploys once per project, so
+   * the same image can be registered in more than one (a later environment
+   * of its order takes it by promotion). Absent = the tenant's Default (a
+   * tenant-wide deploy, stored with no project).
+   */
+  readonly projectId?: ProjectId;
 }
 
 // -------------------- list --------------------
