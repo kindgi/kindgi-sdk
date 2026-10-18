@@ -33,6 +33,7 @@ export type {
 export type {
   ProjectBinding,
   ProjectCreateOutcome,
+  ProjectDeleteOutcome,
   ProjectListFilter,
   ProjectMembershipAddInput,
   ProjectMembershipAddOutcome,
