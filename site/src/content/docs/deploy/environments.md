@@ -65,6 +65,10 @@ Each environment has its own values and its own data. Only the build moves.
   pack and deploy it to the first environment: it reaches the others by
   promotion. An agent the tenant or an org holds isn't in any one
   environment, so it has nothing to move.
+- **Versions not yet promoted.** A version made in `staging-1` can't be
+  named in `staging-2` until it's promoted there. An eval run, a
+  conversation, a schedule or a webhook trigger in `staging-2` that names it
+  is refused (`reference-out-of-scope`): promote it first.
 - **Test sets move forward only.** A test set can be used in the environment
   it was made in and in every later one, never in an earlier one. A test set
   made in `prod` can hold production data, and data never moves back toward
