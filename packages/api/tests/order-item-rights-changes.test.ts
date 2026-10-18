@@ -10,14 +10,18 @@
  * version) needs it on every project that version can run in. Deriving a
  * version is `write` where the item's new versions are made. A version
  * the caller can't see is asked as one that doesn't exist. An item with
- * one project is checked as before, check for check.
+ * one project is checked as before, check for check. A deployment's
+ * promotion that makes what it moved live asks the live routes' one
+ * check (`liveChangeRefusal`).
  */
 
 import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
-import type { ProjectId, Semver, TenantId, Timestamp, UserId } from '@kindgi/types';
+import { userPrincipal } from '@kindgi/authz';
+import type { LiveScope, ProjectId, Semver, TenantId, Timestamp, UserId } from '@kindgi/types';
+import { Hono } from 'hono';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -30,6 +34,9 @@ import type {
   Promotion,
   TokenResolver,
 } from '../src/index.js';
+import { itemRightsOf, liveChangeRefusal } from '../src/item-rights.js';
+import { createAuthorizer } from '../src/middleware/authorize.js';
+import type { AppEnv } from '../src/types.js';
 import { environmentOrders } from './support/environment-orders.js';
 import { type Grant, type ItemRow, grantsAuthz, itemProjects } from './support/order-items.js';
 
@@ -554,4 +561,76 @@ describe("an agent's live versions and promotions, read by a prod member", () =>
     const res = await call('prod-reader', 'GET', `/v1/agents/${SERVED}/versions/1.1.0`);
     expect(res.status, res.text).toBe(404);
   });
+});
+
+describe("liveChangeRefusal: the one check a change to what's live asks", () => {
+  /** Asks it as `who` at `scope`, in a request whose body it must leave unread. */
+  async function refusal(
+    who: string,
+    agentId: string,
+    scope: LiveScope | undefined,
+    opts: { served?: boolean } = {},
+  ) {
+    const authz = grantsAuthz(PEOPLE);
+    const authorizer = createAuthorizer(authz.authz.authzCheckBinding);
+    const rights = itemRightsOf(
+      authorizer,
+      opts.served === false ? undefined : itemProjects(rows()),
+      environmentOrders([[STAGING, PROD]]),
+    );
+    let bodyRead: boolean | undefined;
+    const r = new Hono<AppEnv>();
+    r.post('/', async (c) => {
+      c.set('tenantId' as never, tenantId as never);
+      c.set('requestId' as never, 'req-live-change' as never);
+      c.set('principal' as never, userPrincipal(who as UserId, tenantId) as never);
+      const refused = await liveChangeRefusal(c, { authorizer, rights, agentId, scope });
+      bodyRead = Object.keys(c.req.bodyCache).length > 0;
+      return refused ?? c.json({ allowed: true });
+    });
+    const res = await r.request('/', { method: 'POST', body: 'not a body it reads' });
+    const text = await res.text();
+    return {
+      status: res.status,
+      body: JSON.parse(text) as Record<string, any>,
+      asked: authz.asked,
+      bodyRead,
+    };
+  }
+
+  test.each(LIVE_SCOPES)(
+    '$name live version: admin there, as the live routes ask it',
+    async (s) => {
+      const scope = s.scope as unknown as LiveScope;
+      const ok = await refusal(s.allowed, SERVED, scope);
+      expect(ok.body).toEqual({ allowed: true });
+      expect(ok.asked).toEqual(s.on.map((p) => `${s.allowed} admin project:${p}`));
+      expect(ok.bodyRead).toBe(false);
+
+      const no = await refusal(s.refused, SERVED, scope);
+      expect(no.status).toBe(403);
+      expect(no.body.error.message).toContain('needs admin on each project it changes');
+      expect(no.bodyRead).toBe(false);
+    },
+  );
+
+  test.each([true, false])(
+    'an agent with one project (an item-projects binding: %s): promote on the agent, as before',
+    async (served) => {
+      const scope = project(OTHER) as unknown as LiveScope;
+      const ok = await refusal('solo', SOLO, scope, { served });
+      expect(ok.body).toEqual({ allowed: true });
+      expect(ok.asked).toEqual([`solo promote agent:${SOLO}`]);
+
+      const no = await refusal('prod-admin', SOLO, scope, { served });
+      expect(no.status).toBe(403);
+      expect(no.body.error).toMatchObject({
+        code: 'permission-denied',
+        details: { action: 'promote', resource: `agent:${SOLO}` },
+        requestId: 'req-live-change',
+      });
+      expect(no.asked).toEqual([`prod-admin promote agent:${SOLO}`]);
+      expect(no.bodyRead).toBe(false);
+    },
+  );
 });
