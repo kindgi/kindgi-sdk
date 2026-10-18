@@ -5794,9 +5794,8 @@ export const ImproveBodySchema: JsonSchema = {
     classWeights: {
       type: 'string',
       enum: ['as-recorded', 'restricted-only'],
-      default: 'restricted-only',
       description:
-        'Which judgments the pass learns from: by default only those recorded under a restricted (trusted) judge class.',
+        "Which judgments the pass learns from. Omit it for the project's default: everyone (`as-recorded`) until the project names an expert (restricted) judge class, then only trusted judgments (`restricted-only`).",
     },
     objective: {
       type: 'string',

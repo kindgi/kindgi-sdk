@@ -21,6 +21,7 @@ import {
   type ImprovementPassBinding,
   type ImprovementTier,
 } from '../improvement-pass-binding.js';
+import type { JudgeClassScope, JudgmentRegistryBinding } from '../judgment-binding.js';
 import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
@@ -47,6 +48,65 @@ export interface ImproveDeps {
   readonly referenceScope?: ReferenceScopeBinding;
   /** Whether a project is suspended: no pass starts for an agent in one. Absent: no check. */
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+  /**
+   * The tenant's judge classes. The `classWeights` default counts everyone
+   * (`as-recorded`) until the project names an expert class (one with
+   * `assertableBy`), then it's `restricted-only`. Absent: the default stays
+   * `restricted-only`. Only `listClasses` is used.
+   */
+  readonly judgeClasses?: Pick<JudgmentRegistryBinding, 'listClasses'>;
+}
+
+/**
+ * The pass default for `classWeights` when the caller doesn't set one.
+ * Until a project names an expert judge class (one with `assertableBy`),
+ * Improve counts *everyone's* judgments (`as-recorded`); once the project
+ * has one, the default is trusted judgments only (`restricted-only`). An
+ * explicit `classWeights` always wins. With no judge-class binding wired,
+ * the default stays `restricted-only` (the prior behavior).
+ */
+async function resolveClassWeights(
+  deps: ImproveDeps,
+  tenantId: TenantId,
+  projectId: ProjectId | undefined,
+  explicit: EvalClassWeights | undefined,
+): Promise<EvalClassWeights> {
+  if (explicit !== undefined) return explicit;
+  if (deps.judgeClasses === undefined) return 'restricted-only';
+  return (await projectHasExpertClass(deps.judgeClasses, tenantId, projectId))
+    ? 'restricted-only'
+    : 'as-recorded';
+}
+
+/**
+ * Whether the project (or its tenant) has named an expert judge class: one
+ * restricted to named asserters (`assertableBy` set). Project scope and
+ * tenant scope both count — a tenant-wide expert class names experts for
+ * every project; agent scope and other projects' classes don't.
+ */
+async function projectHasExpertClass(
+  registry: Pick<JudgmentRegistryBinding, 'listClasses'>,
+  tenantId: TenantId,
+  projectId: ProjectId | undefined,
+): Promise<boolean> {
+  const scopes: JudgeClassScope[] = [
+    ...(projectId !== undefined ? [{ kind: 'project', projectId } as const] : []),
+    { kind: 'tenant' } as const,
+  ];
+  for (const scope of scopes) {
+    let cursor: Cursor | undefined;
+    do {
+      const page = await registry.listClasses({
+        tenantId,
+        scope,
+        limit: 100,
+        ...(cursor !== undefined && { cursor }),
+      });
+      if (page.data.some((c) => c.assertableBy !== undefined)) return true;
+      cursor = page.nextCursor;
+    } while (cursor !== undefined);
+  }
+  return false;
 }
 
 export const DEFAULT_BUDGET: ImprovementBudget = { maxCostUsd: 5, maxCandidates: 30 };
@@ -140,7 +200,7 @@ export function mountImproveRoute(r: Hono<AppEnv>, deps: ImproveDeps, authorizer
       suiteId: parsed.suiteId,
       tiers: parsed.tiers,
       objective: parsed.objective,
-      classWeights: parsed.classWeights,
+      classWeights: await resolveClassWeights(deps, tenantId, from.projectId, parsed.classWeights),
       ...(parsed.model !== undefined && { model: parsed.model }),
       ...(parsed.candidates !== undefined && { candidates: parsed.candidates }),
       budget: parsed.budget,
@@ -319,7 +379,7 @@ interface ImproveBody {
   readonly suiteId: string;
   readonly tiers: readonly ImprovementTier[];
   readonly objective: ProposalObjective;
-  readonly classWeights: EvalClassWeights;
+  readonly classWeights?: EvalClassWeights;
   readonly model?: ImprovementModel;
   readonly candidates?: number;
   readonly budget: ImprovementBudget;
@@ -436,9 +496,13 @@ function parsePassOptions(b: Record<string, unknown>): PassOptions | string {
   if (b.objective !== undefined && !OBJECTIVES.includes(b.objective as ProposalObjective)) {
     return `\`objective\` must be one of ${OBJECTIVES.join(', ')}`;
   }
-  const classWeights = b.classWeights ?? 'restricted-only';
-  if (classWeights !== 'restricted-only' && classWeights !== 'as-recorded') {
-    return "`classWeights` is 'restricted-only' (trusted judgments, the default) or 'as-recorded'";
+  const classWeights = b.classWeights;
+  if (
+    classWeights !== undefined &&
+    classWeights !== 'restricted-only' &&
+    classWeights !== 'as-recorded'
+  ) {
+    return "`classWeights` is 'restricted-only' (trusted judgments) or 'as-recorded' (everyone); omit it for the project's default";
   }
   const prompt = parsePromptOptions(b, tier);
   if (typeof prompt === 'string') return prompt;
@@ -447,7 +511,7 @@ function parsePassOptions(b: Record<string, unknown>): PassOptions | string {
   return {
     tiers: [tier],
     objective: (b.objective as ProposalObjective | undefined) ?? 'weightedYesShare',
-    classWeights,
+    ...(classWeights !== undefined && { classWeights }),
     ...prompt,
     budget,
   };

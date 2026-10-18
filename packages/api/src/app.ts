@@ -1701,6 +1701,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       releases: input.agentReleases,
       ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
       ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
+      ...(input.judgmentRegistry !== undefined && { judgeClasses: input.judgmentRegistry }),
     };
     v1.route(
       '/proposals',

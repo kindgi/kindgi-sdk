@@ -43,6 +43,7 @@ import type {
   ImprovementPass,
   ImprovementPassBinding,
   JudgedComparisonSummary,
+  JudgmentRegistryBinding,
   LivePin,
   Promotion,
   ReferenceScopeBinding,
@@ -52,6 +53,7 @@ import type {
 } from '../src/index.js';
 import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
+import { inMemoryJudgments } from './support/in-memory-judgments.js';
 import { inMemoryProposals } from './support/in-memory-proposals.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -457,6 +459,7 @@ async function harness(
     modelSettings?: boolean;
     referenceScope?: ReferenceScopeBinding;
     projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+    judgmentRegistry?: JudgmentRegistryBinding;
   } = {},
 ) {
   const agents = agentBinding();
@@ -559,6 +562,7 @@ async function harness(
     ...(opts.passes !== undefined && { improvementPasses: opts.passes }),
     ...(opts.referenceScope !== undefined && { referenceScope: opts.referenceScope }),
     ...(opts.projectSuspended !== undefined && { projectSuspended: opts.projectSuspended }),
+    ...(opts.judgmentRegistry !== undefined && { judgmentRegistry: opts.judgmentRegistry }),
     ...(grants !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -1361,7 +1365,7 @@ describe('improvement passes', () => {
     expect(passes.started[0]).toMatchObject({
       projectId,
       fromVersion: '1.0.0',
-      // K4: a pass learns from trusted judgments only, by default.
+      // With no judge-class registry wired, the default stays restricted-only (K4).
       classWeights: 'restricted-only',
     });
     expect(res.body.classWeights).toBe('restricted-only');
@@ -1374,6 +1378,84 @@ describe('improvement passes', () => {
     const again = await h.call('POST', `/v1/improvement-passes/${res.body.id}/cancel`, {});
     expect(again.status).toBe(409);
     expect(again.body.error.code).toBe('improvement-pass-finished');
+  });
+
+  test("counts everyone's judgments until the project names an expert class", async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    // No expert (restricted) judge class is named, so every judgment counts.
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
+    expect(res.body.classWeights).toBe('as-recorded');
+  });
+
+  test('switches to trusted judgments once the project names an expert class', async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'project', projectId },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+    expect(res.body.classWeights).toBe('restricted-only');
+  });
+
+  test('a tenant-wide expert class names experts for every project', async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'tenant' },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+  });
+
+  test('an unrestricted class is not an expert class: still counts everyone', async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'project', projectId },
+      name: 'user',
+      weight: 1,
+    });
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
+  });
+
+  test('an explicit classWeights always wins over the project default', async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    // No expert class named, but the caller asks for restricted-only outright.
+    const res = await h.call('POST', '/v1/proposals/improve', {
+      ...IMPROVE,
+      classWeights: 'restricted-only',
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+    expect(res.body.classWeights).toBe('restricted-only');
   });
 
   test('no pass starts for an agent whose project is suspended: 409 project-suspended; restored, it starts', async () => {
