@@ -203,11 +203,21 @@ export function reservedToolMetadataMessage(key: string): string {
   return `metadata "${key}": keys under "kindgi." are the runtime's own; a published tool can't set them`;
 }
 
-/** What a trigger (a schedule, a webhook, an event trigger) runs, as a reference. */
+/**
+ * What a trigger (a schedule, a webhook, an event trigger) runs, as a
+ * reference: a flow at its version, an agent at the version it names (none:
+ * whichever its project runs), an improve pass's agent by its id.
+ */
 export function triggerTargetReference(target: TriggerTarget): ItemReference {
-  return target.kind === 'flow'
-    ? { kind: 'flow', id: target.flowId as unknown as string }
-    : { kind: 'agent', id: target.agentId as unknown as string };
+  if (target.kind === 'flow') {
+    return { kind: 'flow', id: target.flowId as unknown as string, version: target.flowVersion };
+  }
+  return {
+    kind: 'agent',
+    id: target.agentId as unknown as string,
+    ...(target.kind === 'agent' &&
+      target.agentVersion !== undefined && { version: target.agentVersion }),
+  };
 }
 
 /** The `reference-out-of-scope` answer (400), the same from every route. */

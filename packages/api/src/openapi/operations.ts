@@ -3921,7 +3921,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Conversation opened.', schema: ref('Conversation') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body, or `projectId` names no project of this tenant. Or `reference-out-of-scope`: the agent isn't registered in the conversation's project, its org or the tenant (`details.issues`).",
+        "Malformed request body, or `projectId` names no project of this tenant. Or `reference-out-of-scope`: the agent isn't registered in the conversation's project, its org or the tenant, or `agentVersion` isn't a version that project runs, such as one made in an earlier environment and not yet promoted (`details.issues`, at `/agentId`, whose message names the version). Nothing is opened.",
       ),
       '403': ErrorResponse(
         "No `execute` on the agent; or a `participantId` whose memory the caller may not read (`participant-not-allowed`): its turns run with that participant's memory, so opening it for someone takes being them (a person, by their user id) or `write` on its project.",
@@ -9274,7 +9274,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Schedule registered.', schema: ref('ScheduleRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body. Or `reference-out-of-scope`: what it runs isn't registered in the schedule's project, its org or the tenant (`details.issues`).",
+        "Malformed request body. Or `reference-out-of-scope`: what it runs isn't registered in the schedule's project, its org or the tenant, or the version it names (`flowVersion`, or `agentVersion` when given) isn't one that project runs (`details.issues`, at `/target`, whose message names the version). Nothing is registered.",
       ),
     },
   },
@@ -9339,7 +9339,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Updated schedule.', schema: ref('ScheduleRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body, or `trigger-invalid-config`. Or `reference-out-of-scope`: a new target isn't registered in the schedule's project, its org or the tenant (`details.issues`).",
+        "Malformed request body, or `trigger-invalid-config`. Or `reference-out-of-scope`: a new target isn't registered in the schedule's project, its org or the tenant, or the version it names isn't one that project runs (`details.issues`, at `/target`, whose message names the version). Nothing changes.",
       ),
       '404': ErrorResponse('No cron trigger with that id.'),
     },
@@ -9589,7 +9589,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Webhook registered.', schema: ref('WebhookTriggerRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the tenant (`details.issues`). Or, with `generateSecret`, a name the secrets store can't write, refused before anything is stored: `secret-name-invalid` (a name that isn't 1 to 255 ASCII letters, digits, `.`, `-` and `_` starting with a letter, digit or `_`, with any `.` between two non-`.` characters, or, under `kindgi dev`, isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `reserved-name-prefix`.",
+        "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the tenant, or `flowVersion` isn't a version that project runs (`details.issues`, at `/flowId`, whose message names the version), and nothing is registered. Or, with `generateSecret`, a name the secrets store can't write, refused before anything is stored: `secret-name-invalid` (a name that isn't 1 to 255 ASCII letters, digits, `.`, `-` and `_` starting with a letter, digit or `_`, with any `.` between two non-`.` characters, or, under `kindgi dev`, isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `reserved-name-prefix`.",
       ),
       '409': ErrorResponse(
         "`secret-write-conflict`: with `generateSecret`, the trigger's project already has a secret of that name (it's never overwritten, and no trigger is left). Or the route-minted webhookId collided (astronomically rare).",
@@ -9648,7 +9648,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.update',
     summary: 'Update a webhook trigger',
     description:
-      "Changes the flow version (which needs `execute` on the flow), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.",
+      "Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -9656,6 +9656,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Updated webhook trigger.', schema: ref('WebhookTriggerRecord') },
       ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key. Or `reference-out-of-scope`: the new `flowVersion` isn't a version the trigger's project runs, such as one made in an earlier environment and not yet promoted (`details.issues`, at `/flowVersion`, whose message names the version). Nothing changes.",
+      ),
       '404': ErrorResponse('No webhook trigger with that id.'),
     },
   },
