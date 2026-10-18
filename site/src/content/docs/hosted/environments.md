@@ -178,8 +178,11 @@ For reference:
 kindgi deploy --hosted --env=staging-1
 ```
 
-A deploy into a later environment is refused. The message names the first
-environment and the command that promotes from it.
+A deploy into a later environment is refused
+(`environment-takes-promotions`), and nothing is deployed. Deploy into the
+first environment, and promote from there. Publishing an agent, a flow, a
+tool, a guardrail or a data block through the API into a later environment
+is refused the same way: only builds move between environments.
 
 Try the new version in `staging-1`, and make it live there, as in
 [Deploy your agent to Kindgi Cloud](../deploy-your-agent/#try-it).
@@ -240,7 +243,8 @@ its version, make it live, and roll back if you need to, as in
   name, or the environment names no project. Name its project in
   `kindgi.config.ts`, as in
   [Name each environment's project](#name-each-environments-project).
-- **A deploy into a later environment is refused.** Deploy into the first
+- **A deploy or a publish into a later environment is refused
+  (`environment-takes-promotions`).** Deploy or publish into the first
   environment, then promote.
 - **A promotion is refused because values are missing.** Store each value
   it names in the environment you're promoting to, then promote again.
