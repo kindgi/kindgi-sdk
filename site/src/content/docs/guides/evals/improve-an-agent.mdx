@@ -145,12 +145,12 @@ The cost is 0 on `dev-echo`, which costs nothing:
 
 ### Whose judgments it learns from
 
-By default, once the project your test set is in — which can differ from
-where the agent is made — its tenant, or the agent you're improving in that
-project has a [restricted judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class),
+By default, once your test set's project, its tenant, or the agent you're
+improving there has a [restricted judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class),
 a pass counts only the judgments recorded under one
 (`classWeights: "restricted-only"`), so who may steer a pass is a choice
-you make. Until then it counts every judgment, each by its class's
+you make. That's the test set's project, which can differ from the one the
+agent is made in. Until then it counts every judgment, each by its class's
 weight (`classWeights: "as-recorded"`), since counting only restricted
 classes would count nothing. A class restricted for a different agent,
 or in a different project, doesn't count. Set `classWeights` in the API

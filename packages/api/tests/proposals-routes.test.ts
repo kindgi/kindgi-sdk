@@ -1707,6 +1707,18 @@ describe('improvement passes', () => {
     expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
   });
 
+  test('with no judge-class registry wired, the suite read is skipped', async () => {
+    const passes = inMemoryPasses();
+    // No judgmentRegistry, so there are no judge classes to resolve a default
+    // from: the route must not read the suite — the stub throws if it does.
+    const h = await harness({ tunable: true, passes: passes.binding, suiteGetThrows: true });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+    expect(res.body.classWeights).toBe('restricted-only');
+  });
+
   test('an unrestricted class is not an expert class: still counts everyone', async () => {
     const passes = inMemoryPasses();
     const judgments = inMemoryJudgments();
