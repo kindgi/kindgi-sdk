@@ -86,6 +86,10 @@ export const EVIDENCE_KINDS = [
   // A trigger's owner (the principal its runs act as) set at registration
   // or changed on take-over — a delegation when it names a service account.
   'trigger-owner-set',
+  // The order a tenant (or one of its orgs) runs a project through to live
+  // was set, changed or cleared. The payload carries the order before and
+  // after, each a list of project ids — never anything a project holds.
+  'environment-order-set',
 ] as const;
 
 /**

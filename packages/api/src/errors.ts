@@ -463,6 +463,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'project-access-unsupported': 501,
   // The tenant's env names, from a runtime whose env or secret store can't list them.
   'environments-unsupported': 501,
+  // A project named in `PUT /v1/environment-orders/*` already belongs to another order.
+  'project-in-another-order': 409,
   // A model provider's key is used by its provider only: named by a tool or
   // an endpoint (400), or registered for a provider while one uses it (409).
   'provider-key-refused': 400,

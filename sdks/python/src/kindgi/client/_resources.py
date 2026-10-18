@@ -936,6 +936,21 @@ OPERATIONS: dict[str, Operation] = {
     "tenant.config.upsert": Operation(
         "tenant.config.upsert", "PATCH", "/v1/tenant/config", "json", True
     ),
+    "environmentOrders.list": Operation(
+        "environmentOrders.list", "GET", "/v1/environment-orders", "json", False
+    ),
+    "environmentOrders.getTenant": Operation(
+        "environmentOrders.getTenant", "GET", "/v1/environment-orders/tenant", "json", False
+    ),
+    "environmentOrders.setTenant": Operation(
+        "environmentOrders.setTenant", "PUT", "/v1/environment-orders/tenant", "json", True
+    ),
+    "environmentOrders.getOrg": Operation(
+        "environmentOrders.getOrg", "GET", "/v1/environment-orders/orgs/{orgId}", "json", False
+    ),
+    "environmentOrders.setOrg": Operation(
+        "environmentOrders.setOrg", "PUT", "/v1/environment-orders/orgs/{orgId}", "json", True
+    ),
     "environments.list": Operation("environments.list", "GET", "/v1/environments", "json", False),
     "env.list": Operation("env.list", "GET", "/v1/env", "json", False),
     "env.get": Operation("env.get", "GET", "/v1/env/{name}", "json", False),
@@ -8397,6 +8412,111 @@ class TenantResource:
             query={},
             headers={},
             response=_models.Tenant,
+            timeout=timeout,
+        )
+
+
+class EnvironmentOrdersResource:
+    """`client.environment_orders` — the `environmentOrders` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvironmentOrderPage:
+        """List the tenant's environment orders. `GET /v1/environment-orders`
+
+        The order a tenant runs a project through on its way to live — its environments: the tenant's own order and each org's. An order is listed when the caller can read a project in it; a project the caller can't read is named by its position alone, without its id.
+        """
+        return self._client._request(
+            _OPERATIONS["environmentOrders.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.EnvironmentOrderPage,
+            timeout=timeout,
+        )
+
+    def get_tenant(self, /, *, timeout: float | None = None) -> _models.EnvironmentOrder:
+        """Get the tenant's environment order. `GET /v1/environment-orders/tenant`
+
+        The tenant's own environment order; empty when it was never set or was cleared. A project the caller can't read is named by its position alone.
+        """
+        return self._client._request(
+            _OPERATIONS["environmentOrders.getTenant"],
+            path={},
+            query={},
+            headers={},
+            response=_models.EnvironmentOrder,
+            timeout=timeout,
+        )
+
+    def set_tenant(
+        self,
+        body: _models.EnvironmentOrderSetRequest | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.EnvironmentOrder:
+        """Set the tenant's environment order. `PUT /v1/environment-orders/tenant`
+
+        Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the tenant and in no other order. A write that changes nothing is a no-op.
+        """
+        return self._client._request(
+            _OPERATIONS["environmentOrders.setTenant"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EnvironmentOrderSetRequest, body, fields),
+            response=_models.EnvironmentOrder,
+            timeout=timeout,
+        )
+
+    def get_org(
+        self, org_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.EnvironmentOrder:
+        """Get an org's environment order. `GET /v1/environment-orders/orgs/{orgId}`
+
+        An org's environment order; empty when it was never set or was cleared. A project the caller can't read is named by its position alone.
+        """
+        return self._client._request(
+            _OPERATIONS["environmentOrders.getOrg"],
+            path={"orgId": org_id},
+            query={},
+            headers={},
+            response=_models.EnvironmentOrder,
+            timeout=timeout,
+        )
+
+    def set_org(
+        self,
+        org_id: str | UUID,
+        body: _models.EnvironmentOrderSetRequest | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.EnvironmentOrder:
+        """Set an org's environment order. `PUT /v1/environment-orders/orgs/{orgId}`
+
+        Replace the org's order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live under this org and in no other order. A write that changes nothing is a no-op.
+        """
+        return self._client._request(
+            _OPERATIONS["environmentOrders.setOrg"],
+            path={"orgId": org_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EnvironmentOrderSetRequest, body, fields),
+            response=_models.EnvironmentOrder,
             timeout=timeout,
         )
 
@@ -16704,6 +16824,111 @@ class AsyncTenantResource:
         )
 
 
+class AsyncEnvironmentOrdersResource:
+    """`client.environment_orders` — the `environmentOrders` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvironmentOrderPage:
+        """List the tenant's environment orders. `GET /v1/environment-orders`
+
+        The order a tenant runs a project through on its way to live — its environments: the tenant's own order and each org's. An order is listed when the caller can read a project in it; a project the caller can't read is named by its position alone, without its id.
+        """
+        return await self._client._request(
+            _OPERATIONS["environmentOrders.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.EnvironmentOrderPage,
+            timeout=timeout,
+        )
+
+    async def get_tenant(self, /, *, timeout: float | None = None) -> _models.EnvironmentOrder:
+        """Get the tenant's environment order. `GET /v1/environment-orders/tenant`
+
+        The tenant's own environment order; empty when it was never set or was cleared. A project the caller can't read is named by its position alone.
+        """
+        return await self._client._request(
+            _OPERATIONS["environmentOrders.getTenant"],
+            path={},
+            query={},
+            headers={},
+            response=_models.EnvironmentOrder,
+            timeout=timeout,
+        )
+
+    async def set_tenant(
+        self,
+        body: _models.EnvironmentOrderSetRequest | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.EnvironmentOrder:
+        """Set the tenant's environment order. `PUT /v1/environment-orders/tenant`
+
+        Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the tenant and in no other order. A write that changes nothing is a no-op.
+        """
+        return await self._client._request(
+            _OPERATIONS["environmentOrders.setTenant"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EnvironmentOrderSetRequest, body, fields),
+            response=_models.EnvironmentOrder,
+            timeout=timeout,
+        )
+
+    async def get_org(
+        self, org_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.EnvironmentOrder:
+        """Get an org's environment order. `GET /v1/environment-orders/orgs/{orgId}`
+
+        An org's environment order; empty when it was never set or was cleared. A project the caller can't read is named by its position alone.
+        """
+        return await self._client._request(
+            _OPERATIONS["environmentOrders.getOrg"],
+            path={"orgId": org_id},
+            query={},
+            headers={},
+            response=_models.EnvironmentOrder,
+            timeout=timeout,
+        )
+
+    async def set_org(
+        self,
+        org_id: str | UUID,
+        body: _models.EnvironmentOrderSetRequest | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.EnvironmentOrder:
+        """Set an org's environment order. `PUT /v1/environment-orders/orgs/{orgId}`
+
+        Replace the org's order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live under this org and in no other order. A write that changes nothing is a no-op.
+        """
+        return await self._client._request(
+            _OPERATIONS["environmentOrders.setOrg"],
+            path={"orgId": org_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EnvironmentOrderSetRequest, body, fields),
+            response=_models.EnvironmentOrder,
+            timeout=timeout,
+        )
+
+
 class AsyncEnvironmentsResource:
     """`client.environments` — the `environments` operations."""
 
@@ -17751,6 +17976,7 @@ class Resources:
     teams: TeamsResource
     projects: ProjectsResource
     tenant: TenantResource
+    environment_orders: EnvironmentOrdersResource
     environments: EnvironmentsResource
     env: EnvResource
     secrets: SecretsResource
@@ -17804,6 +18030,7 @@ class Resources:
         self.teams = TeamsResource(client)
         self.projects = ProjectsResource(client)
         self.tenant = TenantResource(client)
+        self.environment_orders = EnvironmentOrdersResource(client)
         self.environments = EnvironmentsResource(client)
         self.env = EnvResource(client)
         self.secrets = SecretsResource(client)
@@ -17859,6 +18086,7 @@ class AsyncResources:
     teams: AsyncTeamsResource
     projects: AsyncProjectsResource
     tenant: AsyncTenantResource
+    environment_orders: AsyncEnvironmentOrdersResource
     environments: AsyncEnvironmentsResource
     env: AsyncEnvResource
     secrets: AsyncSecretsResource
@@ -17912,6 +18140,7 @@ class AsyncResources:
         self.teams = AsyncTeamsResource(client)
         self.projects = AsyncProjectsResource(client)
         self.tenant = AsyncTenantResource(client)
+        self.environment_orders = AsyncEnvironmentOrdersResource(client)
         self.environments = AsyncEnvironmentsResource(client)
         self.env = AsyncEnvResource(client)
         self.secrets = AsyncSecretsResource(client)

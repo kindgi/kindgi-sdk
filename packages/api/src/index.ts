@@ -1009,6 +1009,17 @@ export type {
   ResolveContext,
 } from './env-binding.js';
 export type {
+  EnvironmentOrder,
+  EnvironmentOrderBinding,
+  EnvironmentOrderEntry,
+  EnvironmentOrderGetInput,
+  EnvironmentOrderListInput,
+  EnvironmentOrderListPage,
+  EnvironmentOrderParent,
+  EnvironmentOrderSetInput,
+  EnvironmentOrderSetOutcome,
+} from './environment-orders-binding.js';
+export type {
   SecretBinding,
   SecretError,
   SecretGetInput,

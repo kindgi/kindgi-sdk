@@ -33,6 +33,7 @@ import type { CostBinding } from './cost-binding.js';
 import type { CursorSealer } from './cursor-seal.js';
 import type { DeploymentBinding } from './deployment-binding.js';
 import type { EnvBinding } from './env-binding.js';
+import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import type { WireErrorBody } from './errors.js';
 import type { EvalCaseStoreBinding } from './eval-case-binding.js';
 import type { EvalRunBinding } from './eval-run-binding.js';
@@ -131,6 +132,7 @@ import { conversationsRouter } from './routes/conversations.js';
 import { costRouter } from './routes/cost.js';
 import { deploymentsRouter } from './routes/deployments.js';
 import { envRouter } from './routes/env.js';
+import { environmentOrdersRouter } from './routes/environment-orders.js';
 import { environmentsRouter } from './routes/environments.js';
 import { evalRunsRouters } from './routes/eval-runs.js';
 import { evalSuitesRouter } from './routes/eval-suites.js';
@@ -1169,6 +1171,12 @@ export interface CreateAppInput {
    */
   readonly secretsBinding?: SecretBinding;
   /**
+   * Optional. The order a tenant runs a project through on its way to live
+   * — its "environments". When present, mounts `/v1/environment-orders`.
+   * The host application supplies it; `@kindgi/api` never constructs one.
+   */
+  readonly environmentOrders?: EnvironmentOrderBinding;
+  /**
    * The env this deployment serves (`KINDGI_ENV`): where the secrets a
    * tool's code declares are looked for when the tool is published, to
    * record where they're read (`secret-scope.ts`). Absent: the webhook
@@ -2080,6 +2088,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       environmentsRouter({
         ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
         ...(secretsBinding !== undefined && { secretsBinding }),
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
+  if (input.environmentOrders !== undefined) {
+    v1.route(
+      '/environment-orders',
+      environmentOrdersRouter({
+        binding: input.environmentOrders,
+        ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         ...(authorizer !== undefined && { authorizer }),
       }),
     );

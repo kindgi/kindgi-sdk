@@ -8736,6 +8736,115 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
 
+  // ---------- environment orders ----------
+  {
+    method: 'get',
+    honoPath: '/v1/environment-orders',
+    openapiPath: '/v1/environment-orders',
+    operationId: 'environmentOrders.list',
+    summary: "List the tenant's environment orders",
+    description:
+      "The order a tenant runs a project through on its way to live — its environments: the tenant's own order and each org's. An order is listed when the caller can read a project in it; a project the caller can't read is named by its position alone, without its id.",
+    tags: ['environments'],
+    security: 'bearer',
+    parameters: [LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of environment orders.', schema: ref('EnvironmentOrderPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse("`cursor` isn't one this list gave (`bad-input`)."),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/environment-orders/tenant',
+    openapiPath: '/v1/environment-orders/tenant',
+    operationId: 'environmentOrders.getTenant',
+    summary: "Get the tenant's environment order",
+    description:
+      "The tenant's own environment order; empty when it was never set or was cleared. A project the caller can't read is named by its position alone.",
+    tags: ['environments'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'The order.', schema: ref('EnvironmentOrder') },
+      ...CommonAuthErrors,
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/environment-orders/tenant',
+    openapiPath: '/v1/environment-orders/tenant',
+    operationId: 'environmentOrders.setTenant',
+    summary: "Set the tenant's environment order",
+    description:
+      'Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the tenant and in no other order. A write that changes nothing is a no-op.',
+    tags: ['environments'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('EnvironmentOrderSetRequest') },
+    responses: {
+      '200': { description: 'The order as it now stands.', schema: ref('EnvironmentOrder') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Only a tenant admin sets an environment order (`permission-denied`).'),
+      '409': ErrorResponse(
+        'A project in the order already belongs to another one (`project-in-another-order`).',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/environment-orders/orgs/:orgId',
+    openapiPath: '/v1/environment-orders/orgs/{orgId}',
+    operationId: 'environmentOrders.getOrg',
+    summary: "Get an org's environment order",
+    description:
+      "An org's environment order; empty when it was never set or was cleared. A project the caller can't read is named by its position alone.",
+    tags: ['environments'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'orgId',
+        in: 'path',
+        required: true,
+        description: 'OrgId — opaque branded string.',
+        schema: { type: 'string' },
+      },
+    ],
+    responses: {
+      '200': { description: 'The order.', schema: ref('EnvironmentOrder') },
+      ...CommonAuthErrors,
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/environment-orders/orgs/:orgId',
+    openapiPath: '/v1/environment-orders/orgs/{orgId}',
+    operationId: 'environmentOrders.setOrg',
+    summary: "Set an org's environment order",
+    description:
+      "Replace the org's order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live under this org and in no other order. A write that changes nothing is a no-op.",
+    tags: ['environments'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'orgId',
+        in: 'path',
+        required: true,
+        description: 'OrgId — opaque branded string.',
+        schema: { type: 'string' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('EnvironmentOrderSetRequest') },
+    responses: {
+      '200': { description: 'The order as it now stands.', schema: ref('EnvironmentOrder') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Only a tenant admin sets an environment order (`permission-denied`).'),
+      '409': ErrorResponse(
+        'A project in the order already belongs to another one (`project-in-another-order`).',
+      ),
+    },
+  },
+
   // ---------- env ----------
   {
     method: 'get',

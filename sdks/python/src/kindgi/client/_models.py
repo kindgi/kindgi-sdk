@@ -8510,6 +8510,7 @@ class EvidenceKind(RootModel[str]):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "environment-order-set",
             ],
             min_length=1,
         ),
@@ -8672,6 +8673,7 @@ class ComplianceEvidence(BaseModel):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "environment-order-set",
             ],
             min_length=1,
         ),
@@ -8759,6 +8761,7 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "environment-order-set",
             ],
             min_length=1,
         ),
@@ -8828,6 +8831,7 @@ class Filter(BaseModel):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "environment-order-set",
             ],
             min_length=1,
         ),
@@ -9577,6 +9581,23 @@ class EnvironmentPage(BaseModel):
     data: list[Environment]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class EnvironmentOrderEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    position: Annotated[int, Field(ge=0)]
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+
+
+class EnvironmentOrderSetRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_ids: Annotated[list[str], Field(alias="projectIds")]
 
 
 class SecretRevokeOutcome(BaseModel):
@@ -10780,6 +10801,23 @@ class ScopeProject(BaseModel):
     kind: Literal["project"]
     tenant_id: Annotated[str, Field(alias="tenantId")]
     project_id: Annotated[str, Field(alias="projectId")]
+
+
+class EnvironmentOrderParentTenant(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["tenant"]
+
+
+class EnvironmentOrderParentOrg(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["org"]
+    org_id: Annotated[str, Field(alias="orgId")]
 
 
 class EnvSetOutcomeRevisionConflict(BaseModel):
@@ -12627,6 +12665,25 @@ class EnvListPage(BaseModel):
         populate_by_name=True,
     )
     data: list[EnvRecord]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class EnvironmentOrder(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    parent: EnvironmentOrderParentTenant | EnvironmentOrderParentOrg
+    entries: list[EnvironmentOrderEntry]
+
+
+class EnvironmentOrderPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[EnvironmentOrder]
+    has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
