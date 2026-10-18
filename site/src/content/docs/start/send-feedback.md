@@ -15,7 +15,7 @@ exactly what's sent and said yes.
 Preview it first:
 
 ```sh
-kindgi feedback submit --preview
+pnpm exec kindgi feedback submit --preview
 ```
 
 It prints the report exactly as it would be sent, after
@@ -29,7 +29,7 @@ in `FEEDBACK.md` and preview again. When it's right, send it with the
 preview's digest:
 
 ```sh
-kindgi feedback submit --yes=<digest>
+pnpm exec kindgi feedback submit --yes=<digest>
 ```
 
 It sends only if the report is still exactly what the preview showed. If
@@ -138,7 +138,7 @@ name for one. The preview is the check.
 ## Hear back
 
 ```sh
-kindgi feedback status
+pnpm exec kindgi feedback status
 ```
 
 It asks what became of the reports you sent, and answers with each one's
@@ -162,7 +162,7 @@ session when `FEEDBACK.md` has entries that were sent.
 ## Take a report back
 
 ```sh
-kindgi feedback withdraw 2026-10-15.1
+pnpm exec kindgi feedback withdraw 2026-10-15.1
 ```
 
 Name an entry by its id or hash, or a report by its id (`fbr_…`). The intake
