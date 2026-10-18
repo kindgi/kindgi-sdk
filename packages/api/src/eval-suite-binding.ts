@@ -248,9 +248,10 @@ export type EvalSuiteRecord = EvalSuite & {
   readonly projectId?: ProjectId;
   /**
    * The project this version was published in, when the store records it.
-   * It's `projectId` but in a tenant with environment orders, where a test
-   * set version may be published in any environment of the order, and is
-   * reachable there and in the later ones, never in an earlier one.
+   * The same as `projectId`, except in a tenant with environment orders,
+   * where a test set version may be published in any environment of the
+   * order, and is reachable there and in the later ones, never in an
+   * earlier one.
    */
   readonly madeInProjectId?: ProjectId;
   /**
