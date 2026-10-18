@@ -69,7 +69,8 @@
         "person-granted",
         "person-ungranted",
         "trigger-owner-set",
-        "environment-order-set"
+        "environment-order-set",
+        "deployment-promoted"
       ]
     },
     "timestamp": {

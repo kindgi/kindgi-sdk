@@ -105,6 +105,18 @@ describe('carriedVersions', () => {
     });
   });
 
+  test('an edit of a later build is left behind when the earlier build moves, though that build derives from it', async () => {
+    // 1.1.0 is another deploy's build of the agent (its pins changed from 1.0.0), and 1.1.1 edits it.
+    // 1.1.1 leads back to 1.0.0 only through that build: it isn't an edit of what moves.
+    const d = deps({
+      agents: { a: [deployed('1.0.0'), deployed('1.1.0', '1.0.0'), edited('1.1.1', '1.1.0')] },
+    });
+    expect(await carry(d, ships([['a', '1.0.0']]))).toEqual({
+      carried: [],
+      leftBehind: [{ kind: 'agent', id: 'a', version: '1.1.1', from: '1.1.0' }],
+    });
+  });
+
   test('a version it ships is not carried, though it is an edit', async () => {
     const d = deps({ agents: { a: [deployed('1.0.0'), edited('1.0.1', '1.0.0')] } });
     expect(

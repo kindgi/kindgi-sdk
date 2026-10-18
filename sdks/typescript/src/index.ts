@@ -425,10 +425,14 @@ export type {
   ListEvidenceFilter,
 } from './resources/compliance.js';
 export type {
+  CheckDeploymentPromotionInput,
   Deployment,
   DeploymentPage,
+  DeploymentPromotion,
+  DeploymentPromotionCheck,
   DeploymentsClient,
   ListDeploymentsFilter,
+  PromoteDeploymentInput,
   RegisterDeploymentInput,
   SyncSecretsInput,
   SyncSecretsResult,

@@ -468,6 +468,18 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // A build, a publish or a derived version aimed at a later environment of
   // an order: a later environment takes builds by promotion only.
   'environment-takes-promotions': 409,
+  // A promotion to a project that isn't the next environment of the
+  // deployment's order (`details.nextProjectId` when the caller reads it).
+  'promotion-not-next-environment': 409,
+  // A promotion whose build needs values the target environment doesn't
+  // have ready, each in `details.values`.
+  'promotion-values-not-ready': 409,
+  // A promotion from a deployment that no longer serves its environment, or
+  // onto a copy in the target that doesn't: newer deployments serve its
+  // tool versions (`details.newerDeploymentId`).
+  'deployment-superseded': 409,
+  // A runtime whose deployment ledger can't promote.
+  'promotions-unsupported': 501,
   // A model provider's key is used by its provider only: named by a tool or
   // an endpoint (400), or registered for a provider while one uses it (409).
   'provider-key-refused': 400,

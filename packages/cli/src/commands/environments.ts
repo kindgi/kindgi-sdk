@@ -19,7 +19,7 @@ import { commandResultFromThrown, runSdk, stringFlag } from './helpers.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
 
 /** The pack root the environment names are read from: `--path`, else the cwd. */
-function packDirOf(ctx: CommandContext): string {
+export function packDirOf(ctx: CommandContext): string {
   const raw = stringFlag(ctx, 'path') ?? '.';
   return isAbsolute(raw) ? raw : resolve(ctx.cwd, raw);
 }
@@ -40,7 +40,7 @@ async function listAllProjects(ctx: CommandContext): Promise<ListedProject[]> {
 }
 
 /** Resolve each id-or-slug to a project id, refusing a slug that names none or several. */
-async function resolveRefs(ctx: CommandContext, refs: readonly string[]): Promise<string[]> {
+export async function resolveRefs(ctx: CommandContext, refs: readonly string[]): Promise<string[]> {
   const needsList = refs.some((r) => !PROJECT_ID_RE.test(r));
   const rows = needsList ? await listAllProjects(ctx) : [];
   return refs.map((ref) => {

@@ -35,6 +35,7 @@ import { memoryCommand } from './memory.js';
 import { observationsCommand } from './observations.js';
 import { peopleCommand } from './people.js';
 import { projectsCommand } from './projects.js';
+import { promoteCommand } from './promote.js';
 import { proposalsCommand } from './proposals.js';
 import { provenanceCommand } from './provenance.js';
 import { providersCommand } from './providers.js';
@@ -63,6 +64,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   consoleCommand,
   buildCommand,
   deployCommand,
+  promoteCommand,
   testCommand,
   envCommand,
   environmentsCommand,
