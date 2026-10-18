@@ -108,7 +108,7 @@ function makeApp(
     /** A secret store, read with `get` and `resolve`. */
     readonly secrets?: boolean;
     /** Where values given out are audited: absent, none. */
-    readonly audit?: 'ok' | 'refused';
+    readonly audit?: 'ok' | 'refused' | 'throws';
     readonly logger?: Logger;
   } = {},
 ) {
@@ -138,6 +138,8 @@ function makeApp(
   } as EnvBinding;
   const secretRows = new Map<string, SecretRecord & { readonly value: string }>();
   const secretFaults = new Map<string, SecretError['code']>();
+  /** A name whose read the store answers from another scope than the one asked. */
+  const answerFrom = new Map<string, Scope>();
   const resolved: SecretResolveInput[] = [];
   const setSecret = (scope: Scope, name: string, value: string) => {
     const at = new Date(clock++).toISOString();
@@ -174,17 +176,21 @@ function makeApp(
           name: input.name,
           versionId: row.currentVersion,
           value: row.value,
-          scope: row.scope,
+          scope: answerFrom.get(input.name) ?? row.scope,
         },
       };
     },
   } as SecretBinding;
   const appended: AuditEvent[][] = [];
+  /** Every batch the route tried to append, written or not. */
+  const tried: AuditEvent[][] = [];
   const auditEvents =
     options.audit === undefined
       ? undefined
       : ({
           async append(batch: readonly AuditEvent[]) {
+            tried.push([...batch]);
+            if (options.audit === 'throws') throw new Error('the audit store is down');
             if (options.audit === 'refused') {
               return { kind: 'err', error: { code: 'persistence-error', message: 'refused' } };
             }
@@ -325,8 +331,10 @@ function makeApp(
     applied,
     setSecret,
     secretFaults,
+    answerFrom,
     resolved,
     appended,
+    tried,
   };
 }
 
@@ -659,7 +667,10 @@ describe('GET …/pack-env?secrets=values: secret values, for the pack env key o
 
   /** A deployment declaring ACME_API_KEY, set only as a secret, and API_BASE, set as a plain value. */
   function withSecret(
-    options: { readonly audit?: 'ok' | 'refused' | 'none'; readonly logger?: Logger } = {},
+    options: {
+      readonly audit?: 'ok' | 'refused' | 'throws' | 'none';
+      readonly logger?: Logger;
+    } = {},
   ) {
     const audit = options.audit ?? 'ok';
     const a = makeApp({
@@ -695,15 +706,20 @@ describe('GET …/pack-env?secrets=values: secret values, for the pack env key o
     });
     const rows = a.appended.flat().filter((e) => e.kind === 'secret-resolved');
     expect(rows).toHaveLength(1);
+    // Who took it: the request (its id joins the system access record) and the key.
+    const requestId = r.headers.get('x-request-id');
+    expect(requestId).toBeTruthy();
     expect(rows[0]).toMatchObject({
       actor: 'system:d',
       tenantId: live,
       projectId: staging,
+      correlationId: requestId,
       payload: {
         doc: {
           name: 'ACME_API_KEY',
           caller: 'pack-env',
           deploymentId: 'd',
+          systemKeyId: PACK_ENV,
           revision: (r.body.secrets as Record<string, { revision: string }>).ACME_API_KEY?.revision,
         },
       },
@@ -813,13 +829,28 @@ describe('GET …/pack-env?secrets=values: secret values, for the pack env key o
     );
   });
 
-  test('rows that can not be written: 503 pack-env-unavailable, and no value', async () => {
-    const a = withSecret({ audit: 'refused' });
+  test.each([['refused'], ['throws']] as const)(
+    'rows that can not be written (the append %s): 503 pack-env-unavailable, and no value',
+    async (audit) => {
+      const a = withSecret({ audit });
+      const r = await a.call(PACK_ENV, 'GET', withSecretPath('d'));
+      expect(r.status).toBe(503);
+      expect(code(r)).toBe('pack-env-unavailable');
+      expect(r.text).not.toContain(SENTINEL);
+      expect(r.text).not.toContain('staging.acme.test');
+      expect(a.tried).toHaveLength(1);
+    },
+  );
+
+  test('a store that answers from another scope than asked: 200 pack-env-secret-unreadable, no value', async () => {
+    const a = withSecret();
+    a.answerFrom.set('ACME_API_KEY', { kind: 'tenant', tenantId: live });
     const r = await a.call(PACK_ENV, 'GET', withSecretPath('d'));
-    expect(r.status).toBe(503);
-    expect(code(r)).toBe('pack-env-unavailable');
+    expect(r.status).toBe(200);
+    expect(r.body.problem).toBe('pack-env-secret-unreadable');
+    expect(r.body).not.toHaveProperty('secrets');
     expect(r.text).not.toContain(SENTINEL);
-    expect(r.text).not.toContain('staging.acme.test');
+    expect(a.tried).toHaveLength(0);
   });
 
   test('a store that is out: 503 pack-env-unavailable', async () => {
@@ -871,13 +902,25 @@ describe('GET …/pack-env?secrets=values: secret values, for the pack env key o
       await a.call(PACK_ENV, 'GET', `${valuesPath(live, 'd')}?secrets=nope`),
       await a.call(PACK_ENV, 'GET', valuesPath(live, 'd')),
     ];
+    // Each of these reads the value, then gives none.
+    const unwritten = [
+      withSecret({ audit: 'refused', logger }),
+      withSecret({ audit: 'throws', logger }),
+    ];
+    for (const b of unwritten) refusals.push(await b.call(PACK_ENV, 'GET', withSecretPath('d')));
+    a.answerFrom.set('ACME_API_KEY', { kind: 'tenant', tenantId: live });
+    refusals.push(await a.call(PACK_ENV, 'GET', withSecretPath('d')));
+    a.answerFrom.delete('ACME_API_KEY');
     a.secretFaults.set('ACME_API_KEY', 'secret-decryption-failed');
     refusals.push(await a.call(PACK_ENV, 'GET', withSecretPath('d')));
     a.secretFaults.set('ACME_API_KEY', 'secret-store-error');
     refusals.push(await a.call(PACK_ENV, 'GET', withSecretPath('d')));
-    expect(lines.length).toBeGreaterThan(0);
+    // The append's failure (with its cause) and the other scope's are logged.
+    expect(lines.filter((l) => l.includes('pack-env-secret-rows-unwritten'))).toHaveLength(2);
+    expect(lines.some((l) => l.includes('the audit store is down'))).toBe(true);
+    expect(lines.some((l) => l.includes('another scope than asked'))).toBe(true);
     expect(lines.join('\n')).not.toContain(SENTINEL);
-    expect(JSON.stringify(a.appended)).not.toContain(SENTINEL);
+    expect(JSON.stringify([a.tried, ...unwritten.map((b) => b.tried)])).not.toContain(SENTINEL);
     for (const r of refusals) {
       expect(r.text).not.toContain(SENTINEL);
       expect([...r.headers.values()].join('\n')).not.toContain(SENTINEL);

@@ -61,6 +61,10 @@ export interface EmitResolveEventInput {
   /** The revision a value was given out under (a pack env secret's, `ps1-…`), never the value. */
   readonly revision?: string;
   readonly errorCode?: string;
+  /** The request it came from (the API's `requestId`). */
+  readonly correlationId?: string;
+  /** The system key that was given the value, by its id (never its token): a pack env secret's. */
+  readonly systemKeyId?: string;
   readonly auditEvents: AuditEventBinding;
   readonly tenantId: TenantId;
   /** The project the event belongs to; absent for one that's the tenant's or an org's. */
@@ -100,6 +104,7 @@ export function resolveEvent(input: ResolveEventInput): AuditEvent {
     outcome: input.outcome,
     actor: actorFromResolveContext(input.resolveContext),
     runId: input.resolveContext.runId,
+    ...(input.correlationId !== undefined && { correlationId: input.correlationId }),
     payload: buildResolvePayload(input),
   });
 }
@@ -335,6 +340,7 @@ function buildResolvePayload(input: ResolveEventInput): Readonly<Record<string, 
     payload.deploymentId = input.resolveContext.deploymentId;
   }
   if (input.errorCode !== undefined) payload.errorCode = input.errorCode;
+  if (input.systemKeyId !== undefined) payload.systemKeyId = input.systemKeyId;
   if (input.resolveContext.nodeId !== undefined) payload.nodeId = input.resolveContext.nodeId;
   if (input.resolveContext.runId !== undefined) payload.runId = input.resolveContext.runId;
   return payload;

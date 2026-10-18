@@ -319,18 +319,20 @@ export function systemScopeExtraRefusal(
 }
 
 /**
- * A system route's refusal of a request only a key holding `scope` itself
- * may make: `kindgi:system` doesn't count (`403 system-scope-missing`,
- * naming `scope`). `undefined` when the caller's own capabilities include
- * it.
+ * For a request only a key holding `scope` itself may make: the system
+ * principal making it, when its own capabilities include `scope`.
+ * Otherwise the refusal: `kindgi:system` doesn't count (`403
+ * system-scope-missing`, naming `scope`).
  */
-export function systemScopeOwnRefusal(
+export function ownSystemScope(
   c: Context<AppEnv>,
   scope: SystemScope,
   why: string,
   authorizer?: Authorizer,
-): Response | undefined {
-  if ((c.get('capabilities') ?? []).includes(scope)) return undefined;
+): SystemPrincipal | Response {
+  const principal = c.get('systemPrincipal');
+  if (principal === undefined) return principalRequired(c, authorizer);
+  if ((c.get('capabilities') ?? []).includes(scope)) return principal;
   return deny(
     c,
     authorizer,

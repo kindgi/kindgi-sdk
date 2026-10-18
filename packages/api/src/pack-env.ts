@@ -11,10 +11,10 @@
  * project, where its primitives went.
  *
  * A name that's set only as a secret is given only to the orchestrator, and
- * only when it asks for secret values (`packEnvValues` with `secrets:
- * 'values'`): each value with the revision it's given under, read at the
- * version that revision names, and each one's audit row written before any
- * is returned. To an orchestrator that doesn't ask, such a name is
+ * only when it asks for secret values (`packEnvValues` with `secrets`,
+ * naming the request and the system key asking): each value with the
+ * revision it's given under, read at the version that revision names, and
+ * each one's audit row written before any is returned. To an orchestrator that doesn't ask, such a name is
  * `secret-not-yet`; to the owner's check, it's set as a secret. A name
  * that's set both as a secret and as a plain value is `ambiguous`, naming
  * both scopes, and is never given.
@@ -199,12 +199,20 @@ export interface PackEnvValuesInput extends Omit<PackEnvCheckInput, 'secretOnly'
   readonly auditEvents?: AuditEventBinding;
   readonly log?: Logger;
   /**
-   * `'values'`: the orchestrator asks for secret values too. A name set only
-   * as a secret is given in `secrets`, read at the version its revision
-   * names, and every one's audit row is written before any is returned. It
-   * takes `auditEvents`: without them, no secret is read.
+   * The orchestrator asks for secret values too. A name set only as a
+   * secret is given in `secrets`, read at the version its revision names,
+   * and every one's audit row is written before any is returned. It takes
+   * `auditEvents`: without them, no secret is read.
    */
-  readonly secrets?: 'values';
+  readonly secrets?: PackEnvSecretsAsk;
+}
+
+/** Who asks for a pack service's secret values: each one's row names them. */
+export interface PackEnvSecretsAsk {
+  /** The request asking (the API's `requestId`): each row's correlation id. */
+  readonly requestId: string;
+  /** The system key asking, by its id (never its token). */
+  readonly systemKeyId: string;
 }
 
 /** A secret given to a pack service: its value, and the revision it's given under. */
@@ -225,7 +233,7 @@ export type PackEnvValues =
       readonly check: PackEnvCheck;
       /** The plain values, by name. Absent while there's a problem. */
       readonly values?: Readonly<Record<string, string>>;
-      /** With `secrets: 'values'`, the secrets, by name. Absent while there's a problem. */
+      /** With `secrets` asked, the secrets, by name. Absent while there's a problem. */
       readonly secrets?: Readonly<Record<string, PackEnvSecretValue>>;
     }
   /**
@@ -234,12 +242,12 @@ export type PackEnvValues =
    * (`changed`), or the secrets' audit rows weren't written (`audit`).
    */
   | { readonly kind: 'unavailable'; readonly cause: 'store' | 'changed' | 'audit' }
-  /** With `secrets: 'values'` and no `auditEvents`: no secret is read or given. */
+  /** With `secrets` asked and no `auditEvents`: no secret is read or given. */
   | { readonly kind: 'unaudited' };
 
 /**
  * The check, plus the values to give when there's no problem: each declared
- * name that's set as a plain value, and with `secrets: 'values'`, each
+ * name that's set as a plain value, and with `secrets` asked, each
  * that's set only as a secret. Each plain value given is audited
  * (`env-resolved`, as the deployment's system read). The secrets' rows
  * (`secret-resolved`, caller `pack-env`) are written in one append before
@@ -250,7 +258,8 @@ export async function packEnvValues(
   deps: PackEnvDeps,
   input: PackEnvValuesInput,
 ): Promise<PackEnvValues> {
-  if (input.secrets !== 'values') {
+  const ask = input.secrets;
+  if (ask === undefined) {
     const read = await readPackEnv(deps, input);
     if (read.check.problem !== undefined) return { kind: 'ok', check: read.check };
     return { kind: 'ok', check: read.check, values: await plainValues(read.plain, input) };
@@ -259,9 +268,9 @@ export async function packEnvValues(
   if (auditEvents === undefined) return { kind: 'unaudited' };
   // A secret that changed between where it was found and its read is read
   // again, once, from the start.
-  const first = await valuesWithSecrets(deps, input, auditEvents);
+  const first = await valuesWithSecrets(deps, input, auditEvents, ask);
   if (first.kind !== 'changed') return first;
-  const again = await valuesWithSecrets(deps, input, auditEvents);
+  const again = await valuesWithSecrets(deps, input, auditEvents, ask);
   return again.kind === 'changed' ? { kind: 'unavailable', cause: 'changed' } : again;
 }
 
@@ -269,10 +278,11 @@ async function valuesWithSecrets(
   deps: PackEnvDeps,
   input: PackEnvValuesInput,
   auditEvents: AuditEventBinding,
+  ask: PackEnvSecretsAsk,
 ): Promise<PackEnvValues | { readonly kind: 'changed' }> {
   const read = await readPackEnv(deps, { ...input, secretOnly: 'set' });
   if (read.check.problem !== undefined) return { kind: 'ok', check: read.check };
-  const given = await readSecrets(deps, read.secrets, input);
+  const given = await readSecrets(deps, read.secrets, input, ask);
   if (given.kind === 'store') return { kind: 'unavailable', cause: 'store' };
   if (given.kind === 'changed') return given;
   if (given.kind === 'unreadable') {
@@ -341,6 +351,7 @@ async function readSecrets(
   deps: PackEnvDeps,
   found: ReadonlyMap<string, SecretRecord>,
   input: PackEnvValuesInput,
+  ask: PackEnvSecretsAsk,
 ): Promise<SecretsRead> {
   const secrets: Record<string, PackEnvSecretValue> = {};
   const rows: AuditEvent[] = [];
@@ -354,7 +365,7 @@ async function readSecrets(
     else {
       const revision = secretRevision(name, record);
       secrets[name] = { value: read.value, revision };
-      rows.push(secretRow(name, record, read.versionId, revision, input));
+      rows.push(secretRow(name, record, read.versionId, revision, input, ask));
     }
   }
   if (changed) return { kind: 'changed' };
@@ -432,13 +443,18 @@ function faultOf(code: SecretError['code']): ReadFault {
   }
 }
 
-/** A secret given out's row: where it was read, at which version and revision, for which deployment, never its value. */
+/**
+ * A secret given out's row: where it was read, at which version and
+ * revision, for which deployment, and who asked (the request and the
+ * system key), never its value.
+ */
 function secretRow(
   name: string,
   record: SecretRecord,
   versionId: number,
   revision: string,
   input: PackEnvValuesInput,
+  ask: PackEnvSecretsAsk,
 ): AuditEvent {
   return resolveEvent({
     kind: 'secret',
@@ -449,6 +465,8 @@ function secretRow(
     resolveContext: { caller: 'pack-env', deploymentId: input.deploymentId },
     version: versionId,
     revision,
+    correlationId: ask.requestId,
+    systemKeyId: ask.systemKeyId,
     tenantId: input.tenantId,
     ...(input.projectId !== undefined && { projectId: input.projectId }),
   });

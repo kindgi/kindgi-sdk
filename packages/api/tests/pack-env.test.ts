@@ -529,7 +529,7 @@ describe('packEnvValues with secret values', () => {
     declaration: d,
     deploymentId: 'd-secrets',
     ...(auditEvents !== undefined && { auditEvents }),
-    secrets: 'values',
+    secrets: { requestId: 'req-pack-env-1', systemKeyId: 'key-pack-env-1' },
   });
 
   test('a name set only as a secret is given with its revision, each audited in one append', async () => {
@@ -566,6 +566,13 @@ describe('packEnvValues with secret values', () => {
     const withSecrets = a.batches.filter((b) => b.some((e) => e.kind === 'secret-resolved'));
     expect(withSecrets).toHaveLength(1);
     expect(withSecrets[0]).toHaveLength(2);
+    // Each row names who took it: the request, and the system key by its id.
+    for (const row of a.secretRows()) {
+      expect(row).toMatchObject({
+        correlationId: 'req-pack-env-1',
+        payload: { doc: { systemKeyId: 'key-pack-env-1' } },
+      });
+    }
     expect(a.secretRows()[0]).toMatchObject({
       kind: 'secret-resolved',
       outcome: 'succeeded',

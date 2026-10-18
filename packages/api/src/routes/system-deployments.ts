@@ -20,9 +20,9 @@ import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
   type SystemTenantDirectory,
+  ownSystemScope,
   requireSystemScope,
   systemReadAcrossTenants,
-  systemScopeOwnRefusal,
   withSystemTenantContext,
 } from '../middleware/system.js';
 import {
@@ -32,6 +32,7 @@ import {
   type PackEnvDeps,
   type PackEnvHeldCode,
   type PackEnvPlatformHold,
+  type PackEnvSecretsAsk,
   isPackEnvPlatformHold,
   packEnvCheck,
   packEnvValues,
@@ -495,12 +496,12 @@ export function systemDeploymentsRouter(
   r.get(`${onDeployment}/pack-env`, requireSystemScope(PACK_ENV, authorizer), async (c) => {
     const ref = deploymentRef(c);
     if (ref.kind === 'err') return fail(c, ref.error);
-    const withSecrets = secretsAsk(c, authorizer);
-    if (typeof withSecrets !== 'boolean') return withSecrets;
+    const secrets = secretsAsk(c, authorizer);
+    if (secrets instanceof Response) return secrets;
     if (packEnv === undefined || binding.recordPackEnv === undefined) {
       return packEnvUnsupported(c);
     }
-    if (withSecrets && packEnv.auditEvents === undefined) return secretsUnaudited(c);
+    if (secrets !== undefined && packEnv.auditEvents === undefined) return secretsUnaudited(c);
     return withSystemTenantContext(
       c,
       tenants,
@@ -511,7 +512,7 @@ export function systemDeploymentsRouter(
           c,
           packEnv,
           { tenantId: tenant.id, deploymentId: ref.value.deploymentId },
-          withSecrets,
+          secrets,
         ),
     );
   });
@@ -729,20 +730,25 @@ const UNAVAILABLE_BECAUSE = {
 } as const;
 
 /**
- * `?secrets=`: left out (false), or `values` (true), asked by a key holding
- * `system:pack-env` itself. Otherwise the answer refusing it.
+ * `?secrets=`: left out (`undefined`), or `values`, asked by a key holding
+ * `system:pack-env` itself: who asks, for each secret's row. Otherwise the
+ * answer refusing it.
  */
-function secretsAsk(c: Context<AppEnv>, authorizer: Authorizer | undefined): boolean | Response {
+function secretsAsk(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+): PackEnvSecretsAsk | undefined | Response {
   const raw = c.req.query('secrets');
-  if (raw === undefined) return false;
+  if (raw === undefined) return undefined;
   if (raw !== 'values') return fail(c, badInput('`secrets` must be `values`, or left out').error);
-  const refused = systemScopeOwnRefusal(
+  const principal = ownSystemScope(
     c,
     PACK_ENV,
     "A deployment's secret values are given only to the pack env key",
     authorizer,
   );
-  return refused ?? true;
+  if (principal instanceof Response) return principal;
+  return { requestId: c.get('requestId'), systemKeyId: principal.keyId };
 }
 
 /** GET …/pack-env, once the key and the tenant are let through. */
@@ -750,7 +756,7 @@ async function packEnvAnswer(
   c: Context<AppEnv>,
   packEnv: SystemPackEnvOptions,
   ref: DeploymentRef,
-  withSecrets: boolean,
+  secrets: PackEnvSecretsAsk | undefined,
 ): Promise<Response> {
   const deployment = await packEnv.deployments.get(ref);
   if (deployment === null) return deploymentNotFound(c, ref.deploymentId);
@@ -770,7 +776,7 @@ async function packEnvAnswer(
     deploymentId: deployment.deploymentId,
     ...(packEnv.auditEvents !== undefined && { auditEvents: packEnv.auditEvents }),
     ...(packEnv.log !== undefined && { log: packEnv.log }),
-    ...(withSecrets && { secrets: 'values' as const }),
+    ...(secrets !== undefined && { secrets }),
   });
   if (read.kind === 'unaudited') return secretsUnaudited(c);
   if (read.kind === 'unavailable') {
