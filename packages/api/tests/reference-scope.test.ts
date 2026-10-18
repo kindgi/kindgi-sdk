@@ -107,6 +107,13 @@ describe('the helpers', () => {
       { kind: 'agent', id: 'acme.agent' },
     ]);
     expect(refused?.issues.map((i) => i.path)).toEqual(['/pins/1', '/pins/2']);
+    // The refusal names the version: the item may be in reach at another.
+    expect(refused?.issues[0]?.message).toBe(
+      `agent "acme.agent" 1.1.0 isn't registered in this project, its org or the tenant`,
+    );
+    expect(refused?.message).toBe(
+      `This project can't reference 2 of the items named (agent "acme.agent" 1.1.0, agent "acme.agent" 1.1.0): none is registered in this project, its org or the tenant`,
+    );
   });
 
   test('one answer for an item that does not exist and one out of reach', async () => {

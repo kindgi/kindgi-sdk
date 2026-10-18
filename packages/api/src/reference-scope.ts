@@ -86,6 +86,7 @@ export async function referencesOutOfScope(
   if (scope === undefined || refs.length === 0) return undefined;
   const answers = new Map<string, Promise<boolean>>();
   const issues: ReferenceOutOfScopeError['issues'][number][] = [];
+  const refused: ItemReference[] = [];
   for (const ref of refs) {
     const key = `${ref.kind}:${ref.id}@${ref.version ?? ''}`;
     let answer = answers.get(key);
@@ -106,20 +107,26 @@ export async function referencesOutOfScope(
         path: ref.path,
         kind: ref.kind,
         id: ref.id,
-        message: `${NOUN[ref.kind]} "${ref.id}" isn't registered in this project, its org or the tenant`,
+        message: `${named(ref)} isn't registered in this project, its org or the tenant`,
       });
+      refused.push(ref);
     }
   }
   if (issues.length === 0) return undefined;
-  const first = issues[0] as (typeof issues)[number];
+  const first = refused[0] as ItemReference;
   return {
     code: 'reference-out-of-scope',
     message:
       issues.length === 1
-        ? `This project can't reference ${NOUN[first.kind]} "${first.id}": it isn't registered in this project, its org or the tenant`
-        : `This project can't reference ${issues.length} of the items named (${issues.map((i) => `${NOUN[i.kind]} "${i.id}"`).join(', ')}): none is registered in this project, its org or the tenant`,
+        ? `This project can't reference ${named(first)}: it isn't registered in this project, its org or the tenant`
+        : `This project can't reference ${issues.length} of the items named (${refused.map(named).join(', ')}): none is registered in this project, its org or the tenant`,
     issues,
   };
+}
+
+/** `agent "acme.desk"`, with its version when the reference is to one (`agent "acme.desk" 1.1.0`). */
+function named(ref: ItemReference): string {
+  return `${NOUN[ref.kind]} "${ref.id}"${ref.version !== undefined ? ` ${ref.version}` : ''}`;
 }
 
 /**

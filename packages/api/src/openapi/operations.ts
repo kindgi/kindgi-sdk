@@ -6096,7 +6096,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Eval run started.', schema: ref('StartEvalRunResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the suite, or the agent or flow, isn't registered in `projectId`'s project, its org or the tenant (`details.issues`).",
+        "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the suite, or the agent or flow, isn't registered in `projectId`'s project, its org or the tenant, or, when `agentRef` or `flowRef` names a version, that version isn't one `projectId`'s project runs (`details.issues`, whose message names the version). Nothing runs.",
       ),
       '404': ErrorResponse(
         'No eval suite with that id under this tenant; or `projectId` names no project of this tenant (`project-not-found`).',
