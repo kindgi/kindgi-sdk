@@ -270,6 +270,21 @@ already belong to the first project: `409 tool-project-mismatch` (or
 names the fix: make a copy of the pack for the new client with `kindgi init`,
 which gives every id the new pack's id.
 
+## What a project's runs can use
+
+A run uses its own project's tools, agents, flows, guardrails, data blocks
+and test sets, and the tools of an MCP server registered for its project,
+its org or the tenant. Anything else is refused with
+`reference-out-of-scope`: a publish, a deploy or a run start that names it
+answers `400` before anything is written, and a tool call from the run
+isn't run.
+[What a project's runs can use](../../../concepts/projects-packs-values/#what-a-projects-runs-can-use)
+has the rule and its messages.
+
+To give several clients' projects one tool, run it as an MCP server and
+register it for their org or the tenant
+([Give some projects its tools](../../tools/mcp-servers/#give-some-projects-its-tools)).
+
 ## Read a customer's work
 
 The lists take a `scope`: one project's, or every project's in an org.
