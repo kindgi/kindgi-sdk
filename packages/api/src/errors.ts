@@ -465,6 +465,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'environments-unsupported': 501,
   // A project named in `PUT /v1/environment-orders/*` already belongs to another order.
   'project-in-another-order': 409,
+  // Deleting or moving (to another parent) a project that is a member of an environment order.
+  'project-in-environment-order': 409,
   // A model provider's key is used by its provider only: named by a tool or
   // an endpoint (400), or registered for a provider while one uses it (409).
   'provider-key-refused': 400,

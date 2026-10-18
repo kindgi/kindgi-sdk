@@ -2765,6 +2765,16 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'project-in-environment-order': {
+    description:
+      "A project can't be deleted, or moved to another parent, while it's a member of an environment order. Clear it from the order first, then delete or move it.",
+    details: [
+      {
+        key: 'orderId',
+        meaning: 'the environment order the project belongs to',
+      },
+    ],
+  },
   'provider-key-refused': {
     description:
       "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint or a webhook endpoint. Store the key under its own name and use that name.",
