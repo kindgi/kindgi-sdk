@@ -278,10 +278,16 @@ export function conversationsRouter(
     );
     if (open.refused !== undefined) return open.refused;
     const projectId = open.projectId;
-    // Its agent must be its project's to reach (`reference-scope.ts`).
+    // Its agent, at the version its turns run, must be its project's to
+    // reach (`reference-scope.ts`).
     if (projectId !== undefined) {
       const outOfScope = await referencesOutOfScope(referenceScope, tenantId, projectId, [
-        { path: '/agentId', kind: 'agent', id: parsed.value.agentId as unknown as string },
+        {
+          path: '/agentId',
+          kind: 'agent',
+          id: parsed.value.agentId as unknown as string,
+          version: parsed.value.agentVersion as unknown as string,
+        },
       ]);
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }

@@ -455,6 +455,200 @@ describe('PATCH /v1/schedules/{triggerId}: a new target', () => {
   });
 });
 
+describe('a version named at open or registration: refused there when the project does not run it', () => {
+  /** Reaches every item at every version but 1.1.0; records each question. */
+  function versionScope(
+    asked: Parameters<ReferenceScopeBinding['reachable']>[0][],
+  ): ReferenceScopeBinding {
+    return {
+      async reachable(input) {
+        asked.push(input);
+        return input.ref.version !== '1.1.0';
+      },
+    };
+  }
+
+  interface Answer {
+    readonly status: number;
+    readonly body: {
+      readonly error?: {
+        readonly code?: string;
+        readonly message?: string;
+        readonly details?: { readonly issues?: unknown[] };
+      };
+      readonly data?: readonly Record<string, unknown>[];
+      readonly [field: string]: unknown;
+    };
+  }
+
+  /** An app whose triggers are kept in memory and whose conversations are recorded as opened. */
+  async function harness() {
+    const asked: Parameters<ReferenceScopeBinding['reachable']>[0][] = [];
+    const opened: Record<string, unknown>[] = [];
+    const a = createApp({
+      ...fullAppWithoutAuthz(),
+      resolveToken: async (token) =>
+        token === TOKEN
+          ? { tenantId: '00000000-0000-4000-8000-0000000000aa' as never, userId: 'user-1' as never }
+          : null,
+      triggerRegistry: createInMemoryTriggerRegistry(),
+      conversationBinding: {
+        openConversation: async (input: Record<string, unknown>) => {
+          opened.push(input);
+          return {
+            kind: 'ok',
+            value: {
+              ...input,
+              id: randomUUID(),
+              openedAt: '2026-10-18T00:00:00.000Z',
+              turnCount: 0,
+            },
+          };
+        },
+      } as unknown as ConversationBinding,
+      referenceScope: versionScope(asked),
+    });
+    const projectId = await newProject(a);
+    const call = async (method: string, path: string, body?: unknown): Promise<Answer> => {
+      const res = await a.request(path, {
+        method,
+        headers: auth,
+        ...(body !== undefined && { body: JSON.stringify(body) }),
+      });
+      return { status: res.status, body: (await res.json()) as Answer['body'] };
+    };
+    /** The last question asked: from this project, about `ref` (and nothing more). */
+    const lastAsked = () => {
+      const last = asked.at(-1);
+      expect(last?.fromProjectId).toBe(projectId);
+      return last?.ref;
+    };
+    return { projectId, call, lastAsked, opened };
+  }
+
+  /** 400 `reference-out-of-scope`, one issue at `path`, each message naming the version. */
+  function expectRefused(res: Answer, path: string, kind: string, id: string, version: string) {
+    const named = `${kind} "${id}" ${version}`;
+    const why = `isn't a version this project runs (not registered in this project, its org or the tenant, nor deployed to it)`;
+    expect(res.status).toBe(400);
+    expect(res.body.error?.code).toBe('reference-out-of-scope');
+    expect(res.body.error?.message).toBe(`This project can't reference ${named}: it ${why}`);
+    expect(res.body.error?.details?.issues).toEqual([
+      { path, kind, id, message: `${named} ${why}` },
+    ]);
+  }
+
+  test('POST /v1/conversations: its agent at `agentVersion`, refused at /agentId, and nothing is opened', async () => {
+    const h = await harness();
+    const open = (agentVersion: string) =>
+      h.call('POST', '/v1/conversations', {
+        agentId: 'acme.desk',
+        agentVersion,
+        title: 'Help',
+        projectId: h.projectId,
+      });
+    expectRefused(await open('1.1.0'), '/agentId', 'agent', 'acme.desk', '1.1.0');
+    expect(h.lastAsked()).toEqual({ kind: 'agent', id: 'acme.desk', version: '1.1.0' });
+    expect(h.opened).toEqual([]);
+    expect((await open('1.0.0')).status).toBe(201);
+    expect(h.lastAsked()).toEqual({ kind: 'agent', id: 'acme.desk', version: '1.0.0' });
+    expect(h.opened.map((c) => c.agentVersion)).toEqual(['1.0.0']);
+  });
+
+  test('POST /v1/schedules: a flow at `flowVersion`, refused at /target, and nothing is registered', async () => {
+    const h = await harness();
+    const register = (flowVersion: string) =>
+      h.call('POST', '/v1/schedules', {
+        flowId: 'acme.nightly',
+        flowVersion,
+        projectId: h.projectId,
+        config: { cronExpression: '0 2 * * *' },
+      });
+    expectRefused(await register('1.1.0'), '/target', 'flow', 'acme.nightly', '1.1.0');
+    expect(h.lastAsked()).toEqual({ kind: 'flow', id: 'acme.nightly', version: '1.1.0' });
+    expect((await register('1.0.0')).status).toBe(201);
+    expect(h.lastAsked()).toEqual({ kind: 'flow', id: 'acme.nightly', version: '1.0.0' });
+    const listed = await h.call('GET', `/v1/schedules?projectId=${h.projectId}`);
+    expect(listed.body.data?.map((s) => s.flowVersion)).toEqual(['1.0.0']);
+  });
+
+  test('POST /v1/schedules: an agent at `agentVersion`, refused at /target; one that names none is asked about by its id', async () => {
+    const h = await harness();
+    const register = (agentVersion?: string) =>
+      h.call('POST', '/v1/schedules', {
+        agentId: 'acme.desk',
+        ...(agentVersion !== undefined && { agentVersion }),
+        projectId: h.projectId,
+        config: { cronExpression: '0 2 * * *', input: { userMessage: 'Morning summary' } },
+      });
+    expectRefused(await register('1.1.0'), '/target', 'agent', 'acme.desk', '1.1.0');
+    expect(h.lastAsked()).toEqual({ kind: 'agent', id: 'acme.desk', version: '1.1.0' });
+    expect((await register('1.0.0')).status).toBe(201);
+    expect(h.lastAsked()).toEqual({ kind: 'agent', id: 'acme.desk', version: '1.0.0' });
+    // No version named: it runs whichever its project runs, so only the id is asked about.
+    expect((await register()).status).toBe(201);
+    expect(h.lastAsked()).toStrictEqual({ kind: 'agent', id: 'acme.desk' });
+  });
+
+  test('PATCH /v1/schedules/{triggerId}: a new target at a version the project does not run is refused, and the schedule keeps its target', async () => {
+    const h = await harness();
+    const made = await h.call('POST', '/v1/schedules', {
+      flowId: 'acme.nightly',
+      flowVersion: '1.0.0',
+      projectId: h.projectId,
+      config: { cronExpression: '0 2 * * *' },
+    });
+    expect(made.status).toBe(201);
+    const path = `/v1/schedules/${made.body.triggerId as string}`;
+    const retarget = (flowVersion: string) =>
+      h.call('PATCH', path, { flowId: 'acme.nightly', flowVersion });
+    expectRefused(await retarget('1.1.0'), '/target', 'flow', 'acme.nightly', '1.1.0');
+    expect(h.lastAsked()).toEqual({ kind: 'flow', id: 'acme.nightly', version: '1.1.0' });
+    expect((await h.call('GET', path)).body.flowVersion).toBe('1.0.0');
+    const moved = await retarget('1.0.1');
+    expect(moved.status).toBe(200);
+    expect(h.lastAsked()).toEqual({ kind: 'flow', id: 'acme.nightly', version: '1.0.1' });
+    expect((await h.call('GET', path)).body.flowVersion).toBe('1.0.1');
+  });
+
+  test('POST /v1/webhooks: its flow at `flowVersion`, refused at /flowId, and nothing is registered', async () => {
+    const h = await harness();
+    const register = (flowVersion: string) =>
+      h.call('POST', '/v1/webhooks', {
+        flowId: 'acme.inbound',
+        flowVersion,
+        projectId: h.projectId,
+        hmacSecretName: 'acme-hmac',
+      });
+    expectRefused(await register('1.1.0'), '/flowId', 'flow', 'acme.inbound', '1.1.0');
+    expect(h.lastAsked()).toEqual({ kind: 'flow', id: 'acme.inbound', version: '1.1.0' });
+    expect((await register('1.0.0')).status).toBe(201);
+    expect(h.lastAsked()).toEqual({ kind: 'flow', id: 'acme.inbound', version: '1.0.0' });
+    const listed = await h.call('GET', `/v1/webhooks?projectId=${h.projectId}`);
+    expect(listed.body.data?.map((w) => w.flowVersion)).toEqual(['1.0.0']);
+  });
+
+  test('PATCH /v1/webhooks/{triggerId}: a `flowVersion` the project does not run is refused at /flowVersion, and the trigger keeps its version', async () => {
+    const h = await harness();
+    const made = await h.call('POST', '/v1/webhooks', {
+      flowId: 'acme.inbound',
+      flowVersion: '1.0.0',
+      projectId: h.projectId,
+      hmacSecretName: 'acme-hmac',
+    });
+    expect(made.status).toBe(201);
+    const path = `/v1/webhooks/${made.body.triggerId as string}`;
+    const move = (flowVersion: string) => h.call('PATCH', path, { flowVersion });
+    expectRefused(await move('1.1.0'), '/flowVersion', 'flow', 'acme.inbound', '1.1.0');
+    expect(h.lastAsked()).toEqual({ kind: 'flow', id: 'acme.inbound', version: '1.1.0' });
+    expect((await h.call('GET', path)).body.flowVersion).toBe('1.0.0');
+    const moved = await move('1.0.1');
+    expect(moved.status).toBe(200);
+    expect(h.lastAsked()).toEqual({ kind: 'flow', id: 'acme.inbound', version: '1.0.1' });
+    expect((await h.call('GET', path)).body.flowVersion).toBe('1.0.1');
+  });
+});
+
 describe('POST /v1/agents/{agentId}/promotions: a tenant scope', () => {
   test("isn't asked: no other project can name the agent anyway", async () => {
     const asked: Parameters<ReferenceScopeBinding['reachable']>[0][] = [];
