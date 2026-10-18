@@ -2,6 +2,7 @@
 "@kindgi/api": patch
 "@kindgi/client": patch
 "@kindgi/compliance": patch
+"@kindgi/specs": patch
 "@kindgi/cli": patch
 ---
 
