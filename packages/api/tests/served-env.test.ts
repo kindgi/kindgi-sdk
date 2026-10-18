@@ -361,10 +361,32 @@ describe('a runtime that refuses other envs: a secret a registration still reads
     ]);
   });
 
+  test("a provider's key, under the env it names: written at a project and an org too, where a run reads it", async () => {
+    const h = refusing();
+    const org = { kind: 'org', tenantId, orgId: randomUUID() };
+    for (const scope of [project, org]) {
+      const set = await h.call('POST', '/v1/secrets', secret('local', PROVIDER_KEY, scope));
+      expect([scope.kind, set.status]).toEqual([scope.kind, 201]);
+    }
+    const rotated = await h.call(
+      'POST',
+      `/v1/secrets/${PROVIDER_KEY}/rotate?envName=local&scopeKind=project&scopeId=${projectId}`,
+      { newValue: 'sk_test_y' },
+    );
+    expect(rotated.status).toBe(201);
+    const otherEnv = await h.call('POST', '/v1/secrets', secret('staging', PROVIDER_KEY, project));
+    expect([otherEnv.status, otherEnv.body.error?.code]).toEqual([409, 'env-not-served']);
+    expect(h.writes).toEqual([
+      ['secret.set', 'local', PROVIDER_KEY],
+      ['secret.set', 'local', PROVIDER_KEY],
+      ['secret.rotate', 'local', PROVIDER_KEY],
+    ]);
+  });
+
   test('anywhere else: refused, since the registration reads it there only', async () => {
     const h = refusing();
-    // Another scope: a registration reads at the tenant's.
-    const atProject = await h.call('POST', '/v1/secrets', secret('local', PROVIDER_KEY, project));
+    // Another scope: a webhook endpoint reads at the tenant's.
+    const atProject = await h.call('POST', '/v1/secrets', secret('local', HOOK_SECRET, project));
     // Another env than the one it names.
     const otherEnv = await h.call('POST', '/v1/secrets', secret('staging', PROVIDER_KEY));
     // A name no registration names.

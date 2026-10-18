@@ -19,9 +19,10 @@ import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
  *
  * Except what a reference still reads: a provider, MCP endpoint or webhook
  * endpoint registered before names its own env, and is read there, at the
- * scope it's read at. A secret at that exact (scope, env, name) can still
- * be written, so a value in use can be rotated. Reads and deletes are never
- * refused: a value stored before can still be found and removed.
+ * scopes it's read at. A secret at that (env, name), at one of those
+ * scopes, can still be written, so a value in use can be rotated. Reads and
+ * deletes are never refused: a value stored before can still be found and
+ * removed.
  */
 export interface ServedEnvRule {
   readonly envName: EnvName;
@@ -31,12 +32,13 @@ export interface ServedEnvRule {
 
 /**
  * A registration's reference to a secret, read under its own env at
- * `scope`: a provider's and a webhook endpoint's at the tenant's; an MCP
- * endpoint's at the scope recorded for the secret (none recorded: the
- * tenant's).
+ * `scope`: a provider's at `'every'` scope of the tenant, since a run reads
+ * its key at the run's project, else the project's org, else the tenant;
+ * a webhook endpoint's at the tenant's; an MCP endpoint's at the scope
+ * recorded for the secret (none recorded: the tenant's).
  */
 export interface SecretReference {
-  readonly scope: Scope;
+  readonly scope: Scope | 'every';
   readonly envName: string;
   readonly name: string;
   readonly by: {
@@ -71,7 +73,7 @@ export function secretReferencesOf(
       for (const entry of await deps.providers.resolveForRuntime({ tenantId })) {
         if (entry.secretRef === undefined) continue;
         out.push({
-          scope: tenant,
+          scope: 'every',
           envName: entry.secretRef.envName,
           name: entry.secretRef.name,
           by: { kind: 'provider', id: entry.metadata.id },
@@ -140,7 +142,7 @@ export type EnvNotServed = {
 
 /**
  * Why a secret or env value can't be stored under `envName`, or nothing.
- * A secret that a reference names under that env, at the scope it's read
+ * A secret that a reference names under that env, at a scope it's read
  * at, is let through: the reference reads it there. `storeWith` names the
  * route to store it with instead, for a route that takes no env.
  */
@@ -163,7 +165,7 @@ export async function refuseUnservedValue(
         (ref) =>
           ref.envName === input.envName &&
           ref.name === input.name &&
-          sameScope(ref.scope, input.scope),
+          (ref.scope === 'every' || sameScope(ref.scope, input.scope)),
       )
     ) {
       return undefined;
