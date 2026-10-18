@@ -103,6 +103,7 @@ function makeInMemoryDeploymentBinding(): DeploymentBinding {
         publishedAt: input.publishedAt,
         activatedAt: new Date().toISOString(),
         ...(input.projectId !== undefined && { projectId: input.projectId }),
+        ...(input.packEnv !== undefined && { packEnv: input.packEnv }),
         primitives: input.primitives,
         contents: input.contents,
       };
@@ -870,6 +871,48 @@ describe("POST /v1/deployments — the image's index is what registers", () => {
         code: 'image-unverifiable',
         message: 'Image /app/index.json is not a JSON object',
       });
+    }
+  });
+
+  test('the names its pack service reads (`env`) are kept on the deployment, as the build wrote them', async () => {
+    const env = { required: ['API_BASE', 'SHOP_URL'], optional: ['LOG_LEVEL'] };
+    const fixture = buildSignedDeploy({ index: { ...indexWith('20260920.1'), env } });
+    const { app, deploymentRegistry } = makeApp({ fixture });
+    const res = await post(app, fixture.wire);
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { packEnv?: unknown }).packEnv).toEqual(env);
+    const [stored] = (await deploymentRegistry.list({ tenantId, limit: 10 })).data;
+    expect(stored?.packEnv).toEqual(env);
+  });
+
+  test('an index without `env` keeps no declaration', async () => {
+    const fixture = buildSignedDeploy();
+    const { app, deploymentRegistry } = makeApp({ fixture });
+    const res = await post(app, fixture.wire);
+    expect(res.status).toBe(201);
+    expect('packEnv' in ((await res.json()) as object)).toBe(false);
+    const [stored] = (await deploymentRegistry.list({ tenantId, limit: 10 })).data;
+    expect(stored?.packEnv).toBeUndefined();
+  });
+
+  test('an image whose index declares a malformed `env` is refused, and nothing is written', async () => {
+    for (const env of [
+      { required: ['KINDGI_TOKEN'] },
+      { required: 'API_BASE' },
+      { required: ['API_BASE'], optional: ['API_BASE'] },
+      { secrets: ['API_KEY'] },
+    ]) {
+      const fixture = buildSignedDeploy({ index: { ...indexWith('20260920.1'), env } });
+      const { app, deploymentRegistry, toolRegistry } = makeApp({ fixture });
+      const res = await post(app, fixture.wire);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { code: string; message: string } };
+      expect(body.error.code).toBe('image-unverifiable');
+      expect(body.error.message).toMatch(/^Image \/app\/index\.json's env is malformed: /);
+      expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(0);
+      expect(
+        await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+      ).toBeNull();
     }
   });
   test("its tools' schema compiles count against the tenant's budget, first ones included: refused, nothing is written", async () => {

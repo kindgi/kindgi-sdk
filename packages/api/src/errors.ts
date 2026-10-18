@@ -302,6 +302,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'endpoint-info-mismatch': 422,
   /** A problem recorded for a deployment whose endpoint isn't pending. */
   'endpoint-not-pending': 409,
+  /** What a pack service runs, recorded for a deployment whose endpoint isn't ready. */
+  'endpoint-not-ready': 409,
+  /** A retired deployment's pack env asked for: it isn't given out. */
+  'endpoint-retired': 409,
+  /** What a pack service runs, recorded over another revision recorded since. */
+  'pack-env-conflict': 409,
   /** Creating a tenant with a slug another tenant has. */
   'tenant-slug-taken': 409,
   /** A deployment's image outside its tenant's repository (`details.imagePrefix`, the tenant's own). */
@@ -465,6 +471,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'project-access-unsupported': 501,
   // The tenant's env names, from a runtime whose env or secret store can't list them.
   'environments-unsupported': 501,
+  // A pack service's declared env, from a server that doesn't give it one:
+  // the system routes (`pack-env-unsupported`), and a deployment's names
+  // (`pack-env-not-served`), where its pack services take it from how they're run.
+  'pack-env-unsupported': 501,
+  'pack-env-not-served': 501,
   // A model provider's key is used by its provider only: named by a tool or
   // an endpoint (400), or registered for a provider while one uses it (409).
   'provider-key-refused': 400,

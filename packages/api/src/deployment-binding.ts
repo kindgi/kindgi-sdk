@@ -10,6 +10,12 @@ import type {
   VersionDerivationReason,
 } from '@kindgi/types';
 
+import {
+  PACK_ENV_PROBLEM_CODES,
+  type PackEnvDeclaration,
+  type PackEnvHeldCode,
+} from './pack-env.js';
+
 /**
  * Caller-plugged surface for the deployment ledger — the audit anchor
  * row written by `POST /v1/deployments`. Mirrors the
@@ -141,6 +147,12 @@ export type SystemDeploymentRetireReason = (typeof SYSTEM_DEPLOYMENT_RETIRE_REAS
  * - `tenant-not-provisioned`: the tenant has nowhere to run pack services yet;
  * - `capacity-unavailable`: no room for another pack service just now;
  * - `service-start-failed`: the image was deployed but didn't start.
+ *
+ * The pack's declared environment can't be given to it (`pack-env.ts`), and
+ * `GET /v1/deployments/{id}/pack-env` names each name:
+ * - `pack-env-ambiguous`: a name is set both as a secret and as a plain value;
+ * - `pack-env-secret-not-yet`: a name is set only as a secret;
+ * - `pack-env-missing`: a required name is set nowhere.
  */
 export const DEPLOYMENT_ENDPOINT_PROBLEM_CODES = [
   'endpoint-url-invalid',
@@ -152,6 +164,7 @@ export const DEPLOYMENT_ENDPOINT_PROBLEM_CODES = [
   'tenant-not-provisioned',
   'capacity-unavailable',
   'service-start-failed',
+  ...PACK_ENV_PROBLEM_CODES,
 ] as const;
 
 export type DeploymentEndpointProblemCode = (typeof DEPLOYMENT_ENDPOINT_PROBLEM_CODES)[number];
@@ -191,6 +204,17 @@ export interface DeploymentEndpoint {
    * last until the tenant, project or pack is restored.
    */
   readonly retired?: SystemDeploymentRetireReason;
+  /**
+   * `ready` only: the pack service runs on the values it was last given,
+   * since the newest ones can't be given to it (a required one was removed,
+   * say), or didn't start (`pack-env-update-failed`). It's gone once they
+   * can, or do (from runtime 0.1.8.1).
+   */
+  readonly packEnvProblem?: {
+    readonly code: PackEnvHeldCode;
+    /** When it was recorded. ISO-8601. */
+    readonly since: string;
+  };
 }
 
 /**
@@ -212,6 +236,13 @@ export function endpointToWire(endpoint: DeploymentEndpoint): DeploymentEndpoint
       }),
     ...(waiting && { waiting: true }),
     ...(retired !== undefined && { retired }),
+    ...(endpoint.status === 'ready' &&
+      endpoint.packEnvProblem !== undefined && {
+        packEnvProblem: {
+          code: endpoint.packEnvProblem.code,
+          since: endpoint.packEnvProblem.since,
+        },
+      }),
   };
 }
 
@@ -247,6 +278,12 @@ export interface Deployment {
    * project and whose secrets sync tenant-wide.
    */
   readonly projectId?: ProjectId;
+  /**
+   * The names its pack service reads from its process environment, as the
+   * image's index declares them (`env`). Absent when it declares none, and
+   * from a binding that doesn't keep them (from runtime 0.1.8.1).
+   */
+  readonly packEnv?: PackEnvDeclaration;
   /**
    * Its pack service's status, when the server routes pack calls per
    * deployment. Absent otherwise (one pack service for every deployment),
@@ -355,6 +392,12 @@ export interface DeploymentRegisterInput {
    * keeps them, as it keeps `contents.tools` for tool calls.
    */
   readonly packChecks?: readonly string[];
+  /**
+   * The names the image's pack service reads from its process environment
+   * (the index's `env`), validated. A binding that runs a pack service per
+   * deployment keeps them, so whatever runs it can give it their values.
+   */
+  readonly packEnv?: PackEnvDeclaration;
 }
 
 export type DeploymentRegisterOutcome =

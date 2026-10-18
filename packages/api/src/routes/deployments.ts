@@ -16,6 +16,7 @@ import {
   createCheckRegistry,
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
+import { resolvePackEnv } from '@kindgi/handler-runtime/pack-env';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
 import { SchemaCompileBudgetError, compileInlineSchema } from '@kindgi/schema';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
@@ -46,6 +47,7 @@ import {
   type DeploymentRegisterOutcome,
   endpointToWire,
 } from '../deployment-binding.js';
+import type { EnvBinding } from '../env-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
 import { type FlowPinsLive, publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
@@ -55,6 +57,7 @@ import type { ImageRegistryBinding } from '../image-registry-binding.js';
 import type { LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
+import { packEnvCheck } from '../pack-env.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { PublishRefused } from '../publish-refused.js';
 import {
@@ -225,6 +228,16 @@ export interface DeploymentsRouterBindings {
   /** The env this deployment serves: where a pack tool's declared secrets are read (`secret-scope.ts`). */
   readonly envName?: EnvName;
   /**
+   * Whether the server gives each deployment's pack service the values of
+   * the env its pack declares, from the env store (`pack-env.ts`): a server
+   * that runs a pack service per deployment. Otherwise a pack service takes
+   * its env from how it's run, and `GET /:deploymentId/pack-env` answers
+   * `501 pack-env-not-served`.
+   */
+  readonly packEnvServed?: boolean;
+  /** Where a pack's declared names are looked for, with `secretsBinding` and `projectBinding`. */
+  readonly envBinding?: EnvBinding;
+  /**
    * Called for each tool and guardrail a new deployment registered, as
    * `POST /v1/tools` and `POST /v1/guardrails` call them, so a runtime
    * that caches the catalogs (its tool and guardrail bridges) sees the
@@ -326,6 +339,62 @@ export function deploymentsRouter(
       );
     }
     return c.json(serializeDeployment(record));
+  });
+
+  // ---------- GET /:deploymentId/pack-env ----------
+  // Where each name its pack declares is set, at the deployment's scopes:
+  // never a value.
+  r.get('/:deploymentId/pack-env', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const deploymentId = c.req.param('deploymentId');
+    const env = bindings.envBinding;
+    const envName = bindings.envName;
+    if (bindings.packEnvServed !== true || env === undefined || envName === undefined) {
+      c.status(statusFor('pack-env-not-served') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'pack-env-not-served',
+            message:
+              "This server doesn't give a deployment's pack service the env its pack declares: its pack services take theirs from how they're run (`kindgi env plan`).",
+          },
+          requestId,
+        ),
+      );
+    }
+    const record = await bindings.deploymentRegistry.get({ tenantId, deploymentId });
+    if (record === null) {
+      c.status(statusFor('deployment-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'deployment-not-found',
+            message: `No deployment with id "${deploymentId}" under this tenant`,
+            deploymentId,
+          },
+          requestId,
+        ),
+      );
+    }
+    const check = await packEnvCheck(
+      {
+        env,
+        ...(bindings.secretsBinding !== undefined && { secrets: bindings.secretsBinding }),
+        ...(bindings.projectBinding !== undefined && { projects: bindings.projectBinding }),
+      },
+      {
+        tenantId,
+        ...(record.projectId !== undefined && { projectId: record.projectId }),
+        envName,
+        declaration: record.packEnv ?? { required: [], optional: [] },
+      },
+    );
+    return c.json({
+      envName,
+      data: check.names,
+      ...(check.problem !== undefined && { problem: check.problem }),
+    });
   });
 
   // ---------- POST / (register a signed deployment) ----------
@@ -545,6 +614,22 @@ export function deploymentsRouter(
           {
             code: 'image-unverifiable',
             message: 'Image /app/index.json is not a JSON object',
+            imageRef: wire.imageRef,
+          },
+          requestId,
+        ),
+      );
+    }
+    // The names its pack service reads from its process env, as the build
+    // validated them: a signed index that doesn't is refused, never kept.
+    const declaredEnv = resolvePackEnv(imageIndex.env);
+    if (declaredEnv.kind === 'err') {
+      c.status(statusFor('image-unverifiable') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'image-unverifiable',
+            message: `Image /app/index.json's env is malformed: ${declaredEnv.message}`,
             imageRef: wire.imageRef,
           },
           requestId,
@@ -933,6 +1018,7 @@ export function deploymentsRouter(
         primitives,
         ...(wire.projectId !== undefined && { projectId: wire.projectId }),
         ...(typeof imageIndex.packId === 'string' && { packId: imageIndex.packId }),
+        ...(declaredEnv.value !== undefined && { packEnv: declaredEnv.value }),
         packChecks: [
           ...new Set(
             validated.guardrails
@@ -2307,6 +2393,9 @@ function serializeDeployment(d: Deployment): Record<string, unknown> {
     activatedAt: d.activatedAt,
     ...(d.projectId !== undefined && { projectId: d.projectId as unknown as string }),
     ...(d.endpoint !== undefined && { endpoint: endpointToWire(d.endpoint) }),
+    ...(d.packEnv !== undefined && {
+      packEnv: { required: [...d.packEnv.required], optional: [...d.packEnv.optional] },
+    }),
     primitives: {
       tools: d.primitives.tools,
       guardrails: d.primitives.guardrails,

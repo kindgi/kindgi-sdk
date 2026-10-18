@@ -103,6 +103,7 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 | `system:tenants:contacts` | A tenant's admins' contact addresses, for service notices |
 | `system:suspend` | Suspending and restoring a tenant, a project or a pack |
 | `system:deployments` | The deployments and their pack services' endpoints |
+| `system:pack-env` | The plain values each deployment's pack declares, for its pack service, and the revision it runs (runtime 0.1.8.1 or later). On a key of its own: the deployments key reads no value |
 | `system:license` | Reading the deployment's license, for its renewal |
 | `kindgi:system` | All of them: a full key |
 
@@ -198,6 +199,13 @@ service is, and checks it. It never creates or deletes one.
    (`kp-` and 20 characters), then `-` or `.`. Give it a token of its own,
    its `KINDGI_PACK_SERVICE_TOKEN`: 16 to 512 printable characters, no
    spaces.
+
+   If its pack declares an environment (runtime 0.1.8.1 or later), read it
+   first, with a key of its own holding `system:pack-env`:
+   `GET …/deployments/{deploymentId}/pack-env` gives each declared name's
+   plain value (`env`) and the `revision` they make. Give the service those.
+   If it names a `problem` instead, it gives no value: start nothing, and say
+   why (step 4).
 3. **Record its endpoint:**
 
    ```sh
@@ -218,13 +226,31 @@ service is, and checks it. It never creates or deletes one.
      `kindgi-tenant-id` header (`endpoint-unreachable`, `endpoint-info-mismatch`).
 
    The deployment is then `ready`. A refusal is also recorded as the
-   deployment's problem, and the tenant sees its code.
+   deployment's problem, and the tenant sees its code. For a pack that
+   declares an environment, also send the `revision` you gave the service, as
+   `packEnvRevision`.
 4. **While you can't make a service, say why:**
    `PUT …/deployments/{deploymentId}/endpoint/problem` with a `code`:
    `tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed` or
-   `image-not-allowed`. The tenant sees the code and when, so a deploy that
+   `image-not-allowed`. For its environment (runtime 0.1.8.1 or later):
+   `pack-env-missing` (a required name is set nowhere), `pack-env-ambiguous`
+   (set both as a secret and as a plain value) or `pack-env-secret-not-yet`
+   (set only as a secret). The tenant sees the code and when, so a deploy that
    waits for its pack service says why at once.
-5. **Retire what should go:** `GET /v1/system/deployments?endpoint=retire`
+5. **Give a running service its changed environment** (runtime 0.1.8.1 or
+   later): `GET /v1/system/pack-env` lists the deployments with a `ready`
+   service whose values changed since the revision it runs: ids, the image
+   and the revision each runs, never a value. Read each one's values, start
+   its service again with them, and record it: `PUT …/pack-env` with the new
+   `revision` and the `appliedRevision` it was listed with. Another revision
+   recorded since is `pack-env-conflict`. If the values can't be given, or
+   the new revision didn't start, send `held` with the code instead
+   (`pack-env-update-failed` for one that didn't start): the service keeps
+   what it runs, and the tenant sees the code. One held as
+   `pack-env-update-failed` stays listed for an hour after it was first
+   held, so you try it again. After that it's listed again only when its
+   values change.
+6. **Retire what should go:** `GET /v1/system/deployments?endpoint=retire`
    lists deployments with an endpoint whose service should go, each with its
    `reason`. Clear the endpoint first, with `DELETE …/endpoint`, then delete
    the service. A `superseded` deployment is one whose every tool version and

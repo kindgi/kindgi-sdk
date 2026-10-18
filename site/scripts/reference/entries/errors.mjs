@@ -2625,6 +2625,58 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem'],
   },
+  'endpoint-not-ready': {
+    description:
+      "What a deployment's pack service runs was recorded for a service that isn't `ready`. A new service's revision goes with its endpoint (`packEnvRevision`); record one for a `ready` service only.",
+    details: [
+      {
+        key: 'status',
+        meaning: "the deployment's endpoint status now: `pending` or `cleared`",
+      },
+    ],
+    seeAlso: [
+      'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env',
+      'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
+    ],
+  },
+  'endpoint-retired': {
+    description:
+      "The env of a deployment whose pack service was retired was asked for: it isn't given out. A retired deployment's service is listed to go (`GET /v1/system/deployments?endpoint=retire`).",
+    details: [
+      {
+        key: 'retired',
+        meaning: 'why its pack service was retired, as the retire list gives it',
+      },
+    ],
+    seeAlso: ['GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env'],
+  },
+  'pack-env-conflict': {
+    description:
+      "What a pack service runs was recorded against a revision that's no longer the one recorded: another record came first. Read the deployment's pack env again, and record against what's there now.",
+    details: [
+      {
+        key: 'appliedRevision',
+        meaning: 'the revision the service is recorded as running now, when there is one',
+      },
+    ],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env'],
+  },
+  'pack-env-unsupported': {
+    description:
+      "This server doesn't give a pack service its declared env: its pack services take theirs from how they're run. The system pack env routes answer this on a server that doesn't run a pack service per deployment.",
+    details: [],
+    seeAlso: [
+      'GET /v1/system/pack-env',
+      'GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env',
+      'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env',
+    ],
+  },
+  'pack-env-not-served': {
+    description:
+      "This server doesn't give a deployment's pack service the env its pack declares, so it lists none of its names: its pack services take theirs from how they're run. `kindgi env plan` lists the names a pack reads.",
+    details: [],
+    seeAlso: ['GET /v1/deployments/{deploymentId}/pack-env'],
+  },
   'compliance-evidence-not-found': {
     description: 'No exportable compliance evidence record with that id exists under the tenant.',
     details: [

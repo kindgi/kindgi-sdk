@@ -354,7 +354,7 @@ const setCmd: LeafCommand = {
     force: {
       type: 'boolean',
       description:
-        'Change a key an env file (or, with `--scope`, that scope) already sets: overwrite it, or override a lower-precedence file. By default `set` refuses.',
+        'Change a key an env file (or, with `--scope`, that scope) already sets: overwrite it, or override a lower-precedence file. By default `set` refuses. With `--scope`, it also sets a value already there again, as a new revision.',
     },
     path: {
       type: 'string',

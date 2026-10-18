@@ -895,6 +895,7 @@ class SystemKey(BaseModel):
             "system:tenants:purge",
             "system:suspend",
             "system:deployments",
+            "system:pack-env",
             "system:license",
             "kindgi:system",
         ]
@@ -925,6 +926,7 @@ class MintSystemKeyBody(BaseModel):
                 "system:tenants:purge",
                 "system:suspend",
                 "system:deployments",
+                "system:pack-env",
                 "system:license",
                 "kindgi:system",
             ]
@@ -969,6 +971,7 @@ class MintSystemKeyResult(BaseModel):
             "system:tenants:purge",
             "system:suspend",
             "system:deployments",
+            "system:pack-env",
             "system:license",
             "kindgi:system",
         ]
@@ -1014,6 +1017,7 @@ class Datum2(BaseModel):
             "system:tenants:purge",
             "system:suspend",
             "system:deployments",
+            "system:pack-env",
             "system:license",
             "kindgi:system",
         ]
@@ -1063,6 +1067,7 @@ class RevokeSystemKeyResult(BaseModel):
             "system:tenants:purge",
             "system:suspend",
             "system:deployments",
+            "system:pack-env",
             "system:license",
             "kindgi:system",
         ]
@@ -1151,6 +1156,205 @@ class SetPackEndpointBody(BaseModel):
     """
     The pack service's token (`KINDGI_PACK_SERVICE_TOKEN`), printable ASCII without spaces. Stored wrapped; never returned, logged or recorded.
     """
+    pack_env_revision: Annotated[
+        str | None, Field(alias="packEnvRevision", max_length=128, min_length=1)
+    ] = None
+    """
+    The `revision` from `GET …/pack-env` whose values the service was made with, when its pack declares an environment. Kept as the one it runs, so `GET /v1/system/pack-env` lists it once they change.
+    """
+
+
+class PackEnvDeclaration(BaseModel):
+    """
+    The names the pack service reads from its process environment, as the image's `index.json` declares them (`env`), each list in name order. Names only, never a value. On a deployment: absent when it declares none, and from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    required: list[str]
+    """
+    Names the pack service needs, set and non-empty, to be ready.
+    """
+    optional: list[str]
+    """
+    Names the pack reads when present.
+    """
+
+
+class PackEnvScope(BaseModel):
+    """
+    Where a value is set: the deployment's project, the project's org, or the tenant.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["project", "org", "tenant"]
+    id: str | None = None
+    """
+    The project's or the org's id. Absent for the tenant.
+    """
+
+
+class PackEnvNameStatus(BaseModel):
+    """
+    One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (`secretScope`, for `ambiguous` only, names the secret's scope). Each name is looked for at the deployment's project, then its org, then the tenant (most specific wins); a tenant-wide deployment's, at the tenant's Default project. Never a value.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: str
+    required: bool
+    kind: Literal["env", "secret"] | None
+    """
+    What it is set as: a plain value (`env`) or a secret. `null` when it is set nowhere.
+    """
+    scope: PackEnvScope | None
+    """
+    Where it is set: the plain value's scope when `ambiguous`. `null` when it is set nowhere.
+    """
+    missing: bool
+    """
+    Set nowhere, as a plain value or a secret (optional names too).
+    """
+    problem: Literal["ambiguous", "secret-not-yet", "missing"] | None = None
+    """
+    Why it can't be given to the pack service. `ambiguous`: set both as a secret and as a plain value (`secretScope` names the secret's scope). `secret-not-yet`: set only as a secret, and a secret isn't given into a pack service's environment yet; a tool reads it per call (`ctx.secrets`). `missing`: a required name set nowhere. Absent when it can be given, and for an optional name set nowhere.
+    """
+    secret_scope: Annotated[PackEnvScope | None, Field(alias="secretScope")] = None
+
+
+class SystemPackEnv(BaseModel):
+    """
+    What the deployment's pack service is to be given: where each declared name is set, and the plain values when nothing stands in the way. Each value given out is on the audit record (`env-resolved`, as the deployment's system read).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    revision: str
+    """
+    Changes whenever what would be given changes: a value written or removed, a secret set or revoked. Made from scopes, row ids, revisions and update times, never from a value. Send it back with the endpoint (`packEnvRevision`) or `PUT …/pack-env`.
+    """
+    names: list[PackEnvNameStatus]
+    """
+    Every declared name, required ones first, each list in name order.
+    """
+    problem: Literal["pack-env-ambiguous", "pack-env-secret-not-yet", "pack-env-missing"] | None = (
+        None
+    )
+    """
+    Why a deployment's pack service can't be given its declared environment, the first in this order: `pack-env-ambiguous` (a name is set both as a secret and as a plain value), `pack-env-secret-not-yet` (a name is set only as a secret), `pack-env-missing` (a required name is set nowhere). A later runtime may add codes, so treat an unknown one as a reason not yet named.
+    """
+    env: dict[str, str] | None = None
+    """
+    Each declared name that is set, by name, as plain values. Absent while there is a `problem`: then nothing is given, and the service keeps what it runs.
+    """
+
+
+class SystemPackEnvEntry(BaseModel):
+    """
+    A deployment whose pack service runs on declared env values that changed since: ids, the image, and the revision it runs. Never a value. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    deployment_id: Annotated[str, Field(alias="deploymentId", min_length=1)]
+    pack_id: Annotated[str, Field(alias="packId", min_length=1)]
+    """
+    The pack it deploys (the image index's `packId`).
+    """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project the deploy was scoped to. Absent for a tenant-wide deploy.
+    """
+    image_ref: Annotated[str, Field(alias="imageRef")]
+    """
+    Digest-pinned, as registered: the pack service is created from exactly this.
+    """
+    image_digest: Annotated[str, Field(alias="imageDigest", pattern="^sha256:[0-9a-f]{64}$")]
+    artifact_version: Annotated[str, Field(alias="artifactVersion")]
+    activated_at: Annotated[AwareDatetime, Field(alias="activatedAt")]
+    applied_revision: Annotated[str | None, Field(alias="appliedRevision")] = None
+    """
+    The revision its service runs: given with its endpoint, or recorded since. Absent: none was. Send it back as `appliedRevision` with `PUT …/pack-env`.
+    """
+
+
+class SystemPackEnvPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[SystemPackEnvEntry]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class RecordPackEnvBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    revision: Annotated[str, Field(max_length=128, min_length=1)]
+    """
+    The `revision` from `GET …/pack-env`. Without `held`: the service now runs its values. With `held`: they weren't given, and the service keeps what it runs.
+    """
+    held: (
+        Literal[
+            "pack-env-ambiguous",
+            "pack-env-secret-not-yet",
+            "pack-env-missing",
+            "pack-env-update-failed",
+        ]
+        | None
+    ) = None
+    """
+    Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it, or `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. A later runtime may add codes, so treat an unknown one as a reason not yet named.
+    """
+    applied_revision: Annotated[
+        str | None, Field(alias="appliedRevision", max_length=128, min_length=1)
+    ] = None
+    """
+    The revision the service was found running, as `GET /v1/system/pack-env` listed it. Absent: none was recorded. Another revision recorded since is a conflict (`pack-env-conflict`).
+    """
+
+
+class PackEnvNames(BaseModel):
+    """
+    Where each name the deployment's pack declares is set, at the env the server serves. Never a value.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    env_name: Annotated[str, Field(alias="envName")]
+    """
+    The env the values are read at (`KINDGI_ENV`).
+    """
+    data: list[PackEnvNameStatus]
+    """
+    Every declared name, required ones first, each list in name order.
+    """
+    problem: Literal["pack-env-ambiguous", "pack-env-secret-not-yet", "pack-env-missing"] | None = (
+        None
+    )
+    """
+    Why a deployment's pack service can't be given its declared environment, the first in this order: `pack-env-ambiguous` (a name is set both as a secret and as a plain value), `pack-env-secret-not-yet` (a name is set only as a secret), `pack-env-missing` (a required name is set nowhere). A later runtime may add codes, so treat an unknown one as a reason not yet named.
+    """
 
 
 class RecordDeploymentProblemBody(BaseModel):
@@ -1168,6 +1372,9 @@ class RecordDeploymentProblemBody(BaseModel):
         "tenant-not-provisioned",
         "capacity-unavailable",
         "service-start-failed",
+        "pack-env-ambiguous",
+        "pack-env-secret-not-yet",
+        "pack-env-missing",
     ]
     """
     Why the pack service couldn't be created, or was refused: one of `DEPLOYMENT_ENDPOINT_PROBLEM_CODES`. The tenant sees the code, never more.
@@ -8335,7 +8542,31 @@ class DeploymentEndpointProblem(BaseModel):
     )
     code: str
     """
-    One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start).
+    One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start). It can't be given its declared environment (`GET /v1/deployments/{deploymentId}/pack-env` names the names): `pack-env-ambiguous`, `pack-env-secret-not-yet`, `pack-env-missing`.
+    """
+    since: AwareDatetime
+    """
+    When it was recorded.
+    """
+
+
+class PackEnvProblem(BaseModel):
+    """
+    `ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say), or didn't start (`pack-env-update-failed`). Gone once they can, or do. For a name that can't be given, `GET /v1/deployments/{deploymentId}/pack-env` names it. Absent from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: Literal[
+        "pack-env-ambiguous",
+        "pack-env-secret-not-yet",
+        "pack-env-missing",
+        "pack-env-update-failed",
+    ]
+    """
+    Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it, or `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. A later runtime may add codes, so treat an unknown one as a reason not yet named.
     """
     since: AwareDatetime
     """
@@ -8365,6 +8596,10 @@ class DeploymentEndpoint(BaseModel):
     retired: str | None = None
     """
     `cleared` only: why no pack service is wanted for it now. `superseded` is for good: newer deployments ship every tool version and check it does, so no new call reaches it; a tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.
+    """
+    pack_env_problem: Annotated[PackEnvProblem | None, Field(alias="packEnvProblem")] = None
+    """
+    `ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say), or didn't start (`pack-env-update-failed`). Gone once they can, or do. For a name that can't be given, `GET /v1/deployments/{deploymentId}/pack-env` names it. Absent from older servers.
     """
 
 
@@ -12534,6 +12769,7 @@ class DeploymentRecord(BaseModel):
     """
     The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's Default project).
     """
+    pack_env: Annotated[PackEnvDeclaration | None, Field(alias="packEnv")] = None
     endpoint: DeploymentEndpoint | None = None
     primitives: DeploymentPrimitiveCounts
     contents: DeploymentContents

@@ -10,6 +10,12 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **`deployments.pack_env` shows where each name a deployment's
+  pack declares is set** (`project`, `org` or `tenant`) and why it can't be
+  given to its pack service, if it can't, on a server that runs a pack
+  service per deployment. Never a value. For whatever runs the pack
+  services, on a `system:pack-env` key: `system_deployments.list_pack_env_changed`,
+  `get_pack_env` and `record_pack_env`.
 - `kindgi`: **a webhook or schedule trigger can run as a service account.**
   `run_as_service_account_id` on `webhooks.register`,
   `webhooks.take_ownership`, `schedules.register` and
