@@ -398,7 +398,7 @@ Kindgi answers 401 `site-sign-in-refused` with a reason in
 | `too-long-lived` | A statement lives at most 60 s | Something other than the plugin signs the site's statements: use the plugin. |
 | `replayed` | This statement was already used | The plugin never sends one twice. A copied statement is refused. |
 | `role-not-allowed` | None of these roles may sign in through this site | Add the role: `kindgi sites update <site-id>`, with an `--allowed-role` for it and for each role the site keeps. A person who had signed in before loses what their roles gave them. |
-| `person-removed` | This person was removed: their site can't sign them in again | If they were removed in Kindgi, a tenant admin lets them back in: `kindgi sites restore-person <site-id> <user-id>`. Someone who left the store comes back as a new person. |
+| `person-removed` | This person was removed: their site can't sign them in again | If they were removed in Kindgi, a tenant admin lets them back in (runtime 0.1.8.2 or later): `kindgi sites restore-person <site-id> <user-id>`. Someone who left the store comes back as a new person. |
 | `people-cap` | This site has as many people as it may: a tenant admin can raise its cap | Raise `--people-cap` or `--new-people-per-day` (`kindgi sites update <site-id>`). |
 
 Too many sign-ins at once get 429, with `Retry-After`.
