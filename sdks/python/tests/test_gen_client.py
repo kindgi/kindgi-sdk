@@ -548,3 +548,47 @@ def test_an_answer_by_status_with_its_tag_opened_fails_generation(
     lines = str(failed.value).splitlines()
     assert "  Started.kind: opened, but the answer of flows.get picks its member by it" in lines
     assert "  Synced.kind: opened, but the answer of flows.get picks its member by it" in lines
+
+
+def tiered(kind: str, tier: str) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "required": ["kind", "tier"],
+        "properties": {
+            "kind": {"type": "string", "enum": [kind]},
+            "tier": {"type": "string", "enum": [tier]},
+        },
+    }
+
+
+# `Plan` is told apart by `kind` and by `tier` alike: either could be read as its tag.
+PLANS: dict[str, Any] = {
+    **SCHEMAS,
+    "PlanFree": tiered("free", "basic"),
+    "PlanTeam": tiered("team", "pro"),
+    "Plan": {
+        "oneOf": [
+            {"$ref": "#/components/schemas/PlanFree"},
+            {"$ref": "#/components/schemas/PlanTeam"},
+        ]
+    },
+    "Account": {"type": "object", "properties": {"plan": {"$ref": "#/components/schemas/Plan"}}},
+}
+
+
+@pytest.mark.parametrize(
+    ("options", "line"),
+    [
+        ({"response": "Account"}, "  the union at Plan: kind, tier"),
+        (
+            {"answers": {"201": "PlanFree", "202": "PlanTeam"}},
+            "  the answer of flows.get: kind, tier",
+        ),
+    ],
+)
+def test_a_union_held_apart_by_two_fields_fails_generation(
+    tmp_path: Path, options: dict[str, Any], line: str
+) -> None:
+    with pytest.raises(SystemExit, match="held apart by more than one field") as failed:
+        generate(tmp_path, PLANS, **options)
+    assert line in str(failed.value).splitlines()

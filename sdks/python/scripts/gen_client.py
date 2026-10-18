@@ -887,8 +887,10 @@ def render_model_names(locations: dict[str, list[str]]) -> str:
 # fallback for any other. Both stay closed in a request the client sends
 # (`kindgi.client._open`). A `const`, the tag any union picks its member by
 # (`union_tags`) and a union without a tag stay as they are: the Java client
-# draws the same line. Then `check_open` fails if a response reaches anything
-# still closed, or if a union picks its member by a field that was opened.
+# draws the same line. A union held apart by two fields fails generation, as
+# which one is its tag isn't clear. Then `check_open` fails if a response
+# reaches anything still closed, or if a union picks its member by a field
+# that was opened.
 
 OPEN_ENUM = "x-kindgi-open-enum"
 FALLBACK = "Unrecognized"
@@ -963,42 +965,65 @@ def tag_values(schema: Any) -> list[str] | None:
     return None
 
 
-def union_tag(doc: dict[str, Any], members: list[Any]) -> str | None:
-    """The property each object member of a union holds to values of its own, if one does."""
+def held_apart(doc: dict[str, Any], members: list[Any]) -> list[str]:
+    """The properties each object member of a union holds to values of its own."""
     objects = [deref(doc, m) for m in members if not null_schema(m)]
     if len(objects) < 2 or not all(inline_object(o) for o in objects):
-        return None
+        return []
+    found: list[str] = []
     for prop in sorted(set.intersection(*(set(o["properties"]) for o in objects))):
         values = [tag_values(o["properties"][prop]) for o in objects]
         flat = [v for vs in values if vs is not None for v in vs]
         if None not in values and len(set(flat)) == len(flat):
-            return prop
-    return None
+            found.append(prop)
+    return found
+
+
+def union_tag(doc: dict[str, Any], members: list[Any]) -> str | None:
+    """The property each object member of a union holds to values of its own, if one does
+    (`union_tags` fails generation if more than one does)."""
+    return next(iter(held_apart(doc, members)), None)
 
 
 def union_tags(doc: dict[str, Any], ops: list[Operation]) -> set[tuple[str, tuple[Any, ...]]]:
     """Each field a union picks its member by (its `union_tag`, or its `discriminator`'s
     property), as `(component, path)`. It stays closed: opened, the union could no longer
     tell its members apart. A request's union counts too, as a response may reach its
-    members, and so does a method's answer by status (`secrets.rotate`'s, by `kind`)."""
+    members, and so does a method's answer by status (`secrets.rotate`'s, by `kind`).
+
+    A union whose members are held apart by two fields fails generation: only one is its
+    tag, and code that narrows by the other would break when it's opened."""
     components = doc["components"]["schemas"]
     tags: set[tuple[str, tuple[Any, ...]]] = set()
+    unclear: set[str] = set()
     for op in ops:
         answers = sorted(set(op.responses.values()))
-        tag = union_tag(doc, [{"$ref": f"#/components/schemas/{a}"} for a in answers])
-        tags |= {(a, ("properties", tag)) for a in answers if tag}
+        held = held_apart(doc, [{"$ref": f"#/components/schemas/{a}"} for a in answers])
+        if len(held) > 1:
+            unclear.add(f"  the answer of {op.id}: {', '.join(held)}")
+        tags |= {(a, ("properties", held[0])) for a in answers if held}
     for owner in sorted(components):
         for path, node in nodes(components[owner]):
             key = "oneOf" if "oneOf" in node else "anyOf" if "anyOf" in node else None
             if key is None:
                 continue
+            held = held_apart(doc, node[key])
+            if len(held) > 1:
+                unclear.add(f"  the union at {site(owner, path)}: {', '.join(held)}")
             named = (node.get("discriminator") or {}).get("propertyName")
-            for prop in {p for p in (union_tag(doc, node[key]), named) if isinstance(p, str)}:
+            for prop in {p for p in (*held[:1], named) if isinstance(p, str)}:
                 for i, member in enumerate(node[key]):
                     if "$ref" in member:
                         tags.add((member["$ref"].split("/")[-1], ("properties", prop)))
                     elif not null_schema(member):
                         tags.add((owner, (*path, key, i, "properties", prop)))
+    if unclear:
+        raise SystemExit(
+            "gen_client: a union's members are held apart by more than one field, so"
+            " which one is its tag isn't clear:\n"
+            + "\n".join(sorted(unclear))
+            + "\nGive the union one field its members hold to values of their own."
+        )
     return tags
 
 
