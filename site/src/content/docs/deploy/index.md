@@ -1,15 +1,35 @@
 ---
-title: Deploy
-description: Run Kindgi in your own infrastructure.
+title: Where your agents run
+description: Kindgi Cloud runs Kindgi for you, or you run it in your own infrastructure. Where to start for each, and the pages that apply to both.
 sidebar:
   order: 0
   label: Overview
 ---
 
-These pages show how to run Kindgi in your own infrastructure, next to your
-data, and how to operate it there. Kindgi is self-host first: the runtime you
-run on your machine with `kindgi dev` is the same image you deploy. Your
-pack's code runs beside it, in a pack service built from your app.
+Your agents run in one of two places:
+
+- **Kindgi Cloud:** we run Kindgi for you. You deploy your pack with the
+  Kindgi CLI, and Kindgi Cloud builds it and runs it.
+- **Self-hosted:** you run Kindgi in your own infrastructure, next to your
+  data, and operate it there.
+
+Either way, you build and test the pack on your machine with `kindgi dev`.
+
+## Kindgi Cloud
+
+We run it for you. In private preview.
+
+- **[Deploy your agent to Kindgi Cloud](../hosted/deploy-your-agent/):**
+  sign the CLI in, sign the pack, give it your model key, deploy it, try it
+  and go live. Then change an agent once it's live.
+- **[Limits](../hosted/limits/):** the limits every Kindgi Cloud account
+  has, what a call or a run sees past each one, and how to ask for more.
+
+## Self-hosted
+
+Kindgi is self-host first: the runtime you run on your machine with
+`kindgi dev` is the same image you deploy. Your pack's code runs beside it,
+in a pack service built from your app.
 
 :::note[Access to the runtime image]
 Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
@@ -30,11 +50,6 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
   through Kindgi's API, and Kindgi keeps their names and versions.
 - **[Keep and purge deleted data](retention/):** how long deleted records
   are kept, and the retention policies and sweeps that purge them.
-- **[Run with authorization](authorization/):** what it gives and what it
-  doesn't, and running OpenFGA next to the runtime.
-- **[People, API keys and service accounts](people-and-keys/):** add people
-  and give them roles and their own keys, give pipelines service accounts,
-  and remove someone in one step.
 - **[Turn on sign-in](self-hosted/sign-in/):** people sign in to the console with their
   organization's identity provider, Google, Microsoft or GitHub, or a link
   by email.
@@ -46,4 +61,14 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
 - **[Azure Container Apps](self-hosted/azure-container-apps/):** the runtime and your
   pack's service as two container apps, with PostgreSQL Flexible Server and
   Key Vault, from Kindgi's Terraform module.
-- **Kindgi Cloud:** we run it for you. In private preview.
+
+## On both
+
+These pages apply on Kindgi Cloud and on a runtime you run. Each says, in an
+**On Kindgi Cloud** note, what's different there.
+
+- **[People, API keys and service accounts](people-and-keys/):** add people
+  and give them roles and their own keys, give pipelines service accounts,
+  and remove someone in one step.
+- **[Run with authorization](authorization/):** what it gives and what it
+  doesn't. On a runtime you run, you run OpenFGA next to it.
