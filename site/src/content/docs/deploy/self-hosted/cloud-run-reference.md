@@ -80,7 +80,7 @@ If the pack's service refuses the token, the runtime's startup log says so:
 | | `roles/cloudsql.client`, only with `database_instance` | the project, conditioned on that instance, with a condition of its own: [serving from a restored instance](../cloud-run/#operate-it) |
 | | `roles/secretmanager.secretAccessor` | each of its secrets, and each one in `server_secret_env`; not `database_instance`'s `url_secret`, which you grant |
 | | `roles/aiplatform.user`, only with `vertex_ai = true` | the project: [Gemini](../cloud-run/#use-gemini) |
-| | `roles/cloudkms.signerVerifier` and `roles/cloudkms.publicKeyViewer`, only with `export_signing = "kms"` | the export signing key: [signed exports](../../guides/observability/export-signed-evidence/) |
+| | `roles/cloudkms.signerVerifier` and `roles/cloudkms.publicKeyViewer`, only with `export_signing = "kms"` | the export signing key: [signed exports](../../../guides/observability/export-signed-evidence/) |
 | The pack's service account | `roles/secretmanager.secretAccessor` | the pack token and your pack's secrets |
 | | `roles/run.invoker` | each service in `pack_run_invokers` |
 | | what your tools need | your own resources |

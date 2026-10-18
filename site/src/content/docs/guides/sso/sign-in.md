@@ -8,7 +8,7 @@ sidebar:
 This page shows how you sign in to the console, and what each message on its
 sign-in page means. Signing in starts with your email. The console then
 offers the ways in that this deployment has for it. Whoever runs the
-deployment chooses which ones ([Turn on sign-in](../../../deploy/sign-in/)).
+deployment chooses which ones ([Turn on sign-in](../../../deploy/self-hosted/sign-in/)).
 
 ## Your email first
 

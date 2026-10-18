@@ -240,7 +240,7 @@ In every language:
   Java and Scala). `kindgi build` loads every tool, guardrail and flow module
   to index it, so what a module does when it's loaded runs during the build
   too, inside an image that doesn't have your app's files or services
-  ([Build, sign and push your pack](../../../deploy/self-host/#3-build-sign-and-push-your-pack)).
+  ([Build, sign and push your pack](../../../deploy/self-hosted/self-host/#3-build-sign-and-push-your-pack)).
 
 Once the file is saved, `kindgi dev` indexes it and registers the tool; the
 next call runs the new code.
@@ -417,7 +417,7 @@ A flow without a declared `output` returns its last step's output. The
 
 `ctx.log` writes a record bound to the call: it carries the run's ids, the
 tool's id and the runtime's trace id, so it can be found beside the run's own
-records ([Logs](../../../deploy/logs/#your-packs-service)). Fields go in as
+records ([Logs](../../../deploy/self-hosted/logs/#your-packs-service)). Fields go in as
 an object, never in the message. Ask your coding agent: "Log each order my
 lookup tool looks up." For reference, it adds a line like this to the
 handler:

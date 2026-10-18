@@ -9,7 +9,7 @@ When you finish this page, your deployment renews its own non-production
 license key, by hand or on your own schedule.
 
 A license key runs until its date
-([When a key expires](../../concepts/licensing/#when-a-key-expires)). How you
+([When a key expires](../../../concepts/licensing/#when-a-key-expires)). How you
 get the next one depends on where the key came from:
 
 - **A production key** is renewed with your contract: write to
@@ -34,7 +34,7 @@ a new key instead, or write to contact@kindgi.com.
   sign in there with.
 - **The `kindgi` CLI, 0.1.7 or later,** on a machine that can read and write
   where your keys are kept. Outside a project, run it as
-  `npx --yes @kindgi/cli@0.1` ([Install](../../start/install/)).
+  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)).
 - **A place for each key,** from [Where the keys are kept](#where-the-keys-are-kept).
 
 ## Where the keys are kept
@@ -229,7 +229,7 @@ token, or a system key holding `system:license`, can read):
 - **people:** the distinct people who started runs or decided approvals,
   counted in each tenant and summed, so a person in two tenants counts twice;
 - **projects in production,** from a runtime that can
-  [put projects in production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production);
+  [put projects in production](../../../guides/projects/organize-by-org-and-project/#put-a-project-in-production);
 - **the runtime's version,** and the period they cover.
 
 A tenant the runtime can't count is left out, and its log names it (a
@@ -261,7 +261,7 @@ A tenant admin sees a line on every console page too.
 
 ## Next
 
-- [Licensing](../../concepts/licensing/): which key a deployment needs, and
+- [Licensing](../../../concepts/licensing/): which key a deployment needs, and
   what happens when one expires.
 - [Azure Container Apps](../azure-container-apps/): the module that renews
   on a schedule.

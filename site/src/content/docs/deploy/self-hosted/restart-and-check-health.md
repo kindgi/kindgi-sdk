@@ -66,7 +66,7 @@ pnpm exec kindgi runs cancel <run id> --url http://localhost:4000 --token "$KIND
 
 `<run id>` is the run's id. `--url` is the runtime's URL, and `--token` the
 API token. It prints the run's id, as in
-[Cancel a run](../../guides/runs/cancel-a-run/):
+[Cancel a run](../../../guides/runs/cancel-a-run/):
 
 ```json
 {
@@ -183,7 +183,7 @@ The runtime prints what it's running with when it starts. Read it with
 
 When the runtime comes back after stopping without a shutdown, its sweep
 repairs the runs the stop left mid-way, as
-[If the runtime stops](../../concepts/runs/#if-the-runtime-stops) explains.
+[If the runtime stops](../../../concepts/runs/#if-the-runtime-stops) explains.
 Each repair is a line in its log:
 
 ```text

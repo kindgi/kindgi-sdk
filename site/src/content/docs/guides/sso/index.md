@@ -20,7 +20,7 @@ page does the same steps ([From the console](#from-the-console)).
 ## Before you start
 
 - **Sign-in is on for your runtime,** and your domain is verified for your
-  workspace ([Turn on sign-in](../../deploy/sign-in/)).
+  workspace ([Turn on sign-in](../../deploy/self-hosted/sign-in/)).
 - **You're an admin of the workspace.**
 - **The `kindgi` CLI reaches your runtime as you:** `KINDGI_API_URL` is the
   runtime's address, and `KINDGI_API_TOKEN` is your API key
@@ -243,7 +243,7 @@ A workspace admin does the same steps on the console's **Sign-in** page:
 
 Whoever runs Kindgi can manage sign-in for every workspace themselves, with
 `KINDGI_AUTH_TENANT_PROVIDERS=off`
-([Turn on sign-in](../../deploy/sign-in/#who-manages-a-workspaces-identity-providers)).
+([Turn on sign-in](../../deploy/self-hosted/sign-in/#who-manages-a-workspaces-identity-providers)).
 The **Sign-in** page then says so, and lists the providers with **Try**
 only. A workspace admin's change from the CLI or the API is refused too.
 

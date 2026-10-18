@@ -101,7 +101,7 @@ To renew a production key, which goes with your contract, write to
 contact@kindgi.com. A non-production key from access.kindgi.com renews when
 you sign in there again. When access.kindgi.com has it turned on, a
 deployment can also renew its key itself, by hand or on a schedule. See
-[Renew the license key](../../deploy/renew-the-license-key/).
+[Renew the license key](../../deploy/self-hosted/renew-the-license-key/).
 
 ## Preview releases stop starting after 90 days
 
