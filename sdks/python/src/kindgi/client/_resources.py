@@ -8705,7 +8705,7 @@ class EnvironmentOrdersResource:
     ) -> _models.EnvironmentOrder:
         """Set the tenant's environment order. `PUT /v1/environment-orders/tenant`
 
-        Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the tenant and in no other order. A write that changes nothing is a no-op.
+        Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the tenant and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.
         """
         return self._client._request(
             _OPERATIONS["environmentOrders.setTenant"],
@@ -8745,7 +8745,7 @@ class EnvironmentOrdersResource:
     ) -> _models.EnvironmentOrder:
         """Set an org's environment order. `PUT /v1/environment-orders/orgs/{orgId}`
 
-        Replace the org's order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live under this org and in no other order. A write that changes nothing is a no-op.
+        Replace the org's order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live under this org and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.
         """
         return self._client._request(
             _OPERATIONS["environmentOrders.setOrg"],
@@ -17315,7 +17315,7 @@ class AsyncEnvironmentOrdersResource:
     ) -> _models.EnvironmentOrder:
         """Set the tenant's environment order. `PUT /v1/environment-orders/tenant`
 
-        Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the tenant and in no other order. A write that changes nothing is a no-op.
+        Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the tenant and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.
         """
         return await self._client._request(
             _OPERATIONS["environmentOrders.setTenant"],
@@ -17355,7 +17355,7 @@ class AsyncEnvironmentOrdersResource:
     ) -> _models.EnvironmentOrder:
         """Set an org's environment order. `PUT /v1/environment-orders/orgs/{orgId}`
 
-        Replace the org's order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live under this org and in no other order. A write that changes nothing is a no-op.
+        Replace the org's order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live under this org and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.
         """
         return await self._client._request(
             _OPERATIONS["environmentOrders.setOrg"],

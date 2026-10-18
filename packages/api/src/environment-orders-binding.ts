@@ -4,6 +4,15 @@
 import type { OrgId, ProjectId, TenantId } from '@kindgi/types';
 
 /**
+ * An order's identity, for equality only. The binding mints it and the
+ * server compares two for sameness; it is opaque — never parsed, never
+ * built by a consumer, and never on the wire. A host application's binding
+ * returns whatever stable, non-null string distinguishes one order from
+ * another; the brand keeps that value from being read as a plain string.
+ */
+export type EnvironmentOrderKey = string & { readonly __brand: 'EnvironmentOrderKey' };
+
+/**
  * The order a tenant runs a project through on its way to live — its
  * "environments", to the people who set them: an ordered list of the
  * tenant's projects (or one of its orgs' projects), each project in at
@@ -14,8 +23,9 @@ import type { OrgId, ProjectId, TenantId } from '@kindgi/types';
  * its id: the route applies that, from the project-read check that
  * `GET /v1/projects` uses. Only a tenant admin writes an order (the route
  * gates it). A write replaces the whole order with the projects given, in
- * the order given; `[]` clears it. The binding holds the parent's row for
- * the write, so two writes to one order serialize rather than race.
+ * the order given; `[]` clears it. The binding serializes the tenant's
+ * order writes, so two writes to one order apply one after the other
+ * rather than race.
  */
 export interface EnvironmentOrderBinding {
   /**
@@ -50,9 +60,8 @@ export interface EnvironmentOrderBinding {
    * promotion logic — never the wire: the order it belongs to, that order's
    * projects in position order, and the project's own position. `undefined`
    * when the project is in no order. Returned whole, not visibility-filtered
-   * (an internal read). `orderId` is a stable, non-null key for equality
-   * only — `org:<orgId>` for an org order, `tenant:<tenantId>` for the
-   * tenant's — never parsed, never on the wire.
+   * (an internal read). `orderId` is the order's opaque equality key
+   * (`EnvironmentOrderKey`) — never parsed, never on the wire.
    */
   orderOf(input: EnvironmentOrderOfInput): Promise<EnvironmentOrderLocation | undefined>;
 
@@ -70,16 +79,27 @@ export type EnvironmentOrderParent =
   | { readonly kind: 'tenant' }
   | { readonly kind: 'org'; readonly orgId: OrgId };
 
+/**
+ * A page cursor over a tenant's orders: the parent a page ended on. The
+ * route encodes it into, and decodes it from, the opaque wire cursor; a
+ * binding neither parses nor builds the wire form, it just carries this.
+ */
+export interface EnvironmentOrderCursor {
+  /** The org the last-returned order belongs to, or `null` for the tenant's own. */
+  readonly orgId: string | null;
+}
+
 export interface EnvironmentOrderListInput {
   readonly tenantId: TenantId;
   readonly limit: number;
-  /** Opaque cursor from a previous page's `nextCursor`. */
-  readonly after?: string;
+  /** Resume after this parent; absent starts at the first page. The route decodes it from the wire cursor. */
+  readonly after?: EnvironmentOrderCursor;
 }
 
 export interface EnvironmentOrderListPage {
   readonly orders: readonly EnvironmentOrder[];
-  readonly nextCursor?: string;
+  /** The parent to resume after when another page follows; the route encodes it into the wire cursor. */
+  readonly nextAfter?: EnvironmentOrderCursor;
 }
 
 export interface EnvironmentOrderGetInput {
@@ -149,8 +169,8 @@ export interface EnvironmentOrderOfInput {
  * `projects[position + 1]` is its next environment.
  */
 export interface EnvironmentOrderLocation {
-  /** Stable, non-null equality key: `org:<orgId>` or `tenant:<tenantId>`. Never parsed, never on the wire. */
-  readonly orderId: string;
+  /** The order's opaque equality key. Never parsed, never on the wire. */
+  readonly orderId: EnvironmentOrderKey;
   readonly parent: EnvironmentOrderParent;
   readonly projects: readonly ProjectId[];
   readonly position: number;

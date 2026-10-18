@@ -8,7 +8,7 @@
  * project; `--projects` takes ids or slugs directly, outside a pack.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -130,7 +130,8 @@ describe('kindgi environments set', () => {
     ]);
   });
 
-  test('an environment the config lacks is refused, naming the config file', async () => {
+  test('an environment the config lacks is refused, naming a TS pack’s kindgi.config.ts', async () => {
+    await writeFile(join(cwd, 'kindgi.config.ts'), 'export default {};\n');
     const { out, calls } = await run(['environments', 'set', 'staging', 'qa'], {
       projects: PROJECTS,
       config: CONFIG,
@@ -139,6 +140,17 @@ describe('kindgi environments set', () => {
     expect(out.stderr).toContain('qa');
     expect(out.stderr).toContain('kindgi.config.ts');
     expect(calls.some((c) => c[0] === 'setTenantOrder')).toBe(false);
+  });
+
+  test('the refusal names a non-TS pack’s config file: a Python pack’s pyproject.toml', async () => {
+    await writeFile(join(cwd, 'pyproject.toml'), '[tool.kindgi]\nname = "p"\n');
+    const { out } = await run(['environments', 'set', 'staging', 'qa'], {
+      projects: PROJECTS,
+      config: CONFIG,
+    });
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('pyproject.toml');
+    expect(out.stderr).not.toContain('kindgi.config.ts');
   });
 
   test('a slug shared by projects in two orgs is refused, naming them', async () => {

@@ -1057,8 +1057,10 @@ export type {
 export type {
   EnvironmentOrder,
   EnvironmentOrderBinding,
+  EnvironmentOrderCursor,
   EnvironmentOrderEntry,
   EnvironmentOrderGetInput,
+  EnvironmentOrderKey,
   EnvironmentOrderListInput,
   EnvironmentOrderListPage,
   EnvironmentOrderLocation,
