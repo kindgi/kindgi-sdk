@@ -15,13 +15,20 @@ import {
   type EvalSuiteRecord,
   type EvalSuiteRegistryBinding,
 } from '../eval-suite-binding.js';
-import { type ItemRights, itemMiddleware, itemPathCheck, shownLatest } from '../item-rights.js';
+import {
+  type ItemCheck,
+  type ItemRights,
+  itemMiddleware,
+  itemPathCheck,
+  shownLatest,
+} from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
+import { UUID_RE } from './uuid-param.js';
 
 /**
  * Evaluation-suite resource routes — part of the admin control plane.
@@ -114,7 +121,7 @@ export function evalSuitesRouter(
           }
           return c.req.method === 'GET' ? 'read' : 'admin';
         },
-        check: itemPathCheck,
+        check: suiteCheck,
         versionNotFound: suiteVersionNotFound,
       }),
     );
@@ -521,6 +528,29 @@ export function evalSuitesRouter(
   });
 
   return r;
+}
+
+/**
+ * What a route under a suite more than one project serves asks
+ * (`itemPathCheck`), but for a test set built from judgments: `admin` in
+ * the one project whose judged runs it takes, where the new version is
+ * made, as an eval run follows its own project (rule 3). A body naming
+ * none of the suite's projects is checked on every project, and the
+ * route answers what's wrong with it.
+ */
+async function suiteCheck(c: Context<AppEnv>, projects: readonly ProjectId[]): Promise<ItemCheck> {
+  if (c.req.method === 'POST' && c.req.path.endsWith('/versions/from-judgments')) {
+    const body = (await c.req.json().catch(() => null)) as { projectId?: unknown } | null;
+    const projectId = body?.projectId;
+    if (
+      typeof projectId === 'string' &&
+      UUID_RE.test(projectId) &&
+      projects.includes(projectId as ProjectId)
+    ) {
+      return { rule: 'on', action: 'admin', projectId };
+    }
+  }
+  return itemPathCheck(c);
 }
 
 function serializeEvalSuite(s: EvalSuiteRecord): Record<string, unknown> {
