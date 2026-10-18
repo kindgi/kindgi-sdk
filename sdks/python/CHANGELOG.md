@@ -10,6 +10,12 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **a webhook or schedule trigger can run as a service account.**
+  `run_as_service_account_id` on `webhooks.register`,
+  `webhooks.take_ownership`, `schedules.register` and
+  `schedules.take_ownership` names the service account whose grants the
+  trigger's runs act with, rather than whoever registered it. Naming an
+  account needs `act_as` on it, which tenant admins hold.
 - `kindgi`: **`flows.get` and `flows.get_version` answer the flow, and
   `tools.get` and `tools.get_version` the tool.** They read each answer as
   another object that had taken the name `Flow` or `Tool` (a judged run's
@@ -60,6 +66,13 @@ same version, and the CLI's own changes are in
   was retired; an active one has none. A retired version was
   `404 policy-not-found`, a `NotFoundError`; a version the retention sweep has
   purged still is. (#903)
+
+- `kindgi`: **`@tool` and `http_tool` take `needs_approval_when_unattended`.**
+  `True` makes each call of the tool wait for a person's approval in a run no
+  person started (a webhook, a schedule, an event, or a service account's
+  key). A flow's tool step that calls it is refused there. A run a person
+  starts is unaffected. The pack's index carries it as
+  `needsApprovalWhenUnattended`; left out, nothing changes.
 
 ## 0.1.8
 

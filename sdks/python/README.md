@@ -88,6 +88,10 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
   agent with tool approval gates on (and no override or `default` for it)
   doesn't ask before it. Without it a tool may change something (as with
   `mutating=True`).
+- `needs_approval_when_unattended=True` makes each call wait for a person's
+  approval in a run no person started (a webhook, a schedule, an event, or a
+  service account's key). A flow's tool step that calls it is refused there.
+  A run a person starts is unaffected.
 - The handler is `(input)` or `(input, ctx)`, `def` or `async def`. A `def`
   handler runs in a worker thread, so blocking I/O is fine.
 - Before calling you, the pack service validates the input against the schema
@@ -167,7 +171,10 @@ type here — without it the check gets `{}`, its defaults. `RunTrace` holds the
 `tool_calls`, `tool_results`, `model_calls`, … (snake_case here, camelCase on
 the wire). `on_violation` names the action (`halt`, `retry`, `escalate`,
 `log-only`, `compensate`); `action=` takes the whole object
-(`{"on-violation": "retry", "retry": {"maxAttempts": 2}}`).
+(`{"on-violation": "retry", "retry": {"maxAttempts": 2}}`). In 0.1 the
+runtime acts only on `halt`: the turn fails with `guardrail-violation`. Any
+other action is recorded on the turn's violations and the turn completes;
+nothing runs it again, escalates or calls a compensating tool.
 
 ### Agents and flows
 

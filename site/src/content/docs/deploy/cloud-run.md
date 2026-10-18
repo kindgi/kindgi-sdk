@@ -497,7 +497,12 @@ server_secret_env = {
     `firstAdmin`, that person is its admin and holds every capability but
     `secrets:reveal`, to put on the keys they make
     ([Who can do what](../people-and-keys/#who-can-do-what)). Without it,
-    the answer carries the first admin's key, sent once.
+    the answer carries the first admin's key, sent once. That key is a
+    service account's, so the runs it starts count as unattended
+    ([Service accounts](../people-and-keys/#service-accounts)): for the
+    work you start, add yourself as a person
+    ([Add a person](../people-and-keys/#add-a-person)) and use a key of your
+    own.
   - **Its image repository:** the create's `imagePrefix`, or
     `PUT /v1/system/tenants/{tenantId}/image-prefix`, before its first
     deploy. Without it, a deploy is refused with `409 image-prefix-unset`.

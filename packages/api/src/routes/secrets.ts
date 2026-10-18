@@ -17,7 +17,7 @@ import type {
   SecretSetOutcome,
   SecretVersionRecord,
 } from '../secrets-binding.js';
-import { isRevokeOldAfterMs } from '../secrets-binding.js';
+import { isRevokeOldAfterMs, secretNameGrammarRefusal } from '../secrets-binding.js';
 import type { AppEnv } from '../types.js';
 import { capabilityRefusal } from './denied.js';
 import { requireEnvName, requireScope, scopesEqual } from './env.js';
@@ -440,6 +440,31 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
     }
 
     const setScope = bodyScope.scope;
+
+    // A secret's name is held to the shared grammar whenever the write would
+    // CREATE it. A name that passes the grammar needs no store read. A name
+    // that fails it is refused — unless this is an `add-version` to a name the
+    // store already has (left as the store holds it, so a name stored before
+    // this release stays usable). `create-new` of such a name is always
+    // refused. A store may still refuse more of its own names when it writes
+    // (`SecretBinding.nameRefusal`).
+    const nameRefusal = secretNameGrammarRefusal(b.name);
+    if (nameRefusal !== undefined) {
+      const alreadyStored =
+        b.writeMode === 'add-version' &&
+        (await secretsBinding.get({
+          scope: setScope,
+          envName: envNameResult.envName,
+          name: b.name,
+        })) !== null;
+      if (!alreadyStored) {
+        c.status(statusFor(nameRefusal.code) as never);
+        return c.json(
+          toWireError({ code: nameRefusal.code, message: nameRefusal.message }, requestId),
+        );
+      }
+    }
+
     const outcome: SecretSetOutcome = await secretsBinding.set({
       scope: setScope,
       envName: envNameResult.envName,

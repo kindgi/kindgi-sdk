@@ -65,7 +65,7 @@ import { MAX_REVOKE_OLD_AFTER_MS } from '../secrets-binding.js';
  * per-route parsers in `routes/*.ts` validate ad hoc.
  */
 
-import { OBJECT_ACTIONS, OBJECT_TYPES } from '@kindgi/authz';
+import { OBJECT_ACTIONS, PROJECT_SCOPED_TYPES } from '@kindgi/authz';
 import { EVIDENCE_KINDS } from '@kindgi/compliance';
 import {
   MAX_TOOL_ERROR_RETRIES,
@@ -859,6 +859,12 @@ export const RunSchema: JsonSchema = {
     agent: { $ref: '#/components/schemas/RunAgent' },
     waitingFor: { $ref: '#/components/schemas/RunWaitingFor' },
     trigger: { $ref: '#/components/schemas/RunTrigger' },
+    startedBy: {
+      type: 'string',
+      enum: ['person', 'key', 'schedule', 'webhook', 'event'],
+      description:
+        "How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.",
+    },
     replayOf: {
       type: 'string',
       format: 'uuid',
@@ -3534,6 +3540,11 @@ export const ToolSchema: JsonSchema = {
       description:
         'Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.',
     },
+    needsApprovalWhenUnattended: {
+      type: 'boolean',
+      description:
+        "`true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.",
+    },
     sandbox: { $ref: '#/components/schemas/SandboxMode' },
     limits: { $ref: '#/components/schemas/RuntimeLimits' },
     network: { $ref: '#/components/schemas/NetworkPolicy' },
@@ -3666,18 +3677,26 @@ export const GuardrailActionSchema: JsonSchema = {
       minLength: 1,
       examples: ['halt', 'retry', 'escalate', 'log-only', 'compensate'],
       description:
-        'What happens when the guardrail fires. Open string: the built-in actions are listed in `examples`; any other name needs an action handler registered under it where the guardrail is evaluated.',
+        'What a failed check does to the agent turn. Open string: the built-in actions are listed in `examples`, and any other non-empty name is accepted. In 0.1 the runtime acts only on `halt`: the turn fails with `guardrail-violation` and its response is not stored. Any other value is recorded as a violation, as `log-only` is, and the turn completes: nothing runs the turn again, escalates or calls a compensating tool.',
     },
     retry: {
       type: 'object',
       additionalProperties: false,
       required: ['maxAttempts'],
+      description:
+        "The attempts a `retry` asks for. In 0.1 nothing acts on it: there's no second attempt.",
       properties: {
         maxAttempts: { type: 'integer', minimum: 1, maximum: 10 },
       },
     },
-    escalateTo: { type: 'string' },
-    compensateWith: { type: 'string' },
+    escalateTo: {
+      type: 'string',
+      description: 'Where an `escalate` goes. In 0.1 nothing escalates.',
+    },
+    compensateWith: {
+      type: 'string',
+      description: "The tool id a `compensate` names. In 0.1 that tool isn't called.",
+    },
   },
 };
 
@@ -8885,9 +8904,12 @@ export const SignInEventSchema: JsonSchema = {
         'sign-in-link-capped',
         'sessions-revoked',
         'sessions-ended',
+        'second-factor-set-up',
+        'second-factor-removed',
+        'recovery-codes-replaced',
       ],
       description:
-        '`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token).',
+        '`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token, or a session made without a second factor in a workspace that requires one: `reason` says which); `second-factor-set-up`, `second-factor-removed` (`byUserId` is the admin who removed it, if not the person) and `recovery-codes-replaced`. Never a key or a code.',
     },
     outcome: { type: 'string', description: '`succeeded` or `denied`.' },
     userId: {
@@ -9199,6 +9221,127 @@ export const InviteRenewedSchema: JsonSchema = {
   },
 };
 
+const ProofText: JsonSchema = { type: 'string', minLength: 1, maxLength: 64 };
+
+export const SecondFactorProofSchema: JsonSchema = {
+  description:
+    'Exactly one: a code from the authenticator app, or one of the recovery codes (used up by this).',
+  type: 'object',
+  additionalProperties: false,
+  properties: { code: ProofText, recoveryCode: ProofText },
+};
+
+export const SecondFactorConfirmBodySchema: JsonSchema = {
+  description: 'A code from the new key, as the authenticator app shows it.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['code'],
+  properties: { code: ProofText },
+};
+
+export const SecondFactorStatusSchema: JsonSchema = {
+  description:
+    "A person's second factor, and whether their workspace requires one. With `setUp`, `since`, `recoveryCodesLeft` and `usable` are given; without it, `started`. Never a key or a code.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['setUp', 'required'],
+  properties: {
+    setUp: { type: 'boolean' },
+    started: {
+      type: 'boolean',
+      description: "A key was given to set one up, and isn't confirmed yet.",
+    },
+    since: { type: 'string', format: 'date-time' },
+    recoveryCodesLeft: { type: 'integer', minimum: 0 },
+    usable: {
+      type: 'boolean',
+      description:
+        "`false`: its key can't be opened any more (the sign-in secret changed past it). A recovery code still works, as does setting it up again, or an admin removing it.",
+    },
+    required: {
+      type: 'boolean',
+      description: 'The workspace requires a second factor at sign-in.',
+    },
+  },
+};
+
+export const SecondFactorKeySchema: JsonSchema = {
+  description:
+    'A new key to set up, shown this once: `uri` for an authenticator app (as a QR code), `key` to type in. Nothing changes until it is confirmed.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['key', 'uri'],
+  properties: {
+    key: { type: 'string', description: 'The key, in base32.' },
+    uri: { type: 'string', description: 'The `otpauth://totp/` URI.' },
+  },
+};
+
+export const SecondFactorRecoveryCodesSchema: JsonSchema = {
+  description:
+    'The 10 recovery codes, shown this once. Each signs in once in place of a code from the app; any earlier ones stop working.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['recoveryCodes'],
+  properties: { recoveryCodes: { type: 'array', items: { type: 'string' } } },
+};
+
+export const SecondFactorRemovedSchema: JsonSchema = {
+  description: '`false` when there was none to remove.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['removed'],
+  properties: { removed: { type: 'boolean' } },
+};
+
+export const AuthSettingsSchema: JsonSchema = {
+  description: "The workspace's sign-in settings.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['secondFactor'],
+  properties: {
+    secondFactor: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['required', 'onPreviousSecret', 'unusable'],
+      properties: {
+        required: {
+          type: 'boolean',
+          description:
+            "Signing in by the deployment's own ways in takes a second factor. Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. API keys aren't covered.",
+        },
+        onPreviousSecret: {
+          type: 'integer',
+          minimum: 0,
+          description:
+            "People whose key is still kept under the deployment's previous sign-in secret: each moves to the current one at their next code. Keep the previous secret configured until this is 0.",
+        },
+        unusable: {
+          type: 'integer',
+          minimum: 0,
+          description:
+            'People whose key opens under neither secret: they need a recovery code, or an admin to remove it.',
+        },
+      },
+    },
+  },
+};
+
+export const AuthSettingsPatchSchema: JsonSchema = {
+  description: 'Require a second factor at sign-in, or stop requiring one.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['secondFactor'],
+  properties: {
+    secondFactor: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['required'],
+      properties: { required: { type: 'boolean' } },
+    },
+  },
+};
+
 export const UnregisterUserResultSchema: JsonSchema = {
   description:
     'A removed person, and what removing them took away (each 0 when they were already removed).',
@@ -9400,11 +9543,6 @@ export const MyReviewerAccessSchema: JsonSchema = {
     },
   },
 };
-
-/** What a project role allows, by object type, in `OBJECT_TYPES` order with each type's actions. */
-const PROJECT_SCOPED_TYPES = OBJECT_TYPES.filter(
-  (t) => t !== 'tenant' && t !== 'org' && t !== 'team' && t !== 'user',
-);
 
 export const RoleActionsSchema: JsonSchema = {
   type: 'object',
@@ -11628,7 +11766,15 @@ export const SecretSetRequestSchema: JsonSchema = {
   properties: {
     scope: { $ref: '#/components/schemas/Scope' },
     envName: { $ref: '#/components/schemas/EnvName' },
-    name: { type: 'string', minLength: 1 },
+    name: {
+      type: 'string',
+      minLength: 1,
+      // Documented, not enforced on the wire: the create-name grammar is the
+      // server's (SECRET_NAME_ALLOWED), so the request stays additive — a client
+      // can still add a version to a name stored before this release.
+      description:
+        'A new secret name: 1 to 255 ASCII letters, digits, `.`, `-` and `_`, starting with a letter, digit or `_`, with any `.` between two non-`.` characters. The server holds a newly-created name to this shape (`create-new`, or an `add-version` of a name not yet stored); a name already stored outside this shape still reads, rotates and takes new versions.',
+    },
     value: { type: 'string' },
     writeMode: { type: 'string', enum: ['create-new', 'add-version'] },
     tags: { type: 'object', additionalProperties: { type: 'string' } },
@@ -12016,6 +12162,12 @@ export const RegisterScheduleBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description: "The schedule's project. Absent → the tenant's default project.",
+    },
+    runAsServiceAccountId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. Absent: the caller owns it.",
     },
     config: {
       type: 'object',
@@ -12452,6 +12604,12 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
     },
     ...WebhookDeliveryProperties,
     label: { type: 'string' },
+    runAsServiceAccountId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it.",
+    },
   },
 };
 
@@ -12486,6 +12644,21 @@ export const PatchWebhookTriggerBodySchema: JsonSchema = {
       minimum: 1,
       maximum: 6000,
       description: '`null`: the default.',
+    },
+  },
+};
+
+export const TakeTriggerOwnerBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner.",
+  properties: {
+    runAsServiceAccountId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs.",
     },
   },
 };
@@ -13341,6 +13514,14 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['InviteEmail', InviteEmailSchema],
   ['UserCreated', UserCreatedSchema],
   ['InviteRenewed', InviteRenewedSchema],
+  ['SecondFactorProof', SecondFactorProofSchema],
+  ['SecondFactorConfirmBody', SecondFactorConfirmBodySchema],
+  ['SecondFactorStatus', SecondFactorStatusSchema],
+  ['SecondFactorKey', SecondFactorKeySchema],
+  ['SecondFactorRecoveryCodes', SecondFactorRecoveryCodesSchema],
+  ['SecondFactorRemoved', SecondFactorRemovedSchema],
+  ['AuthSettings', AuthSettingsSchema],
+  ['AuthSettingsPatch', AuthSettingsPatchSchema],
   ['UnregisterUserResult', UnregisterUserResultSchema],
   ['CreateUserBody', CreateUserBodySchema],
   ['PersonGrants', PersonGrantsSchema],
@@ -13515,6 +13696,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WebhookTriggerCollectionPage', WebhookTriggerCollectionPageSchema],
   ['RegisterWebhookTriggerBody', RegisterWebhookTriggerBodySchema],
   ['PatchWebhookTriggerBody', PatchWebhookTriggerBodySchema],
+  ['TakeTriggerOwnerBody', TakeTriggerOwnerBodySchema],
   ['WebhookTriggerUnregisterResult', WebhookTriggerUnregisterResultSchema],
   // Outbound webhook endpoints.
   ['WebhookEventType', WebhookEventTypeSchema],

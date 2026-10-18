@@ -21,8 +21,12 @@ run. The retry policy goes on the **edge into the step**.
 
 ## Retry a step
 
-`acme.reserve-stock` calls a warehouse that is busy for the first two calls
-per order. Write the tool, and a flow whose edge into the step retries it:
+Ask your coding agent: "I want a flow that reserves an order's stock at the
+warehouse, and tries again while the warehouse is busy." Kindgi's skills in
+your pack tell it how ([How it knows Kindgi](../../../start/coding-agents/)).
+For reference, the tool and the flow look like this. `acme.reserve-stock`
+calls a warehouse that is busy for the first two calls per order, and the
+flow's edge into the step retries it:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

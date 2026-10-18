@@ -18,8 +18,10 @@ flow's `output` says what the run returns.
 - **A pack with the tools** from [Write a flow](../write-a-flow/), such as
   `acme.get-order`, on a runtime such as `kindgi dev`, with Kindgi 0.1's CLI.
 
-This guide adds one more tool, `acme.hold-order`, which puts an order on
-hold. Write it:
+This guide adds one more tool. Ask your coding agent: "I want a tool that puts
+an order on hold." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+tool looks like this. This guide calls it `acme.hold-order`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -136,8 +138,10 @@ object HoldOrder {
 
 ## Map a step's input
 
-A mapping gives each step exactly the input it needs. `acme.hold-for-stock`
-looks an order up, then holds it with a fixed reason. Write the flow:
+A mapping gives each step exactly the input it needs. Ask your coding agent:
+"I want a flow that looks up an order, then puts it on hold while it waits for
+stock." For reference, the flow looks like this. `acme.hold-for-stock` looks
+an order up, then holds it with a fixed reason:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

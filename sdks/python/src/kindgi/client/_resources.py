@@ -661,6 +661,10 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "auth.settings.get": Operation("auth.settings.get", "GET", "/v1/auth/settings", "json", False),
+    "auth.settings.update": Operation(
+        "auth.settings.update", "PATCH", "/v1/auth/settings", "json", True
+    ),
     "auth.refresh": Operation("auth.refresh", "POST", "/v1/auth/refresh", "json", True),
     "auth.logout": Operation("auth.logout", "POST", "/v1/auth/logout", "json", True),
     "identity.users.list": Operation(
@@ -680,6 +684,47 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "identity.users.resendInvite": Operation(
         "identity.users.resendInvite", "POST", "/v1/identity/users/{userId}/invite", "json", True
+    ),
+    "identity.me.secondFactor": Operation(
+        "identity.me.secondFactor", "GET", "/v1/identity/me/second-factor", "json", False
+    ),
+    "identity.me.startSecondFactor": Operation(
+        "identity.me.startSecondFactor", "POST", "/v1/identity/me/second-factor", "json", True
+    ),
+    "identity.me.confirmSecondFactor": Operation(
+        "identity.me.confirmSecondFactor",
+        "POST",
+        "/v1/identity/me/second-factor/confirm",
+        "json",
+        True,
+    ),
+    "identity.me.newRecoveryCodes": Operation(
+        "identity.me.newRecoveryCodes",
+        "POST",
+        "/v1/identity/me/second-factor/recovery-codes",
+        "json",
+        True,
+    ),
+    "identity.me.removeSecondFactor": Operation(
+        "identity.me.removeSecondFactor",
+        "POST",
+        "/v1/identity/me/second-factor/remove",
+        "json",
+        True,
+    ),
+    "identity.users.secondFactor": Operation(
+        "identity.users.secondFactor",
+        "GET",
+        "/v1/identity/users/{userId}/second-factor",
+        "json",
+        False,
+    ),
+    "identity.users.removeSecondFactor": Operation(
+        "identity.users.removeSecondFactor",
+        "POST",
+        "/v1/identity/users/{userId}/second-factor/remove",
+        "json",
+        True,
     ),
     "identity.users.revokeSessions": Operation(
         "identity.users.revokeSessions",
@@ -6229,6 +6274,50 @@ class AuthProvidersResource:
         )
 
 
+class AuthSettingsResource:
+    """`client.auth.settings` — the `auth.settings` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def get(self, /, *, timeout: float | None = None) -> _models.AuthSettings:
+        """The workspace's sign-in settings. `GET /v1/auth/settings`
+
+        Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        """
+        return self._client._request(
+            _OPERATIONS["auth.settings.get"],
+            path={},
+            query={},
+            headers={},
+            response=_models.AuthSettings,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        body: _models.AuthSettingsPatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.AuthSettings:
+        """Require a second factor at sign-in. `PATCH /v1/auth/settings`
+
+        Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        """
+        return self._client._request(
+            _OPERATIONS["auth.settings.update"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AuthSettingsPatch, body, fields),
+            response=_models.AuthSettings,
+            timeout=timeout,
+        )
+
+
 class AuthSitesResource:
     """`client.auth.sites` — the `auth.sites` operations."""
 
@@ -6264,6 +6353,7 @@ class AuthResource:
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
         self.providers = AuthProvidersResource(client)
+        self.settings = AuthSettingsResource(client)
         self.sites = AuthSitesResource(client)
 
     def sign_in_options(
@@ -6285,7 +6375,7 @@ class AuthResource:
     def token_sign_in(self, /, *, timeout: float | None = None) -> _models.TokenSignInResult:
         """Sign in to the console with an API token. `POST /v1/auth/token-sign-in`
 
-        The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session.
+        The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.
         """
         return self._client._request(
             _OPERATIONS["auth.tokenSignIn"],
@@ -6484,6 +6574,43 @@ class IdentityUsersResource:
             timeout=timeout,
         )
 
+    def second_factor(
+        self, user_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.SecondFactorStatus:
+        """A person's second factor. `GET /v1/identity/users/{userId}/second-factor`
+
+        Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        """
+        return self._client._request(
+            _OPERATIONS["identity.users.secondFactor"],
+            path={"userId": user_id},
+            query={},
+            headers={},
+            response=_models.SecondFactorStatus,
+            timeout=timeout,
+        )
+
+    def remove_second_factor(
+        self,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SecondFactorRemoved:
+        """Remove a person's second factor. `POST /v1/identity/users/{userId}/second-factor/remove`
+
+        For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.8.1).
+        """
+        return self._client._request(
+            _OPERATIONS["identity.users.removeSecondFactor"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SecondFactorRemoved,
+            timeout=timeout,
+        )
+
     def revoke_sessions(
         self,
         user_id: str | UUID,
@@ -6575,6 +6702,112 @@ class IdentityMeResource:
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
+
+    def second_factor(self, /, *, timeout: float | None = None) -> _models.SecondFactorStatus:
+        """My second factor. `GET /v1/identity/me/second-factor`
+
+        Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        """
+        return self._client._request(
+            _OPERATIONS["identity.me.secondFactor"],
+            path={},
+            query={},
+            headers={},
+            response=_models.SecondFactorStatus,
+            timeout=timeout,
+        )
+
+    def start_second_factor(
+        self,
+        body: _models.SecondFactorProof | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SecondFactorKey:
+        """Start setting up a second factor. `POST /v1/identity/me/second-factor`
+
+        A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        """
+        return self._client._request(
+            _OPERATIONS["identity.me.startSecondFactor"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SecondFactorProof, body, fields),
+            response=_models.SecondFactorKey,
+            timeout=timeout,
+        )
+
+    def confirm_second_factor(
+        self,
+        body: _models.SecondFactorConfirmBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SecondFactorRecoveryCodes:
+        """Confirm a new second factor. `POST /v1/identity/me/second-factor/confirm`
+
+        A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        """
+        return self._client._request(
+            _OPERATIONS["identity.me.confirmSecondFactor"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SecondFactorConfirmBody, body, fields),
+            response=_models.SecondFactorRecoveryCodes,
+            timeout=timeout,
+        )
+
+    def new_recovery_codes(
+        self,
+        body: _models.SecondFactorProof | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SecondFactorRecoveryCodes:
+        """New recovery codes. `POST /v1/identity/me/second-factor/recovery-codes`
+
+        10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        """
+        return self._client._request(
+            _OPERATIONS["identity.me.newRecoveryCodes"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SecondFactorProof, body, fields),
+            response=_models.SecondFactorRecoveryCodes,
+            timeout=timeout,
+        )
+
+    def remove_second_factor(
+        self,
+        body: _models.SecondFactorProof | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SecondFactorRemoved:
+        """Take my second factor off. `POST /v1/identity/me/second-factor/remove`
+
+        Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        """
+        return self._client._request(
+            _OPERATIONS["identity.me.removeSecondFactor"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SecondFactorProof, body, fields),
+            response=_models.SecondFactorRemoved,
+            timeout=timeout,
+        )
 
     def permissions(self, /, *, timeout: float | None = None) -> _models.MyPermissions:
         """What I may do. `GET /v1/identity/me/permissions`
@@ -8765,20 +8998,23 @@ class SchedulesResource:
     def take_ownership(
         self,
         trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
+        **fields: Any,
     ) -> _models.ScheduleRecord:
         """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
 
-        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access.
+        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs.
         """
         return self._client._request(
             _OPERATIONS["schedules.takeOwnership"],
             path={"triggerId": trigger_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
             response=_models.ScheduleRecord,
             timeout=timeout,
         )
@@ -8955,20 +9191,23 @@ class WebhooksResource:
     def take_ownership(
         self,
         trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
+        **fields: Any,
     ) -> _models.WebhookTriggerRecord:
         """Take over a webhook trigger. `POST /v1/webhooks/{triggerId}/owner`
 
-        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access.
+        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow.
         """
         return self._client._request(
             _OPERATIONS["webhooks.takeOwnership"],
             path={"triggerId": trigger_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
             response=_models.WebhookTriggerRecord,
             timeout=timeout,
         )
@@ -14334,6 +14573,50 @@ class AsyncAuthProvidersResource:
         )
 
 
+class AsyncAuthSettingsResource:
+    """`client.auth.settings` — the `auth.settings` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def get(self, /, *, timeout: float | None = None) -> _models.AuthSettings:
+        """The workspace's sign-in settings. `GET /v1/auth/settings`
+
+        Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.settings.get"],
+            path={},
+            query={},
+            headers={},
+            response=_models.AuthSettings,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        body: _models.AuthSettingsPatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.AuthSettings:
+        """Require a second factor at sign-in. `PATCH /v1/auth/settings`
+
+        Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.settings.update"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AuthSettingsPatch, body, fields),
+            response=_models.AuthSettings,
+            timeout=timeout,
+        )
+
+
 class AsyncAuthSitesResource:
     """`client.auth.sites` — the `auth.sites` operations."""
 
@@ -14369,6 +14652,7 @@ class AsyncAuthResource:
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
         self.providers = AsyncAuthProvidersResource(client)
+        self.settings = AsyncAuthSettingsResource(client)
         self.sites = AsyncAuthSitesResource(client)
 
     async def sign_in_options(
@@ -14390,7 +14674,7 @@ class AsyncAuthResource:
     async def token_sign_in(self, /, *, timeout: float | None = None) -> _models.TokenSignInResult:
         """Sign in to the console with an API token. `POST /v1/auth/token-sign-in`
 
-        The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session.
+        The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.
         """
         return await self._client._request(
             _OPERATIONS["auth.tokenSignIn"],
@@ -14591,6 +14875,43 @@ class AsyncIdentityUsersResource:
             timeout=timeout,
         )
 
+    async def second_factor(
+        self, user_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.SecondFactorStatus:
+        """A person's second factor. `GET /v1/identity/users/{userId}/second-factor`
+
+        Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.users.secondFactor"],
+            path={"userId": user_id},
+            query={},
+            headers={},
+            response=_models.SecondFactorStatus,
+            timeout=timeout,
+        )
+
+    async def remove_second_factor(
+        self,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SecondFactorRemoved:
+        """Remove a person's second factor. `POST /v1/identity/users/{userId}/second-factor/remove`
+
+        For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.8.1).
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.users.removeSecondFactor"],
+            path={"userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SecondFactorRemoved,
+            timeout=timeout,
+        )
+
     async def revoke_sessions(
         self,
         user_id: str | UUID,
@@ -14682,6 +15003,112 @@ class AsyncIdentityMeResource:
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
+
+    async def second_factor(self, /, *, timeout: float | None = None) -> _models.SecondFactorStatus:
+        """My second factor. `GET /v1/identity/me/second-factor`
+
+        Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.me.secondFactor"],
+            path={},
+            query={},
+            headers={},
+            response=_models.SecondFactorStatus,
+            timeout=timeout,
+        )
+
+    async def start_second_factor(
+        self,
+        body: _models.SecondFactorProof | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SecondFactorKey:
+        """Start setting up a second factor. `POST /v1/identity/me/second-factor`
+
+        A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.me.startSecondFactor"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SecondFactorProof, body, fields),
+            response=_models.SecondFactorKey,
+            timeout=timeout,
+        )
+
+    async def confirm_second_factor(
+        self,
+        body: _models.SecondFactorConfirmBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SecondFactorRecoveryCodes:
+        """Confirm a new second factor. `POST /v1/identity/me/second-factor/confirm`
+
+        A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.me.confirmSecondFactor"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SecondFactorConfirmBody, body, fields),
+            response=_models.SecondFactorRecoveryCodes,
+            timeout=timeout,
+        )
+
+    async def new_recovery_codes(
+        self,
+        body: _models.SecondFactorProof | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SecondFactorRecoveryCodes:
+        """New recovery codes. `POST /v1/identity/me/second-factor/recovery-codes`
+
+        10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.me.newRecoveryCodes"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SecondFactorProof, body, fields),
+            response=_models.SecondFactorRecoveryCodes,
+            timeout=timeout,
+        )
+
+    async def remove_second_factor(
+        self,
+        body: _models.SecondFactorProof | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SecondFactorRemoved:
+        """Take my second factor off. `POST /v1/identity/me/second-factor/remove`
+
+        Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.me.removeSecondFactor"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SecondFactorProof, body, fields),
+            response=_models.SecondFactorRemoved,
+            timeout=timeout,
+        )
 
     async def permissions(self, /, *, timeout: float | None = None) -> _models.MyPermissions:
         """What I may do. `GET /v1/identity/me/permissions`
@@ -16874,20 +17301,23 @@ class AsyncSchedulesResource:
     async def take_ownership(
         self,
         trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
+        **fields: Any,
     ) -> _models.ScheduleRecord:
         """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
 
-        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access.
+        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs.
         """
         return await self._client._request(
             _OPERATIONS["schedules.takeOwnership"],
             path={"triggerId": trigger_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
             response=_models.ScheduleRecord,
             timeout=timeout,
         )
@@ -17064,20 +17494,23 @@ class AsyncWebhooksResource:
     async def take_ownership(
         self,
         trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
+        **fields: Any,
     ) -> _models.WebhookTriggerRecord:
         """Take over a webhook trigger. `POST /v1/webhooks/{triggerId}/owner`
 
-        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access.
+        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow.
         """
         return await self._client._request(
             _OPERATIONS["webhooks.takeOwnership"],
             path={"triggerId": trigger_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
             response=_models.WebhookTriggerRecord,
             timeout=timeout,
         )

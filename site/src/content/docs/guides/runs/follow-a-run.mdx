@@ -11,6 +11,10 @@ A run's events are its journal as it's written: the run starting, each step
 starting and ending, waits, and the run's end. Follow them to show progress,
 or to react when the run ends without polling.
 
+Ask your coding agent: "I want my app to show a run's progress as it
+happens." For reference, the code looks like this. It starts a run in the
+background, then prints each event until the run ends:
+
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 

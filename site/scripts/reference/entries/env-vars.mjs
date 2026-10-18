@@ -46,6 +46,8 @@ export const ENV_DEFAULTS = {
     'none (with `KINDGI_AUTH_SECRET` unset): sign-in with identity providers is off',
   KINDGI_AUTH_SECRET:
     'none (with `KINDGI_AUTH_SECRET_PATH` unset): sign-in with identity providers is off',
+  KINDGI_AUTH_PREVIOUS_SECRET_PATH: 'none: no previous secret',
+  KINDGI_AUTH_PREVIOUS_SECRET: 'none: no previous secret',
   KINDGI_AUTH_PRIVATE_IDP_ORIGINS: 'none: none; only public HTTPS identity providers are allowed',
   KINDGI_AUTH_VERIFIED_DOMAINS:
     "none: none; a runtime serving one tenant routes that tenant's domains without it, one serving several routes no domain",
@@ -103,6 +105,7 @@ export const ENV_DEFAULTS = {
     'none: required when `KINDGI_MEMORY_EMBEDDINGS=openai-compat`, not read otherwise',
   KINDGI_MEMORY_EMBEDDINGS_API_KEY: 'none: requests carry no key',
   KINDGI_RETENTION_SWEEP_INTERVAL_MS: 'none: no automatic purge; at least `60000` when set',
+  KINDGI_RUN_RETENTION_MAX_DAYS: 'none: runs are kept as their retention policy says',
   KINDGI_ERASURE_SHARED_WAIT_MS: '`604800000` (7 days); at least `3600000`',
   KINDGI_ERASURE_LEDGER_KEY_PATH:
     'none (with `KINDGI_ERASURE_LEDGER_KEY` unset): erasures run but cannot be replayed after a restore',
@@ -119,6 +122,9 @@ export const ENV_DEFAULTS = {
   KINDGI_ARTIFACTS: 'none: artifacts are off (no `/v1/artifacts`)',
   KINDGI_TURN_MEMORY_MIB: "none: no limit on every tenant's turns together",
   KINDGI_TURN_MEMORY_PER_TENANT_MIB: 'none: no limit per tenant',
+  KINDGI_TEMPLATE_RENDER_WORKERS:
+    '`1` when `KINDGI_TENANCY=multi`, else `0`: the template renders in the server process',
+  KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB: '`128`; at least `1`',
   KINDGI_ARTIFACT_MAX_BYTES: '`104857600` (100 MiB)',
   KINDGI_LOG_LEVEL: '`info`',
   KINDGI_LOG_LEVELS: 'none: no per-subsystem levels; `KINDGI_LOG_LEVEL` applies everywhere',
@@ -194,6 +200,10 @@ export const ENV_EXAMPLES = {
   KINDGI_AUTH_SECRET: {
     value: '<32 random bytes, base64>',
     make: 'openssl rand -base64 32',
+  },
+  // The secret it held before the rotation, not a new one.
+  KINDGI_AUTH_PREVIOUS_SECRET: {
+    value: '<the KINDGI_AUTH_SECRET value before the rotation>',
   },
   KINDGI_AUTH_GOOGLE_CLIENT_ID: {
     value: '<client id of your Google OAuth app>',

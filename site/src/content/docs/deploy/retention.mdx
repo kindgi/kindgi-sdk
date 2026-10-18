@@ -235,10 +235,13 @@ PublishPolicyResult[policyId=acme.keep-providers, version=1.0.0]
 - **A spec that doesn't fit is refused** with `400 validation-failed`, naming
   the field: `policy.spec/mode can't be "archive" yet: use "purge"`, or
   `policy.spec/domain must be one of: org, agent, …, provider, * (got "blocks")`.
-- **A server can limit how long a domain's records are kept.** Where it
-  does, a policy for that domain that keeps them longer, or for good
-  (`-1`), is refused (`400 retention-over-limit`), and so is reinstating a
-  retired version that does:
+- **A server can limit how long a domain's records are kept.** A runtime
+  limits runs with `KINDGI_RUN_RETENTION_MAX_DAYS`, in whole days
+  ([the variable](../../reference/env-vars/#kindgi_run_retention_max_days)).
+  Unset, there's no limit. Where there is one, a policy for that domain
+  that keeps records longer, or for good (`-1`), is refused
+  (`400 retention-over-limit`), and so is reinstating a retired version
+  that does:
 
   ```text
   `graceSeconds` 31536000 (365 days) is over the retention limit for `run` rows, 90 days.
@@ -246,7 +249,8 @@ PublishPolicyResult[policyId=acme.keep-providers, version=1.0.0]
 
   A `*` policy isn't refused: in a limited domain, the server keeps
   records no longer than the limit. A limited domain that no policy covers
-  gets the limit too.
+  gets the limit too, and so does a policy stored before the limit was set
+  that keeps records longer or for good.
 - **Two policies can still cover one domain** when an older runtime took
   both. The console warns. Lists, sweeps and the runtime's log say which one
   applies: unregister the others.
@@ -432,13 +436,23 @@ purged:
 ### Sweep on a schedule
 
 Set `KINDGI_RETENTION_SWEEP_INTERVAL_MS` in `kindgi.env`: how often to sweep,
-in milliseconds, at least `60000`. `3600000` is hourly. Each pass is the same
-sweep, for every tenant the runtime serves. It purges up to 500 records per
-domain, and the rest wait for the next pass. The startup log says which way
-it runs:
+in milliseconds, at least `60000`. `3600000` is hourly. Each round is the
+same sweep, for every tenant the runtime serves, page by page until nothing
+due is left. However many replicas you run, one of them runs each round.
+
+- **Rounds keep to the interval.** After the runtime was down longer than
+  one, a round is due at once, and that one round catches up.
+- **A round that stops part way is carried on.** It has 30 minutes. One
+  that runs out of time, or meets a tenant whose sweep fails, stays due,
+  and the next check goes on with it. A failed tenant is logged and
+  skipped, never the end of the round.
+
+The startup log says which way it runs, and the limit for runs when
+there is one:
 
 ```text
   Retention: purges deleted rows past their grace every 1 min
+  Retention: every 1 h; the limit for runs: 90 days
   Retention: manual (POST /v1/retention/sweep; KINDGI_RETENTION_SWEEP_INTERVAL_MS purges on its own)
 ```
 
@@ -446,6 +460,13 @@ A pass that purged something logs it, per tenant:
 
 ```text
 17:41:42.348 INFO  [retention] tenant 5c0a7e11-0000-4000-8000-00000000c0de: purged 1 (provider 1)
+```
+
+Rows purged more than a day after they were due mean rounds were missed,
+such as while the runtime was down. Each round warns about them once:
+
+```text
+purged rows more than 24 h past their retention limit (run <count>, the oldest <hours> h past it): retention rounds were missed
 ```
 
 A value under `60000` stops the runtime at start:
@@ -464,8 +485,10 @@ startup log says so:
 ## Keep records for good
 
 A policy with `graceSeconds: -1` keeps a domain's deleted records, and sweeps
-skip it. With `"domain": "*"`, nothing is purged except in the domains that
-have a policy of their own, or a limit on the server:
+skip it. Not where the server limits the domain: there a hold is refused, and
+one stored before the limit purges at the limit. With `"domain": "*"`, nothing
+is purged except in the domains that have a policy of their own, or a limit on
+the server:
 
 ```json
 { "id": "acme.keep-everything", "version": "1.0.0", "kind": "retention",
@@ -587,7 +610,9 @@ events as compliance evidence. Without it, that route answers `404`.
   after 30 days."
 - **Deleted data** lists each deleted record with when it was deleted, when
   it will be purged and the policy that decides it, and has **Purge what's
-  due now**, the same sweep as the API.
+  due now**, the same sweep as the API. Where the server's limit decides
+  instead, its grace line says so ("grace 90d, this server's limit"), and a
+  record no policy covers shows **No policy**.
 
 ## Next
 

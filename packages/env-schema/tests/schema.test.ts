@@ -15,6 +15,7 @@
 
 import { describe, expect, test } from 'vitest';
 
+import * as envSchema from '../src/index.js';
 import {
   AUTH_INVITE_EMAIL_DAILY_CAP_VAR,
   type EnvTarget,
@@ -583,6 +584,16 @@ describe('KINDGI_ENV_SCHEMA — integrity', () => {
     const names = KINDGI_ENV_SCHEMA.map((v) => v.name);
     const set = new Set(names);
     expect(set.size).toBe(names.length);
+  });
+
+  test("every exported name (`*_VAR`) is a variable in the schema, so a reader and the docs can't drift", () => {
+    const names = new Set(KINDGI_ENV_SCHEMA.map((v) => v.name));
+    const exported = Object.entries(envSchema as Record<string, unknown>).filter(
+      (entry): entry is [string, string] =>
+        entry[0].endsWith('_VAR') && typeof entry[1] === 'string',
+    );
+    expect(exported.length).toBeGreaterThan(40);
+    expect(exported.filter(([, name]) => !names.has(name))).toEqual([]);
   });
 
   test('every var has a non-empty name + description', () => {

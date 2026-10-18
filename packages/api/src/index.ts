@@ -172,6 +172,7 @@ export type {
   SessionRevokeAllForUserOutcome,
   SessionRevokeInput,
   SessionRevokeOutcome,
+  SessionSecondFactor,
   SessionStoreBinding,
   SessionTouchInput,
   SessionTouchOutcome,
@@ -274,6 +275,18 @@ export type {
   PersonRef,
 } from './person-grants-binding.js';
 export type { PersonCapabilitiesBinding } from './person-capabilities-binding.js';
+export type {
+  SecondFactorBinding,
+  SecondFactorConfirmOutcome,
+  SecondFactorProof,
+  SecondFactorRecoveryCodesOutcome,
+  SecondFactorRef,
+  SecondFactorRefusal,
+  SecondFactorRemoveOutcome,
+  SecondFactorSettings,
+  SecondFactorStartOutcome,
+  SecondFactorStatus,
+} from './second-factor-binding.js';
 export type {
   AccessPrincipal,
   ProjectAccessBinding,
@@ -1016,7 +1029,13 @@ export type {
   SecretVersionPage,
   SecretVersionRecord,
 } from './secrets-binding.js';
-export { MAX_REVOKE_OLD_AFTER_MS, RESERVED_SECRET_NAME_PREFIX } from './secrets-binding.js';
+export {
+  MAX_REVOKE_OLD_AFTER_MS,
+  RESERVED_SECRET_NAME_PREFIX,
+  SECRET_NAME_ALLOWED,
+  SECRET_NAME_MAX_LENGTH,
+  secretNameGrammarRefusal,
+} from './secrets-binding.js';
 export { resolveAtScope, scopeOfRecorded } from './secret-scope.js';
 // A model provider's key is used by its provider only.
 export {
