@@ -20,6 +20,9 @@ where they come from.
 - **The runtime's settings:** `kindgi.env` for
   [Self-host Kindgi](../self-host/), or the module's `server_env` on
   [Cloud Run](../cloud-run/).
+- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+  pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## Publish them
 
@@ -75,7 +78,7 @@ through Cloud Run's own egress, which has no fixed address.
 ## See them
 
 ```sh
-pnpm exec kindgi egress
+npx --yes @kindgi/cli@0.1 egress
 ```
 
 ```text

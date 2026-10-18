@@ -955,8 +955,9 @@ export const GLOBAL_FLAG_DEFAULTS = {
 export const CLI_EXAMPLES = {
   'auth login': [
     {
-      purpose: 'Save the API URL and token to ~/.kindgi/config.json.',
-      line: 'kindgi auth login --url=https://kindgi.acme.example --token=<api-token>',
+      purpose:
+        'Save the API URL, and the API token exported as `KINDGI_API_TOKEN`, to ~/.kindgi/config.json.',
+      line: 'kindgi auth login --url=https://kindgi.acme.example',
     },
   ],
   'auth whoami': [
