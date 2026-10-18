@@ -32,6 +32,13 @@ export type ReferenceKind = 'tool' | 'agent' | 'flow' | 'guardrail' | 'block' | 
 export interface ItemReference {
   readonly kind: ReferenceKind;
   readonly id: string;
+  /**
+   * One version of an agent, flow or eval suite, when the reference is to
+   * that version: reached when a run in the project may run that version
+   * (where it was made, or what reached the project with a build). Absent:
+   * the item itself, by its id.
+   */
+  readonly version?: string;
 }
 
 export interface ReferenceScopeBinding {
@@ -80,10 +87,18 @@ export async function referencesOutOfScope(
   const answers = new Map<string, Promise<boolean>>();
   const issues: ReferenceOutOfScopeError['issues'][number][] = [];
   for (const ref of refs) {
-    const key = `${ref.kind}:${ref.id}`;
+    const key = `${ref.kind}:${ref.id}@${ref.version ?? ''}`;
     let answer = answers.get(key);
     if (answer === undefined) {
-      answer = scope.reachable({ tenantId, fromProjectId, ref: { kind: ref.kind, id: ref.id } });
+      answer = scope.reachable({
+        tenantId,
+        fromProjectId,
+        ref: {
+          kind: ref.kind,
+          id: ref.id,
+          ...(ref.version !== undefined && { version: ref.version }),
+        },
+      });
       answers.set(key, answer);
     }
     if (!(await answer)) {

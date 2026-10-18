@@ -662,6 +662,21 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['POST /v1/deployments/{deploymentId}/secrets'],
   },
+  'environment-takes-promotions': {
+    description:
+      "The project you named is a later environment of an environment order, and a later environment takes builds only by promotion from the one before it. Deploy into the order's first environment and promote the build from there. A publish through the API, and an edited version of an agent, are refused the same way: they're made in the first environment. Nothing is written.",
+    details: [
+      {
+        key: 'firstProjectId',
+        meaning:
+          "the order's first environment, where builds and new versions go; present when you can read that project",
+      },
+      {
+        key: 'position',
+        meaning: "the named project's place in the order, from 0 (the first)",
+      },
+    ],
+  },
   'guardrail-config-invalid': {
     description:
       "The guardrail's `config` doesn't satisfy the config schema of the check it names, so the check would refuse it on every call. Fix the config and register again.",

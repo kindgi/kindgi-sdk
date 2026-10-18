@@ -87,6 +87,28 @@ describe('the helpers', () => {
     );
   });
 
+  test('a version is its own reference: asked with its version, once per version, beside the id', async () => {
+    const asked: Parameters<ReferenceScopeBinding['reachable']>[0][] = [];
+    const reachable: ReferenceScopeBinding = {
+      reachable: async (input) => {
+        asked.push(input);
+        return input.ref.version !== '1.1.0';
+      },
+    };
+    const refused = await referencesOutOfScope(reachable, tenantId, projectId, [
+      { path: '/pins/0', kind: 'agent', id: 'acme.agent', version: '1.0.0' },
+      { path: '/pins/1', kind: 'agent', id: 'acme.agent', version: '1.1.0' },
+      { path: '/pins/2', kind: 'agent', id: 'acme.agent', version: '1.1.0' },
+      { path: '/pins/3', kind: 'agent', id: 'acme.agent' },
+    ]);
+    expect(asked.map((a) => a.ref)).toEqual([
+      { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
+      { kind: 'agent', id: 'acme.agent', version: '1.1.0' },
+      { kind: 'agent', id: 'acme.agent' },
+    ]);
+    expect(refused?.issues.map((i) => i.path)).toEqual(['/pins/1', '/pins/2']);
+  });
+
   test('one answer for an item that does not exist and one out of reach', async () => {
     const refusedFor = async (id: string) =>
       (

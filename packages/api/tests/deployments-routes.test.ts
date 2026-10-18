@@ -42,6 +42,7 @@ import type {
 } from '../src/index.js';
 import { sameGuardrailDefinition } from '../src/routes/deployments.js';
 import { expectCompileBudgetRefused } from './support/compile-budget.js';
+import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
 
 /**
@@ -5307,5 +5308,118 @@ describe("POST /v1/deployments: a pack check carries its pack's id where checks 
   test('with one pack service (no per-deployment routing), the build warning stays the only word', async () => {
     const fixture = withCheck('shared.checks.contact');
     expect((await post(makeApp({ fixture }).app, fixture.wire)).status).toBe(201);
+  });
+});
+
+// ---------------- environment orders: builds enter at the first environment ----------------
+
+describe('POST /v1/deployments into an environment order: a later environment takes builds by promotion only', () => {
+  // staging-1 (first), staging-2, then the Default project as prod.
+  const STAGING_1 = CLIENT_A;
+  const STAGING_2 = CLIENT_B;
+  const ORDER = [STAGING_1, STAGING_2, DEFAULT_PROJECT_ID] as const;
+  const request = (
+    app: ReturnType<typeof makeApp>['app'],
+    fixture: SignedDeploy,
+    projectId: ProjectId | undefined,
+  ) =>
+    app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ ...fixture.wire, ...(projectId !== undefined && { projectId }) }),
+    });
+  const deployInto = async (
+    projectId: ProjectId | undefined,
+    orders: readonly (readonly ProjectId[])[] = [ORDER],
+  ) => {
+    const fixture = buildSignedDeploy({
+      artifactVersion: '20260920.1',
+      index: indexWith('20260920.1'),
+    });
+    const made = makeApp({ fixture, extra: { environmentOrders: environmentOrders(orders) } });
+    lastToolRegisterProjectId = undefined;
+    return { ...made, res: await request(made.app, fixture, projectId) };
+  };
+
+  test('into the second environment: 409 environment-takes-promotions, naming the first, and nothing registered', async () => {
+    const { res, deploymentRegistry, toolRegistry, guardrailRegistry } =
+      await deployInto(STAGING_2);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details?: Record<string, unknown> };
+    };
+    expect(body.error.code).toBe('environment-takes-promotions');
+    expect(body.error.message).toBe(
+      "This project is a later environment of its environment order (position 1), and a later environment takes builds only by promotion from the one before it. Deploy into the order's first environment and promote the build from there. Nothing was deployed.",
+    );
+    expect(body.error.details).toEqual({ firstProjectId: STAGING_1, position: 1 });
+    // Counted before any write: no deployment, no tool, no guardrail.
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+    expect(lastToolRegisterProjectId).toBeUndefined();
+    expect(
+      await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+    ).toBeNull();
+    expect(
+      await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
+    ).toBeNull();
+  });
+
+  test('naming no project, with the Default project last in the order: refused the same way', async () => {
+    const { res, deploymentRegistry } = await deployInto(undefined);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: { code: string; details?: unknown } };
+    expect(body.error.code).toBe('environment-takes-promotions');
+    expect(body.error.details).toEqual({ firstProjectId: STAGING_1, position: 2 });
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
+  test('into the first environment: deployed there, as before', async () => {
+    const { res } = await deployInto(STAGING_1);
+    expect(res.status).toBe(201);
+    expect(lastToolRegisterProjectId).toBe(STAGING_1);
+  });
+
+  test('into a project in no order, and with no orders at all: deployed, as before', async () => {
+    expect((await deployInto(ELSEWHERE_PROJECT_ID)).res.status).toBe(201);
+    expect((await deployInto(STAGING_2, [])).res.status).toBe(201);
+  });
+
+  /** Prod (or another project) took the pack before the order; staging-1 then takes a later image. */
+  async function guardrailFirstIn(home: ProjectId) {
+    const orders: (readonly ProjectId[])[] = [];
+    const first = buildSignedDeploy({
+      artifactVersion: '20260920.1',
+      index: indexWith('20260920.1'),
+    });
+    const second = laterImage();
+    const made = makeApp({
+      fixture: first,
+      extra: { environmentOrders: environmentOrders(orders) },
+      extraTrust: [
+        {
+          keyId: SECOND_KEY_ID,
+          tenantId,
+          publicKey: Buffer.from(second.publicKeyRaw).toString('base64'),
+        },
+      ],
+      extraImages: [
+        { imageRef: second.imageRef, digest: second.digest, indexBytes: second.indexBytes },
+      ],
+    });
+    expect((await request(made.app, first, home)).status).toBe(201);
+    orders.push(ORDER);
+    return request(made.app, second, STAGING_1);
+  }
+
+  test("a guardrail live in another project of the order is the order's: kept, the deploy goes through", async () => {
+    expect((await guardrailFirstIn(DEFAULT_PROJECT_ID)).status).toBe(201);
+  });
+
+  test('a guardrail live in a project outside the order is still refused (the inverse)', async () => {
+    const refused = await guardrailFirstIn(ELSEWHERE_PROJECT_ID);
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe(
+      'guardrail-project-mismatch',
+    );
   });
 });

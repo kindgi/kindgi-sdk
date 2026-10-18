@@ -46,6 +46,8 @@ import {
   type DeploymentRegisterOutcome,
   endpointToWire,
 } from '../deployment-binding.js';
+import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
+import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
 import { type FlowPinsLive, publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
@@ -183,6 +185,13 @@ export interface DeploymentsRouterBindings {
    * its project reaches is refused, before anything is registered.
    */
   readonly referenceScope?: ReferenceScopeBinding;
+  /**
+   * The tenant's environment orders. A deploy into a later environment of
+   * one is refused (`409 environment-takes-promotions`), before anything is
+   * registered: a later environment takes builds by promotion only
+   * (`environment-entry.ts`). Absent: no project is a later environment.
+   */
+  readonly environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>;
   readonly deploymentRegistry: DeploymentBinding;
   readonly signingKeyRegistry: SigningKeyRegistryBinding;
   readonly imageRegistry: ImageRegistryBinding;
@@ -694,6 +703,27 @@ export function deploymentsRouter(
       );
     }
 
+    // A later environment of an order takes builds by promotion only: the
+    // deploy goes to the order's first environment. The project is the one
+    // named, else the Default's (where a deploy naming none lands).
+    if (bindings.environmentOrders !== undefined) {
+      const entryProjectId =
+        targetProjectId ?? (await bindings.projectBinding?.getDefault(tenantId))?.id;
+      const later =
+        entryProjectId === undefined
+          ? undefined
+          : await laterEnvironment(bindings.environmentOrders, tenantId, entryProjectId);
+      if (later !== undefined) {
+        return environmentTakesPromotionsResponse(
+          c,
+          requestId,
+          authorizer,
+          { kind: 'deploy' },
+          later,
+        );
+      }
+    }
+
     // What its agents and flows name, besides what it brings itself, must be
     // its project's to reach (`reference-scope.ts`), before any write.
     if (targetProjectId !== undefined) {
@@ -806,6 +836,7 @@ export function deploymentsRouter(
             } else if (outcome.kind === 'already-registered') {
               const kept = await keepRegisteredGuardrail(
                 bindings.guardrailRegistry,
+                bindings.environmentOrders,
                 tenantId,
                 projectIdForGuardrail,
                 guardrail,
@@ -1545,6 +1576,7 @@ interface DeployedImage {
  */
 async function keepRegisteredGuardrail(
   registry: GuardrailRegistryBinding,
+  orders: Pick<EnvironmentOrderBinding, 'orderOf'> | undefined,
   tenantId: TenantId,
   projectId: ProjectId,
   guardrail: Guardrail,
@@ -1554,7 +1586,7 @@ async function keepRegisteredGuardrail(
   for (let attempt = 0; attempt < 3; attempt++) {
     const existing = await registry.get({ tenantId, guardrailId: guardrail.id });
     if (existing !== null) {
-      if (!(await guardrailInProject(registry, tenantId, projectId, guardrail.id))) {
+      if (!(await guardrailInOrder(registry, orders, tenantId, projectId, guardrail.id))) {
         throw new PublishRefused('guardrail', guardrail.id, {
           code: 'guardrail-project-mismatch',
           reason:
@@ -1651,6 +1683,26 @@ async function refreshGuardrailFields(
   rolled.push(async () => {
     await refresh({ tenantId, guardrailId: guardrail.id, ...was, expected: now });
   });
+}
+
+/**
+ * Whether the live guardrail `id` is in `projectId`, or in another project
+ * of its environment order: an order's projects keep one guardrail, as
+ * they keep one agent (a deploy never changes a guardrail, so what each
+ * environment runs is the same definition).
+ */
+async function guardrailInOrder(
+  registry: GuardrailRegistryBinding,
+  orders: Pick<EnvironmentOrderBinding, 'orderOf'> | undefined,
+  tenantId: TenantId,
+  projectId: ProjectId,
+  id: GuardrailId,
+): Promise<boolean> {
+  const projects = (await orders?.orderOf({ tenantId, projectId }))?.projects ?? [projectId];
+  for (const project of projects) {
+    if (await guardrailInProject(registry, tenantId, project, id)) return true;
+  }
+  return false;
 }
 
 /** Whether the live guardrail `id` is in `projectId`, by that project's list. */

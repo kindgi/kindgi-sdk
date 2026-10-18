@@ -241,9 +241,18 @@ export interface EvalSuitePage {
 export type EvalSuiteRecord = EvalSuite & {
   /**
    * The test set's project, when the store records it: test sets never
-   * move between projects, so every version reads the same one.
+   * move between projects, so every version reads the same one. In a
+   * tenant with environment orders, a version may be made in another
+   * project of that project's order (`madeInProjectId`).
    */
   readonly projectId?: ProjectId;
+  /**
+   * The project this version was published in, when the store records it.
+   * It's `projectId` but in a tenant with environment orders, where a test
+   * set version may be published in any environment of the order, and is
+   * reachable there and in the later ones, never in an earlier one.
+   */
+  readonly madeInProjectId?: ProjectId;
   /**
    * ISO-8601; present only on an unregistered version: one
    * `listVersions` lists with `includeTombstoned`, or a retired test

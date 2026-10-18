@@ -1172,7 +1172,10 @@ export interface CreateAppInput {
   readonly secretsBinding?: SecretBinding;
   /**
    * Optional. The order a tenant runs a project through on its way to live
-   * — its "environments". When present, mounts `/v1/environment-orders`.
+   * — its "environments". When present, mounts `/v1/environment-orders`,
+   * and a later environment of an order refuses deploys, API publishes and
+   * derived agent versions (`409 environment-takes-promotions`,
+   * `environment-entry.ts`): it takes builds by promotion only.
    * The host application supplies it; `@kindgi/api` never constructs one.
    */
   readonly environmentOrders?: EnvironmentOrderBinding;
@@ -1612,6 +1615,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           }),
         },
         input.referenceScope,
+        input.environmentOrders,
       ),
     );
   }
@@ -1632,6 +1636,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             }
           : undefined,
         input.referenceScope,
+        input.environmentOrders,
       ),
     );
   }
@@ -1664,6 +1669,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.secretsBinding !== undefined && { secrets: input.secretsBinding }),
         ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         ...(servedEnv !== undefined && { envName: servedEnv }),
+        ...(input.environmentOrders !== undefined && {
+          environmentOrders: input.environmentOrders,
+        }),
       }),
     );
   }
@@ -1676,6 +1684,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.onGuardrailWrite,
         input.checkGuardrailConfig,
         input.referenceScope,
+        input.environmentOrders,
       ),
     );
   }
@@ -1721,6 +1730,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           releases: input.agentReleases,
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+          ...(input.environmentOrders !== undefined && { orders: input.environmentOrders }),
         },
         authorizer,
         (r) => mountImproveRoute(r, improveDeps, authorizer),
@@ -1933,7 +1943,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route('/eval-suites', evalSuitesRouter(input.evalSuiteRegistry, authorizer));
   }
   if (input.blockRegistry !== undefined) {
-    v1.route('/blocks', blocksRouter(input.blockRegistry, authorizer));
+    v1.route('/blocks', blocksRouter(input.blockRegistry, authorizer, input.environmentOrders));
   }
   if (input.judgmentRegistry !== undefined) {
     v1.route(
@@ -2157,6 +2167,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // but the binding is absent.
           ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+          ...(input.environmentOrders !== undefined && {
+            environmentOrders: input.environmentOrders,
+          }),
           // POST /v1/deployments/:deploymentId/secrets needs the
           // secretsBinding. Absent binding → the route answers 500 with an
           // operator-actionable message.

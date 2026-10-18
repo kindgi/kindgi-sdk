@@ -22,6 +22,8 @@ import {
   deriveAgentVersion,
   nextFreeAgentVersion,
 } from '../derive-agent-version.js';
+import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
+import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -77,6 +79,12 @@ export function agentsRouter(
   capabilities: AgentPublishCapabilities = {},
   /** What an agent's project may reference (`reference-scope.ts`); absent → as named. */
   referenceScope?: ReferenceScopeBinding,
+  /**
+   * The tenant's environment orders: a publish, or a derived version, aimed
+   * at a later environment is refused (`environment-entry.ts`). Absent: no
+   * project is a later environment.
+   */
+  environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -352,6 +360,16 @@ export function agentsRouter(
       );
     }
     const projectId = projectIdRaw as ProjectId;
+    const later = await laterEnvironment(environmentOrders, tenantId, projectId);
+    if (later !== undefined) {
+      return environmentTakesPromotionsResponse(
+        c,
+        requestId,
+        authorizer,
+        { kind: 'publish', noun: 'agent' },
+        later,
+      );
+    }
 
     // Validate via defineAgent — same rules as the runtime primitive,
     // so an agent published through the API is byte-identical to one
@@ -489,13 +507,14 @@ export function agentsRouter(
       ...(parsed.label !== undefined && { label: parsed.label }),
       ...(userId !== undefined && { by: `user:${userId as unknown as string}` }),
       ...(parsed.projectId !== undefined && { projectId: parsed.projectId }),
+      ...(environmentOrders !== undefined && { orders: environmentOrders }),
       tuplesFor: (projectId) => (id) =>
         tuplesForCreate(
           { kind: 'agent', id: id as AgentId, tenantId, projectId },
           userId ?? ('00000000-0000-0000-0000-000000000000' as UserId),
         ),
     });
-    return derived(c, agentId, parsed.from, outcome);
+    return derived(c, agentId, parsed.from, outcome, authorizer);
   });
 
   // ---------- POST /:agentId/versions/:version/unregister ----------
@@ -693,6 +712,7 @@ function derived(
   agentId: AgentId,
   from: string,
   outcome: DeriveAgentVersionOutcome,
+  authorizer: Authorizer | undefined,
 ) {
   const requestId = c.get('requestId');
   const fail = (
@@ -736,6 +756,14 @@ function derived(
       });
     case 'project-mismatch':
       return projectMismatch(c, 'agent', agentId as unknown as string, outcome.projectId, 'derive');
+    case 'environment-takes-promotions':
+      return environmentTakesPromotionsResponse(
+        c,
+        requestId,
+        authorizer,
+        { kind: 'derive' },
+        outcome.later,
+      );
   }
 }
 
