@@ -168,7 +168,7 @@ This is your workspace's own identity provider: a single-directory app, and
 only your directory's people. **Continue with Microsoft**, which accounts
 from any directory can use, is a different app. It's registered for any
 organizational directory, and whoever runs the runtime sets it up for the
-whole deployment ([Turn on sign-in](../../../deploy/sign-in/#microsoft)).
+whole deployment ([Turn on sign-in](../../../deploy/self-hosted/sign-in/#microsoft)).
 
 ## Next
 

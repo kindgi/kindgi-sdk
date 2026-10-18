@@ -111,13 +111,13 @@ added:
 
 In the TypeScript client, it's
 `projects.memberships.add(projectId, { email, role })`. They can then
-[sign in to the console](../sign-in/), or use a key you make them.
+[sign in to the console](../self-hosted/sign-in/), or use a key you make them.
 
 ### Their invitation
 
-Where people [sign in to the console](../sign-in/), a person added with an
+Where people [sign in to the console](../self-hosted/sign-in/), a person added with an
 email is invited: the runtime emails them a link to sign in, through the
-[sign-in email](../sign-in/#sign-in-links-by-email) sender you set up.
+[sign-in email](../self-hosted/sign-in/#sign-in-links-by-email) sender you set up.
 The invitation is open for 7 days from the add, or from the last time it
 was sent. It's `pending` until their first sign-in, then it's gone: they've
 joined. Once the 7 days pass with no sign-in it's `expired`, and every way
@@ -631,7 +631,7 @@ secret is never in one.
 
 ## Next
 
-- [Turn on sign-in](../sign-in/): the ways your people sign in.
+- [Turn on sign-in](../self-hosted/sign-in/): the ways your people sign in.
 - [Run with authorization](../authorization/): project memberships, teams
   and the access audit.
 - [Set up SSO](../../guides/sso/): a workspace's own identity provider.

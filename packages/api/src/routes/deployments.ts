@@ -971,6 +971,7 @@ export function deploymentsRouter(
               message: `${cause.message}; nothing was deployed`,
               primitive: cause.primitive,
               id: cause.id,
+              ...(cause.endpointId !== undefined && { endpointId: cause.endpointId }),
             },
             requestId,
           ),

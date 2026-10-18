@@ -19,7 +19,7 @@ median, and 100 ms at p95.
 :::note[Access to the runtime image]
 Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
 runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+(see [Install](../../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## What you'll have
@@ -67,7 +67,7 @@ Who calls whom:
 - **Runtime 0.1.1 or later.** Cloud SQL has no superuser; 0.1.0 can't start
   on it.
 - **Access to the runtime image** (`kindgi auth registry`; see
-  [Install](../../start/install/)).
+  [Install](../../../start/install/)).
 - **A license key:** a non-production key covers staging. Write to
   contact@kindgi.com for one.
 - **A pack** that `kindgi build --local --push` builds, with an environment
@@ -408,7 +408,7 @@ When OpenFGA runs as a Cloud Run service of its own, with IAM on, the
 runtime proves who it is to Cloud Run as well as to OpenFGA (runtime 0.1.8 or
 later). Give the runtime's service account `roles/run.invoker` on OpenFGA's
 service, run OpenFGA with a key and its playground off
-([Require a key for OpenFGA](../authorization/#require-a-key-for-openfga)), and
+([Require a key for OpenFGA](../../authorization/#require-a-key-for-openfga)), and
 set:
 
 ```hcl
@@ -431,7 +431,7 @@ https. The startup line about OpenFGA's calls names the token too
 (`KINDGI_OPENFGA_AUTH`).
 
 Keep the key's secret pinned to a version, as here: then
-[change the key](../authorization/#require-a-key-for-openfga) one deploy at a
+[change the key](../../authorization/#require-a-key-for-openfga) one deploy at a
 time.
 
 ### Serve many tenants
@@ -461,7 +461,7 @@ server_secret_env = {
 - **What the plan needs, and names when it's missing:** `openfga_api_url`
   (without an authorization store no tenant would have an admin),
   `KINDGI_OPENFGA_PRESHARED_KEY` in `server_secret_env`
-  ([Require a key for OpenFGA](../authorization/#require-a-key-for-openfga)),
+  ([Require a key for OpenFGA](../../authorization/#require-a-key-for-openfga)),
   `KINDGI_TENANT_HOST_ACCESS = "isolated"`,
   `KINDGI_PACK_ROUTING = "per-deployment"` and `KINDGI_PACK_ENDPOINT_HOSTS` in
   `server_env`, and `secrets_backend = "postgres"` (each endpoint's token is
@@ -486,7 +486,7 @@ server_secret_env = {
     does
     ([Cloud Run: Restrict network endpoint ingress](https://docs.cloud.google.com/run/docs/securing/ingress)).
 - **What the module sets:** `KINDGI_TENANCY=multi`
-  ([the variable](../../reference/env-vars/#kindgi_tenancy)), and none of
+  ([the variable](../../../reference/env-vars/#kindgi_tenancy)), and none of
   `KINDGI_TENANT_ID`, `KINDGI_SEED_USER_ID`, `KINDGI_PACK_SERVICE_URL`,
   `KINDGI_PACK_SERVICE_TOKEN` or `KINDGI_PACK_SERVICE_AUTH`. It creates no
   pack service, pack account or pack grants, and no shared pack token.
@@ -496,12 +496,12 @@ server_secret_env = {
   - **A tenant:** `POST /v1/system/tenants` with the API token. With
     `firstAdmin`, that person is its admin and holds every capability but
     `secrets:reveal`, to put on the keys they make
-    ([Who can do what](../people-and-keys/#who-can-do-what)). Without it,
+    ([Who can do what](../../people-and-keys/#who-can-do-what)). Without it,
     the answer carries the first admin's key, sent once. That key is a
     service account's, so the runs it starts count as unattended
-    ([Service accounts](../people-and-keys/#service-accounts)): for the
+    ([Service accounts](../../people-and-keys/#service-accounts)): for the
     work you start, add yourself as a person
-    ([Add a person](../people-and-keys/#add-a-person)) and use a key of your
+    ([Add a person](../../people-and-keys/#add-a-person)) and use a key of your
     own.
   - **Its image repository:** the create's `imagePrefix`, or
     `PUT /v1/system/tenants/{tenantId}/image-prefix`, before its first
@@ -587,7 +587,7 @@ It prints the deployment as JSON, then each step. The last steps:
   Runs already in flight continue on their pinned image.
 ```
 
-To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
+To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
 
 The runtime read your pack's image from Artifact Registry with its own token
 (`KINDGI_IMAGE_REGISTRY_AUTH=google`) to check it before registering it.
@@ -729,7 +729,7 @@ A new grant can take a minute or two to apply.
   runtime warns from 30 days before, at startup and once a day, in a log
   record with `jsonPayload.event = "kindgi.preview_expiry"`: set a log-based
   alert on it
-  ([Licensing](../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
+  ([Licensing](../../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
 - **Upgrade:** back up Cloud SQL, copy the new runtime image by digest, set
   `server_image`, and apply. The new revision takes all the traffic.
   Migrations only go forward: never run two runtime versions on one

@@ -32,7 +32,7 @@ These pages continue [Self-host Kindgi](../self-host/): the same containers
 **Upgrade at least every 90 days while Kindgi is in preview.** Until
 Kindgi 1.0, a release stops starting 90 days after it was released, and the
 runtime warns from 30 days before
-([Licensing](../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
+([Licensing](../../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
 A restart after that day doesn't come back up.
 
 1. [Back up Postgres.](../back-up-and-restore/#back-up-postgres)
@@ -65,8 +65,8 @@ Nothing starts and nothing is written, and they print names and ids, never a val
 
 | Check | What it lists |
 | --- | --- |
-| `provider-keys` | Each tool version, MCP endpoint and webhook endpoint that names a model provider's key. A model provider's key is used by its provider only, so from 0.1.6 they're refused: a tool's calls fail with `provider-key-refused`, and so do an MCP endpoint's connections and a webhook endpoint's deliveries. For each, store the key it needs under its own name (the same value is fine), name that instead, and deploy or register it again. See [Give a tool a secret](../../guides/tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools). |
-| `mcp-header-credentials` | Each MCP endpoint that keeps a credential in plaintext `config.headers` (`X-Api-Key`, `Authorization`, …), registered by an earlier runtime that allowed it. They keep working, and their requests never follow a redirect. For each, store each header's value as a secret, and register the endpoint again with `auth` in place of the header. See [Not in `config.headers`](../../guides/tools/mcp-servers/#not-in-configheaders). |
+| `provider-keys` | Each tool version, MCP endpoint and webhook endpoint that names a model provider's key. A model provider's key is used by its provider only, so from 0.1.6 they're refused: a tool's calls fail with `provider-key-refused`, and so do an MCP endpoint's connections and a webhook endpoint's deliveries. For each, store the key it needs under its own name (the same value is fine), name that instead, and deploy or register it again. See [Give a tool a secret](../../../guides/tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools). |
+| `mcp-header-credentials` | Each MCP endpoint that keeps a credential in plaintext `config.headers` (`X-Api-Key`, `Authorization`, …), registered by an earlier runtime that allowed it. They keep working, and their requests never follow a redirect. For each, store each header's value as a secret, and register the endpoint again with `auth` in place of the header. See [Not in `config.headers`](../../../guides/tools/mcp-servers/#not-in-configheaders). |
 | `stored-secrets` | Each live version of a stored secret that doesn't decrypt with the secrets' keys: the KMS key, the runtime's access to it, and the AAD key. Run it after a restore, before the runtime serves, since a restore brings back the database, not the keys. It needs `KINDGI_SECRETS_BACKEND=postgres`. See [Back up and restore](../back-up-and-restore/#restore-into-a-fresh-database). |
 | `purged-tenants` | Each tenant marked purged that still holds rows, with each table and its count: rows written after its mark, by work in flight then. Rows only, not the bytes under its prefix. Run it a day after a purge. For each tenant it lists, `kindgi-runtime tenants purge <tenant id> --confirm <its slug>`, with the server's `KINDGI_ARTIFACTS` and `KINDGI_OPENFGA_API_URL`, deletes them and leaves its mark and its record as they were. See [Close and purge a tenant](../serve-many-tenants/#close-and-purge-a-tenant). |
 
@@ -139,7 +139,7 @@ and since fires are kept 30 days, that's short.
   configuration names do. In 0.1.7 they do, checked at each connection; a
   discovery the guard refuses answers `422 identity-provider-invalid`.
   Origins listed in `KINDGI_AUTH_PRIVATE_IDP_ORIGINS` connect as before
-  ([What a tenant can't make the server do](../../concepts/security/#what-a-tenant-cant-make-the-server-do)).
+  ([What a tenant can't make the server do](../../../concepts/security/#what-a-tenant-cant-make-the-server-do)).
 - **A key could mint a key that outlived it.** A key that expires, even one
   limited to a project, could make a key that never expires, which kept
   working after the first one expired or was revoked. In 0.1.7, from a key
@@ -147,7 +147,7 @@ and since fires are kept 30 days, that's short.
   later than it (`403 token-expiry-exceeds-minter`). A console signed in
   with a key mints as that key. The deployment's token, keys without an
   expiry and other sign-ins are unchanged
-  ([API keys](../people-and-keys/#api-keys)).
+  ([API keys](../../people-and-keys/#api-keys)).
 
 #### What to check, and what's different
 
@@ -164,7 +164,7 @@ What to check before you upgrade, and what's different after:
     it is. In TypeScript, `preset` is one of the preset names
     (`KindgiPresetName`, from `@kindgi/handler-runtime`), so a name computed
     at run time needs `as KindgiPresetName`
-    ([Declare them in your pack's config](../../guides/models/#declare-them-in-your-packs-config)).
+    ([Declare them in your pack's config](../../../guides/models/#declare-them-in-your-packs-config)).
 - **The runtime image carries the `kindgi` CLI,** which runs the license
   renewal jobs. On linux/amd64 it downloads 290 MB, up from 276 MB.
 - **Embedding `@kindgi/agents`:** `AGENTS_MIGRATIONS_DIR` is only on the
@@ -200,7 +200,7 @@ What to check before you upgrade, and what's different after:
   - On a run's Overview, a step that ended with its run reads **Cancelled**
     ("Stopped: the run failed" in a failed run), and the Journal marks each
     such start
-    ([After a cancel](../../guides/runs/cancel-a-run/#after-a-cancel)).
+    ([After a cancel](../../../guides/runs/cancel-a-run/#after-a-cancel)).
   - Signing in with an emailed link, or with Google, Microsoft or GitHub,
     returns you to the console page you were opening, and a console link
     without its workspace (`/console/projects/…`) opens in yours.
@@ -213,11 +213,11 @@ What to check before you upgrade, and what's different after:
     (with `--json`, as `{ "running": {…} }`). Before, it took over the
     first one's runtime. `--reset` and
     `--recreate-services` are refused the same way while one runs
-    ([Your coding agent](../../start/coding-agents/#what-it-runs)).
+    ([Your coding agent](../../../start/coding-agents/#what-it-runs)).
   - The console works at `localhost`, `127.0.0.1` or `[::1]` on the
     runtime's port. A request from anywhere else is refused, and the refusal
     now names the address to use
-    ([Requests from other sites](../../guides/sso/sessions/#requests-from-other-sites)).
+    ([Requests from other sites](../../../guides/sso/sessions/#requests-from-other-sites)).
   - It says what it's doing while it starts: pulling the image (with its
     size and progress), starting the container, migrating the database, and
     waiting for it to serve, each with its time.
@@ -249,17 +249,17 @@ What to check before you upgrade, and what's different after:
     a run of a flow, acting as whoever registered the trigger
     (`kindgi webhooks`, and
     `webhooks` in the TypeScript, Python and Java clients;
-    [Start runs from WooCommerce, Drupal or any signed webhook](../../guides/webhooks/start-runs-from-webhooks/)).
+    [Start runs from WooCommerce, Drupal or any signed webhook](../../../guides/webhooks/start-runs-from-webhooks/)).
   - **A webhook's event, typed:** `parseEvent` in `@kindgi/sdk/webhooks`
     reads the event in a verified request's body, as Python's
     `webhooks.parse_event` does
-    ([Verify a webhook](../../guides/webhooks/verify-a-webhook/#a-receiver)).
+    ([Verify a webhook](../../../guides/webhooks/verify-a-webhook/#a-receiver)).
   - **An MCP endpoint can sign in** with a user name and password, or with
     OAuth client credentials
-    ([Send a credential](../../guides/tools/mcp-servers/#send-a-credential)).
+    ([Send a credential](../../../guides/tools/mcp-servers/#send-a-credential)).
   - **Azure OpenAI and Amazon Bedrock as model providers,** with the
     `azure-openai` and `bedrock` presets
-    ([Presets](../../guides/models/#presets)).
+    ([Presets](../../../guides/models/#presets)).
   - **AWS Secrets Manager** for the secrets set through Kindgi's API
     ([Keep secrets in your own secret manager](../secret-manager/#aws-secrets-manager)).
   - **Azure Container Apps,** from Kindgi's Terraform module
@@ -276,7 +276,7 @@ What to check before you upgrade, and what's different after:
     Anyone else gets `403 license-operator-only`.
   - **A tool's env values in a unit test:** `invokeToolForTest` and
     `toolContextForTest` in `@kindgi/sdk/define` decide them as a run does
-    ([Give a tool per-project values](../../guides/tools/give-a-tool-env-values/#test-it)).
+    ([Give a tool per-project values](../../../guides/tools/give-a-tool-env-values/#test-it)).
   - **Two templates:** `kindgi init --template=woocommerce`, agents for a
     WooCommerce store, where a larger refund, a price change and publishing
     a product each wait for a person; and `--template=drupal`, agents for a
@@ -285,7 +285,7 @@ What to check before you upgrade, and what's different after:
   - **Coding agents:** a `kindgi-using` skill, with which your coding
     agent guides you in using what was built: the CLI's answer and the
     console page beside it
-    ([Your coding agent](../../start/coding-agents/#skills-loaded-for-the-task)).
+    ([Your coding agent](../../../start/coding-agents/#skills-loaded-for-the-task)).
 
 #### Known limitations in 0.1.7
 
@@ -325,7 +325,7 @@ What to check before you upgrade, and what's different after:
   so the guardrail skips it without a word: it never blocks, and its outcome
   counts stay at zero. Leave `flows` out of the scope, and run a flow's steps
   with an agent of their own that lists the guardrail. 0.1.8 fixes it
-  ([Which agents it covers](../../guides/guardrails/halt-or-record/#which-agents-it-covers)).
+  ([Which agents it covers](../../../guides/guardrails/halt-or-record/#which-agents-it-covers)).
 - **Run one runtime instance.** 0.1.6 and 0.1.7 fix the known reasons
   several instances couldn't share a database: boot migrations wait their
   turn, the sign-in limit is shared, guardrail, tool and provider changes
@@ -395,7 +395,7 @@ What to check before you upgrade, and what's different after:
   A model provider's key is now its provider's alone: a tool, an MCP
   endpoint or a webhook endpoint that names one is refused, and so are its
   calls, connections and deliveries
-  ([A model provider's key isn't a tool's](../../guides/tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools)).
+  ([A model provider's key isn't a tool's](../../../guides/tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools)).
 - **Expect a slower first start on a large database.** A new index on the
   runs table is built at the first start after the upgrade, without blocking
   writes; the more runs, the longer that start takes.
@@ -420,14 +420,14 @@ What to check before you upgrade, and what's different after:
     ```
 
     If your code reads one of them, declare it
-    ([Declare the environment your code reads](../../guides/secrets/pack-env/)).
+    ([Declare the environment your code reads](../../../guides/secrets/pack-env/)).
     To keep the old behaviour meanwhile, set `KINDGI_PACK_ENV_FILTER=off` on
     the pack service. A Python pack's image always names `GPG_KEY`: its base
     image sets it, and nothing reads it.
   - **A tool call has an idempotency key,** `ctx.idempotencyKey`, the same
     every time the same call runs. Pass it to the system a tool writes to, so
     a step that runs again doesn't refund or email twice
-    ([Make a side effect happen once](../../guides/tools/write-a-tool/#make-a-side-effect-happen-once)).
+    ([Make a side effect happen once](../../../guides/tools/write-a-tool/#make-a-side-effect-happen-once)).
     A pack built before 0.1.6 doesn't get it.
   - **A guardrail that names a built-in check is marked** in the pack's
     index. One from an older CLI gets a warning in the runtime's log each
@@ -435,7 +435,7 @@ What to check before you upgrade, and what's different after:
     check id doesn't start with the pack's id.
   - **A tool whose `needsSpec` schema doesn't compile is refused** when it's
     defined, registered or deployed, instead of being left out at load
-    ([Give a tool env values](../../guides/tools/give-a-tool-env-values/)).
+    ([Give a tool env values](../../../guides/tools/give-a-tool-env-values/)).
     A union of types (`type: ['string', 'null']`) now compiles everywhere.
 - **The API's own OAuth sign-in flow is removed.** Sign-in runs in the
   runtime's browser flow, which is unchanged. `POST /v1/auth/login/…` and
@@ -454,7 +454,7 @@ What to check before you upgrade, and what's different after:
   always meant. A role given as `member` before still reads back as
   `member`.
 - **Approvals and their runs end together**
-  ([Decide an approval](../../guides/approvals/decide-an-approval/)):
+  ([Decide an approval](../../../guides/approvals/decide-an-approval/)):
   - A reviewer's **withdraw** ends the run waiting on it: its turn fails with
     `hitl-withdrawn`, at once.
   - A run's end withdraws the approvals it **waits on** (a tool call's or a
@@ -487,7 +487,7 @@ What to check before you upgrade, and what's different after:
   - `409 block-project-mismatch` no longer names the other project.
 - **The access audit keeps every refusal of a caller the API knows,** not
   only the authorization model's decisions, except four that don't refuse
-  the caller ([The access audit](../authorization/#the-access-audit)).
+  the caller ([The access audit](../../authorization/#the-access-audit)).
   Every secret and env write through the API is in the audit log too,
   never with a value.
 - **A turn stops when its run is stopped:** a model or tool call in flight
@@ -541,12 +541,12 @@ What to check before you upgrade, and what's different after:
   socket) needs it opened in the pack's `dev.sandbox` config. Where it can't run (Windows outside WSL, a
   container, inside another sandbox such as a coding agent's), `kindgi dev`
   warns and runs without it; `KINDGI_DEV_SANDBOX=required` refuses instead
-  ([Keep your tools' code away from your keys](../../guides/secrets/dev-sandbox/)).
+  ([Keep your tools' code away from your keys](../../../guides/secrets/dev-sandbox/)).
 - **Under `kindgi dev`, Kindgi keeps the secrets you store in its own
   file,** `.kindgi/secrets.env`, not your app's `.env.local`, and neither
   they nor a model provider's key reach the pack service's environment
   (`kindgi secrets copy` copies keys over;
-  [Keep local values in env files](../../guides/secrets/env-files/)).
+  [Keep local values in env files](../../../guides/secrets/env-files/)).
 - **The CLI:** `kindgi tools versions --include-tombstoned` is now
   `--include-unregistered`, as `blocks` and `flows` say.
 - **The clients:** the TypeScript client drops `eventTriggers` and
@@ -563,43 +563,43 @@ What to check before you upgrade, and what's different after:
   - **Judging:** a project's judging rules queue the runs that need a
     person's verdict, results per agent version, and comparisons and
     proposals rescored after people judge the new answers
-    ([Judge a run's output](../../guides/evals/judge-a-runs-output/),
-    [Improve an agent](../../guides/evals/improve-an-agent/)).
+    ([Judge a run's output](../../../guides/evals/judge-a-runs-output/),
+    [Improve an agent](../../../guides/evals/improve-an-agent/)).
   - **What failed and why:** a project's failed runs grouped by cause and
     version (`GET /v1/runs/failures`) and a failure's `reason`
-    ([See why runs failed](../../guides/runs/see-why-runs-failed/)), and
+    ([See why runs failed](../../../guides/runs/see-why-runs-failed/)), and
     what a suspended run waits for (`waitingFor`). The runs list filters by
-    status, time and version ([List runs](../../guides/runs/list-runs/)).
+    status, time and version ([List runs](../../../guides/runs/list-runs/)).
   - **Guardrail outcomes:** how often each guardrail passed, found
     something, blocked a turn or couldn't run, by agent version
     (`GET /v1/guardrails/{id}/outcomes`).
   - **Approvals:** an `approval.requested` webhook event, email to
     reviewers (`KINDGI_REVIEWER_EMAIL`), and an inbox in one read
     (`--assigned-to=me --order=asc`)
-    ([Receive webhooks](../../guides/webhooks/receive-run-finished/)).
+    ([Receive webhooks](../../../guides/webhooks/receive-run-finished/)).
   - **The console:** a reviewer's **Inbox** across projects, where you can
     decide several approvals in one go or by keyboard
-    ([Decide an approval](../../guides/approvals/approvals-reference/#the-inbox)).
+    ([Decide an approval](../../../guides/approvals/approvals-reference/#the-inbox)).
     A project gets pages for its failed runs
-    ([What failed](../../guides/runs/list-runs/#what-failed)),
-    [schedules](../../guides/runs/run-on-a-schedule/#in-the-console),
-    [flows](../../guides/flows/write-a-flow/#in-the-console),
-    [guardrails](../../guides/guardrails/write-a-guardrail/#in-the-console) and
-    [members](../authorization/#in-the-console-members), each with a page of
+    ([What failed](../../../guides/runs/list-runs/#what-failed)),
+    [schedules](../../../guides/runs/run-on-a-schedule/#in-the-console),
+    [flows](../../../guides/flows/write-a-flow/#in-the-console),
+    [guardrails](../../../guides/guardrails/write-a-guardrail/#in-the-console) and
+    [members](../../authorization/#in-the-console-members), each with a page of
     its own, plus
-    [Quality](../../guides/evals/judging-reference/#in-the-console) for
-    judging, and [costs](../../guides/observability/cost-per-run/#cost-in-the-console)
+    [Quality](../../../guides/evals/judging-reference/#in-the-console) for
+    judging, and [costs](../../../guides/observability/cost-per-run/#cost-in-the-console)
     for the project and each run. The tenant gets
-    [Teams](../authorization/#in-the-console-teams),
-    [Webhooks](../../guides/webhooks/webhook-events/#in-the-console),
-    [Sign-in](../../guides/sso/#from-the-console), **My access** and its own
+    [Teams](../../authorization/#in-the-console-teams),
+    [Webhooks](../../../guides/webhooks/webhook-events/#in-the-console),
+    [Sign-in](../../../guides/sso/#from-the-console), **My access** and its own
     costs. A page or action shows only to the roles that can use it
-    ([The console, by role](../authorization/#the-console-by-role)).
+    ([The console, by role](../../authorization/#the-console-by-role)).
   - **Access:** who has access to a project and how
     (`GET /v1/projects/{id}/access`), a team's role on a project, what the
     caller may do (`GET /v1/identity/me/permissions`), the people list with
     their grants, and the tenant's sign-in history (`GET /v1/audit/sign-ins`)
-    ([Authorization](../authorization/)).
+    ([Authorization](../../authorization/)).
   - **Sign-in an operator manages alone:** with
     `KINDGI_AUTH_TENANT_PROVIDERS=off`, a tenant can't add, change or
     remove identity providers.
@@ -608,15 +608,15 @@ What to check before you upgrade, and what's different after:
     [Keep secrets in your own secret manager](../secret-manager/)), and on Azure
     a Key Vault key for the database's secrets, Azure Container Registry
     with the server's managed identity, and export signing with a Key Vault
-    key ([Export signed evidence](../../guides/observability/export-signed-evidence/)).
+    key ([Export signed evidence](../../../guides/observability/export-signed-evidence/)).
     Retired export keys can stay listed, so older exports still verify.
   - **A tool's secret can be optional**
-    ([An optional secret](../../guides/tools/give-a-tool-a-secret/#an-optional-secret)).
+    ([An optional secret](../../../guides/tools/give-a-tool-a-secret/#an-optional-secret)).
   - **A retired agent, flow, tool or test set can be found and brought back**
-    ([Agent and tool versions](../../guides/agents/agent-and-tool-versions/)).
+    ([Agent and tool versions](../../../guides/agents/agent-and-tool-versions/)).
   - **Schedules** list by project and name their owners.
   - **Coding agents:** `kindgi init` keeps one out of the files that hold
-    keys ([Your coding agent](../../start/coding-agents/)).
+    keys ([Your coding agent](../../../start/coding-agents/)).
 
 #### Known limitations in 0.1.6
 
@@ -692,7 +692,7 @@ On 0.1.5.1:
   there.**
 - **Re-adding someone who's already a member keeps their current role.** To
   give them another, change their role
-  ([Project memberships](../authorization/#project-memberships)). The answer
+  ([Project memberships](../../authorization/#project-memberships)). The answer
   to the re-add still echoes the role you asked for (`201`), as the API is
   unchanged in this patch; the members list shows the role they hold.
 - **Removing a team's creator ends their team admin,** which they hold
@@ -736,7 +736,7 @@ and what's different after:
   (or `127.0.0.1`); Safari doesn't. At any other plain-`http` address, no
   way of signing in works. Without `KINDGI_PUBLIC_URL`, the runtime also
   accepts the console's changes only from `https`, or `http` on `localhost`
-  ([Requests from other sites](../../guides/sso/sessions/#requests-from-other-sites)).
+  ([Requests from other sites](../../../guides/sso/sessions/#requests-from-other-sites)).
 - **Behind a load balancer or ingress, set `KINDGI_TRUSTED_PROXIES`:** how
   many proxies are in front of the runtime (`1` for one), or their addresses.
   Rate limits and audit records then see each client's own address. Unset,
@@ -747,14 +747,14 @@ and what's different after:
   token's user while `KINDGI_API_TOKEN` stays the same. A changed token acts
   as a new user, and the startup output warns. With authorization on, set
   `KINDGI_SEED_USER_ID` to keep one user across token changes
-  ([Point the runtime at it](../authorization/#point-the-runtime-at-it)).
+  ([Point the runtime at it](../../authorization/#point-the-runtime-at-it)).
   Changing `KINDGI_API_TOKEN` also signs out the console sessions the old
   token opened ([Rotate the API token](../rotate-keys/#rotate-the-api-token)).
 - **Signing a person out everywhere works.** In 0.1.4,
   `POST /v1/identity/users/<id>/revoke-sessions` answered as if it had, and
   ended nothing. Revoking an API key now ends the console sessions it opened,
   and removing an identity provider ends the sessions opened through it
-  ([Signing out](../../guides/sso/sessions/#signing-out)). The audit trail
+  ([Signing out](../../../guides/sso/sessions/#signing-out)). The audit trail
   gains `signed-out`, `sessions-revoked` and `sign-in-refused`.
 - **Only tenant admins list the tenant's people.** `GET /v1/identity/users`
   answers anyone else `403`; a person still reads their own record and
@@ -774,7 +774,7 @@ and what's different after:
   changing them `admin`. Webhook endpoints and compliance evidence need
   `admin`. Starting a run needs `execute` on what it runs, and `write` on a
   project it names. Lists hold only what the caller may read. A single admin
-  sees no change ([Authorization](../authorization/)). Unregistering a
+  sees no change ([Authorization](../../authorization/)). Unregistering a
   conversation takes `write` on its project.
 - **With authorization on, a permission change that fails no longer holds up
   the others.** In 0.1.4, one could leave a new project unreadable by its
@@ -786,7 +786,7 @@ and what's different after:
   `eval-suite-project-mismatch`), even for an admin of both, and nothing is
   written; 0.1.4 accepted it. A deploy that includes one is refused whole,
   even when it's unchanged. The refusal carries the id, not the other project
-  ([Organize work by org and project](../../guides/projects/organize-by-org-and-project/)).
+  ([Organize work by org and project](../../../guides/projects/organize-by-org-and-project/)).
 - **If your Postgres `DateStyle` is `SQL, DMY` or `German`, check the times
   earlier releases saved.** Run `SHOW DateStyle;`
   ([DateStyle](https://www.postgresql.org/docs/16/runtime-config-client.html#GUC-DATESTYLE)).
@@ -799,27 +799,27 @@ and what's different after:
   correctly on any `DateStyle`, but it can't repair a swapped time, which
   looks like a real one.
 - **Run OpenFGA v1.22.0.** Published OpenFGA advisories affect v1.9.0
-  ([An OpenFGA you already run](../authorization/#an-openfga-you-already-run)).
+  ([An OpenFGA you already run](../../authorization/#an-openfga-you-already-run)).
 - **Expired rows are deleted every hour:** idempotency answers, sessions and
-  sign-in state, which 0.1.4 kept for good ([Retention](../retention/)).
+  sign-in state, which 0.1.4 kept for good ([Retention](../../retention/)).
 - **Idempotency keys are per caller.** The same key from someone else is
   their own request. A repeat sent while the first request still runs is
   refused (`409 idempotency-key-in-flight`) instead of running again, and the
   answer of a request that made a secret (a new API key, say) isn't kept, so
   its repeat is refused with `idempotency-key-replay-withheld`. Keys 0.1.4
   stored aren't found again; they'd have expired within 24 hours
-  ([Retry a start safely](../../guides/runs/retry-a-start-safely/#how-it-works)).
+  ([Retry a start safely](../../../guides/runs/retry-a-start-safely/#how-it-works)).
 - **A provider registration the runtime can't build is refused** when it's
   registered (`422 provider-config-invalid`, each problem in
   `details.issues`). `kindgi doctor` names any registered before 0.1.5; to
   fix one, unregister it and register it again
-  ([Check a registration](../../guides/models/#check-a-registration)).
+  ([Check a registration](../../../guides/models/#check-a-registration)).
 - **A guardrail whose config its pack check would refuse is refused** when
   it's registered (`422 guardrail-config-invalid`), for a pack deployed by
   0.1.5: redeploy your pack once. A guardrail already registered with such a
   config fails every turn it checks; unregister it, and register it again
   with a config that fits
-  ([Configure a guardrail](../../guides/guardrails/configure-a-guardrail/)).
+  ([Configure a guardrail](../../../guides/guardrails/configure-a-guardrail/)).
 - **A halting guardrail whose check can't run now stops the turn; it used to
   let it through.** That's a check that can't run, for any reason: no check
   by that name is registered, its configuration is invalid, an `llm-judge`
@@ -830,12 +830,12 @@ and what's different after:
   With any other action, the turn goes on; in 0.1.4 a check that threw failed
   the turn whatever the action. Either way, the error is in the run's
   provenance and journal
-  ([When the check can't run](../../guides/guardrails/halt-or-record/#when-the-check-cant-run)).
+  ([When the check can't run](../../../guides/guardrails/halt-or-record/#when-the-check-cant-run)).
 - **The built-in guardrail checks run.** A guardrail that names one
   (`must-cite`, `never-call-tool`, `max-tool-calls`, `output-matches`,
   `tool-order`, `required-substring`, `forbidden-substring`) runs it, from a
   pack file or `POST /v1/guardrails`. In 0.1.4 it never ran
-  ([Use a built-in check](../../guides/guardrails/use-a-built-in-check/)).
+  ([Use a built-in check](../../../guides/guardrails/use-a-built-in-check/)).
 - **A pack can't ship its own guardrail check under a built-in check's id:**
   the runtime runs the built-in for a guardrail naming one, so a pack's
   implementation under that id would be silently replaced. Building the pack
@@ -855,7 +855,7 @@ and what's different after:
 
   List your guardrails (`kindgi guardrails list`), and check each one
   whose `check` is a built-in against
-  [its settings](../../guides/guardrails/use-a-built-in-check/#the-built-in-checks).
+  [its settings](../../../guides/guardrails/use-a-built-in-check/#the-built-in-checks).
   To fix one, unregister it (`kindgi guardrails unregister <id>`), then deploy
   your pack, or register it again, with a config that fits: a deploy doesn't
   change a registered guardrail's config. If you run several runtime
@@ -880,13 +880,13 @@ and what's different after:
   key, outside development, the exports answer `404 signing-not-configured`.
   `kindgi exports verify` also checks audit bundles made with `@kindgi/api`
   0.1.4
-  ([Export signed evidence](../../guides/observability/export-signed-evidence/#give-the-deployment-its-key)).
+  ([Export signed evidence](../../../guides/observability/export-signed-evidence/#give-the-deployment-its-key)).
 - **The runtime's own address, `/`, leads to the console,** or lists what it
   serves; it answered `404`. Health checks stay on `/ready`
   ([Check health and logs](../restart-and-check-health/#check-health-and-logs)).
 - **The console:** a run whose answer a guardrail blocked shows that answer
   as not sent, with the guardrail; it used to look sent
-  ([A halted turn](../../guides/guardrails/halt-or-record/#a-halted-turn)).
+  ([A halted turn](../../../guides/guardrails/halt-or-record/#a-halted-turn)).
   The dashboard's API keys, Service accounts and People cards open their own
   pages (they opened Deleted data), and ⌘K and the breadcrumbs reach them.
   **Access audit** shows to tenant admins only, the people its API answers.
@@ -899,7 +899,7 @@ and what's different after:
   the prompt they repeat at a fraction of the input price, and the first
   write costs a little more. Register the `anthropic` preset again for the
   5.5 models' cache-read rate
-  ([Prompt caching](../../guides/models/anthropic/#prompt-caching)).
+  ([Prompt caching](../../../guides/models/anthropic/#prompt-caching)).
 - **Retrieved memory reaches the model as data,** in a `<memory>` block in a
   user message instead of a second system message, so what models see
   changes. A retrieval that searches by meaning (`semantic`) on a runtime
@@ -912,7 +912,7 @@ and what's different after:
   app's service account serving many customers mixed their memory; facts kept
   that way are no longer read as anyone's. Pass the person's `participantId`
   on each run
-  ([Give an agent memory](../../guides/agents/give-an-agent-memory/)).
+  ([Give an agent memory](../../../guides/agents/give-an-agent-memory/)).
 - **A comparison's replays run for the past turn's end user,** with the same
   tools, `kindgi_remember` included (a replayed one stores nothing). A
   replay's conversation is never recalled as an earlier conversation.
@@ -931,7 +931,7 @@ and what's different after:
 - **TypeScript's `runs.follow` and `runs.followProgress`** follow a run to its
   end, as in Python, which gains `runs.follow` too. `runs.stream` and
   `runs.streamProgress` are deprecated
-  ([Follow a run](../../guides/runs/follow-a-run/)).
+  ([Follow a run](../../../guides/runs/follow-a-run/)).
 - **Paging conversations, approvals and runs no longer skips rows.** A row
   created in the same millisecond as a page's last row (for approvals, at the
   same instant) could be left out of the next page. Cursors you hold keep
@@ -948,7 +948,7 @@ and what's different after:
   - `kindgi dev` gives the runtime your Google credentials only when
     `KINDGI_DEV_GOOGLE_CREDENTIALS` names them: a pack that uses Vertex AI
     adds `KINDGI_DEV_GOOGLE_CREDENTIALS=adc` to its `.env`
-    ([Gemini on Vertex AI](../../guides/models/gemini-on-vertex-ai/));
+    ([Gemini on Vertex AI](../../../guides/models/gemini-on-vertex-ai/));
   - `kindgi console` opens the console, and so does `kindgi dev --open`;
   - under `kindgi dev`, **Sign in as seeded user** shows only when the console
     is at a loopback address (`localhost`, `127.0.0.1` or `[::1]`); from
@@ -956,14 +956,14 @@ and what's different after:
     asks for it.
 - **New in 0.1.5:**
   - **Sign-in** with your organization's identity provider
-    ([Set up SSO](../../guides/sso/)), and with Google, Microsoft or GitHub
+    ([Set up SSO](../../../guides/sso/)), and with Google, Microsoft or GitHub
     accounts or an emailed link through the deployment's own apps
     ([Turn on sign-in](../sign-in/)).
   - **People, API keys and service accounts:** each person and pipeline acts
     with its own key and grants
-    ([People, API keys and service accounts](../people-and-keys/)).
+    ([People, API keys and service accounts](../../people-and-keys/)).
   - **Schedules:** an agent or a flow at set times, as you, with a history
-    of each time it ran ([Run on a schedule](../../guides/runs/run-on-a-schedule/)).
+    of each time it ran ([Run on a schedule](../../../guides/runs/run-on-a-schedule/)).
   - **Memory:** an agent remembers what its declaration allows
     (`kindgi_remember`), with the scope and how long chosen by you, not the
     model, and can recall earlier conversations. Retrieval can search by
@@ -975,9 +975,9 @@ and what's different after:
     through the scope's gate after review (`kindgi proposals`). A pass can
     look for better settings on its own, and a schedule can start one.
   - **Files kept with a run** (artifacts) and the capability catalog
-    ([Keep files with a run](../../guides/runs/keep-files-with-a-run/)).
+    ([Keep files with a run](../../../guides/runs/keep-files-with-a-run/)).
   - **A tool's env values per project** (`ctx.env`)
-    ([Give a tool env values](../../guides/tools/give-a-tool-env-values/)).
+    ([Give a tool env values](../../../guides/tools/give-a-tool-env-values/)).
   - **A failed run says why, as data:** `failure`, with its `code` and
     `message`, on the run.
   - **Logs:** a pack's service writes log records, `kindgi dev` shows them,
@@ -985,9 +985,9 @@ and what's different after:
     in to the run's trace ([Logs](../logs/)).
   - **Java and Scala, as a preview** (a Java or Scala pack needs Jackson
     2.18 or later in your app, which is Spring Boot 3.4 or later):
-    [Quickstart: Java](../../start/quickstart-java/),
-    [Quickstart: Scala](../../start/quickstart-scala/) and
-    [Call Kindgi from a Java app](../../start/java-app/).
+    [Quickstart: Java](../../../start/quickstart-java/),
+    [Quickstart: Scala](../../../start/quickstart-scala/) and
+    [Call Kindgi from a Java app](../../../start/java-app/).
   - **The Cloud Run module:** an image repository you already have, no KMS
     key, calling your app's Cloud Run services from a tool, client
     addresses, and the runtime's own settings for sign-in
@@ -1080,7 +1080,7 @@ back, and when:
   restarts and publishes, though the project's member list still shows the
   person. Add them again on 0.1.4.1 or later with the same call
   (`POST /v1/projects/<project-id>/memberships`, see
-  [Project memberships](../authorization/#project-memberships)), and their
+  [Project memberships](../../authorization/#project-memberships)), and their
   access applies within seconds.
 
 On 0.1.4.1, re-publishing an agent can log a warning like this one:
@@ -1100,7 +1100,7 @@ one at a time, and logs it at `info`.
 
 `kindgi.env` needs no change: the database migrates when 0.1.4 starts. What's different after:
 
-- **Agent versions are pinned.** A version published from 0.1.4 on resolves its tool ranges once, when it's published, and keeps those versions ([Agent and tool versions](../../guides/agents/agent-and-tool-versions/)). Versions published before have no pins and keep resolving each run. The first `kindgi deploy` after the upgrade registers a pinned next version of each agent, and says so:
+- **Agent versions are pinned.** A version published from 0.1.4 on resolves its tool ranges once, when it's published, and keeps those versions ([Agent and tool versions](../../../guides/agents/agent-and-tool-versions/)). Versions published before have no pins and keep resolving each run. The first `kindgi deploy` after the upgrade registers a pinned next version of each agent, and says so:
 
   ```text
   agent acme.matcher: registered new version 1.4.1 (1.4.0 was published before pins; 1.4.1 pins its tools); set version: '1.4.1' in acme.matcher to match
@@ -1114,20 +1114,20 @@ one at a time, and logs it at `info`.
   ```
 
   Later starts print nothing. A store it can't reach gets a warning instead (`could not bring store … up to the current model`), the runtime starts anyway, and the next start tries again.
-- **Deleting an org keeps its record** until a retention policy on `org` purges it. It still answers `404 org-not-found`, its projects and teams stay without an org, and its slug is free at once ([Delete an org](../../guides/projects/organize-by-org-and-project/#delete-an-org)). 0.1.3 removed the record at once.
-- **Unregistering a provider keeps its record** until a retention policy on `provider` purges it; its id is free to register again at once ([List, change and remove](../../guides/models/#list-change-and-remove)). 0.1.3 removed the record at once.
+- **Deleting an org keeps its record** until a retention policy on `org` purges it. It still answers `404 org-not-found`, its projects and teams stay without an org, and its slug is free at once ([Delete an org](../../../guides/projects/organize-by-org-and-project/#delete-an-org)). 0.1.3 removed the record at once.
+- **Unregistering a provider keeps its record** until a retention policy on `provider` purges it; its id is free to register again at once ([List, change and remove](../../../guides/models/#list-change-and-remove)). 0.1.3 removed the record at once.
 - **`KINDGI_PUBLIC_URL`** is new: the address clients use when it isn't the one the runtime binds, behind a proxy or a load balancer ([Check it](../self-host/#6-check-it)).
 - **The runtime's logs are structured.** Each line is a record with a level and a subsystem: JSON when the output isn't a terminal (as on a server), readable lines on one. `KINDGI_LOG_LEVEL`, `KINDGI_LOG_LEVELS` and `KINDGI_LOG_FORMAT` choose what's written, and a request's `traceparent` is joined ([Logs](../logs/)).
-- **A conversation's turns run the agent version it was opened with.** A turn that names another version is refused (`agent-version-mismatch`); one whose version is no longer registered answers `404` ([A conversation keeps its agent version](../../guides/agents/conversations/#a-conversation-keeps-its-agent-version)). 0.1.3 ran the current version and refused the turn when it differed.
+- **A conversation's turns run the agent version it was opened with.** A turn that names another version is refused (`agent-version-mismatch`); one whose version is no longer registered answers `404` ([A conversation keeps its agent version](../../../guides/agents/conversations/#a-conversation-keeps-its-agent-version)). 0.1.3 ran the current version and refused the turn when it differed.
 - **`kindgi runs start` exits `1` for a failed run,** with `Error [<code>]: <message>` naming the error's own code, such as `budget-exceeded` or `model-invocation-failed`. 0.1.3 printed `Error [server]` and exited `0` for a run that failed. A script that checks the exit code now sees the failure; the run itself is still printed on stdout.
 - **`dev-echo` says it isn't a real model.** Its answers start with `⚠ dev-echo isn't a real model`, and a turn it answers carries a `dev-echo-not-a-model` warning.
 - **On Cloud Run,** the Terraform module pins the version of the secrets' AAD key it reads: add `secrets_aad_key_version` (normally `"1"`) to your `.tfvars` before you apply ([Deploy on Google Cloud Run](../cloud-run/#operate-it)).
-- **Gemini 2.5 retires on Vertex AI.** Vertex AI retires `gemini-2.5-pro` and `gemini-2.5-flash` on 2026-10-20; a turn routed to them fails after. The 0.1.4 `gemini` preset lists `gemini-3.8-flash` with `gemini-3.5-flash-lite` instead ([If you registered Gemini 2.5](../../guides/models/gemini-on-vertex-ai/#if-you-registered-gemini-25)). The `anthropic` preset adds `claude-haiku-5-5` beside `claude-haiku-4-5`; Anthropic lists each model's status on its [model deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations) page.
+- **Gemini 2.5 retires on Vertex AI.** Vertex AI retires `gemini-2.5-pro` and `gemini-2.5-flash` on 2026-10-20; a turn routed to them fails after. The 0.1.4 `gemini` preset lists `gemini-3.8-flash` with `gemini-3.5-flash-lite` instead ([If you registered Gemini 2.5](../../../guides/models/gemini-on-vertex-ai/#if-you-registered-gemini-25)). The `anthropic` preset adds `claude-haiku-5-5` beside `claude-haiku-4-5`; Anthropic lists each model's status on its [model deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations) page.
 - **Register presets again.** A provider registered from a preset before 0.1.4 keeps what it had: no default model, so an agent that names none gets the first model by name (`claude-haiku-4-5` for `anthropic`); none of the models' temperature and thinking marks; and only the two base prices. Unregister it and register the preset again with the 0.1.4 CLI, or restart `kindgi dev` for one the pack's config declares. `kindgi doctor` warns (`!`) about one that's stale.
-- **Each provider can name a default model** (`metadata.defaultModel`): when nothing else decides, an agent gets it rather than the first model by name. Each preset names a mid-priced one, such as `claude-sonnet-5-5` ([How Kindgi picks](../../guides/agents/choose-a-model/#how-kindgi-picks)).
-- **Models that take no temperature get none.** A model registered with `"sampling": false` (the Claude 5.5 and GPT-6 models) is called without one, and the turn carries a `sampling-unsupported` warning instead of failing. A model's `thinking` says how it thinks; thinking counts against its output limit and bills as output ([Temperature and thinking](../../guides/models/#temperature-and-thinking)).
+- **Each provider can name a default model** (`metadata.defaultModel`): when nothing else decides, an agent gets it rather than the first model by name. Each preset names a mid-priced one, such as `claude-sonnet-5-5` ([How Kindgi picks](../../../guides/agents/choose-a-model/#how-kindgi-picks)).
+- **Models that take no temperature get none.** A model registered with `"sampling": false` (the Claude 5.5 and GPT-6 models) is called without one, and the turn carries a `sampling-unsupported` warning instead of failing. A model's `thinking` says how it thinks; thinking counts against its output limit and bills as output ([Temperature and thinking](../../../guides/models/#temperature-and-thinking)).
 - **Costs follow what providers bill.** A registration keeps its model's extra rates: cached prompts, cache writes, long prompts and data residency. A long prompt prices the whole call at the long rates (Claude Haiku 5.5 past 100,000 tokens, Gemini 3.1 Pro past 200,000, GPT-6 past 272,000). A rate that isn't a non-negative number is refused when you register. Kindgi's costs stay estimates from published prices; your provider's invoice is what you pay.
-- **OpenAI calls use OpenAI's Responses API,** which GPT-6 models need to call tools: agents with tools now work on them. Every call sends `store: false`. An existing OpenAI registration moves over when you upgrade, with nothing to register again; `"api": "chat-completions"` in its `adapter_config` keeps the older API ([OpenAI's own API](../../guides/models/openai-compatible/#openais-own-api)).
+- **OpenAI calls use OpenAI's Responses API,** which GPT-6 models need to call tools: agents with tools now work on them. Every call sends `store: false`. An existing OpenAI registration moves over when you upgrade, with nothing to register again; `"api": "chat-completions"` in its `adapter_config` keeps the older API ([OpenAI's own API](../../../guides/models/openai-compatible/#openais-own-api)).
 - **Gemini calls retry a temporary failure** (a rate limit `429`, an overloaded model `503`, and the like), three attempts in all, as the Anthropic and OpenAI-compatible adapters already did.
-- **A waited start that outlasts the client's timeout** (30 seconds in TypeScript, now settable with `timeoutMs`; 60 seconds in Python) fails on the client without the run's id, and says to start the run in the background and follow it ([Wait for the result](../../guides/runs/start-a-run/#wait-for-the-result)).
-- **In 0.1.2 and 0.1.3, the Python client could start a waited run up to three times** when it outlasted the client's timeout. 0.1.4's client never sends a call again once it may be running: upgrade the client. A start you repeat yourself with the same idempotency key still returns the first run only once the first request has answered ([Retry a start safely](../../guides/runs/retry-a-start-safely/)).
+- **A waited start that outlasts the client's timeout** (30 seconds in TypeScript, now settable with `timeoutMs`; 60 seconds in Python) fails on the client without the run's id, and says to start the run in the background and follow it ([Wait for the result](../../../guides/runs/start-a-run/#wait-for-the-result)).
+- **In 0.1.2 and 0.1.3, the Python client could start a waited run up to three times** when it outlasted the client's timeout. 0.1.4's client never sends a call again once it may be running: upgrade the client. A start you repeat yourself with the same idempotency key still returns the first run only once the first request has answered ([Retry a start safely](../../../guides/runs/retry-a-start-safely/)).

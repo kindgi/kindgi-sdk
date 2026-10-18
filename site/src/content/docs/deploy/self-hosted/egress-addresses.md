@@ -113,12 +113,12 @@ This deployment publishes no egress addresses.
 
 Anyone who belongs to the tenant reads them: every person added to it, and a
 service account given `--tenant-member` or `--tenant-admin`
-([Service accounts](../people-and-keys/#service-accounts)). They're in
+([Service accounts](../../people-and-keys/#service-accounts)). They're in
 `GET /v1/tenant`'s `egress`, which is absent when none are published. In
 the TypeScript client, it's `tenant.get()`'s `egress`. In the console, the
 workspace's home page shows them under **Where this workspace's calls come from**:
 
-![Where this workspace's calls come from: Server, the server's own calls, 192.0.2.10; Deployed code, calls made by your deployed code, 198.51.100.20 and 2001:db8::1; then every workspace on this deployment calls from these addresses](../../../assets/egress/console-egress-card.png)
+![Where this workspace's calls come from: Server, the server's own calls, 192.0.2.10; Deployed code, calls made by your deployed code, 198.51.100.20 and 2001:db8::1; then every workspace on this deployment calls from these addresses](../../../../assets/egress/console-egress-card.png)
 
 ## Admit them at a site
 
@@ -130,10 +130,10 @@ workspace's home page shows them under **Where this workspace's calls come from*
 Every tenant on the runtime calls from the same addresses, so admitting them
 admits every tenant's calls, not only yours. Keep the site's own check too:
 its API key, or a webhook's signature
-([Verify a webhook](../../guides/webhooks/verify-a-webhook/)).
+([Verify a webhook](../../../guides/webhooks/verify-a-webhook/)).
 
 ## Next
 
 - [Operate a self-hosted runtime](../operate/)
 - [Cloud Run module reference](../cloud-run-reference/)
-- [Environment variables](../../reference/env-vars/#kindgi_egress_server_addresses)
+- [Environment variables](../../../reference/env-vars/#kindgi_egress_server_addresses)

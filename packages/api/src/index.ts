@@ -814,6 +814,7 @@ export { sealedCursors } from './middleware/sealed-cursors.js';
 export type {
   ToolGetInput,
   ToolGetVersionInput,
+  ToolKindMismatch,
   ToolListInput,
   ToolListVersionsInput,
   ToolPage,

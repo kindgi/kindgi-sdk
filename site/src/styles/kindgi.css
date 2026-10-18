@@ -190,7 +190,7 @@ div.sl-openapi-operation-method-badge {
 }
 /* A primary button is an action: plum, a light shade change on hover. */
 .sl-link-button.primary {
-  border-radius: var(--kg-radius);
+  border-radius: var(--kg-radius-button);
   background-color: var(--kg-action);
   border-color: var(--kg-action);
   color: var(--kg-on-action);
@@ -201,7 +201,7 @@ div.sl-openapi-operation-method-badge {
   color: var(--kg-on-action);
 }
 .sl-link-button:not(.primary) {
-  border-radius: var(--kg-radius);
+  border-radius: var(--kg-radius-button);
 }
 
 /* Form fields: the search button and the selects, a line edge, 3px. */
