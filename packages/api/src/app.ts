@@ -2525,8 +2525,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
 }
 
 /**
- * Whose memory a turn would run with, for the runs router's participant rule:
- * a conversation's stored participant and project, and a target's own project.
+ * What the runs router checks a turn against: a conversation's agent,
+ * participant, project and opener (`turnRefusal`, `participantRefusal`), and
+ * a target's own project.
  */
 function participantLookups(
   input: Pick<CreateAppInput, 'conversationBinding' | 'agentRegistry' | 'flowRegistry'>,
@@ -2541,17 +2542,16 @@ function participantLookups(
         if (got.error.code === 'conversation-not-found') return null;
         // Any other failure isn't "no conversation": the turn would then run
         // as the stored participant unchecked. A 500, and no turn.
-        throw new Error(
-          "Couldn't read the conversation's participant, so the turn wasn't started",
-          {
-            cause: got.error,
-          },
-        );
+        throw new Error("Couldn't read the conversation, so the turn wasn't started", {
+          cause: got.error,
+        });
       }
-      const { participantId, projectId } = got.value;
+      const { agentId, participantId, projectId, openedBy } = got.value;
       return {
+        agentId: agentId as unknown as string,
         ...(participantId !== undefined && { participantId }),
         ...(projectId !== undefined && { projectId: projectId as unknown as string }),
+        ...(openedBy !== undefined && { openedBy }),
       };
     },
     targetProject: async (tenantId, target) => {

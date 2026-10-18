@@ -63,6 +63,7 @@ import {
   readingOf,
   toRunProgressEvent,
 } from './sse.js';
+import { type TurnConversation, turnRefusal } from './turn-access.js';
 import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 
 const KERNEL_RUN_CHANNEL_PREFIX = 'kernel:run:';
@@ -105,17 +106,15 @@ export interface RunsRouterOptions {
    */
   readonly referenceScope?: ReferenceScopeBinding;
   /**
-   * A conversation's stored participant and project: a turn posted into it
-   * runs as that participant, whatever the body names, so who may post it
-   * is checked against them (`participantRefusal`). `null`: no such
-   * conversation (the run handler answers it). Any other failure throws, so
-   * the turn never runs unchecked. Required, as `targetProject` is: a
-   * router without them would check no stored participant.
+   * What a turn posted into a conversation is checked against
+   * (`turnRefusal`, `participantRefusal`). `null`: no such conversation.
+   * Any other failure throws, so the turn never runs unchecked. Required,
+   * as `targetProject` is: a router without it would check no conversation.
    */
   readonly conversationOf: (
     tenantId: TenantId,
     conversationId: string,
-  ) => Promise<{ readonly participantId?: string; readonly projectId?: string } | null>;
+  ) => Promise<TurnConversation | null>;
   /**
    * Rights on an agent or flow more than one project serves
    * (`item-rights.ts`): running it in one of its projects is that
@@ -281,10 +280,19 @@ export function runsRouter(
     // (it wins, as the turn reads it), else the one the body names. Running
     // as someone takes what reading their memory takes.
     const named = typeof turnInput.participantId === 'string' ? turnInput.participantId : undefined;
-    if (authorizer !== undefined && (named !== undefined || conversationId !== undefined)) {
-      // Another id than a uuid names no conversation, so only the body's
-      // participant is checked.
-      const opened = await conversation();
+    // Who may add a turn to the conversation it continues, and under which
+    // project (`turnRefusal`). Another id than a uuid names no conversation
+    // (the run handler answers it), so only the body's participant is checked.
+    const opened = await conversation();
+    if (conversationId !== undefined && UUID_RE.test(conversationId)) {
+      const refusal = await turnRefusal(c, authorizer, {
+        conversationId,
+        conversation: opened,
+        namedProjectId: parsed.value.projectId as unknown as string | undefined,
+      });
+      if (refusal !== undefined) return refusal;
+    }
+    if (authorizer !== undefined && (named !== undefined || opened !== null)) {
       const participantId = opened?.participantId ?? named;
       if (participantId !== undefined) {
         const projectId =

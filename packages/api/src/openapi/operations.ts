@@ -1557,14 +1557,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '404': ErrorResponse(
-        'Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`).',
+        "Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`); or `input.conversationId` names no conversation of this tenant (`conversation-not-found`), answered before any turn starts, with `options.wait: false` too. A caller who can't read the conversation gets the same answer, byte for byte, in place of the 409 for a turn naming another project, or of the 403 for a conversation with no participant.",
       ),
       '403': ErrorResponse(
-        "No `execute` on the agent or flow; naming a `projectId` without `write` on it; or a turn run as a participant whose memory the caller may not read (`participant-not-allowed`). A turn runs with its participant's memory (the conversation's stored participant, else `input.participantId`), so running as one takes being them (a person, by their user id) or `write` on the turn's project, as reading their memory does.",
+        "No `execute` on the agent or flow; naming a `projectId` without `write` on it; or a turn run as a participant whose memory the caller may not read (`participant-not-allowed`). A turn runs with its participant's memory (the conversation's stored participant, else `input.participantId`), so running as one takes being them (a person, by their user id) or `write` on the turn's project, as reading their memory does. A turn into a conversation with no participant takes having opened it (the caller `?openedBy=me` names) or `write` on its project (on its agent, for a conversation from before projects): `permission-denied`, with `details.resource` the conversation.",
       ),
       '422': ErrorResponse('Guardrail violation or budget exceeded.'),
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body; or an erasure of the turn's person (its conversation or its `participantId`) is in progress (`erasure-in-progress`): no new turn starts for them until it completes; or the run's project is suspended (`project-suspended`): no run starts in it until it's restored.",
+        "Idempotency-Key was reused with a different body; or `projectId` names a project other than `input.conversationId`'s (`conversation-project-mismatch`, with `details.projectId` and `details.conversationProjectId`): a conversation belongs to one project, so name its own or omit `projectId`; or an erasure of the turn's person (its conversation or its `participantId`) is in progress (`erasure-in-progress`): no new turn starts for them until it completes; or the run's project is suspended (`project-suspended`): no run starts in it until it's restored.",
       ),
       '400': ErrorResponse(
         "Malformed request body, or the body's `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the agent or flow isn't registered in the named `projectId`'s project, its org or the tenant (`details.issues`).",
@@ -4049,7 +4049,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed request body, or `projectId` names no project of this tenant. Or `reference-out-of-scope`: the agent isn't registered in the conversation's project, its org or the tenant, or `agentVersion` isn't a version that project runs, such as one made in an earlier environment and not yet promoted (`details.issues`, at `/agentId`, whose message names the version). Nothing is opened.",
       ),
       '403': ErrorResponse(
-        "No `execute` on the agent; or a `participantId` whose memory the caller may not read (`participant-not-allowed`): its turns run with that participant's memory, so opening it for someone takes being them (a person, by their user id) or `write` on its project.",
+        "No `execute` on the agent; or naming a `projectId` without `write` on it (its turns land there, as a run naming one does); or a `participantId` whose memory the caller may not read (`participant-not-allowed`): its turns run with that participant's memory, so opening it for someone takes being them (a person, by their user id) or `write` on its project.",
       ),
     },
   },
