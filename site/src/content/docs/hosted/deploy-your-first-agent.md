@@ -110,10 +110,8 @@ tests pass:
 CAPTURE: the coding agent's summary, with kindgi test passing
 ```
 
-<details>
-<summary>Under the hood: what your coding agent made</summary>
-
-Abridged: `package.json`, `README.md` and `AGENTS.md` are left out.
+For reference, the pack looks like this, without its `package.json`,
+`README.md` and `AGENTS.md`:
 
 ```text
 acme-desk/
@@ -124,8 +122,6 @@ acme-desk/
 ├── .claude/skills/                   # the Kindgi skills your coding agent follows
 └── .agents/skills/                   # the same skills, for other coding agents
 ```
-
-</details>
 
 ## 3. Your agent on Kindgi Cloud
 
