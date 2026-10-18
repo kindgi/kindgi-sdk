@@ -248,6 +248,12 @@ export interface Deployment {
    */
   readonly projectId?: ProjectId;
   /**
+   * When this deployment was created by promoting another into a later
+   * environment of its order, the source deployment it was promoted from.
+   * Absent for a deployment registered directly.
+   */
+  readonly promotedFromDeploymentId?: string;
+  /**
    * Its pack service's status, when the server routes pack calls per
    * deployment. Absent otherwise (one pack service for every deployment),
    * and from a binding that doesn't track it.
@@ -388,6 +394,13 @@ export interface DeploymentGetInput {
 export interface DeploymentGetByImageDigestInput {
   readonly tenantId: TenantId;
   readonly imageDigest: string;
+  /**
+   * Which project to look up within: a digest deploys once per project, so
+   * the same image can be registered in more than one (a later environment
+   * of its order takes it by promotion). Absent = the tenant's Default (a
+   * tenant-wide deploy, stored with no project).
+   */
+  readonly projectId?: ProjectId;
 }
 
 // -------------------- list --------------------
