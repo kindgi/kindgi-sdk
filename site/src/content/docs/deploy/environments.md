@@ -288,14 +288,26 @@ in `staging-1`. Then it lists any value the build needs that isn't set in
 - **`--check`** prints what would move and the values not set in
   `staging-2`, and changes nothing.
 - **Run it in the pack.** `--from` and `--to` are environment names, and it
-  reads their projects from `kindgi.config.ts`.
+  reads their projects from `kindgi.config.ts`. Outside a pack, name the two
+  projects instead, by slug or id:
+  `kindgi promote --from=acme-staging --to=acme-prod`. It then takes the
+  build that serves in `--from`, of any pack, and when more than one does,
+  the list names each one's pack.
 - **It takes `read` on `staging-1` and `admin` on `staging-2`,** when
-  authorization is on.
+  authorization is on. A key or a session limited to one project can't
+  promote, or check a promotion, either way: a promotion reads one project
+  and writes another.
 
 If a value isn't set in `staging-2`, the promotion names each one, what
-needs it and the command that sets it, and moves nothing. Set them in
-`staging-2`, then promote again. Promoting the same build again doesn't
-make a second copy.
+needs it and the command that sets it in `staging-2`'s project, and moves
+nothing. Set them in `staging-2`, then promote again. Promoting the same
+build again doesn't make a second copy.
+
+- A tool's optional secret isn't listed when it isn't set
+  ([An optional secret](../../guides/tools/give-a-tool-a-secret/#an-optional-secret)).
+- With no model provider registered, an agent that names no provider, or
+  one that isn't registered, is listed too: a run would have no model to
+  call. Register one with `kindgi providers register`, then check again.
 
 ## Go live in `prod`
 
@@ -340,6 +352,16 @@ The other environments aren't, so their runs count as staging.
   none serving in `--from`, it says so, and why the newest was taken down:
   deploy into the first environment, or name a deployment with
   `--deployment=<id>`. With more than one, it lists them: name one.
+- **`kindgi promote` is refused because the two environments name a
+  different `endpoint` or `tenantId`.** An order lives in one tenant on one
+  runtime, and a promotion stays there. Give both environments the same
+  `endpoint` and `tenantId` in `kindgi.config.ts`.
+- **`kindgi promote` is refused because a slug names no project, or more
+  than one.** Two projects in different orgs can share a slug. Name the
+  project by its id: `kindgi projects list` shows them.
+- **A promotion is refused for a key limited to one project
+  (`key-project-mismatch`).** Promote with a key that isn't limited to a
+  project.
 - **A promotion is refused because values aren't ready
   (`promotion-values-not-ready`).** Set each value it names in the
   environment you're promoting to, then promote again. `--check` lists them
