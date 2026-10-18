@@ -79,8 +79,12 @@ A run uses four kinds of values, each kept in its own place.
   it. Kindgi looks in the tool's project, then that project's org, then the
   tenant, and records the first that holds the secret. With authorization
   on, only the scopes whoever registers it administers count. If none holds
-  the secret yet, the broadest of them is recorded: the tenant for a tenant
-  admin, the project for a project admin. That version then reads the
+  the secret yet, a deploy (runtime 0.1.8.1 or later) records where its
+  `--sync-secrets` writes: the project the deploy named, or the tenant for
+  a deploy without `--project`. A promotion records the project it
+  promotes into. A tool registered any other way records the broadest of
+  those scopes: the tenant for a tenant admin, the project for a project
+  admin. That version then reads the
   secret there and nowhere else. A value set later at another scope isn't
   read until a new version of the tool is registered. An MCP endpoint's
   credentials and a webhook trigger's signing secret are also read only at
@@ -97,7 +101,11 @@ A run uses four kinds of values, each kept in its own place.
 
 `kindgi deploy --sync-secrets` stores the values in the pack's
 `.env.<env>` file as secrets, after the deploy lands: in the project the
-deploy named, or the tenant's for a deploy without `--project`.
+deploy named, or the tenant's for a deploy without `--project`. A secret
+set nowhere when the deploy ran is read there (runtime 0.1.8.1 or later),
+so set it later in that same place: after
+`kindgi deploy --project=<project-id>`, that's
+`kindgi secrets set <name> --env=<env> --scope=project:<project-id>`.
 
 Every value belongs to an env, the `--env` you set it with, and a runtime
 reads the one it serves. Kindgi Cloud serves one env, `prod`, so every
