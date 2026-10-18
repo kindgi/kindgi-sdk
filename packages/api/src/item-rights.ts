@@ -533,7 +533,6 @@ export function createItemRights(
   };
 }
 
-/** `rows` through `keep`, one at a time and in order, without the nulls. */
 /**
  * The newest active version of `id` that can run in one of `projects`,
  * or with `inProject`, in that one; `undefined`: none.
@@ -575,6 +574,7 @@ export function itemServingOf(binding: ItemProjectsBinding): ItemServing {
   };
 }
 
+/** `rows` through `keep`, one at a time and in order, without the nulls. */
 async function keptInOrder<T>(
   rows: readonly T[],
   keep: (row: T) => T | null | Promise<T | null>,
