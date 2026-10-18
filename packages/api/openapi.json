@@ -20132,7 +20132,8 @@
           },
           "revokedAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When this version is revoked. A time still to come is the grace period a rotation gave it: the version still resolves until then."
           }
         }
       },
@@ -20324,7 +20325,8 @@
               },
               "oldVersionRevokedAt": {
                 "type": "string",
-                "format": "date-time"
+                "format": "date-time",
+                "description": "When the version this rotation replaced is revoked: at once (`revokeOldAfterMs: 0`), or at the end of its grace period, until which it still resolves. Absent when the rotation left it valid."
               }
             }
           },
@@ -20563,7 +20565,9 @@
           },
           "revokeOldAfterMs": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "maximum": 31536000000,
+            "description": "Revoke the version this rotation replaces this many milliseconds after it: `0` at once, at most 365 days (31536000000). Until then the old version still resolves. Without it, the old version stays valid."
           }
         }
       },
@@ -20592,7 +20596,8 @@
           },
           "oldVersionRevokedAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When the version this rotation replaced is revoked: at once (`revokeOldAfterMs: 0`), or at the end of its grace period, until which it still resolves. Absent when the rotation left it valid."
           }
         }
       },

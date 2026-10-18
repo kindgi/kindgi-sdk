@@ -319,6 +319,10 @@ export interface SecretVersionRecord {
    * from `resolve` (`SecretResolveOutcome.value`).
    */
   readonly value: string | null;
+  /**
+   * When this version is revoked. A time still to come is the grace period
+   * a rotation gave it: the version still resolves until then.
+   */
   readonly revokedAt?: string;
 }
 
@@ -465,11 +469,31 @@ export type SecretSetOutcome =
   | { readonly kind: 'version-conflict'; readonly currentVersion: number }
   | { readonly kind: 'error'; readonly code: string; readonly message: string };
 
+/**
+ * The longest grace period a rotation gives the version it replaces: 365
+ * days. A grace longer than a year defeats the rotation.
+ */
+export const MAX_REVOKE_OLD_AFTER_MS = 31_536_000_000;
+
+/**
+ * Whether `ms` is a grace period `rotate` takes: a whole number of
+ * milliseconds from 0 (the old version is revoked at once) to
+ * `MAX_REVOKE_OLD_AFTER_MS`.
+ */
+export function isRevokeOldAfterMs(ms: unknown): ms is number {
+  return typeof ms === 'number' && Number.isInteger(ms) && ms >= 0 && ms <= MAX_REVOKE_OLD_AFTER_MS;
+}
+
 export interface SecretRotateInput {
   readonly scope: Scope;
   readonly envName: EnvName;
   readonly name: string;
   readonly newValue?: string;
+  /**
+   * Revoke the version this one replaces this many milliseconds after the
+   * rotation: `0` at once, at most `MAX_REVOKE_OLD_AFTER_MS`. Until then it
+   * still resolves. Absent, it stays valid.
+   */
   readonly revokeOldAfterMs?: number;
   /** The request's `Idempotency-Key`, when it had one: as `SecretSetInput.idempotencyKey`. */
   readonly idempotencyKey?: string;
@@ -495,6 +519,7 @@ export type SecretRotateOutcome =
       readonly kind: 'ok';
       readonly newVersionId: number;
       readonly oldVersionId: number;
+      /** When the replaced version is revoked: now, or the end of its grace period, until which it still resolves. */
       readonly oldVersionRevokedAt?: string;
     }
   | {

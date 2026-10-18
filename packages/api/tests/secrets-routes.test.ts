@@ -28,7 +28,7 @@ import type {
   SecretVersionRecord,
   TokenResolver,
 } from '../src/index.js';
-import { SecretSetRequestSchema } from '../src/openapi/schemas.js';
+import { SecretRotateRequestSchema, SecretSetRequestSchema } from '../src/openapi/schemas.js';
 
 /**
  * `/v1/secrets/*` route tests — the HTTP surface for
@@ -86,6 +86,7 @@ interface TestSecretBinding extends SecretBinding {
     envName: EnvName;
     name: string;
     newValue?: string;
+    revokeOldAfterMs?: number;
   }) => Promise<Result<SecretRotateOutcome, SecretError>>;
 }
 
@@ -485,6 +486,58 @@ describe('API — GET /v1/secrets/:name/versions — value redaction', () => {
     expect(body.data).toHaveLength(1);
     expect(body.data[0]?.value).toBeNull();
     expect(body.data[0]?.versionId).toBe(1);
+  });
+});
+
+describe('API — POST /v1/secrets/:name/rotate — the grace period', () => {
+  /** Rotates `k` with `revokeOldAfterMs` as given: the response, and what reached the store. */
+  async function rotateWith(revokeOldAfterMs: unknown) {
+    const secrets = makeInMemorySecretsBinding();
+    const reached: unknown[] = [];
+    secrets.rotateImpl = async (input) => {
+      reached.push(input.revokeOldAfterMs);
+      return { kind: 'ok', value: { kind: 'ok', newVersionId: 2, oldVersionId: 1 } } as never;
+    };
+    const app = makeApp({ secrets });
+    const res = await app.request('/v1/secrets/k/rotate?envName=staging&scopeKind=tenant', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${TOKEN_ALL}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ newValue: 'v2', revokeOldAfterMs }),
+    });
+    return { res, reached };
+  }
+
+  test.each([0, 60_000, 31_536_000_000])('%d ms is taken, and reaches the store', async (ms) => {
+    const { res, reached } = await rotateWith(ms);
+    expect(res.status).toBe(201);
+    expect(reached).toEqual([ms]);
+  });
+
+  test.each([31_536_000_001, -1, 1.5, Number.MAX_SAFE_INTEGER, '60000'])(
+    '%j is refused with 400 bad-input naming the range; the store never sees it',
+    async (ms) => {
+      const { res, reached } = await rotateWith(ms);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { code: string; message: string } };
+      expect(body.error).toMatchObject({
+        code: 'bad-input',
+        message:
+          '`revokeOldAfterMs` must be a whole number of milliseconds from 0 to 31536000000 (365 days) when present',
+      });
+      expect(reached).toEqual([]);
+    },
+  );
+
+  test('the schema documents the range the route takes', () => {
+    const properties = SecretRotateRequestSchema.properties as Record<string, unknown>;
+    expect(properties.revokeOldAfterMs).toMatchObject({
+      type: 'integer',
+      minimum: 0,
+      maximum: 31_536_000_000,
+    });
   });
 });
 
