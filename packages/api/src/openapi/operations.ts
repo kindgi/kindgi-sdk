@@ -193,6 +193,15 @@ const LimitQueryParam: ParameterSpec = {
   schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
 };
 
+const PackEnvSecretsQueryParam: ParameterSpec = {
+  name: 'secrets',
+  in: 'query',
+  required: false,
+  description:
+    '`values`: give the values of the names set only as a secret too, in `secrets`, each audited before the answer. Only for a key holding `system:pack-env` itself. Left out: such a name is `pack-env-secret-not-yet`, and no secret is read.',
+  schema: { type: 'string', enum: ['values'] },
+};
+
 const ParentRunIdQueryParam: ParameterSpec = {
   name: 'parentRunId',
   in: 'query',
@@ -2535,7 +2544,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemDeployments.listPackEnvChanged',
     summary: 'List deployments whose pack service runs on values that changed',
     description:
-      "Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision, but for one held as `pack-env-update-failed`, listed for an hour after it was first held so it's tried again). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.",
+      "Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision, but for one held as `pack-env-update-failed`, listed for an hour after it was first held so it's tried again, and one held for a cause the platform fixes, `pack-env-secret-unreadable` or `pack-env-secrets-unaudited`, listed every time with its `held`, as the revision doesn't move when that's fixed). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.",
     tags: ['system-deployments'],
     security: 'bearer',
     parameters: [CursorQueryParam, LimitQueryParam],
@@ -2558,18 +2567,19 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemDeployments.getPackEnv',
     summary: "Read the env a deployment's pack service is to be given",
     description:
-      "For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the plain values when nothing stands in the way. A name set only as a secret (`pack-env-secret-not-yet`), one set both ways (`pack-env-ambiguous`) or a required one set nowhere (`pack-env-missing`) is a `problem`, and then no value is given. Each value given out is on the audit record. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value.",
+      "For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set both ways (`pack-env-ambiguous`), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.",
     tags: ['system-deployments'],
     security: 'bearer',
-    parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam],
+    parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam, PackEnvSecretsQueryParam],
     responses: {
       '200': {
         description: 'Where each name is set, and the values when there is no problem.',
         schema: ref('SystemPackEnv'),
       },
       ...CommonAuthErrors,
+      '400': ErrorResponse('A `secrets` other than `values` (`bad-input`).'),
       '403': ErrorResponse(
-        "A tenant's key or session (`system-principal-required`), or a system key without `system:pack-env` (`system-scope-missing`).",
+        "A tenant's key or session (`system-principal-required`), a system key without `system:pack-env` (`system-scope-missing`), or with `secrets=values`, a key that doesn't hold `system:pack-env` itself, `kindgi:system` included (`system-scope-missing`).",
       ),
       '404': ErrorResponse(
         'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
@@ -2578,7 +2588,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The tenant is closing or suspended (`tenant-closing`, `tenant-suspended`), or the deployment's pack service was retired (`endpoint-retired`).",
       ),
       '501': ErrorResponse(
-        "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`).",
+        "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`). Or, with `secrets=values`, it has nowhere to audit a secret given out, so it gives none (`pack-env-secrets-unaudited`).",
+      ),
+      '503': ErrorResponse(
+        "With `secrets=values`: the secret store is out, a secret changed while it was read, twice, or the secrets' audit rows weren't written. Nothing is given: try again (`pack-env-unavailable`).",
       ),
     },
   },
@@ -7128,7 +7141,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many tenants (`KINDGI_TENANCY=multi`), where each tenant deploys only its own images: `image-not-allowed`, the image is outside the tenant's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the tenant has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch` or `flow-project-mismatch`: one of the image's tools, agents or flows belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `tool-kind-mismatch`: one of the image's tools has the id of an MCP endpoint's tool (`details.endpointId`; `details.primitive`, `details.id`), whose active versions are all the endpoint's; nothing was deployed. Or `project-suspended`: the project the deploy goes into (the named one, or the Default for a tenant-wide deploy) is suspended, and nothing deploys into it until it's restored. Or `environment-takes-promotions`: the project the deploy goes into is a later environment of an environment order, which takes builds only by promotion from the one before it; deploy into the order's first environment and promote the build from there (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '400': ErrorResponse(
-        "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. A tool that declares or sends a model provider's key is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered.",
+        "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. When `image-unverifiable` comes from a failed registry read, `details.cause` names why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't a readable archive), or `image-limit-exceeded`, with the bound in `details.limit` (`manifest`, `file`, `layer`, `read` or `unpack`: the image's own, so the same image is refused again; `tenant-unpack-hour`: the tenant's, which passes). A tool that declares or sends a model provider's key is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered.",
       ),
       '403': ErrorResponse(
         "Signer key not on the tenant's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the tenant.",

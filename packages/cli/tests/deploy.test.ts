@@ -1479,6 +1479,31 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     expect(summary.packService).toEqual(ready);
   });
 
+  test.each([
+    [
+      'pack-env-secret-capacity',
+      'a name the pack reads from its env is set as a secret, and there is no room for a pack service that can be given one just now',
+    ],
+    [
+      'pack-env-secret-too-large',
+      'a secret the pack reads from its env is over 32 KiB, the most a pack service can be given',
+    ],
+    [
+      'pack-env-secret-unreadable',
+      "a secret the pack reads from its env can't be read just now: the platform's team is told, and it's tried again",
+    ],
+    [
+      'pack-env-secrets-unaudited',
+      "the platform can't give the pack its secrets just now: its team is told, and it's tried again",
+    ],
+  ])('a pack service waiting on its secrets (%s) says why', async (problem, why) => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [pending(problem), ready]);
+    const out = await deploy(run.fixtures, '--hosted', `--project=${PROJECT}`);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain(`    … pending (${problem}): ${why}`);
+  });
+
   test("the env block's `build: 'hosted'` waits too; without either, nothing waits", async () => {
     await writeAutoEnvelope();
     const hosted = hostedFixtures(pending(), [ready]);
@@ -2111,7 +2136,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       expect(run.fixtures.state.postCalls).toBe(0);
       expect(run.fixtures.state.capturedBuild).toBeUndefined();
       expect(out.stderr).toContain(
-        `kindgi deploy: on Kindgi Cloud the pack service gets the env values set in your workspace, not environments.staging.env in kindgi.config (API_BASE, EXTRA, SHOP_URL). Set each with \`kindgi env set NAME <value> --scope=project:${PROJECT} --env=staging\`, then remove environments.staging.env from kindgi.config and deploy again. A secret is read per call in a tool (\`ctx.secrets\`): a pack service on Kindgi Cloud is given plain values only.`,
+        `kindgi deploy: on Kindgi Cloud the pack service gets the env values set in your workspace, not environments.staging.env in kindgi.config (API_BASE, EXTRA, SHOP_URL). Set each with \`kindgi env set NAME <value> --scope=project:${PROJECT} --env=staging\` (a secret with \`kindgi secrets set NAME --scope=project:${PROJECT} --env=staging\`), then remove environments.staging.env from kindgi.config and deploy again.`,
       );
     });
 
@@ -2121,7 +2146,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       const out = await hostedWith(run.fixtures, declared({ API_BASE: 'https://api.acme.test' }));
       expect(out.exitCode).toBe(1);
       expect(out.stderr).toContain('`kindgi env set NAME <value> --scope=tenant --env=staging`');
-      expect(out.stderr).not.toContain('A secret is read per call');
+      expect(out.stderr).not.toContain('kindgi secrets set');
       const malformed = hostedFixtures(pending(), [ready]);
       const bad = await hostedWith(malformed.fixtures, declared({ API_BASE: 42 }));
       expect(bad.exitCode).toBe(1);
@@ -2172,7 +2197,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       const out = await hostedWith(run.fixtures, declared(), `--project=${PROJECT}`);
       expect(out.exitCode, out.stderr).toBe(0);
       expect(out.stderr).toContain(
-        "      API_BASE is set only as a secret, which a pack service isn't given in its environment: a tool reads it per call (`ctx.secrets`).",
+        "      API_BASE is set only as a secret, which this server keeps out of a pack service's environment: a tool reads it per call (`ctx.secrets`).",
       );
       expect(out.stderr).toContain(
         "      SHOP_URL is set both as a secret (org org-1) and as a plain value (tenant): remove one, so it's clear which the pack service gets.",

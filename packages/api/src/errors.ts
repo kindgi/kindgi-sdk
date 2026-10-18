@@ -286,6 +286,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'system-key-expiry-required': 403,
   /** The operator's access record can't be written, so a system request that would change something was not acted on. */
   'access-record-unavailable': 503,
+  /**
+   * A pack service's secret values, not given just now: the secret store is
+   * out, a secret changed while it was read (twice), or their audit rows
+   * weren't written. No `Retry-After`: the orchestrator's back-off decides.
+   */
+  'pack-env-unavailable': 503,
   /** A system route naming a tenant in a state it refuses. */
   'tenant-closing': 409,
   'tenant-suspended': 409,
@@ -478,6 +484,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // (`pack-env-not-served`), where its pack services take it from how they're run.
   'pack-env-unsupported': 501,
   'pack-env-not-served': 501,
+  /** Secret values asked for from a server with nowhere to audit them: none is read or given. */
+  'pack-env-secrets-unaudited': 501,
   // A project named in `PUT /v1/environment-orders/*` already belongs to another order.
   'project-in-another-order': 409,
   // A build, a publish or a derived version aimed at a later environment of

@@ -1020,6 +1020,7 @@ export type {
   ImagePlatform,
   ImagePushInput,
   ImagePushOutcome,
+  ImageReadLimit,
   ImageRegistryBinding,
   ImageRegistryError,
 } from './image-registry-binding.js';

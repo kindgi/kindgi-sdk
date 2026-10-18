@@ -165,18 +165,27 @@ export async function postDeploymentReal(
   }
 
   // 4xx / 5xx — the api-server wraps errors in `{ error: { code,
-  // message, ...details } }` via `toWireError` in
+  // message, details? } }` via `toWireError` in
   // `packages/api/src/errors.ts`.
   const wire = body as { error?: { code?: string; message?: string; details?: unknown } } | null;
   const code = wire?.error?.code ?? `http-${res.status}`;
   const message = wire?.error?.message ?? `HTTP ${res.status}`;
-  const details = extractDetails(wire?.error);
-  const extra = wire?.error?.details as
-    | { readonly limit?: unknown; readonly position?: unknown; readonly firstProjectId?: unknown }
+  const wireDetails = wire?.error?.details as
+    | {
+        readonly issues?: unknown;
+        readonly limit?: unknown;
+        readonly cause?: unknown;
+        readonly position?: unknown;
+        readonly firstProjectId?: unknown;
+      }
     | undefined;
-  const limit = extra?.limit;
-  const position = extra?.position;
-  const firstProjectId = extra?.firstProjectId;
+  const details = Array.isArray(wireDetails?.issues)
+    ? (wireDetails.issues as readonly Record<string, unknown>[])
+    : undefined;
+  const limit = wireDetails?.limit;
+  const cause = wireDetails?.cause;
+  const position = wireDetails?.position;
+  const firstProjectId = wireDetails?.firstProjectId;
   const retryAfter = res.headers.get('retry-after')?.trim();
   return {
     kind: 'wire-error',
@@ -190,19 +199,12 @@ export async function postDeploymentReal(
       message,
       ...(details !== undefined && { details }),
       ...(typeof limit === 'string' && { limit }),
+      ...(typeof cause === 'string' && { cause }),
       ...(Number.isSafeInteger(position) &&
         (position as number) >= 0 && { position: position as number }),
       ...(typeof firstProjectId === 'string' && firstProjectId !== '' && { firstProjectId }),
     },
   };
-}
-
-/** The issues a `400 deployment-validation-failed` names, in its `details.issues`. */
-function extractDetails(
-  err: { readonly details?: unknown } | undefined,
-): readonly Record<string, unknown>[] | undefined {
-  const issues = (err?.details as { readonly issues?: unknown } | undefined)?.issues;
-  return Array.isArray(issues) ? (issues as readonly Record<string, unknown>[]) : undefined;
 }
 
 /**

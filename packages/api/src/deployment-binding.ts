@@ -13,6 +13,7 @@ import type {
 
 import {
   PACK_ENV_PROBLEM_CODES,
+  PACK_ENV_SECRET_GIVE_CODES,
   type PackEnvDeclaration,
   type PackEnvHeldCode,
 } from './pack-env.js';
@@ -215,8 +216,21 @@ export type SystemDeploymentRetireReason = (typeof SYSTEM_DEPLOYMENT_RETIRE_REAS
  * The pack's declared environment can't be given to it (`pack-env.ts`), and
  * `GET /v1/deployments/{id}/pack-env` names each name:
  * - `pack-env-ambiguous`: a name is set both as a secret and as a plain value;
- * - `pack-env-secret-not-yet`: a name is set only as a secret;
- * - `pack-env-missing`: a required name is set nowhere.
+ * - `pack-env-secret-not-yet`: a name is set only as a secret, and the
+ *   orchestrator doesn't give secrets;
+ * - `pack-env-missing`: a required name is set nowhere;
+ * - `pack-env-secret-unreadable`: a name's secret is set, but it can't be
+ *   read for a reason the platform fixes, not the owner. It's tried again.
+ *
+ * The orchestrator couldn't give the pack service its secrets:
+ * - `pack-env-secrets-unaudited`: the runtime has nowhere to audit a secret
+ *   it gives out, so it gives none. The platform fixes it, and it's tried
+ *   again;
+ * - `pack-env-secret-too-large`: a secret's value is over 32768 bytes, the
+ *   most a pack service can be given;
+ * - `pack-env-secret-capacity`: a name is set only as a secret, and there's
+ *   no room just now for a pack service that can be given one, apart from
+ *   other projects'. It's tried again.
  */
 export const DEPLOYMENT_ENDPOINT_PROBLEM_CODES = [
   'endpoint-url-invalid',
@@ -229,6 +243,8 @@ export const DEPLOYMENT_ENDPOINT_PROBLEM_CODES = [
   'capacity-unavailable',
   'service-start-failed',
   ...PACK_ENV_PROBLEM_CODES,
+  ...PACK_ENV_SECRET_GIVE_CODES,
+  'pack-env-secret-capacity',
 ] as const;
 
 export type DeploymentEndpointProblemCode = (typeof DEPLOYMENT_ENDPOINT_PROBLEM_CODES)[number];

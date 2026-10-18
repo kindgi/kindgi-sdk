@@ -164,9 +164,16 @@ export type PostDeploymentResult =
       readonly error: {
         readonly code: string;
         readonly message: string;
+        /** The wire's `details.issues`: each primitive the server refused, and why. */
         readonly details?: readonly Record<string, unknown>[];
-        /** Which limit refused it (the wire's `details.limit`, on a `429`), when the server named one. */
+        /**
+         * Which limit refused it (the wire's `details.limit`), when the
+         * server named one: on a `429`, or on an `image-unverifiable`
+         * whose cause is `image-limit-exceeded`.
+         */
         readonly limit?: string;
+        /** Why the image couldn't be verified (the wire's `details.cause`), when the server named it. */
+        readonly cause?: string;
         /** The project's position in its environment order (the wire's `details.position`, on a `409 environment-takes-promotions`). */
         readonly position?: number;
         /** That order's first environment (the wire's `details.firstProjectId`), when the caller may read it. */
