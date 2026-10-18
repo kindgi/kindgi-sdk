@@ -969,13 +969,19 @@ export interface Guardrail {
 export interface GuardrailAction {
   /**
    * Built-in actions: `halt`, `retry`, `escalate`, `log-only`, `compensate`.
-   * Open string: any other non-empty name is accepted. In 0.1 the runtime acts
-   * only on `halt`: the turn fails with `guardrail-violation`. Any other value
-   * is recorded as a violation, as `log-only` is, and the turn completes:
-   * nothing runs the turn again, escalates or calls a compensating tool.
+   * Open string: any other non-empty name is accepted. The runtime acts on
+   * `halt`: the turn fails with `guardrail-violation`. It acts on `retry` too:
+   * the answer goes back to the model with the check's reason, for a new one,
+   * until the attempts run out, and then the turn fails the same way. Any
+   * other value is recorded as a violation, as `log-only` is, and the turn
+   * completes: in 0.1 nothing escalates or calls a compensating tool.
    */
   readonly 'on-violation': string;
-  /** The attempts a `retry` asks for. In 0.1 nothing acts on it: there's no second attempt. */
+  /**
+   * The answers a `retry` allows in one turn, the first one included
+   * (`maxAttempts: 3` sends a failed answer back up to twice). Left out, 2.
+   * The turn's `maxSteps` bounds it too.
+   */
   readonly retry?: {
     readonly maxAttempts: number;
   };

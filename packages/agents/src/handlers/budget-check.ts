@@ -2,12 +2,29 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { ModelMessage } from '@kindgi/capabilities';
-import type { NodeHandler } from '@kindgi/handler';
+import type { NodeContext, NodeHandler } from '@kindgi/handler';
+import type { Timestamp } from '@kindgi/types';
 
+import { AGENT_TURN_LOOP_MAX_ITERATIONS } from '../agent-turn-flow.js';
 import type { AgentOutputSpec } from '../types.js';
 import { DEFAULT_MAX_STEPS } from './constants.js';
 import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import {
+  emitGateEvents,
+  failTurn,
+  judgeAnswer,
+  recordOutcomes,
+  withBlocked,
+} from './evaluate-guardrails.js';
+import {
+  attemptsOf,
+  isRetryGuardrail,
+  judgedInLoop,
+  retryNote,
+  retryNotes,
+  sentBackSoFar,
+} from './guardrail-retry.js';
 import {
   DEFAULT_MAX_REPAIRS,
   type OutputChecker,
@@ -29,6 +46,14 @@ import {
  *     schema keeps the turn going with a repair message, while repairs
  *     (and steps) are left; after that the turn fails with
  *     `output-schema-violation`. Skipped on a dry run.
+ *   - The turn's `retry` guardrails — when it has one, a finished answer
+ *     (a valid one, for a typed agent) is judged here on its `halt` and
+ *     `retry` guardrails. A `halt` that fails it fails the turn at once. A
+ *     `retry` that fails it sends it back with a note giving the reasons,
+ *     while that guardrail's attempts (and the steps) last; after that the
+ *     turn fails with `guardrail-violation`. Skipped on a dry run. The
+ *     answer it lets finish is named on `ctx.answerJudgedInLoop`, so
+ *     `evaluate-guardrails` judges it on the other guardrails only.
  *
  * Returns the fully-shaped `AgentTurnIterationOutput` — this is the
  * iteration's `$loop-end` output that the loop node's `outputSchema`
@@ -37,6 +62,8 @@ import {
 export function buildBudgetCheckHandler(ctx: TurnContext): NodeHandler {
   let checker: OutputChecker | undefined;
   return async (input: unknown, kctx) => {
+    // Names this iteration's answer only once it's judged here, below.
+    ctx.answerJudgedInLoop = undefined;
     if (ctx.turnAbort.signal.aborted) {
       throwAgentTurnFailure({
         code: 'agent-turn-aborted',
@@ -101,6 +128,14 @@ export function buildBudgetCheckHandler(ctx: TurnContext): NodeHandler {
       }
     }
 
+    if (finishedTurn && !kctx.dryRun && ctx.guardrails?.some(isRetryGuardrail) === true) {
+      const sentBack = await judgeInLoop(ctx, kctx, partial.message, nextMessages, maxSteps);
+      if (sentBack !== undefined) {
+        finishedTurn = false;
+        nextMessages = sentBack;
+      }
+    }
+
     const output: AgentTurnIterationOutput = {
       finishReason: partial.finishReason,
       message: partial.message,
@@ -112,6 +147,97 @@ export function buildBudgetCheckHandler(ctx: TurnContext): NodeHandler {
     };
     return output;
   };
+}
+
+/**
+ * Judge the answer that would finish the turn on its `halt` and `retry`
+ * guardrails (`guardrailRetry`). Returns the messages that send it back,
+ * or `undefined` when it passed them, and then names it, by iteration and
+ * message, on `ctx.answerJudgedInLoop`.
+ */
+async function judgeInLoop(
+  ctx: TurnContext,
+  kctx: NodeContext,
+  answer: ModelMessage,
+  sent: readonly ModelMessage[],
+  maxSteps: number,
+): Promise<readonly ModelMessage[] | undefined> {
+  const iteration = loopIteration(kctx, ctx);
+  const sentBack = await guardrailRetry(ctx, kctx, iteration, answer, sent, {
+    // A new answer is another model call, in another iteration: within
+    // the agent's steps, and within the loop's own cap, or the loop
+    // would end on the answer it sent back.
+    stepsLeft: ctx.usage.steps < maxSteps && iteration + 1 < AGENT_TURN_LOOP_MAX_ITERATIONS,
+  });
+  if (sentBack === undefined) {
+    ctx.answerJudgedInLoop = { iteration, message: JSON.stringify(answer) };
+  }
+  return sentBack;
+}
+
+/**
+ * The kernel's loop iteration of this step (`$loop.iteration`), which a
+ * replay of the loop numbers the same. A handler run outside the kernel's
+ * loop counts by the turn's model calls instead.
+ */
+function loopIteration(kctx: NodeContext, ctx: TurnContext): number {
+  const loop = (kctx.state as { readonly $loop?: { readonly iteration?: unknown } } | undefined)
+    ?.$loop;
+  return typeof loop?.iteration === 'number' ? loop.iteration : ctx.usage.steps - 1;
+}
+
+/**
+ * Judge a finished answer on the turn's `halt` and `retry` guardrails.
+ * A `halt` that fails it fails the turn at once, before any answer is
+ * sent back. A `retry` that fails it returns the next model call's
+ * messages (the answer, then a note with the guardrails' reasons) while
+ * each such guardrail has attempts left (`retry.maxAttempts`, answers in
+ * all, the first one included) and the turn has steps left; otherwise the
+ * turn fails with `guardrail-violation`, with the answers it wrote.
+ * `undefined`: the answer passed them. Each answer's outcomes go to the
+ * ledger under this step and its iteration (`budget-check@2`), so one
+ * answer's never replace another's.
+ */
+async function guardrailRetry(
+  ctx: TurnContext,
+  kctx: NodeContext,
+  iteration: number,
+  answer: ModelMessage,
+  sent: readonly ModelMessage[],
+  budget: { readonly stepsLeft: boolean },
+): Promise<readonly ModelMessage[] | undefined> {
+  const guardrails = (ctx.guardrails ?? []).filter(judgedInLoop);
+  const evaluatedAt = new Date().toISOString() as Timestamp;
+  const categorized = await judgeAnswer(ctx, kctx, answer, guardrails, evaluatedAt);
+  const halted = categorized.blocking.length > 0 || categorized.blockingErrors.length > 0;
+  const sentBack = sentBackSoFar(sent);
+  const byId = new Map(guardrails.map((g) => [g.id as unknown as string, g]));
+  const outOfAttempts = halted
+    ? []
+    : categorized.retry.filter((v) => {
+        const id = v.guardrailId as unknown as string;
+        const guardrail = byId.get(id);
+        const answers = (sentBack.get(id) ?? 0) + 1;
+        return !budget.stepsLeft || guardrail === undefined || answers >= attemptsOf(guardrail);
+      });
+  const stepId = `${kctx.nodeId as unknown as string}@${iteration}`;
+  // Recorded before acting on them, as the outer gate does.
+  await recordOutcomes(
+    ctx,
+    kctx,
+    evaluatedAt,
+    withBlocked(categorized.checks, outOfAttempts),
+    stepId,
+  );
+  await emitGateEvents(ctx, categorized);
+  if (halted) {
+    return failTurn(ctx, categorized.blocking, categorized.blockingErrors, categorized.errors);
+  }
+  if (outOfAttempts.length > 0) {
+    return failTurn(ctx, outOfAttempts, [], categorized.errors, retryNotes(sent).length + 1);
+  }
+  if (categorized.retry.length === 0) return undefined;
+  return [...sent, answer, retryNote(categorized.retry)];
 }
 
 /**

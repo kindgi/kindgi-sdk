@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { UsageSink } from '@kindgi/capabilities';
-import type { EvaluationOutcome, Guardrail, GuardrailCheckOutcome } from '@kindgi/guardrails';
-import type { NodeContext, NodeHandler } from '@kindgi/handler';
+import type { ModelMessage, UsageSink } from '@kindgi/capabilities';
+import type {
+  EvaluationOutcome,
+  EvaluationResult,
+  Guardrail,
+  GuardrailCheckOutcome,
+} from '@kindgi/guardrails';
+import type { LoopNodeOutput, NodeContext, NodeHandler } from '@kindgi/handler';
 import type { KernelRunRecord, RunBinding } from '@kindgi/runtime';
 import type { FlowId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
 import {
+  type GuardrailEvaluationError,
   buildRunTrace,
   categorizeOutcomes,
   describeBlockingViolations,
@@ -16,9 +22,10 @@ import {
 import { emitTurnEvent } from '../streaming.js';
 import type { ConversationMessage } from '../types.js';
 
-import type { TurnContext } from './context.js';
+import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
 import { finalIteration } from './final-iteration.js';
+import { judgedInLoop, retryNotes } from './guardrail-retry.js';
 import { replayTag } from './replay.js';
 import { parseJsonAnswer } from './structured-output.js';
 
@@ -26,7 +33,15 @@ import { parseJsonAnswer } from './structured-output.js';
  * Guardrail gate on the turn's final response, before it is stored.
  * Receives the agent loop's output. A failed guardrail whose action is
  * `halt` throws, so the run fails and the response never reaches the
- * conversation; failures with any other action are stashed on `ctx` for
+ * conversation. A `retry` guardrail's failure is the loop's to act on:
+ * in a turn with a `retry` guardrail, `budget-check` judges each finished
+ * answer on the `halt` and `retry` guardrails and sends a failed one back
+ * while attempts last, and this node judges the answer the loop let
+ * finish on the other guardrails. A final answer the loop didn't judge in
+ * this process (a turn resumed elsewhere) is judged here on every
+ * guardrail, and a `retry` guardrail that fails it is out of attempts:
+ * the turn fails, as for a `halt`, except on a dry run, where it's only
+ * recorded. Failures with any other action are stashed on `ctx` for
  * `compose-result` to surface in `AgentTurnResult.violations`. Every
  * failure emits a `guardrail.violated` event. A guardrail whose check
  * couldn't run (no such check, a bad configuration) emits
@@ -50,14 +65,6 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
     }
     const final = finalIteration(input, 'evaluate-guardrails');
     const evaluatedAt = new Date().toISOString() as Timestamp;
-    // The response as it would be stored; not persisted yet.
-    const response: ConversationMessage = {
-      sequence: -1,
-      role: 'agent',
-      content: final.message.content ?? '',
-      createdAt: evaluatedAt,
-      actor: ctx.input.agent.id,
-    };
 
     if (ctx.provenance !== undefined) {
       ctx.provenance.addNode({
@@ -73,57 +80,23 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
       });
     }
 
-    const finalUsage = {
-      steps: ctx.usage.steps,
-      promptTokens: ctx.usage.promptTokens,
-      completionTokens: ctx.usage.completionTokens,
-      totalCostUsd: ctx.usage.totalCostUsd,
-      durationMs: Date.now() - ctx.startedAt,
-    };
-    const structured =
-      ctx.input.agent.output !== undefined && !kctx.dryRun
-        ? parseJsonAnswer(final.message.content)
-        : undefined;
-    const flowId = await flowOfTurn(ctx, kctx);
-    const trace = buildRunTrace({
-      runId: kctx.runId,
-      tenantId: ctx.input.tenantId,
-      projectId: ctx.input.projectId,
-      ...(ctx.input.orgId !== undefined && { orgId: ctx.input.orgId }),
-      conversationId: ctx.input.conversationId,
-      turnNumber: (ctx.conversation?.turnCount ?? 0) + 1,
-      agent: ctx.input.agent,
-      ...(flowId !== undefined && { flowId }),
-      userMessage: ctx.input.userMessage,
-      ...(ctx.input.input !== undefined && { stepInput: ctx.input.input }),
-      ...(structured?.kind === 'ok' && { structuredOutput: structured.value }),
-      appended: ctx.appended,
-      finalResponse: response,
-      usage: finalUsage,
-    });
-    const outcomes = await evaluateGate(
-      ctx.guardrails,
-      trace,
-      ctx.bindings,
-      ctx.tenantPolicy,
-      ctx.turnAbort.signal,
-      judgeUsageSink(ctx, kctx),
-    );
-    throwIfJudgeCallsUnrecorded(outcomes);
-    const categorized = categorizeOutcomes(outcomes, ctx.guardrails);
+    // The loop judged this very answer on the `halt` and `retry` guardrails
+    // (`budget-check`, in a turn with a `retry` guardrail), so the rest are
+    // judged here. Any other final output is judged on every guardrail.
+    const guardrails = judgedByLoop(ctx, input, final)
+      ? ctx.guardrails.filter((g) => !judgedInLoop(g))
+      : ctx.guardrails;
+    const categorized = await judgeAnswer(ctx, kctx, final.message, guardrails, evaluatedAt);
+    // A `retry` guardrail that fails here can't send the answer back, as the
+    // loop is done: it's out of attempts, and the turn fails. A dry run never
+    // asks the model again, so there it's only recorded.
+    const outOfAttempts = kctx.dryRun ? [] : categorized.retry;
     // Recorded before the gate acts on them, so a blocked turn is counted too.
-    await recordOutcomes(ctx, kctx, evaluatedAt, categorized.checks);
+    await recordOutcomes(ctx, kctx, evaluatedAt, withBlocked(categorized.checks, outOfAttempts));
+    await emitGateEvents(ctx, categorized);
 
-    const allViolations = [...categorized.blocking, ...categorized.warnings, ...categorized.other];
-    for (const v of allViolations) {
-      await emitTurnEvent(ctx.bindings.onEvent, {
-        kind: 'guardrail.violated',
-        action: v.action,
-        severity: v.severity,
-        guardrailId: v.guardrailId,
-        ...(v.result.reason !== undefined && { reason: v.result.reason }),
-      });
-      if (ctx.provenance !== undefined) {
+    if (ctx.provenance !== undefined) {
+      for (const v of violationsOf(categorized)) {
         ctx.provenance.addNode({
           id: `guardrail-check:${v.guardrailId}`,
           kind: 'guardrail-check',
@@ -142,18 +115,7 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
           kind: 'influenced-by',
         });
       }
-    }
-
-    for (const e of categorized.errors) {
-      await emitTurnEvent(ctx.bindings.onEvent, {
-        kind: 'guardrail.error',
-        guardrailId: e.guardrailId,
-        ...(e.action !== undefined && { action: e.action }),
-        ...(e.severity !== undefined && { severity: e.severity }),
-        code: e.code,
-        message: e.message,
-      });
-      if (ctx.provenance !== undefined) {
+      for (const e of categorized.errors) {
         ctx.provenance.addNode({
           id: `guardrail-check:${e.guardrailId}`,
           kind: 'guardrail-check',
@@ -173,30 +135,47 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
           kind: 'influenced-by',
         });
       }
+      // Each guardrail that sent an earlier answer back shaped this one: its
+      // note was in what the model read. From the journaled messages, so a
+      // resumed turn shows them too.
+      retryNotes(final.nextMessages).forEach((ids, i) => {
+        for (const guardrailId of ids) {
+          const id = `guardrail-check:${guardrailId}:sent-back:${i + 1}`;
+          ctx.provenance?.addNode({
+            id,
+            kind: 'guardrail-check',
+            timestamp: evaluatedAt,
+            attributes: { guardrailId, action: 'retry', passed: false, sentBack: i + 1 },
+          });
+          ctx.provenance?.addEdge({
+            from: id,
+            to: `model-output:${ctx.usage.steps}`,
+            kind: 'influenced-by',
+          });
+        }
+      });
     }
 
     if (categorized.blocking.length > 0 || categorized.blockingErrors.length > 0) {
-      const message = describeBlockingViolations(categorized.blocking, categorized.blockingErrors);
-      await emitTurnEvent(ctx.bindings.onEvent, {
-        kind: 'turn.failed',
-        conversationId: ctx.input.conversationId,
-        errorCode: 'guardrail-violation',
-        message,
-      });
-      throwAgentTurnFailure({
-        code: 'guardrail-violation',
-        message,
-        violations: categorized.blocking,
-        evaluationErrors: categorized.errors,
-      });
+      return await failTurn(
+        ctx,
+        categorized.blocking,
+        categorized.blockingErrors,
+        categorized.errors,
+      );
+    }
+    if (outOfAttempts.length > 0) {
+      const attempts = retryNotes(final.nextMessages).length + 1;
+      return await failTurn(ctx, outOfAttempts, [], categorized.errors, attempts);
     }
 
-    ctx.nonBlockingViolations = [...categorized.warnings, ...categorized.other];
+    const nonBlocking = [...categorized.warnings, ...categorized.retry, ...categorized.other];
+    ctx.nonBlockingViolations = nonBlocking;
 
     return {
       blocking: categorized.blocking.length,
       warnings: categorized.warnings.length,
-      other: categorized.other.length,
+      other: categorized.retry.length + categorized.other.length,
       // The journal records the step's output: a check that couldn't run shows there.
       errors: categorized.errors.map((e) => ({
         guardrailId: e.guardrailId,
@@ -206,6 +185,172 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
       })),
     };
   };
+}
+
+/**
+ * Whether the loop's final output is the answer `budget-check` judged
+ * and let finish the turn (`ctx.answerJudgedInLoop`): the loop ended on
+ * its exit condition, at that iteration, with that message. Anything
+ * else (no such answer in this process, the loop out of iterations, an
+ * output the flag doesn't name) is judged on every guardrail.
+ */
+function judgedByLoop(
+  ctx: TurnContext,
+  loopOutput: unknown,
+  final: AgentTurnIterationOutput,
+): boolean {
+  const judged = ctx.answerJudgedInLoop;
+  if (judged === undefined) return false;
+  const output = loopOutput as LoopNodeOutput<AgentTurnIterationOutput>;
+  return (
+    output.stopReason === 'exit-condition' &&
+    output.iterations - 1 === judged.iteration &&
+    final.finishedTurn &&
+    JSON.stringify(final.message) === judged.message
+  );
+}
+
+type Categorized = ReturnType<typeof categorizeOutcomes>;
+
+/** Every failed check, in the order the gate reports them. */
+function violationsOf(categorized: Categorized): readonly EvaluationResult[] {
+  return [
+    ...categorized.blocking,
+    ...categorized.warnings,
+    ...categorized.retry,
+    ...categorized.other,
+  ];
+}
+
+/**
+ * Judges `answer` on `guardrails`: the turn's trace with it as the
+ * response, as it would be stored, through the gate. Shared by this
+ * node and the loop's `budget-check`, which judges each finished answer
+ * on a turn's `halt` and `retry` guardrails.
+ */
+export async function judgeAnswer(
+  ctx: TurnContext,
+  kctx: NodeContext,
+  answer: ModelMessage,
+  guardrails: readonly Guardrail[],
+  evaluatedAt: Timestamp,
+): Promise<Categorized> {
+  if (guardrails.length === 0) return categorizeOutcomes([], []);
+  // The response as it would be stored; not persisted yet.
+  const response: ConversationMessage = {
+    sequence: -1,
+    role: 'agent',
+    content: answer.content ?? '',
+    createdAt: evaluatedAt,
+    actor: ctx.input.agent.id,
+  };
+  const usage = {
+    steps: ctx.usage.steps,
+    promptTokens: ctx.usage.promptTokens,
+    completionTokens: ctx.usage.completionTokens,
+    totalCostUsd: ctx.usage.totalCostUsd,
+    durationMs: Date.now() - ctx.startedAt,
+  };
+  const structured =
+    ctx.input.agent.output !== undefined && !kctx.dryRun
+      ? parseJsonAnswer(answer.content)
+      : undefined;
+  const flowId = await flowOfTurn(ctx, kctx, guardrails);
+  const trace = buildRunTrace({
+    runId: kctx.runId,
+    tenantId: ctx.input.tenantId,
+    projectId: ctx.input.projectId,
+    ...(ctx.input.orgId !== undefined && { orgId: ctx.input.orgId }),
+    conversationId: ctx.input.conversationId,
+    turnNumber: (ctx.conversation?.turnCount ?? 0) + 1,
+    agent: ctx.input.agent,
+    ...(flowId !== undefined && { flowId }),
+    userMessage: ctx.input.userMessage,
+    ...(ctx.input.input !== undefined && { stepInput: ctx.input.input }),
+    ...(structured?.kind === 'ok' && { structuredOutput: structured.value }),
+    appended: ctx.appended,
+    finalResponse: response,
+    usage,
+  });
+  const outcomes = await evaluateGate(
+    guardrails,
+    trace,
+    ctx.bindings,
+    ctx.tenantPolicy,
+    ctx.turnAbort.signal,
+    judgeUsageSink(ctx, kctx),
+  );
+  throwIfJudgeCallsUnrecorded(outcomes);
+  return categorizeOutcomes(outcomes, guardrails);
+}
+
+/**
+ * The ledger's checks with each of `outOfAttempts` (`retry` guardrails
+ * that ran out of attempts on this answer) `blocked`: it failed the
+ * turn, as a `halt` does.
+ */
+export function withBlocked(
+  checks: readonly GuardrailCheckOutcome[],
+  outOfAttempts: readonly EvaluationResult[],
+): readonly GuardrailCheckOutcome[] {
+  if (outOfAttempts.length === 0) return checks;
+  const ids = new Set(outOfAttempts.map((v) => v.guardrailId as unknown as string));
+  return checks.map((c) =>
+    c.outcome === 'violated' && ids.has(c.guardrailId) ? { ...c, outcome: 'blocked' } : c,
+  );
+}
+
+/**
+ * A `guardrail.violated` event for each failed check, and a
+ * `guardrail.error` one for each check that couldn't run.
+ */
+export async function emitGateEvents(ctx: TurnContext, categorized: Categorized): Promise<void> {
+  for (const v of violationsOf(categorized)) {
+    await emitTurnEvent(ctx.bindings.onEvent, {
+      kind: 'guardrail.violated',
+      action: v.action,
+      severity: v.severity,
+      guardrailId: v.guardrailId,
+      ...(v.result.reason !== undefined && { reason: v.result.reason }),
+    });
+  }
+  for (const e of categorized.errors) {
+    await emitTurnEvent(ctx.bindings.onEvent, {
+      kind: 'guardrail.error',
+      guardrailId: e.guardrailId,
+      ...(e.action !== undefined && { action: e.action }),
+      ...(e.severity !== undefined && { severity: e.severity }),
+      code: e.code,
+      message: e.message,
+    });
+  }
+}
+
+/**
+ * Fails the turn with `guardrail-violation`: a `halt` guardrail failed
+ * (or couldn't check), or `retry` guardrails ran out of `attempts`.
+ */
+export async function failTurn(
+  ctx: TurnContext,
+  violations: readonly EvaluationResult[],
+  blockingErrors: readonly GuardrailEvaluationError[],
+  evaluationErrors: readonly GuardrailEvaluationError[],
+  attempts?: number,
+): Promise<never> {
+  const message = describeBlockingViolations(violations, blockingErrors, attempts);
+  await emitTurnEvent(ctx.bindings.onEvent, {
+    kind: 'turn.failed',
+    conversationId: ctx.input.conversationId,
+    errorCode: 'guardrail-violation',
+    message,
+  });
+  throwAgentTurnFailure({
+    code: 'guardrail-violation',
+    message,
+    violations,
+    evaluationErrors,
+    ...(attempts !== undefined && { attempts }),
+  });
 }
 
 /** The most replays `parentOfRun` follows back to the run they replay. */
@@ -224,8 +369,12 @@ const MAX_REPLAY_HOPS = 10;
  * fails the step, so a guardrail scoped to flows never passes over a
  * turn whose flow went unread.
  */
-async function flowOfTurn(ctx: TurnContext, kctx: NodeContext): Promise<FlowId | undefined> {
-  if (ctx.guardrails === undefined || !ctx.guardrails.some(scopedToFlows)) return undefined;
+async function flowOfTurn(
+  ctx: TurnContext,
+  kctx: NodeContext,
+  guardrails: readonly Guardrail[],
+): Promise<FlowId | undefined> {
+  if (!guardrails.some(scopedToFlows)) return undefined;
   const runs = ctx.bindings.runBinding;
   if (runs === undefined) {
     throw new Error('evaluate-guardrails: bindings.runBinding is required.');
@@ -337,11 +486,12 @@ function judgeUsageSink(ctx: TurnContext, kctx: NodeContext): UsageSink | undefi
  * fail the step, as an unrecorded model call does, so the counts never
  * silently miss a turn.
  */
-async function recordOutcomes(
+export async function recordOutcomes(
   ctx: TurnContext,
   kctx: NodeContext,
   at: Timestamp,
   checks: readonly GuardrailCheckOutcome[],
+  stepId: string = kctx.nodeId as unknown as string,
 ): Promise<void> {
   const sink = ctx.bindings.guardrailOutcomes;
   if (sink === undefined || checks.length === 0) return;
@@ -351,7 +501,7 @@ async function recordOutcomes(
       tenantId: ctx.input.tenantId,
       projectId: ctx.input.projectId,
       runId: kctx.runId,
-      nodeId: kctx.nodeId as unknown as string,
+      nodeId: stepId,
       agentId: ctx.input.agent.id,
       agentVersion: ctx.input.agent.version,
       at,

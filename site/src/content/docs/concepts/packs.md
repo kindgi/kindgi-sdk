@@ -53,7 +53,8 @@ A flow is your process as data: steps and the edges between them.
 
 A guardrail is a check over an agent's turn: its answer, its tool calls,
 their results. It passes or fails, with a reason. A failed check can halt
-the turn or be recorded as a violation.
+the turn, send the answer back to the model for a new one, or be recorded as
+a violation.
 
 ## How a pack is found
 

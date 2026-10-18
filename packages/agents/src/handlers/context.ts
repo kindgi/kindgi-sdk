@@ -210,6 +210,16 @@ export interface TurnContext {
    */
   nonBlockingViolations?: readonly EvaluationResult[];
   /**
+   * The answer `budget-check` judged and let finish the turn, when the
+   * turn has a `retry` guardrail: its loop iteration and its message. Its
+   * `halt` and `retry` guardrails passed it there, so `evaluate-guardrails`
+   * judges only the others, and only when the loop's final output is this
+   * answer. In memory only: a turn resumed in another process has none,
+   * and `evaluate-guardrails` judges every guardrail, as without a `retry`
+   * one.
+   */
+  answerJudgedInLoop?: { readonly iteration: number; readonly message: string } | undefined;
+  /**
    * A replay turn's tool calls so far, and what happened to each
    * (`decideReplayTool`). Rebuilt from the journal on resume.
    */
