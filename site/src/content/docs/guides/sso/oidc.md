@@ -21,7 +21,7 @@ needs from that provider.
 `start` gives you the redirect URI to enter in your identity provider:
 
 ```sh
-kindgi sso providers start acme-oidc --kind=oidc
+pnpm exec kindgi sso providers start acme-oidc --kind=oidc
 ```
 
 - `acme-oidc` is the provider's id in your workspace.
@@ -71,7 +71,7 @@ Store the secret in Kindgi's secret store, by name, so it never travels by
 email or chat:
 
 ```sh
-kindgi secrets set ACME_OIDC_SECRET --env=production --scope=tenant
+pnpm exec kindgi secrets set ACME_OIDC_SECRET --env=production --scope=tenant
 ```
 
 - `ACME_OIDC_SECRET` is the secret's name. The registration keeps only this
@@ -103,7 +103,7 @@ Re-enter to confirm:
 `finish` registers the app, and offers it to people at your domains:
 
 ```sh
-kindgi sso providers finish acme-oidc --kind=oidc --issuer=<issuer> \
+pnpm exec kindgi sso providers finish acme-oidc --kind=oidc --issuer=<issuer> \
   --client-id=<client id> --client-secret-ref=ACME_OIDC_SECRET --domains=<your domain>
 ```
 

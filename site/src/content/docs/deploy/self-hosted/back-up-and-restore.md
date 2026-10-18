@@ -225,7 +225,7 @@ Then:
    with everything else:
 
    ```sh
-   kindgi memory erasures export --out=erasures-$(date +%F).json
+   pnpm exec kindgi memory erasures export --out=erasures-$(date +%F).json
    ```
 
    `--out` is the file it writes. `$(date +%F)` names it with the date of the
@@ -243,7 +243,7 @@ Then:
    anyone. It erases again whoever the restored database holds:
 
    ```sh
-   kindgi memory erasures replay erasures-<date>.json
+   pnpm exec kindgi memory erasures replay erasures-<date>.json
    ```
 
    `erasures-<date>.json` is the latest export. Its answer sorts the

@@ -75,7 +75,7 @@ through Cloud Run's own egress, which has no fixed address.
 ## See them
 
 ```sh
-kindgi egress
+pnpm exec kindgi egress
 ```
 
 ```text

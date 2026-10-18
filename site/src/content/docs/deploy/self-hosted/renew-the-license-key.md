@@ -84,7 +84,7 @@ Whatever runs `renew` needs to read these, and to write the license key's.
 access.kindgi.com trusts.
 
 ```sh
-kindgi license enroll --for <your GitHub login> --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
+pnpm exec kindgi license enroll --for <your GitHub login> --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
 ```
 
 - `--for` is the GitHub login you sign in to access.kindgi.com with. The
@@ -124,7 +124,7 @@ access.kindgi.com keeps only the renewer's public key.
 where the runtime reads the key:
 
 ```sh
-kindgi license renew --key gcp:projects/acme-prod/secrets/kindgi-license-key \
+pnpm exec kindgi license renew --key gcp:projects/acme-prod/secrets/kindgi-license-key \
   --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
 ```
 

@@ -452,13 +452,52 @@ one project's or org's.
 
 From the CLI, where `<conversation-id>` is the id `open` prints:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi conversations open acme.order-desk 0.1.0 --title="Order A-1002" --participant=customer-4411
-kindgi runs start --agent=acme.order-desk --agent-version=0.1.0 --input='{"userMessage":"Where is order A-1002?","conversationId":"<conversation-id>"}'
-kindgi conversations messages <conversation-id>   # oldest first
-kindgi conversations get <conversation-id>
-kindgi conversations close <conversation-id>
+pnpm exec kindgi conversations open acme.order-desk 0.1.0 --title="Order A-1002" --participant=customer-4411
+pnpm exec kindgi runs start --agent=acme.order-desk --agent-version=0.1.0 --input='{"userMessage":"Where is order A-1002?","conversationId":"<conversation-id>"}'
+pnpm exec kindgi conversations messages <conversation-id>   # oldest first
+pnpm exec kindgi conversations get <conversation-id>
+pnpm exec kindgi conversations close <conversation-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi conversations open acme.order-desk 0.1.0 --title="Order A-1002" --participant=customer-4411
+uv run kindgi runs start --agent=acme.order-desk --agent-version=0.1.0 --input='{"userMessage":"Where is order A-1002?","conversationId":"<conversation-id>"}'
+uv run kindgi conversations messages <conversation-id>   # oldest first
+uv run kindgi conversations get <conversation-id>
+uv run kindgi conversations close <conversation-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw conversations open acme.order-desk 0.1.0 --title="Order A-1002" --participant=customer-4411
+./kindgiw runs start --agent=acme.order-desk --agent-version=0.1.0 --input='{"userMessage":"Where is order A-1002?","conversationId":"<conversation-id>"}'
+./kindgiw conversations messages <conversation-id>   # oldest first
+./kindgiw conversations get <conversation-id>
+./kindgiw conversations close <conversation-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw conversations open acme.order-desk 0.1.0 --title="Order A-1002" --participant=customer-4411
+./kindgiw runs start --agent=acme.order-desk --agent-version=0.1.0 --input='{"userMessage":"Where is order A-1002?","conversationId":"<conversation-id>"}'
+./kindgiw conversations messages <conversation-id>   # oldest first
+./kindgiw conversations get <conversation-id>
+./kindgiw conversations close <conversation-id>
+```
+
+</TabItem>
+</Tabs>
 
 Over HTTP, these are `POST /v1/conversations`, `GET /v1/conversations`,
 `GET /v1/conversations/{id}`, `POST /v1/conversations/{id}/close` and
@@ -468,9 +507,36 @@ Over HTTP, these are `POST /v1/conversations`, `GET /v1/conversations`,
 
 Unregistering a conversation removes it from every read, list and recall:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi conversations unregister <conversation-id>
+pnpm exec kindgi conversations unregister <conversation-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi conversations unregister <conversation-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw conversations unregister <conversation-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw conversations unregister <conversation-id>
+```
+
+</TabItem>
+</Tabs>
 
 It prints the conversation, now with `unregisteredAt`:
 

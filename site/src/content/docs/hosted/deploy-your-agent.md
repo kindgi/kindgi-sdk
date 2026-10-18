@@ -42,8 +42,8 @@ the key at the prompt, which doesn't show it:
 
 ```sh
 read -rs KINDGI_API_TOKEN && export KINDGI_API_TOKEN
-kindgi auth login --url=https://platform.kindgi.com
-kindgi auth whoami
+pnpm exec kindgi auth login --url=https://platform.kindgi.com
+pnpm exec kindgi auth whoami
 ```
 
 `auth whoami` checks the key with Kindgi Cloud. The CLI keeps the key in
@@ -60,8 +60,8 @@ Kindgi Cloud workspace, and set it on the pack's `prod` environment." For
 reference, that's two commands:
 
 ```sh
-kindgi key create acme-desk --env=prod
-kindgi key trust acme-desk
+pnpm exec kindgi key create acme-desk --env=prod
+pnpm exec kindgi key trust acme-desk
 ```
 
 and the pack's `prod` environment in `kindgi.config.ts`. The config that
@@ -94,7 +94,7 @@ for your provider, and paste it at the prompt, twice: the second time
 confirms it.
 
 ```sh
-kindgi secrets set ANTHROPIC_API_KEY --env=prod --scope=tenant
+pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=prod --scope=tenant
 ```
 
 `--scope=tenant` makes it your whole workspace's key.
@@ -104,7 +104,7 @@ Ask your coding agent: "Register my model provider on `prod`, with the key
 I stored as `ANTHROPIC_API_KEY`." For reference:
 
 ```sh
-kindgi providers register --preset=anthropic --env=prod
+pnpm exec kindgi providers register --preset=anthropic --env=prod
 ```
 
 | Provider | Preset | The key's name |
@@ -125,7 +125,7 @@ Ask your coding agent: "Deploy the pack to Kindgi Cloud, and wait until
 its pack service is ready." For reference:
 
 ```sh
-kindgi deploy --hosted --env=prod
+pnpm exec kindgi deploy --hosted --env=prod
 ```
 
 - `--hosted` builds the pack on Kindgi Cloud, deploys what it built, and
@@ -149,7 +149,7 @@ happened**: each step, and then what the agent **Answered**.
 From the CLI, the same run is:
 
 ```sh
-kindgi runs start --agent=acme-desk.reply-drafter --input='{"userMessage":"Can I still return a jacket I bought five weeks ago?"}'
+pnpm exec kindgi runs start --agent=acme-desk.reply-drafter --input='{"userMessage":"Can I still return a jacket I bought five weeks ago?"}'
 ```
 
 ## Go live
@@ -165,7 +165,7 @@ Ask your coding agent: "Make the version of `acme-desk.reply-drafter` that I
 tried live in the Default project." For reference:
 
 ```sh
-kindgi agents promote acme-desk.reply-drafter <version> --project=<project-id> --reason="The version we tried"
+pnpm exec kindgi agents promote acme-desk.reply-drafter <version> --project=<project-id> --reason="The version we tried"
 ```
 
 `kindgi projects list` lists the projects, with their ids. In the console,

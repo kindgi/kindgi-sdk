@@ -32,7 +32,7 @@ page does the same steps ([From the console](#from-the-console)).
 registered:
 
 ```sh
-kindgi sso providers start acme-kc --idp=keycloak
+pnpm exec kindgi sso providers start acme-kc --idp=keycloak
 ```
 
 - `acme-kc` is the provider's id in your workspace. Pick one per identity
@@ -83,7 +83,7 @@ IT follows your identity provider's page, with exactly the redirect URI that
 by name, so the secret never travels by email or chat:
 
 ```sh
-kindgi secrets set ACME_KC_SECRET --env=production --scope=tenant
+pnpm exec kindgi secrets set ACME_KC_SECRET --env=production --scope=tenant
 ```
 
 - `ACME_KC_SECRET` is the secret's name. The provider's registration keeps
@@ -117,7 +117,7 @@ IT then sends back the issuer URL, the client ID and the secret's name.
 `finish` registers the provider, and offers it to people at your domains:
 
 ```sh
-kindgi sso providers finish acme-kc --kind=oidc --issuer=http://127.0.0.1:18091/realms/acme \
+pnpm exec kindgi sso providers finish acme-kc --kind=oidc --issuer=http://127.0.0.1:18091/realms/acme \
   --client-id=kindgi-live --client-secret-ref=ACME_KC_SECRET --domains=acme.test --name="Acme Keycloak"
 ```
 
@@ -171,7 +171,7 @@ provider confirms. Add each person first, with their email
 to try the sign-in:
 
 ```sh
-kindgi sso providers test acme-kc
+pnpm exec kindgi sso providers test acme-kc
 ```
 
 `test` gives a link for someone at the provider's first domain.
@@ -196,7 +196,7 @@ through.
 table:
 
 ```sh
-kindgi sso providers list --table
+pnpm exec kindgi sso providers list --table
 ```
 
 ```text
