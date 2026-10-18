@@ -18,6 +18,7 @@ import {
 import {
   type ItemCheck,
   type ItemRights,
+  type ItemServing,
   itemMiddleware,
   itemPathCheck,
   shownLatest,
@@ -53,6 +54,8 @@ export function evalSuitesRouter(
   authorizer?: Authorizer,
   /** Rights on a suite more than one project serves (`item-rights.ts`); absent → the suite's own. */
   itemRights?: ItemRights,
+  /** With no authorizer: which projects serve it, for `?projectId=` (`itemServingOf`). */
+  itemServing?: ItemServing,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -272,7 +275,7 @@ export function evalSuitesRouter(
     }
     // The newest version the caller can see, or the newest in
     // `?projectId=` (`item-rights.ts`).
-    const shown = await shownLatest(c, itemRights, 'eval_suite', suiteId, latest, {
+    const shown = await shownLatest(c, itemRights ?? itemServing, 'eval_suite', suiteId, latest, {
       versionOf: (s) => s.version as unknown as string,
       projectOf: (s) => s.projectId as unknown as string | undefined,
       getVersion: (version) => binding.getVersion({ tenantId, suiteId, version }),

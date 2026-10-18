@@ -14,7 +14,13 @@ import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding, FlowVersionRecord } from '../flow-binding.js';
 import { resolveFlowPins } from '../flow-pins.js';
-import { type ItemRights, itemMiddleware, itemPathCheck, shownLatest } from '../item-rights.js';
+import {
+  type ItemRights,
+  type ItemServing,
+  itemMiddleware,
+  itemPathCheck,
+  shownLatest,
+} from '../item-rights.js';
 import type { LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
@@ -71,6 +77,8 @@ export function flowsRouter(
   environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>,
   /** Rights on a flow more than one project serves (`item-rights.ts`); absent → the flow's own. */
   itemRights?: ItemRights,
+  /** With no authorizer: which projects serve it, for `?projectId=` (`itemServingOf`). */
+  itemServing?: ItemServing,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -254,11 +262,18 @@ export function flowsRouter(
     }
     // The newest version the caller can see, or the newest in
     // `?projectId=` (`item-rights.ts`).
-    const shown = await shownLatest(c, itemRights, 'flow', flowId as unknown as string, latest, {
-      versionOf: (f) => f.version as unknown as string,
-      projectOf: (f) => f.projectId as unknown as string | undefined,
-      getVersion: (version) => binding.getVersion({ tenantId, flowId, version }),
-    });
+    const shown = await shownLatest(
+      c,
+      itemRights ?? itemServing,
+      'flow',
+      flowId as unknown as string,
+      latest,
+      {
+        versionOf: (f) => f.version as unknown as string,
+        projectOf: (f) => f.projectId as unknown as string | undefined,
+        getVersion: (version) => binding.getVersion({ tenantId, flowId, version }),
+      },
+    );
     if (shown.kind === 'bad-input') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: shown.message }, requestId));

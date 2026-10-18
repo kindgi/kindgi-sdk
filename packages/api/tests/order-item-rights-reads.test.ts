@@ -94,12 +94,12 @@ function rows(): ItemRow[] {
   ];
 }
 
-/** A version record every kind's serializer reads. */
-function rec(id: string, version: string, projectId: ProjectId) {
+/** A version record every kind's serializer reads; `projectId` undefined: one that names none. */
+function rec(id: string, version: string, projectId: ProjectId | undefined) {
   return {
     id,
     version,
-    projectId,
+    ...(projectId !== undefined && { projectId }),
     tenantId,
     name: id,
     description: id,
@@ -181,17 +181,28 @@ const resolveToken: TokenResolver = async (token) => {
  * The app over every kind's records: the order's item at its three
  * versions (all filed under staging, its first project), the one-project
  * item in `other`, and the adopted agent in Default. Without `served`, no
- * item-projects binding: every item has one project.
+ * item-projects binding: every item has one project. Without `authorized`,
+ * no authorizer. With `projectless`, no record names a project, as
+ * `kindgi dev`'s pack read from disk.
  */
-function harness(opts: { served?: boolean; ordered?: boolean; soloOnly?: boolean } = {}) {
+function harness(
+  opts: {
+    served?: boolean;
+    ordered?: boolean;
+    soloOnly?: boolean;
+    authorized?: boolean;
+    projectless?: boolean;
+  } = {},
+) {
+  const at = (projectId: ProjectId) => (opts.projectless === true ? undefined : projectId);
   const records = (prefix: string) =>
     [
-      rec(SERVED, '0.9.0', STAGING),
-      rec(SERVED, '1.0.0', STAGING),
-      rec(SERVED, '1.1.0', STAGING),
-      rec(SOLO, '1.0.0', OTHER),
-      rec(SOLO, '2.0.0', OTHER),
-      ...(prefix === 'agent' ? [rec(ADOPTED, '1.0.0', DEFAULT)] : []),
+      rec(SERVED, '0.9.0', at(STAGING)),
+      rec(SERVED, '1.0.0', at(STAGING)),
+      rec(SERVED, '1.1.0', at(STAGING)),
+      rec(SOLO, '1.0.0', at(OTHER)),
+      rec(SOLO, '2.0.0', at(OTHER)),
+      ...(prefix === 'agent' ? [rec(ADOPTED, '1.0.0', at(DEFAULT))] : []),
     ].filter((r) => opts.soloOnly !== true || r.id === SOLO);
   const registries = Object.fromEntries(
     KINDS.map((k) => [k.registry, registry(k.idKey, records(k.kind))]),
@@ -202,7 +213,7 @@ function harness(opts: { served?: boolean; ordered?: boolean; soloOnly?: boolean
     ...createStubAppBindings(),
     ...registries,
     resolveToken,
-    authz: authz.authz,
+    ...(opts.authorized !== false && { authz: authz.authz }),
     ...(opts.served !== false && { itemProjects: items }),
     ...(opts.ordered !== false && { environmentOrders: environmentOrders([[STAGING, PROD]]) }),
   } as CreateAppInput);
@@ -417,5 +428,51 @@ describe('an item with one project', () => {
     // List pages check the order's item too, so compare the checks of single reads.
     const single = (checks: string[]) => checks.filter((a) => a.includes(SOLO));
     expect(single(withBinding.soloChecks)).toEqual(single(without.soloChecks));
+  });
+});
+
+describe.each(KINDS)('`?projectId=` on a $kind with no authorizer', (k) => {
+  const UNKNOWN = randomUUID();
+
+  test('a row that names no project, with no binding (`kindgi dev`): any project answers the read without one', async () => {
+    const { get } = harness({ served: false, authorized: false, projectless: true });
+    for (const id of [SOLO, SERVED]) {
+      const plain = await get('nobody', pathOf(k, id));
+      expect(plain.status, plain.text).toBe(200);
+      expect(plain.body.projectId).toBeUndefined();
+      for (const p of [OTHER, PROD, UNKNOWN]) {
+        expect((await get('nobody', pathOf(k, id, `?projectId=${p}`))).text).toBe(plain.text);
+      }
+    }
+  });
+
+  test('a row with a project, with no binding: its own project answers, any other is a 404', async () => {
+    const { get } = harness({ served: false, authorized: false });
+    expect((await get('nobody', pathOf(k, SOLO, `?projectId=${OTHER}`))).body.version).toBe(
+      '2.0.0',
+    );
+    expect((await get('nobody', pathOf(k, SOLO, `?projectId=${PROD}`))).status).toBe(404);
+    // The order's item is its row's project's alone: no binding says prod serves it.
+    expect((await get('nobody', pathOf(k, SERVED, `?projectId=${STAGING}`))).body.version).toBe(
+      '1.1.0',
+    );
+    expect((await get('nobody', pathOf(k, SERVED, `?projectId=${PROD}`))).status).toBe(404);
+  });
+
+  test("with the binding and the order [staging, prod]: each project answers the version it runs, for any caller; one outside the item's is a 404", async () => {
+    const { get, items } = harness({ authorized: false });
+    const prod = await get('nobody', pathOf(k, SERVED, `?projectId=${PROD}`));
+    expect(prod.status, prod.text).toBe(200);
+    expect(prod.body.version).toBe('1.0.0');
+    expect((await get('staging', pathOf(k, SERVED, `?projectId=${PROD}`))).body.version).toBe(
+      '1.0.0',
+    );
+    expect((await get('nobody', pathOf(k, SERVED, `?projectId=${STAGING}`))).body.version).toBe(
+      '1.1.0',
+    );
+    expect((await get('nobody', pathOf(k, SERVED, `?projectId=${OTHER}`))).status).toBe(404);
+    expect((await get('nobody', pathOf(k, SERVED, `?projectId=${UNKNOWN}`))).status).toBe(404);
+    expect((await get('nobody', pathOf(k, SERVED))).body.version).toBe('1.1.0');
+    expect(items).toContain(`projectsOf ${k.kind} ${SERVED}`);
   });
 });

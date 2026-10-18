@@ -12,7 +12,7 @@ import { continuityIssues, withCarriedSchema } from '../block-publish.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
-import { type ItemRights, shownLatest } from '../item-rights.js';
+import { type ItemRights, type ItemServing, shownLatest } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { AppEnv } from '../types.js';
@@ -50,6 +50,8 @@ export function blocksRouter(
   environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>,
   /** Rights on a block more than one project serves. Absent: every block has one project. */
   itemRights?: ItemRights,
+  /** With no authorizer: which projects serve it, for `?projectId=` (`itemServingOf`). */
+  itemServing?: ItemServing,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -157,7 +159,7 @@ export function blocksRouter(
     if (many === undefined && !(await canProject(c, 'read', block.projectId))) {
       return notFound(c, blockId);
     }
-    const shown = await shownLatest(c, itemRights, 'block', blockId, block, {
+    const shown = await shownLatest(c, itemRights ?? itemServing, 'block', blockId, block, {
       versionOf: (b) => b.version,
       projectOf: (b) => b.projectId,
       getVersion: (version) => binding.getVersion({ tenantId, blockId, version }),

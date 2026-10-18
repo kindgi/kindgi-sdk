@@ -48,7 +48,7 @@ import type { IdentityProviderBinding } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
 import type { ImprovementPassBinding } from './improvement-pass-binding.js';
 import type { ItemProjectsBinding } from './item-projects-binding.js';
-import { itemRightsOf } from './item-rights.js';
+import { itemRightsOf, itemServingOf } from './item-rights.js';
 import type { JudgingQueueBinding } from './judging-queue-binding.js';
 import type { JudgmentRegistryBinding } from './judgment-binding.js';
 import type { AgentReleaseBindings } from './live-version-binding.js';
@@ -1185,8 +1185,10 @@ export interface CreateAppInput {
    * Optional. Which projects serve each agent, flow, eval suite, tool,
    * guardrail and block. An item more than one project serves is governed
    * by rights on those projects (`item-rights.ts`), not by the project it
-   * was first published in. Absent: every item has one project, and every
-   * check is the item's own. The host application supplies it.
+   * was first published in. Without `authz` there are no rights to ask,
+   * but it still decides which version `?projectId=` answers on a single
+   * read. Absent: every item has one project, and every check is the
+   * item's own. The host application supplies it.
    */
   readonly itemProjects?: ItemProjectsBinding;
   /**
@@ -1469,6 +1471,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
   // Rights on an item more than one project serves (`item-rights.ts`).
   const itemRights = itemRightsOf(authorizer, input.itemProjects, input.environmentOrders);
+  // With no authorizer, which projects serve an item still decides what
+  // `?projectId=` answers on its single read.
+  const itemServing =
+    input.itemProjects !== undefined ? itemServingOf(input.itemProjects) : undefined;
   // A system principal acts in no tenant: it reaches /v1/system/* (and the
   // deployment's license), nothing else, and each of its requests is recorded.
   v1.use(
@@ -1631,6 +1637,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.referenceScope,
         input.environmentOrders,
         itemRights,
+        itemServing,
       ),
     );
   }
@@ -1653,6 +1660,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.referenceScope,
         input.environmentOrders,
         itemRights,
+        itemServing,
       ),
     );
   }
@@ -1689,6 +1697,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           environmentOrders: input.environmentOrders,
         }),
         ...(itemRights !== undefined && { itemRights }),
+        ...(itemServing !== undefined && { itemServing }),
       }),
     );
   }
@@ -1967,12 +1976,21 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   if (input.evalSuiteRegistry !== undefined) {
-    v1.route('/eval-suites', evalSuitesRouter(input.evalSuiteRegistry, authorizer, itemRights));
+    v1.route(
+      '/eval-suites',
+      evalSuitesRouter(input.evalSuiteRegistry, authorizer, itemRights, itemServing),
+    );
   }
   if (input.blockRegistry !== undefined) {
     v1.route(
       '/blocks',
-      blocksRouter(input.blockRegistry, authorizer, input.environmentOrders, itemRights),
+      blocksRouter(
+        input.blockRegistry,
+        authorizer,
+        input.environmentOrders,
+        itemRights,
+        itemServing,
+      ),
     );
   }
   if (input.judgmentRegistry !== undefined) {

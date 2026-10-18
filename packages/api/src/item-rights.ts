@@ -27,6 +27,11 @@
 // An item with one project keeps today's checks, unchanged: without the
 // binding, or without environment orders, every item has one.
 //
+// With the binding and no authorizer there are no rights to ask: every
+// caller in the tenant reads everything. Which projects serve an item is
+// still the binding's, so `?projectId=` answers the version that project
+// runs (`itemServingOf`, `shownLatest`).
+//
 
 import type { Context, MiddlewareHandler } from 'hono';
 import { routePath } from 'hono/route';
@@ -42,6 +47,8 @@ import type { Authorizer } from './middleware/authorize.js';
 import type { AppEnv } from './types.js';
 
 type Ctx = Context<AppEnv>;
+
+const tenantOf = (c: Ctx) => c.get('tenantId') as TenantId;
 
 /** What was refused: the action, on what, and the decision. */
 export interface ItemRefusal {
@@ -213,8 +220,6 @@ export function createItemRights(
     seen.set(key, answer);
     return answer;
   }
-  const tenantOf = (c: Ctx) => c.get('tenantId') as TenantId;
-
   function projects(c: Ctx, kind: OrderItemKind, id: string) {
     return once(c, `projects ${kind} ${id}`, () =>
       binding.projectsOf({ tenantId: tenantOf(c), kind, id }),
@@ -324,14 +329,7 @@ export function createItemRights(
     inProject?: string,
   ) {
     const { readable } = await reach(c, kind, id, projects);
-    const seen = inProject === undefined ? readable : readable.filter((p) => p === inProject);
-    if (seen.length === 0) return undefined;
-    const newest = await binding.newestVisibleOfMany({
-      tenantId: tenantOf(c),
-      kind,
-      readable: new Map([[id, seen]]),
-    });
-    return newest.get(id);
+    return newestIn(c, binding, kind, id, readable, inProject);
   }
 
   async function filterItems<T>(
@@ -536,6 +534,47 @@ export function createItemRights(
 }
 
 /** `rows` through `keep`, one at a time and in order, without the nulls. */
+/**
+ * The newest active version of `id` that can run in one of `projects`,
+ * or with `inProject`, in that one; `undefined`: none.
+ */
+async function newestIn(
+  c: Ctx,
+  binding: ItemProjectsBinding,
+  kind: OrderItemKind,
+  id: string,
+  projects: readonly ProjectId[],
+  inProject: string | undefined,
+): Promise<string | undefined> {
+  const seen = inProject === undefined ? projects : projects.filter((p) => p === inProject);
+  if (seen.length === 0) return undefined;
+  const newest = await binding.newestVisibleOfMany({
+    tenantId: tenantOf(c),
+    kind,
+    readable: new Map([[id, seen]]),
+  });
+  return newest.get(id);
+}
+
+/**
+ * What `shownLatest` reads of an item: which projects serve it, and its
+ * newest version that can run in them. `ItemRights` answers under rules 1
+ * and 2; `itemServingOf`, from the binding alone.
+ */
+export type ItemServing = Pick<ItemRights, 'projects' | 'newestVisible'>;
+
+/**
+ * The binding's answers with no rights asked, for a deployment with no
+ * authorizer, where every caller in the tenant reads every project.
+ */
+export function itemServingOf(binding: ItemProjectsBinding): ItemServing {
+  return {
+    projects: (c, kind, id) => binding.projectsOf({ tenantId: tenantOf(c), kind, id }),
+    newestVisible: (c, kind, id, projects, inProject) =>
+      newestIn(c, binding, kind, id, projects, inProject),
+  };
+}
+
 async function keptInOrder<T>(
   rows: readonly T[],
   keep: (row: T) => T | null | Promise<T | null>,
@@ -762,13 +801,16 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * Which version `GET /:id` answers, given the item's newest active one.
  * An item more than one project serves answers the newest the caller can
  * see (rule 2), or with `?projectId=P`, the newest that can run in P, a
- * project the caller reads. An item with one project answers `latest`,
- * when `?projectId=` names no project or names its own. Anything else is
- * the route's 404, as a hidden item is.
+ * project the caller reads (every one, with no authorizer: `serving` is
+ * then `itemServingOf`'s). An item with one project answers `latest`,
+ * when `?projectId=` names no project or names its own; a row that names
+ * no project (`kindgi dev` reads a pack's agents, flows and tools from
+ * disk) is every project's. Anything else is the route's 404, as a
+ * hidden item is.
  */
 export async function shownLatest<T>(
   c: Ctx,
-  rights: ItemRights | undefined,
+  serving: ItemServing | undefined,
   kind: OrderItemKind,
   id: string,
   latest: T,
@@ -782,14 +824,14 @@ export async function shownLatest<T>(
   if (inProject !== undefined && !UUID_RE.test(inProject)) {
     return { kind: 'bad-input', message: '`projectId` must be a project id (a UUID)' };
   }
-  const all = await rights?.projects(c, kind, id);
-  if (rights === undefined || all === undefined || all.length <= 1) {
+  const all = await serving?.projects(c, kind, id);
+  if (serving === undefined || all === undefined || all.length <= 1) {
     const own = all?.[0] ?? how.projectOf(latest);
-    return inProject === undefined || inProject === own
+    return inProject === undefined || own === undefined || inProject === own
       ? { kind: 'ok', row: latest }
       : { kind: 'not-found' };
   }
-  const newest = await rights.newestVisible(c, kind, id, all, inProject);
+  const newest = await serving.newestVisible(c, kind, id, all, inProject);
   if (newest === undefined) return { kind: 'not-found' };
   if (newest === how.versionOf(latest)) return { kind: 'ok', row: latest };
   const row = await how.getVersion(newest);

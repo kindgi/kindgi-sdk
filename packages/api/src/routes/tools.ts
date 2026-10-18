@@ -10,7 +10,13 @@ import type { Cursor, EnvName, ProjectId, TenantId, ToolId, UserId } from '@kind
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
-import { type ItemRights, itemMiddleware, itemPathCheck, shownLatest } from '../item-rights.js';
+import {
+  type ItemRights,
+  type ItemServing,
+  itemMiddleware,
+  itemPathCheck,
+  shownLatest,
+} from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
@@ -70,6 +76,8 @@ export function toolsRouter(
     readonly environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>;
     /** Rights on a tool more than one project serves (`item-rights.ts`); absent → the tool's own. */
     readonly itemRights?: ItemRights;
+    /** With no authorizer: which projects serve it, for `?projectId=` (`itemServingOf`). */
+    readonly itemServing?: ItemServing;
   } = {},
 ): Hono<AppEnv> {
   const itemRights = options.itemRights;
@@ -256,11 +264,19 @@ export function toolsRouter(
     }
     // The newest version the caller can see, or the newest in
     // `?projectId=` (`item-rights.ts`).
-    const shown = await shownLatest(c, itemRights, 'tool', toolId as unknown as string, latest, {
-      versionOf: (t) => t.version as unknown as string,
-      projectOf: (t) => t.projectId as unknown as string | undefined,
-      getVersion: (version) => binding.getVersion({ tenantId, toolId, version: version as never }),
-    });
+    const shown = await shownLatest(
+      c,
+      itemRights ?? options.itemServing,
+      'tool',
+      toolId as unknown as string,
+      latest,
+      {
+        versionOf: (t) => t.version as unknown as string,
+        projectOf: (t) => t.projectId as unknown as string | undefined,
+        getVersion: (version) =>
+          binding.getVersion({ tenantId, toolId, version: version as never }),
+      },
+    );
     if (shown.kind === 'bad-input') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: shown.message }, requestId));

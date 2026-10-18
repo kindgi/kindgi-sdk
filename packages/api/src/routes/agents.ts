@@ -32,6 +32,7 @@ import { statusFor, toWireError } from '../errors.js';
 import {
   type ItemCheck,
   type ItemRights,
+  type ItemServing,
   itemMiddleware,
   itemPathCheck,
   liveScopeCheck,
@@ -101,6 +102,8 @@ export function agentsRouter(
   environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>,
   /** Rights on an agent more than one project serves (`item-rights.ts`); absent → the agent's own. */
   itemRights?: ItemRights,
+  /** With no authorizer: which projects serve it, for `?projectId=` (`itemServingOf`). */
+  itemServing?: ItemServing,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -341,12 +344,19 @@ export function agentsRouter(
     }
     // The newest version the caller can see, or the newest in
     // `?projectId=` (`item-rights.ts`).
-    const shown = await shownLatest(c, itemRights, 'agent', agentId as unknown as string, latest, {
-      versionOf: (a) => a.version as unknown as string,
-      projectOf: (a) => a.projectId as unknown as string | undefined,
-      getVersion: (version) =>
-        binding.getVersion({ tenantId, agentId, version: version as Semver }),
-    });
+    const shown = await shownLatest(
+      c,
+      itemRights ?? itemServing,
+      'agent',
+      agentId as unknown as string,
+      latest,
+      {
+        versionOf: (a) => a.version as unknown as string,
+        projectOf: (a) => a.projectId as unknown as string | undefined,
+        getVersion: (version) =>
+          binding.getVersion({ tenantId, agentId, version: version as Semver }),
+      },
+    );
     if (shown.kind === 'bad-input') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: shown.message }, requestId));

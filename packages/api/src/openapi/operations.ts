@@ -309,7 +309,7 @@ const ItemProjectQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    "The newest active version that can run in this project, a project the caller reads; `404` when there's none, or when the caller doesn't read the project. An item with one project answers its latest version for its own project and `404` for any other. An older runtime ignores it and answers the latest version.",
+    "The newest active version that can run in this project, a project the caller reads; `404` when there's none, or when the caller doesn't read the project. An item with one project answers its latest version for its own project and `404` for any other; one that names no project (under `kindgi dev`, a pack's agents, flows and tools) answers it for any. With authorization off, the caller reads every project. An older runtime ignores it and answers the latest version.",
   schema: { type: 'string', format: 'uuid' },
 };
 
