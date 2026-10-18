@@ -1494,7 +1494,10 @@ export function deploymentsRouter(
  * tenant-wide one (no `projectId`) syncs them tenant-wide, though its tools
  * land in the Default project. The deploy records this scope for a secret
  * its tools name that's set nowhere yet, so a call reads what the sync
- * stores (`secret-scope.ts`).
+ * stores (`secret-scope.ts`). A promotion records its target project
+ * instead (`deployment-promotions.ts`): for a promotion into the Default
+ * project, which stores no `projectId`, that's the Default project, while
+ * this sync writes the tenant.
  */
 function deploymentSecretScope(tenantId: TenantId, projectId: ProjectId | undefined): Scope {
   if (projectId !== undefined) return { kind: 'project', tenantId, projectId };
