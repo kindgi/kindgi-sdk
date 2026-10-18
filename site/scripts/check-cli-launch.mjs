@@ -19,10 +19,10 @@
  * `bash`, `shell`, `zsh`) are read: a `text` block is output or a prompt
  * to paste, printed as it is.
  *
- * A page that says itself what `kindgi` in its commands stands for (the
- * coding agents' setup page, whose first steps run before there's a
- * project) carries `<!-- cli-launch: <why> -->`, or `{/* cli-launch: <why> *\/}`
- * in MDX, and isn't read.
+ * A command run before there's a project starts the CLI from the registry,
+ * `npx --yes @kindgi/cli@0.1 …` or `uvx --from "kindgi-cli>=0.1,<0.2" kindgi …`:
+ * there `kindgi` is a package name or an argument, so it's fine too. Every
+ * page is read, the coding agents' setup page included.
  *
  * Usage: node scripts/check-cli-launch.mjs
  */
@@ -57,7 +57,6 @@ const RUNS_NEXT = new Set([
   '{',
 ]);
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
-const SAYS_ITSELF = /<!--\s*cli-launch:|\{\/\*\s*cli-launch:/;
 const OPERATOR = new Set([';', '&', '|', '(', ')']);
 const BLANK = new Set([' ', '\t', '\n']);
 
@@ -232,10 +231,9 @@ export function blockLaunches(lines) {
 
 /**
  * Each bare `kindgi` a page's shell blocks run: its 1-based line and the
- * line's text. None for a page that says what `kindgi` stands for in it.
+ * line's text.
  */
 export function bareLaunches(source) {
-  if (SAYS_ITSELF.test(source)) return [];
   return shellBlocks(source).flatMap(({ start, lines }) =>
     blockLaunches(lines).map(({ line }) => ({ line: start + line, text: lines[line].trim() })),
   );
