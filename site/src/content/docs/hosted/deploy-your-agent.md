@@ -67,7 +67,7 @@ kindgi key trust acme-desk
 and the pack's `prod` environment in `kindgi.config.ts`. The config that
 `kindgi init` writes has this block, commented out:
 
-```ts
+```ts excerpt
 environments: {
   prod: {
     build: 'hosted',

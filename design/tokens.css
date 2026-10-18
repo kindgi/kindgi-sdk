@@ -108,8 +108,10 @@
   --kg-font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
   /* font-stretch for headings and the wordmark (IBM Plex Sans at its narrowest). */
   --kg-narrow: 85%;
-  /* Square: cards, buttons, dialogs, code. */
+  /* Square: cards, dialogs, code. */
   --kg-radius: 0;
+  /* Buttons: slightly rounded. */
+  --kg-radius-button: 4px;
   /* Form fields only: text boxes, selects, search. */
   --kg-radius-field: 3px;
   /* A list or table row, the comfortable default. */
