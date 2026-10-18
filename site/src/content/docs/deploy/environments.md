@@ -105,10 +105,11 @@ environments: {
 },
 ```
 
-On your own runtime, each environment also names the runtime's `endpoint`,
-the same one for every environment. The first has the registry, tenant and
-signing key settings that
-[Self-host Kindgi](../self-hosted/self-host/) describes:
+On your own runtime, each environment also names the runtime's `endpoint`
+and your `tenantId`, the same for every environment. Only the first has the
+registry and signing key settings that
+[Self-host Kindgi](../self-hosted/self-host/) describes: builds and signing
+happen only there, and a promotion keeps the build's signature.
 
 ```ts
 environments: {
@@ -120,8 +121,16 @@ environments: {
     signerKeyId: 'acme-desk',
     project: 'staging-1',
   },
-  'staging-2': { endpoint: 'https://kindgi.acme.example', project: 'staging-2' },
-  prod: { endpoint: 'https://kindgi.acme.example', project: 'production' },
+  'staging-2': {
+    endpoint: 'https://kindgi.acme.example',
+    tenantId: '<your tenant id>',
+    project: 'staging-2',
+  },
+  prod: {
+    endpoint: 'https://kindgi.acme.example',
+    tenantId: '<your tenant id>',
+    project: 'production',
+  },
 },
 ```
 
@@ -133,9 +142,9 @@ In a Python pack, the same keys go in `pyproject.toml`, under
 that names another project is refused, and the error names both.
 
 On your own runtime, an environment without `project` keeps its usual
-meaning: the runtime its `endpoint` names, with the project from
-`--project`, or the Default project. If you run one runtime per environment,
-nothing changes.
+meaning: the runtime its `endpoint` names, its name as the value set, and the
+project from `--project` or the Default project. If you run one runtime per
+environment, nothing changes.
 
 :::note[On Kindgi Cloud]
 Every environment names its project. A `--env` whose environment names no
@@ -197,8 +206,8 @@ that reads it:
 kindgi secrets set ORDERS_API_KEY --env=staging-2
 ```
 
-With `--env=staging-2`, the secret is stored for `staging-2`'s project.
-Outside a pack, `--scope=project:<projectId>` does the same. A tool's
+With `--env=staging-2`, the secret is stored for `staging-2`'s project, in
+the value set the runtime serves. Outside a pack, `--scope=project:<projectId>` does the same. A tool's
 per-project values work the same way, with `kindgi env set`
 ([Give a tool per-project values](../../guides/tools/give-a-tool-env-values/)).
 
@@ -301,9 +310,9 @@ The other environments aren't, so their runs count as staging.
   it names in the environment you're promoting to, then promote again.
 - **A promotion that skips an environment is refused.** Promote to the next
   environment in the order.
-- **A promotion between two runtimes is refused.** Its two environments name
-  different endpoints, and the error names both. An order's environments
-  are all on one runtime.
+- **A promotion between two runtimes or tenants is refused.** Its two
+  environments name different endpoints or tenants, and the error names
+  both. An order's environments are one tenant, on one runtime.
 - **A promotion is refused because the signing key isn't trusted.** The key
   that signed the build was revoked after the deploy. Deploy a new build,
   signed with a trusted key, into the first environment.
