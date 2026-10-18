@@ -183,11 +183,6 @@ export interface SecretScopeDeps {
 }
 
 /**
- * The scopes to record for the secrets an item at `item` names, by name,
- * as the request's caller registers it; `undefined` without a secrets store
- * (nothing is recorded, as before).
- */
-/**
  * Whether the caller administers a scope (`admin` on it), the question a
  * write that records a secret's scope asks of each scope it could record.
  * `undefined` without an authorizer: every scope counts.
@@ -201,6 +196,11 @@ export function callerAdministers(
   return (scope) => authorizer.can(c, 'admin', scopeResourceRef(scope, tenantId));
 }
 
+/**
+ * The scopes to record for the secrets an item at `item` names, by name,
+ * as the request's caller registers it; `undefined` without a secrets store
+ * (nothing is recorded, as before).
+ */
 export async function secretScopesFor(
   c: Context<AppEnv>,
   deps: SecretScopeDeps,
