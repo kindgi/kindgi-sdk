@@ -807,10 +807,12 @@ once one kind's versions are unregistered, the id is free for the other.
   rolls back what it had published.
 - **An endpoint that lists a tool whose id a published tool holds** skips
   that tool and registers the others. The runtime's log says so, at `WARN`,
-  with `endpointId`, `toolName` and `publishedVersion`:
+  with `endpointId`, `toolName` and `publishedVersion`. Here a pack's tool
+  `inventory.stock_level` 1.0.0 was deployed before the endpoint `inventory`
+  was registered:
 
 ```text
-MCP endpoint "<endpoint>" tool "<tool>" skipped: its id <id> is a tool published here (version <v>), not the endpoint's; unregister that tool's versions to free the id
+07:53:33.159 WARN  [mcp] MCP endpoint "inventory" tool "stock_level" skipped: its id inventory.stock_level is a tool published here (version 1.0.0), not the endpoint's; unregister that tool's versions to free the id endpointId=inventory toolName=stock_level publishedVersion=1.0.0
 ```
 
 A tool published during the sync, after it reads that id's versions and
