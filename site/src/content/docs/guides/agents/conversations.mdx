@@ -444,7 +444,7 @@ one project's or org's.
   A replay's conversation has `replayOf` and `evalRunId` in its `metadata`.
 - A conversation is in a project. A run opens it in the run's project, and
   `open` takes a `projectId`, one of your tenant's projects. Without one, it's
-  the Default project, as for a run.
+  the agent's own project, as for a run.
 - `list` takes a `scope` for one project's conversations, or every project's
   in an org: `{ kind: 'project', projectId }` or `{ kind: 'org', orgId }`. In
   Python, it's `scope_kind="project", scope_id=…`. A conversation stored
