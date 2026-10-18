@@ -98,6 +98,12 @@ const NOT_READY = [
     neededBy: { type: 'agent', id: 'acme.matcher', version: '1.0.0' },
     problem: 'quota',
   },
+  {
+    name: 'any provider',
+    kind: 'model-key',
+    neededBy: { type: 'agent', id: 'acme.matcher', version: '1.0.0' },
+    problem: 'no-provider',
+  },
 ];
 
 type Call = readonly unknown[];
@@ -109,6 +115,9 @@ async function run(
     readonly pages?: readonly Record<string, unknown>[];
     readonly check?: unknown;
     readonly promote?: () => unknown;
+    /** No pack config: the cwd has none. */
+    readonly noPack?: boolean;
+    readonly projects?: readonly Record<string, unknown>[];
   } = {},
 ) {
   const calls: Call[] = [];
@@ -118,13 +127,16 @@ async function run(
     env: {},
     cwd,
     home,
-    buildConfigLoader: async () => (opts.config ?? CONFIG) as { readonly [k: string]: unknown },
-    clientFactory: () =>
-      ({
+    ...(opts.noPack !== true && {
+      buildConfigLoader: async () => (opts.config ?? CONFIG) as { readonly [k: string]: unknown },
+    }),
+    clientFactory: (url: string) => {
+      calls.push(['client', url]);
+      return {
         projects: {
           list: async (...args: unknown[]) => {
             calls.push(['projects.list', ...args]);
-            return { data: PROJECTS, hasMore: false };
+            return { data: opts.projects ?? PROJECTS, hasMore: false };
           },
         },
         deployments: {
@@ -152,7 +164,8 @@ async function run(
             return { deployment: deployment('dep-prod-1'), created: true, moved: MOVES };
           },
         },
-      }) as never,
+      } as never;
+    },
   });
   return { out, calls };
 }
@@ -242,6 +255,9 @@ describe('kindgi promote', () => {
     expect(text).toContain('`kindgi secrets set ACME_MODEL_KEY --env=prod --scope=project:p-prod`');
     // A reason a later runtime names is said by its code.
     expect(text).toContain('LATER (env, for agent acme.matcher 1.0.0): not ready (quota).');
+    expect(text).toContain(
+      'any provider (model-key, for agent acme.matcher 1.0.0): no model provider is registered, so a run has none to call. Register one with `kindgi providers register --preset=<name>` (`kindgi providers presets` lists them), then check again: its key is needed in prod.',
+    );
   });
 
   test('--check prints the same and never promotes: exit 0 when ready, 1 when not', async () => {
@@ -377,6 +393,107 @@ describe('kindgi promote', () => {
     expect(missing.out.exitCode).not.toBe(0);
     expect(missing.out.stderr).toContain('pack.id');
     expect(named(missing.calls, 'deployments.list')).toEqual([]);
+  });
+
+  test('outside a pack: project slugs, any pack serving there, and each hint names the project and the env the runtime serves', async () => {
+    const { out, calls } = await run(['promote', '--from=staging', '--to=prod'], {
+      noPack: true,
+      pages: [{ data: [deployment('dep-s1')], hasMore: false, projectId: 'p-staging' }],
+      check: { ...READY_CHECK, values: NOT_READY.slice(0, 2), envName: 'production' },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(named(calls, 'deployments.list')).toEqual([
+      ['deployments.list', { projectId: 'p-staging' }],
+    ]);
+    expect(named(calls, 'promoteCheck')).toEqual([
+      ['promoteCheck', 'dep-s1', { toProjectId: 'p-prod' }],
+    ]);
+    expect(out.stdout).toContain('Not ready in prod:');
+    expect(out.stdout).toContain(
+      'Set it with `kindgi secrets set ACME_TOKEN --env=production --scope=project:p-prod`.',
+    );
+    expect(out.stdout).toContain(
+      'Set it with `kindgi env set SHOP_URL <value> --scope=project:p-prod --env=production`.',
+    );
+    expect(named(calls, 'promote')).toEqual([]);
+
+    // A runtime that names no env: what to put there, not a name made up.
+    const unnamed = await run(['promote', '--from=staging', '--to=prod', '--check'], {
+      noPack: true,
+      pages: [{ data: [deployment('dep-s1')], hasMore: false, projectId: 'p-staging' }],
+      check: { ...READY_CHECK, values: NOT_READY.slice(0, 1) },
+    });
+    expect(unnamed.out.stdout).toContain(
+      '`kindgi secrets set ACME_TOKEN --env=<the env the runtime serves> --scope=project:p-prod`',
+    );
+  });
+
+  test('outside a pack, several serving: each with its pack', async () => {
+    const { out } = await run(['promote', '--from=staging', '--to=prod'], {
+      noPack: true,
+      pages: [
+        {
+          data: [
+            deployment('dep-shop', { packId: 'acme.shop' }),
+            deployment('dep-blog', { packId: 'acme.blog' }),
+          ],
+          hasMore: false,
+          projectId: 'p-staging',
+        },
+      ],
+    });
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain('2 deployments serve in staging, newest first.');
+    expect(out.stderr).toMatch(/PACK +DEPLOYMENT/);
+    expect(out.stderr).toMatch(/acme\.blog +dep-blog/);
+  });
+
+  test('outside a pack, a slug two projects share is refused before any deployment is read', async () => {
+    const { out, calls } = await run(['promote', '--from=staging', '--to=prod'], {
+      noPack: true,
+      projects: [...PROJECTS, { id: 'p-prod-eu', name: 'Prod EU', slug: 'prod', orgId: 'o-eu' }],
+    });
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('"prod" is the slug of 2 projects');
+    expect(named(calls, 'deployments.list')).toEqual([]);
+  });
+
+  test('in a pack: --from and --to on another runtime or tenant are refused, naming both; else it goes where a deploy into --from does', async () => {
+    const on = (staging: object, prod: object) => ({
+      ...CONFIG,
+      environments: {
+        staging: { project: 'staging', ...staging },
+        prod: { project: 'prod', ...prod },
+      },
+    });
+    const split = await run(['promote', '--from=staging', '--to=prod'], {
+      config: on({ endpoint: 'https://a.acme.example' }, { endpoint: 'https://b.acme.example' }),
+    });
+    expect(split.out.exitCode).not.toBe(0);
+    expect(split.out.stderr).toContain(
+      'environments.staging.endpoint is https://a.acme.example, and environments.prod.endpoint is https://b.acme.example: an environment order lives in one tenant on one runtime',
+    );
+    expect(split.calls).toEqual([]);
+
+    const tenants = await run(['promote', '--from=staging', '--to=prod'], {
+      config: on({ tenantId: 't-acme' }, {}),
+    });
+    expect(tenants.out.exitCode).not.toBe(0);
+    expect(tenants.out.stderr).toContain(
+      'environments.staging.tenantId is t-acme, and environments.prod.tenantId is unset',
+    );
+    expect(tenants.calls).toEqual([]);
+
+    const same = await run(['promote', '--from=staging', '--to=prod', '--check'], {
+      config: on(
+        { endpoint: 'https://a.acme.example', tenantId: 't-acme' },
+        { endpoint: 'https://a.acme.example/', tenantId: 't-acme' },
+      ),
+    });
+    expect(same.out.exitCode).toBe(0);
+    const clients = named(same.calls, 'client');
+    expect(clients.length).toBeGreaterThan(0);
+    expect(clients.every((c) => c[1] === 'https://a.acme.example')).toBe(true);
   });
 
   test('an environment the config lacks, or a missing --to, is refused', async () => {

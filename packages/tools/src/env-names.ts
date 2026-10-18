@@ -20,3 +20,35 @@ export function toolRequiredEnvNames(manifest: Pick<ToolManifest, 'needsSpec'>):
     .map(([name]) => name)
     .sort();
 }
+
+/**
+ * Whether a schema says, in so many words, that it accepts `null`: `type`
+ * is or includes `'null'`, `enum` lists it, `const` is it, or a branch of
+ * `anyOf`/`oneOf` does. An unconstrained schema (`{}`) accepts null too,
+ * but says nothing. The rule the runtime holds a declared secret to.
+ */
+function namesNull(schema: unknown): boolean {
+  if (schema === null || typeof schema !== 'object') return false;
+  const s = schema as Readonly<Record<string, unknown>>;
+  if (s.type === 'null' || (Array.isArray(s.type) && s.type.includes('null'))) return true;
+  if (Array.isArray(s.enum) && s.enum.includes(null)) return true;
+  if ('const' in s && s.const === null) return true;
+  for (const key of ['anyOf', 'oneOf'] as const) {
+    const branches = s[key];
+    if (Array.isArray(branches) && branches.some(namesNull)) return true;
+  }
+  return false;
+}
+
+/**
+ * The secrets a tool's code declares (`needsSpec.secrets`) that a call runs
+ * without, by name: those whose schema accepts `null` (runtime 0.1.6 or
+ * later). One that was never stored is left out of `ctx.secrets`; a
+ * revoked one still refuses the call. Sorted.
+ */
+export function toolOptionalSecretNames(manifest: Pick<ToolManifest, 'needsSpec'>): string[] {
+  return Object.entries(manifest.needsSpec?.secrets ?? {})
+    .filter(([, schema]) => namesNull(schema))
+    .map(([name]) => name)
+    .sort();
+}

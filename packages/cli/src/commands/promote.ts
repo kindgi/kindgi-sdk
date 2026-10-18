@@ -14,18 +14,30 @@
  * promotes, and prints the deployment the target got. `--check` stops
  * before the write.
  *
- * Without `--deployment`, the build is this pack's deployment serving in
- * `--from`: it must be just one.
+ * In a pack, `--from` and `--to` are its config's environment names, each
+ * the project its `environments.<name>.project` names, and the promotion
+ * goes where a deploy into `--from` goes; an order lives in one tenant on
+ * one runtime, so both must name the same `endpoint` and `tenantId`.
+ * Outside a pack they're project ids or slugs, on the CLI's own runtime.
+ *
+ * Without `--deployment`, the build is the deployment serving in `--from`
+ * (in a pack, this pack's): it must be just one.
  */
 
 import { KindgiApiError } from '@kindgi/client';
-import type { Deployment, DeploymentPromotion, DeploymentPromotionCheck } from '@kindgi/client';
+import type {
+  Deployment,
+  DeploymentPromotion,
+  DeploymentPromotionCheck,
+  KindgiClient,
+} from '@kindgi/client';
 
+import { deployApiAddress, sameAddress } from '../api-address.js';
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import { type Column, type Rendered, renderJson, renderTable } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
-import { projectOfEnv } from './build.js';
+import { type EnvironmentConfig, projectOfEnv } from './build.js';
 import { packDirOf, resolveRefs } from './environments.js';
 import { runSdkRendered, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
@@ -35,13 +47,20 @@ type DeploymentValue = DeploymentPromotionCheck['values'][number];
 type Moves = DeploymentPromotionCheck['moves'];
 type LeftBehind = NonNullable<DeploymentPromotionCheck['leftBehind']>;
 
-/** Where a promotion goes from and to: the pack config's names, their projects, and the pack. */
+/**
+ * Where a promotion goes from and to, and the runtime it goes to. `from`
+ * and `to`: the pack config's environment names, or outside a pack the
+ * project ids or slugs given.
+ */
 interface Route {
   readonly from: string;
   readonly to: string;
   readonly fromProjectId: string;
   readonly toProjectId: string;
   readonly packId: string | undefined;
+  /** In a pack: its config maps each environment to its project, so `--env=<to>` says where a value goes. */
+  readonly inPack: boolean;
+  readonly client: KindgiClient;
 }
 
 async function routeOf(ctx: CommandContext): Promise<Route> {
@@ -49,17 +68,20 @@ async function routeOf(ctx: CommandContext): Promise<Route> {
   const to = stringFlag(ctx, 'to');
   if (from === undefined || to === undefined) {
     throw new UsageError(
-      'Name both environments from your pack config, e.g. `kindgi promote --from=staging --to=prod`.',
+      'Name both environments, e.g. `kindgi promote --from=staging --to=prod`: by their names in your pack config, or outside a pack by project id or slug.',
     );
   }
   const loaded = await loadPackConfig(ctx, packDirOf(ctx));
-  if (loaded.kind === 'missing') {
-    throw new UsageError(
-      `No pack config here (${loaded.message}). Run this in a pack, or pass --path=<the pack root>.`,
-    );
-  }
   if (loaded.kind === 'invalid') {
     throw new UsageError(`Couldn't read the pack config: ${loaded.message}`);
+  }
+  if (loaded.kind === 'missing') {
+    const client = ctx.client();
+    const [fromProjectId, toProjectId] = (await resolveRefs(ctx, [from, to], client)) as [
+      string,
+      string,
+    ];
+    return { from, to, fromProjectId, toProjectId, packId: undefined, inPack: false, client };
   }
   const refs = [from, to].map((name) => {
     const ref = projectOfEnv(loaded.config, name);
@@ -70,7 +92,11 @@ async function routeOf(ctx: CommandContext): Promise<Route> {
     }
     return ref;
   });
-  const [fromProjectId, toProjectId] = (await resolveRefs(ctx, refs)) as [string, string];
+  const environments = loaded.config.environments as
+    | Readonly<Record<string, EnvironmentConfig>>
+    | undefined;
+  const client = clientOf(ctx, from, to, environments?.[from], environments?.[to]);
+  const [fromProjectId, toProjectId] = (await resolveRefs(ctx, refs, client)) as [string, string];
   const packId = (loaded.config.pack as { readonly id?: unknown } | undefined)?.id;
   return {
     from,
@@ -78,7 +104,57 @@ async function routeOf(ctx: CommandContext): Promise<Route> {
     fromProjectId,
     toProjectId,
     packId: typeof packId === 'string' && packId !== '' ? packId : undefined,
+    inPack: true,
+    client,
   };
+}
+
+/**
+ * The runtime a promotion in a pack goes to: where a deploy into `--from`
+ * goes, its `endpoint` else the CLI's own address, with the key for it.
+ * An environment order lives in one tenant on one runtime, so `--from` and
+ * `--to` must name the same `endpoint` and `tenantId`.
+ */
+function clientOf(
+  ctx: CommandContext,
+  from: string,
+  to: string,
+  fromEnv: EnvironmentConfig | undefined,
+  toEnv: EnvironmentConfig | undefined,
+): KindgiClient {
+  for (const field of ['endpoint', 'tenantId'] as const) {
+    const a = fromEnv?.[field];
+    const b = toEnv?.[field];
+    const same =
+      a === undefined || b === undefined
+        ? a === b
+        : field === 'endpoint'
+          ? sameAddress(a, b)
+          : a === b;
+    if (!same) {
+      throw new UsageError(
+        `environments.${from}.${field} is ${a ?? 'unset'}, and environments.${to}.${field} is ${b ?? 'unset'}: an environment order lives in one tenant on one runtime, and a promotion stays there. Give both the same ${field}.`,
+      );
+    }
+  }
+  const address = deployApiAddress(
+    ctx.config,
+    [{ url: fromEnv?.endpoint, where: `environments.${from}.endpoint` }],
+    'kindgi promote',
+  );
+  if (address === undefined) {
+    throw new UsageError(
+      `kindgi promote could not resolve an API endpoint. Set environments.${from}.endpoint in kindgi.config.ts, pass --url <url>, or export KINDGI_API_URL.`,
+    );
+  }
+  if (address.kind === 'refused') throw new UsageError(address.message);
+  const token = address.config.token;
+  if (token === undefined || token === '') {
+    throw new UsageError(
+      'kindgi promote could not resolve an API token. Pass --token <key>, export KINDGI_API_TOKEN, or run `kindgi auth login`.',
+    );
+  }
+  return ctx.clientFor(address.url, token);
 }
 
 /**
@@ -91,15 +167,20 @@ function retiredReason(d: Deployment): string | undefined {
   return d.endpoint?.status === 'cleared' ? d.endpoint.retired : undefined;
 }
 
-/** This pack's deployments in the project, newest first, every page: those serving, and those not. */
-async function servingIn(ctx: CommandContext, projectId: string, packId: string) {
+/**
+ * The deployments in the project (of the pack, when given), newest first,
+ * every page: those serving, and those not.
+ */
+async function servingIn(client: KindgiClient, projectId: string, packId: string | undefined) {
   const serving: Deployment[] = [];
   const retired: Deployment[] = [];
   let cursor: string | undefined;
   for (;;) {
-    const page = await ctx
-      .client()
-      .deployments.list({ projectId, packId, ...(cursor !== undefined && { cursor }) });
+    const page = await client.deployments.list({
+      projectId,
+      ...(packId !== undefined && { packId }),
+      ...(cursor !== undefined && { cursor }),
+    });
     // A runtime from before these filters ignores them and lists every deployment.
     if (page.projectId !== projectId || page.packId !== packId) {
       throw new Error(
@@ -120,19 +201,23 @@ const CANDIDATE_COLUMNS: readonly Column<Deployment>[] = [
   { header: 'DIGEST', get: (d) => d.imageDigest },
 ];
 
-/** `--deployment`, else the one deployment of this pack serving in `--from`: else why not. */
+/** Outside a pack, the deployments serving in a project can be of any pack. */
+const PACK_COLUMN: Column<Deployment> = { header: 'PACK', get: (d) => d.packId ?? '' };
+
+/** `--deployment`, else the one deployment serving in `--from` (in a pack, of this pack): else why not. */
 async function sourceOf(
   ctx: CommandContext,
   route: Route,
 ): Promise<{ readonly deploymentId: string } | { readonly answer: Answer }> {
   const given = stringFlag(ctx, 'deployment');
   if (given !== undefined) return { deploymentId: given };
-  if (route.packId === undefined) {
+  if (route.inPack && route.packId === undefined) {
     throw new UsageError(
       "Your kindgi.config.ts names no pack (`pack.id`), so its deployment in the environment can't be found: pass --deployment=<id>.",
     );
   }
-  const { serving, retired } = await servingIn(ctx, route.fromProjectId, route.packId);
+  const { serving, retired } = await servingIn(route.client, route.fromProjectId, route.packId);
+  const of = route.packId !== undefined ? ` of ${route.packId}` : '';
   const [only] = serving;
   if (only !== undefined && serving.length === 1) return { deploymentId: only.deploymentId };
   if (only === undefined) {
@@ -144,7 +229,7 @@ async function sourceOf(
     return {
       answer: {
         stdout: '',
-        stderr: `No deployment of ${route.packId} serves in ${route.from}.${why} Deploy it there first, or pass --deployment=<id>.\n`,
+        stderr: `No deployment${of} serves in ${route.from}.${why} Deploy it there first, or pass --deployment=<id>.\n`,
         exitCode: 1,
       },
     };
@@ -152,7 +237,7 @@ async function sourceOf(
   return {
     answer: {
       stdout: '',
-      stderr: `${serving.length} deployments of ${route.packId} serve in ${route.from}, newest first. Pick one with --deployment=<id>:\n${renderTable(serving, CANDIDATE_COLUMNS).stdout}`,
+      stderr: `${serving.length} deployments${of} serve in ${route.from}, newest first. Pick one with --deployment=<id>:\n${renderTable(serving, route.packId !== undefined ? CANDIDATE_COLUMNS : [PACK_COLUMN, ...CANDIDATE_COLUMNS]).stdout}`,
       exitCode: 2,
     },
   };
@@ -212,16 +297,35 @@ function movedRow(kind: string, v: Moves['agents'][number], route: Pick<Route, '
   };
 }
 
-/** Where the values are set: the target environment and its project. */
+/**
+ * Where the target's values are set: its name (`label`), the env they're
+ * read under, and its project. `mapped`: the pack config maps the
+ * environment to its project, so `--env` alone says where a value goes.
+ */
 interface ValueTarget {
+  readonly label: string;
   readonly env: string;
   readonly projectId: string;
+  readonly mapped: boolean;
+}
+
+/**
+ * In a pack, `--env=<to>` is the environment, mapped to its project; outside one, the env the
+ * runtime serves (`envName`), which its runs read values under.
+ */
+function valueTargetOf(route: Route, envName: string | undefined): ValueTarget {
+  return {
+    label: route.to,
+    env: route.inPack ? route.to : (envName ?? '<the env the runtime serves>'),
+    projectId: route.toProjectId,
+    mapped: route.inPack,
+  };
 }
 
 /** The values not ready in the target, a line each with how to set it. */
 export function valuesText(values: readonly DeploymentValue[], target: ValueTarget): string {
-  if (values.length === 0) return `Every value it needs is set in ${target.env}.\n`;
-  const lines = [`Not ready in ${target.env}:`];
+  if (values.length === 0) return `Every value it needs is set in ${target.label}.\n`;
+  const lines = [`Not ready in ${target.label}:`];
   for (const v of values) lines.push(`  ${valueLine(v, target)}`);
   return `${lines.join('\n')}\n`;
 }
@@ -229,8 +333,10 @@ export function valuesText(values: readonly DeploymentValue[], target: ValueTarg
 function valueLine(v: DeploymentValue, target: ValueTarget): string {
   const what = `${v.name} (${v.kind}, for ${neededByText(v.neededBy)})`;
   const secretSet = `\`kindgi secrets set ${v.name} --env=${target.env} --scope=project:${target.projectId}\``;
-  // The pack config maps the environment to its project, so `--env` says where.
-  const envSet = `\`kindgi env set ${v.name} <value> --env=${target.env}\``;
+  // Outside a pack the project is named: `kindgi env set` without `--scope` writes a local file.
+  const envSet = target.mapped
+    ? `\`kindgi env set ${v.name} <value> --env=${target.env}\``
+    : `\`kindgi env set ${v.name} <value> --scope=project:${target.projectId} --env=${target.env}\``;
   const isSecret = v.kind === 'secret' || v.kind === 'model-key';
   const isEnv = v.kind === 'env' || v.kind === 'pack-env';
   switch (v.problem) {
@@ -244,6 +350,8 @@ function valueLine(v: DeploymentValue, target: ValueTarget): string {
       return `${what}: set only as a secret, which a pack service isn't given in its environment: a tool reads it per call (\`ctx.secrets\`).`;
     case 'ambiguous':
       return `${what}: set both as a secret and as a plain value. Remove one, so it's clear which the pack service gets.`;
+    case 'no-provider':
+      return `${what}: no model provider is registered, so a run has none to call. Register one with \`kindgi providers register --preset=<name>\` (\`kindgi providers presets\` lists them), then check again: its key is needed in ${target.label}.`;
     default:
       // A reason a later runtime names: said by its code.
       return `${what}: not ready (${v.problem ?? 'no reason given'}).`;
@@ -278,12 +386,12 @@ async function promoteBuild(ctx: CommandContext): Promise<Answer> {
   const source = await sourceOf(ctx, route);
   if ('answer' in source) return source.answer;
   const { deploymentId } = source;
-  const target = { env: route.to, projectId: route.toProjectId };
   // Prose unless a format is asked for (`--json`, `--raw`, `--quiet`), as `kindgi egress` does.
   const json = ctx.globals.formatRequested && ctx.globals.format !== 'table';
-  const deployments = ctx.client().deployments;
+  const deployments = route.client.deployments;
 
   const check = await deployments.promoteCheck(deploymentId, { toProjectId: route.toProjectId });
+  const target = valueTargetOf(route, check.envName);
   const ready = check.values.length === 0;
   if (ctx.options.check === true || !ready) {
     const exit = ready ? {} : { exitCode: 1 };
@@ -317,22 +425,24 @@ const promote: LeafCommand = {
   kind: 'leaf',
   name: 'promote',
   description:
-    "Move a build to the next environment of its environment order, staging to prod, say: the same signed image, with the edits made since to its agents and flows. Prints what moves, then each value the build needs there that isn't set, with the command that sets it; exits 1 while one isn't. `--check` stops before moving anything.",
+    "Move a build to the next environment of its environment order, staging to prod, say: the same signed image, with the edits made since to its agents and flows. Prints what moves, then each value the build needs there that isn't set, with the command that sets it; exits 1 while one isn't. `--check` stops before moving anything. In a pack, --from and --to are its environment names; outside one, project ids or slugs.",
   usage:
     'kindgi promote --from=<env> --to=<env> [--deployment=<id>] [--reason=<text>] [--check] [--path=<dir>]',
   optionSpec: {
     from: {
       type: 'string',
-      description: 'The environment the build serves in, by its name in your pack config.',
+      description:
+        'The environment the build serves in: its name in your pack config, or outside a pack a project id or slug.',
     },
     to: {
       type: 'string',
-      description: 'The next environment of the order, by its name in your pack config.',
+      description:
+        'The next environment of the order: its name in your pack config, or outside a pack a project id or slug.',
     },
     deployment: {
       type: 'string',
       description:
-        "The deployment to promote. Default: this pack's one deployment serving in --from.",
+        'The deployment to promote. Default: the one deployment serving in --from (in a pack, of this pack).',
     },
     reason: { type: 'string', description: 'Why, kept on the audit record.' },
     check: {

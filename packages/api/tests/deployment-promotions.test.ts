@@ -51,8 +51,8 @@ import { environmentOrders } from './support/environment-orders.js';
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'promotions-token';
-const resolveToken: TokenResolver = async (token) =>
-  token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
+/** A key minted for S1 alone. */
+const LIMITED = 'promotions-key-s1';
 
 const S1 = randomUUID() as ProjectId;
 const S2 = randomUUID() as ProjectId;
@@ -60,6 +60,14 @@ const S2 = randomUUID() as ProjectId;
 const PROD = randomUUID() as ProjectId;
 const OUTSIDE = randomUUID() as ProjectId;
 const ORDER = [S1, S2, PROD];
+
+const resolveToken: TokenResolver = async (token) => {
+  if (token === TOKEN) return { tenantId, userId: 'user-1' as UserId };
+  if (token === LIMITED) {
+    return { tenantId, userId: 'user-1' as UserId, tokenProjectId: S1 as unknown as string };
+  }
+  return null;
+};
 
 const KEY_ID = 'acme-release' as SigningKeyId;
 const keys = generateEd25519KeyPair();
@@ -137,7 +145,11 @@ function ledger(seeded: readonly Deployment[], opts: { promotes?: boolean } = {}
   const carried = new Map<string, CarriedVersion[]>();
   const secretScopes = new Map<string, readonly PromotedToolSecretScopes[]>();
   let seq = 0;
-  const inProject = (d: Deployment, projectId: ProjectId | undefined) => d.projectId === projectId;
+  // As the binding's contract: both stored forms of the Default (PROD) are the Default's.
+  const inProject = (d: Deployment, projectId: ProjectId | undefined) =>
+    projectId === undefined || projectId === PROD
+      ? d.projectId === undefined || d.projectId === PROD
+      : d.projectId === projectId;
   const binding: Ledger = {
     rows,
     carried,
@@ -243,6 +255,8 @@ function harness(
     /** Where a secret is set: `<scope kind>:<project id or empty>:<name>`. */
     readonly secrets?: readonly string[];
     readonly suspended?: readonly ProjectId[];
+    /** The env the runtime serves; `null`: none named. */
+    readonly envName?: string | null;
   } = {},
 ) {
   const deployments = ledger(opts.rows ?? [built({ id: 'dep-s1', projectId: S1 })], {
@@ -268,7 +282,7 @@ function harness(
     ...createStubAppBindings(),
     resolveToken,
     runHandler: {} as RunHandlerBinding,
-    envName: 'prod' as never,
+    ...(opts.envName !== null && { envName: (opts.envName ?? 'prod') as never }),
     deploymentRegistry: deployments,
     signingKeyRegistry: {
       isTrusted: async ({ keyId, publicKey }: { keyId: SigningKeyId; publicKey: string }) => ({
@@ -314,10 +328,10 @@ function harness(
       },
     }),
   });
-  const call = async (path: string, body: unknown) => {
+  const call = async (path: string, body: unknown, token = TOKEN) => {
     const res = await app.request(path, {
       method: 'POST',
-      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
     return { status: res.status, body: (await res.json()) as Record<string, any> };
@@ -420,6 +434,19 @@ describe('a promotion moves the exact build, one environment at a time', () => {
     expect(res.body.deployment.deploymentId).toBe('dep-prod-old');
     expect(h.deployments.rows).toHaveLength(2);
   });
+
+  test("adoption of a copy stored under the Default's id (a deploy that named it): 200 with that row, no second row", async () => {
+    const h = harness({
+      rows: [
+        built({ id: 'dep-prod-named', projectId: PROD }),
+        built({ id: 'dep-s2', projectId: S2 }),
+      ],
+    });
+    const res = await h.promote('dep-s2', PROD);
+    expect(res.status).toBe(200);
+    expect(res.body.deployment.deploymentId).toBe('dep-prod-named');
+    expect(h.deployments.rows).toHaveLength(2);
+  });
 });
 
 describe('the edits that move with the build', () => {
@@ -510,6 +537,24 @@ describe('only the next environment', () => {
 });
 
 describe('rights on the projects themselves', () => {
+  test('a key limited to a project neither promotes nor checks, with an authorizer or without: 403 key-project-mismatch', async () => {
+    const setups = [harness(), harness({ grants: [`read project:${S1}`, `admin project:${S2}`] })];
+    for (const h of setups) {
+      for (const path of ['promotions', 'promotions/check']) {
+        const res = await h.call(`/v1/deployments/dep-s1/${path}`, { toProjectId: S2 }, LIMITED);
+        expect(res.status).toBe(403);
+        expect(res.body.error.code).toBe('key-project-mismatch');
+        expect(res.body.error.details).toMatchObject({
+          keyProjectId: S1,
+          projectId: S2,
+          action: path === 'promotions' ? 'write' : 'read',
+        });
+      }
+      expect(h.deployments.rows).toHaveLength(1);
+      expect(h.appended).toEqual([]);
+    }
+  });
+
   test("read on the source's environment and admin on the target is enough: no tenant right", async () => {
     const h = harness({
       grants: [`read project:${S1}`, `admin project:${S2}`, `admin project:${S2}`],
@@ -598,8 +643,17 @@ describe('the values check', () => {
       },
       values: refused.body.error.details.values,
       nextEnvironment: { projectId: S2, position: 1 },
+      envName: 'prod',
     });
     expect(h.deployments.rows).toHaveLength(1);
+  });
+
+  test("the check names the env the runtime serves, where the target's values are set; none named, none given", async () => {
+    const served = await harness({ envName: 'production' }).check('dep-s1', S2);
+    expect(served.body.envName).toBe('production');
+    const unnamed = await harness({ envName: null }).check('dep-s1', S2);
+    expect(unnamed.status).toBe(200);
+    expect(unnamed.body).not.toHaveProperty('envName');
   });
 
   test('the check refuses as the promotion does', async () => {
@@ -622,6 +676,24 @@ describe('a build moves only while it serves and its signature holds', () => {
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('deployment-superseded');
     expect(res.body.error.details).toEqual({ environment: 'source', newerDeploymentId: 'dep-new' });
+  });
+
+  test('a superseded copy in the Default stored under its id: 409, as one stored with no project', async () => {
+    const h = harness({
+      rows: [
+        built({ id: 'dep-s2', projectId: S2 }),
+        built({ id: 'dep-prod-copy', projectId: PROD, endpoint: superseded }),
+        built({ id: 'dep-prod-new', seed: 'build-2' }),
+      ],
+    });
+    const res = await h.promote('dep-s2', PROD);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('deployment-superseded');
+    expect(res.body.error.details).toEqual({
+      environment: 'target',
+      newerDeploymentId: 'dep-prod-new',
+    });
+    expect(h.deployments.rows).toHaveLength(3);
   });
 
   test("a superseded copy in the target: 409, naming the target's newer deployment", async () => {

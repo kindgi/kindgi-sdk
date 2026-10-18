@@ -14,8 +14,11 @@
  * of the build's agents and flows move with it (`carried-versions.ts`).
  * It's refused, before anything is written, when:
  *
- * 1. the deployment isn't the caller's to read (`404 deployment-not-found`)
- *    or the target isn't theirs to administer (`403`);
+ * 1. the caller is a key or session limited to a project (`403
+ *    key-project-mismatch`: a promotion reads one project and writes
+ *    another), the deployment isn't the caller's to read (`404
+ *    deployment-not-found`), or the target isn't theirs to administer
+ *    (`403`);
  * 2. the target isn't the next environment of the deployment's order
  *    (`409 promotion-not-next-environment`);
  * 3. the deployment doesn't serve its environment any more, or the copy
@@ -64,9 +67,10 @@ import {
 } from '../deployment-values.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { limitedCaller } from '../middleware/key-project.js';
 import { secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import type { AppEnv } from '../types.js';
-import { deniedBy } from './denied.js';
+import { deniedBy, refused } from './denied.js';
 import type { DeploymentsRouterBindings } from './deployments.js';
 import { scopeResourceRef } from './scope-params.js';
 
@@ -256,6 +260,7 @@ export function mountDeploymentPromotions(
         projectId: plan.toProjectId as unknown as string,
         position: plan.position,
       },
+      ...(bindings.envName !== undefined && { envName: bindings.envName }),
       ...(plan.carried.leftBehind.length > 0 && { leftBehind: plan.carried.leftBehind }),
     });
   });
@@ -332,6 +337,31 @@ async function promotionBody(
 }
 
 /**
+ * A key or session limited to a project never promotes, nor reads what a
+ * promotion would: a promotion reads one project and writes another. The
+ * key-project middleware doesn't see either (the body names
+ * `toProjectId`), and without an authorizer nothing else would hold the
+ * key, so it's refused here, whatever the authorizer.
+ */
+function limitedToProject(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  toProjectId: ProjectId,
+  write: boolean,
+): Response | undefined {
+  const keyProject = c.get('tokenProjectId');
+  if (keyProject === undefined) return undefined;
+  return refused(c, authorizer, {
+    action: write ? 'write' : 'read',
+    resource: ref('project', toProjectId as string),
+    message: `${limitedCaller(c)} is limited to project ${keyProject}; a promotion reads one project and writes another, so a caller limited to one project can't promote`,
+    failing: 'scope',
+    code: 'key-project-mismatch',
+    details: { keyProjectId: keyProject, projectId: toProjectId },
+  });
+}
+
+/**
  * Every check a promotion makes before it writes, in order (the module
  * comment); the first refusal, as the route answers it. `write`: for the
  * promotion itself, which a runtime that can't promote refuses once the
@@ -344,6 +374,8 @@ async function planPromotion(
   toProjectId: ProjectId,
   write: boolean,
 ): Promise<PromotionPlan | Response> {
+  const limited = limitedToProject(c, authorizer, toProjectId, write);
+  if (limited !== undefined) return limited;
   const located = await sourceFor(c, bindings, authorizer);
   if (located instanceof Response) return located;
   const { source, fromProjectId } = located;
@@ -352,13 +384,15 @@ async function planPromotion(
   if (write && bindings.deploymentRegistry.promote === undefined) return unsupported(c);
   const position = await nextPosition(c, bindings, authorizer, fromProjectId, toProjectId);
   if (position instanceof Response) return position;
-  const refused =
+  const stopped =
     (await targetSuspended(c, bindings, source.tenantId, toProjectId)) ??
     (await unserved(c, bindings, source, 'source', fromProjectId)) ??
     (await signerRefusal(c, bindings, source));
-  if (refused !== undefined) return refused;
+  if (stopped !== undefined) return stopped;
   const defaultId = (await bindings.projectBinding?.getDefault(source.tenantId))?.id;
   const storedProjectId = toProjectId === defaultId ? undefined : toProjectId;
+  // The binding finds the Default's copy in either stored form, with no
+  // project or with its id (`DeploymentGetByImageDigestInput.projectId`).
   const there = await bindings.deploymentRegistry.getByImageDigest({
     tenantId: source.tenantId,
     imageDigest: source.imageDigest,
