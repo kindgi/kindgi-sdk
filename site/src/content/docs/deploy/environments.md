@@ -176,7 +176,7 @@ project is refused, and so is one that names no environment of the pack.
 **Set the order, once, as a tenant admin.** First environment first:
 
 ```sh
-kindgi environments set staging-1 staging-2 prod
+pnpm exec kindgi environments set staging-1 staging-2 prod
 ```
 :::
 
@@ -187,6 +187,10 @@ replaces the one before.
 
 `kindgi environments list` shows the order: each environment's position,
 its name in the pack's config, and its project.
+`kindgi deployments list --project=<slug> --table` lists one environment's
+deployments, by the slug its `project` names. The Default project's include
+the deployments that name no project. Add `--pack=<pack-id>` for one pack's
+deployments there.
 
 Don't confuse `kindgi environments` with `kindgi env`. `kindgi environments`
 sets the order of your environments. `kindgi env` sets the values in one
@@ -203,7 +207,7 @@ its project. The slug is `default`, unless you've renamed it:
 Then set the order, as a tenant admin:
 
 ```sh
-kindgi environments set staging prod
+pnpm exec kindgi environments set staging prod
 ```
 
 - **Your live agents stay live.** Their live versions don't change. On
@@ -222,7 +226,7 @@ tool values stored for that project. Store each value in the environment
 that reads it:
 
 ```sh
-kindgi secrets set ORDERS_API_KEY --env=staging-2
+pnpm exec kindgi secrets set ORDERS_API_KEY --env=staging-2
 ```
 
 With `--env=staging-2`, the secret is stored for `staging-2`'s project, in
@@ -250,13 +254,13 @@ Ask your coding agent: "Deploy the pack into `staging-1`." For reference, on
 Kindgi Cloud:
 
 ```sh
-kindgi deploy --hosted --env=staging-1
+pnpm exec kindgi deploy --hosted --env=staging-1
 ```
 
 On your own runtime, with its token exported as `KINDGI_API_TOKEN`:
 
 ```sh
-kindgi deploy --env=staging-1
+pnpm exec kindgi deploy --env=staging-1
 ```
 
 A deploy into a later environment is refused
@@ -276,7 +280,7 @@ Ask your coding agent: "Promote the build from `staging-1` to `staging-2`."
 For reference:
 
 ```sh
-kindgi promote --from=staging-1 --to=staging-2 --reason="Tried in staging-1"
+pnpm exec kindgi promote --from=staging-1 --to=staging-2 --reason="Tried in staging-1"
 ```
 
 It prints what moves before it moves anything: the pack, its build, and
@@ -318,7 +322,7 @@ build again doesn't make a second copy.
 Promote from the environment before `prod`, the same way:
 
 ```sh
-kindgi promote --from=staging-2 --to=prod --reason="Compared on the test set"
+pnpm exec kindgi promote --from=staging-2 --to=prod --reason="Compared on the test set"
 ```
 
 In `prod`, the promoted version waits while the live one serves. Try it by
