@@ -40,6 +40,7 @@ import {
   deriveIdempotencyKey,
   deriveSyncSecretsIdempotencyKey,
 } from '../deploy/post.js';
+import { type PromotionStop, promotionPath } from '../deploy/promotion-path.js';
 import { renderResponse } from '../deploy/response.js';
 import type {
   DeployRunners,
@@ -50,6 +51,7 @@ import type {
   RunBuildResult,
   SyncSecretsBody,
 } from '../deploy/runners.js';
+import { envProjectRefs } from '../env-projects.js';
 import {
   type PackEnvPlan,
   describePackEnvPlan,
@@ -220,6 +222,8 @@ interface ResolvedDeployArgs {
    */
   readonly syncSecrets: boolean;
   readonly envBlock: EnvironmentConfig | undefined;
+  /** Each environment of the pack config that names its project, to name the environments a refusal into a later one points at. */
+  readonly envProjects: readonly { readonly name: string; readonly ref: string }[];
   /** The pack service's process env in this environment (`env` + `environments.<env>.env`). */
   readonly packEnv: PackEnvPlan;
   readonly allowMissingEnv: boolean;
@@ -398,6 +402,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   );
 
   // ---- 10. Render response ---------------------------------------------
+  const promotionPath = await promotionPathOf(args, runners, ctx, result);
   const rendered = renderResponse(result, {
     envName: args.envName,
     endpoint: args.endpoint,
@@ -408,6 +413,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
     signerKeyId: envelope.signerKeyId ?? '(unsigned)',
     envelopePath: args.envelopePath,
     idempotencyKey,
+    promotionPath,
   });
   for (const l of rendered.banner) line(l);
 
@@ -1154,10 +1160,53 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       dryRun,
       syncSecrets,
       envBlock,
+      envProjects: envProjectRefs(cfg),
       packEnv: packEnv.plan,
       allowMissingEnv: ctx.options['allow-missing-env'] === true,
     },
   };
+}
+
+/**
+ * A deploy refused into a later environment of its order
+ * (`409 environment-takes-promotions`): each environment from the order's
+ * first to that one, named from the pack config, for the hint. `undefined`
+ * for any other answer, and when the refusal doesn't name the first (the
+ * caller can't read it) or the reads fail: the hint then says the rule
+ * without names.
+ */
+async function promotionPathOf(
+  args: ResolvedDeployArgs,
+  runners: DeployRunners,
+  ctx: CommandContext,
+  result: PostDeploymentResult,
+): Promise<readonly PromotionStop[] | undefined> {
+  if (result.kind !== 'wire-error' || result.error.code !== 'environment-takes-promotions') {
+    return undefined;
+  }
+  const { position, firstProjectId } = result.error;
+  if (position === undefined || firstProjectId === undefined) return undefined;
+  if (runners.listProjects === undefined || runners.listEnvironmentOrders === undefined) {
+    return undefined;
+  }
+  const opts = {
+    endpoint: args.endpoint,
+    token: args.token,
+    fetchImpl: ctx.fetch,
+    ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+  };
+  const [projects, orders] = await Promise.all([
+    runners.listProjects(opts),
+    runners.listEnvironmentOrders(opts),
+  ]);
+  if (projects.kind === 'error' || orders.kind === 'error') return undefined;
+  return promotionPath({
+    firstProjectId,
+    position,
+    orders: orders.orders,
+    projects: projects.projects,
+    environments: args.envProjects,
+  });
 }
 
 async function loadDeployConfig(

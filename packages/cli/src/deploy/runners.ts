@@ -165,6 +165,10 @@ export type PostDeploymentResult =
         readonly details?: readonly Record<string, unknown>[];
         /** Which limit refused it (the wire's `details.limit`, on a `429`), when the server named one. */
         readonly limit?: string;
+        /** The project's position in its environment order (the wire's `details.position`, on a `409 environment-takes-promotions`). */
+        readonly position?: number;
+        /** That order's first environment (the wire's `details.firstProjectId`), when the caller may read it. */
+        readonly firstProjectId?: string;
       };
     }
   | {
@@ -279,14 +283,41 @@ export type SyncSecretsResult =
  * branch without ever booting `kindgi build`, hitting a real
  * api-server, or reading a real envelope file.
  */
-/** `kindgi deploy --project <slug>`: the tenant's projects with that slug. */
-export interface FindProjectsOptions {
+/** A read of every page of one of the tenant's lists. */
+export interface ListOptions {
   readonly endpoint: string;
   readonly token: string;
-  readonly slug: string;
   readonly fetchImpl: typeof fetch;
   readonly signal?: AbortSignal;
 }
+
+/** `kindgi deploy --project <slug>`: the tenant's projects with that slug. */
+export interface FindProjectsOptions extends ListOptions {
+  readonly slug: string;
+}
+
+/** A project as `GET /v1/projects` lists it. */
+export interface ProjectRow {
+  readonly id: string;
+  readonly name: string;
+  readonly slug?: string;
+  readonly orgId?: string;
+}
+
+/** Every project the token can read (`GET /v1/projects`). */
+export type ListProjectsResult =
+  | { readonly kind: 'ok'; readonly projects: readonly ProjectRow[] }
+  | { readonly kind: 'error'; readonly message: string };
+
+/** An environment order as `GET /v1/environment-orders` lists it: a project the caller can't read is position-only. */
+export interface EnvironmentOrderRow {
+  readonly entries: readonly { readonly position: number; readonly projectId?: string }[];
+}
+
+/** Every environment order the token can read a project in (`GET /v1/environment-orders`). */
+export type ListEnvironmentOrdersResult =
+  | { readonly kind: 'ok'; readonly orders: readonly EnvironmentOrderRow[] }
+  | { readonly kind: 'error'; readonly message: string };
 
 /**
  * Every project of the tenant with the slug: none, one, or (a slug is
@@ -343,6 +374,13 @@ export interface DeployRunners {
   readonly syncSecrets?: (opts: SyncSecretsOptions) => Promise<SyncSecretsResult>;
   /** `--project <slug>`: the projects with that slug (`GET /v1/projects`, every page). */
   readonly findProjects?: (opts: FindProjectsOptions) => Promise<FindProjectsResult>;
+  /**
+   * A refusal into a later environment of an environment order: the
+   * projects and the orders, to name each environment a build goes through
+   * on its way there. Absent: the hint names none.
+   */
+  readonly listProjects?: (opts: ListOptions) => Promise<ListProjectsResult>;
+  readonly listEnvironmentOrders?: (opts: ListOptions) => Promise<ListEnvironmentOrdersResult>;
   /** `--hosted`: the deployment, read again while its pack service starts (`GET /v1/deployments/:id`). */
   readonly getDeployment?: (opts: GetDeploymentOptions) => Promise<GetDeploymentResult>;
   /** `--hosted`: the pause between those reads. Default: a timer, cut short by Ctrl+C. */
