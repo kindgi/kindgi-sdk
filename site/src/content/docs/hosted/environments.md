@@ -121,8 +121,8 @@ shows the live version and the versions waiting.
 The Default project can be an environment too. Keep it as the last one,
 `prod`, and put one or more staging projects before it.
 
-`prod` names the Default project by its slug, `default`, as every
-environment names its project:
+`prod` names the Default project by its slug, as every environment names
+its project. The slug is `default`, unless you've renamed it:
 
 ```ts
 environments: {
