@@ -47,8 +47,10 @@ export interface TurnInto {
  *     Read isn't enough: a viewer doesn't add turns.
  * What a conversation is checked on is its project, else (from before
  * projects) its agent, as reading it is. A caller who can't read it is
- * answered as if it didn't exist, byte for byte, in place of the 409 or the
- * 403. Without an authorizer, the 404 and the 409 still hold.
+ * answered as if it didn't exist, byte for byte, in place of the 409, or of
+ * the 403 for a conversation with no participant. With a participant, the
+ * participant rule's own 403 answers. Without an authorizer, the 404 and the
+ * 409 still hold.
  */
 export async function turnRefusal(
   c: Context<AppEnv>,

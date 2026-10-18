@@ -22958,7 +22958,7 @@
             }
           },
           "404": {
-            "description": "Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`); or `input.conversationId` names no conversation of this tenant (`conversation-not-found`), answered before any turn starts, with `options.wait: false` too. A conversation the caller can't read answers the same, byte for byte.",
+            "description": "Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`); or `input.conversationId` names no conversation of this tenant (`conversation-not-found`), answered before any turn starts, with `options.wait: false` too. A caller who can't read the conversation gets the same answer, byte for byte, in place of the 409 for a turn naming another project, or of the 403 for a conversation with no participant.",
             "content": {
               "application/json": {
                 "schema": {
