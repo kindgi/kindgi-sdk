@@ -116,19 +116,7 @@ export function resolveValueTarget(input: {
     if (flag === undefined) return { kind: 'ok', envName: served.envName, from: 'served' };
     const projectRef = input.environments?.[flag];
     if (projectRef !== undefined) {
-      const { scope } = input;
-      if (scope !== undefined && scope !== 'project' && !scope.startsWith('project:')) {
-        return {
-          kind: 'refused',
-          stderr: `--env=${flag} is the pack's environment ${flag}, so its scope is its project, ${projectRef}, not ${scope}. For a value every environment without its own reads, leave --env out (--scope=${scope}).\n`,
-        };
-      }
-      return {
-        kind: 'ok',
-        envName: served.envName,
-        from: 'environment',
-        environment: { name: flag, projectRef },
-      };
+      return environmentTarget({ name: flag, projectRef }, served, input.scope);
     }
     if (flag !== served.envName && input.write) {
       return {
@@ -143,6 +131,32 @@ export function resolveValueTarget(input: {
     return { kind: 'ok', envName: input.fallback, from: 'default' };
   }
   return { kind: 'missing' };
+}
+
+/**
+ * `--env` naming a pack environment with a project, on a runtime that
+ * refuses other envs: that project, under the env the runtime serves. A
+ * `--scope` (`scope`, as given) may only name that project.
+ */
+function environmentTarget(
+  environment: MappedEnvironment,
+  served: ServedEnv,
+  scope: string | undefined,
+): ValueTarget {
+  const { name, projectRef } = environment;
+  if (scope === 'project:') {
+    return {
+      kind: 'refused',
+      stderr: 'Malformed --scope: expected --scope=project:<projectId>, got "project:".\n',
+    };
+  }
+  if (scope !== undefined && scope !== 'project' && !scope.startsWith('project:')) {
+    return {
+      kind: 'refused',
+      stderr: `--env=${name} is the pack's environment ${name}, so its scope is its project, ${projectRef}, not ${scope}. For a value every environment without its own reads, leave --env out (--scope=${scope}).\n`,
+    };
+  }
+  return { kind: 'ok', envName: served.envName, from: 'environment', environment };
 }
 
 /**
@@ -169,17 +183,25 @@ function environmentsHint(flag: string, environments: PackEnvironments | undefin
   return `${unmapped}The pack's environments: ${list}. --env=<one of them> stores a value in its project.\n`;
 }
 
-/**
- * The environments of the pack at `--path` (else the cwd), or `undefined`
- * when there's no pack config there, or it can't be read.
- */
-export async function packEnvironmentsOf(
+/** The pack's environments, as its config gives them. */
+type PackEnvironmentsRead =
+  | { readonly kind: 'ok'; readonly environments: PackEnvironments }
+  /** No pack config there: outside a pack. */
+  | { readonly kind: 'missing' }
+  /** A pack config that can't be read. */
+  | { readonly kind: 'invalid'; readonly message: string };
+
+/** The environments of the pack at `--path`, else the cwd. */
+async function packEnvironmentsOf(
   ctx: Pick<CommandContext, 'buildConfigLoader' | 'options' | 'cwd'>,
-): Promise<PackEnvironments | undefined> {
+): Promise<PackEnvironmentsRead> {
   const raw = ctx.options.path;
   const dir = typeof raw === 'string' && raw !== '' ? raw : '.';
   const loaded = await loadPackConfig(ctx, isAbsolute(dir) ? dir : resolve(ctx.cwd, dir));
-  return loaded.kind === 'ok' ? environmentsOf(loaded.config) : undefined;
+  if (loaded.kind === 'ok') return { kind: 'ok', environments: environmentsOf(loaded.config) };
+  return loaded.kind === 'invalid'
+    ? { kind: 'invalid', message: loaded.message }
+    : { kind: 'missing' };
 }
 
 /** A pack config's environments, each with the project it names (`projectOfEnv`). */
@@ -191,42 +213,69 @@ export function environmentsOf(config: { readonly environments?: unknown }): Pac
   );
 }
 
+/** What a value command passes to `valueEnvFor` and `valueTargetFor`. */
+interface ValueTargetOptions {
+  readonly write: boolean;
+  readonly what: string;
+  readonly fallback?: string;
+  readonly mayOmit?: boolean;
+  readonly scope?: string;
+}
+
 /**
- * `resolveValueTarget` for a command: asks the runtime what it serves only
- * when that can change the answer: when `--env` is left out, the command
- * writes, or `--env` names one of the pack's environments with a project.
- * The pack's environments are read only when `--env` is given, and the
- * named environment's project is then looked up (a slug that names none or
- * several is refused).
+ * `resolveValueTarget` for a command, with a named pack environment's
+ * project as the config gives it (not looked up): for a command that uses
+ * the env alone. Asks the runtime what it serves only when that can change
+ * the answer: when `--env` is left out, the command writes, or `--env`
+ * names one of the pack's environments with a project. The pack's
+ * environments are read only when `--env` is given. On a runtime that
+ * refuses other envs, a pack config that can't be read is refused, before
+ * anything is sent: whether `--env` names one of its environments isn't
+ * known.
+ */
+export async function valueEnvFor(
+  ctx: CommandContext,
+  flag: string | undefined,
+  options: ValueTargetOptions,
+): Promise<ValueTarget> {
+  let served: ServedEnv | undefined;
+  let read: PackEnvironmentsRead = { kind: 'missing' };
+  if (flag === undefined || options.write) {
+    served = await servedEnvOf(ctx.client);
+    if (flag !== undefined && served?.refusesOtherEnvs === true) {
+      read = await packEnvironmentsOf(ctx);
+    }
+  } else {
+    read = await packEnvironmentsOf(ctx);
+    if (read.kind === 'invalid' || (read.kind === 'ok' && read.environments[flag] !== undefined)) {
+      served = await servedEnvOf(ctx.client);
+    }
+  }
+  if (read.kind === 'invalid' && flag !== undefined && served?.refusesOtherEnvs === true) {
+    return {
+      kind: 'refused',
+      stderr: `Couldn't read the pack config: ${read.message.trimEnd()}\nOn this runtime, --env=${flag} may name one of the pack's environments, whose values are in its project, so nothing was sent. Fix the config and run this again.\n`,
+    };
+  }
+  return resolveValueTarget({
+    flag,
+    served,
+    ...(read.kind === 'ok' && { environments: read.environments }),
+    ...options,
+  });
+}
+
+/**
+ * `valueEnvFor`, with the named pack environment's project looked up (a
+ * slug that names none or several is refused), and a `--scope` naming a
+ * project compared with it.
  */
 export async function valueTargetFor(
   ctx: CommandContext,
   flag: string | undefined,
-  options: {
-    readonly write: boolean;
-    readonly what: string;
-    readonly fallback?: string;
-    readonly mayOmit?: boolean;
-    readonly scope?: string;
-  },
+  options: ValueTargetOptions,
 ): Promise<CommandValueTarget> {
-  let served: ServedEnv | undefined;
-  let environments: PackEnvironments | undefined;
-  if (flag === undefined || options.write) {
-    served = await servedEnvOf(ctx.client);
-    if (flag !== undefined && served?.refusesOtherEnvs === true) {
-      environments = await packEnvironmentsOf(ctx);
-    }
-  } else {
-    environments = await packEnvironmentsOf(ctx);
-    if (environments?.[flag] !== undefined) served = await servedEnvOf(ctx.client);
-  }
-  const target = resolveValueTarget({
-    flag,
-    served,
-    ...(environments !== undefined && { environments }),
-    ...options,
-  });
+  const target = await valueEnvFor(ctx, flag, options);
   if (target.kind !== 'ok' || target.environment === undefined) {
     return target as CommandValueTarget;
   }

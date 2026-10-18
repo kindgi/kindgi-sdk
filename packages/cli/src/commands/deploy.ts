@@ -59,6 +59,7 @@ import {
 import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import type { OptionValue } from '../parse.js';
+import { PROJECT_ID_RE } from '../project-ref.js';
 import { type RateLimitRefusal, isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
 import { SLUG } from '../slug.js';
 import { type PackEnvironments, environmentsOf, resolveValueTarget } from '../value-target.js';
@@ -995,8 +996,6 @@ function sleepUnlessStopped(ms: number, signal?: AbortSignal): Promise<void> {
 // ---------------------------------------------------------------------
 // The project a deploy goes into
 // ---------------------------------------------------------------------
-
-const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type ProjectOutcome =
   | { readonly kind: 'ok'; readonly id?: string }

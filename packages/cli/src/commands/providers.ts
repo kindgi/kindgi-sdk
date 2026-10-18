@@ -24,7 +24,7 @@ import {
   presetRegistration,
   presetSettingFlag,
 } from '../providers/preset-loader.js';
-import { valueTargetFor } from '../value-target.js';
+import { valueEnvFor } from '../value-target.js';
 import {
   type TableSpec,
   readJsonInput,
@@ -243,8 +243,8 @@ async function presetInput(
   // runtime that keeps its values under one env, that one;
   // another is refused there. A pack environment named there is that env
   // too: a registration is the tenant's, and the key is stored per
-  // environment, in its project.
-  const target = await valueTargetFor(ctx, stringFlag(ctx, 'env'), {
+  // environment, in its project, so the project isn't looked up here.
+  const target = await valueEnvFor(ctx, stringFlag(ctx, 'env'), {
     write: true,
     what: "a provider's key",
     fallback: LOCAL_ENV_NAME,
@@ -280,12 +280,19 @@ async function presetInput(
     const missing = await missingPackSecret(ctx, ref.name, preset);
     if (missing !== undefined) throw new Error(missing);
   }
-  const environment = target.environment;
-  const keyHint =
-    environment !== undefined && ref !== undefined
-      ? `  Store the key per environment: \`kindgi secrets set ${ref.name} --env=${environment.name}\`, and the same with each other environment's name.\n`
-      : '';
-  return { input: built.input, keyHint };
+  return { input: built.input, keyHint: perEnvironmentKeyHint(target.environment, ref) };
+}
+
+/**
+ * When `--env` named a pack environment: storing the key per environment,
+ * in each one's project. Nothing otherwise, or for a preset with no key.
+ */
+function perEnvironmentKeyHint(
+  environment: { readonly name: string } | undefined,
+  ref: { readonly name: string } | undefined,
+): string {
+  if (environment === undefined || ref === undefined) return '';
+  return `  Store the key per environment: \`kindgi secrets set ${ref.name} --env=${environment.name}\`, and the same with each other environment's name.\n`;
 }
 
 /** Why `name` can't be resolved from the pack's env files, or `undefined` when it can (or this isn't a pack). */

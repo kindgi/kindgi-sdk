@@ -84,7 +84,11 @@ let packDir: string;
 
 beforeEach(async () => {
   packDir = await mkdtemp(join(tmpdir(), 'kindgi-cli-value-target-'));
-  await writeFile(join(packDir, 'kindgi.config.ts'), 'export default {};\n', 'utf8');
+  await writeFile(
+    join(packDir, 'kindgi.config.ts'),
+    "export default { pack: { id: 'acme-pack', version: '0.1.0' } };\n",
+    'utf8',
+  );
 });
 
 afterEach(async () => {
@@ -255,6 +259,20 @@ describe('kindgi secrets on a runtime that refuses other envs', () => {
     ]);
   });
 
+  test("a kindgi.config.ts that isn't a pack config: --env refused, nothing sent; without --env, the env it serves", async () => {
+    await writeFile(join(packDir, 'kindgi.config.ts'), 'export default {};\n', 'utf8');
+    const rt = runtime(REFUSES);
+    const refused = await cli(rt, ['secrets', 'list', '--env=staging', '--scope=tenant']);
+    expect(refused.exitCode).toBe(2);
+    expect(refused.stderr).toMatch(
+      /^Couldn't read the pack config: .*'pack' field is missing or not an object\nOn this runtime, --env=staging may name one of the pack's environments, whose values are in its project, so nothing was sent\. Fix the config and run this again\.\n$/,
+    );
+    expect(rt.calls).toEqual([]);
+    const served = await cli(rt, ['secrets', 'list', '--scope=tenant']);
+    expect(served.exitCode, served.stderr).toBe(0);
+    expect(rt.calls.map(([op, i]) => [op, i.envName])).toEqual([['secrets.list', 'prod']]);
+  });
+
   test('a runtime that names no served env, or takes any: --env is required, and any is sent', async () => {
     for (const served of [undefined, TAKES_ANY]) {
       const rt = runtime(served);
@@ -342,6 +360,8 @@ describe('kindgi providers register --preset on a runtime that refuses other env
   });
 
   test('a runtime that names no served env: `local`, as before', async () => {
+    // Under `local` the preset first looks for the key in the pack's env files.
+    await writeFile(join(packDir, '.env'), 'ANTHROPIC_API_KEY=sk-ant-acme-test\n', 'utf8');
     const rt = runtime(undefined);
     const out = await cli(rt, ['providers', 'register', '--preset=anthropic']);
     expect(out.exitCode, out.stderr).toBe(0);
