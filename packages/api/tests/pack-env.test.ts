@@ -315,6 +315,20 @@ describe('the revision', () => {
     expect(after.problem).toBeUndefined();
   });
 
+  test('a secret set under a served name changes it, and so does revoking it', async () => {
+    const s = stores();
+    s.setEnv(projectScope(staging), 'API_BASE', 'https://a.acme.test');
+    const served = await packEnvCheck(s.deps, input);
+    s.setSecret(tenantScope, 'API_BASE');
+    const ambiguous = await packEnvCheck(s.deps, input);
+    expect(ambiguous.problem).toBe('pack-env-ambiguous');
+    expect(ambiguous.revision).not.toBe(served.revision);
+    s.setSecret(tenantScope, 'API_BASE', true);
+    const revoked = await packEnvCheck(s.deps, input);
+    expect(revoked.problem).toBeUndefined();
+    expect(revoked.revision).toBe(served.revision);
+  });
+
   test('a value set at a narrower scope than the one served changes it', async () => {
     const s = stores();
     s.setEnv(tenantScope, 'API_BASE', 'https://tenant.acme.test');

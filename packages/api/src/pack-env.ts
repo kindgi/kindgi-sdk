@@ -181,16 +181,15 @@ async function readPackEnv(
     const env = await firstEnv(deps, chain, input.envName, name);
     const secret = await firstSecret(deps, chain, input.envName, name);
     // A row's revision starts again at 1 when a removed value is set again:
-    // its creation time tells the new row from the old one.
+    // its update time, which a new row takes when it's made, tells the new
+    // row from the old one.
     marks.push(
       JSON.stringify([
         name,
-        env === undefined
-          ? null
-          : [scopeKey(env.scope), env.createdAt, env.revision, env.updatedAt],
+        env === undefined ? null : [scopeKey(env.scope), env.revision, env.updatedAt],
         secret === undefined
           ? null
-          : [scopeKey(secret.scope), secret.createdAt, secret.currentVersion, secret.updatedAt],
+          : [scopeKey(secret.scope), secret.currentVersion, secret.updatedAt],
       ]),
     );
     if (env !== undefined && secret !== undefined) {
