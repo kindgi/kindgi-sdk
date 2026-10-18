@@ -441,6 +441,21 @@ it until that is 0. A key that opens under neither secret can't be used
 (`second-factor-unusable`): its person signs in with a recovery code, or an
 admin removes it.
 
+## Terms and privacy links
+
+The console's sign-in page can link your terms and privacy policy
+(runtime 0.1.8.1 or later):
+
+```sh
+# kindgi.env
+KINDGI_AUTH_TERMS_URL=https://www.acme-live.example/terms
+KINDGI_AUTH_PRIVACY_URL=https://www.acme-live.example/privacy
+```
+
+Set either one, or both. Each is an absolute `https` URL: with anything
+else, the runtime doesn't start. Unset, the page links neither. The links
+show beside kindgi.com and Docs, or under the form on a narrow screen.
+
 ## Behind a load balancer
 
 Sign-in's rate limits and records use the client's address. Behind a load
