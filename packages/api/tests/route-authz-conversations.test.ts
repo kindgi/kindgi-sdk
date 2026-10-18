@@ -144,7 +144,6 @@ describe('opening or closing one needs execute on its agent', () => {
     const opened = await call('POST', '/v1/conversations', {
       agentId: AGENT,
       agentVersion: '1.0.0',
-      projectId: P,
     });
     expect(opened.status).toBe(403);
     expect((await call('POST', `/v1/conversations/${inP.id}/close`)).status).toBe(403);
@@ -157,10 +156,20 @@ describe('opening or closing one needs execute on its agent', () => {
     await call('POST', '/v1/conversations', {
       agentId: AGENT,
       agentVersion: '1.0.0',
-      projectId: P,
     });
     await call('POST', `/v1/conversations/${inP.id}/close`);
     expect(reached).toEqual(['open', 'close']);
+  });
+
+  test('opening one in a project the body names also needs write on it, asked first', async () => {
+    const body = { agentId: AGENT, agentVersion: '1.0.0', projectId: P };
+    const refused = harness([`execute agent:${AGENT}`, `read project:${P}`]);
+    expect((await refused.call('POST', '/v1/conversations', body)).status).toBe(403);
+    expect(refused.asked).toEqual([`write project:${P}`]);
+    expect(refused.reached).toEqual([]);
+    const allowed = harness([`execute agent:${AGENT}`, `write project:${P}`]);
+    await allowed.call('POST', '/v1/conversations', body);
+    expect(allowed.reached).toEqual(['open']);
   });
 });
 

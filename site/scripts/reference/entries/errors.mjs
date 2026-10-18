@@ -314,7 +314,8 @@ export const ERROR_ENTRIES = {
     ],
   },
   'conversation-not-found': {
-    description: "The conversation doesn't exist in your tenant. Check the conversation id.",
+    description:
+      "The conversation doesn't exist in your tenant, or a turn names one in a project your key can't read. Check the conversation id.",
     details: [
       {
         key: 'conversationId',
@@ -744,6 +745,25 @@ export const ERROR_ENTRIES = {
       },
     ],
     seeAlso: ['guides/agents/conversations'],
+  },
+  'conversation-project-mismatch': {
+    description:
+      "The run names a project other than the conversation's. A conversation belongs to one project, and its turns run there. Name its project, or omit `projectId` to continue it in its own.",
+    details: [
+      {
+        key: 'conversationId',
+        meaning: 'the conversation the turn was posted into',
+      },
+      {
+        key: 'projectId',
+        meaning: 'the project the run named',
+      },
+      {
+        key: 'conversationProjectId',
+        meaning: "the conversation's own project",
+      },
+    ],
+    seeAlso: ['POST /v1/runs', 'guides/agents/conversations'],
   },
   'invalid-agent': {
     description:

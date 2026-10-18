@@ -104,6 +104,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'flow-already-registered': 409,
   'flow-project-mismatch': 409,
   'conversation-closed': 409,
+  // A turn names a project other than its conversation's: a conversation belongs to one.
+  'conversation-project-mismatch': 409,
   'invalid-agent': 400,
   'invalid-tool-definition': 400,
   'invalid-schema': 400,

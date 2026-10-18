@@ -10,7 +10,7 @@ import type {
   ConversationMessage,
   ConversationPageCursor,
 } from '@kindgi/agents';
-import { type ResourceRef, ref } from '@kindgi/authz';
+import { type ResourceRef, denyPayload, ref } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import type { RunBinding } from '@kindgi/runtime';
 import type { AgentId, ProjectId, Semver, TenantId } from '@kindgi/types';
@@ -232,6 +232,29 @@ export function conversationsRouter(
       return c.json(toWireError(parsed.error, requestId));
     }
     const supplied = parsed.value.projectId;
+    // Opening it in a project the caller names needs `write` there, as a
+    // run naming one does: its turns land there. Checked first, so a
+    // caller without it learns nothing of which projects exist.
+    if (authorizer !== undefined && supplied !== undefined) {
+      const named = ref('project', supplied as unknown as string);
+      const decision = await authorizer.check(c, 'write', named);
+      if (!decision.allowed) {
+        const deny = denyPayload('write', named.type, named.id, decision.reason);
+        c.status(403);
+        return c.json(
+          toWireError(
+            {
+              code: deny.code,
+              message: `Permission denied: opening a conversation in project ${named.id} needs write on it; omit \`projectId\` to open it in the agent's own project`,
+              action: deny.action,
+              resource: deny.resource,
+              reason: deny.reason,
+            },
+            requestId,
+          ),
+        );
+      }
+    }
     if (
       supplied !== undefined &&
       projectBinding !== undefined &&
