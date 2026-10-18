@@ -75,8 +75,8 @@ environment, `prod`'s included.
   environments, or changes it.
 - **A project for each environment.** `kindgi projects create --name=staging-1`
   makes one ([Organize by org and project](../../guides/projects/organize-by-org-and-project/)).
-  An order's projects all sit directly in your workspace, or all in the same
-  org. A project is in one order at most.
+  An order has two or more projects. They all sit directly in your
+  workspace, or all in the same org. A project is in one order at most.
 
 ## Name each environment's project
 
@@ -112,9 +112,15 @@ kindgi environments set staging-1 staging-2 prod
 
 It takes the pack's environment names, and maps each to its project.
 Outside a pack, `--projects` names the projects instead, by id or slug.
+For an order of an org's projects, add `--org=<org-id>`. Setting an order
+replaces the one before.
 
-`kindgi environments` shows the order. For each environment and agent, it
-shows the live version and the versions waiting.
+`kindgi environments list` shows the order: each environment's position,
+its name in the pack's config, and its project.
+
+Don't confuse `kindgi environments` with `kindgi env`. `kindgi environments`
+sets the order of your environments. `kindgi env` sets the values in one
+environment, its value set.
 
 ## If your agents already run in the Default project
 
@@ -243,6 +249,9 @@ its version, make it live, and roll back if you need to, as in
 - **A promotion is refused because the signing key isn't trusted.** The key
   that signed the build was revoked after the deploy. Deploy a new build,
   signed with a trusted key, into the first environment.
+- **Setting the order is refused (`project-in-another-order`).** One of its
+  projects is in another order already. Set that order without it, or
+  clear it, first.
 - **A project outside the order can't take the pack.** It's refused as a
   project of another pack
   ([A project for each client](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
@@ -251,3 +260,6 @@ its version, make it live, and roll back if you need to, as in
 
 Nothing changes for a workspace that doesn't set an order. Its projects
 work as [Deploy your agent to Kindgi Cloud](../deploy-your-agent/) says.
+
+To stop using an order, a tenant admin clears it with
+`kindgi environments clear`. Its projects then take builds directly again.
