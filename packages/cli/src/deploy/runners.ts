@@ -336,7 +336,10 @@ export type FindProjectsResult =
     }
   | { readonly kind: 'error'; readonly message: string };
 
-/** `kindgi deploy --sync-secrets`: what the runtime says it serves (whoami's `servedEnv`). */
+/**
+ * `kindgi deploy --sync-secrets`, or an `--env` whose pack environment names a
+ * project: what the runtime says it serves (whoami's `servedEnv`).
+ */
 export interface ServedEnvOptions {
   readonly endpoint: string;
   readonly token: string;
@@ -407,8 +410,9 @@ export interface DeployRunners {
   readonly listProjects?: (opts: ListOptions) => Promise<ListProjectsResult>;
   readonly listEnvironmentOrders?: (opts: ListOptions) => Promise<ListEnvironmentOrdersResult>;
   /**
-   * `--sync-secrets`: the env the runtime serves (`GET /v1/identity/whoami`),
-   * or `undefined` when it names none or can't be asked.
+   * `--sync-secrets`, or an `--env` whose pack environment names a project:
+   * the env the runtime serves (`GET /v1/identity/whoami`), or `undefined`
+   * when it names none or can't be asked.
    */
   readonly servedEnv?: (opts: ServedEnvOptions) => Promise<ServedEnv | undefined>;
   /** `--hosted`: the deployment, read again while its pack service starts (`GET /v1/deployments/:id`). */

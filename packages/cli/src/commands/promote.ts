@@ -41,8 +41,9 @@ import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import { type Column, type Rendered, renderJson, renderTable } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
+import { resolveProjectRefs } from '../project-ref.js';
 import { type EnvironmentConfig, projectOfEnv } from './build.js';
-import { packDirOf, resolveRefs } from './environments.js';
+import { packDirOf } from './environments.js';
 import { runSdkRendered, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -81,7 +82,7 @@ async function routeOf(ctx: CommandContext): Promise<Route> {
   }
   if (loaded.kind === 'missing') {
     const client = ctx.client();
-    const [fromProjectId, toProjectId] = (await resolveRefs(ctx, [from, to], client)) as [
+    const [fromProjectId, toProjectId] = (await resolveProjectRefs(ctx, [from, to], client)) as [
       string,
       string,
     ];
@@ -100,7 +101,10 @@ async function routeOf(ctx: CommandContext): Promise<Route> {
     | Readonly<Record<string, EnvironmentConfig>>
     | undefined;
   const client = clientOf(ctx, from, to, environments?.[from], environments?.[to]);
-  const [fromProjectId, toProjectId] = (await resolveRefs(ctx, refs, client)) as [string, string];
+  const [fromProjectId, toProjectId] = (await resolveProjectRefs(ctx, refs, client)) as [
+    string,
+    string,
+  ];
   const packId = (loaded.config.pack as { readonly id?: unknown } | undefined)?.id;
   return {
     from,

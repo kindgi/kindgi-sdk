@@ -3,19 +3,12 @@
 
 import { isAbsolute, resolve } from 'node:path';
 
-import type { KindgiClient } from '@kindgi/client';
-
 import type { CommandContext } from '../context.js';
-import {
-  type ListedProject,
-  PROJECT_ID_RE,
-  envNamesByProject,
-  envProjectRefs,
-  resolveAgainst,
-} from '../env-projects.js';
+import { envNamesByProject, envProjectRefs } from '../env-projects.js';
 import { UsageError } from '../errors.js';
 import { type Column, renderJson, renderTable } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
+import { PROJECT_ID_RE, listAllProjects, resolveProjectRefs } from '../project-ref.js';
 import { projectOfEnv } from './build.js';
 import { commandResultFromThrown, runSdk, stringFlag } from './helpers.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
@@ -24,52 +17,6 @@ import type { Command, CommandResult, LeafCommand } from './types.js';
 export function packDirOf(ctx: CommandContext): string {
   const raw = stringFlag(ctx, 'path') ?? '.';
   return isAbsolute(raw) ? raw : resolve(ctx.cwd, raw);
-}
-
-/** Every project of the tenant, following `nextCursor` to the last page. */
-async function listAllProjects(client: KindgiClient): Promise<ListedProject[]> {
-  const rows: ListedProject[] = [];
-  let cursor: string | undefined;
-  for (;;) {
-    const page = await client.projects.list(cursor !== undefined ? { cursor } : {});
-    rows.push(...((page.data ?? []) as readonly ListedProject[]));
-    if (page.hasMore !== true) break;
-    const next = (page as { readonly nextCursor?: unknown }).nextCursor;
-    if (typeof next !== 'string' || next === '') break;
-    cursor = next;
-  }
-  return rows;
-}
-
-/**
- * Resolve each id-or-slug to a project id, refusing a slug that names none
- * or several. `client`: the runtime to read the projects from; default, the
- * CLI's own.
- */
-export async function resolveRefs(
-  ctx: CommandContext,
-  refs: readonly string[],
-  client?: KindgiClient,
-): Promise<string[]> {
-  const needsList = refs.some((r) => !PROJECT_ID_RE.test(r));
-  const rows = needsList ? await listAllProjects(client ?? ctx.client()) : [];
-  return refs.map((ref) => {
-    const resolved = resolveAgainst(rows, ref);
-    if (resolved.kind === 'none') {
-      throw new UsageError(
-        `No project of this tenant has the slug "${ref}". \`kindgi projects list\` shows them; pass a project id instead.`,
-      );
-    }
-    if (resolved.kind === 'ambiguous') {
-      const named = resolved.matches
-        .map((m) => `${m.id} (${m.name ?? '?'}${m.orgId === undefined ? '' : `, org ${m.orgId}`})`)
-        .join(', ');
-      throw new UsageError(
-        `"${ref}" is the slug of ${resolved.matches.length} projects, in different orgs: ${named}. Pass the project id instead.`,
-      );
-    }
-    return resolved.id;
-  });
 }
 
 /**
@@ -127,7 +74,7 @@ async function envNameLabels(ctx: CommandContext): Promise<Map<string, string>> 
     const named = envProjectRefs(loaded.config);
     if (named.length === 0) return new Map();
     const needsList = named.some((n) => !PROJECT_ID_RE.test(n.ref));
-    return envNamesByProject(named, needsList ? await listAllProjects(ctx.client()) : []);
+    return envNamesByProject(named, needsList ? await listAllProjects(ctx) : []);
   } catch {
     // Labels are a convenience; the order still prints without them.
     return new Map();
@@ -199,7 +146,7 @@ const set: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'environments set', async () => {
       const orgId = stringFlag(ctx, 'org');
-      const projectIds = await resolveRefs(ctx, await refsForSet(ctx));
+      const projectIds = await resolveProjectRefs(ctx, await refsForSet(ctx));
       return orgId !== undefined
         ? await ctx.client().environmentOrders.setOrgOrder(orgId, { projectIds })
         : await ctx.client().environmentOrders.setTenantOrder({ projectIds });

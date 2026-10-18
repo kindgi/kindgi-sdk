@@ -1732,7 +1732,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     expect(run.fixtures.state.capturedSync?.body.envName).toBe(envName);
   });
 
-  test('without --sync-secrets, the runtime is not asked what it serves', async () => {
+  test('without --sync-secrets, to an environment that names no project, the runtime is not asked what it serves', async () => {
     await writeAutoEnvelope();
     const run = hostedFixtures(pending(), [ready], {
       servedEnv: { envName: 'prod', refusesOtherEnvs: true },
@@ -1740,6 +1740,120 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     const out = await deploy(run.fixtures, '--hosted');
     expect(out.exitCode, out.stderr).toBe(0);
     expect(run.fixtures.state.servedCalls).toEqual([]);
+  });
+
+  describe("a pack environment's project, on a runtime that keeps its values under one env", () => {
+    const REFUSES = { envName: 'prod', refusesOtherEnvs: true };
+    const projects = [{ id: PROJECT, name: 'Acme staging 1', slug: 'acme-staging-1' }];
+    /** staging-1 names its project, by slug; staging names none. */
+    const placed = (): Record<string, unknown> => ({
+      environments: {
+        'staging-1': {
+          signingKey: join(home, 'signing-key.pem'),
+          tenantId: 'tenant-acme',
+          project: 'acme-staging-1',
+        },
+        staging: { signingKey: join(home, 'signing-key.pem'), tenantId: 'tenant-acme' },
+      },
+    });
+    const deployTo = (fixtures: Fixtures, env: string, ...flags: string[]) =>
+      runCli({
+        ...baseInputs(fixtures, { env: signedIn }, placed()),
+        argv: ['deploy', `--env=${env}`, '--hosted', `--path=${packDir}`, ...flags],
+      });
+    const body = (fixtures: Fixtures) =>
+      fixtures.state.capturedPost?.body as Record<string, unknown> | undefined;
+
+    test('the deploy goes to that project, and its secrets under the env the runtime serves', async () => {
+      await writeAutoEnvelope();
+      await writeFile(join(packDir, '.env.staging-1'), 'FOO=from-staging-1\n', 'utf8');
+      const run = hostedFixtures(pending(), [ready], { servedEnv: REFUSES, projects });
+      const out = await deployTo(run.fixtures, 'staging-1', '--sync-secrets');
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(run.fixtures.state.servedCalls).toEqual([API]);
+      expect(body(run.fixtures)?.projectId).toBe(PROJECT);
+      expect(run.fixtures.state.capturedSync?.body.envName).toBe('prod');
+      expect(run.fixtures.state.capturedSync?.body.secrets).toEqual([
+        { name: 'FOO', value: 'from-staging-1' },
+      ]);
+      expect(out.stderr).toContain(
+        '  Project:     acme-staging-1  (environments.staging-1.project)\n  Secrets:     under prod, the env the runtime serves\n',
+      );
+    });
+
+    test('without --sync-secrets it still goes to that project, and the build carries it', async () => {
+      const run = hostedFixtures(pending(), [ready], {
+        servedEnv: REFUSES,
+        projects,
+        writeEnvelopeAt: join(packDir, '.kindgi/build/deploy-envelope.json'),
+      });
+      const out = await deployTo(run.fixtures, 'staging-1');
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(body(run.fixtures)?.projectId).toBe(PROJECT);
+      expect(run.fixtures.state.capturedBuild?.buildArgv).toEqual(
+        expect.arrayContaining([`--project=${PROJECT}`]),
+      );
+      expect(run.fixtures.state.syncCalls).toBe(0);
+      expect(out.stderr).not.toContain('Secrets:     under');
+    });
+
+    test('--project naming another project is refused before anything is built or sent', async () => {
+      await writeAutoEnvelope();
+      const other = '9a0b1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d';
+      const run = hostedFixtures(pending(), [ready], { servedEnv: REFUSES, projects });
+      const out = await deployTo(run.fixtures, 'staging-1', `--project=${other}`);
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `--project ${other} isn't the staging-1 environment's project, acme-staging-1 (environments.staging-1.project). Leave --project out, or deploy with the --env whose project it is.\n`,
+      );
+      expect(run.fixtures.state.buildCalls).toBe(0);
+      expect(run.fixtures.state.postCalls).toBe(0);
+    });
+
+    test('--project naming the same project, by id, is that project', async () => {
+      await writeAutoEnvelope();
+      const run = hostedFixtures(pending(), [ready], { servedEnv: REFUSES, projects });
+      const out = await deployTo(run.fixtures, 'staging-1', `--project=${PROJECT}`);
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(body(run.fixtures)?.projectId).toBe(PROJECT);
+    });
+
+    test('a slug that names no project is refused, saying where it came from', async () => {
+      const run = hostedFixtures(pending(), [ready], { servedEnv: REFUSES, projects: [] });
+      const out = await deployTo(run.fixtures, 'staging-1');
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        'environments.staging-1.project acme-staging-1: no project of this tenant has that slug.',
+      );
+      expect(run.fixtures.state.buildCalls).toBe(0);
+    });
+
+    test('on a runtime that takes any env, the project and the env are as before', async () => {
+      await writeAutoEnvelope();
+      await writeFile(join(packDir, '.env.staging-1'), 'FOO=bar\n', 'utf8');
+      const run = hostedFixtures(pending(), [ready], {
+        servedEnv: { envName: 'prod', refusesOtherEnvs: false },
+        projects,
+      });
+      const out = await deployTo(run.fixtures, 'staging-1', '--sync-secrets');
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(body(run.fixtures)?.projectId).toBeUndefined();
+      expect(run.fixtures.state.capturedSync?.body.envName).toBe('staging-1');
+      expect(run.fixtures.state.findCalls).toBe(0);
+    });
+
+    test('to an environment that names no project, --sync-secrets is refused, saying how to name one', async () => {
+      await writeAutoEnvelope();
+      await writeFile(join(packDir, '.env.staging'), 'FOO=bar\n', 'utf8');
+      const run = hostedFixtures(pending(), [ready], { servedEnv: REFUSES, projects });
+      const out = await deployTo(run.fixtures, 'staging', '--sync-secrets');
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        "The pack's environment staging names no project: add `environments.staging.project` to kindgi.config.ts, and --env=staging stores values in that project.\nThe pack's environments: staging-1 (project acme-staging-1). --env=<one of them> stores a value in its project.\n",
+      );
+      expect(run.fixtures.state.buildCalls).toBe(0);
+      expect(run.fixtures.state.syncCalls).toBe(0);
+    });
   });
 
   test("a project that isn't there fails before any build", async () => {
