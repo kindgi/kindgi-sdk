@@ -38,7 +38,7 @@ Desktop, or a Docker engine on Linux). A Python pack needs Python and the
 | [`kindgi key`](#kindgi-key) | Ed25519 signing keys: local pairs under `~/.kindgi/keys/`, and the runtime's trust list. |
 | [`kindgi skills`](#kindgi-skills) | Refresh the Claude Code skills in `.claude/skills/`. |
 | [`kindgi mcp`](#kindgi-mcp) | MCP servers for your coding agent, in `.mcp.json`. |
-| [`kindgi feedback`](#kindgi-feedback) | Note framework friction in the pack's `FEEDBACK.md`. |
+| [`kindgi feedback`](#kindgi-feedback) | Note framework friction in the pack's `FEEDBACK.md`, and send it to Kindgi once the person says yes to the preview. |
 
 The rest of the commands talk to a running Kindgi API: see
 [API commands](#api-commands).
@@ -764,6 +764,18 @@ pack's env files in its environment, so the secret is never written into
 friction to `FEEDBACK.md` at the pack root, where a coding agent can leave
 what it diagnosed for the maintainers.
 
+- `kindgi feedback submit --preview` prints exactly what would be sent to
+  Kindgi's intake (access.kindgi.com), after redaction, with its digest.
+  `--yes=<digest>` then sends exactly that; at a terminal it asks instead.
+  Home directories, paths outside the pack, the pack's env values, keys,
+  tokens, URL query values and email addresses are taken out first.
+  `KINDGI_FEEDBACK_SUBMIT=off` turns sending off.
+- `kindgi feedback status` says what became of the reports sent: received,
+  known, fixed (and in which version), won't fix, or withdrawn.
+- `kindgi feedback withdraw <id>` takes a report back: the intake clears its
+  text at once. The key it needs stays in `~/.kindgi/feedback/keys.json` on
+  the machine that sent it; `FEEDBACK.md` holds only the report id.
+
 ## API commands
 
 These call a running Kindgi API through [`@kindgi/client`](../../sdks/typescript).
@@ -826,6 +838,31 @@ The API URL and token come from, in order:
 pair once with `kindgi auth login --url=<url> --token=<token>`, and check it
 with `kindgi auth whoami`.
 
+**In a folder where `kindgi dev` ran, `--hosted` reaches the other API.**
+There, `.kindgirc.json` points every command at the dev runtime, ahead of
+your `kindgi auth login`. With `--hosted`, a command goes to the CLI's own
+address (`--url`, `KINDGI_API_URL` or the one `kindgi auth login` stored),
+with that address's key, and doesn't read the dev runtime's
+`.kindgirc.json`: `kindgi auth whoami --hosted` checks your sign-in. An env
+with `build: 'hosted'` in `kindgi.config.ts` does the same for a command
+that acts in it (`--env <name>`, or `staging` for `kindgi build` and
+`kindgi deploy`). With no address of its own, a hosted command is refused
+before it sends anything, and the refusal says the file isn't read.
+`kindgi dev --hosted` is refused (exit 2): a dev runtime is never hosted.
+
+A command that goes to the dev runtime while another address is in reach
+says so first, on stderr:
+
+```text
+kindgi auth whoami goes to the kindgi dev runtime at http://127.0.0.1:4000 (…/.kindgirc.json says so). For https://platform.kindgi.com, pass --hosted.
+```
+
+When the key was given with `--token` or `KINDGI_API_TOKEN` and nothing
+else is signed in, the line ends `To send it to the address your key is
+for, pass --url <that address> or export KINDGI_API_URL.` in place of the
+`--hosted` sentence. There's no line when `--url` or `KINDGI_API_URL` named
+the address, or when the dev runtime is the only one in reach.
+
 **A stored key goes only to the address stored with it.** A key in
 `.kindgirc.json` or `~/.kindgi/config.json` is for the `apiUrl` beside it.
 When the two files hold keys for different addresses, the key used is the
@@ -871,6 +908,7 @@ to a mirror instead and checks for the same image there.
 | `--table` | A table for list responses (`runs list`, `tools list`, `providers list`; JSON where a list has no columns). |
 | `--quiet` | Nothing on stdout; the exit code only. |
 | `--url=<url>`, `--token=<token>` | The API and its token (see above). |
+| `--hosted` | Go to the CLI's own address, never a `kindgi dev` runtime's `.kindgirc.json` (see above). `kindgi build` and `kindgi deploy` then use the hosted build service. `kindgi dev` refuses it. |
 | `--verbose`, `-v` | Full errors: stack traces and the API's error bodies. |
 | `--version` | The CLI's version. |
 | `--help`, `-h` | Help for the CLI or a command. |

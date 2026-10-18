@@ -21,7 +21,7 @@ import type {
   TriggerId,
 } from '@kindgi/types';
 
-import type { RunAgentRef, RunTriggerRef } from './inputs.js';
+import type { RunAgentRef, RunStartedBy, RunTriggerRef } from './inputs.js';
 import type { RunStatus } from './types.js';
 
 /**
@@ -69,6 +69,12 @@ export interface KernelRunRecord {
   readonly segments?: readonly ScopeSegment[];
   /** Set on a run a trigger started (`RunTriggerRef`). */
   readonly trigger?: RunTriggerRef;
+  /**
+   * How the run started (`RunStartedBy`). Absent on a run that records
+   * none, runs from before runs recorded it included: such a run counts
+   * as unattended.
+   */
+  readonly startedBy?: RunStartedBy;
   /**
    * When an erasure cleared the run's content (its input, output, failure
    * message and journal payloads). Absent on every other run.

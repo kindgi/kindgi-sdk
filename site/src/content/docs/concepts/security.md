@@ -55,6 +55,16 @@ agent's turn with `model-invocation-failed`:
 `Prompt render failed: Template render failed: the render went over its memory limit of 16777216`.
 No setting changes it.
 
+The template can render in a worker process instead of the server's own
+(it needs runtime 0.1.8.1 or later): with `KINDGI_TEMPLATE_RENDER_WORKERS`
+at 1 or more, the default on a runtime serving many tenants
+(`KINDGI_TENANCY=multi`).
+The worker's heap has a cap of its own
+(`KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB`, 128 MiB by default): a render
+that runs it out fails the turn with the message above, and the server
+keeps running. A worker takes only the server's timezone and locale from
+its environment, never its database URLs, keys or tokens.
+
 With [authorization](../../deploy/authorization/) on, people and service
 accounts have API keys of their own, `kgi_ak_…`. Each key acts with its
 holder's grants and no more. A revoked key is refused from its next request.
@@ -65,7 +75,7 @@ how keys are made and revoked.
 
 People sign in to the console with their email first. The sign-in page then
 offers the ways in the deployment has, which
-[Turn on sign-in](../../deploy/sign-in/) sets up:
+[Turn on sign-in](../../deploy/self-hosted/sign-in/) sets up:
 
 - **Only people already added to a workspace get in,** by an email their
   provider has proved. Nobody is created by signing in, and roles stay
@@ -244,7 +254,7 @@ The runtime's database user needs `CREATEROLE` and must own the runtime's
 database: the runtime uses it to set up the restricted role that requests run
 as. It needn't be a superuser, so managed Postgres services such as Cloud SQL,
 Amazon RDS and AlloyDB work. Create the `vector` extension once, as
-[Self-host](../../deploy/self-host/) shows.
+[Self-host](../../deploy/self-hosted/self-host/) shows.
 :::
 
 - **Development mode is for development.** `KINDGI_DEV=true` turns on

@@ -23,7 +23,7 @@ provider.
 `start` with `--kind=saml` gives you the URLs a SAML app asks for:
 
 ```sh
-kindgi sso providers start acme-saml --kind=saml
+pnpm exec kindgi sso providers start acme-saml --kind=saml
 ```
 
 - `acme-saml` is the provider's id in your workspace.
@@ -71,7 +71,7 @@ Save the identity provider's metadata XML to a file, such as
 your domains:
 
 ```sh
-kindgi sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain>
+pnpm exec kindgi sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain>
 ```
 
 - `--kind=saml` says the provider speaks SAML.
@@ -98,7 +98,7 @@ name:
 
 ```sh
 openssl req -x509 -newkey rsa:2048 -nodes -keyout acme-sp-key.pem -out acme-sp-cert.pem -days 730 -subj "/CN=Kindgi SAML (acme.test)"
-kindgi secrets set ACME_SAML_SIGNING_KEY --env=production --scope=tenant --from-stdin < acme-sp-key.pem
+pnpm exec kindgi secrets set ACME_SAML_SIGNING_KEY --env=production --scope=tenant --from-stdin < acme-sp-key.pem
 ```
 
 - `req -x509` makes a self-signed certificate, and `-newkey rsa:2048` a new
@@ -137,7 +137,7 @@ carry the certificate, so they add it by hand. Then run `finish` again with
 the key's name:
 
 ```sh
-kindgi sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain> \
+pnpm exec kindgi sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain> \
   --sp-signing-key-ref=ACME_SAML_SIGNING_KEY
 ```
 

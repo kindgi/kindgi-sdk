@@ -19,6 +19,7 @@ import {
 import type {
   IdentityProviderBinding,
   RunHandlerBinding,
+  SecondFactorBinding,
   Session,
   SessionConfig,
   SessionCreateInput,
@@ -128,7 +129,11 @@ function makeApp(
     cookie: { allowedOrigins: [CONSOLE] },
     tokenSignIn: true,
   },
-  extra: { identityProvider?: IdentityProviderBinding; withStore?: boolean } = {},
+  extra: {
+    identityProvider?: IdentityProviderBinding;
+    withStore?: boolean;
+    secondFactor?: SecondFactorBinding;
+  } = {},
 ) {
   const { store, created } = makeStore();
   const audit: AuditEvent[] = [];
@@ -144,6 +149,7 @@ function makeApp(
     runHandler: {} as RunHandlerBinding,
     ...(extra.withStore !== false && { sessionStore: store }),
     ...(extra.identityProvider !== undefined && { identityProvider: extra.identityProvider }),
+    ...(extra.secondFactor !== undefined && { secondFactor: extra.secondFactor }),
     ...(session !== null && { session }),
     auditEvents,
   });
@@ -159,6 +165,33 @@ const codeOf = async (res: Response) =>
   ((await res.json()) as { error: { code: string; message: string } }).error;
 
 describe('POST /v1/auth/token-sign-in', () => {
+  test('a workspace that requires a second factor: refused, since a token gives none', async () => {
+    const asked: string[] = [];
+    const secondFactor = {
+      async required(t: string) {
+        asked.push(t);
+        return true;
+      },
+    } as unknown as SecondFactorBinding;
+    const { app, created, audit } = makeApp(undefined, { secondFactor });
+    const res = await signIn(app, 'kgi_person_full');
+    expect(res.status).toBe(403);
+    expect((await codeOf(res)).code).toBe('second-factor-required');
+    expect(res.headers.get('set-cookie')).toBeNull();
+    expect(created).toEqual([]);
+    expect(asked).toEqual([tenantId]);
+    expect(
+      audit.map((e) => [e.kind, (e.payload.doc as { reason?: string }).reason]),
+    ).toContainEqual(['sign-in-refused', 'second-factor-required']);
+  });
+
+  test("a workspace that doesn't require one: signed in as before", async () => {
+    const secondFactor = { required: async () => false } as unknown as SecondFactorBinding;
+    const { app, created } = makeApp(undefined, { secondFactor });
+    expect((await signIn(app, 'kgi_person_full')).status).toBe(200);
+    expect(created).toHaveLength(1);
+  });
+
   test("a person's full key: a session in the cookie, never the key", async () => {
     const { app, created, audit } = makeApp();
     const res = await signIn(app, 'kgi_person_full');

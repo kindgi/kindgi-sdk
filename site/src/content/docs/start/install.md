@@ -11,7 +11,16 @@ the Kindgi CLI and SDK.
 ## What you need
 
 - **For a TypeScript pack: Node 22.12 or later.** The `kindgi` CLI and the SDK
-  run on Node.
+  run on Node. On an older Node, `kindgi` stops before it does anything and
+  exits `1`, with this line:
+
+  ```text
+  Kindgi needs Node 22.12.0 or later; this is Node 20.11.0. Install or switch to it (nvm install 22, or https://nodejs.org), then run the command again.
+  ```
+
+  Through `npx`, npm may warn `EBADENGINE` first, once for each package that
+  needs the newer Node.
+
 - **Docker** (Docker Desktop, or the Docker engine on Linux). `kindgi dev`
   runs the Kindgi runtime as a container, and a Postgres container for it:
   with `docker compose` when it's there, with plain `docker` otherwise. With
@@ -189,6 +198,9 @@ With npm:
 Use the scoped name, `@kindgi/cli`: there is no unscoped `kindgi` package
 on npm.
 
+These docs write `pnpm exec kindgi <command>`. With another package manager,
+use its form from the table.
+
 ## A Python project
 
 The CLI is the `kindgi-cli` package on PyPI. Start a new pack with it,
@@ -215,9 +227,11 @@ Installed 26 packages in 206ms
 
 `init` puts the SDK, the `kindgi` package, in the pack's dependencies and
 `kindgi-cli` in its dev group, so `uv sync` installs both and everyone on the
-project runs the CLI it pins. From then on, in a Python project, every
-`kindgi <command>` in these docs is `uv run kindgi <command>` (with Poetry,
-`poetry run kindgi <command>`).
+project runs the CLI it pins. From then on, a Python project runs it as
+`uv run kindgi <command>` (with Poetry, `poetry run kindgi <command>`). A
+page with language tabs shows that in its Python tab. A page without them
+writes `pnpm exec kindgi <command>`, which in a Python project is
+`uv run kindgi <command>`.
 
 In an existing app, add both yourself:
 
@@ -251,8 +265,10 @@ npx --yes @kindgi/cli@0.1 init my-pack --template=java
 - `--template=scala` makes a Scala pack. Without Node:
   `uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=java`.
 - The pack pins the Kindgi CLI it runs with, `"cli"` in `kindgi.config.json`.
-  From then on, in a Java or Scala project, every `kindgi <command>` in these
-  docs is `./kindgiw <command>` (`kindgiw.cmd` on Windows).
+  From then on, a Java or Scala project runs it as `./kindgiw <command>`
+  (`kindgiw.cmd` on Windows). A page with language tabs shows that in its
+  Java and Scala tabs. A page without them writes
+  `pnpm exec kindgi <command>`, which here is `./kindgiw <command>`.
 - The SDK is a dependency at your Kindgi release's version:
   `com.kindgi:kindgi-pack` in a Java pack's `pom.xml`,
   `"com.kindgi" %% "kindgi-pack-scala"` in a Scala pack's `build.sbt`.

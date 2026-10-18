@@ -28,7 +28,10 @@ customer if the hold went through. Every hold waits for a person.
 
 ## The agent
 
-The agent's tool call is what waits. The agent gates `acme.hold-order` with
+The agent's tool call is what waits. Ask your coding agent: "I want an agent
+that puts an order on hold, but only once a person approves." Kindgi's skills
+in your pack tell it how ([How it knows Kindgi](../../../start/coding-agents/)).
+For reference, the agent looks like this. It gates `acme.hold-order` with
 `always_ask`, and returns a typed answer the flow can branch on:
 
 <Tabs syncKey="lang">
@@ -200,7 +203,9 @@ read-only.
 
 ## The flow
 
-The flow runs the agent as a step, then branches on its answer:
+Ask your coding agent: "I want a flow that runs that agent, then emails the
+customer if the order went on hold." For reference, the flow runs the agent
+as a step, then branches on its answer:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -427,18 +432,72 @@ does. After the decision, `e3` or `e4` reads the agent's answer,
 Only reviewers can decide approvals. Under `kindgi dev` you're one already.
 On any other runtime, register yourself once:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi reviewers register --spec='{"role":"standard"}'
+pnpm exec kindgi reviewers register --spec='{"role":"standard"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi reviewers register --spec='{"role":"standard"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw reviewers register --spec='{"role":"standard"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw reviewers register --spec='{"role":"standard"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--spec` is the reviewer, as JSON: `role` is `standard`, `senior` or `admin`.
 It prints the registered reviewer, as JSON.
 
 Then start the flow:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.escalate-order --input='{"orderId":"A-200","reason":"Address looks wrong"}'
+pnpm exec kindgi runs start --flow=acme.escalate-order --input='{"orderId":"A-200","reason":"Address looks wrong"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.escalate-order --input='{"orderId":"A-200","reason":"Address looks wrong"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.escalate-order --input='{"orderId":"A-200","reason":"Address looks wrong"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.escalate-order --input='{"orderId":"A-200","reason":"Address looks wrong"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--flow` is the flow, and `--input` its input: the order and why to hold it.
 It prints the run, waiting:
@@ -468,9 +527,36 @@ it:
 
 The approval is what the reviewer decides. List the ones waiting:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals list --status=pending
+pnpm exec kindgi approvals list --status=pending
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals list --status=pending
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals list --status=pending
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals list --status=pending
+```
+
+</TabItem>
+</Tabs>
 
 `--status=pending` lists the ones nobody is assigned to yet. It prints the
 agent turn's approval:
@@ -509,9 +595,36 @@ agent turn's approval:
 `provenanceRef.runId` is the agent's turn, the step's own run. Its
 `parentRunId` is the flow's run. Approve it:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals complete 0eaa2820-0afe-4147-a017-fc8a4d1657cc --decision=approve --rationale="Checked with the customer"
+pnpm exec kindgi approvals complete 0eaa2820-0afe-4147-a017-fc8a4d1657cc --decision=approve --rationale="Checked with the customer"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals complete 0eaa2820-0afe-4147-a017-fc8a4d1657cc --decision=approve --rationale="Checked with the customer"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals complete 0eaa2820-0afe-4147-a017-fc8a4d1657cc --decision=approve --rationale="Checked with the customer"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals complete 0eaa2820-0afe-4147-a017-fc8a4d1657cc --decision=approve --rationale="Checked with the customer"
+```
+
+</TabItem>
+</Tabs>
 
 The id is the approval's, `--decision=approve` approves it (`reject` turns
 it down), and `--rationale` is kept with it. It prints the recorded decision
@@ -521,9 +634,36 @@ The decision resumes the agent's turn and then the flow, within the same
 call. By the time the command returns, the flow has finished. Read the flow's
 run, with its id:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs get 7111dde4-bdd3-40a1-a6e8-2a550d0ad318
+pnpm exec kindgi runs get 7111dde4-bdd3-40a1-a6e8-2a550d0ad318
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs get 7111dde4-bdd3-40a1-a6e8-2a550d0ad318
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs get 7111dde4-bdd3-40a1-a6e8-2a550d0ad318
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs get 7111dde4-bdd3-40a1-a6e8-2a550d0ad318
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {

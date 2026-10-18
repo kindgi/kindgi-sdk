@@ -119,8 +119,10 @@ export default defineConfig({
         // The version menu and the "not the latest" notice.
         ThemeSelect: './src/components/ThemeSelect.astro',
         Banner: './src/components/Banner.astro',
-        // "Report a problem", "Your coding agent" and `llms.txt` (every page).
+        // "Report a problem" and `llms.txt` (every page).
         EditLink: './src/components/EditLink.astro',
+        // The next/previous links: the arrow and the page's title.
+        Pagination: './src/components/Pagination.astro',
         // "See also" on the HTTP API's operation pages.
         MarkdownContent: './src/components/MarkdownContent.astro',
       },
@@ -177,9 +179,24 @@ export default defineConfig({
             })),
           ],
         },
+        { label: 'Sites', items: [{ autogenerate: { directory: 'sites' } }] },
         { label: 'Concepts', items: [{ autogenerate: { directory: 'concepts' } }] },
-        { label: 'Deploy', items: [{ autogenerate: { directory: 'deploy' } }] },
-        { label: 'Kindgi Cloud', items: [{ autogenerate: { directory: 'hosted' } }] },
+        {
+          label: 'Deploy',
+          // Kindgi Cloud's pages keep their hosted/ URLs: the platform links to them.
+          // The pages for both sit at deploy/ itself.
+          items: [
+            'deploy',
+            'deploy/retention',
+            'deploy/authorization',
+            'deploy/people-and-keys',
+            { label: 'Kindgi Cloud', items: [{ autogenerate: { directory: 'hosted' } }] },
+            {
+              label: 'Self-hosted',
+              items: [{ autogenerate: { directory: 'deploy/self-hosted' } }],
+            },
+          ],
+        },
         {
           label: 'Reference',
           items: [

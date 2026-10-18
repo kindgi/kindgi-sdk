@@ -71,6 +71,9 @@ Pack code (`kindgi/`) is ES modules in every app; `init` sets that up.
 
 ## Run an agent and read its answer
 
+Ask your coding agent: "I want our app to run the triage agent on a support
+request and use its answer." For reference, the code looks like this:
+
 ```ts
 // src/lib/kindgi.ts
 import { createClient } from '@kindgi/sdk/client';
@@ -134,7 +137,9 @@ except KindgiApiError as error:
 ## Follow a run as it runs
 
 Start the run with `wait: false` and the call returns as soon as the run
-exists. Its events then arrive as they happen, through to its last one:
+exists. Its events then arrive as they happen, through to its last one. Ask
+your coding agent: "I want our app to stream the triage run's progress
+live." For reference, the route looks like this:
 
 ```ts
 // src/app/api/requests/[id]/triage/stream/route.ts
