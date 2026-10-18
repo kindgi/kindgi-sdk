@@ -207,9 +207,15 @@ kindgi secrets set ORDERS_API_KEY --env=staging-2
 ```
 
 With `--env=staging-2`, the secret is stored for `staging-2`'s project, in
-the value set the runtime serves. Outside a pack, `--scope=project:<projectId>` does the same. A tool's
-per-project values work the same way, with `kindgi env set`
+the value set the runtime serves. A tool's per-project values work the same
+way, with `kindgi env set`
 ([Give a tool per-project values](../../guides/tools/give-a-tool-env-values/)).
+
+Outside a pack, `--env` keeps its usual meaning: the value set. Name the
+project with `--scope=project:<projectId>`, and with `--env` the value set
+the runtime serves: on your own runtime, its `KINDGI_ENV`; on Kindgi Cloud,
+`prod`. That goes for `kindgi secrets set` and `kindgi env set` alike. A
+value stored under another value set is never read.
 
 A value stored for the whole tenant, with `--scope=tenant`, is used by every
 environment that doesn't have its own. Keep `prod`'s live keys in `prod`.
@@ -228,10 +234,10 @@ Kindgi Cloud:
 kindgi deploy --hosted --env=staging-1
 ```
 
-On your own runtime:
+On your own runtime, with its token exported as `KINDGI_API_TOKEN`:
 
 ```sh
-kindgi deploy --env=staging-1 --token "$KINDGI_API_TOKEN"
+kindgi deploy --env=staging-1
 ```
 
 A deploy into a later environment is refused
