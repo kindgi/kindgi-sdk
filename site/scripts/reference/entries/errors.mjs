@@ -2770,6 +2770,16 @@ export const ERROR_ENTRIES = {
       "The runtime's env store or secrets store can't list the env names it holds, so the tenant's environments can't be listed whole. The message names the store.",
     details: [],
   },
+  'project-in-another-order': {
+    description:
+      'A project in the request already belongs to another environment order. A project is in at most one order: set the other order without it, or clear that order, first.',
+    details: [
+      {
+        key: 'projectId',
+        meaning: 'the project already in another order',
+      },
+    ],
+  },
   'provider-key-refused': {
     description:
       "The request names a model provider's key as a secret for something that isn't that provider, such as a tool, an MCP endpoint or a webhook endpoint. Store the key under its own name and use that name.",

@@ -251,6 +251,6 @@ const clear: LeafCommand = {
 export const environmentsCommand: Command = {
   kind: 'group',
   name: 'environments',
-  description: "The order of your environments, and what's live in each.",
+  description: 'The order of your environments.',
   subcommands: [list, set, clear],
 };
