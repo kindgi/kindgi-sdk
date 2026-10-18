@@ -254,7 +254,7 @@ version and every version that's waiting read the same values:
   another key, as in [Sign the CLI in](#sign-the-cli-in), and sign the CLI
   in with it.
 - **The pack service isn't ready after 5 minutes.** The deployment stays.
-  `kindgi deployments get <deployment-id>` says where it is, and why when
+  `kindgi deployments get <deployment-id>` says its state, and why when
   a reason is recorded (`kindgi deployments list --table` lists your
   deployments, with their ids). Run the same
   `kindgi deploy --hosted --env=prod` again: it sends the same deployment
