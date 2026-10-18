@@ -1048,8 +1048,9 @@ export interface CreateAppInput {
   };
   /**
    * The deployment's terms and privacy policy, which a sign-in page links
-   * (sign-in options' `legal`): each an absolute https URL, each on its
-   * own; anything else, and createApp throws. Absent, or neither set: the
+   * (sign-in options' `legal`): each an absolute https URL with no username
+   * or password, each on its own; anything else, and createApp throws. The
+   * answer carries each as a browser reads it. Absent, or neither set: the
    * answer has no `legal`.
    */
   readonly signInLegal?: SignInLegalLinks;

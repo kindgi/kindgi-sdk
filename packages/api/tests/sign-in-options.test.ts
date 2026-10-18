@@ -249,13 +249,33 @@ describe("sign-in options: the deployment's terms and privacy policy", () => {
     }
   });
 
+  // A browser resolves `https:host/terms` against the sign-in page's own
+  // address, so the answer carries each link as the browser reads it.
+  test('`legal` carries each link as a browser reads it', async () => {
+    const { app } = makeApp({
+      legal: { termsUrl: 'https:acme.example/terms', privacyUrl: 'HTTPS:/acme.example/privacy' },
+    });
+    const body = (await (await lookup(app)).json()) as { legal?: unknown };
+    expect(body.legal).toStrictEqual({ termsUrl: TERMS, privacyUrl: PRIVACY });
+  });
+
   test.each([
     ['termsUrl', { termsUrl: 'http://acme.example/terms' }],
     ['privacyUrl', { privacyUrl: '/privacy' }],
     ['termsUrl', { termsUrl: 'javascript:alert(1)' }],
+    ['privacyUrl', { privacyUrl: 'https://' }],
   ])('createApp refuses a %s that is not an absolute https URL', (field, legal) => {
     expect(() => makeApp({ legal })).toThrow(
       `createApp: signInLegal.${field} must be an absolute https URL`,
+    );
+  });
+
+  test.each([
+    ['termsUrl', { termsUrl: 'https://reader:hunter2@acme.example/terms' }],
+    ['privacyUrl', { privacyUrl: 'https://reader@acme.example/privacy' }],
+  ])('createApp refuses a %s with a username or password, without quoting it', (field, legal) => {
+    expect(() => makeApp({ legal })).toThrow(
+      new Error(`createApp: signInLegal.${field} must not carry a username or password.`),
     );
   });
 });

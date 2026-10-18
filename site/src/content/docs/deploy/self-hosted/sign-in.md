@@ -452,8 +452,9 @@ KINDGI_AUTH_TERMS_URL=https://www.acme-live.example/terms
 KINDGI_AUTH_PRIVACY_URL=https://www.acme-live.example/privacy
 ```
 
-Set either one, or both. Each is an absolute `https` URL: with anything
-else, the runtime doesn't start. Unset, the page links neither. The links
+Set either one, or both. Each is an absolute `https` URL, with no username
+or password in it: with anything else, the runtime doesn't start. Unset,
+the page links neither. The links
 show beside kindgi.com and Docs, or under the form on a narrow screen.
 
 ## Behind a load balancer

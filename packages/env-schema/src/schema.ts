@@ -622,7 +622,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_AUTH_TERMS_URL',
     description:
-      "The deployment's terms, which the console's sign-in page links as \"Terms\" (sign-in options' `legal.termsUrl`). An absolute https URL; anything else, and the runtime refuses to start. Set on its own or with `KINDGI_AUTH_PRIVACY_URL`.",
+      "The deployment's terms, which the console's sign-in page links as \"Terms\" (sign-in options' `legal.termsUrl`). An absolute https URL with no username or password; anything else, and the runtime refuses to start. Set on its own or with `KINDGI_AUTH_PRIVACY_URL`.",
     example: 'https://example.com/terms',
     required: false,
     appliesTo: appliesToServer,
@@ -631,7 +631,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_AUTH_PRIVACY_URL',
     description:
-      "The deployment's privacy policy, which the console's sign-in page links as \"Privacy\" (sign-in options' `legal.privacyUrl`). An absolute https URL; anything else, and the runtime refuses to start. Set on its own or with `KINDGI_AUTH_TERMS_URL`.",
+      "The deployment's privacy policy, which the console's sign-in page links as \"Privacy\" (sign-in options' `legal.privacyUrl`). An absolute https URL with no username or password; anything else, and the runtime refuses to start. Set on its own or with `KINDGI_AUTH_TERMS_URL`.",
     example: 'https://example.com/privacy',
     required: false,
     appliesTo: appliesToServer,

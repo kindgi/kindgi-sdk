@@ -7458,7 +7458,7 @@ class Methods(BaseModel):
 
 class Legal(BaseModel):
     """
-    The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL. Absent when neither is set, and from older servers.
+    The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.
     """
 
     model_config = ConfigDict(
@@ -7487,7 +7487,7 @@ class SignInOptions(BaseModel):
     """
     legal: Legal | None = None
     """
-    The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL. Absent when neither is set, and from older servers.
+    The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.
     """
 
 
