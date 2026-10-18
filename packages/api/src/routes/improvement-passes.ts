@@ -83,8 +83,11 @@ async function resolveClassWeights(
  * restricted to named asserters (`assertableBy` set). Project scope and
  * tenant scope both count — a tenant-wide expert class names experts for
  * every project; agent scope and other projects' classes don't.
+ *
+ * Exported so a caller that resolves the default outside the improve route
+ * — a pass started from a schedule — decides it exactly the same way.
  */
-async function projectHasExpertClass(
+export async function projectHasExpertClass(
   registry: Pick<JudgmentRegistryBinding, 'listClasses'>,
   tenantId: TenantId,
   projectId: ProjectId | undefined,
