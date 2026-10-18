@@ -348,7 +348,7 @@ describe('GET /v1/system/tenants/{t}/deployments/{d}/pack-env', () => {
 });
 
 describe('GET /v1/system/pack-env', () => {
-  test('lists only a service running on values that changed, ids only', async () => {
+  test('lists only a service running on values that changed: ids and the revision it runs', async () => {
     const a = makeApp();
     const same = deployment('d-same', staging, ready);
     const changed = deployment('d-changed', prod, ready);
@@ -386,6 +386,7 @@ describe('GET /v1/system/pack-env', () => {
           imageDigest: changed.imageDigest,
           artifactVersion: changed.artifactVersion,
           activatedAt: NOW,
+          appliedRevision: oldRevision,
         },
       ],
       hasMore: false,
@@ -405,6 +406,9 @@ describe('GET /v1/system/pack-env', () => {
       held: { revision: heldRevision, code: 'pack-env-missing' },
     });
     const r = await a.call(PACK_ENV, 'GET', '/v1/system/pack-env');
+    expect(r.body.data).toEqual([
+      expect.not.objectContaining({ appliedRevision: expect.anything() }),
+    ]);
     expect((r.body.data as { deploymentId: string }[]).map((e) => e.deploymentId)).toEqual([
       'd-fresh',
     ]);

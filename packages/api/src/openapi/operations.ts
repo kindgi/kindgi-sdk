@@ -2497,12 +2497,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemDeployments.listPackEnvChanged',
     summary: 'List deployments whose pack service runs on values that changed',
     description:
-      "Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`. Ids and the image only, never a value. Takes `system:pack-env`.",
+      "Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.",
     tags: ['system-deployments'],
     security: 'bearer',
     parameters: [CursorQueryParam, LimitQueryParam],
     responses: {
-      '200': { description: 'One page of deployments.', schema: ref('SystemDeploymentPage') },
+      '200': { description: 'One page of deployments.', schema: ref('SystemPackEnvPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('A `limit` out of range, or a cursor refused.'),
       '403': ErrorResponse(

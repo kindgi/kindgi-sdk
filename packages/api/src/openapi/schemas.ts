@@ -1715,6 +1715,44 @@ export const SystemPackEnvSchema: JsonSchema = {
   },
 };
 
+export const SystemPackEnvEntrySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A deployment whose pack service runs on declared env values that changed since: ids, the image, and the revision it runs. Never a value. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`).',
+  required: [
+    'tenantId',
+    'deploymentId',
+    'packId',
+    'imageRef',
+    'imageDigest',
+    'artifactVersion',
+    'activatedAt',
+  ],
+  properties: {
+    ...SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES,
+    appliedRevision: {
+      type: 'string',
+      description:
+        'The revision its service runs: given with its endpoint, or recorded since. Absent: none was. Send it back as `appliedRevision` with `PUT …/pack-env`.',
+    },
+  },
+};
+
+export const SystemPackEnvPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/SystemPackEnvEntry' } },
+    nextCursor: {
+      type: 'string',
+      description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
+    },
+    hasMore: { type: 'boolean' },
+  },
+};
+
 export const RecordPackEnvBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -13318,6 +13356,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PackEnvNameStatus', PackEnvNameStatusSchema],
   ['PackEnvProblemCode', PackEnvProblemCodeSchema],
   ['SystemPackEnv', SystemPackEnvSchema],
+  ['SystemPackEnvEntry', SystemPackEnvEntrySchema],
+  ['SystemPackEnvPage', SystemPackEnvPageSchema],
   ['RecordPackEnvBody', RecordPackEnvBodySchema],
   ['PackEnvNames', PackEnvNamesSchema],
   ['RecordDeploymentProblemBody', RecordDeploymentProblemBodySchema],

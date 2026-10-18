@@ -401,6 +401,8 @@ export type {
   SystemDeploymentsClient,
   SystemDeploymentsWanted,
   SystemPackEnv,
+  SystemPackEnvEntry,
+  SystemPackEnvPage,
 } from './resources/system-deployments.js';
 export type {
   CreatedSystemTenant,

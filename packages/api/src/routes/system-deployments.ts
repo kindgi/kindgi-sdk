@@ -437,8 +437,9 @@ export function systemDeploymentsRouter(
   );
 
   // ---------- GET /pack-env ----------
-  // Ids only: the deployments whose pack service runs on values that have
-  // changed since (and weren't held back at this revision).
+  // The deployments whose pack service runs on values that have changed
+  // since (and weren't held back at this revision): ids, and the revision
+  // each runs, for the compare-and-set.
   r.get('/pack-env', async (c) => {
     const denied = systemReadAcrossTenants(c, PACK_ENV, authorizer);
     if (denied !== undefined) return denied;
@@ -456,7 +457,10 @@ export function systemDeploymentsRouter(
       return fail(c, badInput('`cursor` is not one this route gave: start again without it').error);
     }
     return c.json({
-      data: (await changedPackEnv(packEnv, result.data)).map(entryToWire),
+      data: (await changedPackEnv(packEnv, result.data)).map((entry) => ({
+        ...entryToWire(entry),
+        ...(entry.appliedRevision !== undefined && { appliedRevision: entry.appliedRevision }),
+      })),
       ...(result.nextCursor !== undefined && { nextCursor: result.nextCursor }),
       hasMore: result.nextCursor !== undefined,
     });

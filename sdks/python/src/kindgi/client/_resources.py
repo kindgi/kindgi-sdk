@@ -2085,17 +2085,17 @@ class SystemDeploymentsResource:
         cursor: str | None = None,
         limit: int | None = None,
         timeout: float | None = None,
-    ) -> _models.SystemDeploymentPage:
+    ) -> _models.SystemPackEnvPage:
         """List deployments whose pack service runs on values that changed. `GET /v1/system/pack-env`
 
-        Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`. Ids and the image only, never a value. Takes `system:pack-env`.
+        Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.
         """
         return self._client._request(
             _OPERATIONS["systemDeployments.listPackEnvChanged"],
             path={},
             query={"cursor": cursor, "limit": limit},
             headers={},
-            response=_models.SystemDeploymentPage,
+            response=_models.SystemPackEnvPage,
             timeout=timeout,
         )
 
@@ -10442,17 +10442,17 @@ class AsyncSystemDeploymentsResource:
         cursor: str | None = None,
         limit: int | None = None,
         timeout: float | None = None,
-    ) -> _models.SystemDeploymentPage:
+    ) -> _models.SystemPackEnvPage:
         """List deployments whose pack service runs on values that changed. `GET /v1/system/pack-env`
 
-        Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`. Ids and the image only, never a value. Takes `system:pack-env`.
+        Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.
         """
         return await self._client._request(
             _OPERATIONS["systemDeployments.listPackEnvChanged"],
             path={},
             query={"cursor": cursor, "limit": limit},
             headers={},
-            response=_models.SystemDeploymentPage,
+            response=_models.SystemPackEnvPage,
             timeout=timeout,
         )
 

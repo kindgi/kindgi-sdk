@@ -685,6 +685,8 @@
   "SystemKeyList": ["SystemKeyList"],
   "SystemOpenapiResponse": ["SystemOpenapiResponse"],
   "SystemPackEnv": ["SystemPackEnv"],
+  "SystemPackEnvEntry": ["SystemPackEnvEntry"],
+  "SystemPackEnvPage": ["SystemPackEnvPage"],
   "SystemTenant": ["SystemTenant"],
   "SystemTenantList": ["SystemTenantList"],
   "SystemWhoami": ["SystemWhoami"],

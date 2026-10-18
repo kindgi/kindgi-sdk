@@ -10,12 +10,16 @@ import type {
   SetPackSuspendedBody,
   SystemDeploymentPage,
   SystemPackEnv,
+  SystemPackEnvPage,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 
 /** A deployment as whatever runs its pack service needs it; `reason` in the `retire` list only. */
 export type SystemDeploymentEntry = SystemDeploymentPage['data'][number];
 export type { SystemDeploymentPage };
+/** A deployment whose pack service runs on changed values, with the revision it runs (`appliedRevision`). */
+export type SystemPackEnvEntry = SystemPackEnvPage['data'][number];
+export type { SystemPackEnvPage };
 export type PackEndpointSpec = SetPackEndpointBody;
 export type DeploymentEndpointProblemSpec = RecordDeploymentProblemBody;
 export type PackSuspensionSpec = SetPackSuspendedBody;
@@ -99,14 +103,15 @@ export interface SystemDeploymentsClient {
   /**
    * One page across tenants (`system:pack-env`): deployments with a `ready`
    * pack service whose declared env values changed since the revision it
-   * runs, and weren't held back at this revision. Ids only, never a value.
+   * runs, and weren't held back at this revision: ids, and the revision
+   * each runs (`appliedRevision`, sent back with `recordPackEnv`). Never a value.
    *
    * @wire `GET /v1/system/pack-env`
    */
   listPackEnvChanged(page?: {
     readonly cursor?: string;
     readonly limit?: number;
-  }): Promise<SystemDeploymentPage>;
+  }): Promise<SystemPackEnvPage>;
   /**
    * What the deployment's pack service is to be given (`system:pack-env`):
    * where each declared name is set, its `revision`, and the plain values
@@ -179,7 +184,7 @@ export function makeSystemDeploymentsClient(transport: Transport): SystemDeploym
       });
     },
     async listPackEnvChanged(page) {
-      return transport.request<SystemDeploymentPage>({
+      return transport.request<SystemPackEnvPage>({
         method: 'GET',
         path: '/v1/system/pack-env',
         query: {

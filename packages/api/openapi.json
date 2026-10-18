@@ -3066,6 +3066,81 @@
           }
         }
       },
+      "SystemPackEnvEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A deployment whose pack service runs on declared env values that changed since: ids, the image, and the revision it runs. Never a value. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`).",
+        "required": [
+          "tenantId",
+          "deploymentId",
+          "packId",
+          "imageRef",
+          "imageDigest",
+          "artifactVersion",
+          "activatedAt"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deploymentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "packId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The pack it deploys (the image index's `packId`)."
+          },
+          "projectId": {
+            "type": "string",
+            "description": "The project the deploy was scoped to. Absent for a tenant-wide deploy."
+          },
+          "imageRef": {
+            "type": "string",
+            "description": "Digest-pinned, as registered: the pack service is created from exactly this."
+          },
+          "imageDigest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "artifactVersion": {
+            "type": "string"
+          },
+          "activatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "appliedRevision": {
+            "type": "string",
+            "description": "The revision its service runs: given with its endpoint, or recorded since. Absent: none was. Send it back as `appliedRevision` with `PUT …/pack-env`."
+          }
+        }
+      },
+      "SystemPackEnvPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SystemPackEnvEntry"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "Opaque cursor for the next page. Absent when `hasMore: false`."
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
       "RecordPackEnvBody": {
         "type": "object",
         "additionalProperties": false,
@@ -26915,7 +26990,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SystemDeploymentPage"
+                  "$ref": "#/components/schemas/SystemPackEnvPage"
                 }
               }
             }
@@ -26961,7 +27036,7 @@
             }
           }
         },
-        "description": "Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`. Ids and the image only, never a value. Takes `system:pack-env`.",
+        "description": "Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.",
         "parameters": [
           {
             "name": "cursor",

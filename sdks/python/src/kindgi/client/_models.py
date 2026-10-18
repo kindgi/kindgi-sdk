@@ -1258,6 +1258,51 @@ class SystemPackEnv(BaseModel):
     """
 
 
+class SystemPackEnvEntry(BaseModel):
+    """
+    A deployment whose pack service runs on declared env values that changed since: ids, the image, and the revision it runs. Never a value. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    deployment_id: Annotated[str, Field(alias="deploymentId", min_length=1)]
+    pack_id: Annotated[str, Field(alias="packId", min_length=1)]
+    """
+    The pack it deploys (the image index's `packId`).
+    """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project the deploy was scoped to. Absent for a tenant-wide deploy.
+    """
+    image_ref: Annotated[str, Field(alias="imageRef")]
+    """
+    Digest-pinned, as registered: the pack service is created from exactly this.
+    """
+    image_digest: Annotated[str, Field(alias="imageDigest", pattern="^sha256:[0-9a-f]{64}$")]
+    artifact_version: Annotated[str, Field(alias="artifactVersion")]
+    activated_at: Annotated[AwareDatetime, Field(alias="activatedAt")]
+    applied_revision: Annotated[str | None, Field(alias="appliedRevision")] = None
+    """
+    The revision its service runs: given with its endpoint, or recorded since. Absent: none was. Send it back as `appliedRevision` with `PUT …/pack-env`.
+    """
+
+
+class SystemPackEnvPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[SystemPackEnvEntry]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
 class RecordPackEnvBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
