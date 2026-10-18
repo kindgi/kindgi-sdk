@@ -463,6 +463,10 @@ async function harness(
     judgmentRegistry?: JudgmentRegistryBinding;
     /** The project the pass's suite reads judgments from. Default: the agent's project. */
     suiteProjectId?: ProjectId;
+    /** A full suite record `evalSuites.get` returns (or `null` for a missing suite), overriding the default judged stub. */
+    suiteRecord?: EvalSuiteRecord | null;
+    /** When true, `evalSuites.get` throws — the route must not read the suite. */
+    suiteGetThrows?: boolean;
   } = {},
 ) {
   const agents = agentBinding();
@@ -555,14 +559,17 @@ async function harness(
   // (default: the agent's project), so a pass reads from there.
   const suiteProject = opts.suiteProjectId ?? projectId;
   const evalSuites = {
-    get: async (input: { tenantId: TenantId; suiteId: string }) =>
-      ({
+    get: async (input: { tenantId: TenantId; suiteId: string }) => {
+      if (opts.suiteGetThrows === true) throw new Error('the route must not read the suite here');
+      if (opts.suiteRecord !== undefined) return opts.suiteRecord;
+      return {
         id: input.suiteId,
         tenantId: input.tenantId,
         version: '1.0.0',
         kind: 'judged',
         spec: { projectId: suiteProject },
-      }) as unknown as EvalSuiteRecord,
+      } as unknown as EvalSuiteRecord;
+    },
   } as unknown as EvalSuiteRegistryBinding;
   const app = createApp({
     ...createStubAppBindings(),
@@ -1590,6 +1597,112 @@ describe('improvement passes', () => {
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
+  });
+
+  test('a non-judged suite keys off its row project, not its spec project', async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    const rowProjectId = randomUUID() as ProjectId;
+    const specProjectId = randomUUID() as ProjectId;
+    // A non-judged suite records its project on the row, not in `spec`. The
+    // expert class is in the row project, so the default flips. Reading
+    // `spec.projectId` regardless of kind would miss it; dropping the
+    // `?? row project` fallback would read the agent's project instead.
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'project', projectId: rowProjectId },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      judgmentRegistry: judgments,
+      suiteRecord: {
+        id: 'acme.scoring-judged',
+        tenantId,
+        version: '1.0.0',
+        kind: 'accuracy',
+        projectId: rowProjectId,
+        spec: { projectId: specProjectId },
+      } as unknown as EvalSuiteRecord,
+    });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+  });
+
+  test('a missing suite falls back to the project the agent is made in', async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    // The suite binding finds no record; the default then keys off the agent
+    // version's project, where this expert class lives. Dropping the
+    // `?? from.projectId` fallback would ask only the tenant scope.
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'project', projectId },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      judgmentRegistry: judgments,
+      suiteRecord: null,
+    });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+  });
+
+  test("an expert class on the agent in the suite's project flips the default", async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    const suiteProjectId = randomUUID() as ProjectId;
+    // The agent-scope expert class is in the SUITE's project, not the agent's
+    // own. Keying off the suite's project, the agent clause finds it; keying
+    // off `from.projectId` would miss it.
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'agent', projectId: suiteProjectId, agentId: AGENT },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      judgmentRegistry: judgments,
+      suiteProjectId,
+    });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+  });
+
+  test('an explicit classWeights skips the suite read', async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    // With `classWeights` set, the default isn't resolved, so the route must
+    // not read the suite at all — the stub throws if it does.
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      judgmentRegistry: judgments,
+      suiteGetThrows: true,
+    });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', {
+      ...IMPROVE,
+      classWeights: 'as-recorded',
+    });
     expect(res.status, JSON.stringify(res.body)).toBe(202);
     expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
   });

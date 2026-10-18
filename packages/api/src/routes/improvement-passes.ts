@@ -235,8 +235,14 @@ export function mountImproveRoute(r: Hono<AppEnv>, deps: ImproveDeps, authorizer
     }
     // The `classWeights` default keys off the project the pass READS its
     // judgments from — its suite's project — not where the agent is made;
-    // the two differ when the suite is an earlier environment's.
-    const readProjectId = (await suiteProjectId(deps, tenantId, parsed.suiteId)) ?? from.projectId;
+    // the two differ when the suite is an earlier environment's. Only the
+    // default needs it, so skip the suite read when `classWeights` is
+    // explicit, or when no judge-class registry is wired (the default is
+    // fixed at `restricted-only` either way).
+    const readProjectId =
+      parsed.classWeights === undefined && deps.judgeClasses !== undefined
+        ? ((await suiteProjectId(deps, tenantId, parsed.suiteId)) ?? from.projectId)
+        : from.projectId;
     const pass = await deps.passes.start({
       tenantId,
       ...(from.projectId !== undefined && { projectId: from.projectId }),

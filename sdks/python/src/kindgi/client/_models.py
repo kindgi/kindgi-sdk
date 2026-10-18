@@ -4549,7 +4549,7 @@ class ImproveBody(BaseModel):
         Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
     ] = None
     """
-    Which judgments the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the pass's project or the agent improved has a restricted judge class, then only judgments recorded under one (`restricted-only`).
+    Which judgments the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the pass reads its judgments from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has a restricted judge class, then only judgments recorded under one (`restricted-only`).
     """
     objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
     budget: Budget2 | None = None
