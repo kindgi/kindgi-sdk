@@ -210,7 +210,7 @@ const set: LeafCommand = {
   description:
     'Set the order projects go live through — staging before prod, say. Names the environments from your pack config, in order; `--projects` takes project ids or slugs instead. Replaces the whole order. Tenant admins only.',
   usage:
-    'kindgi environments set <env|project> [<env|project> …] [--org=<org-id>] [--projects=<id-or-slug,…>] [--path=<dir>]',
+    'kindgi environments set <env> [<env> …] [--org=<org-id>] [--projects=<id-or-slug,…>] [--path=<dir>]',
   optionSpec: {
     org: { type: 'string', description: "An org's order instead of the tenant's, by org id." },
     projects: {
