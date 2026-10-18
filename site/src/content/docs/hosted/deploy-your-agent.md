@@ -90,7 +90,8 @@ both go on `prod`.
 :::note[What only you do]
 **Store the key, in your own terminal.** With your AI provider, create an
 API key for this pack. Then store it under the name the table below gives
-for your provider, and paste it at the prompt:
+for your provider, and paste it at the prompt, twice: the second time
+confirms it.
 
 ```sh
 kindgi secrets set ANTHROPIC_API_KEY --env=prod --scope=tenant
@@ -234,9 +235,10 @@ version and every version that's waiting read the same values:
   promote.
 - Changing a value that the live version reads changes live runs from the
   next run, before you promote anything.
-- `kindgi deploy --sync-secrets` writes the pack's `.env.prod` values
-  right after the deploy, into those same values. So it can change what the
-  live version reads, though you haven't promoted the new version.
+- `kindgi deploy --hosted --env=prod --sync-secrets` writes the pack's
+  `.env.prod` values right after the deploy, into those same values. So it
+  can change what the live version reads, though you haven't promoted the
+  new version.
 
 ## If something goes wrong
 
@@ -266,7 +268,7 @@ version and every version that's waiting read the same values:
 - [Kindgi Cloud's limits](../limits/): the limits every workspace has, and
   how to ask for more.
 - [A project for each client](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project):
-  give each client an org and a project, and deploy a copy of the pack
-  into it.
+  give each client an org and a project, and deploy a pack of its own into
+  it, made with `kindgi init`.
 - [Ask before a tool runs](../../guides/approvals/ask-before-a-tool-runs/):
   a person approves before an agent changes something.
