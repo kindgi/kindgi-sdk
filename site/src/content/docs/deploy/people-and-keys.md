@@ -16,6 +16,12 @@ authorization on first. A **tenant admin** adds them. The first one is the
 runtime's seed user: `KINDGI_SEED_USER_ID`, or the API token's user. The
 runtime makes the seed user a tenant admin at every start.
 
+:::note[On Kindgi Cloud]
+Whoever signs up is the workspace's first tenant admin. Authorization is
+always on, and Kindgi runs OpenFGA. The runtime's `KINDGI_*` settings, such
+as `KINDGI_SEED_USER_ID`, are Kindgi's.
+:::
+
 ## Before you start
 
 - **Authorization is on** for your runtime
