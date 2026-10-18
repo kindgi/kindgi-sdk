@@ -105,8 +105,77 @@ export async function servingProjectOf(
   bindings: Pick<DeploymentsRouterBindings, 'projectBinding'>,
   deployment: Deployment,
 ): Promise<ProjectId | undefined> {
-  if (deployment.projectId !== undefined) return deployment.projectId;
-  return (await bindings.projectBinding?.getDefault(deployment.tenantId))?.id;
+  return (await servingProjectsOf(bindings, [deployment]))[0];
+}
+
+/** {@link servingProjectOf} for each of one tenant's `deployments`, in their order: the Default read once. */
+async function servingProjectsOf(
+  bindings: Pick<DeploymentsRouterBindings, 'projectBinding'>,
+  deployments: readonly Deployment[],
+): Promise<(ProjectId | undefined)[]> {
+  const unnamed = deployments.find((d) => d.projectId === undefined);
+  const defaultId =
+    unnamed === undefined
+      ? undefined
+      : (await bindings.projectBinding?.getDefault(unnamed.tenantId))?.id;
+  return deployments.map((d) => d.projectId ?? defaultId);
+}
+
+/**
+ * What reading a deployment asks: `read` on the project it serves, or on
+ * the tenant without a project binding to find the Default.
+ */
+function readRef(tenantId: TenantId, projectId: ProjectId | undefined) {
+  return projectId === undefined
+    ? ref('tenant', tenantId as unknown as string)
+    : ref('project', projectId as unknown as string);
+}
+
+/**
+ * The deployment `:deploymentId` names and the project it serves, when the
+ * caller reads that project ({@link readRef}). `undefined` for one that
+ * isn't there and for one they don't read alike, so a route answers both
+ * with its one `404`. Without an authorizer, every caller in the tenant
+ * reads it.
+ */
+export async function readableDeployment(
+  c: Context<AppEnv>,
+  bindings: Pick<DeploymentsRouterBindings, 'deploymentRegistry' | 'projectBinding'>,
+  authorizer: Authorizer | undefined,
+): Promise<
+  { readonly deployment: Deployment; readonly projectId: ProjectId | undefined } | undefined
+> {
+  const tenantId = c.get('tenantId') as TenantId;
+  const deploymentId = c.req.param('deploymentId') ?? '';
+  const deployment = await bindings.deploymentRegistry.get({ tenantId, deploymentId });
+  if (deployment === null) return undefined;
+  const projectId = await servingProjectOf(bindings, deployment);
+  if (
+    authorizer !== undefined &&
+    !(await authorizer.can(c, 'read', readRef(tenantId, projectId)))
+  ) {
+    return undefined;
+  }
+  return { deployment, projectId };
+}
+
+/** The ones of `deployments` the caller reads, as {@link readableDeployment} decides one, in their order. */
+export async function readableDeployments(
+  c: Context<AppEnv>,
+  bindings: Pick<DeploymentsRouterBindings, 'projectBinding'>,
+  authorizer: Authorizer | undefined,
+  deployments: readonly Deployment[],
+): Promise<Deployment[]> {
+  if (authorizer === undefined) return [...deployments];
+  const tenantId = c.get('tenantId') as TenantId;
+  const projects = await servingProjectsOf(bindings, deployments);
+  const readable = await authorizer.filterByCan(
+    c,
+    'read',
+    deployments.map((deployment, i) => ({ deployment, projectId: projects[i] })),
+    ({ projectId }) => readRef(tenantId, projectId),
+  );
+  return readable.map(({ deployment }) => deployment);
 }
 
 /**
@@ -432,26 +501,15 @@ async function sourceFor(
   bindings: DeploymentsRouterBindings,
   authorizer: Authorizer | undefined,
 ): Promise<{ readonly source: Deployment; readonly fromProjectId: ProjectId } | Response> {
-  const tenantId = c.get('tenantId') as TenantId;
-  const deploymentId = c.req.param('deploymentId') ?? '';
-  const source = await bindings.deploymentRegistry.get({ tenantId, deploymentId });
-  const fromProjectId = source === null ? undefined : await servingProjectOf(bindings, source);
-  const reads =
-    source !== null &&
-    (authorizer === undefined ||
-      (await authorizer.can(
-        c,
-        'read',
-        fromProjectId === undefined
-          ? ref('tenant', tenantId as unknown as string)
-          : ref('project', fromProjectId as unknown as string),
-      )));
-  if (source === null || !reads) {
+  const located = await readableDeployment(c, bindings, authorizer);
+  if (located === undefined) {
+    const deploymentId = c.req.param('deploymentId') ?? '';
     return refusal(c, 'deployment-not-found', {
       message: `Deployment "${deploymentId}" not found`,
       deploymentId,
     });
   }
+  const { deployment: source, projectId: fromProjectId } = located;
   if (fromProjectId === undefined) {
     // No project binding to find the Default: no order places it.
     return notNext(c, undefined, undefined);
