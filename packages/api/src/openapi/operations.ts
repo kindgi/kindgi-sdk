@@ -8776,7 +8776,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'environmentOrders.setTenant',
     summary: "Set the tenant's environment order",
     description:
-      'Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the tenant and in no other order. A write that changes nothing is a no-op.',
+      'Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the tenant and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.',
     tags: ['environments'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -8821,7 +8821,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'environmentOrders.setOrg',
     summary: "Set an org's environment order",
     description:
-      "Replace the org's order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live under this org and in no other order. A write that changes nothing is a no-op.",
+      "Replace the org's order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live under this org and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.",
     tags: ['environments'],
     security: 'bearer',
     parameters: [

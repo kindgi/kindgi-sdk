@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { isAbsolute, resolve } from 'node:path';
+import { basename, isAbsolute, resolve } from 'node:path';
+
+import { findKindgiConfig } from '@kindgi/handler-runtime';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
@@ -116,15 +118,26 @@ async function refsForSet(ctx: CommandContext): Promise<string[]> {
   if (loaded.kind === 'invalid') {
     throw new UsageError(`Couldn't read the pack config: ${loaded.message}`);
   }
-  return names.map((name) => {
-    const ref = projectOfEnv(loaded.config, name);
-    if (ref === undefined) {
-      throw new UsageError(
-        `Your kindgi.config.ts names no project for environment "${name}". Add \`environments.${name}.project\`, or pass --projects <id-or-slug,…>.`,
-      );
-    }
-    return ref;
-  });
+  const resolved = names.map((name) => ({ name, ref: projectOfEnv(loaded.config, name) }));
+  const missing = resolved.find((r) => r.ref === undefined);
+  if (missing !== undefined) {
+    const configName = await packConfigName(packDirOf(ctx));
+    throw new UsageError(
+      `${configName} names no project for environment "${missing.name}". Add \`environments.${missing.name}.project\`, or pass --projects <id-or-slug,…>.`,
+    );
+  }
+  return resolved.map((r) => r.ref as string);
+}
+
+/**
+ * The pack's config file, named so a refusal points at the right one — a
+ * TS pack's `kindgi.config.ts`, a Python pack's `pyproject.toml`, a JVM
+ * pack's `kindgi.config.json`. A generic phrase when none is on disk (a
+ * test's injected loader).
+ */
+async function packConfigName(packDir: string): Promise<string> {
+  const found = await findKindgiConfig(packDir);
+  return found === undefined ? 'your pack config' : `\`${basename(found.path)}\``;
 }
 
 /**
