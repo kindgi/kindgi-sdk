@@ -8,7 +8,7 @@ Give every enforcement site one vocabulary — which object types exist, which a
 
 ## Exports
 
-- **Vocabulary** — `OBJECT_TYPES` / `ObjectType`, `ACTIONS` / `Action`, `ACTION_TO_RELATION` (e.g. `read` → `can_read`), `OBJECT_ACTIONS` (the actions meaningful per object type, so a PEP can reject `rotate` on an agent before calling FGA), `ResourceRef`, `resourceKey(ref)`, `ref(type, id)`.
+- **Vocabulary** — `OBJECT_TYPES` / `ObjectType`, `ACTIONS` / `Action`, `ACTION_TO_RELATION` (e.g. `read` → `can_read`), `OBJECT_ACTIONS` (the actions meaningful per object type, so a PEP can reject `rotate` on an agent before calling FGA), `CHECK_ONLY_ACTIONS` (actions a check may ask that `OBJECT_ACTIONS` doesn't list, so no permissions report names them: a project's `call` and `execute`), `ResourceRef`, `resourceKey(ref)`, `ref(type, id)`.
 - **Principals** — `Principal` (`actor`, optional `onBehalfOf`, optional `scope`), `PrincipalRef`, `PrincipalKind` (`user`, `agent`, `service_account`, `system`), `DownscopedPermissions` (`allowedActions` / `deniedActions`).
   - `userPrincipal`, `systemPrincipal`, `serviceAccountPrincipal`, `delegate(actor, onBehalfOf, scope?)` (throws on cross-tenant delegation), `downscope(principal, scope)`.
   - `fgaSubject(ref)` — the FGA subject string for a principal; `system` maps to `user:system`.

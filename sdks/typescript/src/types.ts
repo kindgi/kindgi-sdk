@@ -67,6 +67,23 @@ export type WebhookEndpointId = Brand<string, 'WebhookEndpointId'>;
 export type InstallationId = Brand<string, 'InstallationId'>;
 
 /**
+ * Which version a single read answers: `agents.get`, `flows.get`,
+ * `tools.get`, `evalSuites.get` and `blocks.get`. An item more than one
+ * project serves (an environment order carries it to later environments)
+ * answers its newest active version that can run in a project the caller
+ * reads.
+ */
+export interface GetLatestOptions {
+  /**
+   * The newest active version that can run in this project, a project
+   * the caller reads; `404` when there's none, or when the caller doesn't
+   * read it. An item with one project answers its latest version for its
+   * own project and `404` for any other. An older runtime ignores it.
+   */
+  readonly projectId?: string;
+}
+
+/**
  * @unwired SDK-defined schedule shape, keyed by agent. The API's
  * schedule routes (`/v1/schedules`) take a cron trigger config instead
  * — see `client.schedules` and its `RegisterScheduleInput`.

@@ -779,6 +779,7 @@ export type {
   SupersedeFactInput,
   UpdateJudgeClassInput,
   Verdict,
+  GetLatestOptions,
 } from './types.js';
 
 export type {

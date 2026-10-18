@@ -12,6 +12,7 @@ import { continuityIssues, withCarriedSchema } from '../block-publish.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
+import { type ItemRights, shownLatest } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { AppEnv } from '../types.js';
@@ -29,6 +30,11 @@ import { isRegistryVersionsCursor } from './versions-cursor.js';
  * are `write` on it. A block the caller can't read answers 404, as one
  * that doesn't exist.
  *
+ * A block more than one project serves (an environment order carries it
+ * to later environments) is read through any of them, each version where
+ * it can run; unregistering or reinstating a version is `write` on every
+ * project it can run in (`item-rights.ts`).
+ *
  * A version never changes, nor does a block's kind. A settings block's
  * values must satisfy the latest version's schema as well as their
  * own, so whatever reads them sees a stable shape.
@@ -42,6 +48,8 @@ export function blocksRouter(
    * environment.
    */
   environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>,
+  /** Rights on a block more than one project serves. Absent: every block has one project. */
+  itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -53,6 +61,22 @@ export function blocksRouter(
     projectId: ProjectId,
   ): Promise<boolean> {
     return authorizer === undefined || authorizer.can(c, action, ref('project', projectId));
+  }
+
+  /**
+   * A block more than one project serves: the rights and its projects,
+   * or `'hidden'` when the caller reads none of them (rule 1), answered
+   * as a missing block. `undefined`: one project, checked as before.
+   */
+  async function served(
+    c: Context<AppEnv>,
+    blockId: string,
+  ): Promise<{ rights: ItemRights; projects: readonly ProjectId[] } | 'hidden' | undefined> {
+    const projects = await itemRights?.multi(c, 'block', blockId);
+    if (itemRights === undefined || projects === undefined) return undefined;
+    return (await itemRights.read(c, 'block', blockId, projects)) === undefined
+      ? { rights: itemRights, projects }
+      : 'hidden';
   }
 
   function notFound(c: Context<AppEnv>, blockId: string, version?: string) {
@@ -105,7 +129,16 @@ export function blocksRouter(
     const visible =
       authorizer === undefined
         ? page.data
-        : await authorizer.filterByCan(c, 'read', page.data, (b) => ref('project', b.projectId));
+        : itemRights === undefined
+          ? await authorizer.filterByCan(c, 'read', page.data, (b) => ref('project', b.projectId))
+          : await itemRights.filterItems(c, 'block', page.data, {
+              idOf: (b) => b.id,
+              todayRef: (b) => ref('project', b.projectId),
+              versions: {
+                versionOf: (b) => b.version,
+                getVersion: (id, version) => binding.getVersion({ tenantId, blockId: id, version }),
+              },
+            });
     return c.json({
       data: visible.map(serializeBlock),
       hasMore: page.nextCursor !== undefined,
@@ -115,12 +148,23 @@ export function blocksRouter(
 
   // ---------- GET /:blockId (latest version) ----------
   r.get('/:blockId', async (c) => {
+    const tenantId = c.get('tenantId') as TenantId;
     const blockId = c.req.param('blockId');
-    const block = await binding.get({ tenantId: c.get('tenantId') as TenantId, blockId });
-    if (block === null || !(await canProject(c, 'read', block.projectId))) {
+    const block = await binding.get({ tenantId, blockId });
+    if (block === null) return notFound(c, blockId);
+    const many = await served(c, blockId);
+    if (many === 'hidden') return notFound(c, blockId);
+    if (many === undefined && !(await canProject(c, 'read', block.projectId))) {
       return notFound(c, blockId);
     }
-    return c.json(serializeBlock(block));
+    const shown = await shownLatest(c, itemRights, 'block', blockId, block, {
+      versionOf: (b) => b.version,
+      projectOf: (b) => b.projectId,
+      getVersion: (version) => binding.getVersion({ tenantId, blockId, version }),
+    });
+    if (shown.kind === 'bad-input') return badInput(c, shown.message);
+    if (shown.kind === 'not-found') return notFound(c, blockId);
+    return c.json(serializeBlock(shown.row));
   });
 
   // ---------- GET /:blockId/versions ----------
@@ -141,12 +185,10 @@ export function blocksRouter(
       includeTombstoned: c.req.query('includeTombstoned') === 'true',
       ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
     });
-    const owner = page.data[0] ?? (await anyVersion(tenantId, blockId));
-    if (owner === null || !(await canProject(c, 'read', owner.projectId))) {
-      return notFound(c, blockId);
-    }
+    const data = await readableVersions(c, tenantId, blockId, page.data);
+    if (data === undefined) return notFound(c, blockId);
     return c.json({
-      data: page.data.map(serializeBlock),
+      data: data.map(serializeBlock),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -156,12 +198,20 @@ export function blocksRouter(
   r.get('/:blockId/versions/:version', async (c) => {
     const blockId = c.req.param('blockId');
     const version = c.req.param('version');
+    const many = await served(c, blockId);
+    if (
+      many === 'hidden' ||
+      (many !== undefined &&
+        !(await many.rights.versionVisible(c, 'block', blockId, many.projects, version)))
+    ) {
+      return notFound(c, blockId, version);
+    }
     const block = await binding.getVersion({
       tenantId: c.get('tenantId') as TenantId,
       blockId,
       version,
     });
-    if (block === null || !(await canProject(c, 'read', block.projectId))) {
+    if (block === null || (many === undefined && !(await canProject(c, 'read', block.projectId)))) {
       return notFound(c, blockId, version);
     }
     return c.json(serializeBlock(block));
@@ -233,11 +283,8 @@ export function blocksRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const blockId = c.req.param('blockId');
     const version = c.req.param('version');
-    const block = await binding.getVersion({ tenantId, blockId, version });
-    if (block === null || !(await canProject(c, 'read', block.projectId))) {
-      return notFound(c, blockId, version);
-    }
-    if (!(await canProject(c, 'write', block.projectId))) return denied(c, block.projectId);
+    const refused = await mayChangeVersion(c, tenantId, blockId, version);
+    if (refused !== undefined) return refused;
     const outcome = await binding.unregister({ tenantId, blockId, version });
     if (!outcome.unregistered) return notFound(c, blockId, version);
     return c.json({ blockId, version, unregistered: true });
@@ -248,17 +295,74 @@ export function blocksRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const blockId = c.req.param('blockId');
     const version = c.req.param('version');
-    const block = await binding.getVersion({ tenantId, blockId, version });
-    if (block === null || !(await canProject(c, 'read', block.projectId))) {
-      return notFound(c, blockId, version);
-    }
-    if (!(await canProject(c, 'write', block.projectId))) return denied(c, block.projectId);
+    const refused = await mayChangeVersion(c, tenantId, blockId, version);
+    if (refused !== undefined) return refused;
     const outcome = await binding.reinstateVersion({ tenantId, blockId, version });
     if (outcome.kind === 'not-found') return notFound(c, blockId, version);
     return c.json({ blockId, version, wasTombstoned: outcome.wasTombstoned });
   });
 
+  /**
+   * Unregistering or reinstating a version: `write` on its project; for a
+   * block more than one project serves, on every project the version can
+   * run in (a version that doesn't exist: the block's), after reading it
+   * (rule 1). `undefined`: allowed, or no such version, for the handler.
+   */
+  async function mayChangeVersion(
+    c: Context<AppEnv>,
+    tenantId: TenantId,
+    blockId: string,
+    version: string,
+  ): Promise<Response | undefined> {
+    const many = await served(c, blockId);
+    if (many === 'hidden') return notFound(c, blockId, version);
+    if (many !== undefined) {
+      return many.rights.enforce(
+        c,
+        'block',
+        blockId,
+        many.projects,
+        { rule: 'every-version', action: 'write', version },
+        (cx, v) => notFound(cx, blockId, v),
+      );
+    }
+    const block = await binding.getVersion({ tenantId, blockId, version });
+    if (block === null || !(await canProject(c, 'read', block.projectId))) {
+      return notFound(c, blockId, version);
+    }
+    if (!(await canProject(c, 'write', block.projectId))) return denied(c, block.projectId);
+    return undefined;
+  }
+
   /** Any version of a block, unregistered ones included: whose project it is. */
+  /**
+   * A page of a block's versions as the caller reads them: every one, when
+   * they read the block's project; for a block more than one project
+   * serves, those that can run in a project they read. `undefined`: they
+   * don't read the block (its 404).
+   */
+  async function readableVersions(
+    c: Context<AppEnv>,
+    tenantId: TenantId,
+    blockId: string,
+    rows: readonly BlockRecord[],
+  ): Promise<readonly BlockRecord[] | undefined> {
+    const many = await served(c, blockId);
+    if (many === 'hidden') return undefined;
+    if (many !== undefined) {
+      return many.rights.visibleVersions(
+        c,
+        'block',
+        blockId,
+        many.projects,
+        rows,
+        (b) => b.version,
+      );
+    }
+    const owner = rows[0] ?? (await anyVersion(tenantId, blockId));
+    return owner !== null && (await canProject(c, 'read', owner.projectId)) ? rows : undefined;
+  }
+
   async function anyVersion(tenantId: TenantId, blockId: string): Promise<BlockRecord | null> {
     const page = await binding.listVersions({
       tenantId,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import type {
   Conversation,
@@ -18,6 +18,7 @@ import type { AgentId, ProjectId, Semver, TenantId } from '@kindgi/types';
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
+import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import {
@@ -69,6 +70,14 @@ export function conversationsRouter(
   referenceScope?: ReferenceScopeBinding,
   /** Where an agent is filed: a conversation opened without `projectId` goes there. */
   agentRegistry?: AgentRegistryBinding,
+  /**
+   * Rights on an agent more than one project serves (`item-rights.ts`):
+   * opening or closing a conversation in one of its projects is that
+   * project's `call`, and a project-scoped key's conversation opened
+   * without `projectId` goes to the key's project. Absent: every agent has
+   * one project.
+   */
+  itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -248,26 +257,27 @@ export function conversationsRouter(
         ),
       );
     }
-    const refused = await deniedBy(
-      authorizer,
-      c,
-      'execute',
-      ref('agent', parsed.value.agentId as unknown as string),
-    );
-    if (refused !== undefined) return refused;
     // Omitted: the agent's own project, as for a run. An agent the registry
     // doesn't place (or from before projects): the tenant's Default. No
     // Default (or no project binding): no project, never a refusal.
-    const projectId =
-      supplied ??
+    const own = async () =>
       (
         await agentRegistry?.getVersion({
           tenantId,
           agentId: parsed.value.agentId,
           version: parsed.value.agentVersion,
         })
-      )?.projectId ??
-      (await projectBinding?.getDefault(tenantId))?.id;
+      )?.projectId ?? (await projectBinding?.getDefault(tenantId))?.id;
+    const open = await openIn(
+      c,
+      authorizer,
+      itemRights,
+      parsed.value.agentId as unknown as string,
+      supplied,
+      own,
+    );
+    if (open.refused !== undefined) return open.refused;
+    const projectId = open.projectId;
     // Its agent must be its project's to reach (`reference-scope.ts`).
     if (projectId !== undefined) {
       const outOfScope = await referencesOutOfScope(referenceScope, tenantId, projectId, [
@@ -316,12 +326,25 @@ export function conversationsRouter(
       c.status(statusFor(existing.error.code) as never);
       return c.json(toWireError(existing.error as never, requestId));
     }
-    const refused = await deniedBy(
-      authorizer,
-      c,
-      'execute',
-      ref('agent', existing.value.agentId as unknown as string),
-    );
+    // An agent more than one project serves: closing a conversation in one
+    // of its projects is that project's `call`.
+    const agentId = existing.value.agentId as unknown as string;
+    const served =
+      authorizer === undefined ? undefined : await itemRights?.multi(c, 'agent', agentId);
+    const own = existing.value.projectId as unknown as string | undefined;
+    const refused =
+      served !== undefined &&
+      itemRights !== undefined &&
+      own !== undefined &&
+      served.includes(own as ProjectId)
+        ? await runIn(
+            c,
+            itemRights,
+            { kind: 'agent', id: agentId },
+            own,
+            `closing a conversation with agent "${agentId}"`,
+          )
+        : await deniedBy(authorizer, c, 'execute', ref('agent', agentId));
     if (refused !== undefined) return refused;
     // Close is idempotent — closing an already-closed conversation
     // returns 200 with the current row, no error and no timestamp bump.
@@ -444,6 +467,48 @@ export function conversationsRouter(
  * opened before conversations recorded a project. (A `conversation`
  * object has no parent tuple, so a check on it would refuse everyone.)
  */
+/**
+ * Where a conversation opens, and whether the caller may open it there:
+ * `execute` on its agent, or, for an agent more than one project serves
+ * opened in one of its projects, that project's `call` alone
+ * (`item-rights.ts`). Unnamed, a project-scoped key's conversation goes to
+ * the key's project when it serves the agent, as its unnamed run does;
+ * else to `own()`. A refused caller is never placed.
+ */
+async function openIn(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  itemRights: ItemRights | undefined,
+  agentId: string,
+  supplied: ProjectId | undefined,
+  own: () => Promise<ProjectId | undefined>,
+): Promise<{ readonly projectId?: ProjectId | undefined; readonly refused?: Response }> {
+  const served =
+    authorizer === undefined ? undefined : await itemRights?.multi(c, 'agent', agentId);
+  if (served === undefined || itemRights === undefined) {
+    const refused = await deniedBy(authorizer, c, 'execute', ref('agent', agentId));
+    if (refused !== undefined) return { refused };
+    return { projectId: supplied ?? (await own()) };
+  }
+  const keyProject = c.get('tokenProjectId') as ProjectId | undefined;
+  const placed =
+    supplied === undefined && keyProject !== undefined && served.includes(keyProject)
+      ? keyProject
+      : undefined;
+  const projectId = supplied ?? placed ?? (await own());
+  const refused =
+    projectId !== undefined && served.includes(projectId)
+      ? await runIn(
+          c,
+          itemRights,
+          { kind: 'agent', id: agentId },
+          projectId,
+          `opening a conversation with agent "${agentId}"`,
+        )
+      : await deniedBy(authorizer, c, 'execute', ref('agent', agentId));
+  return refused !== undefined ? { refused } : { projectId };
+}
+
 function conversationRef(conv: Conversation): ResourceRef {
   return conv.projectId !== undefined
     ? ref('project', conv.projectId as unknown as string)
