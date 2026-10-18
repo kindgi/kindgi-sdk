@@ -257,6 +257,8 @@ function harness(
     readonly suspended?: readonly ProjectId[];
     /** The env the runtime serves; `null`: none named. */
     readonly envName?: string | null;
+    /** The tool's schema for `ACME_TOKEN`; absent: a required string. */
+    readonly secretSchema?: object;
   } = {},
 ) {
   const deployments = ledger(opts.rows ?? [built({ id: 'dep-s1', projectId: S1 })], {
@@ -299,7 +301,10 @@ function harness(
       get: async () => null,
       getVersion: async ({ toolId, version }: { toolId: string; version: string }) =>
         toolId === TOOL.id && version === TOOL.version
-          ? { ...TOOL, needsSpec: { secrets: { ACME_TOKEN: { type: 'string' } } } }
+          ? {
+              ...TOOL,
+              needsSpec: { secrets: { ACME_TOKEN: opts.secretSchema ?? { type: 'string' } } },
+            }
           : null,
     } as never,
     agentRegistry: {
@@ -409,6 +414,26 @@ describe('a promotion moves the exact build, one environment at a time', () => {
         secretScopes: { ACME_TOKEN: { kind: 'project', projectId: S2 } },
       },
     ]);
+  });
+
+  test('an optional secret set nowhere is recorded at the target, where `kindgi promote` says to set it', async () => {
+    const optional = { type: ['string', 'null'] };
+    // Without authorization (every scope counts), and as the tenant's admin.
+    for (const grants of [
+      undefined,
+      [`read project:${S1}`, `admin project:${S2}`, `admin tenant:${tenantId}`],
+    ]) {
+      const h = harness({ secrets: [], secretSchema: optional, ...(grants && { grants }) });
+      const res = await h.promote('dep-s1', S2);
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      expect(h.deployments.secretScopes.get(res.body.deployment.deploymentId)).toEqual([
+        {
+          toolId: TOOL.id,
+          version: TOOL.version,
+          secretScopes: { ACME_TOKEN: { kind: 'project', projectId: S2 } },
+        },
+      ]);
+    }
   });
 
   test('twice, or twice at once: one deployment in the target, answered 200 after the first', async () => {

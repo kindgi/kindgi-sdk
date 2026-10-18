@@ -4,8 +4,9 @@
 /**
  * `secret-scope.ts`: the scopes a named secret is looked for at, and the
  * one recorded: the first the caller administers that has it, else the
- * broadest they administer, else none. Through the routes:
- * webhook-secret-scope.test.ts.
+ * fallback when they administer it, else the broadest they administer,
+ * else none. Through the routes: webhook-secret-scope.test.ts, and
+ * deployments-routes.test.ts for a deploy's fallback.
  */
 
 import { describe, expect, test } from 'vitest';
@@ -66,6 +67,70 @@ describe('namedSecretScope', () => {
   test("without authorization, every scope is the caller's", async () => {
     expect(await ask(has('tenant'))).toEqual(tenant);
     expect(await ask(has())).toEqual(tenant);
+  });
+});
+
+describe('a fallback: what a name set nowhere is recorded at', () => {
+  const other: Scope = { kind: 'project', tenantId, projectId: 'p-2' as ProjectId };
+  const askWith = (
+    secrets: ReturnType<typeof has>,
+    fallback: Scope,
+    admin?: ReturnType<typeof administers>,
+  ) =>
+    namedSecretScope({
+      secrets: secrets as never,
+      chain: secretScopeChain(project, orgId),
+      ...(admin !== undefined && { administers: admin }),
+      envName: 'test' as EnvName,
+      name: 'x',
+      fallback,
+    });
+
+  test('set nowhere: the fallback, in place of the broadest the caller administers', async () => {
+    expect(await askWith(has(), project, administers('project', 'org', 'tenant'))).toEqual(project);
+    expect(await askWith(has(), project, administers('project', 'org'))).toEqual(project);
+    expect(await askWith(has(), org, administers('project', 'org', 'tenant'))).toEqual(org);
+  });
+
+  test("a fallback the caller doesn't administer: the broadest they do, as without one", async () => {
+    expect(await askWith(has(), tenant, administers('project', 'org'))).toEqual(org);
+    expect(await askWith(has(), project, administers('org', 'tenant'))).toEqual(tenant);
+    // An editor who administers no scope still records none.
+    expect(await askWith(has(), project, administers())).toBeNull();
+  });
+
+  test('a fallback outside the chain is never recorded', async () => {
+    expect(await askWith(has(), other)).toEqual(tenant);
+    expect(await askWith(has(), other, administers('project'))).toEqual(project);
+  });
+
+  test('without authorization, the fallback', async () => {
+    expect(await askWith(has(), project)).toEqual(project);
+  });
+
+  test('found first is unchanged: a name set at a broader scope is recorded there', async () => {
+    expect(await askWith(has('tenant'), project)).toEqual(tenant);
+    expect(await askWith(has('org', 'tenant'), project, administers('project', 'org'))).toEqual(
+      org,
+    );
+  });
+
+  test('without the env, nothing is looked up: the fallback, found nowhere', async () => {
+    const seen: string[] = [];
+    const found = await findNamedSecretScope({
+      secrets: {
+        get: async ({ scope }: { scope: Scope }) => {
+          seen.push(scope.kind);
+          return null;
+        },
+      } as never,
+      chain: secretScopeChain(project, orgId),
+      envName: undefined,
+      name: 'x',
+      fallback: project,
+    });
+    expect(found).toEqual({ scope: project });
+    expect(seen).toEqual([]);
   });
 });
 

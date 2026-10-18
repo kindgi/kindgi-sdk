@@ -642,7 +642,8 @@ async function signerRefusal(
 /**
  * Where each secret of each tool version the build ships is read in the
  * target, decided now as the promoter may read them: a deploy's own rule
- * (`secretScopesFor`), at the target project.
+ * (`secretScopesFor`), at the target project. One set nowhere yet is read
+ * at the target project, where `kindgi promote` says to set it.
  */
 async function targetSecretScopes(
   c: Context<AppEnv>,
@@ -660,11 +661,13 @@ async function targetSecretScopes(
       version: version as Semver,
     });
     if (tool === null) continue;
+    const target: Scope = { kind: 'project', tenantId, projectId: plan.toProjectId };
     const secretScopes = await secretScopesFor(
       c,
       { secrets: bindings.secretsBinding, projects: bindings.projectBinding, authorizer },
-      { kind: 'project', tenantId, projectId: plan.toProjectId },
+      target,
       toolSecretRefs(tool, bindings.envName),
+      target,
     );
     if (secretScopes !== undefined) out.push({ toolId: id, version, secretScopes });
   }

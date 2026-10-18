@@ -42,7 +42,6 @@ import {
   type DeployedAgent,
   type DeployedFlow,
   type DeployedVersion,
-  type Deployment,
   type DeploymentBinding,
   type DeploymentPrimitiveCounts,
   type DeploymentRegisterOutcome,
@@ -972,6 +971,7 @@ export function deploymentsRouter(
             const projectIdForTool = targetProjectId;
             // Where each secret it names is read: decided now, as the deployer
             // may read them, and kept with this version (`secret-scope.ts`).
+            // One set nowhere yet is read where this deployment's sync writes.
             const secretScopes = await secretScopesFor(
               c,
               {
@@ -981,6 +981,7 @@ export function deploymentsRouter(
               },
               { kind: 'project', tenantId, projectId: projectIdForTool },
               toolSecretRefs(tool, bindings.envName),
+              deploymentSecretScope(tenantId, wire.projectId),
             );
             const outcome = await bindings.toolRegistry.publish({
               tenantId,
@@ -1230,7 +1231,7 @@ export function deploymentsRouter(
   //
   // Scope is derived from the target deployment record, NOT accepted from
   // the wire (CRITICAL): the project the deploy named (`projectId`), else
-  // the tenant (`deriveScopeFromDeployment`).
+  // the tenant (`deploymentSecretScope`).
   //
   // Capability: `secrets:write` (fail-closed).
   // Idempotency-Key: honoured by the middleware layer.
@@ -1273,7 +1274,7 @@ export function deploymentsRouter(
         ),
       );
     }
-    const scope = deriveScopeFromDeployment(deployment);
+    const scope = deploymentSecretScope(deployment.tenantId, deployment.projectId);
 
     let body: unknown;
     try {
@@ -1483,19 +1484,21 @@ export function deploymentsRouter(
 // ------------------------------------------------------------
 
 /**
- * Derive the write scope for a deployment secret-sync request from
- * the deployment record itself. Never accepts a caller-supplied scope
- * override on the wire (CRITICAL — scope MUST be inferred
- * server-side to prevent tenant/project confusion attacks).
+ * Where a deployment's secrets sync writes, from the deployment record's
+ * `projectId` (absent for a deploy that named no project). The sync never
+ * accepts a caller-supplied scope override on the wire (CRITICAL — scope
+ * MUST be inferred server-side to prevent tenant/project confusion
+ * attacks).
  *
  * A deploy into a named project syncs its secrets into that project; a
- * tenant-wide one (no `projectId`) syncs them tenant-wide.
+ * tenant-wide one (no `projectId`) syncs them tenant-wide, though its tools
+ * land in the Default project. The deploy records this scope for a secret
+ * its tools name that's set nowhere yet, so a call reads what the sync
+ * stores (`secret-scope.ts`).
  */
-function deriveScopeFromDeployment(d: Deployment): Scope {
-  if (d.projectId !== undefined) {
-    return { kind: 'project', tenantId: d.tenantId, projectId: d.projectId } as Scope;
-  }
-  return { kind: 'tenant', tenantId: d.tenantId } as Scope;
+function deploymentSecretScope(tenantId: TenantId, projectId: ProjectId | undefined): Scope {
+  if (projectId !== undefined) return { kind: 'project', tenantId, projectId };
+  return { kind: 'tenant', tenantId };
 }
 
 type ParsedSyncEntry =

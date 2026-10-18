@@ -13,10 +13,15 @@
  * needs). The first that has it is recorded. If none has it yet (an item
  * registered before its secret is set), the broadest scope they administer
  * is: the tenant for a tenant admin, the project for a project admin. A
- * caller who administers none of them records none, and the item reads no
- * secret until an admin records it again: a tool by publishing a new
- * version, an MCP endpoint by unregistering it and registering it again, a
- * webhook trigger by naming its secret again (an update).
+ * deployment's tools record the scope its own secrets sync writes instead
+ * (its project, or the tenant for a deploy that names none), and a
+ * promotion's the target project, when the caller administers it: a deploy
+ * then reads what its sync stored, and a promotion what's set in the
+ * target. A caller who administers none of them records none, and the
+ * item reads no secret until an admin records it again: a tool by
+ * publishing a new version, an MCP endpoint by unregistering it and
+ * registering it again, a webhook trigger by naming its secret again (an
+ * update).
  *
  * Nothing here refuses: what's recorded doesn't say whether the name
  * exists at a scope the caller can't read. A secret set later at another
@@ -68,6 +73,13 @@ export interface NamedSecretScopeInput {
    */
   readonly envName: EnvName | undefined;
   readonly name: string;
+  /**
+   * The scope to record when none of the chain has the name, in place of
+   * the broadest the caller administers: where a deployment's secrets sync
+   * writes. Used only when it's in `chain` and the caller administers it;
+   * otherwise the broadest administered scope is recorded, as without it.
+   */
+  readonly fallback?: Scope;
 }
 
 /** The scope to record for one named secret; `null` when the caller administers none of the chain. */
@@ -78,21 +90,24 @@ export async function namedSecretScope(input: NamedSecretScopeInput): Promise<Sc
 /**
  * The scope `namedSecretScope` records, and the secret there when it was
  * found: what a run will read. Absent `found`: the secret isn't there (the
- * broadest administered scope is recorded), or nothing was looked up (no
- * `envName`). `null` when the caller administers none of the chain.
+ * fallback, else the broadest administered scope, is recorded), or nothing
+ * was looked up (no `envName`). `null` when the caller administers none of the chain.
  */
 export async function findNamedSecretScope(
   input: NamedSecretScopeInput,
 ): Promise<{ readonly scope: Scope; readonly found?: SecretRecord } | null> {
   let ceiling: Scope | null = null;
+  let fallback: Scope | null = null;
   for (const scope of input.chain) {
     if (input.administers !== undefined && !(await input.administers(scope))) continue;
     ceiling = scope;
+    if (input.fallback !== undefined && sameScope(scope, input.fallback)) fallback = scope;
     if (input.envName === undefined) continue;
     const found = await input.secrets.get({ scope, envName: input.envName, name: input.name });
     if (found !== null) return { scope, found };
   }
-  return ceiling === null ? null : { scope: ceiling };
+  const recorded = fallback ?? ceiling;
+  return recorded === null ? null : { scope: recorded };
 }
 
 export type { RecordedSecretScope };
@@ -200,13 +215,15 @@ export function callerAdministers(
 /**
  * The scopes to record for the secrets an item at `item` names, by name,
  * as the request's caller registers it; `undefined` without a secrets store
- * (nothing is recorded, as before).
+ * (nothing is recorded, as before). `fallback`: what a name set nowhere is
+ * recorded at, as `NamedSecretScopeInput.fallback`.
  */
 export async function secretScopesFor(
   c: Context<AppEnv>,
   deps: SecretScopeDeps,
   item: Scope,
   names: readonly NamedSecret[],
+  fallback?: Scope,
 ): Promise<Readonly<Record<string, RecordedSecretScope | null>> | undefined> {
   if (deps.secrets === undefined || names.length === 0) return undefined;
   const orgId =
@@ -218,6 +235,7 @@ export async function secretScopesFor(
     secrets: deps.secrets,
     chain: secretScopeChain(item, orgId),
     ...(administers !== undefined && { administers }),
+    ...(fallback !== undefined && { fallback }),
     names,
   });
 }
