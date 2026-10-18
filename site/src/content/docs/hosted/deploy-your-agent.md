@@ -32,10 +32,15 @@ Your coding agent deploys with the CLI's sign-in, so the key never goes
 into the chat.
 
 :::note[What only you do]
-**Make a key for the CLI.** In the console, open **API keys** and choose
-**Create a key**. Under **How far it goes**, choose **Admin**. Under
-**What it can change**, tick **Trust signing keys** and **Store secrets**.
-The secret shows once: **Copy** it.
+**Make a key for the CLI.** Sign in to the Kindgi Cloud console, at
+[platform.kindgi.com/console](https://platform.kindgi.com/console/). Open
+**API keys** and choose **Create a key**. Under **How far it goes**, choose
+**Admin**. Under **What it can change**, tick **Trust signing keys** and
+**Store secrets**. The secret shows once: **Copy** it.
+
+This key is the one every command in this guide uses. If you also run
+`kindgi dev`, its console and the token it prints belong to the runtime on
+your machine, not to Kindgi Cloud: paste only the key you made here.
 
 **Sign the CLI in, in a terminal of your own,** in the pack's folder. Paste
 the key at the prompt, which doesn't show it:
@@ -141,9 +146,9 @@ with `Deploy complete.`, then `Waiting for the pack service` and `✓ ready`.
 
 The project isn't in production yet, so its runs count as staging.
 
-In the console, open **Runs** and choose **Start run**. Under **Agent or
-flow**, choose `acme-desk.reply-drafter`, write a message for it under
-**Message**, and choose **Start run**. The run's page shows **What
+In the Kindgi Cloud console, open **Runs** and choose **Start run**. Under
+**Agent or flow**, choose `acme-desk.reply-drafter`, write a message for it
+under **Message**, and choose **Start run**. The run's page shows **What
 happened**: each step, and then what the agent **Answered**.
 
 From the CLI, the same run is:
