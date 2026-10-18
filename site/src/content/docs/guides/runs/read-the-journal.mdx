@@ -26,9 +26,36 @@ explains what it holds and why.
 
 The journal shows what the run did, step by step:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs journal <run-id>
+pnpm exec kindgi runs journal <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs journal <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs journal <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs journal <run-id>
+```
+
+</TabItem>
+</Tabs>
 
 `<run-id>` is the run's id. For a run of `acme.review-order` with order
 `A-200`, it prints:
@@ -103,9 +130,36 @@ flow's run as its `parentRunId`, so
 [List runs](../list-runs/#the-runs-inside-a-run) finds it too. Read its
 journal:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs journal <the turn's run id>
+pnpm exec kindgi runs journal <the turn's run id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs journal <the turn's run id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs journal <the turn's run id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs journal <the turn's run id>
+```
+
+</TabItem>
+</Tabs>
 
 `<the turn's run id>` is the turn's `runId`. Its journal has the model calls
 and the tool calls. Each model call has the messages sent, the answer, and
@@ -113,8 +167,9 @@ its tokens and cost.
 
 ## From your app
 
-Your app reads a journal with `runs.journal`. This function prints a run's
-journal, one entry a line:
+Your app reads a journal with `runs.journal`. Ask your coding agent: "I want
+my app to show every step a run took." For reference, this function prints a
+run's journal, one entry a line:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

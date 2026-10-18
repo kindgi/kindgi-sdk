@@ -12,8 +12,10 @@ import { capabilitiesCommand } from './capabilities.js';
 import { consoleCommand } from './console.js';
 import { conversationsCommand } from './conversations.js';
 import { deployCommand } from './deploy.js';
+import { deploymentsCommand } from './deployments.js';
 import { devCommand } from './dev.js';
 import { doctorCommand } from './doctor.js';
+import { egressCommand } from './egress.js';
 import { envCommand } from './env.js';
 import { evalRunsCommand } from './eval-runs.js';
 import { evalSuitesCommand } from './eval-suites.js';
@@ -41,6 +43,8 @@ import { runsCommand } from './runs.js';
 import { schedulesCommand } from './schedules.js';
 import { secretsCommand } from './secrets.js';
 import { serviceAccountsCommand } from './service-accounts.js';
+import { signInCommand } from './sign-in.js';
+import { sitesCommand } from './sites.js';
 import { skillsCommand } from './skills.js';
 import { ssoCommand } from './sso.js';
 import { testCommand } from './test.js';
@@ -59,10 +63,13 @@ export const ROOT_COMMANDS: readonly Command[] = [
   consoleCommand,
   buildCommand,
   deployCommand,
+  deploymentsCommand,
   testCommand,
   envCommand,
   secretsCommand,
   ssoCommand,
+  signInCommand,
+  sitesCommand,
   keyCommand,
   licenseCommand,
   mcpCommand,
@@ -98,6 +105,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   adaptersCommand,
   skillsCommand,
   feedbackCommand,
+  egressCommand,
   healthCommand,
   doctorCommand,
   versionCommand,

@@ -263,6 +263,21 @@ describe('kindgi schedules', () => {
     }
   });
 
+  test('--run-as names a service account on create and take-over', async () => {
+    const BOT = '22222222-2222-4222-8222-222222222222';
+    const made = await schedules([
+      'create',
+      '--cron=0 2 * * *',
+      '--agent=acme.digest',
+      `--run-as=${BOT}`,
+    ]);
+    expect(made.out.exitCode, made.out.stderr).toBe(0);
+    expect(made.calls[0]).toMatchObject(['register', { runAsServiceAccountId: BOT }]);
+
+    const take = await schedules(['take-ownership', ID, `--run-as=${BOT}`]);
+    expect(take.calls).toEqual([['takeOwnership', ID, { runAsServiceAccountId: BOT }]]);
+  });
+
   test("update's help gives no defaults: a flag left out keeps the schedule's value", async () => {
     const update = (await schedules(['update', '--help'])).out;
     expect(update.exitCode, update.stderr).toBe(0);

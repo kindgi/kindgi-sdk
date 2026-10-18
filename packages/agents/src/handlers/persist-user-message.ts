@@ -4,6 +4,7 @@
 import type { NodeHandler } from '@kindgi/handler';
 import type { Timestamp } from '@kindgi/types';
 
+import { turnMessageIsEvent } from '../event-data.js';
 import type { ConversationMessage } from '../types.js';
 
 import type { TurnContext } from './context.js';
@@ -24,6 +25,9 @@ import { addInputNode } from './turn-provenance.js';
  */
 export function buildPersistUserMessageHandler(ctx: TurnContext): NodeHandler {
   return async (_input, kctx) => {
+    // A webhook's or an event's message is marked as it's kept: every
+    // later turn reads it back as data.
+    const fromEvent = turnMessageIsEvent(ctx.input);
     if (kctx.dryRun) {
       const synthetic: ConversationMessage = {
         sequence: -1,
@@ -31,6 +35,7 @@ export function buildPersistUserMessageHandler(ctx: TurnContext): NodeHandler {
         content: ctx.input.userMessage,
         createdAt: new Date().toISOString() as Timestamp,
         ...(ctx.input.participantId !== undefined && { actor: ctx.input.participantId }),
+        ...(fromEvent && { fromEvent: true }),
       };
       ctx.userMessage = synthetic;
       ctx.appended.push(synthetic);
@@ -45,6 +50,7 @@ export function buildPersistUserMessageHandler(ctx: TurnContext): NodeHandler {
       role: 'user',
       content: ctx.input.userMessage,
       ...(ctx.input.participantId !== undefined && { actor: ctx.input.participantId }),
+      ...(fromEvent && { fromEvent: true }),
       recall: recallOf(ctx),
     });
     if (persisted.kind === 'err') throwAgentTurnFailure(persisted.error);

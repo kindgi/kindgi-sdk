@@ -374,6 +374,30 @@ export function systemScopeExtraRefusal(
   return deny(c, authorizer, 'system-scope-missing', `${why}: that takes ${scope}.`, { scope });
 }
 
+/**
+ * For a request only a key holding `scope` itself may make: the system
+ * principal making it, when its own capabilities include `scope`.
+ * Otherwise the refusal: `kindgi:system` doesn't count (`403
+ * system-scope-missing`, naming `scope`).
+ */
+export function ownSystemScope(
+  c: Context<AppEnv>,
+  scope: SystemScope,
+  why: string,
+  authorizer?: Authorizer,
+): SystemPrincipal | Response {
+  const principal = c.get('systemPrincipal');
+  if (principal === undefined) return principalRequired(c, authorizer);
+  if ((c.get('capabilities') ?? []).includes(scope)) return principal;
+  return deny(
+    c,
+    authorizer,
+    'system-scope-missing',
+    `${why}: that takes a key holding ${scope} itself, which ${FULL_SYSTEM_CAPABILITY} doesn't stand in for.`,
+    { scope },
+  );
+}
+
 /** A route only the full system capability may use: minting system keys. */
 export function requireFullSystem(authorizer?: Authorizer): MiddlewareHandler<AppEnv> {
   return async (c, next) => {

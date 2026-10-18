@@ -14,6 +14,18 @@ same version, and the CLI's own changes are in
   runtime serving one tenant answers.** Its own token mints, lists and revokes
   keys holding `system:license` alone, for the license renewal, and such a key
   reads the license and its use and nothing else.
+- `kindgi`: **`deployments.pack_env` shows where each name a deployment's
+  pack declares is set** (`project`, `org` or `tenant`) and why it can't be
+  given to its pack service, if it can't, on a server that runs a pack
+  service per deployment. Never a value. For whatever runs the pack
+  services, on a `system:pack-env` key: `system_deployments.list_pack_env_changed`,
+  `get_pack_env` and `record_pack_env`.
+- `kindgi`: **a webhook or schedule trigger can run as a service account.**
+  `run_as_service_account_id` on `webhooks.register`,
+  `webhooks.take_ownership`, `schedules.register` and
+  `schedules.take_ownership` names the service account whose grants the
+  trigger's runs act with, rather than whoever registered it. Naming an
+  account needs `act_as` on it, which tenant admins hold.
 - `kindgi`: **`flows.get` and `flows.get_version` answer the flow, and
   `tools.get` and `tools.get_version` the tool.** They read each answer as
   another object that had taken the name `Flow` or `Tool` (a judged run's
@@ -64,6 +76,38 @@ same version, and the CLI's own changes are in
   was retired; an active one has none. A retired version was
   `404 policy-not-found`, a `NotFoundError`; a version the retention sweep has
   purged still is. (#903)
+
+- `kindgi`: **`@tool` and `http_tool` take `needs_approval_when_unattended`.**
+  `True` makes each call of the tool wait for a person's approval in a run no
+  person started (a webhook, a schedule, an event, or a service account's
+  key). A flow's tool step that calls it is refused there. A run a person
+  starts is unaffected. The pack's index carries it as
+  `needsApprovalWhenUnattended`; left out, nothing changes.
+
+- `kindgi`: **a response reads an enum value, or a union member, that this
+  client doesn't know yet.** A newer runtime may add one. 0.1.8 failed the
+  whole call with `invalid-response` (`system_keys.list()` with a new scope,
+  `audit.sign_ins.list()` with a new kind), as the Java client never did.
+  - Every enum a response carries is typed `Literal[...] | str`, one of a
+    single value too (`TrustedSigningKey.algorithm`): a value it doesn't
+    know comes back as its text.
+  - Every union a response carries that a tag tells apart gains a member,
+    `<Union>Unrecognized` (`LiveScopeUnrecognized`, `ScopeUnrecognized`, and
+    17 more in `kindgi.client.models`), for a tag it doesn't know, with every
+    field kept.
+  - A stream event of a kind it doesn't know comes back as the typed event,
+    not a `dict`. An event that doesn't match its schema is still a `dict`.
+  - A request body stays closed. A value outside the known ones, or an
+    `Unrecognized` member, is refused before sending, with the error it got
+    before. So a value read from a newer runtime can't be sent back from this
+    client.
+  - A `const` stays closed: it only ever holds its one value. So do the tag
+    a union picks its member by (`secrets.rotate`'s `kind` too, as
+    `answer.kind == "async"` tells its two answers apart), and
+    `webhooks.parse_event`: an endpoint gets only the event types it
+    subscribes to.
+  - Code that matches every known value (`assert_never`) now has the `str`, or
+    the `Unrecognized` member, to handle.
 
 ## 0.1.8
 

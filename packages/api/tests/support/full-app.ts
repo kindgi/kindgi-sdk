@@ -53,6 +53,7 @@ import type {
   ReviewerBinding,
   ReviewerRegistryBinding,
   RunHandlerBinding,
+  SecondFactorBinding,
   SecretBinding,
   ServiceAccountBinding,
   SessionStoreBinding,
@@ -456,6 +457,8 @@ const noopSessionStore: SessionStoreBinding = {
   revokeAllForUser: async () => ({ revokedCount: 0 }),
   // Cookie sessions need a store that resolves its own tokens.
   resolveToken: async () => null,
+  // Sites need their sessions ended with them.
+  revokeByProvider: async () => ({ revokedCount: 0 }),
 };
 
 const noopIdentityProvider: IdentityProviderBinding = {
@@ -474,6 +477,20 @@ const noopIdentityDirectory: IdentityDirectoryBinding = {
   revokeAllSessions: async ({ userId }) => ({ userId, revokedCount: 0 }),
   createUser: async () => ({ kind: 'email-taken', userId: 'noop-user' as never }),
   unregisterUser: async () => ({ kind: 'not-found' }),
+  resendInvite: async () => ({ kind: 'not-found' }),
+};
+
+const noSettings = { required: false, onPreviousSecret: 0, unusable: 0 };
+const noopSecondFactor: SecondFactorBinding = {
+  status: async () => ({ setUp: false, started: false }),
+  start: async () => ({ kind: 'proof-needed' }),
+  confirm: async () => ({ kind: 'not-started' }),
+  newRecoveryCodes: async () => ({ kind: 'not-set-up' }),
+  remove: async () => ({ kind: 'not-set-up' }),
+  removeFor: async () => false,
+  required: async () => false,
+  settings: async () => noSettings,
+  setRequired: async () => noSettings,
 };
 
 const serviceAccountNotFound = {
@@ -632,6 +649,7 @@ export function fullAppInput(): CreateAppInput {
     session: { cookie: { allowedOrigins: ['https://console.example.com'] }, tokenSignIn: true },
     identityProvider: noopIdentityProvider,
     identityDirectory: noopIdentityDirectory,
+    secondFactor: noopSecondFactor,
     deploymentRegistry: noopDeploymentRegistry,
     signingKeyRegistry: noopSigningKeyRegistry,
     imageRegistry: noopImageRegistry,
@@ -648,6 +666,20 @@ export function fullAppInput(): CreateAppInput {
     envBinding: noopEnvBinding,
     secretsBinding: noopSecretsBinding,
     webhookReceiver: { envName: 'test' as EnvName },
+    // Every method answers "nothing here": the drift tests only need the routes.
+    // Sites need authorization on: everything is granted here.
+    sites: { binding: new Proxy({}, { get: () => async () => null }) as never },
+    authz: {
+      fgaApiUrl: 'http://fga.invalid',
+      authzCheckBinding: {
+        check: async (_principal, action, resource) => ({
+          allowed: true,
+          reason: 'full app: granted',
+          evidence: { action, relation: '', resource: resource.id, actorSubject: '' },
+        }),
+        checkBatch: async () => [],
+      },
+    },
     publicUrl: 'https://kindgi.acme.example',
     license: {
       status: () => ({ mode: 'development' }),

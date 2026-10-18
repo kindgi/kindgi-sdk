@@ -62,7 +62,11 @@ Python skills and `.gitignore` entries. An app with both a `package.json`
 and a `pyproject.toml` gets a TypeScript pack unless you pass
 `--template=python`.
 
-The app's root is on `sys.path`, so a tool imports your packages by name:
+The app's root is on `sys.path`, so a tool imports your packages by name.
+Ask your coding agent: "Make a Kindgi tool from our customer order lookup."
+Kindgi's skills in your app tell it how
+([How it knows Kindgi](../coding-agents/)). For reference, the tool looks
+like this:
 
 ```python
 # kindgi/tools/orders.py

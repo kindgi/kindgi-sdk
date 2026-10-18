@@ -23,7 +23,7 @@ prices. Sonnet 5.5 is its default. You provide the key.
 The preset reads the key from a secret. In the pack, store it:
 
 ```sh
-kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
+pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
 ```
 
 - `ANTHROPIC_API_KEY` is the secret's name, the one the preset reads.
@@ -47,7 +47,7 @@ Register the preset's models with the runtime. `--preset=anthropic` names
 the preset:
 
 ```sh
-kindgi providers register --preset=anthropic
+pnpm exec kindgi providers register --preset=anthropic
 ```
 
 ```text
@@ -83,7 +83,7 @@ The provider answers from the next turn on, and nothing restarts. Start a
 turn. `--agent` is the agent, and `--input` its input:
 
 ```sh
-kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+pnpm exec kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
 ```
 
 ```json
@@ -161,8 +161,8 @@ Register the preset again with an updated CLI. A registration can't be
 edited, so unregister it first:
 
 ```sh
-kindgi providers unregister anthropic
-kindgi providers register --preset=anthropic
+pnpm exec kindgi providers unregister anthropic
+pnpm exec kindgi providers register --preset=anthropic
 ```
 
 `unregister` prints its answer as JSON. `register` prints the same
