@@ -86,6 +86,8 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     'image-ref-prefix': 'none',
     limit: '`25` (at most `100`)',
+    pack: 'none: every pack',
+    project: 'none: every project',
     'signer-key-id': 'none',
   },
   test: {
@@ -1036,6 +1038,11 @@ export const CLI_EXAMPLES = {
       purpose:
         "Find a deployment's id, with each one's pack service: ready, held on its last values (with the code), pending or cleared.",
       line: 'kindgi deployments list --table',
+    },
+    {
+      purpose:
+        "One environment's deployments, by its project's slug or id. The Default project's include the deployments that name no project.",
+      line: 'kindgi deployments list --project=staging --table',
     },
   ],
   'env unset': [
