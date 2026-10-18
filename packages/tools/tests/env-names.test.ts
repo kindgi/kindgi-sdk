@@ -51,4 +51,21 @@ describe('the secrets a tool runs without', () => {
       toolOptionalSecretNames({ needsSpec: { env: { ACME_HOST: { type: ['string', 'null'] } } } }),
     ).toEqual([]);
   });
+
+  test("one that names null but refuses it, or that doesn't compile, is required, as at run time", () => {
+    expect(
+      toolOptionalSecretNames({
+        needsSpec: {
+          secrets: {
+            // `null` isn't in the enum.
+            ACME_ENUM_NO_NULL: { type: ['string', 'null'], enum: ['a', 'b'] },
+            // `null` matches both branches, and `oneOf` takes exactly one.
+            ACME_ONE_OF_BOTH: { oneOf: [{ type: 'null' }, { type: ['string', 'null'] }] },
+            ACME_BROKEN: { type: ['string', 'null'], pattern: '(' },
+            ACME_NULLABLE: { type: ['string', 'null'] },
+          },
+        },
+      }),
+    ).toEqual(['ACME_NULLABLE']);
+  });
 });

@@ -232,8 +232,10 @@ describe('kindgi promote', () => {
   });
 
   test('values not set in --to: each with the command that sets it, exit 1, nothing promoted', async () => {
+    // In a pack too, a value goes at the project's scope under the env the runtime serves, never
+    // under the environment's name.
     const { out, calls } = await run(['promote', '--from=staging', '--to=prod'], {
-      check: { ...READY_CHECK, values: NOT_READY },
+      check: { ...READY_CHECK, values: NOT_READY, envName: 'production' },
     });
     expect(out.exitCode).toBe(1);
     expect(named(calls, 'promote')).toEqual([]);
@@ -241,10 +243,10 @@ describe('kindgi promote', () => {
     expect(text).toContain('What moves from staging to prod');
     expect(text).toContain('Not ready in prod:');
     expect(text).toContain(
-      'ACME_TOKEN (secret, for tool acme.lookup 1.1.0): set nowhere a run looks. Set it with `kindgi secrets set ACME_TOKEN --env=prod --scope=project:p-prod`.',
+      'ACME_TOKEN (secret, for tool acme.lookup 1.1.0): set nowhere a run looks. Set it with `kindgi secrets set ACME_TOKEN --env=production --scope=project:p-prod`.',
     );
     expect(text).toContain(
-      "SHOP_URL (pack-env, for the pack's service): set nowhere a run looks. Set it with `kindgi env set SHOP_URL <value> --env=prod`.",
+      "SHOP_URL (pack-env, for the pack's service): set nowhere a run looks. Set it with `kindgi env set SHOP_URL <value> --scope=project:p-prod --env=production`.",
     );
     expect(text).toContain(
       "API_BASE (pack-env, for the pack's service): set both as a secret and as a plain value.",
@@ -252,7 +254,9 @@ describe('kindgi promote', () => {
     expect(text).toContain(
       'ACME_MODEL_KEY (model-key, for provider acme-llm): revoked where a run reads it (the tenant)',
     );
-    expect(text).toContain('`kindgi secrets set ACME_MODEL_KEY --env=prod --scope=project:p-prod`');
+    expect(text).toContain(
+      '`kindgi secrets set ACME_MODEL_KEY --env=production --scope=project:p-prod`',
+    );
     // A reason a later runtime names is said by its code.
     expect(text).toContain('LATER (env, for agent acme.matcher 1.0.0): not ready (quota).');
     expect(text).toContain(

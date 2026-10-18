@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { compileInlineSchema } from '@kindgi/schema';
 import type { JsonSchema, ToolManifest } from './types.js';
 
 /** A declared env value's `default`, when it's a string (env values are strings; `defineTool` checks it). */
@@ -25,7 +26,7 @@ export function toolRequiredEnvNames(manifest: Pick<ToolManifest, 'needsSpec'>):
  * Whether a schema says, in so many words, that it accepts `null`: `type`
  * is or includes `'null'`, `enum` lists it, `const` is it, or a branch of
  * `anyOf`/`oneOf` does. An unconstrained schema (`{}`) accepts null too,
- * but says nothing. The rule the runtime holds a declared secret to.
+ * but says nothing. The first half of the runtime's rule (`acceptsNull`).
  */
 function namesNull(schema: unknown): boolean {
   if (schema === null || typeof schema !== 'object') return false;
@@ -42,13 +43,23 @@ function namesNull(schema: unknown): boolean {
 
 /**
  * The secrets a tool's code declares (`needsSpec.secrets`) that a call runs
- * without, by name: those whose schema accepts `null` (runtime 0.1.6 or
- * later). One that was never stored is left out of `ctx.secrets`; a
- * revoked one still refuses the call. Sorted.
+ * without, by name: those whose schema says it accepts `null`, and does
+ * (runtime 0.1.6 or later). One that was never stored is left out of
+ * `ctx.secrets`; a revoked one still refuses the call. Sorted.
  */
 export function toolOptionalSecretNames(manifest: Pick<ToolManifest, 'needsSpec'>): string[] {
   return Object.entries(manifest.needsSpec?.secrets ?? {})
-    .filter(([, schema]) => namesNull(schema))
+    .filter(([, schema]) => acceptsNull(schema))
     .map(([name]) => name)
     .sort();
+}
+
+/**
+ * The runtime's rule for an optional secret: its schema names `null`, and
+ * `null` validates against it. A schema that doesn't compile is required.
+ */
+function acceptsNull(schema: JsonSchema): boolean {
+  if (!namesNull(schema)) return false;
+  const compiled = compileInlineSchema(schema);
+  return compiled.kind === 'ok' && compiled.value.validate(null).kind === 'ok';
 }

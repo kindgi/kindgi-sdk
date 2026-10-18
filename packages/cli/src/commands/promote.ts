@@ -22,6 +22,10 @@
  *
  * Without `--deployment`, the build is the deployment serving in `--from`
  * (in a pack, this pack's): it must be just one.
+ *
+ * A value not set in `--to` is printed with the command that sets it: at
+ * the target project's scope, under the env the runtime serves (the
+ * check's `envName`), in a pack too.
  */
 
 import { KindgiApiError } from '@kindgi/client';
@@ -58,7 +62,7 @@ interface Route {
   readonly fromProjectId: string;
   readonly toProjectId: string;
   readonly packId: string | undefined;
-  /** In a pack: its config maps each environment to its project, so `--env=<to>` says where a value goes. */
+  /** In a pack: the deployment it takes is this pack's. */
   readonly inPack: boolean;
   readonly client: KindgiClient;
 }
@@ -299,26 +303,24 @@ function movedRow(kind: string, v: Moves['agents'][number], route: Pick<Route, '
 
 /**
  * Where the target's values are set: its name (`label`), the env they're
- * read under, and its project. `mapped`: the pack config maps the
- * environment to its project, so `--env` alone says where a value goes.
+ * read under, and its project.
  */
 interface ValueTarget {
   readonly label: string;
   readonly env: string;
   readonly projectId: string;
-  readonly mapped: boolean;
 }
 
 /**
- * In a pack, `--env=<to>` is the environment, mapped to its project; outside one, the env the
- * runtime serves (`envName`), which its runs read values under.
+ * A value goes at the target project's scope, under the env the runtime serves (`envName`), which
+ * a run there reads values under: in a pack too, since `--env` is the runtime's env name, never an
+ * environment's.
  */
 function valueTargetOf(route: Route, envName: string | undefined): ValueTarget {
   return {
     label: route.to,
-    env: route.inPack ? route.to : (envName ?? '<the env the runtime serves>'),
+    env: envName ?? '<the env the runtime serves>',
     projectId: route.toProjectId,
-    mapped: route.inPack,
   };
 }
 
@@ -333,10 +335,8 @@ export function valuesText(values: readonly DeploymentValue[], target: ValueTarg
 function valueLine(v: DeploymentValue, target: ValueTarget): string {
   const what = `${v.name} (${v.kind}, for ${neededByText(v.neededBy)})`;
   const secretSet = `\`kindgi secrets set ${v.name} --env=${target.env} --scope=project:${target.projectId}\``;
-  // Outside a pack the project is named: `kindgi env set` without `--scope` writes a local file.
-  const envSet = target.mapped
-    ? `\`kindgi env set ${v.name} <value> --env=${target.env}\``
-    : `\`kindgi env set ${v.name} <value> --scope=project:${target.projectId} --env=${target.env}\``;
+  // The project is named: `kindgi env set` without `--scope` writes a local file.
+  const envSet = `\`kindgi env set ${v.name} <value> --scope=project:${target.projectId} --env=${target.env}\``;
   const isSecret = v.kind === 'secret' || v.kind === 'model-key';
   const isEnv = v.kind === 'env' || v.kind === 'pack-env';
   switch (v.problem) {
