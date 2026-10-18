@@ -10474,7 +10474,7 @@ export const DeploymentEndpointSchema: JsonSchema = {
       additionalProperties: false,
       required: ['code', 'since'],
       description:
-        "`ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say), or didn't start (`pack-env-update-failed`). Gone once they can, or do. `GET /v1/deployments/{deploymentId}/pack-env` names the names. Absent from older servers.",
+        "`ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say), or didn't start (`pack-env-update-failed`). Gone once they can, or do. For a name that can't be given, `GET /v1/deployments/{deploymentId}/pack-env` names it. Absent from older servers.",
       properties: {
         code: { $ref: '#/components/schemas/PackEnvHeldCode' },
         since: { type: 'string', format: 'date-time', description: 'When it was recorded.' },
