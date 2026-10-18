@@ -96,8 +96,8 @@ export interface PackEnvNameStatus {
 export interface PackEnvCheck {
   /**
    * Changes whenever what would be served changes: a value written or
-   * removed, a secret set or revoked. It's made from scopes, revisions and
-   * update times, never from a value.
+   * removed, a secret set or revoked. It's made from scopes, row ids,
+   * revisions and update times, never from a value.
    */
   readonly revision: string;
   /** Every declared name, required ones first, each list in name order. */
@@ -195,18 +195,7 @@ async function readPackEnv(
   for (const { name, required } of declared) {
     const env = await firstEnv(deps, chain, input.envName, name);
     const secret = await firstSecret(deps, chain, input.envName, name);
-    // A row's revision starts again at 1 when a removed value is set again:
-    // its update time, which a new row takes when it's made, tells the new
-    // row from the old one.
-    marks.push(
-      JSON.stringify([
-        name,
-        env === undefined ? null : [scopeKey(env.scope), env.revision, env.updatedAt],
-        secret === undefined
-          ? null
-          : [scopeKey(secret.scope), secret.currentVersion, secret.updatedAt],
-      ]),
-    );
+    marks.push(markOf(name, env, secret));
     if (env !== undefined && secret !== undefined) {
       names.push({
         name,
@@ -250,6 +239,29 @@ async function readPackEnv(
     check: { revision, names, ...(problem !== undefined && { problem }) },
     plain,
   };
+}
+
+/**
+ * A declared name's part of the revision: where it's set, as which row, at
+ * which revision and when, never its value. A row's revision starts again at
+ * 1 when a removed value is set again, and two update times can be the same
+ * millisecond: the store's row id tells the new row from the old one. A store
+ * with no row id has only the update time to tell them apart.
+ */
+function markOf(
+  name: string,
+  env: EnvRecord | undefined,
+  secret: SecretRecord | undefined,
+): string {
+  return JSON.stringify([
+    name,
+    env === undefined
+      ? null
+      : [scopeKey(env.scope), env.recordId ?? null, env.revision, env.updatedAt],
+    secret === undefined
+      ? null
+      : [scopeKey(secret.scope), secret.recordId ?? null, secret.currentVersion, secret.updatedAt],
+  ]);
 }
 
 async function firstEnv(

@@ -41,8 +41,11 @@ function scopeKey(scope: Scope): string {
   return 'tenant';
 }
 
-/** The env and secret stores in memory: a removed value's row is gone, and setting it again makes a new one. */
-function stores() {
+/**
+ * The env and secret stores in memory: a removed value's row is gone, and
+ * setting it again makes a new one, with a new row id unless `rowIds` is off.
+ */
+function stores({ rowIds = true, now = tick }: { rowIds?: boolean; now?: () => string } = {}) {
   const env = new Map<string, EnvRecord>();
   const secrets = new Map<string, SecretRecord>();
   const key = (scope: Scope, name: string) => `${scopeKey(scope)}|${name}`;
@@ -69,8 +72,10 @@ function stores() {
       },
     },
   };
+  const rowId = (old: { readonly recordId?: string } | undefined) =>
+    rowIds ? { recordId: old?.recordId ?? randomUUID() } : {};
   const setEnv = (scope: Scope, name: string, value: string) => {
-    const now = tick();
+    const at = now();
     const old = env.get(key(scope, name));
     env.set(key(scope, name), {
       scope,
@@ -78,24 +83,27 @@ function stores() {
       name,
       value,
       revision: (old?.revision ?? 0) + 1,
-      createdAt: old?.createdAt ?? now,
-      updatedAt: now,
+      createdAt: old?.createdAt ?? at,
+      updatedAt: at,
+      ...rowId(old),
     });
   };
   const removeEnv = (scope: Scope, name: string) => env.delete(key(scope, name));
   const setSecret = (scope: Scope, name: string, revoked = false) => {
-    const now = tick();
+    const at = now();
     secrets.set(key(scope, name), {
       scope,
       envName,
       name,
       currentVersion: 1,
-      createdAt: now,
-      updatedAt: now,
-      ...(revoked && { revokedAt: now }),
+      createdAt: at,
+      updatedAt: at,
+      ...(revoked && { revokedAt: at }),
+      ...rowId(undefined),
     });
   };
-  return { deps, setEnv, removeEnv, setSecret };
+  const removeSecret = (scope: Scope, name: string) => secrets.delete(key(scope, name));
+  return { deps, setEnv, removeEnv, setSecret, removeSecret };
 }
 
 const declaration = (required: string[], optional: string[] = []) => ({ required, optional });
@@ -291,8 +299,8 @@ describe('the revision', () => {
     expect((await packEnvCheck(s.deps, input)).revision).not.toBe(first);
   });
 
-  test('a value removed and set again is a new revision, though its row starts again at 1', async () => {
-    const s = stores();
+  test('with a store that has no row id, a value removed and set again is a new revision by its update time', async () => {
+    const s = stores({ rowIds: false });
     s.setEnv(projectScope(staging), 'API_BASE', 'https://a.acme.test');
     const applied = (await packEnvCheck(s.deps, input)).revision;
     s.removeEnv(projectScope(staging), 'API_BASE');
@@ -302,6 +310,24 @@ describe('the revision', () => {
     const again = (await packEnvCheck(s.deps, input)).revision;
     expect(again).not.toBe(applied);
     expect(again).not.toBe(removed.revision);
+  });
+
+  test('a value removed and set again in the same millisecond is a new revision: its row id is new', async () => {
+    const s = stores({ now: () => '2026-10-18T03:00:00.000Z' });
+    s.setEnv(projectScope(staging), 'API_BASE', 'https://a.acme.test');
+    const applied = (await packEnvCheck(s.deps, input)).revision;
+    s.removeEnv(projectScope(staging), 'API_BASE');
+    s.setEnv(projectScope(staging), 'API_BASE', 'https://b.acme.test');
+    expect((await packEnvCheck(s.deps, input)).revision).not.toBe(applied);
+  });
+
+  test('a secret removed and created again in the same millisecond is a new revision: its row id is new', async () => {
+    const s = stores({ now: () => '2026-10-18T03:00:00.000Z' });
+    s.setSecret(projectScope(staging), 'API_BASE');
+    const before = (await packEnvCheck(s.deps, input)).revision;
+    s.removeSecret(projectScope(staging), 'API_BASE');
+    s.setSecret(projectScope(staging), 'API_BASE');
+    expect((await packEnvCheck(s.deps, input)).revision).not.toBe(before);
   });
 
   test('an optional value removed changes it, with no problem', async () => {

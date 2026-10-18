@@ -1705,7 +1705,7 @@ export const SystemPackEnvSchema: JsonSchema = {
     revision: {
       type: 'string',
       description:
-        'Changes whenever what would be given changes: a value written or removed, a secret set or revoked. Made from scopes, revisions and update times, never from a value. Send it back with the endpoint (`packEnvRevision`) or `PUT …/pack-env`.',
+        'Changes whenever what would be given changes: a value written or removed, a secret set or revoked. Made from scopes, row ids, revisions and update times, never from a value. Send it back with the endpoint (`packEnvRevision`) or `PUT …/pack-env`.',
     },
     names: {
       type: 'array',

@@ -306,6 +306,13 @@ export interface SecretRecord {
   readonly revokeReason?: string;
   readonly tags?: Readonly<Record<string, string>>;
   readonly rotationDueAt?: string;
+  /**
+   * The store's own id for the record, never on the wire. A secret removed
+   * and created again is a new record with a new id, so it's told from the
+   * old one even when both are at version 1 with the same update time. A
+   * store with no record id leaves it unset.
+   */
+  readonly recordId?: string;
 }
 
 export interface SecretVersionRecord {
