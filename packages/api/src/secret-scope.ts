@@ -187,6 +187,20 @@ export interface SecretScopeDeps {
  * as the request's caller registers it; `undefined` without a secrets store
  * (nothing is recorded, as before).
  */
+/**
+ * Whether the caller administers a scope (`admin` on it), the question a
+ * write that records a secret's scope asks of each scope it could record.
+ * `undefined` without an authorizer: every scope counts.
+ */
+export function callerAdministers(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  tenantId: TenantId,
+): ((scope: Scope) => Promise<boolean>) | undefined {
+  if (authorizer === undefined) return undefined;
+  return (scope) => authorizer.can(c, 'admin', scopeResourceRef(scope, tenantId));
+}
+
 export async function secretScopesFor(
   c: Context<AppEnv>,
   deps: SecretScopeDeps,
@@ -198,14 +212,11 @@ export async function secretScopesFor(
     item.kind === 'project'
       ? (await deps.projects?.get(item.tenantId, item.projectId))?.orgId
       : undefined;
-  const authorizer = deps.authorizer;
+  const administers = callerAdministers(c, deps.authorizer, item.tenantId);
   return namedSecretScopes({
     secrets: deps.secrets,
     chain: secretScopeChain(item, orgId),
-    ...(authorizer !== undefined && {
-      administers: (scope: Scope) =>
-        authorizer.can(c, 'admin', scopeResourceRef(scope, item.tenantId)),
-    }),
+    ...(administers !== undefined && { administers }),
     names,
   });
 }

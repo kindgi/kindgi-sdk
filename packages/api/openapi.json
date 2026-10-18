@@ -46663,7 +46663,7 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "minLength": 1
+              "format": "uuid"
             },
             "required": false,
             "description": "The project the values are needed in. Default: the deployment's own project (the tenant's Default project for a tenant-wide deployment)."

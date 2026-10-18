@@ -7092,7 +7092,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         required: false,
         description:
           "The project the values are needed in. Default: the deployment's own project (the tenant's Default project for a tenant-wide deployment).",
-        schema: { type: 'string', minLength: 1 },
+        schema: { type: 'string', format: 'uuid' },
       },
     ],
     responses: {

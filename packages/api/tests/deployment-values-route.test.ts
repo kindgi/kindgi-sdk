@@ -85,6 +85,8 @@ function harness(opts: {
   secrets?: readonly string[];
   env?: readonly string[];
   providers?: Record<string, string>;
+  /** `false`: a runtime that records no projects (no project binding). */
+  projectBinding?: false;
 }) {
   const asked: string[] = [];
   const reads: string[] = [];
@@ -119,10 +121,13 @@ function harness(opts: {
     } as never,
     signingKeyRegistry: {} as never,
     imageRegistry: {} as never,
-    projectBinding: {
-      get: async (_t: TenantId, id: ProjectId) => projects[id] ?? null,
-      getDefault: async () => projects[DEFAULT],
-    } as never,
+    projectBinding:
+      opts.projectBinding === false
+        ? undefined
+        : ({
+            get: async (_t: TenantId, id: ProjectId) => projects[id] ?? null,
+            getDefault: async () => projects[DEFAULT],
+          } as never),
     secretsBinding: {
       get: async ({ scope, name }: { scope: Scope; name: string }) => {
         reads.push(`secret ${scopeKey(scope)}/${name}`);
@@ -333,5 +338,17 @@ describe('who may read them', () => {
     expect(bad.status).toBe(400);
     expect((bad.body.error as { code: string }).code).toBe('bad-input');
     expect(h.reads).toEqual([]);
+  });
+
+  test('a tenant-wide deployment on a runtime that records no projects: `projectId` is required', async () => {
+    const h = harness({ granted: [READ, 'admin project'], projectBinding: false });
+    const out = await h.get('/v1/deployments/d-wide/values');
+    expect(out.status).toBe(400);
+    const error = out.body.error as { code: string; message: string };
+    expect(error.code).toBe('bad-input');
+    expect(error.message).toContain('`projectId` is required');
+    expect(h.reads).toEqual([]);
+    const named = await h.get(`/v1/deployments/d-wide/values?projectId=${TARGET}`);
+    expect(named.status).toBe(200);
   });
 });

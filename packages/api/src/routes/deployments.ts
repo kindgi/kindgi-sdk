@@ -71,7 +71,7 @@ import {
   reservedToolMetadataMessage,
 } from '../reference-scope.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
-import { secretScopesFor, toolSecretRefs } from '../secret-scope.js';
+import { callerAdministers, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
@@ -81,7 +81,6 @@ import { carriedFor, servingProjectOf, valuesDepsFor } from './deployment-promot
 import { requireEnvName } from './env.js';
 import type { GuardrailWriteHook } from './guardrails.js';
 import { clampLimit } from './pagination.js';
-import { scopeResourceRef } from './scope-params.js';
 import { tenantResourceAccess } from './tenant-access.js';
 import { parseTimeInput } from './time-input.js';
 import type { ToolWriteHook } from './tools.js';
@@ -257,24 +256,6 @@ export interface DeploymentsRouterBindings {
   readonly auditEvents?: AuditEventBinding;
 }
 
-/**
- * Whether the caller administers a scope, for a deployment's values in a
- * project other than its own: there, the one a promotion would take it to,
- * a tool's secret counts only at a scope the caller administers, as their
- * promotion would record it, so the list says what that promotion's check
- * would. (In its own project, every scope counts: the list says where a
- * run there finds each value.) `undefined` without an authorizer: every
- * scope.
- */
-function callerAdministers(
-  c: Context<AppEnv>,
-  authorizer: Authorizer | undefined,
-  tenantId: TenantId,
-): ((scope: Scope) => Promise<boolean>) | undefined {
-  if (authorizer === undefined) return undefined;
-  return (scope) => authorizer.can(c, 'admin', scopeResourceRef(scope, tenantId));
-}
-
 export function deploymentsRouter(
   bindings: DeploymentsRouterBindings,
   authorizer?: Authorizer,
@@ -429,6 +410,11 @@ export function deploymentsRouter(
         ),
       );
     }
+    // In a project other than its own, the one a promotion would take it
+    // to, a tool's secret counts only at a scope the caller administers, as
+    // their promotion would record it, so the list says what that
+    // promotion's check would. In its own project, every scope counts: the
+    // list says where a run there finds each value.
     const administers = projectId === own ? undefined : callerAdministers(c, authorizer, tenantId);
     const { carried } = await carriedFor(bindings, record);
     const data = await deploymentValues(valuesDepsFor(bindings, administers), {
