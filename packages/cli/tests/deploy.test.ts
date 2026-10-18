@@ -1833,7 +1833,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       expect(run.fixtures.state.postCalls).toBe(0);
       expect(run.fixtures.state.capturedBuild).toBeUndefined();
       expect(out.stderr).toContain(
-        `kindgi deploy: on Kindgi Cloud the pack service gets the env values set in your workspace, not environments.staging.env in kindgi.config (API_BASE, EXTRA, SHOP_URL). Set each with \`kindgi env set NAME <value> --scope=project:${PROJECT} --env=staging\`, then remove environments.staging.env from kindgi.config and deploy again. A secret is read per call in a tool (\`ctx.secrets\`): a pack service on Kindgi Cloud is given plain values only.`,
+        `kindgi deploy: on Kindgi Cloud the pack service gets the env values set in your workspace, not environments.staging.env in kindgi.config (API_BASE, EXTRA, SHOP_URL). Set each with \`kindgi env set NAME <value> --scope=project:${PROJECT} --env=staging\` (a secret with \`kindgi secrets set NAME --scope=project:${PROJECT} --env=staging\`), then remove environments.staging.env from kindgi.config and deploy again.`,
       );
     });
 
@@ -1843,7 +1843,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       const out = await hostedWith(run.fixtures, declared({ API_BASE: 'https://api.acme.test' }));
       expect(out.exitCode).toBe(1);
       expect(out.stderr).toContain('`kindgi env set NAME <value> --scope=tenant --env=staging`');
-      expect(out.stderr).not.toContain('A secret is read per call');
+      expect(out.stderr).not.toContain('kindgi secrets set');
       const malformed = hostedFixtures(pending(), [ready]);
       const bad = await hostedWith(malformed.fixtures, declared({ API_BASE: 42 }));
       expect(bad.exitCode).toBe(1);

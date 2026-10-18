@@ -47,6 +47,14 @@ export function packEnvSetCommand(target: PackEnvHintTarget): string {
   return `kindgi env set NAME <value> --scope=${scope} --env=${target.envName}`;
 }
 
+/** The command that sets one of a deployment's names as a secret, `NAME` left to fill in: it asks for the value. */
+export function packEnvSecretSetCommand(
+  target: Omit<PackEnvHintTarget, 'hasProjectMapping'>,
+): string {
+  const scope = target.projectId !== undefined ? `project:${target.projectId}` : 'tenant';
+  return `kindgi secrets set NAME --scope=${scope} --env=${target.envName}`;
+}
+
 /** "API_BASE and SHOP_URL aren't set for staging. Set each with `kindgi env set …`." */
 export function packEnvHint(
   input: PackEnvHintTarget & { readonly names: readonly string[] },

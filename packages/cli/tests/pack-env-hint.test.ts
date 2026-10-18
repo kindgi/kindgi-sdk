@@ -7,6 +7,7 @@ import {
   type PackEnvNameRecord,
   packEnvHint,
   packEnvProblemLines,
+  packEnvSecretSetCommand,
   packEnvSetCommand,
 } from '../src/env/pack-env-hint.js';
 
@@ -29,6 +30,20 @@ describe('packEnvSetCommand', () => {
     expect(
       packEnvSetCommand({ envName: 'staging', projectId: PROJECT, hasProjectMapping: true }),
     ).toBe('kindgi env set NAME <value> --env=staging');
+  });
+});
+
+describe('packEnvSecretSetCommand', () => {
+  test("a project's deployment: the project's scope, and the env; the value is asked for", () => {
+    expect(packEnvSecretSetCommand({ envName: 'prod', projectId: PROJECT })).toBe(
+      `kindgi secrets set NAME --scope=project:${PROJECT} --env=prod`,
+    );
+  });
+
+  test('a tenant-wide deployment: the tenant', () => {
+    expect(packEnvSecretSetCommand({ envName: 'prod' })).toBe(
+      'kindgi secrets set NAME --scope=tenant --env=prod',
+    );
   });
 });
 
