@@ -121,9 +121,10 @@ export type FlowVersionRecord = Flow & {
   readonly projectId?: ProjectId;
   /**
    * The project this version was made in (deployed, published or derived
-   * there), when the store records it. It's `projectId` but in a tenant
-   * with environment orders, where a version is made in the order's first
-   * environment and reaches the later ones only with a promoted build.
+   * there), when the store records it. The same as `projectId`, except in
+   * a tenant with environment orders, where a version is made in the
+   * order's first environment and reaches the later ones only with a
+   * promoted build.
    */
   readonly madeInProjectId?: ProjectId;
 };
