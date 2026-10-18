@@ -41,7 +41,7 @@ the store's own API and its webhooks:
   shows. On Kindgi Cloud, that's an MCP server the store serves on the
   internet.
 
-What an agent waits on is decided in the console or with the CLI
+A person approves what waits, in the console or with the CLI
 ([Approve it](../../guides/approvals/ask-before-a-tool-runs/#approve-it)).
 
 ## How the site signs its people in
