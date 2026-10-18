@@ -20,6 +20,7 @@ import {
 } from '../deploy/pack-service-text.js';
 import { type PackEnvHintTarget, packEnvProblemLines } from '../env/pack-env-hint.js';
 import { renderJson } from '../output.js';
+import { resolveProjectRef } from '../project-ref.js';
 import {
   type TableSpec,
   integerFlag,
@@ -89,8 +90,13 @@ const list: LeafCommand = {
   description:
     "List the deployments, the latest activated first. `--table` shows each one's pack service: ready (or held on the values it was last given, with the code), pending or cleared.",
   usage:
-    'kindgi deployments list [--image-ref-prefix=<ref>] [--signer-key-id=<id>] [--limit=<n>] [--cursor=<c>]',
+    'kindgi deployments list [--project=<id-or-slug>] [--image-ref-prefix=<ref>] [--signer-key-id=<id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
+    project: {
+      type: 'string',
+      description:
+        "Only one project's deployments, by its id or its slug. The Default project's include the deployments that name no project. A slug two orgs share is refused: pass the id.",
+    },
     'image-ref-prefix': {
       type: 'string',
       description: 'Only deployments whose image reference starts with this.',
@@ -103,10 +109,14 @@ const list: LeafCommand = {
       ctx,
       'deployments list',
       async () => {
+        const projectRef = stringFlag(ctx, 'project');
+        const projectId =
+          projectRef !== undefined ? await resolveProjectRef(ctx, projectRef) : undefined;
         const imageRefPrefix = stringFlag(ctx, 'image-ref-prefix');
         const signerKeyId = stringFlag(ctx, 'signer-key-id');
         return await ctx.client().deployments.list({
           ...page(ctx),
+          ...(projectId !== undefined && { projectId }),
           ...(imageRefPrefix !== undefined && { imageRefPrefix }),
           ...(signerKeyId !== undefined && { signerKeyId }),
         });
