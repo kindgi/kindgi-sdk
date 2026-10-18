@@ -20,8 +20,11 @@ without touching the check's code.
 
 A check's settings don't belong in its code: a limit, a list of words or a
 tool's id, for example. The guardrail declares them as `config`, and the
-check runs with them. The answer-length guardrail has one setting,
-`maxChars`:
+check runs with them. Ask your coding agent, for example: "I want to change
+my guardrail's limit without touching its check." Kindgi's skills in your
+pack tell it how ([How it knows Kindgi](../../../start/coding-agents/)).
+
+For reference, the answer-length guardrail has one setting, `maxChars`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

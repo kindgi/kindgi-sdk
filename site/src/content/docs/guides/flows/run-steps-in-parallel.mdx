@@ -20,8 +20,11 @@ their outputs into one.
 
 ## Fan out to several tools
 
-`acme.assess-order` scores an order's risk and quotes its shipping at the same
-time, with two new read-only tools. Write the tools and the flow:
+Ask your coding agent: "I want a flow that scores an order's risk and quotes
+its shipping at the same time." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+tools and the flow look like this. This guide calls the flow
+`acme.assess-order`, and it uses two new read-only tools:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -432,7 +435,9 @@ doesn't name, so each branch's input says
 </Tabs>
 
 - Each **branch** has a `branchId`, the tool it runs (`handler`), and the
-  `outputSchema` its output must match.
+  `outputSchema` its output must match. A branch's `outputSchema` that
+  doesn't compile is refused when the flow is loaded or deployed
+  (`/nodes/<i>/branches/<k>/outputSchema`), not at each run.
 - Every branch gets the fanout step's input: the output of the step before it,
   here the whole order. Each tool takes the fields its input declares, such
   as `total` and `items`, and drops the rest.

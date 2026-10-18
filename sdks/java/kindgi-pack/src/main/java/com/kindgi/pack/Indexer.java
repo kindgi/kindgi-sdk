@@ -495,6 +495,7 @@ final class Indexer {
     e.put("output", output);
     e.put("effects", tool.effects());
     put(e, "mutating", tool.mutating());
+    put(e, "needsApprovalWhenUnattended", tool.needsApprovalWhenUnattended());
     tool.extra().forEach(e::put);
     e.put("modulePath", rel);
     return e;

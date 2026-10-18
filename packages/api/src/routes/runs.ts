@@ -4,7 +4,13 @@
 import { type Context, Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
-import type { KernelRunRecord, ListRunsInput, RunBinding, RunStatus } from '@kindgi/runtime';
+import type {
+  KernelRunRecord,
+  ListRunsInput,
+  RunBinding,
+  RunStartedBy,
+  RunStatus,
+} from '@kindgi/runtime';
 import type {
   FlowId,
   ListScope,
@@ -29,6 +35,7 @@ import type {
 } from '../handler-binding.js';
 import type { HitlBinding } from '../hitl-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
 import {
   type ReferenceScopeBinding,
@@ -50,7 +57,9 @@ import {
   formatSseFrame,
   isTerminalWireKind,
   parseLastEventId,
+  pause,
   projectJournalEntry,
+  readingOf,
   toRunProgressEvent,
 } from './sse.js';
 import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
@@ -293,6 +302,7 @@ export function runsRouter(
       tenantId,
       parsed.value,
       c.get('principal') as Principal | undefined,
+      c.get('serviceAccountId') !== undefined,
       trace !== undefined ? { traceId: trace.traceId, spanId: trace.spanId } : undefined,
     );
 
@@ -503,12 +513,35 @@ export function runsRouter(
       );
     }
 
+    const headers = {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Request-Id': requestId,
+    };
+    // Nobody will read this stream when the request is a HEAD (Hono answers a
+    // HEAD with this GET route and drops the body unread, and nothing cancels
+    // it) or when the client left during the read above (its request aborts,
+    // but the server cancels only a body it's writing). Then the route
+    // answers the stream's status and headers, before the stream exists, and
+    // starts none of its work.
+    if (c.req.method === 'HEAD' || c.req.raw.signal.aborted) {
+      return new Response(null, { status: 200, headers });
+    }
+
     const encoder = new TextEncoder();
     let lastEmittedSeq = since ?? -1;
     const POLL_MS = 200;
     const MAX_WAIT_MS = 5 * 60_000;
+    // Aborted when the client goes away: the reader cancels the stream, or
+    // the request aborts. The poll, the wait and the subscription below end
+    // on it at once.
+    const reading = readingOf(c.req.raw);
 
     const body = new ReadableStream<Uint8Array>({
+      cancel() {
+        reading.abort();
+      },
       async start(controller) {
         const startedAt = Date.now();
         let closed = false;
@@ -564,6 +597,12 @@ export function runsRouter(
         // whether we're on the push or poll path.
         if (eventBus !== undefined) {
           const abortCtrl = new AbortController();
+          const stop = (): void => abortCtrl.abort();
+          // `reading` can't have aborted yet: the route answers an aborted
+          // request without a stream, and `start()` runs inside the stream's
+          // constructor up to its first await, so no cancel or abort comes
+          // before this listener.
+          reading.signal.addEventListener('abort', stop, { once: true });
           let subscription: Subscription | null = null;
           let fallBackToPoll = false;
           try {
@@ -607,6 +646,7 @@ export function runsRouter(
               close();
               return;
             }
+            if (abortCtrl.signal.aborted) return;
             const subOutcome = await eventBus.subscribe(
               tenantId,
               `${KERNEL_RUN_CHANNEL_PREFIX}${runId}`,
@@ -645,19 +685,14 @@ export function runsRouter(
               fallBackToPoll = true;
             } else {
               subscription = subOutcome.value;
-              // Wait until close or max-wait window elapses. We rely
-              // on the subscription callback to write frames.
-              await new Promise<void>((resolve) => {
-                const timer = setTimeout(() => resolve(), MAX_WAIT_MS);
-                const onDone = (): void => {
-                  clearTimeout(timer);
-                  resolve();
-                };
-                abortCtrl.signal.addEventListener('abort', onDone, { once: true });
-              });
+              // Wait until a terminal entry, the reader's cancel or the
+              // max-wait window, whichever is first. We rely on the
+              // subscription callback to write frames.
+              await pause(MAX_WAIT_MS, abortCtrl.signal);
               return;
             }
           } finally {
+            reading.signal.removeEventListener('abort', stop);
             abortCtrl.abort();
             if (subscription !== null) {
               try {
@@ -705,13 +740,15 @@ export function runsRouter(
           return { terminal: sawTerminal };
         };
         try {
+          if (reading.signal.aborted) return;
           const first = await pollEmit();
           if (first.terminal) {
             close();
             return;
           }
           while (Date.now() - startedAt < MAX_WAIT_MS) {
-            await new Promise((r) => setTimeout(r, POLL_MS));
+            await pause(POLL_MS, reading.signal);
+            if (reading.signal.aborted) break;
             const step = await pollEmit();
             if (step.terminal) break;
           }
@@ -721,15 +758,7 @@ export function runsRouter(
       },
     });
 
-    return new Response(body, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'X-Request-Id': requestId,
-      },
-    });
+    return new Response(body, { status: 200, headers });
   };
   r.get('/:runId/stream', refuseMalformedRunId, (c) => streamRun(c, 'full'));
   r.get('/:runId/progress/stream', refuseMalformedRunId, (c) => streamRun(c, 'progress'));
@@ -741,21 +770,37 @@ export function runsRouter(
     const runId = c.req.param('runId') as RunId;
     const sinceRaw = c.req.query('since');
     const since = sinceRaw !== undefined ? Number.parseInt(sinceRaw, 10) : undefined;
+    // Paging is opt-in: with `limit`, at most that many entries after
+    // `cursor`; without it, the whole journal, as before paging.
+    const paging = parseJournalPaging(c.req.query('limit'), c.req.query('cursor'));
+    if (paging.kind === 'err') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: paging.message }, requestId));
+    }
+    const { limit, after } = paging;
 
     const journal = await runBinding.readJournal(tenantId, runId);
     if (journal.kind === 'err') {
       const err = journal.error;
+      const busy = databaseBusyAnswer(err, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(err.code) as never);
       return c.json(toWireError(err as never, requestId));
     }
 
-    const filtered =
-      since !== undefined && Number.isFinite(since)
-        ? journal.value.filter((e) => e.sequence > since)
-        : journal.value;
+    // `readJournal` gives the entries in sequence order.
+    const filtered = journal.value.filter(
+      (e) =>
+        (since === undefined || !Number.isFinite(since) || e.sequence > since) &&
+        (after === undefined || e.sequence > after),
+    );
+    const page = limit !== undefined ? filtered.slice(0, limit) : filtered;
+    // The page's last entry, when more remain after it.
+    const endsBefore = page.length < filtered.length ? page.at(-1) : undefined;
     return c.json({
-      data: filtered,
-      hasMore: false,
+      data: page,
+      hasMore: endsBefore !== undefined,
+      ...(endsBefore !== undefined && { nextCursor: encodeJournalCursor(endsBefore.sequence) }),
     });
   });
 
@@ -796,18 +841,39 @@ function budgetWaitOf(failure: RunHandlerFailure): number | undefined {
   return failure.code === 'rate-limit-exceeded' && typeof wait === 'number' ? wait : undefined;
 }
 
+/**
+ * How a run the API starts began (`RunStartedBy`), from its caller:
+ * `person` when it's a person, signed in or with their own key; `key` when
+ * it's a service account, or the request came with a service account's
+ * key whoever it names. Any other caller (an agent, on its own or for
+ * someone; the system) records none, so its run counts as unattended.
+ */
+export function startedByCaller(
+  principal: Principal | undefined,
+  serviceAccountKey: boolean,
+): RunStartedBy | undefined {
+  if (principal === undefined) return undefined;
+  if (serviceAccountKey || principal.actor.kind === 'service_account') return 'key';
+  if (principal.actor.kind === 'user' && principal.onBehalfOf === undefined) return 'person';
+  return undefined;
+}
+
 /** Hand a parsed start body to the binding: an agent turn or a flow run. */
 function invokeFromBody(
   binding: RunHandlerBinding,
   tenantId: TenantId,
   body: ParsedStartRunBody,
   principal: Principal | undefined,
+  serviceAccountKey: boolean,
   trace?: RunTrace,
 ): Promise<RunHandlerOutcome> {
+  const startedBy = startedByCaller(principal, serviceAccountKey);
   const common = {
     tenantId,
     // Whom the run acts for: the authenticated caller, never the body.
     ...(principal !== undefined && { principal }),
+    // How it started: from the caller too, never the body.
+    ...(startedBy !== undefined && { startedBy }),
     ...(trace !== undefined && { trace }),
     ...(body.projectId !== undefined && { projectId: body.projectId }),
     input: body.input,
@@ -878,6 +944,7 @@ function serializeRun(
         }),
       },
     }),
+    ...(row.startedBy !== undefined && { startedBy: row.startedBy }),
     ...(row.versions != null && { versions: row.versions }),
     ...(row.contentErasedAt !== undefined && {
       contentErasedAt: row.contentErasedAt as unknown as string,
@@ -1283,4 +1350,55 @@ function parseStartRunBody(
       ...(wait !== undefined && { wait }),
     },
   };
+}
+
+/**
+ * A journal read's paging: at most `limit` entries (a whole number from 1;
+ * more than 100 gives 100), after the sequence `cursor` names. An empty
+ * one is none. One that isn't one is refused, never read as a default.
+ */
+function parseJournalPaging(
+  limitRaw: string | undefined,
+  cursorRaw: string | undefined,
+):
+  | { readonly kind: 'ok'; readonly limit: number | undefined; readonly after: number | undefined }
+  | { readonly kind: 'err'; readonly message: string } {
+  let limit: number | undefined;
+  if (limitRaw !== undefined && limitRaw !== '') {
+    if (!/^[1-9][0-9]*$/.test(limitRaw)) {
+      return {
+        kind: 'err',
+        message: '`limit` must be a whole number, 1 or more (a page holds at most 100)',
+      };
+    }
+    limit = clampLimit(limitRaw);
+  }
+  let after: number | undefined;
+  if (cursorRaw !== undefined && cursorRaw !== '') {
+    const decoded = decodeJournalCursor(cursorRaw);
+    if (decoded === null) return { kind: 'err', message: '`cursor` is malformed' };
+    after = decoded;
+  }
+  return { kind: 'ok', limit, after };
+}
+
+/**
+ * A journal page's cursor: url-safe base64 of `{ sequence }`, the last
+ * entry the page gave. The next page starts after it.
+ */
+function encodeJournalCursor(sequence: number): string {
+  return Buffer.from(JSON.stringify({ sequence }), 'utf8').toString('base64url');
+}
+
+/** The sequence a journal cursor names, or `null` for one that isn't (answered `400 bad-input`). */
+function decodeJournalCursor(raw: string): number | null {
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown;
+    const sequence = (parsed as { sequence?: unknown } | null)?.sequence;
+    return typeof sequence === 'number' && Number.isSafeInteger(sequence) && sequence >= 0
+      ? sequence
+      : null;
+  } catch {
+    return null;
+  }
 }

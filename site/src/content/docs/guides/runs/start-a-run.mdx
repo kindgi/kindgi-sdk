@@ -66,6 +66,9 @@ running `kindgi dev`, which writes both to `.kindgirc.json`, and warns once
 that you should set them. In production (`NODE_ENV` or `KINDGI_ENV` set to
 `production`) it never does, so set them there.
 
+Ask your coding agent: "I want my app to start runs on Kindgi." For
+reference, the client it creates looks like this:
+
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
@@ -115,6 +118,9 @@ methods take Java collections, so convert a Scala `Map` with `.asJava`.
 Each example below is a whole file, with its imports.
 
 ### Wait for the result
+
+Ask your coding agent: "I want my app to start a run and wait for its
+result." For reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -271,7 +277,9 @@ So start a run that can take longer than the timeout in the background
 ### Start it in the background
 
 With `wait: false`, `start` returns as soon as the run exists, with `status`
-`pending`, and the run finishes on the server:
+`pending`, and the run finishes on the server. Ask your coding agent: "I want
+my app to start a run without waiting, and check on it until it ends." For
+reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -443,7 +451,9 @@ value (`completed`).
 
 A run that fails is still a run: `start` returns it, with `status: "failed"`
 and its `failure`. A request the API refuses (a flow that doesn't exist,
-a malformed input) raises an error instead, and no run exists:
+a malformed input) raises an error instead, and no run exists. Ask your
+coding agent: "I want my app to handle a run that fails, and a start that's
+refused." For reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

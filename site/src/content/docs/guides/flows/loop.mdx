@@ -22,9 +22,12 @@ A `loop` step runs a small flow of its own, its **body**, several times:
 
 ## For each element of a list
 
-A `foreach` loop does the same work for every element. `acme.check-order-stock`
-checks every item of an order with a new tool, `acme.check-stock`, two items at
-a time. Write the tool and the flow:
+A `foreach` loop does the same work for every element. Ask your coding agent:
+"I want a flow that checks the stock of every item in an order, two at a
+time." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+tool and the flow look like this. `acme.check-order-stock` checks every item
+of an order with a new tool, `acme.check-stock`, two items at a time:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -327,7 +330,8 @@ object CheckOrderStock {
 - **`concurrency`** runs that many passes at a time, 1 by default and at most
   32.
 - **`maxIterations`** caps the passes, and **`outputSchema`** is what each pass
-  must return. Both are required.
+  must return. Both are required. An `outputSchema` that doesn't compile is
+  refused when the flow is loaded or deployed, not at each run.
 
 Run it:
 
@@ -385,9 +389,10 @@ the list's elements.
 
 ## Until a condition holds
 
-A `while` loop repeats until its condition holds. `acme.list-all-orders` reads
-every page of a paginated list with a new tool, `acme.list-orders`. Write the
-tool and the flow:
+A `while` loop repeats until its condition holds. Ask your coding agent:
+"I want a flow that reads every page of my open orders." For reference, the
+tool and the flow look like this. `acme.list-all-orders` reads every page of
+a paginated list with a new tool, `acme.list-orders`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

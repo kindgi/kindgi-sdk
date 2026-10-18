@@ -29,8 +29,10 @@ the agent's model sees what was said before.
 
 ## Continue a conversation
 
-The second turn passes the first turn's `conversationId`, so the model sees
-the first:
+Ask your coding agent: "I want my app to send a follow-up message in the same
+conversation, then print the conversation's history." For reference, the
+code looks like this. The second turn passes the first turn's
+`conversationId`, so the model sees the first:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -137,7 +139,10 @@ where `<id>` is the conversation's id.
 ## Limit what the model sees
 
 A long conversation makes every turn's prompt longer. `historyLimit` caps how
-many earlier messages a turn loads. Add it to the agent's definition:
+many earlier messages a turn loads. Ask your coding agent: "Send my agent's
+model only the last 20 messages of a conversation." Kindgi's skills in your
+pack tell it how ([How it knows Kindgi](../../../start/coding-agents/)). For
+reference, it adds `historyLimit` to the agent's definition:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -184,7 +189,9 @@ the messages.
 
 A conversation can also be opened before its first turn, with a title and the
 person it's with. Closing one ends it: a turn on a closed conversation is
-refused.
+refused. Ask your coding agent: "I want my app to open a conversation with a
+customer, and close it when we're done." For reference, the code looks like
+this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -415,6 +422,18 @@ one project's or org's.
   participant, which only they (by their user id) or someone with `write` on
   the project may do, as reading their memory takes. Anyone else gets
   `403 participant-not-allowed`.
+- **Who opened it:** `openedBy` (`user:<id>` or `service_account:<id>`) is
+  the caller who opened it, or, for one a turn opened, whoever the run acts
+  for. It's set by the server, never from the body.
+  - `list({ openedBy: 'me' })` (`?openedBy=me`, `opened_by="me"` in
+    Python, `--opened-by=me` in the CLI) lists only your own, and every page
+    says so, as `openedBy: "me"`. An older runtime ignores it and lists
+    everyone's, with no `openedBy` on the page; the CLI stops instead, and
+    names the release the runtime needs.
+  - Conversations an older runtime opened record no opener, and aren't
+    listed by it.
+  - It's a filter, not privacy: anyone who may read the project reads its
+    conversations.
 - `close` is safe to repeat: closing a closed conversation returns it as it is.
 - `list` filters by agent and by `status` (`open` or `closed`), newest first;
   `get` fetches one conversation. From the CLI:

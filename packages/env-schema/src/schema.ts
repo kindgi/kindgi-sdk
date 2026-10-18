@@ -212,7 +212,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_OPENFGA_PRESHARED_KEY',
     description:
-      "Used from runtime 0.1.8; earlier runtimes ignore it. OpenFGA's preshared key, for an OpenFGA run with `--authn-method=preshared` (`OPENFGA_AUTHN_PRESHARED_KEYS`): the server sends it with every call, as `Authorization: Bearer <key>`, so nothing else on the network can read or write permissions. Needs `KINDGI_OPENFGA_API_URL`. Set it by reference to a secret, pinned to a version. Use a long random value (`openssl rand -hex 32`); the server drops surrounding whitespace and refuses spaces, commas or control characters inside (it travels in an HTTP header, and OpenFGA's list is comma-separated). To rotate it without a refusal: add the new key to OpenFGA's list, then point the server at it, then drop the old one, each step its own deploy.",
+      "Used from runtime 0.1.8; earlier runtimes ignore it. OpenFGA's preshared key, for an OpenFGA run with `--authn-method=preshared` (`OPENFGA_AUTHN_PRESHARED_KEYS`): the server sends it with every call, as `Authorization: Bearer <key>`, so nothing else on the network can read or write permissions. Needs `KINDGI_OPENFGA_API_URL`; `KINDGI_TENANCY=multi` starts only with both. Set it by reference to a secret, pinned to a version. Use a long random value (`openssl rand -hex 32`); the server drops surrounding whitespace and refuses spaces, commas or control characters inside (it travels in an HTTP header, and OpenFGA's list is comma-separated). To rotate it without a refusal: add the new key to OpenFGA's list, then point the server at it, then drop the old one, each step its own deploy.",
     example: '',
     required: false,
     appliesTo: appliesToServer,
@@ -239,7 +239,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_TENANCY',
     description:
-      "Used from runtime 0.1.8; earlier runtimes ignore it. How many tenants the runtime serves. `single` (default): one, `KINDGI_TENANT_ID`'s, as before. `multi`: many, each created through `POST /v1/system/tenants`. A request's tenant comes from its key or session, so `KINDGI_TENANT_ID` is refused, and `KINDGI_API_TOKEN` acts as the operator (`kindgi:system`) in no tenant. The first `multi` boot keeps the existing tenant, with its data, keys and people, as the first of many.",
+      "Used from runtime 0.1.8; earlier runtimes ignore it. How many tenants the runtime serves. `single` (default): one, `KINDGI_TENANT_ID`'s, as before. `multi`: many, each created through `POST /v1/system/tenants`. A request's tenant comes from its key or session, so `KINDGI_TENANT_ID` is refused, and `KINDGI_API_TOKEN` acts as the operator (`kindgi:system`) in no tenant. The first `multi` boot keeps the existing tenant, with its data, keys and people, as the first of many. `multi` starts only with all of these: `KINDGI_TENANT_HOST_ACCESS=isolated`, `KINDGI_PACK_ROUTING=per-deployment` with `KINDGI_PACK_ENDPOINT_HOSTS`, `KINDGI_OPENFGA_API_URL` with `KINDGI_OPENFGA_PRESHARED_KEY`, `KINDGI_PRODUCTION_GATE=on` and `KINDGI_USAGE_METERING=on`. A start that lacks any is refused, naming each.",
     example: 'single',
     required: false,
     appliesTo: appliesToServer,
@@ -285,7 +285,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_TENANT_HOST_ACCESS',
     description:
-      "How far what tenants register may reach into the server's own host. `deployed` refuses a `stdio` MCP endpoint (a command the server would run in its container, as its user) at registration (`403 host-access-denied`) and at connect; run MCP servers over HTTP instead. It also refuses the server's connections to the cloud metadata endpoints (link-local addresses) and to its own host (loopback) when a tenant chose the host: an MCP endpoint, a model provider's base URL, an HTTP tool, an image reference. Private networks stay reachable. `isolated` is for a server whose tenants don't trust one another: it refuses all that `deployed` does, plus private networks (RFC 1918, CGNAT 100.64.0.0/10, IPv6 unique-local, IPv6 site-local), and the server's own cloud credentials: a model provider can't sign in as the server (a Gemini provider on Vertex AI needs `secret_ref` rather than Application Default Credentials, and Azure OpenAI's `auth: entra` and Bedrock's `auth: aws-identity` are refused). The server won't start with it and `KINDGI_DEV`, `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow` or `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`. `local` allows all of it: only for a machine where every token holder may run commands. Unset: `local` with `KINDGI_DEV`, `deployed` otherwise; a value set here always wins.",
+      "How far what tenants register may reach into the server's own host. `deployed` refuses a `stdio` MCP endpoint (a command the server would run in its container, as its user) at registration (`403 host-access-denied`) and at connect; run MCP servers over HTTP instead. It also refuses the server's connections to the cloud metadata endpoints (link-local addresses, and the few that clouds serve outside that range, such as Azure's 168.63.129.16) and to its own host (loopback) when a tenant chose the host: an MCP endpoint, a model provider's base URL, an HTTP tool, an image reference. Private networks stay reachable. `isolated` is for a server whose tenants don't trust one another: it refuses all that `deployed` does, plus private networks (RFC 1918, CGNAT 100.64.0.0/10, IPv6 unique-local, IPv6 site-local), and the server's own cloud credentials: a model provider can't sign in as the server (a Gemini provider on Vertex AI needs `secret_ref` rather than Application Default Credentials, and Azure OpenAI's `auth: entra` and Bedrock's `auth: aws-identity` are refused). The server won't start with it and `KINDGI_DEV`, `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow` or `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`. `KINDGI_TENANCY=multi` starts only with it. `isolated` is used from runtime 0.1.8; earlier runtimes refuse it at startup. `local` allows all of it: only for a machine where every token holder may run commands. Unset: `local` with `KINDGI_DEV`, `deployed` otherwise; a value set here always wins.",
     example: 'deployed',
     required: false,
     appliesTo: appliesToServer,
@@ -295,7 +295,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_WEBHOOK_PRIVATE_NETWORKS',
     description:
-      'Whether a webhook may go to a private network address: for a receiver on the same VPC or compose network as a self-hosted server. `allow` accepts a receiver whose host resolves to a private address: RFC 1918, CGNAT (100.64.0.0/10) or IPv6 unique-local. Loopback, link-local (the cloud metadata endpoints) and unroutable addresses stay refused, and webhooks stay https only. Unset or `deny`: public addresses only. Development mode (`KINDGI_DEV`) allows http and every address anyway. `KINDGI_TENANT_HOST_ACCESS=isolated` refuses `allow`.',
+      'Whether a webhook may go to a private network address: for a receiver on the same VPC or compose network as a self-hosted server. `allow` accepts a receiver whose host resolves to a private address: RFC 1918, CGNAT (100.64.0.0/10), IPv6 unique-local or IPv6 site-local. Loopback, the cloud metadata endpoints (link-local addresses, and the few that clouds serve elsewhere, some inside CGNAT or IPv6 unique-local) and unroutable addresses stay refused, even with `allow`, and webhooks stay https only. Unset or `deny`: public addresses only. Development mode (`KINDGI_DEV`) allows http and every address anyway. `KINDGI_TENANT_HOST_ACCESS=isolated` refuses `allow`.',
     example: 'allow',
     required: false,
     appliesTo: appliesToServer,
@@ -305,7 +305,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PRODUCTION_GATE',
     description:
-      "Whether putting a project in production needs the tenant to be allowed it, for example once it has paid. `on`: `PUT /v1/projects/{projectId}/production` refuses with `403 production-not-allowed` while the tenant isn't allowed (its `productionAllowed` is `false`, set through the system API); a project already in production stays so. A tenant is allowed unless it's switched off, so turning the gate on keeps existing tenants' production. Unset or `off`: no gate, and any tenant admin can put a project in production.",
+      "Used from runtime 0.1.8; earlier runtimes ignore it. Whether putting a project in production needs the tenant to be allowed it, for example once it has paid. `on`: `PUT /v1/projects/{projectId}/production` refuses with `403 production-not-allowed` while the tenant isn't allowed (its `productionAllowed` is `false`, set through the system API); a project already in production stays so. A tenant is allowed unless it's switched off, so turning the gate on keeps existing tenants' production. Unset or `off`: no gate, and any tenant admin can put a project in production. `KINDGI_TENANCY=multi` starts only with `on`.",
     example: 'on',
     required: false,
     appliesTo: appliesToServer,
@@ -315,7 +315,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PRODUCTION_NEXT_URL',
     description:
-      "Where a tenant goes to put more projects in production, for example a billing page: an https URL. It's the `details.next` of two refusals: `production-not-allowed`, for a tenant that isn't allowed to put projects in production, and `production-limit-reached`, for one at its limit on projects in production. It's also `GET /v1/tenant`'s `productionNext` while the tenant isn't allowed. Unset: the first refusal says to ask whoever runs the server, and the second to take a project out of production or ask whoever runs the server to raise the limit.",
+      "Used from runtime 0.1.8; earlier runtimes ignore it. Where a tenant goes to put more projects in production, for example a billing page: an https URL. It's the `details.next` of two refusals: `production-not-allowed`, for a tenant that isn't allowed to put projects in production, and `production-limit-reached`, for one at its limit on projects in production. It's also `GET /v1/tenant`'s `productionNext` while the tenant isn't allowed. Unset: the first refusal says to ask whoever runs the server, and the second to take a project out of production or ask whoever runs the server to raise the limit.",
     example: 'https://platform.example.com/account/billing',
     required: false,
     appliesTo: appliesToServer,
@@ -324,7 +324,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_USAGE_METERING',
     description:
-      "Whether the server counts usage. `on`: it records each run when it's created (with its class: `production`, `staging`, `dry-run`, `replay`, `eval` or `child`) and when it ends, each approval asked for and decided, each model call, and each project put in production or taken out. Each is counted exactly once, in the same transaction as what it counts. `/v1/cost/*` reads a tenant's own counts. Unset or `off`: model calls are counted as before, and nothing else.",
+      "Used from runtime 0.1.8; earlier runtimes ignore it. Whether the server counts usage. `on`: it records each run when it's created (with its class: `production`, `staging`, `dry-run`, `replay`, `eval` or `child`) and when it ends, each approval asked for and decided, each model call, and each project put in production or taken out. Each is counted exactly once, in the same transaction as what it counts. `/v1/cost/*` reads a tenant's own counts. Unset or `off`: model calls are counted as before, and nothing else. `KINDGI_TENANCY=multi` starts only with `on`.",
     example: 'on',
     required: false,
     appliesTo: appliesToServer,
@@ -398,6 +398,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     name: 'KINDGI_AUTH_SECRET',
     description:
       "The same key, base64 (`base64 < auth-secret`): for platforms that give secrets as environment variables (Cloud Run with Secret Manager), where a key file's mode can't be 0600. Set this or `KINDGI_AUTH_SECRET_PATH`, not both.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_PREVIOUS_SECRET_PATH',
+    description:
+      "While the sign-in secret rotates, the one before it (a 32-byte file, mode 0600): people's second-factor keys sealed under it still open, and each moves to the current secret at that person's next code. `kindgi sign-in settings` counts those left in each workspace: keep it until every count is 0, then remove it. A key that opens under neither secret can't be used: its person needs a recovery code, or an admin to remove it. Needs `KINDGI_AUTH_SECRET(_PATH)`, and must differ from it. This or `KINDGI_AUTH_PREVIOUS_SECRET`, not both.",
+    example: '/etc/kindgi/auth-secret.previous',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_PREVIOUS_SECRET',
+    description:
+      'The previous sign-in secret itself, base64. See `KINDGI_AUTH_PREVIOUS_SECRET_PATH`; this or that, not both.',
     example: '',
     required: false,
     appliesTo: appliesToServer,
@@ -539,6 +557,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_SITE_SIGN_IN',
+    description:
+      "`true` lets sites sign their own people in to one project each: a tenant admin registers a site (a store's WordPress admin, say), the site enrolls its own Ed25519 key, and each person it vouches for gets a 15-minute session limited to that project, as themselves, never matched by email. Needs authorization enforced (`KINDGI_OPENFGA_API_URL`) and `KINDGI_PUBLIC_URL` (what a site's statements carry as their audience); turned on without either, the runtime refuses to start. Off by default.",
+    example: 'true',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_AUTH_EMAIL_FROM',
     description:
       "The emailed sign-in link's From address, on a domain your SMTP provider may send for (SPF and DKIM set up): `Kindgi <sign-in@acme.com>`.",
@@ -552,6 +579,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       "The emailed sign-in link's backstop: at most this many links a day to one address from one client network (IPv4 /24, IPv6 /64). Default 20. Before it: one a minute and 3 per 15 minutes to an address, except for the browser that already got a link for it, so someone else's requests can't keep its person out. At a limit the request answers as usual, and nothing is sent.",
     example: '20',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP',
+    description:
+      "The deployment's backstop on invitation emails: at most this many in 24 hours, from all its tenants together. Default 500, a whole number from 1 to 100000. Each tenant may also send at most 100 in 24 hours, or 10 while `KINDGI_PRODUCTION_GATE` is `on` and the tenant isn't allowed production (its `productionAllowed` is `false`). At a limit the person is still added, without the email (`inviteEmail.reason` is `capped`), and sending it again answers `429 invite-capped`. Invitations are emailed by the emailed sign-in link's sender: set without `KINDGI_AUTH_EMAIL_SMTP_URL` (or `KINDGI_AUTH_EMAIL_SMTP_URL_PATH`), the runtime refuses to start.",
+    example: '500',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -675,6 +711,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_EGRESS_SERVER_ADDRESSES',
+    description:
+      "Used from runtime 0.1.8.1; earlier runtimes ignore it. The IP addresses this server's own calls to other sites come from, such as its calls to MCP servers and model providers, and its webhook deliveries: comma-separated IPv4 or IPv6 addresses, such as your NAT's. It publishes them for a site that admits only known addresses: `GET /v1/tenant` shows them to every tenant as `egress.server`, and `kindgi egress` prints them. It changes nothing about where calls go or come from, so set it only once calls really come from these addresses. A value that isn't an IP address stops the server from starting.",
+    example: '192.0.2.10',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_EGRESS_DEPLOYMENT_ADDRESSES',
+    description:
+      "Used from runtime 0.1.8.1; earlier runtimes ignore it. The IP addresses calls made by the code deployed to this server come from: comma-separated IPv4 or IPv6 addresses. As with `KINDGI_EGRESS_SERVER_ADDRESSES`, it only publishes them: `GET /v1/tenant` shows them to every tenant as `egress.deployments`, and `kindgi egress` prints them. A value that isn't an IP address stops the server from starting.",
+    example: '198.51.100.20,198.51.100.21',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_RUN_LEASE_MS',
     description:
       "How long a run's executor lease lasts without renewal, in milliseconds. Every unfinished run and every running eval run holds one, renewed every quarter of this by the server executing it. When a server stops without a shutdown (killed, out of memory, a crash), their leases run out, and a server's sweep fails them: a run sending `run.finished`, an eval run ending `failed`, interrupted, with its finished cases kept. Default 300000 (5 minutes); at least 10000, or the server refuses to start. A shorter lease finds such runs sooner, at the cost of more renewals.",
@@ -740,8 +794,17 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_RETENTION_SWEEP_INTERVAL_MS',
     description:
-      "How often the server purges deleted rows on its own, in milliseconds: in every tenant it serves, it purges for good the tombstones past their retention policy's grace, as `POST /v1/retention/sweep` does, holds (`graceSeconds: -1`) kept, and logs what it purged. Memory facts and conversations purge only under a policy naming their domain (`memory`, `conversation`), never under a `*` policy. Unset (the default): nothing purges on its own; sweep with `POST /v1/retention/sweep` or the console. At least 60000, or the server refuses to start.",
+      "How often the server purges deleted rows on its own, in milliseconds: in every tenant it serves, it purges for good the tombstones past their retention policy's grace, as `POST /v1/retention/sweep` does, holds (`graceSeconds: -1`) kept except where `KINDGI_RUN_RETENTION_MAX_DAYS` limits runs, and logs what it purged. Memory facts and conversations purge only under a policy naming their domain (`memory`, `conversation`), never under a `*` policy. Unset (the default): nothing purges on its own; sweep with `POST /v1/retention/sweep` or the console. At least 60000, or the server refuses to start.",
     example: '3600000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_RUN_RETENTION_MAX_DAYS',
+    description:
+      "The longest the server keeps a finished run, in whole days, counted from when it finished. Publishing a `run` retention policy that keeps runs longer, or for good (`graceSeconds: -1`), is refused with `400 retention-over-limit`. Where a policy keeps them longer anyway (a `*` policy, or one stored before the limit was set), or no policy covers runs, they're purged at the limit. A run still going is never purged. The sweep purges them (`KINDGI_RETENTION_SWEEP_INTERVAL_MS`, or `POST /v1/retention/sweep`). Unset (the default): no limit. At least 1, or the server refuses to start.",
+    example: '90',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -857,7 +920,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ARTIFACT_MAX_BYTES',
     description:
-      'The most bytes one artifact upload may carry, the whole request body; more is `413 artifact-too-large`. Default 104857600 (100 MB).',
+      'The most bytes one artifact upload may carry, the whole request body; more is `413 artifact-too-large`. Default 104857600 (100 MiB).',
     example: '104857600',
     required: false,
     appliesTo: appliesToServer,
@@ -877,6 +940,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       "Used from runtime 0.1.8; earlier runtimes ignore it. The most memory, in MiB, that one tenant's running agent turns may hold, charged as for `KINDGI_TURN_MEMORY_MIB`. Past it, the turn fails with `429 turn-memory-limit-reached` (`limit: tenant`), and a resume whose journal alone is bigger fails at once. Unset: no limit per tenant. Kindgi Cloud sets 192.",
     example: '192',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_TEMPLATE_RENDER_WORKERS',
+    description:
+      "Used from runtime 0.1.8.1; earlier runtimes ignore it. How many worker processes the server renders a turn's instruction template in, off the thread that runs the turn. Default 1 on a runtime serving many tenants (`KINDGI_TENANCY=multi`): one worker process, started at the first render and shared across turns; a higher count lets several templates render at once. Default 0 on a runtime serving one: the template renders in the server process, as before, and no worker starts. A runtime serving one tenant gives a render no time limit: with workers turned on there, a render that never ends holds its worker until a restart, and the turns after it wait for a free worker. Each worker holds about 67 MiB at rest, and up to its heap cap (`KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB`) under load. A value that isn't a whole number of at least 0 stops the server at boot, naming this variable (exit code 2).",
+    example: '1',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB',
+    description:
+      "Used from runtime 0.1.8.1; earlier runtimes ignore it. Each template-render worker process's old-space heap cap, in MiB (`--max-old-space-size`), when `KINDGI_TEMPLATE_RENDER_WORKERS` is 1 or more; unused when it is 0. Default 128. A value that isn't a whole number of at least 1 stops the server at boot, naming this variable (exit code 2).",
+    example: '128',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -1296,7 +1377,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PACK_ROUTING',
     description:
-      'Used from runtime 0.1.8; earlier runtimes ignore it. How the server finds the pack service for a call. `single` (default): one pack service, `KINDGI_PACK_SERVICE_URL`, for every call. `per-deployment` needs `KINDGI_TENANCY=multi`: the endpoints are recorded through the system API, which a runtime serving one tenant does not have, so the server refuses to start with it there. Each call then goes to the newest deployment that shipped the tool or check, at the endpoint recorded for it by whatever runs the services (an orchestrator, or a script) with a `system:deployments` key. Each endpoint carries its own token and auth, so `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused; `KINDGI_PACK_CALL_TIMEOUT_MS` still applies. A call whose deployment has no endpoint yet fails (`pack-endpoint-pending`): it never falls back to an older deployment or another service. Deployments registered before it was turned on have no routes; deploy them again.',
+      'Used from runtime 0.1.8; earlier runtimes ignore it. How the server finds the pack service for a call. `single` (default): one pack service, `KINDGI_PACK_SERVICE_URL`, for every call. `per-deployment` needs `KINDGI_TENANCY=multi`: the endpoints are recorded through the system API, which a runtime serving one tenant does not have, so the server refuses to start with it there; `multi` starts only with it. Each call then goes to the newest deployment that shipped the tool or check, at the endpoint recorded for it by whatever runs the services (an orchestrator, or a script) with a `system:deployments` key. Each endpoint carries its own token and auth, so `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused; `KINDGI_PACK_CALL_TIMEOUT_MS` still applies. A call whose deployment has no endpoint yet fails (`pack-endpoint-pending`): it never falls back to an older deployment or another service. Deployments registered before it was turned on have no routes; deploy them again.',
     example: 'single',
     required: false,
     appliesTo: appliesToServer,
@@ -1306,7 +1387,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PACK_ENDPOINT_HOSTS',
     description:
-      "Used from runtime 0.1.8; earlier runtimes ignore it. With `KINDGI_PACK_ROUTING=per-deployment`: the hosts a deployment's pack endpoint may name, comma-separated. Each is a host name; `*.` and a domain, which matches one more label in front of it; or `*-`, a tail and a domain, which matches one more label ending with `-` and the tail. On Cloud Run, name each pack project with `*-<project number>.<region>.run.app`: Cloud Run URLs are `<service>-<project number>.<region>.run.app` for every project, so `*.`, or a `*-` tail that isn't a project number, with `run.app` or a domain under it would admit anyone's service, and the server refuses to start with one. Lowercase, with no scheme, port or path. Without it, every endpoint is refused, so per-deployment routing is never open by default. An endpoint's host must also begin with its deployment's own service name (`kp-` and 20 characters, then `-` or `.`), so an endpoint can't point one tenant's deployment at another's service.",
+      "Used from runtime 0.1.8; earlier runtimes ignore it. With `KINDGI_PACK_ROUTING=per-deployment`: the hosts a deployment's pack endpoint may name, comma-separated. Each is a host name; `*.` and a domain, which matches one more label in front of it; or `*-`, a tail and a domain, which matches one more label ending with `-` and the tail. On Cloud Run, name each pack project with `*-<project number>.<region>.run.app`: Cloud Run URLs are `<service>-<project number>.<region>.run.app` for every project, so `*.`, or a `*-` tail that isn't a project number, with `run.app` or a domain under it would admit anyone's service, and the server refuses to start with one. Lowercase, with no scheme, port or path. Without it, the server refuses to start: per-deployment routing needs `KINDGI_TENANCY=multi`, which starts only with the hosts named. An endpoint's host must also begin with its deployment's own service name (`kp-` and 20 characters, then `-` or `.`), so an endpoint can't point one tenant's deployment at another's service.",
     example: '*-123456789012.us-central1.run.app',
     required: false,
     appliesTo: appliesToServer,

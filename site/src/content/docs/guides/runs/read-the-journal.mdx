@@ -77,6 +77,9 @@ To read only what's new since you last looked, add `--since=<sequence>`,
 where `<sequence>` is the last entry you read. It returns the entries after
 that one.
 
+To page it, add `--limit=<n>`, then `--cursor=<nextCursor>` from the page
+before.
+
 ## The entries
 
 | `kind` | |
@@ -110,8 +113,9 @@ its tokens and cost.
 
 ## From your app
 
-Your app reads a journal with `runs.journal`. This function prints a run's
-journal, one entry a line:
+Your app reads a journal with `runs.journal`. Ask your coding agent: "I want
+my app to show every step a run took." For reference, this function prints a
+run's journal, one entry a line:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -228,6 +232,11 @@ For a run of `acme.escalate-order` that waited for an approval, it prints:
 14 edge.evaluated 
 15 run.completed 
 ```
+
+`runs.journal` returns the whole journal in one answer. To read a long one
+in pages, pass `limit` (1 to 100): each page has `hasMore` (`has_more` in
+Python), and `nextCursor` (`next_cursor`) while more remain, which you pass
+as `cursor` for the next page. Paging needs a runtime of 0.1.8 or later.
 
 ## Next
 

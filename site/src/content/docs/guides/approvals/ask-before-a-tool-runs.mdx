@@ -24,7 +24,11 @@ reviewer. Approve, and the tool runs. Reject, and it doesn't.
 ## Gate a tool
 
 `acme-ops.post-update` posts to a public status page. It changes something
-outside your app, so it doesn't say `mutating: false`:
+outside your app, so it doesn't say `mutating: false`. Ask your coding agent:
+"I want a tool that posts an update to our public status page." Kindgi's
+skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+tool looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -130,7 +134,9 @@ object PostUpdate {
 </TabItem>
 </Tabs>
 
-This agent posts status updates with it, and every post waits for a person:
+This agent posts status updates with it, and every post waits for a person.
+Ask your coding agent: "I want an agent that posts status updates, and asks a
+person before every post." For reference, the agent looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -264,6 +270,149 @@ object StatusAgent {
 
 An agent without `hitl.tools` has no tool gates, unless your tenant has
 [approval rules](../approval-rules-for-every-agent/).
+
+### Someone other than whoever asked
+
+**A tool call's approval names who asked:** the person the turn runs for, in
+`requestedBy` (`user:<id>`, or `service_account:<id>` for an app's key). It
+stays the same when someone else's decision resumes the turn.
+
+**By default, that person may approve it too.** `hitl.separateApprover`
+makes the approval need someone else (four eyes):
+
+- **`true`** applies to every gated tool.
+- **Per tool,** set `overrides`, keyed by tool id as in `tools`. An optional
+  `default` covers the tools you don't name.
+
+```ts
+conversationPolicy: {
+  hitl: {
+    tools: { overrides: { 'acme-ops.post-update': 'always_ask' } },
+    separateApprover: { overrides: { 'acme-ops.post-update': true } },
+  },
+},
+```
+
+Every pack language sets it the same way: Python's `conversation_policy`,
+and the map Java and Scala pass to `set("conversationPolicy", …)`, take the
+same keys, `separateApprover` included.
+
+**When four eyes is on:**
+- **The person who asked isn't offered Approve.** That holds on the
+  console's approval page, in its inbox's keyboard decisions ("You asked
+  for this, so someone else approves it."), and on the Kindgi plugin for
+  WordPress's Approvals tab.
+- **The API refuses their approve:**
+
+  ```json
+  {
+    "error": {
+      "code": "separate-approver-required",
+      "message": "Approval ecaaa545-… was asked for by you: someone else must approve it",
+      "details": { "approvalId": "ecaaa545-…" },
+      "requestId": "…"
+    }
+  }
+  ```
+
+- **They may still reject their own request.**
+- **A turn that's already waiting** keeps the rule it parked with.
+- **It compares people.** A turn started with an app's key names the key's
+  service account (`service_account:<id>`), so a person holding that key
+  can still approve the call as themselves.
+- **With `ask_on_first_use`,** only a tool's first call is asked, and
+  someone other than whoever asked approves that one.
+- **The template's tools:** the store agent sets `separateApprover` per tool,
+  and `defineAgent` refuses an override naming a tool the agent doesn't
+  have, so a mistyped id never leaves the real tool without four eyes.
+
+**The `woocommerce` template's store agent turns it on** for
+`<pack>.woo.refund-large`, `<pack>.woo.set-price` and
+`<pack>.woo.publish-product` (`acme-shop.woo.refund-large` in a pack named
+`acme-shop`).
+
+## When no person started the run
+
+**A tool can ask for a person's yes on every call no person is there to
+see:** it declares `needsApprovalWhenUnattended: true`. Declare it on a tool
+that moves money or changes something people rely on. Then, in a run no
+person started:
+
+- **An agent's call of the tool waits** for a reviewer, as `always_ask`
+  does. The agent's `hitl` can't lift it, nor can your tenant's
+  [approval rules](../approval-rules-for-every-agent/): agents are reused,
+  and the tool's author knows what it does.
+- **A flow's tool step that calls it fails,** as [In a flow](#in-a-flow)
+  shows.
+
+In a run a person started, the agent's own gates decide, as for any tool.
+Absent means `false`. Here `acme-ops.post-update`, which posts in public,
+declares it:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+// in tools/post-update/index.ts
+  effects: [{ kind: 'external-side-effect', resource: 'external:status-page' }],
+  needsApprovalWhenUnattended: true,
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+# in tools/post_update.py
+@tool(
+    id="acme-ops.post-update",
+    effects=[{"kind": "external-side-effect", "resource": "external:status-page"}],
+    needs_approval_when_unattended=True,
+)
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acmeops/tools/PostUpdate.java
+      .effect("external-side-effect", "external:status-page")
+      .needsApprovalWhenUnattended(true)
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acmeops/tools/PostUpdate.scala
+    .effect("external-side-effect", "external:status-page")
+    .needsApprovalWhenUnattended(true)
+```
+
+</TabItem>
+</Tabs>
+
+**How a run started** is on the run, as `startedBy`:
+
+| `startedBy` | Who started it | Counts as a person |
+| --- | --- | --- |
+| `person` | A person: signed in (the console, the chat of the Kindgi plugin for WordPress), or with their own API key | Yes |
+| `key` | A service account's key | No |
+| `schedule`, `webhook`, `event` | A trigger | No |
+
+- **A key acts as its person.** A script on your own key starts runs as
+  you, and they count as yours. For automation, use a
+  [service account's key](../../../deploy/people-and-keys/#service-accounts): its runs count as
+  unattended.
+- **A flow's agent step, and any run a run starts,** started the way its run
+  did.
+- **A run from before your runtime recorded it** reads as its trigger's
+  kind when a trigger started it, and has no `startedBy` otherwise. Either
+  way it counts as unattended: it never reads as a person's.
+- **The `woocommerce` template declares it** on `<pack>.woo.refund`,
+  `<pack>.woo.refund-large`, `<pack>.woo.set-price` and
+  `<pack>.woo.publish-product`. A staff member's refund in the store chat
+  runs as the agent says; one an order webhook's run asks for waits for a
+  person.
 
 ## Become a reviewer
 
@@ -470,6 +619,16 @@ kindgi runs journal <flow-run-id>
 The approval's `provenanceRef.runId` is the agent step's own run, not the flow
 run. Once the approval is decided, the agent's turn finishes and the flow
 continues from that step.
+
+**A tool step can't wait for a person.** In a run no person started, a step
+whose tool declares `needsApprovalWhenUnattended` fails, and the tool never
+runs. The run's `failureMessage` says why:
+
+```text
+needs-a-person: tool "acme-ops.post-update" needs a person's yes when no person started the run (needsApprovalWhenUnattended), and a flow's tool step can't wait for one. Call it from an agent step instead: there the call waits for a person to approve it.
+```
+
+Call such a tool from an agent step, whose call waits for a reviewer.
 
 ## Next
 

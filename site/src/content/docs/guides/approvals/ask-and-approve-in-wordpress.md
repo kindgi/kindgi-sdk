@@ -70,37 +70,36 @@ plugin's **Kindgi → Settings** page shows the two addresses to register:
 - the site's origin;
 - its approvals URL.
 
-```ts excerpt
-import { createClient } from '@kindgi/sdk/client';
-
-const kindgi = createClient(); // KINDGI_API_URL and KINDGI_API_TOKEN: a tenant admin's
-const { site, enrollment } = await kindgi.projects.sites.register(projectId, {
-  displayName: 'Acme store',
-  origin: 'https://acme-store.example',
-  approvalsUrl: 'https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}',
-});
-console.log(enrollment.code); // one-time, for 15 minutes
+```sh
+kindgi sites register --project=<project-id> --name='Acme store' \
+  --origin=https://acme-store.example \
+  --approvals-url='https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}'
 ```
 
-- **`displayName`** is how Kindgi shows the site's people: "Jane, via Acme
+It prints the site and its one-time code, shown once and good for 15
+minutes; `kindgi sites code <site-id>` gives a new one. Without
+`--project`, this and each `kindgi sites` command below use the tenant's
+Default project. From code, the client's `projects.sites.register` does
+the same.
+
+- **`--name`** is how Kindgi shows the site's people: "Jane, via Acme
   store". Only a tenant admin sets it, never the site.
-- **`origin`** must be `https://`. An `http://` origin works only for a
+- **`--origin`** must be `https://`. An `http://` origin works only for a
   loopback address, in development.
-- **`approvalsUrl`** must be on the origin. Kindgi replaces `{approvalId}`,
+- **`--approvals-url`** must be on the origin. Kindgi replaces `{approvalId}`,
   and its emails to the site's people link there.
 
 These settings decide who may sign in and what they get. Each has a default,
-and `kindgi.projects.sites.update(projectId, siteId, { … })` changes it
-later:
+and `kindgi sites update <site-id>` changes it later:
 
 | Setting | Default | What it decides |
 | --- | --- | --- |
-| `allowedRoles` | `administrator`, `shop_manager` | The WordPress roles that may sign in at all. Any other role is refused. |
-| `roleMap` | Both roles: `{ ask: true, reviewer: 'standard' }` | For each allowed role: whether it may ask the project's agents (`ask`), and the reviewer role it decides approvals with (`reviewer`; none when absent). A person with several allowed roles gets the most any of them gives. |
-| `reviewerCeiling` | `standard` | The highest reviewer role the site's people can have: `standard` or `senior`. |
-| `peopleCap` | `50` | At most this many people from the site (1 to 10,000). |
-| `newPeoplePerDay` | `20` | At most this many new people a day (1 to 1,000). |
-| `vouching` | `true` | Whether Kindgi accepts the site's statements at all. |
+| `--allowed-role` | `administrator`, `shop_manager` | The WordPress roles that may sign in at all, one flag for each. Any other role is refused. |
+| `--role-map` | Both roles: `{"ask": true, "reviewer": "standard"}` | For each allowed role, as JSON or `@<file>`: whether it may ask the project's agents (`ask`), and the reviewer role it decides approvals with (`reviewer`; none when absent). A person with several allowed roles gets the most any of them gives. `--allowed-role` without `--role-map` keeps only the map's entries for the allowed roles: the default map's for a new site, the site's own on an update. An allowed role with no entry signs in to read the project only. |
+| `--reviewer-ceiling` | `standard` | The highest reviewer role the site's people can have: `standard` or `senior`. |
+| `--people-cap` | `50` | At most this many people from the site (1 to 10,000). |
+| `--new-people-per-day` | `20` | At most this many new people a day (1 to 1,000). |
+| `--vouching` | `on` | Whether Kindgi accepts the site's statements at all: `on` or `off`. |
 
 - **Every person also reads the project.**
 - **No setting gives more:** never editor or admin on the project, never a
@@ -111,12 +110,15 @@ later:
 
 ## Install and connect the plugin
 
-The plugin is in the kindgi-sdk repository, under
+Each SDK release carries the plugin as `kindgi-<version>.zip`; its source is under
 [`integrations/wordpress/kindgi`](https://github.com/kindgi/kindgi-sdk/tree/main/integrations/wordpress/kindgi).
 It needs WordPress 6.4 or later and PHP 7.4 or later.
 
-1. **Install it.** Zip the folder as `kindgi.zip` and upload it under
-   **Plugins → Add New → Upload Plugin**, or copy the folder to
+1. **Install it.** Download `kindgi-<version>.zip` from the SDK's
+   [latest release](https://github.com/kindgi/kindgi-sdk/releases/latest),
+   and upload it under **Plugins → Add Plugin → Upload Plugin** (**Add New
+   Plugin** before WordPress 6.8). The `.sha256` file next to it checks the
+   download (`sha256sum -c`). Or copy the folder to
    `wp-content/plugins/kindgi`. Then activate it.
 2. **Connect.** An administrator, under **Kindgi → Settings**, pastes the
    one-time code and the Kindgi URL this server reaches, then chooses
@@ -189,7 +191,7 @@ With [`KINDGI_REVIEWER_EMAIL=on`](../decide-an-approval/#reviewer-email),
 Kindgi emails the site's reviewers too:
 - **At the address the site sends for them:** the person's WordPress email.
   The `kindgi_statement_email` filter changes it, or sends none.
-- **The link opens the approval on the site's page** (its `approvalsUrl`),
+- **The link opens the approval on the site's page** (its approvals URL),
   not in the console.
 - **Nothing while the site signs nobody in:** while it's paused, not
   vouching or unregistered.
@@ -259,6 +261,8 @@ another reviewer decides." instead of **Approve**.
   ```
 
   The code is `limited-session-cannot-mint`.
+- Kindgi asks them for no second factor, even where the workspace
+  [requires one](../../../deploy/sign-in/#a-second-factor): the site owns it.
 
 **Their grants come from the site, and only from it.**
 - A route that would give one of them a grant, a tenant role, a project or
@@ -283,7 +287,7 @@ another reviewer decides." instead of **Approve**.
   ```
 
 - **To change what they get,** change their role in WordPress: the plugin
-  tells Kindgi at once. A change to the site's `roleMap` applies at each
+  tells Kindgi at once. A change to the site's role map applies at each
   person's next sign-in, so within 15 minutes for someone using the page.
 - **In the people list,** a site's person shows as "Jane, via Acme store",
   with no grants of their own: theirs come from the site.
@@ -292,15 +296,18 @@ another reviewer decides." instead of **Approve**.
 
 ## Pause, re-key or remove
 
-- **Pause the site** (`kindgi.projects.sites.pause(projectId, siteId)`).
-  It ends every session the site opened, and refuses its sign-ins until
-  `resume`. The page says "This site is paused: a tenant admin resumes it".
-- **Get a new code** (`newEnrollmentCode`). Connecting with it replaces every
-  key the site has and ends its sessions. Use it when the site moves, or its
-  key may be out.
-- **Revoke one key** (`revokeKey(projectId, siteId, kid)`). It ends the
-  sessions that key opened.
-- **Remove one person** (`kindgi.users.unregister(userId)`). It's for good:
+- **Pause the site** (`kindgi sites pause <site-id>`). It ends every
+  session the site opened, and refuses its sign-ins until
+  `kindgi sites resume <site-id>`. The page says "This site is paused: a
+  tenant admin resumes it".
+- **Get a new code** (`kindgi sites code <site-id>`). Connecting with it
+  replaces every key the site has and ends its sessions. Use it when the
+  site moves, or its key may be out.
+- **Revoke one key** (`kindgi sites revoke-key <site-id> <kid>`). It ends
+  every session the site opened. `kindgi sites get <site-id>` lists the
+  site's keys, with thumbprints to compare with the plugin's key id under
+  **Kindgi → Settings**.
+- **Remove one person** (`kindgi people remove <user-id>`). It's for good:
   their next sign-in is refused, "This person was removed: their site can't
   sign them in again".
 
@@ -351,16 +358,16 @@ Kindgi answers 401 `site-sign-in-refused` with a reason in
 | `reason` | Message | What to do |
 | --- | --- | --- |
 | `not-verified` | The statement couldn't be verified: check the site's id, key and signature | Connect the site again with a new code. Kindgi says nothing more: an unknown site, an unknown or retired key, a bad signature, a statement that doesn't parse or has the wrong header (not EdDSA, the wrong `typ`, no `kid`), and one without `iat`, `exp`, `jti` or `sub` all read the same. |
-| `site-paused` | This site is paused: a tenant admin resumes it | Resume the site. |
-| `site-not-vouching` | This site doesn't sign its people in | Set `vouching` to `true`, unless the site was unregistered. |
+| `site-paused` | This site is paused: a tenant admin resumes it | Resume the site: `kindgi sites resume <site-id>`. |
+| `site-not-vouching` | This site doesn't sign its people in | Turn it back on, `kindgi sites update <site-id> --vouching=on`, unless the site was unregistered. |
 | `wrong-audience` | The statement's audience isn't this deployment's: expected … | The runtime's `KINDGI_PUBLIC_URL` changed since the site connected. Connect it again with a new code. |
 | `expired` | The statement has expired | Check the site's clock: Kindgi allows 30 seconds of difference. |
 | `issued-in-the-future` | The statement's `iat` is in the future | Check the site's clock. |
 | `too-long-lived` | A statement lives at most 60 s | Something other than the plugin signs the site's statements: use the plugin. |
 | `replayed` | This statement was already used | The plugin never sends one twice. A copied statement is refused. |
-| `role-not-allowed` | None of these roles may sign in through this site | Add the role to `allowedRoles`. A person who had signed in before loses what their roles gave them. |
+| `role-not-allowed` | None of these roles may sign in through this site | Add the role: `kindgi sites update <site-id>`, with an `--allowed-role` for it and for each role the site keeps. A person who had signed in before loses what their roles gave them. |
 | `person-removed` | This person was removed: their site can't sign them in again | Nothing, through the site: removing a person is for good. |
-| `people-cap` | This site has as many people as it may: a tenant admin can raise its cap | Raise `peopleCap` or `newPeoplePerDay`. |
+| `people-cap` | This site has as many people as it may: a tenant admin can raise its cap | Raise `--people-cap` or `--new-people-per-day` (`kindgi sites update <site-id>`). |
 
 Too many sign-ins at once get 429, with `Retry-After`.
 

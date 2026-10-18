@@ -387,6 +387,60 @@ machine:
   ⚠ Emailed sign-in link without a captcha on a console others can reach: Turnstile is recommended (KINDGI_AUTH_TURNSTILE_SECRET, KINDGI_AUTH_TURNSTILE_SITE_KEY).
 ```
 
+## A second factor
+
+A person can add a second factor to signing in (runtime 0.1.8.1 or later):
+the codes an authenticator app shows (TOTP, as in Google Authenticator,
+1Password or Authy), and 10 recovery codes for when the phone is lost. They set it up in
+the console, which shows the key as a QR code, once. From then on, signing
+in by the emailed link, Google, Microsoft or GitHub asks for a code after the
+first step, and no session is made until it's given. Each recovery code works
+once; where the deployment sends email, they're told when one is used to
+sign in.
+
+A tenant admin can require one for the whole workspace:
+
+```sh
+kindgi sign-in settings --require-second-factor=on
+```
+
+- Someone without one sets one up at their next sign-in.
+- A session made without one ends at its next request.
+- Signing in to the console with an API token is refused
+  (`second-factor-required`), since a token can't give a second factor.
+- Signing in through the workspace's own identity provider is exempt: it owns
+  the second factor there.
+- A site's people, signed in through
+  [site sign-in](../../guides/approvals/ask-and-approve-in-wordpress/#a-sites-people-in-kindgi),
+  are exempt too: the site owns their second factor.
+- API keys aren't covered. Keep them to service accounts, and rotate them.
+
+Turning it on from a session made without your own second factor is refused
+(`second-factor-enroll-first`): it would end your session. Set yours up and
+sign in again with it first.
+
+After 5 wrong codes in one sign-in, that sign-in ends and the person starts
+again from the first step. Ten wrong codes in 15 minutes lock their second
+factor for the rest of that time (`second-factor-locked`). For a lost phone, a tenant admin removes
+theirs, and they're told by email where the deployment sends it:
+
+```sh
+kindgi people reset-second-factor <user-id>
+```
+
+An admin's own isn't removed this way: they take it off on My access, with a
+code from it, as anyone does.
+
+The keys are kept encrypted under the sign-in secret (`KINDGI_AUTH_SECRET`).
+When you rotate it, set the old one as
+[`KINDGI_AUTH_PREVIOUS_SECRET_PATH`](../../reference/env-vars/#kindgi_auth_previous_secret_path)
+(or `KINDGI_AUTH_PREVIOUS_SECRET`): each key moves to the new secret at its
+person's next code.
+`kindgi sign-in settings` counts the keys still on the previous secret; keep
+it until that is 0. A key that opens under neither secret can't be used
+(`second-factor-unusable`): its person signs in with a recovery code, or an
+admin removes it.
+
 ## Behind a load balancer
 
 Sign-in's rate limits and records use the client's address. Behind a load

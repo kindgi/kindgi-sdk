@@ -27,7 +27,9 @@ decision, code and console page.
 
 ## Reviewers and roles
 
-Only reviewers see approvals, so whoever decides must be one.
+Whoever decides an approval must be a reviewer. A tenant admin reads
+approvals without being one ([Approvals reference](../approvals-reference/)),
+but registers to decide.
 
 Under `kindgi dev`, you're one already. When it starts on a database where
 you aren't a reviewer yet, it registers you, the user of its token, as an
@@ -293,6 +295,10 @@ acme-desk.echo was withdrawn".
 A reviewer usually decides in your app, not in a terminal. The client lists
 the pending approvals and records the decision. The reviewer is the user the
 API token belongs to.
+
+Ask your coding agent: "In my app, let a reviewer see the pending approvals
+and approve one." For reference, the code looks like this, with what it
+prints:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

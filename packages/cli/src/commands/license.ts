@@ -63,7 +63,7 @@ function store(ctx: CommandContext, flag: string, ref: string): SecretStore {
 }
 
 /** `--access-url`: https, or http to this machine (a local instance); access.kindgi.com by default. */
-function accessOrigin(ctx: CommandContext): string {
+export function accessOrigin(ctx: CommandContext): string {
   const raw = stringFlag(ctx, 'access-url') ?? KINDGI_ACCESS_ORIGIN;
   let url: URL;
   try {

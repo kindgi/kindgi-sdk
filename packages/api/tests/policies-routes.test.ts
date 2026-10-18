@@ -15,6 +15,7 @@ import type {
   Policy,
   PolicyKind,
   PolicyRegistryBinding,
+  RetentionLimits,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
@@ -148,8 +149,11 @@ function makeInMemoryBinding(): PolicyRegistryBinding {
       const versions = rowStore.get(policyId);
       if (versions === undefined) return null;
       const row = versions.get(version);
-      if (row === undefined || row.unregisteredAt !== null) return null;
-      return row.policy;
+      if (row === undefined) return null;
+      // A tombstoned version too, with its `unregisteredAt`.
+      return row.unregisteredAt !== null
+        ? { ...row.policy, unregisteredAt: row.unregisteredAt }
+        : row.policy;
     },
     async headExists({ policyId }) {
       return rowStore.has(policyId);
@@ -710,6 +714,8 @@ describe('API — policies versions', () => {
     const body = (await res.json()) as { id: string; version: string };
     expect(body.id).toBe('acme.model-routing');
     expect(body.version).toBe('1.0.0');
+    // An active version carries no `unregisteredAt`.
+    expect(body).not.toHaveProperty('unregisteredAt');
   });
 
   test('get unknown version → 404', async () => {
@@ -740,10 +746,19 @@ describe('API — policies unregister', () => {
     expect(body.version).toBe('1.0.0');
     expect(body.unregistered).toBe(true);
 
+    // The retired version still answers at its own path, with when it was
+    // unregistered; the policy itself has no active version left (410).
     const get = await app.request('/v1/policies/acme.model-routing/versions/1.0.0', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
-    expect(get.status).toBe(404);
+    expect(get.status).toBe(200);
+    const retired = (await get.json()) as { version: string; unregisteredAt?: string };
+    expect(retired.version).toBe('1.0.0');
+    expect(Number.isFinite(Date.parse(retired.unregisteredAt ?? ''))).toBe(true);
+    const head = await app.request('/v1/policies/acme.model-routing', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(head.status).toBe(410);
   });
 
   test('unregister unknown version → 404', async () => {
@@ -904,5 +919,231 @@ describe('API — policies: retention specs, one policy per domain (T236)', () =
       );
       expect(status).toBe(201);
     }
+  });
+});
+
+describe('API — policies: a retention limit (`retentionLimits`)', () => {
+  const DAY = 86_400;
+  const LIMIT = 90 * DAY;
+  const retention = (
+    graceSeconds: number,
+    domain = 'run',
+    id = 'acme.keep-runs',
+    version = '1.0.0',
+  ) =>
+    policySpec({
+      id,
+      version,
+      kind: 'retention',
+      spec: { v: 1, doc: { domain, graceSeconds, mode: 'purge' } },
+    });
+
+  function limitedApp(retentionLimits: RetentionLimits = { run: { seconds: LIMIT } }) {
+    const binding = makeInMemoryBinding();
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      policyRegistry: binding,
+      retentionLimits,
+    });
+    return { app, binding };
+  }
+
+  async function call(
+    app: ReturnType<typeof makeApp>['app'],
+    method: 'GET' | 'POST',
+    path: string,
+    body?: Record<string, unknown>,
+  ) {
+    const res = await app.request(path, {
+      method,
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      ...(body !== undefined && { body: JSON.stringify(body) }),
+    });
+    return {
+      status: res.status,
+      body: (await res.json()) as {
+        error?: { code: string; message: string; details?: Record<string, unknown> };
+        wasTombstoned?: boolean;
+      },
+    };
+  }
+
+  test('a run policy over the limit is refused with 400, naming the limit, and nothing is stored', async () => {
+    const { app } = limitedApp();
+    const { status, body } = await call(app, 'POST', '/v1/policies', retention(365 * DAY));
+    expect(status).toBe(400);
+    expect(body.error?.code).toBe('retention-over-limit');
+    expect(body.error?.message).toBe(
+      '`graceSeconds` 31536000 (365 days) is over the retention limit for `run` rows, 90 days.',
+    );
+    expect(body.error?.details).toEqual({
+      domain: 'run',
+      graceSeconds: 31_536_000,
+      limitSeconds: LIMIT,
+    });
+    expect((await call(app, 'GET', '/v1/policies/acme.keep-runs')).status).toBe(404);
+  });
+
+  test('a hold (-1) is over the limit too', async () => {
+    const { app } = limitedApp();
+    const { status, body } = await call(app, 'POST', '/v1/policies', retention(-1));
+    expect(status).toBe(400);
+    expect(body.error?.message).toBe(
+      '`graceSeconds` -1 (a hold) is over the retention limit for `run` rows, 90 days.',
+    );
+    expect(body.error?.details).toMatchObject({ graceSeconds: -1 });
+  });
+
+  test('at the limit, or under it, is accepted', async () => {
+    const { app } = limitedApp();
+    expect((await call(app, 'POST', '/v1/policies', retention(LIMIT))).status).toBe(201);
+    expect(
+      (await call(app, 'POST', '/v1/policies', retention(0, 'run', 'acme.keep-runs', '1.0.1')))
+        .status,
+    ).toBe(201);
+    // One second over is over.
+    const over = await call(
+      app,
+      'POST',
+      '/v1/policies',
+      retention(LIMIT + 1, 'run', 'acme.keep-runs', '1.0.2'),
+    );
+    expect(over.status).toBe(400);
+    expect(over.body.error?.message).toBe(
+      '`graceSeconds` 7776001 is over the retention limit for `run` rows, 90 days.',
+    );
+  });
+
+  test('a * policy over the limit, and a hold on a domain with no limit, are accepted', async () => {
+    const { app } = limitedApp();
+    expect(
+      (await call(app, 'POST', '/v1/policies', retention(365 * DAY, '*', 'acme.default'))).status,
+    ).toBe(201);
+    expect(
+      (await call(app, 'POST', '/v1/policies', retention(-1, 'agent', 'acme.keep-agents'))).status,
+    ).toBe(201);
+  });
+
+  test('with no limit, any grace is accepted', async () => {
+    const { app } = makeApp();
+    expect((await call(app, 'POST', '/v1/policies', retention(365 * DAY))).status).toBe(201);
+    expect(
+      (await call(app, 'POST', '/v1/policies', retention(-1, 'run', 'acme.keep-runs', '1.0.1')))
+        .status,
+    ).toBe(201);
+  });
+
+  test('the limit is in days or hours when it is whole ones, else in seconds; the grace too, else bare', async () => {
+    const cases: [number, number, string][] = [
+      [
+        36 * 3_600,
+        2 * DAY,
+        '`graceSeconds` 172800 (2 days) is over the retention limit for `run` rows, 36 hours.',
+      ],
+      [
+        DAY,
+        DAY + 3_600,
+        '`graceSeconds` 90000 (25 hours) is over the retention limit for `run` rows, 1 day.',
+      ],
+      [100, 1_000, '`graceSeconds` 1000 is over the retention limit for `run` rows, 100 seconds.'],
+      [
+        3_600,
+        7_200,
+        '`graceSeconds` 7200 (2 hours) is over the retention limit for `run` rows, 1 hour.',
+      ],
+    ];
+    for (const [limit, grace, message] of cases) {
+      const { app } = limitedApp({ run: { seconds: limit } });
+      const { body } = await call(app, 'POST', '/v1/policies', retention(grace));
+      expect(body.error?.message).toBe(message);
+    }
+  });
+
+  test('reinstating a retired version over the limit is refused, and it stays retired', async () => {
+    const { app, binding } = limitedApp();
+    // Stored before the limit, then retired.
+    await seed(binding, retention(365 * DAY));
+    await binding.unregister({ tenantId, policyId: 'acme.keep-runs', version: '1.0.0' });
+    const { status, body } = await call(
+      app,
+      'POST',
+      '/v1/policies/acme.keep-runs/versions/1.0.0/reinstate',
+    );
+    expect(status).toBe(400);
+    expect(body.error?.code).toBe('retention-over-limit');
+    expect(body.error?.message).toBe(
+      'Version 1.0.0 of policy "acme.keep-runs" stays retired: `graceSeconds` 31536000 (365 days) is over the retention limit for `run` rows, 90 days. Publish a version within it instead.',
+    );
+    expect(body.error?.details).toEqual({
+      domain: 'run',
+      graceSeconds: 31_536_000,
+      limitSeconds: LIMIT,
+      policyId: 'acme.keep-runs',
+      version: '1.0.0',
+    });
+    expect((await call(app, 'GET', '/v1/policies/acme.keep-runs')).status).toBe(410);
+  });
+
+  test('a retired version within the limit is reinstated; an unknown version is still 404', async () => {
+    const { app, binding } = limitedApp();
+    await seed(binding, retention(30 * DAY));
+    await binding.unregister({ tenantId, policyId: 'acme.keep-runs', version: '1.0.0' });
+    const ok = await call(app, 'POST', '/v1/policies/acme.keep-runs/versions/1.0.0/reinstate');
+    expect(ok.status).toBe(200);
+    expect(ok.body.wasTombstoned).toBe(true);
+    const unknown = await call(app, 'POST', '/v1/policies/acme.keep-runs/versions/9.9.9/reinstate');
+    expect(unknown.status).toBe(404);
+  });
+
+  test('the version is found past the first page of versions', async () => {
+    const { app, binding } = limitedApp();
+    // Three-digit majors: the in-memory store pages by the version's text.
+    for (let major = 100; major < 204; major += 1) {
+      await seed(binding, retention(DAY, 'run', 'acme.keep-runs', `${major}.0.0`));
+    }
+    await seed(binding, retention(365 * DAY, 'run', 'acme.keep-runs', '204.0.0'));
+    await binding.unregister({ tenantId, policyId: 'acme.keep-runs', version: '204.0.0' });
+    const { status } = await call(
+      app,
+      'POST',
+      '/v1/policies/acme.keep-runs/versions/204.0.0/reinstate',
+    );
+    expect(status).toBe(400);
+  });
+});
+
+describe('createApp: retentionLimits', () => {
+  const base = () => ({ ...createStubAppBindings(), resolveToken, runHandler });
+
+  test('a limit for `*`, or for no domain, is refused, naming it', () => {
+    expect(() =>
+      createApp({ ...base(), retentionLimits: { '*': { seconds: 60 } } as never }),
+    ).toThrow(
+      /^createApp: retentionLimits names "\*", which isn't a retention domain \(one of org, agent, /,
+    );
+    expect(() =>
+      createApp({ ...base(), retentionLimits: { runs: { seconds: 60 } } as never }),
+    ).toThrow(/retentionLimits names "runs"/);
+  });
+
+  test('a limit that is not a whole number of seconds, 1 or more, is refused', () => {
+    for (const seconds of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, '60']) {
+      expect(() =>
+        createApp({ ...base(), retentionLimits: { run: { seconds } } as never }),
+      ).toThrow(
+        `createApp: retentionLimits.run.seconds must be a whole number of seconds, 1 or more (got ${String(seconds)})`,
+      );
+    }
+  });
+
+  test('a whole number of seconds is accepted', () => {
+    expect(() =>
+      createApp({
+        ...base(),
+        retentionLimits: { run: { seconds: 1 }, memory: { seconds: 7_776_000 } },
+      }),
+    ).not.toThrow();
   });
 });
