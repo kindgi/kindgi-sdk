@@ -4,7 +4,7 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import { Hono } from 'hono';
 
-import { ref } from '@kindgi/authz';
+import { type ResourceRef, ref } from '@kindgi/authz';
 import type { ApiTokenId, ProjectId, TenantId } from '@kindgi/types';
 
 import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../caller.js';
@@ -275,6 +275,24 @@ async function observerKeyRefusal(
   };
 }
 
+/**
+ * A session with a key's limits (a project, a role) mints no keys: a key
+ * would outlive whatever ends the session (its expiry, its provider's
+ * removal). For a session, `tokenRole` comes only from its own limit.
+ */
+function limitedSessionRefusal(c: Context<AppEnv>, tenant: ResourceRef): Refusal | undefined {
+  const narrowedTo = c.get('tokenProjectId');
+  if (c.get('sessionId') === undefined) return undefined;
+  if (narrowedTo === undefined && c.get('tokenRole') === undefined) return undefined;
+  return {
+    action: 'admin',
+    resource: tenant,
+    message: `This session is limited (${narrowedTo !== undefined ? `to project ${narrowedTo}` : `to the ${c.get('tokenRole')} role`}), and a limited session mints no keys`,
+    failing: 'scope',
+    code: 'limited-session-cannot-mint',
+  };
+}
+
 /** Why the route refuses this mint before the store sees it, if it does. */
 async function mintRefusal(
   c: Context<AppEnv>,
@@ -283,11 +301,6 @@ async function mintRefusal(
   principal: TokenPrincipal | undefined,
   body: ParsedMintBody,
 ): Promise<WireError | undefined> {
-  const observer = await observerRefusal(c, authorizer, 'mints no API keys');
-  if (observer !== undefined) {
-    recordRefusal(c, authorizer, observer);
-    return refusalError(observer);
-  }
   const forSomeoneElse = principal !== undefined && !samePrincipal(principal, owner);
   if ((forSomeoneElse || body.role === 'admin') && !(await isTenantAdmin(c, authorizer))) {
     return {
@@ -314,23 +327,14 @@ async function mintRefusal(
       failing: 'scope',
     });
   }
+  const limited = limitedSessionRefusal(c, tenant);
+  if (limited !== undefined) return refuse(limited);
+  // After the session's own limit, whose answer is its own: a limited
+  // session holds no `read` on the tenant (the key ceiling), so under an
+  // authorizer that allows every check it would read as the observer.
+  const observer = await observerRefusal(c, authorizer, 'mints no API keys');
+  if (observer !== undefined) return refuse(observer);
   const narrowedTo = c.get('tokenProjectId');
-  // A session with a key's limits (a project, a role) mints no keys: a
-  // key would outlive whatever ends the session (its expiry, its
-  // provider's removal). For a session, `tokenRole` comes only from its
-  // own limit.
-  if (
-    c.get('sessionId') !== undefined &&
-    (narrowedTo !== undefined || c.get('tokenRole') !== undefined)
-  ) {
-    return refuse({
-      action: 'admin',
-      resource: tenant,
-      message: `This session is limited (${narrowedTo !== undefined ? `to project ${narrowedTo}` : `to the ${c.get('tokenRole')} role`}), and a limited session mints no keys`,
-      failing: 'scope',
-      code: 'limited-session-cannot-mint',
-    });
-  }
   if (narrowedTo !== undefined && body.projectId !== (narrowedTo as unknown as ProjectId)) {
     return refuse({
       action: 'admin',

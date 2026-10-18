@@ -365,13 +365,23 @@ describe("what's refused the observer: a key, a public run link, a provenance ex
     expect(r.status, JSON.stringify(r.body)).toBe(201);
   });
 
-  test('a session limited to a project is still refused: the key ceiling leaves `only_view` alone', async () => {
+  test('a session limited to a project mints no key by its own limit, asked before the observer', async () => {
     const h = harness();
     const r = await h.call(OLIVE_SESSION_ON_P1, 'POST', '/v1/tokens', {});
     expect(r.status, JSON.stringify(r.body)).toBe(403);
-    expect(error(r)?.details?.action).toBe('only_view');
+    expect(error(r)?.code).toBe('limited-session-cannot-mint');
     expect(h.minted).toEqual([]);
   });
+
+  test.each(routes.slice(1))(
+    '%s: a session limited to a project is still refused, the key ceiling leaving `only_view` alone',
+    async (_, path, body) => {
+      const h = harness();
+      const r = await h.call(OLIVE_SESSION_ON_P1, 'POST', path, body);
+      expect(r.status, JSON.stringify(r.body)).toBe(403);
+      expect(error(r)?.details?.action).toBe('only_view');
+    },
+  );
 });
 
 describe('adding a person: `tenantRole`', () => {
