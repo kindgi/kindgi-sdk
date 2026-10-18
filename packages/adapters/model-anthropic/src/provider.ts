@@ -116,12 +116,13 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
     metadata.models.map((m) => [m.name, m] as const),
   );
 
-  // One SDK client per resolved key, reused while that key is (the SDK
-  // keeps a fetch agent and TCP keepalive: building one on every invoke
-  // would tank latency). Calls whose keys take turns (a run in each of two
-  // projects with keys of their own) each reuse their own; a rotated key
-  // builds a new one. A dep-injected client is used as is, whatever the
-  // resolver says: callers injecting one opt out of key rotation.
+  // One SDK client per resolved key, reused while that key is, so an invoke
+  // doesn't build one. Connections live in the `fetch` every client sends
+  // with, so they're kept either way. Calls whose keys take turns (a run in
+  // each of two projects with keys of their own) each reuse their own; a
+  // rotated key builds a new one. A dep-injected client is used as is,
+  // whatever the resolver says: callers injecting one opt out of key
+  // rotation.
   const clients = createClientsByKey<Anthropic>();
   // Counts each call's HTTP attempts, the SDK's own retries included (its
   // retry policy stays the SDK's), through the `fetch` the client sends with.

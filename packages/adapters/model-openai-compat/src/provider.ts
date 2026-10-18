@@ -155,10 +155,11 @@ export function createOpenAICompatModelProvider(
   }
   const extraBody = options.extraBody ?? {};
   const modelsByName = new Map<string, ModelInfo>(metadata.models.map((m) => [m.name, m] as const));
-  // One client per key, reused while the resolver returns that key (the SDK
-  // keeps its connection pool): calls whose keys take turns (a run in each of
-  // two projects with keys of their own) each reuse their own; a rotated key
-  // builds a new one.
+  // One client per key, reused while the resolver returns that key, so a call
+  // doesn't build one (connections live in the `fetch` every client sends
+  // with, so they're kept either way): calls whose keys take turns (a run in
+  // each of two projects with keys of their own) each reuse their own; a
+  // rotated key builds a new one.
   const clients = createClientsByKey<OpenAI>();
   // Counts each call's HTTP attempts, the adapter's own retries included
   // (`sendWithRetries`), through the `fetch` the client sends with.

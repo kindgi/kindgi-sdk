@@ -119,8 +119,9 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
 
   // One client per credential, reused while it resolves to that one: calls
   // whose keys take turns (a run in each of two projects with keys of their
-  // own) each reuse their own; a rotated key builds a new one. `''` stands
-  // for ADC.
+  // own) each reuse their own; a rotated key builds a new one. On Vertex AI
+  // a client holds its own auth client and the token it fetched, so a client
+  // built again fetches a token again. `''` stands for ADC.
   const clients = createClientsByKey<GeminiClient>();
   // Counts each call's HTTP attempts, through the `fetch` the client sends with.
   const attempts = createAttemptCounter();

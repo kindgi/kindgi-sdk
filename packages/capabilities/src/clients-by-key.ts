@@ -6,9 +6,10 @@ import { createHash } from 'node:crypto';
 /**
  * An adapter's SDK clients, one per key it was called with. Calls that
  * take turns with two keys (a run in each of two projects, each project
- * with a key of its own) each reuse their own client and its connection
- * pool, where a single slot would build a client on every turn. A rotated
- * key builds a new client; the old one goes once `max` newer keys are used.
+ * with a key of its own) each reuse their own client, and whatever it
+ * holds (an auth client, a token), where a single slot would build a client
+ * on every turn. A rotated key builds a new client; the old one goes once
+ * `max` newer keys are used.
  *
  * Held by a SHA-256 of the key, never the key itself. At most `max`
  * clients (default 16), the least recently used dropped first.
