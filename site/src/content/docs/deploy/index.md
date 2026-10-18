@@ -17,15 +17,15 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
 (see [Install](../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
 :::
 
-- **[Self-host with Docker](self-host/):** the runtime and your pack
+- **[Self-host with Docker](self-hosted/self-host/):** the runtime and your pack
   service as containers, with your own Postgres.
-- **[Operate it](operate/):** health and logs, backups and restores,
+- **[Operate it](self-hosted/operate/):** health and logs, backups and restores,
   upgrades, and rotating its tokens and keys.
-- **[Serve many tenants](serve-many-tenants/):** one runtime for tenants
+- **[Serve many tenants](self-hosted/serve-many-tenants/):** one runtime for tenants
   who don't trust one another: the settings it starts only with, the
   operator's system keys, a pack service for each deployment, and closing
   and purging a tenant.
-- **[Keep secrets in your own secret manager](secret-manager/):** Azure Key
+- **[Keep secrets in your own secret manager](self-hosted/secret-manager/):** Azure Key
   Vault, Google Secret Manager or HashiCorp Vault holds the secrets set
   through Kindgi's API, and Kindgi keeps their names and versions.
 - **[Keep and purge deleted data](retention/):** how long deleted records
@@ -35,15 +35,15 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
 - **[People, API keys and service accounts](people-and-keys/):** add people
   and give them roles and their own keys, give pipelines service accounts,
   and remove someone in one step.
-- **[Turn on sign-in](sign-in/):** people sign in to the console with their
+- **[Turn on sign-in](self-hosted/sign-in/):** people sign in to the console with their
   organization's identity provider, Google, Microsoft or GitHub, or a link
   by email.
-- **[Publish the addresses your calls come from](egress-addresses/):** for
+- **[Publish the addresses your calls come from](self-hosted/egress-addresses/):** for
   a site that admits only known addresses, and `kindgi egress` to print
   them.
-- **[Google Cloud Run](cloud-run/):** the runtime and your pack's service as
+- **[Google Cloud Run](self-hosted/cloud-run/):** the runtime and your pack's service as
   two Cloud Run services, with Cloud SQL, from Kindgi's Terraform module.
-- **[Azure Container Apps](azure-container-apps/):** the runtime and your
+- **[Azure Container Apps](self-hosted/azure-container-apps/):** the runtime and your
   pack's service as two container apps, with PostgreSQL Flexible Server and
   Key Vault, from Kindgi's Terraform module.
 - **Kindgi Cloud:** we run it for you. In private preview.

@@ -229,43 +229,43 @@ export const ERROR_ENTRIES = {
         meaning: 'why the check refused it (token sign-in only)',
       },
     ],
-    seeAlso: ['deploy/sign-in'],
+    seeAlso: ['deploy/self-hosted/sign-in'],
   },
   'second-factor-invalid': {
     description:
       "The code from the authenticator app, or the recovery code, isn't right: try the code the app shows now. Replacing a second factor that's set up takes a code from it. Too many wrong codes lock it for a while (`second-factor-locked`).",
     details: [],
-    seeAlso: ['deploy/sign-in'],
+    seeAlso: ['deploy/self-hosted/sign-in'],
   },
   'second-factor-locked': {
     description:
       'Too many wrong codes lately for this person: no code is checked until the `Retry-After` header says. Nothing changed.',
     details: [],
-    seeAlso: ['deploy/sign-in'],
+    seeAlso: ['deploy/self-hosted/sign-in'],
   },
   'second-factor-unusable': {
     description:
       "The person's authenticator key can't be opened any more: the deployment's sign-in secret changed, and the previous one isn't configured. A recovery code still works, and so does setting the second factor up again with one; otherwise a tenant admin removes it.",
     details: [],
-    seeAlso: ['deploy/sign-in'],
+    seeAlso: ['deploy/self-hosted/sign-in'],
   },
   'second-factor-enroll-first': {
     description:
       'Requiring a second factor from a session made without one would end that session at its next request. Set up your own second factor and sign in again with it, then require one. An API key may change the setting.',
     details: [],
-    seeAlso: ['deploy/sign-in'],
+    seeAlso: ['deploy/self-hosted/sign-in'],
   },
   'second-factor-not-set-up': {
     description:
       'The person has no second factor set up: there are no recovery codes to replace, and nothing to take off. Set one up with `POST /v1/identity/me/second-factor`.',
     details: [],
-    seeAlso: ['deploy/sign-in'],
+    seeAlso: ['deploy/self-hosted/sign-in'],
   },
   'second-factor-not-started': {
     description:
       'There is no new key to confirm, or the one given is over an hour old. Start again with `POST /v1/identity/me/second-factor`, and confirm with a code from the new key.',
     details: [],
-    seeAlso: ['deploy/sign-in'],
+    seeAlso: ['deploy/self-hosted/sign-in'],
   },
   'token-sign-in-not-allowed': {
     description:
@@ -2862,7 +2862,7 @@ export const ERROR_ENTRIES = {
   'tenant-config-not-found': {
     description: "The API doesn't send this code.",
     details: [],
-    seeAlso: ['deploy/operate'],
+    seeAlso: ['deploy/self-hosted/operate'],
   },
   'tenant-config-revision-conflict': {
     description:
@@ -2894,7 +2894,7 @@ export const ERROR_ENTRIES = {
         meaning: 'the kind of policy that failed: `hitl`, `model-routing` or `tool-errors`',
       },
     ],
-    seeAlso: ['deploy/operate'],
+    seeAlso: ['deploy/self-hosted/operate'],
   },
   'env-not-found': {
     description:
@@ -3017,13 +3017,13 @@ export const ERROR_ENTRIES = {
     description:
       "The runtime couldn't encrypt the secret value (the key service refused to produce a data key), so nothing was stored.",
     details: [],
-    seeAlso: ['guides/secrets/store-a-secret', 'deploy/secret-manager'],
+    seeAlso: ['guides/secrets/store-a-secret', 'deploy/self-hosted/secret-manager'],
   },
   'secret-decryption-failed': {
     description:
       "The runtime couldn't decrypt a stored secret value (the key service failed to unwrap its key).",
     details: [],
-    seeAlso: ['guides/secrets/store-a-secret', 'deploy/secret-manager'],
+    seeAlso: ['guides/secrets/store-a-secret', 'deploy/self-hosted/secret-manager'],
   },
   'secret-provider-unavailable': {
     description:
@@ -3034,7 +3034,7 @@ export const ERROR_ENTRIES = {
     description:
       "The external secret provider rejected the runtime's credentials, so the secret can't be read or written. Ask an admin to fix the provider access.",
     details: [],
-    seeAlso: ['deploy/secret-manager'],
+    seeAlso: ['deploy/self-hosted/secret-manager'],
   },
   'secret-provider-rate-limited': {
     description: 'The external secret provider is rate limiting the runtime. Wait and retry.',
@@ -3045,7 +3045,7 @@ export const ERROR_ENTRIES = {
           'how long the provider asked to wait, in milliseconds, when it said (in binding results)',
       },
     ],
-    seeAlso: ['deploy/secret-manager'],
+    seeAlso: ['deploy/self-hosted/secret-manager'],
   },
   'secret-store-error': {
     description:
@@ -3277,7 +3277,7 @@ export const OUTSIDE_THE_MAP = [
     status: 500,
     description:
       "Signing in failed on the server, for example because its database didn't answer. Nothing about the cause is sent to the browser; a sign-in page shows the code instead of JSON. The runtime's log says why, as an `sso` warning: `sign-in request failed: <reason>`. Try again.",
-    seeAlso: ['deploy/sign-in'],
+    seeAlso: ['deploy/self-hosted/sign-in'],
   },
 ];
 
@@ -3291,80 +3291,80 @@ export const ACCESS_ERRORS = {
       status: 400,
       description:
         "The body isn't a renewal request. A body over the size limit is answered the same way, with status `413`.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'unauthorized',
       status: 401,
       description:
         "No renewer has this deployment's key, or the request's signature doesn't verify. Enroll the deployment with `kindgi license enroll`, then add it at access.kindgi.com.",
-      seeAlso: ['deploy/renew-the-license-key', 'reference/cli/license'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key', 'reference/cli/license'],
     },
     {
       error: 'stale-request',
       status: 401,
       description:
         "The request's time is more than 5 minutes off. Check the clock of the machine that sent it.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'replayed',
       status: 401,
       description: 'This exact request was used before. Send a new one.',
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'rate-limited',
       status: 429,
       description: 'Too many renewals for this key. The next one can go an hour later.',
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'renewer-stopped',
       status: 403,
       description:
         "This deployment's renewal was stopped. Enroll it again with `kindgi license enroll`, or sign in at access.kindgi.com for a key.",
-      seeAlso: ['deploy/renew-the-license-key', 'reference/cli/license'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key', 'reference/cli/license'],
     },
     {
       error: 'denied',
       status: 403,
       description: "Dev access isn't available for this account. Write to contact@kindgi.com.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'key-revoked',
       status: 403,
       description: "The account's license key was revoked. Write to contact@kindgi.com.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'not-entitled',
       status: 403,
       description:
         "The license has no contract term on record, so access.kindgi.com doesn't renew it. Write to contact@kindgi.com.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'term-ended',
       status: 403,
       description:
         "The license's contract term has ended, so it isn't renewed. The key you have runs until its own date. Write to contact@kindgi.com to extend the term.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'held-for-review',
       status: 403,
       description:
         "This renewal's counts (`kindgi license renew --runtime`) are above what a non-production key covers, so it got no new key: write to contact@kindgi.com about a production license. Kindgi can release the deployment after a review, and its renewals then aren't held until a date. The key you have runs until its own date. A renewal before the key is due gets the same key back.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'unavailable',
       status: 503,
       description:
         'No key could be issued: the service failed to store or sign it. Try again later.',
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
   ],
 };

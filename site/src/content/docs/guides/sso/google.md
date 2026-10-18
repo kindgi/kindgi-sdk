@@ -137,7 +137,7 @@ kindgi sso providers finish acme-google --kind=oidc --issuer=https://accounts.go
 This is your workspace's own identity provider: only your domains, and only
 your organization's accounts. **Continue with Google**, which any Google
 account can use, is a different app. Whoever runs the runtime sets it up for
-the whole deployment ([Turn on sign-in](../../../deploy/sign-in/#google)).
+the whole deployment ([Turn on sign-in](../../../deploy/self-hosted/sign-in/#google)).
 
 ## Next
 

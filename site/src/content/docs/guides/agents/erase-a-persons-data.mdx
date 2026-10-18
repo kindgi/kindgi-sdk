@@ -228,7 +228,7 @@ before it starts: `409 legal-hold`, with the held facts in `details.factIds`.
 ### What it can't reach
 
 - **What the runtime logged** to your log system: keep production at `info`
-  or `warn`, as [What logs hold](../../../deploy/logs/#what-logs-hold)
+  or `warn`, as [What logs hold](../../../deploy/self-hosted/logs/#what-logs-hold)
   explains.
 - **Signed exports already made**, such as an approval's audit bundle.
 - **A webhook receiver's copy** of a delivery that was already sent.
@@ -284,7 +284,7 @@ The ledger keeps no identifier, only a keyed hash of whom each erasure
 erased. A replay needs the runtime's erasure ledger key to find them again.
 Without the key, an erasure still runs, but it answers with an
 `erasure-unmatchable` warning. A replay can't match that erasure.
-[Erasures and backups](../../../deploy/back-up-and-restore/#erasures-and-backups)
+[Erasures and backups](../../../deploy/self-hosted/back-up-and-restore/#erasures-and-backups)
 sets up the key and the restore.
 
 ## Next

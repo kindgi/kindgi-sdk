@@ -151,8 +151,8 @@ resume's trace. A call made from a background wake carries none.
 
 Model providers and MCP servers are outside your deployment, so they get the
 run's trace only when their registration opts in: `send_traceparent: true` on
-a [provider](../../guides/models/#a-provider-spec), `sendTraceparent: true` on
-an [MCP endpoint](../../guides/tools/mcp-servers/#send-the-runs-trace). Then
+a [provider](../../../guides/models/#a-provider-spec), `sendTraceparent: true` on
+an [MCP endpoint](../../../guides/tools/mcp-servers/#send-the-runs-trace). Then
 each call to them carries a `traceparent` header: ids only, never content.
 
 ## Records from a run
@@ -210,9 +210,9 @@ the same schema to its standard error, under the subsystem `pack`:
   `draining` and `stopped`, written whatever the levels say.
 - **What it dropped from its environment:** `env-dropped` at `warn`, once at
   start, naming each variable the pack doesn't declare, never its value
-  ([Declare the environment your code reads](../../guides/secrets/pack-env/#in-a-deployment)).
+  ([Declare the environment your code reads](../../../guides/secrets/pack-env/#in-a-deployment)).
 - **What your tools log with `ctx.log`:** under `pack.tool`, with the same
-  ids ([Log from a tool](../../guides/tools/write-a-tool/#log-from-a-tool)).
+  ids ([Log from a tool](../../../guides/tools/write-a-tool/#log-from-a-tool)).
 
 Here are a Java pack service's two records for one call made straight to it,
 with a `traceparent`. The first is what the tool logged, and the second is

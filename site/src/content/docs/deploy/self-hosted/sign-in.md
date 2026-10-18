@@ -8,9 +8,9 @@ sidebar:
 When you finish this page, people sign in to your runtime's console with
 their workspace's own identity provider, with Google, Microsoft or GitHub,
 or with a link sent by email. This page is for whoever runs the runtime.
-What a person sees is in [Sign in to the console](../../guides/sso/sign-in/).
+What a person sees is in [Sign in to the console](../../../guides/sso/sign-in/).
 Connecting a workspace's own identity provider is in
-[Set up SSO](../../guides/sso/).
+[Set up SSO](../../../guides/sso/).
 
 People sign in to the console with their email first. The sign-in page then
 offers the ways in that this deployment has. Whatever way someone signs in,
@@ -82,7 +82,7 @@ Turn on the ways in your people need:
   default.
 
 Each workspace's own identity provider needs nothing more from you: its
-admins set it up ([Set up SSO](../../guides/sso/)). Two settings decide how
+admins set it up ([Set up SSO](../../../guides/sso/)). Two settings decide how
 that works:
 [Which domains find a workspace's identity provider](#which-domains-find-a-workspaces-identity-provider),
 and [Who manages a workspace's identity providers](#who-manages-a-workspaces-identity-providers).
@@ -148,7 +148,7 @@ link: `kindgi sso providers test` prints it.
 
 By default, each workspace's admins add, change and remove its own identity
 providers, from the console's **Sign-in** page or `kindgi sso providers`
-([Set up SSO](../../guides/sso/)). The startup output says so:
+([Set up SSO](../../../guides/sso/)). The startup output says so:
 
 ```text
   Identity providers: each tenant's admins set up their own (KINDGI_AUTH_TENANT_PROVIDERS=off keeps that to this deployment's own token)
@@ -179,7 +179,7 @@ KINDGI_AUTH_TENANT_PROVIDERS=off
 - **The console's Sign-in page** says who manages it, and lists the
   providers with **Try** only:
 
-  ![The Sign-in page with KINDGI_AUTH_TENANT_PROVIDERS=off: Whoever runs Kindgi manages sign-in here, and acme-ops listed with Try only](../../../assets/sso/console-providers-operator.png)
+  ![The Sign-in page with KINDGI_AUTH_TENANT_PROVIDERS=off: Whoever runs Kindgi manages sign-in here, and acme-ops listed with Try only](../../../../assets/sso/console-providers-operator.png)
 
 `on` is the default. Like the other settings here, it needs sign-in on.
 
@@ -243,7 +243,7 @@ New registration**:
 
 This app is for Continue with Microsoft. A workspace that uses Microsoft
 Entra ID as its own identity provider sets up a different, single-directory
-app ([Microsoft Entra ID](../../guides/sso/entra-id/)).
+app ([Microsoft Entra ID](../../../guides/sso/entra-id/)).
 
 ### GitHub
 
@@ -411,7 +411,7 @@ kindgi sign-in settings --require-second-factor=on
 - Signing in through the workspace's own identity provider is exempt: it owns
   the second factor there.
 - A site's people, signed in through
-  [site sign-in](../../guides/approvals/ask-and-approve-in-wordpress/#a-sites-people-in-kindgi),
+  [site sign-in](../../../sites/wordpress/#a-sites-people-in-kindgi),
   are exempt too: the site owns their second factor.
 - API keys aren't covered. Keep them to service accounts, and rotate them.
 
@@ -433,7 +433,7 @@ code from it, as anyone does.
 
 The keys are kept encrypted under the sign-in secret (`KINDGI_AUTH_SECRET`).
 When you rotate it, set the old one as
-[`KINDGI_AUTH_PREVIOUS_SECRET_PATH`](../../reference/env-vars/#kindgi_auth_previous_secret_path)
+[`KINDGI_AUTH_PREVIOUS_SECRET_PATH`](../../../reference/env-vars/#kindgi_auth_previous_secret_path)
 (or `KINDGI_AUTH_PREVIOUS_SECRET`): each key moves to the new secret at its
 person's next code.
 `kindgi sign-in settings` counts the keys still on the previous secret; keep
@@ -452,13 +452,13 @@ as the proxy
 
 A session lasts 12 hours (`KINDGI_SESSION_TTL_MS`), and ends after an hour
 without use (`KINDGI_SESSION_IDLE_TIMEOUT_MS`).
-[Sessions](../../guides/sso/sessions/) has the rest.
+[Sessions](../../../guides/sso/sessions/) has the rest.
 
 ## Next
 
-- [Set up SSO](../../guides/sso/): a workspace connects its own identity
+- [Set up SSO](../../../guides/sso/): a workspace connects its own identity
   provider.
-- [People, API keys and service accounts](../people-and-keys/): add the
+- [People, API keys and service accounts](../../people-and-keys/): add the
   people who sign in.
-- [Sign in to the console](../../guides/sso/sign-in/): what your people
+- [Sign in to the console](../../../guides/sso/sign-in/): what your people
   see.

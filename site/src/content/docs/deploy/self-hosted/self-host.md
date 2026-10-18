@@ -20,7 +20,7 @@ Everything here runs on one machine with Docker Desktop. On a server the pieces 
 :::note[Access to the runtime image]
 Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
 runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+(see [Install](../../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## Before you start
@@ -40,7 +40,7 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
 
   `init` lists the files it made, and `pnpm install` its packages.
 
-- **A license key.** Outside development mode, the runtime needs one: a free non-production key covers staging and CI, and a production key comes with a commercial license. To get one, write to contact@kindgi.com. [Licensing](../../concepts/licensing/) explains the keys. `kindgi dev` needs none.
+- **A license key.** Outside development mode, the runtime needs one: a free non-production key covers staging and CI, and a production key comes with a commercial license. To get one, write to contact@kindgi.com. [Licensing](../../../concepts/licensing/) explains the keys. `kindgi dev` needs none.
 
 ## 1. Pull the runtime image
 
@@ -105,7 +105,7 @@ Whichever registry you use, two things stop the runtime from reading it:
 
 If your app's code needs a generate step in the image (Prisma's client, for
 example), set that up first:
-[What the pack's image needs](../../start/existing-app-typescript/#what-the-packs-image-needs).
+[What the pack's image needs](../../../start/existing-app-typescript/#what-the-packs-image-needs).
 
 In a Python pack, run each `pnpm exec kindgi` on this page as
 `uv run kindgi`, and lock its dependencies first (`uv lock`, or
@@ -215,7 +215,7 @@ log, `docker logs kindgi-pack`, says it's listening:
 `pack.env` holds the token and the variables your pack declares. The
 service drops any other variable before your code loads. Its log names each
 one, as `env-dropped`, never its value.
-[Declare the environment your code reads](../../guides/secrets/pack-env/#in-a-deployment)
+[Declare the environment your code reads](../../../guides/secrets/pack-env/#in-a-deployment)
 says more.
 
 ## 5. Configure and start the runtime
@@ -256,11 +256,11 @@ KINDGI_CONSOLE_TOKEN_SIGN_IN=on
 It holds the API token and the license key, so keep it to yourself:
 `chmod 600 kindgi.env`.
 
-Every setting is in the [environment variable reference](../../reference/env-vars/). These are worth knowing now:
+Every setting is in the [environment variable reference](../../../reference/env-vars/). These are worth knowing now:
 
 - **`KINDGI_DATABASE_URL`** connects to Postgres directly, or through a pooler in session mode. The runtime holds session locks on its connection while it migrates. A pooler in transaction mode, such as PgBouncer's `pool_mode = transaction`, doesn't keep them, as [PgBouncer's pooling modes](https://www.pgbouncer.org/features.html) describes.
 - **`KINDGI_ENV`** names the environment your tools' secrets resolve in.
-- **The port** is 4000 unless something sets another. The runtime takes the first that's set: `KINDGI_API_PORT`, then the platform's `PORT`, then 4000. Cloud Run, Render, Heroku and Fly set `PORT`. [`KINDGI_API_PORT`](../../reference/env-vars/#kindgi_api_port) has the whole order.
+- **The port** is 4000 unless something sets another. The runtime takes the first that's set: `KINDGI_API_PORT`, then the platform's `PORT`, then 4000. Cloud Run, Render, Heroku and Fly set `PORT`. [`KINDGI_API_PORT`](../../../reference/env-vars/#kindgi_api_port) has the whole order.
 - **`KINDGI_CONSOLE_TOKEN_SIGN_IN=on`** lets you sign in to the console by pasting the API token from this file, so you can try the console straight away. It's off by default outside `kindgi dev`, and with it off and no single sign-on, nobody can sign in to the console. In a real deployment, [turn on sign-in](../sign-in/) with your organization's identity provider instead, and remove the line. The token works for the API, the CLI and the SDKs either way.
 - **`KINDGI_LOG_FORMAT=pretty`** makes `docker logs` readable by eye. Without it, a container logs JSON, one record per line, for a log platform to index, as [Logs](../logs/) describes.
 - **`KINDGI_PACK_SERVICE_URL`** is the pack service's address only. A user and password in it stop the runtime at boot (exit code 2): `` KINDGI_PACK_SERVICE_URL must not carry a user or password ("https://svc:***@pack.example.com"): the server authenticates to the pack service with KINDGI_PACK_SERVICE_TOKEN. Remove the "user:password@" part. ``
@@ -425,7 +425,7 @@ pnpm exec kindgi deploy --env selfhost --token "$KINDGI_API_TOKEN"
     "primitives": { "tools": 3, "guardrails": 1, "agents": 1, "flows": 1 },
 ```
 
-To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
+To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
 
 The runtime checked the signature, read the pack's index from the image, and registered its tools, agents and flows.
 
@@ -475,7 +475,7 @@ A provider that needs an API key (Anthropic, OpenAI, Gemini) keeps it in the run
   - **Google Cloud KMS:** `KINDGI_SECRETS_BACKEND_KMS=gcp`, with its settings.
   - **A local key, on a single host:** `KINDGI_SECRETS_BACKEND_KMS=libsodium` and `KINDGI_SECRETS_LOCAL_KEY_ACK=single-node`, with the key in a file `KINDGI_SECRETS_LOCAL_KEY_PATH` names, or base64 in `KINDGI_SECRETS_LOCAL_KEY`. It must differ from the AAD key. The startup log then says `Secrets: Postgres, with a local key from /etc/kindgi/secrets-local.key (single-node; not a cloud KMS; KINDGI_SECRETS_LOCAL_KEY_ACK)`.
 
-Mount key files into the container like the signing key in [Rotate the public run token key](../rotate-keys/#rotate-the-public-run-token-key): mode 0600, readable by the runtime's user (uid 10001). Back both keys up apart from the database: if either is lost, every stored secret is lost. Without them the runtime doesn't start, and says which setting is missing. The settings are in the [reference](../../reference/env-vars/). A keyless endpoint, such as Ollama or vLLM, needs no secrets store. To keep the secrets in Azure Key Vault, Google Secret Manager or HashiCorp Vault instead, follow [Keep secrets in your own secret manager](../secret-manager/).
+Mount key files into the container like the signing key in [Rotate the public run token key](../rotate-keys/#rotate-the-public-run-token-key): mode 0600, readable by the runtime's user (uid 10001). Back both keys up apart from the database: if either is lost, every stored secret is lost. Without them the runtime doesn't start, and says which setting is missing. The settings are in the [reference](../../../reference/env-vars/). A keyless endpoint, such as Ollama or vLLM, needs no secrets store. To keep the secrets in Azure Key Vault, Google Secret Manager or HashiCorp Vault instead, follow [Keep secrets in your own secret manager](../secret-manager/).
 :::
 
 ## Clean up

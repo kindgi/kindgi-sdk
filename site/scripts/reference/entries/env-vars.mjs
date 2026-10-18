@@ -277,15 +277,15 @@ export const ENV_EXAMPLES = {
 
 /** "See also" for each group's variables that no guide names: page slugs. */
 export const ENV_GROUP_SEE_ALSO = {
-  core: ['deploy/self-host', 'deploy/operate'],
-  logging: ['deploy/logs'],
-  secrets: ['deploy/secret-manager', 'guides/secrets/index'],
-  gcp: ['deploy/cloud-run', 'deploy/secret-manager'],
-  aws: ['deploy/secret-manager'],
-  azure: ['deploy/azure-container-apps', 'deploy/secret-manager'],
-  vault: ['deploy/secret-manager'],
-  'local-key': ['deploy/self-host'],
-  'pack-service': ['deploy/self-host', 'concepts/architecture'],
-  'image-registry': ['deploy/self-host', 'concepts/security'],
-  dev: ['guides/secrets/dev-sandbox', 'deploy/self-host'],
+  core: ['deploy/self-hosted/self-host', 'deploy/self-hosted/operate'],
+  logging: ['deploy/self-hosted/logs'],
+  secrets: ['deploy/self-hosted/secret-manager', 'guides/secrets/index'],
+  gcp: ['deploy/self-hosted/cloud-run', 'deploy/self-hosted/secret-manager'],
+  aws: ['deploy/self-hosted/secret-manager'],
+  azure: ['deploy/self-hosted/azure-container-apps', 'deploy/self-hosted/secret-manager'],
+  vault: ['deploy/self-hosted/secret-manager'],
+  'local-key': ['deploy/self-hosted/self-host'],
+  'pack-service': ['deploy/self-hosted/self-host', 'concepts/architecture'],
+  'image-registry': ['deploy/self-hosted/self-host', 'concepts/security'],
+  dev: ['guides/secrets/dev-sandbox', 'deploy/self-hosted/self-host'],
 };
