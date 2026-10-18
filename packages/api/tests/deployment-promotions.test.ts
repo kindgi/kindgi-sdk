@@ -1101,7 +1101,7 @@ describe('making the carried agents live in the target (makeLive)', () => {
     expect(res.body.error.code).toBe('database-busy');
     // The write failed on the second agent, but the first is already live, so
     // the answer names it (its `live` shape) rather than hiding it.
-    expect(res.body.error.details.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(res.body.error.details?.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
     expect(h.pinned).toHaveLength(1);
     expect(h.pinned[0]).toMatchObject({ agentId: AGENT });
   });
