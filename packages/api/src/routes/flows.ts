@@ -9,6 +9,8 @@ import type { Cursor, FlowId, ProjectId, TenantId, UserId } from '@kindgi/types'
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import type { UnpinnableRef } from '../agent-pins.js';
+import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
+import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding, FlowVersionRecord } from '../flow-binding.js';
 import { resolveFlowPins } from '../flow-pins.js';
@@ -60,6 +62,12 @@ export function flowsRouter(
   authorizer?: Authorizer,
   pinning?: FlowPinning,
   referenceScope?: ReferenceScopeBinding,
+  /**
+   * The tenant's environment orders: a publish into a later environment is
+   * refused (`environment-entry.ts`). Absent: no project is a later
+   * environment.
+   */
+  environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -309,6 +317,16 @@ export function flowsRouter(
       );
     }
     const projectId = projectIdRaw as ProjectId;
+    const later = await laterEnvironment(environmentOrders, tenantId, projectId);
+    if (later !== undefined) {
+      return environmentTakesPromotionsResponse(
+        c,
+        requestId,
+        authorizer,
+        { kind: 'publish', noun: 'flow' },
+        later,
+      );
+    }
 
     // Validate via loadFlow — same rules as the runtime loader, so a
     // flow published through the API is byte-identical to one

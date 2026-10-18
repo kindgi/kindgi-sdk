@@ -7,6 +7,8 @@ import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
 import type { Cursor, EnvName, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types';
 
+import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
+import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
@@ -65,6 +67,12 @@ export function toolsRouter(
     readonly projects?: SecretScopeDeps['projects'];
     /** The env the runtime serves: where the secrets a tool's code declares are read. */
     readonly envName?: EnvName;
+    /**
+     * The tenant's environment orders: a publish into a later environment is
+     * refused (`environment-entry.ts`). Absent: no project is a later
+     * environment.
+     */
+    readonly environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>;
   } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
@@ -320,6 +328,16 @@ export function toolsRouter(
       );
     }
     const projectId = projectIdRaw as ProjectId;
+    const later = await laterEnvironment(options.environmentOrders, tenantId, projectId);
+    if (later !== undefined) {
+      return environmentTakesPromotionsResponse(
+        c,
+        requestId,
+        authorizer,
+        { kind: 'publish', noun: 'tool' },
+        later,
+      );
+    }
     // Strip `projectId` before validation — the tool manifest itself
     // is project-agnostic. `validateToolManifest` rejects unknown
     // top-level keys via additionalProperties: false.

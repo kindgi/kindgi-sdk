@@ -51,6 +51,7 @@ import type {
   TokenResolver,
 } from '../src/index.js';
 import { expectCompileBudgetRefused } from './support/compile-budget.js';
+import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
 import { inMemoryProposals } from './support/in-memory-proposals.js';
 
@@ -74,6 +75,8 @@ const resolveToken: TokenResolver = async (token) =>
 /** The agent registry in memory, recording each version's project. */
 function agentBinding(): AgentRegistryBinding {
   const registry = createAgentRegistry();
+  // Where a version was made, when it's not the agent's project (an environment order's first).
+  const madeIn = new Map<string, ProjectId>();
   return {
     async list() {
       return { data: [] };
@@ -85,7 +88,12 @@ function agentBinding(): AgentRegistryBinding {
     async getVersion({ agentId, version }) {
       const got = registry.get(agentId, version as unknown as string);
       if (got.kind !== 'ok') return null;
-      const record: AgentVersionRecord = { ...got.value, projectId };
+      const made = madeIn.get(version as unknown as string);
+      const record: AgentVersionRecord = {
+        ...got.value,
+        projectId,
+        ...(made !== undefined && { madeInProjectId: made }),
+      };
       return record;
     },
     async headExists() {
@@ -96,11 +104,12 @@ function agentBinding(): AgentRegistryBinding {
         data: registry.list().filter((a) => (a.id as unknown as string) === agentId),
       };
     },
-    async publish({ agent }) {
+    async publish({ agent, projectId: into }) {
       if (registry.get(agent.id, agent.version as unknown as string).kind === 'ok') {
         return { kind: 'already-registered', agentId: agent.id, version: agent.version };
       }
       registry.register(agent);
+      if (into !== projectId) madeIn.set(agent.version as unknown as string, into);
       return { kind: 'ok', agentId: agent.id, version: agent.version };
     },
     async unregister() {
@@ -457,10 +466,12 @@ async function harness(
     modelSettings?: boolean;
     referenceScope?: ReferenceScopeBinding;
     projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+    /** The tenant's environment orders; the agent's project is in them or not. */
+    orders?: readonly (readonly ProjectId[])[];
   } = {},
 ) {
   const agents = agentBinding();
-  const blocks = inMemoryBlocks([projectId]);
+  const blocks = inMemoryBlocks([projectId, ...(opts.orders ?? []).flat()], {}, opts.orders);
   await blocks.publish({
     tenantId,
     projectId,
@@ -559,6 +570,7 @@ async function harness(
     ...(opts.passes !== undefined && { improvementPasses: opts.passes }),
     ...(opts.referenceScope !== undefined && { referenceScope: opts.referenceScope }),
     ...(opts.projectSuspended !== undefined && { projectSuspended: opts.projectSuspended }),
+    ...(opts.orders !== undefined && { environmentOrders: environmentOrders(opts.orders) }),
     ...(grants !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -599,7 +611,11 @@ const DRAFT = {
 
 /** A draft, with the tenant pinned to 1.0.0 so it can be evaluated. */
 async function drafted(
-  opts: { grants?: readonly string[]; referenceScope?: ReferenceScopeBinding } = {},
+  opts: {
+    grants?: readonly string[];
+    referenceScope?: ReferenceScopeBinding;
+    orders?: readonly (readonly ProjectId[])[];
+  } = {},
 ) {
   const h = await harness(opts);
   h.releases.pin({ kind: 'tenant' }, '1.0.0');
@@ -770,6 +786,29 @@ describe('POST /v1/proposals/:id/evaluate', () => {
         comparison: expect.objectContaining({ repetitions: 3, classWeights: 'restricted-only' }),
       }),
     ]);
+  });
+
+  test("in an environment order, the candidate is made and evaluated in the order's first environment", async () => {
+    // The agent lives in prod (`projectId`), last of the order.
+    const staging1 = randomUUID() as ProjectId;
+    const staging2 = randomUUID() as ProjectId;
+    const { call, id, blocks, agents, evalRuns } = await drafted({
+      orders: [[staging1, staging2, projectId]],
+    });
+    const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
+      suiteId: 'acme.scoring-judged',
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(res.body.candidate).toMatchObject({ agentVersion: '1.0.1', blockVersion: '1.0.1' });
+    expect(blocks.rows.get(`${WEIGHTS}@1.0.1`)?.projectId).toBe(staging1);
+    const derived = await agents.getVersion({
+      tenantId,
+      agentId: AGENT as never,
+      version: '1.0.1' as Semver,
+    });
+    expect(derived?.projectId).toBe(projectId);
+    expect(derived?.madeInProjectId).toBe(staging1);
+    expect(evalRuns.started).toEqual([expect.objectContaining({ projectId: staging1 })]);
   });
 
   test("model settings that aren't are refused (400) before the block version is written", async () => {

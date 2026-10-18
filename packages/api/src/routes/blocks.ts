@@ -9,6 +9,8 @@ import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
 import type { BlockPublishOutcome, BlockRecord, BlockRegistryBinding } from '../block-binding.js';
 import { continuityIssues, withCarriedSchema } from '../block-publish.js';
+import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
+import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
@@ -31,7 +33,16 @@ import { isRegistryVersionsCursor } from './versions-cursor.js';
  * values must satisfy the latest version's schema as well as their
  * own, so whatever reads them sees a stable shape.
  */
-export function blocksRouter(binding: BlockRegistryBinding, authorizer?: Authorizer): Hono<AppEnv> {
+export function blocksRouter(
+  binding: BlockRegistryBinding,
+  authorizer?: Authorizer,
+  /**
+   * The tenant's environment orders: a publish into a later environment is
+   * refused (`environment-entry.ts`). Absent: no project is a later
+   * environment.
+   */
+  environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
   const publishCompiles = publishCompilesMiddleware();
@@ -183,6 +194,16 @@ export function blocksRouter(binding: BlockRegistryBinding, authorizer?: Authori
           },
           requestId,
         ),
+      );
+    }
+    const later = await laterEnvironment(environmentOrders, tenantId, projectId as ProjectId);
+    if (later !== undefined) {
+      return environmentTakesPromotionsResponse(
+        c,
+        requestId,
+        authorizer,
+        { kind: 'publish', noun: 'data block' },
+        later,
       );
     }
     const validated = validateBlock(definition);

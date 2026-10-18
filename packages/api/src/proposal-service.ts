@@ -21,6 +21,7 @@ import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.j
 import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
 import { type BlockEdit, blockEditDefinition, publishBlockEdit } from './block-publish.js';
 import { deriveAgentVersion } from './derive-agent-version.js';
+import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import { rescoreRefusal, rescoreStart } from './eval-rescore.js';
 import type { EvalComparison, EvalRunBinding, EvalRunStartOutcome } from './eval-run-binding.js';
 import type { GateApproval } from './gate.js';
@@ -76,6 +77,14 @@ export interface ProposalServiceDeps {
   readonly projects?: ProjectBinding;
   /** What the agent's project may reach (`reference-scope.ts`); absent → as named. */
   readonly referenceScope?: ReferenceScopeBinding;
+  /**
+   * The tenant's environment orders: a candidate (its block version and
+   * agent version) is made in the first environment of the agent's
+   * project's order, whichever environment's runs the proposal learned
+   * from, and reaches the later ones only with a promoted build. Absent:
+   * in the agent's project.
+   */
+  readonly orders?: Pick<EnvironmentOrderBinding, 'orderOf'>;
 }
 
 /** An error with the code the API answers it with (`statusFor`), and its details. */
@@ -209,7 +218,11 @@ export function createProposalService(deps: ProposalServiceDeps) {
     });
   }
 
-  /** The project the candidate version is registered in; `undefined` when it's unregistered. */
+  /**
+   * The project the candidate version runs in: the one it was made in (the
+   * first environment of its agent's order), else its agent's;
+   * `undefined` when it's unregistered.
+   */
   async function candidateProject(proposal: StoredProposal): Promise<ProjectId | undefined> {
     if (proposal.candidate === undefined) return undefined;
     const version = await deps.agents.getVersion({
@@ -217,7 +230,9 @@ export function createProposalService(deps: ProposalServiceDeps) {
       agentId: proposal.agentId,
       version: proposal.candidate.agentVersion as Semver,
     });
-    return version === null || version.unregisteredAt !== undefined ? undefined : version.projectId;
+    return version === null || version.unregisteredAt !== undefined
+      ? undefined
+      : (version.madeInProjectId ?? version.projectId);
   }
 
   /** Publish the block version and derive the agent version a proposal is evaluated as. */
@@ -267,7 +282,13 @@ export function createProposalService(deps: ProposalServiceDeps) {
         );
       }
     }
-    const published = await publishBlockEdit({ blocks: deps.blocks, tenantId, from, edit });
+    const published = await publishBlockEdit({
+      blocks: deps.blocks,
+      tenantId,
+      from,
+      edit,
+      ...(deps.orders !== undefined && { orders: deps.orders }),
+    });
     if (published.kind === 'invalid') {
       return err(
         validationFailed(
@@ -288,6 +309,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
       label: `proposal ${proposal.id as unknown as string}`,
       by: `${actor.kind}:${actor.id}`,
       proposalId: proposal.id as unknown as string,
+      ...(deps.orders !== undefined && { orders: deps.orders }),
       tuplesFor: (projectId) => (id) =>
         tuplesForCreate(
           { kind: 'agent', id: id as AgentId, tenantId, projectId },
@@ -445,17 +467,17 @@ export function createProposalService(deps: ProposalServiceDeps) {
           message: `The candidate ${agentId} ${candidate.agentVersion} is unregistered: withdraw this proposal and draft it again`,
         });
       }
-      // The suite must be the candidate's project's to reach (`reference-scope.ts`).
-      const suiteOutOfScope = await referencesOutOfScope(
-        deps.referenceScope,
-        tenantId,
-        version.projectId,
-        [{ path: '/suiteId', kind: 'suite', id: input.suiteId }],
-      );
+      // It runs where it was made (in an environment order, the first
+      // environment), and the suite must be that project's to reach
+      // (`reference-scope.ts`).
+      const runIn = version.madeInProjectId ?? version.projectId;
+      const suiteOutOfScope = await referencesOutOfScope(deps.referenceScope, tenantId, runIn, [
+        { path: '/suiteId', kind: 'suite', id: input.suiteId },
+      ]);
       if (suiteOutOfScope !== undefined) return err({ ...suiteOutOfScope });
       const started = await deps.evalRuns.start({
         tenantId,
-        projectId: version.projectId,
+        projectId: runIn,
         suiteId: input.suiteId,
         agentRef: { agentId: proposal.agentId, version: candidate.agentVersion as Semver },
         correlationId: `proposal:${proposal.id as unknown as string}`,

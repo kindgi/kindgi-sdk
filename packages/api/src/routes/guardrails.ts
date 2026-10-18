@@ -13,6 +13,8 @@ import {
 } from '@kindgi/guardrails';
 import type { Cursor, GuardrailId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
+import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
+import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { GuardrailRecord, GuardrailRegistryBinding } from '../guardrail-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -80,6 +82,12 @@ export function guardrailsRouter(
   checkConfig?: GuardrailConfigCheck,
   /** What a guardrail's project may run (`reference-scope.ts`); absent → as named. */
   referenceScope?: ReferenceScopeBinding,
+  /**
+   * The tenant's environment orders: a publish into a later environment is
+   * refused (`environment-entry.ts`). Absent: no project is a later
+   * environment.
+   */
+  environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -239,6 +247,16 @@ export function guardrailsRouter(
       );
     }
     const projectId = projectIdRaw as ProjectId;
+    const later = await laterEnvironment(environmentOrders, tenantId, projectId);
+    if (later !== undefined) {
+      return environmentTakesPromotionsResponse(
+        c,
+        requestId,
+        authorizer,
+        { kind: 'publish', noun: 'guardrail' },
+        later,
+      );
+    }
     const { projectId: _pid, ...bodyWithoutProjectId } = bodyObj;
 
     const validated = validateGuardrailSpec(bodyWithoutProjectId);
