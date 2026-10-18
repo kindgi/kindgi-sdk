@@ -328,8 +328,9 @@ The other environments aren't, so their runs count as staging.
   clear it, first.
 - **Deleting a project, or moving it into or out of an org, is refused
   (`project-in-environment-order`).** The project is in an environment
-  order. Set the order without it, or clear it, first. Renaming it, or
-  changing its slug, is never refused for that.
+  order. Set the order without it, or clear it, first. Renaming it isn't
+  refused. If you change its slug, change the `project` that names it in
+  `kindgi.config.ts` too.
 - **A project outside the order can't take the pack.** It's refused as a
   project of another pack
   ([A project for each client](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
