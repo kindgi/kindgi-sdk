@@ -343,31 +343,34 @@ export function createScalaPackBuilder(options: ScalaPackBuilderOptions): PackBu
           void (backstop?.mark() ?? Promise.resolve()).then(build).then(onBuild);
         }, options.debounceMs ?? DEFAULT_DEBOUNCE_MS);
       };
+      // A failed watch or a rescan can't say what changed: reload, to be
+      // sure the build is current.
+      const reloadAndBuild = (): void => {
+        buildChanged = true;
+        schedule();
+      };
       if (options.share ?? SHARE_WATCH_BY_DEFAULT) {
         unsubscribe = directoryWatches(options.watchEvents ?? watchEventsReal).subscribe(
           packDir,
           (rel) => {
             if (rel !== undefined && isScalaSourceChange(rel)) schedule(rel);
           },
-          // A rescan can't say what changed: reload, to be sure the build is current.
-          () => {
-            buildChanged = true;
-            schedule();
-          },
+          reloadAndBuild,
         );
       } else {
         watcher = watchFs(packDir, { recursive: true }, (_event, filename) => {
           if (filename === null || !isScalaSourceChange(filename.toString())) return;
           schedule(filename.toString());
         });
+        // As when shared. On Linux, Node's recursive watch also fails this way
+        // when a folder is removed while it's reading it, and goes on
+        // watching; an 'error' nothing listens for would end `kindgi dev`.
+        watcher.on('error', reloadAndBuild);
       }
       backstop = await startScanBackstop({
         scan,
         intervalMs: options.scanIntervalMs ?? DEFAULT_SCAN_INTERVAL_MS,
-        onChange: () => {
-          buildChanged = true;
-          schedule();
-        },
+        onChange: reloadAndBuild,
       });
     },
     // New or removed files need no entry list: sbt compiles what is there.

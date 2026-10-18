@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, type watch } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,6 +15,7 @@ import { checkPackPython, resolvePackCode, resolvePackPython } from '../src/dev/
 import { createPythonPackBuilder, isPythonSourceChange } from '../src/dev/python-builder.js';
 import type { WatchEvents } from '../src/dev/shared-watch.js';
 import { untilReported } from './fs-events.js';
+import { removedWhileRead, scriptedWatch } from './scripted-watch.js';
 
 // The Python SDK's own virtualenv in the sibling kindgi-sdk checkout (`uv sync` in sdks/python).
 const sdkPython = fileURLToPath(
@@ -159,11 +160,7 @@ describe('the Python pack builder', () => {
       onTestFinished(() => {
         vi.useRealTimers();
       });
-      let listener: ((event: string, filename: string | null) => void) | undefined;
-      const watchFs = ((_path: string, _options: unknown, onEvent: typeof listener) => {
-        listener = onEvent;
-        return { close() {} };
-      }) as unknown as typeof watch;
+      const { watchFs, watcher } = scriptedWatch();
       const builder = createPythonPackBuilder({
         packDir,
         python: [systemPython as string],
@@ -179,12 +176,12 @@ describe('the Python pack builder', () => {
       await writeFile(join(packDir, 'tools', 'a.py'), 'x = 1\n');
       await builder.watch((build) => builds.push(build));
       // One timer: the scan's interval.
-      listener?.('change', 'notes.txt');
-      listener?.('change', join('.venv', 'lib', 'x.py'));
-      listener?.('rename', null);
+      watcher.emit('change', 'change', 'notes.txt');
+      watcher.emit('change', 'change', join('.venv', 'lib', 'x.py'));
+      watcher.emit('change', 'rename', null);
       expect(vi.getTimerCount()).toBe(1);
-      listener?.('change', join('tools', 'a.py'));
-      listener?.('change', join('tools', 'a.py'));
+      watcher.emit('change', 'change', join('tools', 'a.py'));
+      watcher.emit('change', 'change', join('tools', 'a.py'));
       expect(vi.getTimerCount()).toBe(2);
       await vi.advanceTimersByTimeAsync(50);
       vi.useRealTimers();
@@ -277,7 +274,7 @@ describe('the Python pack builder', () => {
       onTestFinished(() => {
         vi.useRealTimers();
       });
-      const watchFs = (() => ({ close() {} })) as unknown as typeof watch;
+      const { watchFs } = scriptedWatch();
       let sources = 'tools/a.py:1:6';
       const builder = createPythonPackBuilder({
         packDir,
@@ -310,6 +307,47 @@ describe('the Python pack builder', () => {
     },
   );
 
+  // On Linux, Node's recursive watch reads each folder it's told of; one
+  // removed while it reads it is an 'error' on the watcher (./scripted-watch.ts).
+  test.skipIf(systemPython === undefined)(
+    'a folder removed while the watch reads it: the error builds, and the watch goes on',
+    async () => {
+      vi.useFakeTimers();
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      const { watchFs, watcher } = scriptedWatch();
+      const builder = createPythonPackBuilder({
+        packDir,
+        python: [systemPython as string],
+        env,
+        debounceMs: 50,
+        watchFs,
+        share: false,
+        scanSources: async () => 'unchanged',
+      });
+      const builds: unknown[] = [];
+      const tools = join(packDir, 'tools');
+      await mkdir(tools, { recursive: true });
+      await writeFile(join(tools, 'bad.py'), 'def f(:\n    pass\n');
+      await builder.watch((build) => builds.push(build));
+      // One timer: the scan's interval.
+      expect(vi.getTimerCount()).toBe(1);
+      await rm(tools, { recursive: true });
+      watcher.emit('error', removedWhileRead(tools));
+      expect(vi.getTimerCount()).toBe(2);
+      expect(watcher.closed).toBe(false);
+      await vi.advanceTimersByTimeAsync(50);
+      vi.useRealTimers();
+      // The build says how the sources are now: the bad file went with its folder.
+      await vi.waitFor(() => expect(builds).toEqual([{ kind: 'ok', bundleMap: {} }]), {
+        timeout: 30_000,
+      });
+      await builder.dispose();
+      expect(watcher.closed).toBe(true);
+    },
+  );
+
   // The real file system: its events reach the builder (see ./fs-events.ts).
   test.skipIf(systemPython === undefined)(
     'a .py edit on disk rebuilds',
@@ -321,18 +359,23 @@ describe('the Python pack builder', () => {
         env,
         debounceMs: 50,
       });
-      onTestFinished(() => builder.dispose());
-      const builds: unknown[] = [];
-      await mkdir(join(packDir, 'tools'), { recursive: true });
-      await builder.watch((build) => builds.push(build));
-      let round = 0;
-      await untilReported(
-        context,
-        { folder: packDir, recursive: true, name: join('tools', 'a.py') },
-        () => builds.length > 0,
-        () => writeFile(join(packDir, 'tools', 'a.py'), `x = ${round++}\n`),
-      );
-      expect(builds[0]).toEqual({ kind: 'ok', bundleMap: {} });
+      // Its watch is stopped here, before afterEach removes the pack's folder
+      // (vitest runs onTestFinished's hooks after afterEach's).
+      try {
+        const builds: unknown[] = [];
+        await mkdir(join(packDir, 'tools'), { recursive: true });
+        await builder.watch((build) => builds.push(build));
+        let round = 0;
+        await untilReported(
+          context,
+          { folder: packDir, recursive: true, name: join('tools', 'a.py') },
+          () => builds.length > 0,
+          () => writeFile(join(packDir, 'tools', 'a.py'), `x = ${round++}\n`),
+        );
+        expect(builds[0]).toEqual({ kind: 'ok', bundleMap: {} });
+      } finally {
+        await builder.dispose();
+      }
     },
   );
 });

@@ -210,6 +210,11 @@ export function createJavaPackBuilder(options: JavaPackBuilderOptions): PackBuil
           if (filename === null || !isJavaSourceChange(filename.toString())) return;
           schedule();
         });
+        // The watch failed: build, as when shared. On Linux, Node's recursive
+        // watch also says so when a folder is removed while it's reading it,
+        // and goes on watching; an 'error' nothing listens for would end
+        // `kindgi dev`.
+        watcher.on('error', schedule);
       }
       backstop = await startScanBackstop({
         scan,

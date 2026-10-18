@@ -40,6 +40,10 @@ export async function untilReported(
   const control = watch(watched.folder, { recursive: watched.recursive }, (_event, filename) => {
     if (filename === watched.name) reportedAt ??= Date.now();
   });
+  // On Linux, Node's recursive watch emits an 'error' for a folder removed
+  // while it's reading it, and goes on; unheard, it would end the test
+  // worker. The control needs only the change's name.
+  control.on('error', () => undefined);
   const giveUpAt = Date.now() + SYSTEM_REPORTS_WITHIN_MS;
   try {
     while (!reported()) {

@@ -9,7 +9,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } from 'vitest';
 
 import { runJavaIndexer } from '../src/dev/defaults.js';
 import {
@@ -27,6 +27,7 @@ import {
   sbtErrors,
   sbtServerRunning,
 } from '../src/dev/scala-builder.js';
+import { removedWhileRead, scriptedWatch } from './scripted-watch.js';
 
 let packDir: string;
 
@@ -289,6 +290,55 @@ describe('the Scala pack builder', () => {
       expect((await readFile(log, 'utf8')).trim().split('\n')).toEqual([
         'reload; compile; export Runtime/fullClasspath',
         'compile; export Runtime/fullClasspath',
+      ]);
+    },
+  );
+
+  // As the Python builder's (pack-code.test.ts): on Linux, Node's recursive
+  // watch emits an 'error' for a folder removed while it reads it.
+  test.skipIf(process.platform === 'win32')(
+    'a folder removed while the watch reads it: the error reloads and builds, and the watch goes on',
+    async () => {
+      const { code, log } = await fakes();
+      const { watchFs, watcher } = scriptedWatch();
+      const builder = createScalaPackBuilder({
+        packDir,
+        code,
+        env: async () => ({ PATH: process.env.PATH ?? '' }),
+        debounceMs: 50,
+        watchFs,
+        share: false,
+        scanSources: async () => 'unchanged',
+        serverRunning: async () => true,
+      });
+      // A running server: the first build reloads it, and a later one
+      // reloads only when something says to.
+      expect(await builder.build()).toEqual({ kind: 'ok', bundleMap: {} });
+      vi.useFakeTimers();
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      const builds: unknown[] = [];
+      const tools = join(packDir, 'src', 'main', 'scala', 'acme');
+      await mkdir(tools, { recursive: true });
+      await builder.watch((build) => builds.push(build));
+      // One timer: the scan's interval.
+      expect(vi.getTimerCount()).toBe(1);
+      await rm(join(packDir, 'src'), { recursive: true });
+      watcher.emit('error', removedWhileRead(tools));
+      expect(vi.getTimerCount()).toBe(2);
+      expect(watcher.closed).toBe(false);
+      await vi.advanceTimersByTimeAsync(50);
+      vi.useRealTimers();
+      await vi.waitFor(() => expect(builds).toEqual([{ kind: 'ok', bundleMap: {} }]), {
+        timeout: 30_000,
+      });
+      await builder.dispose();
+      expect(watcher.closed).toBe(true);
+      // The error can't say what changed: the build reloaded.
+      expect((await readFile(log, 'utf8')).trim().split('\n')).toEqual([
+        'reload; compile; export Runtime/fullClasspath',
+        'reload; compile; export Runtime/fullClasspath',
       ]);
     },
   );
