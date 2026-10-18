@@ -54,6 +54,7 @@ import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
 import { inMemoryProposals } from './support/in-memory-proposals.js';
+import { type ItemRow, itemProjects } from './support/order-items.js';
 
 const tenantId = randomUUID() as TenantId;
 const projectId = randomUUID() as ProjectId;
@@ -468,6 +469,8 @@ async function harness(
     projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
     /** The tenant's environment orders; the agent's project is in them or not. */
     orders?: readonly (readonly ProjectId[])[];
+    /** The projects that serve each item (an order carries it); absent: one each. */
+    items?: ItemRow[];
   } = {},
 ) {
   const agents = agentBinding();
@@ -571,6 +574,7 @@ async function harness(
     ...(opts.referenceScope !== undefined && { referenceScope: opts.referenceScope }),
     ...(opts.projectSuspended !== undefined && { projectSuspended: opts.projectSuspended }),
     ...(opts.orders !== undefined && { environmentOrders: environmentOrders(opts.orders) }),
+    ...(opts.items !== undefined && { itemProjects: itemProjects(opts.items) }),
     ...(grants !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -615,6 +619,7 @@ async function drafted(
     grants?: readonly string[];
     referenceScope?: ReferenceScopeBinding;
     orders?: readonly (readonly ProjectId[])[];
+    items?: ItemRow[];
   } = {},
 ) {
   const h = await harness(opts);
@@ -1223,6 +1228,16 @@ describe('authorization on the agent', () => {
     expect(res.body.error.message).toContain('publish');
     expect(h.evalRuns.started).toHaveLength(1);
   });
+
+  test('withdrawing needs publish, as drafting does', async () => {
+    const grants = [`read agent:${AGENT}`, `publish agent:${AGENT}`];
+    const h = await drafted({ grants });
+    grants.pop(); // read only, from here on
+    const res = await h.call('POST', `/v1/proposals/${h.id}/withdraw`, { reason: 'x' });
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toContain('publish');
+    expect((await h.call('GET', `/v1/proposals/${h.id}`)).body.status).toBe('draft');
+  });
 });
 
 describe('a proposal a drafter wrote (not a person)', () => {
@@ -1588,5 +1603,140 @@ describe('improvement passes', () => {
     });
     expect((await h.call('GET', `/v1/improvement-passes/${pass.id}`)).status).toBe(404);
     expect((await h.call('GET', '/v1/improvement-passes')).body.data).toEqual([]);
+  });
+});
+
+describe('an agent an order carries from its project to prod', () => {
+  const PROD = randomUUID() as ProjectId;
+  const orders = [[projectId, PROD]] as const;
+  const items = (): ItemRow[] => [
+    {
+      kind: 'agent',
+      id: AGENT,
+      projects: [projectId, PROD],
+      versions: [{ version: '1.0.0', projects: [projectId, PROD] }],
+    },
+  ];
+  /** Runs the order's first environment (where the agent's versions are made). */
+  const maker = [`read project:${projectId}`, `write project:${projectId}`];
+  const IMPROVE = { agentId: AGENT, scope: SEGMENT_WIRE, suiteId: 'acme.scoring-judged' };
+
+  async function evaluatedBy(grants: string[]) {
+    const h = await drafted({ grants, orders, items: items() });
+    const started = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
+      suiteId: 'acme.scoring-judged',
+    });
+    expect(started.status, JSON.stringify(started.body)).toBe(202);
+    await h.evalRuns.finish(started.body.evaluation.evalRunId, { delta: 0.1 });
+    return h;
+  }
+
+  test('drafting and evaluating are write where its versions are made, not publish on the agent', async () => {
+    const h = await evaluatedBy([...maker]);
+    expect((await h.call('GET', `/v1/proposals/${h.id}`)).body.status).toBe('evaluated');
+
+    const prodOnly = await harness({
+      grants: [`read project:${PROD}`, `write project:${PROD}`, `publish agent:${AGENT}`],
+      orders,
+      items: items(),
+    });
+    const res = await prodOnly.call('POST', '/v1/proposals', DRAFT);
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(res.body.error.message).toContain(
+      `changing a proposal for agent "${AGENT}" needs write on project ${projectId}`,
+    );
+  });
+
+  test('rescoring and withdrawing are write where its versions are made, not publish on the agent', async () => {
+    const grants = [...maker];
+    const h = await evaluatedBy(grants);
+    grants.splice(
+      0,
+      grants.length,
+      `read project:${PROD}`,
+      `write project:${PROD}`,
+      `publish agent:${AGENT}`,
+    );
+    for (const [verb, body] of [
+      ['rescore', {}],
+      ['withdraw', { reason: 'x' }],
+    ] as const) {
+      const res = await h.call('POST', `/v1/proposals/${h.id}/${verb}`, body);
+      expect(res.status, JSON.stringify(res.body)).toBe(403);
+      expect(res.body.error.message).toContain(
+        `changing a proposal for agent "${AGENT}" needs write on project ${projectId}`,
+      );
+    }
+    grants.splice(0, grants.length, ...maker);
+    const res = await h.call('POST', `/v1/proposals/${h.id}/withdraw`, { reason: 'x' });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.status).toBe('withdrawn');
+  });
+
+  test("requesting and rolling back are admin where the proposal's scope is, with no promote on the agent", async () => {
+    const grants = [...maker];
+    const h = await evaluatedBy(grants);
+    const refused = await h.call('POST', `/v1/proposals/${h.id}/request`, {});
+    expect(refused.status, JSON.stringify(refused.body)).toBe(403);
+    expect(refused.body.error.message).toContain('needs admin on each project it changes');
+    grants.push(`admin project:${PROD}`); // prod's admin doesn't reach a scope in the agent's project
+    expect((await h.call('POST', `/v1/proposals/${h.id}/request`, {})).status).toBe(403);
+    expect((await h.call('POST', `/v1/proposals/${h.id}/rollback`, {})).status).toBe(403);
+    grants.push(`admin project:${projectId}`);
+    const res = await h.call('POST', `/v1/proposals/${h.id}/request`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.status).toBe('promoted');
+  });
+
+  test('a prod member reads its proposals; someone in neither project gets 404', async () => {
+    const grants = [...maker];
+    const h = await drafted({ grants, orders, items: items() });
+    grants.splice(0, grants.length, `read project:${PROD}`);
+    expect((await h.call('GET', `/v1/proposals/${h.id}`)).status).toBe(200);
+    expect((await h.call('GET', `/v1/proposals?agentId=${AGENT}`)).body.data).toHaveLength(1);
+    grants.splice(0, grants.length);
+    expect((await h.call('GET', `/v1/proposals/${h.id}`)).status).toBe(404);
+    expect((await h.call('GET', `/v1/proposals?agentId=${AGENT}`)).body.data).toEqual([]);
+  });
+
+  test('an improvement pass starts and cancels with write where versions are made', async () => {
+    const passes = inMemoryPasses();
+    const grants = [`read project:${PROD}`, `write project:${PROD}`, `publish agent:${AGENT}`];
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      grants,
+      orders,
+      items: items(),
+    });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const refused = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(refused.status, JSON.stringify(refused.body)).toBe(403);
+    expect(refused.body.error.message).toContain(
+      `improving agent "${AGENT}" needs write on project ${projectId}`,
+    );
+    grants.push(...maker);
+    const started = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(started.status, JSON.stringify(started.body)).toBe(202);
+    grants.splice(0, grants.length, `read project:${PROD}`);
+    // A prod reader reads the pass (any of the agent's projects) but can't cancel it.
+    expect((await h.call('GET', `/v1/improvement-passes/${started.body.id}`)).status).toBe(200);
+    expect(
+      (await h.call('GET', '/v1/improvement-passes')).body.data.map((p: { id: string }) => p.id),
+    ).toEqual([started.body.id]);
+    const cancel = await h.call('POST', `/v1/improvement-passes/${started.body.id}/cancel`, {});
+    expect(cancel.status, JSON.stringify(cancel.body)).toBe(403);
+    grants.push(...maker);
+    expect(
+      (await h.call('POST', `/v1/improvement-passes/${started.body.id}/cancel`, {})).body.status,
+    ).toBe('cancelled');
+  });
+
+  test('an agent with one project: publish and promote on the agent, as before', async () => {
+    const one: ItemRow[] = [{ kind: 'agent', id: AGENT, projects: [projectId] }];
+    const h = await harness({ grants: [...maker, `read agent:${AGENT}`], orders, items: one });
+    const res = await h.call('POST', '/v1/proposals', DRAFT);
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toContain(`publish on agent "${AGENT}"`);
   });
 });

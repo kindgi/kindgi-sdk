@@ -304,6 +304,19 @@ const RunFlowVersionQueryParam: ParameterSpec = {
   schema: { type: 'string', minLength: 1 },
 };
 
+const ItemProjectQueryParam: ParameterSpec = {
+  name: 'projectId',
+  in: 'query',
+  required: false,
+  description:
+    "The newest active version that can run in this project, a project the caller reads; `404` when there's none, or when the caller doesn't read the project. An item with one project answers its latest version for its own project and `404` for any other; one that names no project (under `kindgi dev`, a pack's agents, flows and tools) answers it for any. With authorization off, the caller reads every project. An older runtime ignores it and answers the latest version.",
+  schema: { type: 'string', format: 'uuid' },
+};
+
+/** What a single read of an order's item answers (`GET /v1/agents/{agentId}` and its twins). */
+const NEWEST_VISIBLE_DESCRIPTION =
+  'An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.';
+
 const LiveProjectQueryParam: ParameterSpec = {
   name: 'projectId',
   in: 'query',
@@ -3047,12 +3060,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/agents/{agentId}',
     operationId: 'agents.get',
     summary: 'Fetch the latest version of an agent',
+    description: NEWEST_VISIBLE_DESCRIPTION,
     tags: ['agents'],
     security: 'bearer',
-    parameters: [AgentIdPathParam],
+    parameters: [AgentIdPathParam, ItemProjectQueryParam],
     responses: {
       '200': { description: 'Agent.', schema: ref('Agent') },
       ...CommonAuthErrors,
+      '400': ErrorResponse('`projectId` is not a project id (a UUID).'),
       '404': ErrorResponse('No agent with that id under this tenant.'),
     },
   },
@@ -3551,12 +3566,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/flows/{flowId}',
     operationId: 'flows.get',
     summary: 'Fetch the latest version of a flow',
+    description: NEWEST_VISIBLE_DESCRIPTION,
     tags: ['flows'],
     security: 'bearer',
-    parameters: [FlowIdPathParam],
+    parameters: [FlowIdPathParam, ItemProjectQueryParam],
     responses: {
       '200': { description: 'Flow.', schema: ref('Flow') },
       ...CommonAuthErrors,
+      '400': ErrorResponse('`projectId` is not a project id (a UUID).'),
       '404': ErrorResponse('No flow with that id under this tenant.'),
     },
   },
@@ -3694,14 +3711,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/tools/{toolId}',
     operationId: 'tools.get',
     summary: 'Fetch a tool manifest (latest active version)',
-    description:
-      'Returns the latest active version of the tool. When all versions are unregistered (retired), the head row still exists but has no active version — the response is 410 tool-gone with the id, distinct from 404 tool-not-found (never registered).',
+    description: `Returns the latest active version of the tool. When all versions are unregistered (retired), the head row still exists but has no active version — the response is 410 tool-gone with the id, distinct from 404 tool-not-found (never registered). ${NEWEST_VISIBLE_DESCRIPTION}`,
     tags: ['tools'],
     security: 'bearer',
-    parameters: [ToolIdPathParam],
+    parameters: [ToolIdPathParam, ItemProjectQueryParam],
     responses: {
       '200': { description: 'Tool manifest.', schema: ref('Tool') },
       ...CommonAuthErrors,
+      '400': ErrorResponse('`projectId` is not a project id (a UUID).'),
       '404': ErrorResponse('No tool with that id under this tenant.'),
       '410': ErrorResponse('Tool retired (all versions unregistered).'),
     },
@@ -5873,12 +5890,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/eval-suites/{suiteId}',
     operationId: 'evalSuites.get',
     summary: 'Fetch an eval suite (latest version)',
+    description: NEWEST_VISIBLE_DESCRIPTION,
     tags: ['eval-suites'],
     security: 'bearer',
-    parameters: [EvalSuiteIdPathParam],
+    parameters: [EvalSuiteIdPathParam, ItemProjectQueryParam],
     responses: {
       '200': { description: 'Latest eval suite version.', schema: ref('EvalSuite') },
       ...CommonAuthErrors,
+      '400': ErrorResponse('`projectId` is not a project id (a UUID).'),
       '404': ErrorResponse('No eval suite with that id under this tenant.'),
     },
   },
@@ -6062,12 +6081,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/blocks/{blockId}',
     operationId: 'blocks.get',
     summary: 'Fetch a data block (latest version)',
+    description: NEWEST_VISIBLE_DESCRIPTION,
     tags: ['blocks'],
     security: 'bearer',
-    parameters: [BlockIdPathParam],
+    parameters: [BlockIdPathParam, ItemProjectQueryParam],
     responses: {
       '200': { description: 'Latest active version.', schema: ref('Block') },
       ...CommonAuthErrors,
+      '400': ErrorResponse('`projectId` is not a project id (a UUID).'),
       '404': ErrorResponse(
         "`block-not-found`: no such block, or one in a project the caller can't read.",
       ),

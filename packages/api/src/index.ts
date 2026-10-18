@@ -1043,6 +1043,15 @@ export type {
   HasEnvironmentOrderInput,
 } from './environment-orders-binding.js';
 export type {
+  ItemProjectsBinding,
+  ItemProjectsInput,
+  ItemProjectsOfManyInput,
+  NewestVisibleOfManyInput,
+  OrderItemKind,
+  VersionProjectsInput,
+  VersionProjectsOfManyInput,
+} from './item-projects-binding.js';
+export type {
   SecretBinding,
   SecretError,
   SecretGetInput,

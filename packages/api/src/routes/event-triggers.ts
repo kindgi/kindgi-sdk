@@ -7,6 +7,7 @@ import type { Context } from 'hono';
 import type { Cursor, TenantId, TriggerId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
+import type { ItemRights } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type {
   EventTriggerRecord,
@@ -26,14 +27,17 @@ import { triggerAccess } from './trigger-access.js';
  * triggers; it does not publish events.
  *
  * With an authorizer (T243 A), the trigger's flow decides who may see or
- * change it (`trigger-access.ts`).
+ * change it, and for a flow more than one project serves, the project its
+ * runs are filed in (`trigger-access.ts`).
  */
 export function eventTriggersRouter(
   binding: TriggerRegistryBinding,
   authorizer?: Authorizer,
+  /** Rights on a flow more than one project serves (`trigger-access.ts`). */
+  itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
-  const access = triggerAccess(binding, 'event', authorizer);
+  const access = triggerAccess(binding, 'event', authorizer, itemRights);
 
   // ---------- POST / (register) ----------
   r.post('/', async (c) => {

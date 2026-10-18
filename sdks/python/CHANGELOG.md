@@ -16,6 +16,11 @@ same version, and the CLI's own changes are in
   service per deployment. Never a value. For whatever runs the pack
   services, on a `system:pack-env` key: `system_deployments.list_pack_env_changed`,
   `get_pack_env` and `record_pack_env`.
+- `kindgi`: **`agents.get`, `flows.get`, `tools.get`, `eval_suites.get` and
+  `blocks.get` take `project_id`**: for an item an environment order
+  carries, the newest version that can run in that project, which the caller
+  must read. Without it, the newest version the caller can see. An older
+  runtime ignores it and answers the latest version.
 - `kindgi`: **a webhook or schedule trigger can run as a service account.**
   `run_as_service_account_id` on `webhooks.register`,
   `webhooks.take_ownership`, `schedules.register` and

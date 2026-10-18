@@ -14,7 +14,12 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
-import { type AuthzCheckBinding, type Decision, OBJECT_ACTIONS } from '@kindgi/authz';
+import {
+  type AuthzCheckBinding,
+  CHECK_ONLY_ACTIONS,
+  type Decision,
+  OBJECT_ACTIONS,
+} from '@kindgi/authz';
 import type { ApiTokenId, ReviewerId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
@@ -269,6 +274,29 @@ describe('GET /v1/identity/me/permissions', () => {
     expect(caps.viewer?.run).toEqual(['read']);
     // A role the store said nothing about allows nothing.
     expect(caps.owner?.agent).toEqual([]);
+  });
+
+  test("a project's check-only actions (`call`, `execute`) are never reported", async () => {
+    // The runtime's store reports what the model allows; a project's
+    // check-only actions are asked of a project, never listed for a role.
+    const reporting: MyAccessBinding = {
+      read: async () => ({
+        ...ALICE_ACCESS,
+        capabilities: {
+          admin: { project: ['call', 'read', 'execute', 'write', 'admin', 'delete'] as never },
+        },
+      }),
+    };
+    const caps = (await harness(reporting)(ALICE)).body.capabilities as Record<
+      string,
+      Record<string, string[]>
+    >;
+    expect(caps.admin?.project).toEqual([...OBJECT_ACTIONS.project]);
+    for (const action of CHECK_ONLY_ACTIONS.project ?? []) {
+      expect(OBJECT_ACTIONS.project as readonly string[]).not.toContain(action);
+      expect(caps.admin?.project).not.toContain(action);
+    }
+    // The schema lists exactly OBJECT_ACTIONS (role-capabilities-shape.test.ts).
   });
 
   test('a tenant admin is one', async () => {
