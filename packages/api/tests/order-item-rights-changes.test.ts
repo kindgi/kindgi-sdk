@@ -35,7 +35,7 @@ import type {
   TokenResolver,
 } from '../src/index.js';
 import { itemRightsOf, liveChangeRefusal } from '../src/item-rights.js';
-import { createAuthorizer } from '../src/middleware/authorize.js';
+import { type Authorizer, createAuthorizer } from '../src/middleware/authorize.js';
 import type { AppEnv } from '../src/types.js';
 import { environmentOrders } from './support/environment-orders.js';
 import { type Grant, type ItemRow, grantsAuthz, itemProjects } from './support/order-items.js';
@@ -633,4 +633,33 @@ describe("liveChangeRefusal: the one check a change to what's live asks", () => 
       expect(no.bodyRead).toBe(false);
     },
   );
+
+  test('an authorizer that neither allows the change nor answers: an error, never allowed', async () => {
+    const silent: Authorizer = {
+      authorize: () => async () => undefined,
+      can: async () => false,
+      check: async () => {
+        throw new Error('unused');
+      },
+      filterByCan: async () => [],
+    };
+    let outcome: unknown;
+    const r = new Hono<AppEnv>();
+    r.post('/', async (c) => {
+      outcome = await liveChangeRefusal(c, {
+        authorizer: silent,
+        rights: undefined,
+        agentId: SOLO,
+        scope: undefined,
+      }).then(
+        (answer) => ({ answer }),
+        (e: Error) => ({ thrown: e.message }),
+      );
+      return c.json({});
+    });
+    await r.request('/', { method: 'POST' });
+    expect(outcome).toEqual({
+      thrown: 'The authorizer neither allowed the change nor refused it',
+    });
+  });
 });
