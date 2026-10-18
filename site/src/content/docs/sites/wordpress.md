@@ -22,6 +22,28 @@ This page sets it up:
 
 It also covers what the site's people can and can't do in Kindgi.
 
+## On Kindgi Cloud
+
+Site sign-in is off on Kindgi Cloud. So the plugin can't connect a site to
+a Kindgi Cloud workspace, and its **Kindgi** page doesn't sign anyone in
+there. The rest of this page is for a runtime you run, with site sign-in
+on.
+
+An agent on Kindgi Cloud can still work with a WooCommerce store, through
+the store's own API and its webhooks:
+
+- **The `woocommerce` template:** `kindgi init --template=woocommerce`
+  makes agents for a WooCommerce store, where a larger refund, a price
+  change and publishing a product each wait for a person. A WooCommerce
+  webhook starts its order review.
+- **The store's actions as an MCP server's tools,** as
+  [Give the agent the store's actions](#give-the-agent-the-stores-actions)
+  shows. On Kindgi Cloud, that's an MCP server the store serves on the
+  internet.
+
+A person approves what waits, in the console or with the CLI
+([Approve it](../../guides/approvals/ask-before-a-tool-runs/#approve-it)).
+
 ## How the site signs its people in
 
 - **The site vouches for its staff.** When Jane opens the page, the plugin
@@ -38,7 +60,7 @@ It also covers what the site's people can and can't do in Kindgi.
   person by their site and a random id the plugin keeps for them. It never
   uses their WordPress user id, login name or email for that.
 
-## Turn site sign-in on
+## Self-hosted: turn site sign-in on
 
 Site sign-in needs a runtime on Kindgi 0.1.8.1 or later, and is off by
 default. It needs two more settings in the runtime's environment:
@@ -71,7 +93,7 @@ plugin's **Kindgi → Settings** page shows the two addresses to register:
 - its approvals URL.
 
 ```sh
-kindgi sites register --project=<project-id> --name='Acme store' \
+pnpm exec kindgi sites register --project=<project-id> --name='Acme store' \
   --origin=https://acme-store.example \
   --approvals-url='https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}'
 ```
@@ -376,7 +398,7 @@ Too many sign-ins at once get 429, with `Retry-After`.
 A store's webhooks to Kindgi (to a receive URL, `/v1/hooks/…`, like the
 `woocommerce` template's order trigger) can stop. WooCommerce turns a
 webhook off after 7 refused deliveries in a row, and never resends one it
-didn't deliver. Where Kindgi limits webhook receives (Kindgi hosted does),
+didn't deliver. Where Kindgi limits webhook receives (Kindgi Cloud does),
 it answers a delivery past the limit with 429 and `Retry-After`, which
 WooCommerce counts as a refusal like any other. When
 WooCommerce has turned one off, **Kindgi → Settings** says so, with when,

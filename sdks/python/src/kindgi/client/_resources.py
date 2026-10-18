@@ -114,6 +114,23 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "systemDeployments.listPackEnvChanged": Operation(
+        "systemDeployments.listPackEnvChanged", "GET", "/v1/system/pack-env", "json", False
+    ),
+    "systemDeployments.getPackEnv": Operation(
+        "systemDeployments.getPackEnv",
+        "GET",
+        "/v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env",
+        "json",
+        False,
+    ),
+    "systemDeployments.recordPackEnv": Operation(
+        "systemDeployments.recordPackEnv",
+        "PUT",
+        "/v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env",
+        "json",
+        True,
+    ),
     "systemDeployments.recordProblem": Operation(
         "systemDeployments.recordProblem",
         "PUT",
@@ -753,8 +770,24 @@ OPERATIONS: dict[str, Operation] = {
     "deployments.get": Operation(
         "deployments.get", "GET", "/v1/deployments/{deploymentId}", "json", False
     ),
+    "deployments.packEnv": Operation(
+        "deployments.packEnv", "GET", "/v1/deployments/{deploymentId}/pack-env", "json", False
+    ),
     "deployments.syncSecrets": Operation(
         "deployments.syncSecrets", "POST", "/v1/deployments/{deploymentId}/secrets", "json", True
+    ),
+    "deployments.values.list": Operation(
+        "deployments.values.list", "GET", "/v1/deployments/{deploymentId}/values", "json", False
+    ),
+    "deployments.promote": Operation(
+        "deployments.promote", "POST", "/v1/deployments/{deploymentId}/promotions", "json", False
+    ),
+    "deployments.promoteCheck": Operation(
+        "deployments.promoteCheck",
+        "POST",
+        "/v1/deployments/{deploymentId}/promotions/check",
+        "json",
+        False,
     ),
     "compliance.evidence.list": Operation(
         "compliance.evidence.list", "GET", "/v1/compliance/evidence", "json", False
@@ -935,6 +968,21 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "tenant.config.upsert": Operation(
         "tenant.config.upsert", "PATCH", "/v1/tenant/config", "json", True
+    ),
+    "environmentOrders.list": Operation(
+        "environmentOrders.list", "GET", "/v1/environment-orders", "json", False
+    ),
+    "environmentOrders.getTenant": Operation(
+        "environmentOrders.getTenant", "GET", "/v1/environment-orders/tenant", "json", False
+    ),
+    "environmentOrders.setTenant": Operation(
+        "environmentOrders.setTenant", "PUT", "/v1/environment-orders/tenant", "json", True
+    ),
+    "environmentOrders.getOrg": Operation(
+        "environmentOrders.getOrg", "GET", "/v1/environment-orders/orgs/{orgId}", "json", False
+    ),
+    "environmentOrders.setOrg": Operation(
+        "environmentOrders.setOrg", "PUT", "/v1/environment-orders/orgs/{orgId}", "json", True
     ),
     "environments.list": Operation("environments.list", "GET", "/v1/environments", "json", False),
     "env.list": Operation("env.list", "GET", "/v1/env", "json", False),
@@ -2058,6 +2106,74 @@ class SystemDeploymentsResource:
             timeout=timeout,
         )
 
+    def list_pack_env_changed(
+        self,
+        /,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemPackEnvPage:
+        """List deployments whose pack service runs on values that changed. `GET /v1/system/pack-env`
+
+        Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision, but for one held as `pack-env-update-failed`, listed for an hour after it was first held so it's tried again, and one held for a cause the platform fixes, `pack-env-secret-unreadable` or `pack-env-secrets-unaudited`, listed every time with its `held`, as the revision doesn't move when that's fixed). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemDeployments.listPackEnvChanged"],
+            path={},
+            query={"cursor": cursor, "limit": limit},
+            headers={},
+            response=_models.SystemPackEnvPage,
+            timeout=timeout,
+        )
+
+    def get_pack_env(
+        self,
+        tenant_id: str | UUID,
+        deployment_id: str | UUID,
+        /,
+        *,
+        secrets: Literal["values"] | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemPackEnv:
+        """Read the env a deployment's pack service is to be given. `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
+
+        For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set both ways (`pack-env-ambiguous`), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.
+        """
+        return self._client._request(
+            _OPERATIONS["systemDeployments.getPackEnv"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={"secrets": secrets},
+            headers={},
+            response=_models.SystemPackEnv,
+            timeout=timeout,
+        )
+
+    def record_pack_env(
+        self,
+        tenant_id: str | UUID,
+        deployment_id: str | UUID,
+        body: _models.RecordPackEnvBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentEndpoint:
+        """Record the env revision a deployment's pack service runs. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
+
+        After giving a `ready` pack service its values: the `revision` it now runs. Or, with `held`, that this revision's values couldn't be given (a required one was removed, say), or were given and its new revision didn't start (`pack-env-update-failed`): the service keeps what it runs, and the tenant sees the code on the endpoint (`packEnvProblem`) until a later revision is given. The same code for the same revision keeps the time it was first recorded. Compare-and-set: `appliedRevision` is the one the service was found running, and another recorded since is `pack-env-conflict`. A new service's revision goes with its endpoint instead (`packEnvRevision`). Takes `system:pack-env`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemDeployments.recordPackEnv"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RecordPackEnvBody, body, fields),
+            response=_models.DeploymentEndpoint,
+            timeout=timeout,
+        )
+
     def record_problem(
         self,
         tenant_id: str | UUID,
@@ -2756,12 +2872,22 @@ class AgentsResource:
             timeout=timeout,
         )
 
-    def get(self, agent_id: str | UUID, /, *, timeout: float | None = None) -> _models.Agent:
-        """Fetch the latest version of an agent. `GET /v1/agents/{agentId}`"""
+    def get(
+        self,
+        agent_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.Agent:
+        """Fetch the latest version of an agent. `GET /v1/agents/{agentId}`
+
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        """
         return self._client._request(
             _OPERATIONS["agents.get"],
             path={"agentId": agent_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.Agent,
             timeout=timeout,
@@ -2802,7 +2928,7 @@ class AgentsResource:
     ) -> _models.Agent:
         """Derive an agent version with data-block pins swapped. `POST /v1/agents/{agentId}/versions`
 
-        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent.
+        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change.
         """
         return self._client._request(
             _OPERATIONS["agents.deriveVersion"],
@@ -3077,12 +3203,22 @@ class FlowsResource:
             timeout=timeout,
         )
 
-    def get(self, flow_id: str | UUID, /, *, timeout: float | None = None) -> _models.Flow:
-        """Fetch the latest version of a flow. `GET /v1/flows/{flowId}`"""
+    def get(
+        self,
+        flow_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.Flow:
+        """Fetch the latest version of a flow. `GET /v1/flows/{flowId}`
+
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        """
         return self._client._request(
             _OPERATIONS["flows.get"],
             path={"flowId": flow_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.Flow,
             timeout=timeout,
@@ -3229,15 +3365,22 @@ class ToolsResource:
             timeout=timeout,
         )
 
-    def get(self, tool_id: str | UUID, /, *, timeout: float | None = None) -> _models.Tool:
+    def get(
+        self,
+        tool_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.Tool:
         """Fetch a tool manifest (latest active version). `GET /v1/tools/{toolId}`
 
-        Returns the latest active version of the tool. When all versions are unregistered (retired), the head row still exists but has no active version — the response is 410 tool-gone with the id, distinct from 404 tool-not-found (never registered).
+        Returns the latest active version of the tool. When all versions are unregistered (retired), the head row still exists but has no active version — the response is 410 tool-gone with the id, distinct from 404 tool-not-found (never registered). An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
         """
         return self._client._request(
             _OPERATIONS["tools.get"],
             path={"toolId": tool_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.Tool,
             timeout=timeout,
@@ -5746,12 +5889,22 @@ class EvalSuitesResource:
             timeout=timeout,
         )
 
-    def get(self, suite_id: str | UUID, /, *, timeout: float | None = None) -> _models.EvalSuite:
-        """Fetch an eval suite (latest version). `GET /v1/eval-suites/{suiteId}`"""
+    def get(
+        self,
+        suite_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.EvalSuite:
+        """Fetch an eval suite (latest version). `GET /v1/eval-suites/{suiteId}`
+
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        """
         return self._client._request(
             _OPERATIONS["evalSuites.get"],
             path={"suiteId": suite_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.EvalSuite,
             timeout=timeout,
@@ -5986,7 +6139,7 @@ class BlocksResource:
     ) -> _models.PublishBlockResult:
         """Publish a data block version. `POST /v1/blocks`
 
-        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project (`409 block-project-mismatch`). Idempotency-Key applies.
+        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.
         """
         return self._client._request(
             _OPERATIONS["blocks.publish"],
@@ -5998,12 +6151,22 @@ class BlocksResource:
             timeout=timeout,
         )
 
-    def get(self, block_id: str | UUID, /, *, timeout: float | None = None) -> _models.Block:
-        """Fetch a data block (latest version). `GET /v1/blocks/{blockId}`"""
+    def get(
+        self,
+        block_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.Block:
+        """Fetch a data block (latest version). `GET /v1/blocks/{blockId}`
+
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        """
         return self._client._request(
             _OPERATIONS["blocks.get"],
             path={"blockId": block_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.Block,
             timeout=timeout,
@@ -6847,11 +7010,40 @@ class IdentityResource:
         )
 
 
+class DeploymentsValuesResource:
+    """`client.deployments.values` — the `deployments.values` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        deployment_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.DeploymentValueList:
+        """List the values a deployment needs in a project. `GET /v1/deployments/{deploymentId}/values`
+
+        Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), and `read` on the tenant, as every deployments route does.
+        """
+        return self._client._request(
+            _OPERATIONS["deployments.values.list"],
+            path={"deploymentId": deployment_id},
+            query={"projectId": project_id},
+            headers={},
+            response=_models.DeploymentValueList,
+            timeout=timeout,
+        )
+
+
 class DeploymentsResource:
     """`client.deployments` — the `deployments` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
+        self.values = DeploymentsValuesResource(client)
 
     def list(
         self,
@@ -6861,11 +7053,13 @@ class DeploymentsResource:
         cursor: str | None = None,
         image_ref_prefix: str | None = None,
         signer_key_id: str | UUID | None = None,
+        project_id: str | UUID | None = None,
+        pack_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.DeploymentCollectionPage:
         """List signed deployments. `GET /v1/deployments`
 
-        Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits).
+        Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.
         """
         return self._client._request(
             _OPERATIONS["deployments.list"],
@@ -6875,6 +7069,8 @@ class DeploymentsResource:
                 "cursor": cursor,
                 "imageRefPrefix": image_ref_prefix,
                 "signerKeyId": signer_key_id,
+                "projectId": project_id,
+                "packId": pack_id,
             },
             headers={},
             response=_models.DeploymentCollectionPage,
@@ -6917,6 +7113,22 @@ class DeploymentsResource:
             timeout=timeout,
         )
 
+    def pack_env(
+        self, deployment_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.PackEnvNames:
+        """Show where each name a deployment's pack declares is set. `GET /v1/deployments/{deploymentId}/pack-env`
+
+        On a server that runs a pack service per deployment and gives it the env its pack declares: each declared name, where it's set (the deployment's project, then its org, then the tenant, at the env the server serves) and why it can't be given, if it can't. Never a value. A name set only as a secret can't be given into the pack service's environment yet: a tool reads it per call (`ctx.secrets`).
+        """
+        return self._client._request(
+            _OPERATIONS["deployments.packEnv"],
+            path={"deploymentId": deployment_id},
+            query={},
+            headers={},
+            response=_models.PackEnvNames,
+            timeout=timeout,
+        )
+
     def sync_secrets(
         self,
         deployment_id: str | UUID,
@@ -6938,6 +7150,52 @@ class DeploymentsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.DeploymentSecretsSyncRequest, body, fields),
             response=_models.DeploymentSecretsSyncResponse,
+            timeout=timeout,
+        )
+
+    def promote(
+        self,
+        deployment_id: str | UUID,
+        body: _models.DeploymentPromotionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentPromotion:
+        """Promote a deployment to the next environment. `POST /v1/deployments/{deploymentId}/promotions`
+
+        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since.
+        """
+        return self._client._request(
+            _OPERATIONS["deployments.promote"],
+            path={"deploymentId": deployment_id},
+            query={},
+            headers={},
+            body=_body(_models.DeploymentPromotionBody, body, fields),
+            response=_models.DeploymentPromotion,
+            timeout=timeout,
+        )
+
+    def promote_check(
+        self,
+        deployment_id: str | UUID,
+        body: _models.DeploymentPromotionCheckBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentPromotionCheck:
+        """Check a promotion without making it. `POST /v1/deployments/{deploymentId}/promotions/check`
+
+        Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check. Needs `read` on the deployment's project and `admin` on the target.
+        """
+        return self._client._request(
+            _OPERATIONS["deployments.promoteCheck"],
+            path={"deploymentId": deployment_id},
+            query={},
+            headers={},
+            body=_body(_models.DeploymentPromotionCheckBody, body, fields),
+            response=_models.DeploymentPromotionCheck,
             timeout=timeout,
         )
 
@@ -7229,7 +7487,7 @@ class OrgsResource:
     ) -> None:
         """Delete an org (idempotent). `DELETE /v1/orgs/{orgId}`
 
-        A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.
+        A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). When the org is the parent of an environment order, nothing is deleted either: `409 org-has-environment-order` names the order (a tenant admin clears it first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.
         """
         return self._client._request(
             _OPERATIONS["orgs.delete"],
@@ -8344,7 +8602,7 @@ class TenantConfigResource:
     ) -> _models.TenantConfigCollectionPage:
         """List the tenant's config entries. `GET /v1/tenant/config`
 
-        Cursor-paginated: the env entries (in the env binding order), then the secret entries (in the secrets binding order); a page holds at most `limit` entries and `nextCursor` resumes where it ended. Optional `?kind=` narrows to one slot (env / config / secret); `?keyPrefix=` matches on entry key. **Secret values are ALWAYS redacted on this admin surface** — the dispatch path is the only reader that receives raw material.
+        Cursor-paginated: the env entries (in the env binding order), then the `config` entries when they live apart from them, then the secret entries (in the secrets binding order); a page holds at most `limit` entries and `nextCursor` resumes where it ended. Optional `?kind=` narrows to one slot (env / config / secret); `?keyPrefix=` matches on entry key. `env` and `secret` entries are the ones under the env the runtime serves (`servedEnv` in whoami), where its tools read them; `config` entries, the tenant settings, are under `default` whatever it serves. On a runtime that serves none, all of them are under `default`. **Secret values are ALWAYS redacted on this admin surface** — the dispatch path is the only reader that receives raw material.
         """
         return self._client._request(
             _OPERATIONS["tenant.config.list"],
@@ -8366,7 +8624,7 @@ class TenantConfigResource:
     ) -> _models.UpsertTenantConfigResult:
         """Upsert a tenant-config entry. `PATCH /v1/tenant/config`
 
-        Set / update an entry keyed by `(kind, key)`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.
+        Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a tenant setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.
         """
         return self._client._request(
             _OPERATIONS["tenant.config.upsert"],
@@ -8397,6 +8655,111 @@ class TenantResource:
             query={},
             headers={},
             response=_models.Tenant,
+            timeout=timeout,
+        )
+
+
+class EnvironmentOrdersResource:
+    """`client.environment_orders` — the `environmentOrders` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvironmentOrderPage:
+        """List the tenant's environment orders. `GET /v1/environment-orders`
+
+        The order a tenant runs a project through on its way to live — its environments: the tenant's own order and each org's. An order is listed when the caller can read a project in it; a project the caller can't read is named by its position alone, without its id.
+        """
+        return self._client._request(
+            _OPERATIONS["environmentOrders.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.EnvironmentOrderPage,
+            timeout=timeout,
+        )
+
+    def get_tenant(self, /, *, timeout: float | None = None) -> _models.EnvironmentOrder:
+        """Get the tenant's environment order. `GET /v1/environment-orders/tenant`
+
+        The tenant's own environment order; empty when it was never set or was cleared. A project the caller can't read is named by its position alone.
+        """
+        return self._client._request(
+            _OPERATIONS["environmentOrders.getTenant"],
+            path={},
+            query={},
+            headers={},
+            response=_models.EnvironmentOrder,
+            timeout=timeout,
+        )
+
+    def set_tenant(
+        self,
+        body: _models.EnvironmentOrderSetRequest | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.EnvironmentOrder:
+        """Set the tenant's environment order. `PUT /v1/environment-orders/tenant`
+
+        Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the tenant and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.
+        """
+        return self._client._request(
+            _OPERATIONS["environmentOrders.setTenant"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EnvironmentOrderSetRequest, body, fields),
+            response=_models.EnvironmentOrder,
+            timeout=timeout,
+        )
+
+    def get_org(
+        self, org_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.EnvironmentOrder:
+        """Get an org's environment order. `GET /v1/environment-orders/orgs/{orgId}`
+
+        An org's environment order; empty when it was never set or was cleared. A project the caller can't read is named by its position alone.
+        """
+        return self._client._request(
+            _OPERATIONS["environmentOrders.getOrg"],
+            path={"orgId": org_id},
+            query={},
+            headers={},
+            response=_models.EnvironmentOrder,
+            timeout=timeout,
+        )
+
+    def set_org(
+        self,
+        org_id: str | UUID,
+        body: _models.EnvironmentOrderSetRequest | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.EnvironmentOrder:
+        """Set an org's environment order. `PUT /v1/environment-orders/orgs/{orgId}`
+
+        Replace the org's order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live under this org and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.
+        """
+        return self._client._request(
+            _OPERATIONS["environmentOrders.setOrg"],
+            path={"orgId": org_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EnvironmentOrderSetRequest, body, fields),
+            response=_models.EnvironmentOrder,
             timeout=timeout,
         )
 
@@ -9097,7 +9460,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
 
-        Changes the flow version (which needs `execute` on the flow), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.
+        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.
         """
         return self._client._request(
             _OPERATIONS["webhooks.update"],
@@ -10337,6 +10700,74 @@ class AsyncSystemDeploymentsResource:
             timeout=timeout,
         )
 
+    async def list_pack_env_changed(
+        self,
+        /,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemPackEnvPage:
+        """List deployments whose pack service runs on values that changed. `GET /v1/system/pack-env`
+
+        Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision, but for one held as `pack-env-update-failed`, listed for an hour after it was first held so it's tried again, and one held for a cause the platform fixes, `pack-env-secret-unreadable` or `pack-env-secrets-unaudited`, listed every time with its `held`, as the revision doesn't move when that's fixed). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemDeployments.listPackEnvChanged"],
+            path={},
+            query={"cursor": cursor, "limit": limit},
+            headers={},
+            response=_models.SystemPackEnvPage,
+            timeout=timeout,
+        )
+
+    async def get_pack_env(
+        self,
+        tenant_id: str | UUID,
+        deployment_id: str | UUID,
+        /,
+        *,
+        secrets: Literal["values"] | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemPackEnv:
+        """Read the env a deployment's pack service is to be given. `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
+
+        For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set both ways (`pack-env-ambiguous`), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemDeployments.getPackEnv"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={"secrets": secrets},
+            headers={},
+            response=_models.SystemPackEnv,
+            timeout=timeout,
+        )
+
+    async def record_pack_env(
+        self,
+        tenant_id: str | UUID,
+        deployment_id: str | UUID,
+        body: _models.RecordPackEnvBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentEndpoint:
+        """Record the env revision a deployment's pack service runs. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
+
+        After giving a `ready` pack service its values: the `revision` it now runs. Or, with `held`, that this revision's values couldn't be given (a required one was removed, say), or were given and its new revision didn't start (`pack-env-update-failed`): the service keeps what it runs, and the tenant sees the code on the endpoint (`packEnvProblem`) until a later revision is given. The same code for the same revision keeps the time it was first recorded. Compare-and-set: `appliedRevision` is the one the service was found running, and another recorded since is `pack-env-conflict`. A new service's revision goes with its endpoint instead (`packEnvRevision`). Takes `system:pack-env`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemDeployments.recordPackEnv"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RecordPackEnvBody, body, fields),
+            response=_models.DeploymentEndpoint,
+            timeout=timeout,
+        )
+
     async def record_problem(
         self,
         tenant_id: str | UUID,
@@ -11041,12 +11472,22 @@ class AsyncAgentsResource:
             timeout=timeout,
         )
 
-    async def get(self, agent_id: str | UUID, /, *, timeout: float | None = None) -> _models.Agent:
-        """Fetch the latest version of an agent. `GET /v1/agents/{agentId}`"""
+    async def get(
+        self,
+        agent_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.Agent:
+        """Fetch the latest version of an agent. `GET /v1/agents/{agentId}`
+
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        """
         return await self._client._request(
             _OPERATIONS["agents.get"],
             path={"agentId": agent_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.Agent,
             timeout=timeout,
@@ -11087,7 +11528,7 @@ class AsyncAgentsResource:
     ) -> _models.Agent:
         """Derive an agent version with data-block pins swapped. `POST /v1/agents/{agentId}/versions`
 
-        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent.
+        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change.
         """
         return await self._client._request(
             _OPERATIONS["agents.deriveVersion"],
@@ -11364,12 +11805,22 @@ class AsyncFlowsResource:
             timeout=timeout,
         )
 
-    async def get(self, flow_id: str | UUID, /, *, timeout: float | None = None) -> _models.Flow:
-        """Fetch the latest version of a flow. `GET /v1/flows/{flowId}`"""
+    async def get(
+        self,
+        flow_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.Flow:
+        """Fetch the latest version of a flow. `GET /v1/flows/{flowId}`
+
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        """
         return await self._client._request(
             _OPERATIONS["flows.get"],
             path={"flowId": flow_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.Flow,
             timeout=timeout,
@@ -11516,15 +11967,22 @@ class AsyncToolsResource:
             timeout=timeout,
         )
 
-    async def get(self, tool_id: str | UUID, /, *, timeout: float | None = None) -> _models.Tool:
+    async def get(
+        self,
+        tool_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.Tool:
         """Fetch a tool manifest (latest active version). `GET /v1/tools/{toolId}`
 
-        Returns the latest active version of the tool. When all versions are unregistered (retired), the head row still exists but has no active version — the response is 410 tool-gone with the id, distinct from 404 tool-not-found (never registered).
+        Returns the latest active version of the tool. When all versions are unregistered (retired), the head row still exists but has no active version — the response is 410 tool-gone with the id, distinct from 404 tool-not-found (never registered). An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
         """
         return await self._client._request(
             _OPERATIONS["tools.get"],
             path={"toolId": tool_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.Tool,
             timeout=timeout,
@@ -14040,13 +14498,21 @@ class AsyncEvalSuitesResource:
         )
 
     async def get(
-        self, suite_id: str | UUID, /, *, timeout: float | None = None
+        self,
+        suite_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
     ) -> _models.EvalSuite:
-        """Fetch an eval suite (latest version). `GET /v1/eval-suites/{suiteId}`"""
+        """Fetch an eval suite (latest version). `GET /v1/eval-suites/{suiteId}`
+
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        """
         return await self._client._request(
             _OPERATIONS["evalSuites.get"],
             path={"suiteId": suite_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.EvalSuite,
             timeout=timeout,
@@ -14281,7 +14747,7 @@ class AsyncBlocksResource:
     ) -> _models.PublishBlockResult:
         """Publish a data block version. `POST /v1/blocks`
 
-        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project (`409 block-project-mismatch`). Idempotency-Key applies.
+        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.
         """
         return await self._client._request(
             _OPERATIONS["blocks.publish"],
@@ -14293,12 +14759,22 @@ class AsyncBlocksResource:
             timeout=timeout,
         )
 
-    async def get(self, block_id: str | UUID, /, *, timeout: float | None = None) -> _models.Block:
-        """Fetch a data block (latest version). `GET /v1/blocks/{blockId}`"""
+    async def get(
+        self,
+        block_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.Block:
+        """Fetch a data block (latest version). `GET /v1/blocks/{blockId}`
+
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        """
         return await self._client._request(
             _OPERATIONS["blocks.get"],
             path={"blockId": block_id},
-            query={},
+            query={"projectId": project_id},
             headers={},
             response=_models.Block,
             timeout=timeout,
@@ -15148,11 +15624,40 @@ class AsyncIdentityResource:
         )
 
 
+class AsyncDeploymentsValuesResource:
+    """`client.deployments.values` — the `deployments.values` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        deployment_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.DeploymentValueList:
+        """List the values a deployment needs in a project. `GET /v1/deployments/{deploymentId}/values`
+
+        Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), and `read` on the tenant, as every deployments route does.
+        """
+        return await self._client._request(
+            _OPERATIONS["deployments.values.list"],
+            path={"deploymentId": deployment_id},
+            query={"projectId": project_id},
+            headers={},
+            response=_models.DeploymentValueList,
+            timeout=timeout,
+        )
+
+
 class AsyncDeploymentsResource:
     """`client.deployments` — the `deployments` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
+        self.values = AsyncDeploymentsValuesResource(client)
 
     async def list(
         self,
@@ -15162,11 +15667,13 @@ class AsyncDeploymentsResource:
         cursor: str | None = None,
         image_ref_prefix: str | None = None,
         signer_key_id: str | UUID | None = None,
+        project_id: str | UUID | None = None,
+        pack_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.DeploymentCollectionPage:
         """List signed deployments. `GET /v1/deployments`
 
-        Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits).
+        Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.
         """
         return await self._client._request(
             _OPERATIONS["deployments.list"],
@@ -15176,6 +15683,8 @@ class AsyncDeploymentsResource:
                 "cursor": cursor,
                 "imageRefPrefix": image_ref_prefix,
                 "signerKeyId": signer_key_id,
+                "projectId": project_id,
+                "packId": pack_id,
             },
             headers={},
             response=_models.DeploymentCollectionPage,
@@ -15218,6 +15727,22 @@ class AsyncDeploymentsResource:
             timeout=timeout,
         )
 
+    async def pack_env(
+        self, deployment_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.PackEnvNames:
+        """Show where each name a deployment's pack declares is set. `GET /v1/deployments/{deploymentId}/pack-env`
+
+        On a server that runs a pack service per deployment and gives it the env its pack declares: each declared name, where it's set (the deployment's project, then its org, then the tenant, at the env the server serves) and why it can't be given, if it can't. Never a value. A name set only as a secret can't be given into the pack service's environment yet: a tool reads it per call (`ctx.secrets`).
+        """
+        return await self._client._request(
+            _OPERATIONS["deployments.packEnv"],
+            path={"deploymentId": deployment_id},
+            query={},
+            headers={},
+            response=_models.PackEnvNames,
+            timeout=timeout,
+        )
+
     async def sync_secrets(
         self,
         deployment_id: str | UUID,
@@ -15239,6 +15764,52 @@ class AsyncDeploymentsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.DeploymentSecretsSyncRequest, body, fields),
             response=_models.DeploymentSecretsSyncResponse,
+            timeout=timeout,
+        )
+
+    async def promote(
+        self,
+        deployment_id: str | UUID,
+        body: _models.DeploymentPromotionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentPromotion:
+        """Promote a deployment to the next environment. `POST /v1/deployments/{deploymentId}/promotions`
+
+        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since.
+        """
+        return await self._client._request(
+            _OPERATIONS["deployments.promote"],
+            path={"deploymentId": deployment_id},
+            query={},
+            headers={},
+            body=_body(_models.DeploymentPromotionBody, body, fields),
+            response=_models.DeploymentPromotion,
+            timeout=timeout,
+        )
+
+    async def promote_check(
+        self,
+        deployment_id: str | UUID,
+        body: _models.DeploymentPromotionCheckBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentPromotionCheck:
+        """Check a promotion without making it. `POST /v1/deployments/{deploymentId}/promotions/check`
+
+        Runs every check a promotion makes and writes nothing: what would move, the next environment, and each value with a problem in the target (where a promotion refuses with `promotion-values-not-ready`). Refused as the promotion is for every other check. Needs `read` on the deployment's project and `admin` on the target.
+        """
+        return await self._client._request(
+            _OPERATIONS["deployments.promoteCheck"],
+            path={"deploymentId": deployment_id},
+            query={},
+            headers={},
+            body=_body(_models.DeploymentPromotionCheckBody, body, fields),
+            response=_models.DeploymentPromotionCheck,
             timeout=timeout,
         )
 
@@ -15530,7 +16101,7 @@ class AsyncOrgsResource:
     ) -> None:
         """Delete an org (idempotent). `DELETE /v1/orgs/{orgId}`
 
-        A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.
+        A tombstone, not an erase: from then on the org is gone from get and list, and its slug is free for a new org. Its projects and teams stay, without an org; when one of those projects has the slug of a project that has none, nothing is deleted: `409 slug-conflict` names the slugs (rename or move those projects first). When the org is the parent of an environment order, nothing is deleted either: `409 org-has-environment-order` names the order (a tenant admin clears it first). In the Kindgi runtime, the org's own secrets and secret mappings are deleted with it, for good, and its own environments and MCP endpoints are unregistered. A retention policy on the `org` domain purges the org's row. Idempotent: deleting an unknown or already-deleted org returns 204.
         """
         return await self._client._request(
             _OPERATIONS["orgs.delete"],
@@ -16647,7 +17218,7 @@ class AsyncTenantConfigResource:
     ) -> _models.TenantConfigCollectionPage:
         """List the tenant's config entries. `GET /v1/tenant/config`
 
-        Cursor-paginated: the env entries (in the env binding order), then the secret entries (in the secrets binding order); a page holds at most `limit` entries and `nextCursor` resumes where it ended. Optional `?kind=` narrows to one slot (env / config / secret); `?keyPrefix=` matches on entry key. **Secret values are ALWAYS redacted on this admin surface** — the dispatch path is the only reader that receives raw material.
+        Cursor-paginated: the env entries (in the env binding order), then the `config` entries when they live apart from them, then the secret entries (in the secrets binding order); a page holds at most `limit` entries and `nextCursor` resumes where it ended. Optional `?kind=` narrows to one slot (env / config / secret); `?keyPrefix=` matches on entry key. `env` and `secret` entries are the ones under the env the runtime serves (`servedEnv` in whoami), where its tools read them; `config` entries, the tenant settings, are under `default` whatever it serves. On a runtime that serves none, all of them are under `default`. **Secret values are ALWAYS redacted on this admin surface** — the dispatch path is the only reader that receives raw material.
         """
         return await self._client._request(
             _OPERATIONS["tenant.config.list"],
@@ -16669,7 +17240,7 @@ class AsyncTenantConfigResource:
     ) -> _models.UpsertTenantConfigResult:
         """Upsert a tenant-config entry. `PATCH /v1/tenant/config`
 
-        Set / update an entry keyed by `(kind, key)`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.
+        Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a tenant setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.
         """
         return await self._client._request(
             _OPERATIONS["tenant.config.upsert"],
@@ -16700,6 +17271,111 @@ class AsyncTenantResource:
             query={},
             headers={},
             response=_models.Tenant,
+            timeout=timeout,
+        )
+
+
+class AsyncEnvironmentOrdersResource:
+    """`client.environment_orders` — the `environmentOrders` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvironmentOrderPage:
+        """List the tenant's environment orders. `GET /v1/environment-orders`
+
+        The order a tenant runs a project through on its way to live — its environments: the tenant's own order and each org's. An order is listed when the caller can read a project in it; a project the caller can't read is named by its position alone, without its id.
+        """
+        return await self._client._request(
+            _OPERATIONS["environmentOrders.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.EnvironmentOrderPage,
+            timeout=timeout,
+        )
+
+    async def get_tenant(self, /, *, timeout: float | None = None) -> _models.EnvironmentOrder:
+        """Get the tenant's environment order. `GET /v1/environment-orders/tenant`
+
+        The tenant's own environment order; empty when it was never set or was cleared. A project the caller can't read is named by its position alone.
+        """
+        return await self._client._request(
+            _OPERATIONS["environmentOrders.getTenant"],
+            path={},
+            query={},
+            headers={},
+            response=_models.EnvironmentOrder,
+            timeout=timeout,
+        )
+
+    async def set_tenant(
+        self,
+        body: _models.EnvironmentOrderSetRequest | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.EnvironmentOrder:
+        """Set the tenant's environment order. `PUT /v1/environment-orders/tenant`
+
+        Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the tenant and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.
+        """
+        return await self._client._request(
+            _OPERATIONS["environmentOrders.setTenant"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EnvironmentOrderSetRequest, body, fields),
+            response=_models.EnvironmentOrder,
+            timeout=timeout,
+        )
+
+    async def get_org(
+        self, org_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.EnvironmentOrder:
+        """Get an org's environment order. `GET /v1/environment-orders/orgs/{orgId}`
+
+        An org's environment order; empty when it was never set or was cleared. A project the caller can't read is named by its position alone.
+        """
+        return await self._client._request(
+            _OPERATIONS["environmentOrders.getOrg"],
+            path={"orgId": org_id},
+            query={},
+            headers={},
+            response=_models.EnvironmentOrder,
+            timeout=timeout,
+        )
+
+    async def set_org(
+        self,
+        org_id: str | UUID,
+        body: _models.EnvironmentOrderSetRequest | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.EnvironmentOrder:
+        """Set an org's environment order. `PUT /v1/environment-orders/orgs/{orgId}`
+
+        Replace the org's order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live under this org and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.
+        """
+        return await self._client._request(
+            _OPERATIONS["environmentOrders.setOrg"],
+            path={"orgId": org_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EnvironmentOrderSetRequest, body, fields),
+            response=_models.EnvironmentOrder,
             timeout=timeout,
         )
 
@@ -17400,7 +18076,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
 
-        Changes the flow version (which needs `execute` on the flow), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.
+        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.
         """
         return await self._client._request(
             _OPERATIONS["webhooks.update"],
@@ -17751,6 +18427,7 @@ class Resources:
     teams: TeamsResource
     projects: ProjectsResource
     tenant: TenantResource
+    environment_orders: EnvironmentOrdersResource
     environments: EnvironmentsResource
     env: EnvResource
     secrets: SecretsResource
@@ -17804,6 +18481,7 @@ class Resources:
         self.teams = TeamsResource(client)
         self.projects = ProjectsResource(client)
         self.tenant = TenantResource(client)
+        self.environment_orders = EnvironmentOrdersResource(client)
         self.environments = EnvironmentsResource(client)
         self.env = EnvResource(client)
         self.secrets = SecretsResource(client)
@@ -17859,6 +18537,7 @@ class AsyncResources:
     teams: AsyncTeamsResource
     projects: AsyncProjectsResource
     tenant: AsyncTenantResource
+    environment_orders: AsyncEnvironmentOrdersResource
     environments: AsyncEnvironmentsResource
     env: AsyncEnvResource
     secrets: AsyncSecretsResource
@@ -17912,6 +18591,7 @@ class AsyncResources:
         self.teams = AsyncTeamsResource(client)
         self.projects = AsyncProjectsResource(client)
         self.tenant = AsyncTenantResource(client)
+        self.environment_orders = AsyncEnvironmentOrdersResource(client)
         self.environments = AsyncEnvironmentsResource(client)
         self.env = AsyncEnvResource(client)
         self.secrets = AsyncSecretsResource(client)

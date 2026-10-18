@@ -207,9 +207,36 @@ the server's limit, and ends only with the run. `runs.followProgress`
 
 ## From the CLI
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs stream <run-id>
+pnpm exec kindgi runs stream <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs stream <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs stream <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs stream <run-id>
+```
+
+</TabItem>
+</Tabs>
 
 It prints one event per line, as JSON:
 

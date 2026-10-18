@@ -453,6 +453,9 @@ importers:
       '@kindgi/guardrails':
         specifier: workspace:*
         version: link:../guardrails
+      '@kindgi/handler-runtime':
+        specifier: workspace:*
+        version: link:../handler-runtime
       '@kindgi/log':
         specifier: workspace:*
         version: link:../log
