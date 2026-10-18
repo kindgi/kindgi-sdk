@@ -2015,6 +2015,52 @@ describe("kindgi deploy: the stored API key goes only to the address it's for", 
     expect(fixtures.state.capturedPost).toMatchObject({ endpoint: STAGING, token: STORED });
   });
 
+  test("from a `kindgi dev` folder with no endpoint named: the dev runtime, with the folder's key, and stderr's first line says how to reach the signed-in address", async () => {
+    const dev = 'http://127.0.0.1:4000';
+    await writeAutoEnvelope();
+    await signIn();
+    await folderFile({ apiUrl: dev, token: 'kgi_tk_dev' });
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, noEndpoint()),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.capturedPost).toMatchObject({ endpoint: dev, token: 'kgi_tk_dev' });
+    expect(out.stderr.split('\n')[0]).toBe(
+      `kindgi deploy goes to the kindgi dev runtime at ${dev} (${join(cwd, '.kindgirc.json')} says so). For ${OWN}, pass --hosted.`,
+    );
+  });
+
+  test('from a `kindgi dev` folder, the dev runtime named by --endpoint or the env block: no line', async () => {
+    const dev = 'http://127.0.0.1:4000';
+    await writeAutoEnvelope();
+    await signIn();
+    await folderFile({ apiUrl: dev, token: 'kgi_tk_dev' });
+    const atDev = {
+      environments: {
+        staging: {
+          endpoint: dev,
+          signingKey: join(home, 'signing-key.pem'),
+          tenantId: 'tenant-acme-staging',
+        },
+      },
+    };
+    for (const [config, flags] of [
+      [noEndpoint(), [`--endpoint=${dev}`]],
+      [atDev, []],
+    ] as const) {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures, { env: {} }, config),
+        argv: ['deploy', '--env=staging', `--path=${packDir}`, ...flags],
+      });
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(fixtures.state.capturedPost).toMatchObject({ endpoint: dev, token: 'kgi_tk_dev' });
+      expect(out.stderr).not.toContain('goes to the kindgi dev runtime');
+    }
+  });
+
   test("`kindgi dev`'s .kindgirc.json: 127.0.0.1 and localhost are one address, another port isn't", async () => {
     await writeAutoEnvelope();
     await writeFile(

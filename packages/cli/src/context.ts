@@ -64,6 +64,12 @@ export interface CommandContext {
    * (api-address.ts): before anything is sent.
    */
   readonly token: () => string;
+  /**
+   * A command that reads its key with its address (`kindgi deploy`,
+   * api-address.ts) sends it to the CLI's own address: main's line about
+   * a `kindgi dev` runtime goes first, as it does for `token()`.
+   */
+  readonly noteOwnAddressKey: () => void;
   /** fetch impl (injectable for tests). */
   readonly fetch: typeof fetch;
   /** Home directory used by `auth login` when persisting `~/.kindgi/config.json`. */
@@ -205,7 +211,7 @@ export interface BuildContextInputs {
   readonly hosted?: boolean;
   /** Why there's no API address, when `config` has none: said in place of the general line. */
   readonly noAddress?: string;
-  /** Called on each `token()` that returns a key, before it's sent: main's line ahead of it. */
+  /** Called on each `token()` that returns a key, and on `noteOwnAddressKey()`, before it's sent: main's line ahead of it. */
   readonly onToken?: () => void;
   /** The command as typed (`kindgi runs list`), for a refusal to name. Default: `kindgi`. */
   readonly commandLabel?: string;
@@ -270,6 +276,7 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     clientFor: (url, tok) => factory(url, tok),
     apiUrl,
     token,
+    noteOwnAddressKey: () => inputs.onToken?.(),
     fetch: inputs.fetchImpl ?? fetch,
     home: inputs.home,
     cwd: inputs.cwd ?? process.cwd(),

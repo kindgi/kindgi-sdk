@@ -1152,6 +1152,8 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       exitCode: 1,
     };
   }
+  // No --endpoint or env `endpoint`: the key goes to the CLI's own address.
+  if (named.every((n) => n.url === undefined || n.url === '')) ctx.noteOwnAddressKey();
 
   // --tenant — used only as a consistency check against the envelope.
   const tenantFlag = ctx.options.tenant;
