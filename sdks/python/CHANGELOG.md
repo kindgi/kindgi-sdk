@@ -105,7 +105,7 @@ same version, and the CLI's own changes are in
     know comes back as its text.
   - Every union a response carries that a tag tells apart gains a member,
     `<Union>Unrecognized` (`LiveScopeUnrecognized`, `ScopeUnrecognized`, and
-    17 more in `kindgi.client.models`), for a tag it doesn't know, with every
+    18 more in `kindgi.client.models`), for a tag it doesn't know, with every
     field kept.
   - A stream event of a kind it doesn't know comes back as the typed event,
     not a `dict`. An event that doesn't match its schema is still a `dict`.
