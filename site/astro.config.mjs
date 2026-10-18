@@ -119,8 +119,10 @@ export default defineConfig({
         // The version menu and the "not the latest" notice.
         ThemeSelect: './src/components/ThemeSelect.astro',
         Banner: './src/components/Banner.astro',
-        // "Report a problem", "Your coding agent" and `llms.txt` (every page).
+        // "Report a problem" and `llms.txt` (every page).
         EditLink: './src/components/EditLink.astro',
+        // The next/previous links: the arrow and the page's title.
+        Pagination: './src/components/Pagination.astro',
         // "See also" on the HTTP API's operation pages.
         MarkdownContent: './src/components/MarkdownContent.astro',
       },

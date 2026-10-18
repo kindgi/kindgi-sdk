@@ -67,7 +67,7 @@ kindgi key trust acme-desk
 and the pack's `prod` environment in `kindgi.config.ts`. The config that
 `kindgi init` writes has this block, commented out:
 
-```ts
+```ts excerpt
 environments: {
   prod: {
     build: 'hosted',
@@ -194,7 +194,7 @@ version says which version those runs get.
 With [environments](../../deploy/environments/), you try a new build in staging
 first, and promote it to `prod` once it's right. Without them, an agent
 stays in the project it was first deployed to. So you try a new version in
-the same project, by its version, before you make it live:
+the same project, by its version, before you make it live.
 
 1. **Deploy the new version** as before. The deploy prints its version
    number. While the agent has a live version, its runs keep getting that
