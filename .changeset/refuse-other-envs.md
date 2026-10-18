@@ -5,7 +5,7 @@
 "@kindgi/sdk": patch
 ---
 
-**A runtime that keeps its values under one env refuses a value it would never read.** Kindgi Cloud's runtime serves one env, `prod`, and reads every value under it, so a secret set under `staging` was stored and never read. A runtime can now refuse such values: `createApp({ envName, refuseOtherEnvs: true })` (`KINDGI_REFUSE_OTHER_ENVS=true` on the server, with `KINDGI_ENV`). Off by default; a runtime that leaves it off takes any env, as before.
+**A runtime that keeps its values under one env refuses a value it would never read.** A runtime that serves one env, `prod` say, reads every value under it, so a secret set under `production` was stored and never read. Such a runtime can now refuse those values: `createApp({ envName, refuseOtherEnvs: true })` (`KINDGI_REFUSE_OTHER_ENVS=true` on the server, with `KINDGI_ENV`). Off by default; a runtime that leaves it off takes any env, as before.
 - **What it refuses, with `409 env-not-served`:**
   - a secret set or rotated, or an env value put, under another env (`POST /v1/secrets`, `POST /v1/secrets/{name}/rotate`, `PUT /v1/env/{name}`), and a deployment's secret sync under another env (`POST /v1/deployments/{deploymentId}/secrets`), before anything is written;
   - a model provider, MCP endpoint or webhook endpoint created or changed with its secret named under another env.
@@ -18,4 +18,4 @@
   - `--env` defaults to the served env for `kindgi secrets`, `kindgi env` with `--scope`, `kindgi env pull` and `kindgi providers register --preset`;
   - a write under another env is refused before anything is sent, and so is `kindgi deploy --sync-secrets`, before the build;
   - elsewhere every default stays as it was.
-- **The MCP servers skill** says where a `--env=local` secret goes when the CLI is signed in to Kindgi Cloud.
+- **The MCP servers skill** says where a `--env=local` secret goes when the CLI is signed in to a hosted runtime.

@@ -59,7 +59,7 @@ const SCOPE_OPTION_SPEC = {
   env: {
     type: 'string' as const,
     description:
-      "The environment the secret belongs to. Required, unless the runtime keeps its values under one env (Kindgi Cloud): then that one, and a set or rotation under another is refused. Under `kindgi dev`, `local` is the pack's env files.",
+      "The environment the secret belongs to. Required, unless the runtime keeps its values under one env: then that one, and a set or rotation under another is refused. Under `kindgi dev`, `local` is the pack's env files.",
   },
   scope: {
     type: 'string' as const,

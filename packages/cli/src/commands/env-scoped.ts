@@ -118,7 +118,7 @@ interface ScopedTarget {
 
 /**
  * `--scope` and the `--env` it requires: on a runtime that keeps its values
- * under one env (Kindgi Cloud), that one by default, and a `set` under
+ * under one env, that one by default, and a `set` under
  * another is refused (`valueTargetFor`).
  */
 async function scopedTarget(

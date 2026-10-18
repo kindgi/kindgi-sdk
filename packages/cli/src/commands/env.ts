@@ -615,7 +615,7 @@ const pullCmd: LeafCommand = {
     env: {
       type: 'string',
       description:
-        "The environment to pull, written to its `.env.<name>` (`local`: the project's own env files). Default: `staging`, or the env the runtime keeps its values under when it keeps them under one (Kindgi Cloud).",
+        "The environment to pull, written to its `.env.<name>` (`local`: the project's own env files). Default: `staging`, or the env the runtime keeps its values under when it keeps them under one.",
     },
     path: {
       type: 'string',
@@ -640,8 +640,8 @@ const pullCmd: LeafCommand = {
     if (scopeResult.kind === 'err') {
       return { kind: 'error', stderr: scopeResult.stderr, exitCode: 2 };
     }
-    // A read: on a runtime that keeps its values under one env (Kindgi
-    // Cloud), `--env` defaults to that one rather than `staging`.
+    // A read: on a runtime that keeps its values under one env, `--env`
+    // defaults to that one rather than `staging`.
     const target = await valueTargetFor(ctx, stringFlag(ctx, 'env'), {
       write: false,
       what: 'an env value',

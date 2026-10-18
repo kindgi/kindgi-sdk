@@ -3,7 +3,7 @@
 
 /**
  * The env a value command acts under (`value-target.ts`). On a runtime that
- * keeps its values under one env (whoami's `servedEnv`, Kindgi Cloud):
+ * keeps its values under one env (whoami's `servedEnv`):
  * `--env` defaults to that one, and a write under another is refused before
  * anything is sent. Anywhere else, each command's own default, as before.
  * (`deploy --sync-secrets`: deploy.test.ts.)

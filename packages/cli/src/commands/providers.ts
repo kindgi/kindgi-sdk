@@ -143,7 +143,7 @@ const register: LeafCommand = {
     env: {
       type: 'string',
       description:
-        "With `--preset`, the environment of the key's secret: default `local` (in a pack, the key must already be in its env files), or on a runtime that keeps its values under one env (Kindgi Cloud), that one.",
+        "With `--preset`, the environment of the key's secret: default `local` (in a pack, the key must already be in its env files), or on a runtime that keeps its values under one env, that one.",
     },
   },
   run: (ctx) =>
@@ -237,7 +237,7 @@ async function presetInput(ctx: CommandContext, name: string): Promise<RegisterP
   const modelsFlag = stringFlag(ctx, 'models');
   const secret = stringFlag(ctx, 'secret');
   // The key's env: `local` (the pack's env files) by default, but on a
-  // runtime that keeps its values under one env (Kindgi Cloud), that one;
+  // runtime that keeps its values under one env, that one;
   // another is refused there.
   const target = await valueTargetFor(ctx, stringFlag(ctx, 'env'), {
     write: true,

@@ -8,8 +8,7 @@ import type { CommandContext } from './context.js';
 
 /**
  * What a runtime says it serves (whoami's `servedEnv`): the env its tools'
- * values are read under, and whether it refuses values under any other, as
- * Kindgi Cloud does.
+ * values are read under, and whether it refuses values under any other.
  */
 export interface ServedEnv {
   readonly envName: string;

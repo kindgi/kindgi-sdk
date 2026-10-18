@@ -266,7 +266,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   const envRefusal = checkPackEnv(args, line);
   if (envRefusal !== undefined) return envRefusal;
 
-  // On a runtime that keeps its values under one env (Kindgi Cloud), the
+  // On a runtime that keeps its values under one env, the
   // secret sync goes under that one or not at all: refused here, before a
   // build or an upload, as the runtime would refuse the sync after the
   // deployment.

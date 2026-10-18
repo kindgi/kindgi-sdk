@@ -1179,7 +1179,7 @@ export interface CreateAppInput {
   readonly envName?: import('@kindgi/types').EnvName;
   /**
    * This runtime is the only reader of its stores and keeps every value
-   * under the env it serves (`envName`), as Kindgi Cloud does. A secret or
+   * under the env it serves (`envName`). A secret or
    * env value set under another env, and a provider, MCP endpoint or webhook
    * endpoint that names its secret under another, answers `409
    * env-not-served` (`served-env.ts`). whoami's `servedEnv` says so, for
