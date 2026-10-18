@@ -74,6 +74,28 @@ same version, and the CLI's own changes are in
   starts is unaffected. The pack's index carries it as
   `needsApprovalWhenUnattended`; left out, nothing changes.
 
+- `kindgi`: **a response reads an enum value, or a union member, that this
+  client doesn't know yet.** A newer runtime may add one. 0.1.8 failed the
+  whole call with `invalid-response` (`system_keys.list()` with a new scope,
+  `audit.sign_ins.list()` with a new kind), as the Java client never did.
+  - Every enum a response carries is typed `Literal[...] | str`: a value it
+    doesn't know comes back as its text.
+  - Every union a response carries that a tag tells apart gains a member,
+    `<Union>Unrecognized` (`LiveScopeUnrecognized`, `ScopeUnrecognized`, and
+    17 more in `kindgi.client.models`), for a tag it doesn't know, with every
+    field kept.
+  - A stream event of a kind it doesn't know comes back as the typed event,
+    not a `dict`. An event that doesn't match its schema is still a `dict`.
+  - A request body stays closed. A value outside the known ones, or an
+    `Unrecognized` member, is refused before sending, with the error it got
+    before. So a value read from a newer runtime can't be sent back from this
+    client.
+  - A field with one fixed value stays closed, and so does
+    `webhooks.parse_event`: an endpoint gets only the event types it
+    subscribes to.
+  - Code that matches every known value (`assert_never`) now has the `str`, or
+    the `Unrecognized` member, to handle.
+
 ## 0.1.8
 
 No Python changes; the version moves with the npm packages.

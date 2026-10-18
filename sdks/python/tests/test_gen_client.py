@@ -94,8 +94,11 @@ def holder(field: str) -> dict[str, Any]:
     }
 
 
-def generate(tmp_path: Path, schemas: dict[str, Any], names: Path | None = None) -> Path:
-    """Generate from `schemas`; the generated module's path."""
+def generate(
+    tmp_path: Path, schemas: dict[str, Any], names: Path | None = None, response: str = "Flow"
+) -> Path:
+    """Generate from `schemas`, `response` the one operation's answer; the generated module's
+    path."""
     openapi = tmp_path / "openapi.json"
     openapi.write_text(
         json.dumps(
@@ -119,7 +122,7 @@ def generate(tmp_path: Path, schemas: dict[str, Any], names: Path | None = None)
                                     "description": "The flow.",
                                     "content": {
                                         "application/json": {
-                                            "schema": {"$ref": "#/components/schemas/Flow"}
+                                            "schema": {"$ref": f"#/components/schemas/{response}"}
                                         }
                                     },
                                 }
@@ -352,3 +355,75 @@ def test_a_member_put_first_in_any_numbered_union_fails_generation_naming_its_na
         generate_api(tmp_path, first_in(union))
     for name in names:
         assert re.search(rf"^  {name}: was at ", str(failed.value), re.M), name
+
+
+# `Secret` answered: its enum and its union `Scope` are a response's.
+SECRET: dict[str, Any] = {
+    **SCHEMAS,
+    "Secret": {
+        "type": "object",
+        "properties": {
+            "scope": {"$ref": "#/components/schemas/Scope"},
+            "state": {"type": "string", "enum": ["live", "retired"]},
+        },
+    },
+}
+
+
+def typed(models: Path, name: str) -> dict[str, str]:
+    """`name`'s fields by wire name, each to its annotation as `ast` writes it."""
+    rows = gen.model_fields(ast.parse(models.read_text("utf-8")))[name]
+    return {wire: ast.unparse(annotation) for wire, annotation in rows}
+
+
+def test_a_responses_enums_and_tagged_unions_are_read_open(tmp_path: Path) -> None:
+    models = generate(tmp_path, SECRET, response="Secret")
+    secret = typed(models, "Secret")
+    assert secret["state"] == "Annotated[Literal['live', 'retired'] | str, _open.OPEN] | None"
+    assert secret["scope"] == (
+        "Annotated[ScopeTenant | ScopeOrg | ScopeUnrecognized,"
+        " _open.OpenUnion('kind', ScopeUnrecognized)] | None"
+    )
+    assert typed(models, "ScopeUnrecognized") == {"kind": "str"}
+    # The members keep their tags closed: `OpenUnion` picks a member by them.
+    assert typed(models, "ScopeTenant")["kind"] == "Literal['tenant']"
+    assert typed(models, "ScopeOrg")["kind"] == "Literal['org']"
+    written = json.loads((tmp_path / "out" / "model_names.json").read_text("utf-8"))
+    assert written["ScopeUnrecognized"] == ["ScopeUnrecognized"]
+
+
+def test_what_no_response_reaches_stays_closed(tmp_path: Path) -> None:
+    models = generate(tmp_path, SECRET)
+    assert typed(models, "Secret")["state"] == "Literal['live', 'retired'] | None"
+    assert "ScopeUnrecognized" not in fields(models)
+
+
+def test_a_fallback_named_like_a_component_fails_generation(tmp_path: Path) -> None:
+    taken = {"type": "object", "properties": {"note": {"type": "string"}}}
+    with pytest.raises(
+        SystemExit, match="Scope's fallback ScopeUnrecognized collides with a component"
+    ):
+        generate(tmp_path, {**SECRET, "ScopeUnrecognized": taken}, response="Secret")
+
+
+def test_a_fallback_named_like_a_pinned_model_fails_generation(tmp_path: Path) -> None:
+    generate(tmp_path, SECRET)
+    names = tmp_path / "pinned.json"
+    pinned = json.loads((tmp_path / "out" / "model_names.json").read_text("utf-8"))
+    names.write_text(json.dumps({**pinned, "ScopeUnrecognized": ["Judged.flow"]}), "utf-8")
+    with pytest.raises(
+        SystemExit,
+        match=r"Scope's fallback ScopeUnrecognized collides with a model at Judged\.flow",
+    ):
+        generate(tmp_path, SECRET, names, response="Secret")
+
+
+def test_a_response_left_closed_fails_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(gen, "open_responses", lambda doc, ops, pinned: {})
+    with pytest.raises(SystemExit, match="closed in a response") as failed:
+        generate(tmp_path, SECRET, response="Secret")
+    lines = str(failed.value).splitlines()
+    assert "  Secret.state: an enum (flows.get)" in lines
+    assert "  Secret.scope: a union by `kind` (flows.get)" in lines

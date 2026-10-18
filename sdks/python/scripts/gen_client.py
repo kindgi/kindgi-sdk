@@ -41,6 +41,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -728,13 +729,15 @@ def member_keys(
     names: list[str],
     models: dict[str, list[tuple[str, ast.expr]]],
     components: dict[str, Any],
+    fallbacks: frozenset[str] = frozenset(),
 ) -> dict[str, str]:
     """How a field tells apart the models its type names: alone, by nothing; in a union, by
     the value of its discriminator (`[kind=ok]`), else by their properties (`{code,kind}`).
     A component sits at its own name, so only the other members' keys must differ."""
     if len(names) == 1:
         return {names[0]: ""}
-    # Each as the schema it was generated from: its properties, a `Literal` one's value.
+    # Each as the schema it was generated from: its properties, a `Literal` one's value. A
+    # union's fallback (`open_responses`) is a component with no tag value of its own.
     members = {
         name: {
             "properties": {
@@ -743,9 +746,10 @@ def member_keys(
             }
         }
         for name in names
+        if name not in fallbacks
     }
     prop = discriminator(list(members.values()))
-    keys = {}
+    keys = {name: "" for name in names if name in fallbacks}
     for name, member in members.items():
         value = member["properties"].get(prop, {}).get("const") if prop else None
         keys[name] = (
@@ -777,7 +781,9 @@ def generated_from(schema: dict[str, Any], fields: list[tuple[str, ast.expr]]) -
     return all(wire in ("=", "root") for wire, _ in fields)
 
 
-def model_locations(doc: dict[str, Any], tree: ast.Module) -> dict[str, list[str]]:
+def model_locations(
+    doc: dict[str, Any], tree: ast.Module, fallbacks: frozenset[str] = frozenset()
+) -> dict[str, list[str]]:
     """Where each model sits. A component's own model sits at its name; any other at each chain
     of fields from one, a field by its wire name and, in a union, by its member
     (`member_keys`): `JudgedComparisonResult.cases.tool`, `CompleteApprovalResult.resume[kind=ok]`.
@@ -802,7 +808,7 @@ def model_locations(doc: dict[str, Any], tree: ast.Module) -> dict[str, list[str
             )
             if not named:
                 continue
-            keys = member_keys(f"{owner}.{wire}", named, models, components)
+            keys = member_keys(f"{owner}.{wire}", named, models, components, fallbacks)
             for name in named:
                 parents.setdefault(name, []).append((owner, f"{wire}{keys[name]}"))
 
@@ -866,6 +872,329 @@ def render_model_names(locations: dict[str, list[str]]) -> str:
     return "{\n" + ",\n".join(rows) + "\n}\n"
 
 
+# ---------------------------------------------------------------------------
+# Open responses
+# ---------------------------------------------------------------------------
+#
+# A newer runtime may answer with an enum value or a union member this client
+# doesn't know: an additive change. A closed `Literal` would fail the whole
+# response. So before codegen, every enum a response reaches is marked (a
+# sentinel value, `OPEN_ENUM`), and every tagged union a response reaches
+# gains a fallback member, `<Union>Unrecognized`: an object with the tag as
+# text, its other fields kept. After it, a marked `Literal` becomes
+# `Annotated[Literal[...] | str, _open.OPEN]` and each union with a fallback
+# is wrapped in `_open.OpenUnion`, which picks a member by its tag and the
+# fallback for any other. Both stay closed in a request the client sends
+# (`kindgi.client._open`). A const, a union's tag and a union without a tag
+# stay as they are. Then `check_open` fails if a response reaches anything
+# still closed.
+
+OPEN_ENUM = "x-kindgi-open-enum"
+FALLBACK = "Unrecognized"
+
+
+def refs_in(schema: Any) -> list[str]:
+    """The components `schema` names, at any depth."""
+    if isinstance(schema, dict):
+        found = [schema["$ref"].split("/")[-1]] if isinstance(schema.get("$ref"), str) else []
+        return found + [name for value in schema.values() for name in refs_in(value)]
+    if isinstance(schema, list):
+        return [name for value in schema for name in refs_in(value)]
+    return []
+
+
+def response_components(doc: dict[str, Any], ops: list[Operation]) -> set[str]:
+    """Every component a success response reaches (a JSON answer or a stream's events)."""
+    components = doc["components"]["schemas"]
+    stack = [op.response for op in ops if op.response and op.response_kind in ("json", "sse")]
+    stack += [name for op in ops for name in op.responses.values()]
+    seen: set[str] = set()
+    while stack:
+        name = stack.pop()
+        if name in seen or name not in components:
+            continue
+        seen.add(name)
+        stack += refs_in(components[name])
+    return seen
+
+
+def nodes(schema: Any, path: tuple[Any, ...] = ()) -> Iterator[tuple[tuple[Any, ...], Any]]:
+    """Each schema inside `schema`, by its path from it; a `$ref` is another component's."""
+    if not isinstance(schema, dict) or "$ref" in schema:
+        return
+    yield path, schema
+    for key in ("allOf", "oneOf", "anyOf"):
+        for i, member in enumerate(schema.get(key) or []):
+            yield from nodes(member, (*path, key, i))
+    for prop, value in (schema.get("properties") or {}).items():
+        yield from nodes(value, (*path, "properties", prop))
+    for key in ("items", "additionalProperties"):
+        yield from nodes(schema.get(key), (*path, key))
+
+
+def null_schema(schema: Any) -> bool:
+    return isinstance(schema, dict) and schema.get("type") == "null"
+
+
+def tag_values(schema: Any) -> list[str] | None:
+    """A property's fixed values (`const`, or an `enum` of strings), if it has them."""
+    if not isinstance(schema, dict):
+        return None
+    if isinstance(schema.get("const"), str):
+        return [schema["const"]]
+    values = schema.get("enum")
+    if isinstance(values, list) and values and all(isinstance(v, str) for v in values):
+        return values
+    return None
+
+
+def union_tag(doc: dict[str, Any], members: list[Any]) -> str | None:
+    """The property each object member of a union holds to values of its own, if one does."""
+    objects = [deref(doc, m) for m in members if not null_schema(m)]
+    if len(objects) < 2 or not all(inline_object(o) for o in objects):
+        return None
+    for prop in sorted(set.intersection(*(set(o["properties"]) for o in objects))):
+        values = [tag_values(o["properties"][prop]) for o in objects]
+        flat = [v for vs in values if vs is not None for v in vs]
+        if None not in values and len(set(flat)) == len(flat):
+            return prop
+    return None
+
+
+def fallback_name(owner: str, path: tuple[Any, ...]) -> str:
+    """`<Union>Unrecognized`: the union component's name, or its owner's and its properties'."""
+    props = [path[i + 1] for i, key in enumerate(path[:-1]) if key == "properties"]
+    if not props:
+        return owner + FALLBACK
+    item = path[-1] == "items"
+    return owner + "".join(pascal(p) for p in props[:-1]) + natural_name(props[-1], item) + FALLBACK
+
+
+def open_responses(
+    doc: dict[str, Any], ops: list[Operation], pinned: dict[str, list[str]]
+) -> dict[str, str]:
+    """Mark each enum a response reaches and give each tagged union one reaches its fallback.
+    Each fallback's name, to the wire name of its union's tag."""
+    components = doc["components"]["schemas"]
+    fallbacks: dict[str, str] = {}
+    tags: set[tuple[str, tuple[Any, ...]]] = set()
+    for owner in sorted(response_components(doc, ops)):
+        for path, node in list(nodes(components[owner])):
+            key = "oneOf" if "oneOf" in node else "anyOf" if "anyOf" in node else None
+            tag = union_tag(doc, node[key]) if key else None
+            if key is None or tag is None:
+                continue
+            name = fallback_name(owner, path)
+            if name in components:
+                raise SystemExit(f"gen_client: {owner}'s fallback {name} collides with a component")
+            if name in pinned and pinned[name] != [name]:
+                raise SystemExit(
+                    f"gen_client: {owner}'s fallback {name} collides with a model at"
+                    f" {', '.join(pinned[name])} ({MODEL_NAMES.relative_to(ROOT)})"
+                )
+            for i, member in enumerate(node[key]):
+                if "$ref" in member:
+                    tags.add((member["$ref"].split("/")[-1], ("properties", tag)))
+                elif not null_schema(member):
+                    tags.add((owner, (*path, key, i, "properties", tag)))
+            components[name] = {
+                "type": "object",
+                "description": (
+                    f"A `{tag}` this client doesn't know yet, from a newer runtime: the object"
+                    " as it came, every field kept."
+                ),
+                "properties": {
+                    tag: {"type": "string", "description": f"The `{tag}` it came with."}
+                },
+                "required": [tag],
+                "additionalProperties": True,
+            }
+            ref = {"$ref": f"#/components/schemas/{name}"}
+            members = node[key]
+            node[key] = [*(m for m in members if not null_schema(m)), ref]
+            node[key] += [m for m in members if null_schema(m)]
+            # `OpenUnion` picks the member by its tag; codegen's discriminator would
+            # refuse a member whose tag is text.
+            node.pop("discriminator", None)
+            fallbacks[name] = tag
+    for owner in sorted(response_components(doc, ops)):
+        for path, node in nodes(components[owner]):
+            values = node.get("enum")
+            if (owner, path) in tags or not isinstance(values, list) or OPEN_ENUM in values:
+                continue
+            if len([v for v in values if isinstance(v, str)]) >= 2:
+                node["enum"] = [*(v for v in values if v is not None), OPEN_ENUM]
+                node["enum"] += [v for v in values if v is None]
+    return fallbacks
+
+
+def literal_strings(node: ast.expr) -> list[str] | None:
+    """The strings a `Literal[...]` expression allows, if it's one."""
+    if not (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "Literal"
+    ):
+        return None
+    elts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+    return [e.value for e in elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+
+
+def union_members(node: ast.expr) -> list[ast.expr]:
+    """The members of an `a | b | c` chain, in order."""
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return union_members(node.left) + union_members(node.right)
+    return [node]
+
+
+def open_models(text: str, fallbacks: dict[str, str]) -> str:
+    """Codegen's module, each marked `Literal` and each union with a fallback made open."""
+    tree = ast.parse(text)
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    edits: list[tuple[ast.expr, str]] = []
+    for node in ast.walk(tree):
+        values = literal_strings(node) if isinstance(node, ast.expr) else None
+        if values is not None and OPEN_ENUM in values:
+            known = ", ".join(json.dumps(v) for v in values if v != OPEN_ENUM)
+            edits.append((node, f"Annotated[Literal[{known}] | str, _open.OPEN]"))
+            continue
+        parent = parents.get(node)
+        if not isinstance(node, ast.BinOp) or (
+            isinstance(parent, ast.BinOp) and isinstance(parent.op, ast.BitOr)
+        ):
+            continue
+        members = union_members(node)
+        named = [m.id for m in members if isinstance(m, ast.Name) and m.id in fallbacks]
+        if not named:
+            continue
+        [fallback] = named
+        objects = [m for m in members if not (isinstance(m, ast.Constant) and m.value is None)]
+        union = " | ".join(ast.unparse(m) for m in objects)
+        mark = f"_open.OpenUnion({json.dumps(fallbacks[fallback])}, {fallback})"
+        opened = f"Annotated[{union}, {mark}]"
+        edits.append((node, opened + (" | None" if len(objects) < len(members) else "")))
+    # By byte offset (`ast` counts columns in UTF-8 bytes), from the end, so earlier
+    # offsets still hold.
+    raw = text.encode("utf-8")
+    starts = [0]
+    for line in raw.splitlines(keepends=True):
+        starts.append(starts[-1] + len(line))
+    spans = sorted(
+        (
+            (starts[n.lineno - 1] + n.col_offset, starts[n.end_lineno - 1] + n.end_col_offset, new)
+            for n, new in edits
+            if n.end_lineno is not None and n.end_col_offset is not None
+        ),
+        reverse=True,
+    )
+    for (_, end, _), (later, _, _) in zip(spans[1:], spans, strict=False):
+        if end > later:
+            raise SystemExit("gen_client: two open edits overlap")
+    for start, end, new in spans:
+        raw = raw[:start] + new.encode("utf-8") + raw[end:]
+    out = raw.decode("utf-8")
+    if edits:
+        pydantic = "\nfrom pydantic import "
+        out = out.replace(pydantic, "\nfrom . import _open" + pydantic, 1)
+    return out
+
+
+def annotated_parts(node: ast.AST) -> tuple[ast.expr, list[ast.expr]] | None:
+    """`Annotated[inner, *metadata]`: its inner type and its metadata."""
+    if not (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "Annotated"
+        and isinstance(node.slice, ast.Tuple)
+    ):
+        return None
+    inner, *metadata = node.slice.elts
+    return inner, metadata
+
+
+def open_mark(metadata: list[ast.expr]) -> str | None:
+    """`OPEN` for `_open.OPEN`; an `_open.OpenUnion(tag, …)`'s tag; else None."""
+    for mark in metadata:
+        if ast.unparse(mark) == "_open.OPEN":
+            return "OPEN"
+        if isinstance(mark, ast.Call) and ast.unparse(mark.func) == "_open.OpenUnion":
+            tag = mark.args[0]
+            assert isinstance(tag, ast.Constant) and isinstance(tag.value, str)
+            return tag.value
+    return None
+
+
+def check_open(tree: ast.Module, ops: list[Operation]) -> None:
+    """Fail when a response reaches a closed enum (a `Literal` of two or more values, not made
+    open) or a union told apart by a tag without its fallback: a newer runtime's value would
+    fail it."""
+    models = model_fields(tree)
+    reached: dict[str, str] = {}
+    for op in ops:
+        stack = [op.response] if op.response and op.response_kind in ("json", "sse") else []
+        stack += list(op.responses.values())
+        while stack:
+            name = stack.pop()
+            if name in reached or name not in models:
+                continue
+            reached[name] = op.id
+            for _, annotation in models[name]:
+                stack += [n.id for n in ast.walk(annotation) if isinstance(n, ast.Name)]
+
+    def unwrapped(annotation: ast.expr) -> ast.expr:
+        parts = annotated_parts(annotation)
+        return parts[0] if parts else annotation
+
+    def tag_of(name: str, wire: str) -> list[str] | None:
+        found = [a for w, a in models.get(name, []) if w == wire]
+        return literal_strings(unwrapped(found[0])) if found else None
+
+    # The members of each open union keep their tags closed: `OpenUnion` routes on them.
+    routed: set[tuple[str, str]] = set()
+    for node in ast.walk(tree):
+        parts = annotated_parts(node)
+        tag = open_mark(parts[1]) if parts else None
+        if parts and tag not in (None, "OPEN"):
+            routed |= {(m.id, tag) for m in union_members(parts[0]) if isinstance(m, ast.Name)}
+
+    closed: list[str] = []
+    for owner, op_id in sorted(reached.items()):
+        for wire, annotation in models[owner]:
+            opened: set[ast.AST] = set()
+            for node in ast.walk(annotation):
+                parts = annotated_parts(node)
+                if parts and open_mark(parts[1]) is not None:
+                    opened |= set(ast.walk(parts[0]))
+            for node in ast.walk(annotation):
+                values = literal_strings(node) if isinstance(node, ast.expr) else None
+                if (
+                    values
+                    and len(values) >= 2
+                    and node not in opened
+                    and (owner, wire) not in routed
+                ):
+                    closed.append(f"{owner}.{wire}: an enum ({op_id})")
+                if not isinstance(node, ast.BinOp) or node in opened:
+                    continue
+                names = [m.id for m in union_members(node) if isinstance(m, ast.Name)]
+                names = [n for n in names if n in models]
+                if len(names) < 2:
+                    continue
+                shared = set.intersection(*({w for w, _ in models[n]} for n in names))
+                for prop in sorted(shared):
+                    values = [tag_of(n, prop) for n in names]
+                    flat = [v for vs in values if vs for v in vs]
+                    if all(values) and len(set(flat)) == len(flat):
+                        closed.append(f"{owner}.{wire}: a union by `{prop}` ({op_id})")
+                        break
+    if closed:
+        raise SystemExit(
+            "gen_client: closed in a response, so a newer runtime's value would fail to parse:\n"
+            + "\n".join(f"  {c}" for c in sorted(set(closed)))
+            + "\nOpen it in open_responses."
+        )
+
+
 def generate_into(openapi: Path, out_dir: Path, names: Path = MODEL_NAMES) -> dict[Path, Path]:
     """Generate into `out_dir`; each written file by the committed file it stands for."""
     source = json.loads(openapi.read_text("utf-8"))
@@ -877,11 +1206,16 @@ def generate_into(openapi: Path, out_dir: Path, names: Path = MODEL_NAMES) -> di
         seen.add(op.id)
     name_variants(doc)
     name_owned(doc)
+    pinned = json.loads(names.read_text("utf-8")) if names.is_file() else {}
+    fallbacks = open_responses(doc, ops, pinned)
     out_dir.mkdir(parents=True, exist_ok=True)
     models = out_dir / MODELS
     render_models(doc, models)
-    locations = model_locations(doc, ast.parse(models.read_text("utf-8")))
-    check_model_names(locations, json.loads(names.read_text("utf-8")) if names.is_file() else {})
+    models.write_text(open_models(models.read_text("utf-8"), fallbacks), "utf-8")
+    module = ast.parse(models.read_text("utf-8"))
+    check_open(module, ops)
+    locations = model_locations(doc, module, frozenset(fallbacks))
+    check_model_names(locations, pinned)
     pins = out_dir / names.name
     pins.write_text(render_model_names(locations), "utf-8")
     resources = out_dir / RESOURCES
