@@ -596,6 +596,43 @@ describe('packEnvValues with secret values', () => {
     expect(JSON.stringify(read.check)).not.toContain('given-value');
   });
 
+  test("a deployment that names no project: each secret's row is the Default project's, the one its names were read for", async () => {
+    const s = stores();
+    s.setSecret(projectScope(defaultProject), 'ACME_API_KEY', false, 'sk-default-given-value');
+    s.setSecret(tenantScope, 'SHOP_TOKEN', false, 'sk-shop-given-value');
+    const a = audit();
+    const { projectId: _named, ...tenantWide } = asked(
+      a.binding,
+      declaration(['ACME_API_KEY'], ['SHOP_TOKEN']),
+    );
+    const read = await served(s.deps, tenantWide);
+    expect(Object.keys(read.secrets ?? {})).toEqual(['ACME_API_KEY', 'SHOP_TOKEN']);
+    expect(s.resolved.map((r) => [r.name, scopeKey(r.scope)])).toEqual([
+      ['ACME_API_KEY', `project:${defaultProject}`],
+      ['SHOP_TOKEN', 'tenant'],
+    ]);
+    // The tenant's one too: the row is the project the read was for.
+    expect(a.secretRows()).toMatchObject([
+      { projectId: defaultProject, payload: { doc: { name: 'ACME_API_KEY' } } },
+      { projectId: defaultProject, payload: { doc: { name: 'SHOP_TOKEN' } } },
+    ]);
+  });
+
+  test('a tenant with no Default project: its secret rows name no project', async () => {
+    const s = stores();
+    s.setSecret(tenantScope, 'ACME_API_KEY', false, 'sk-acme-given-value');
+    const deps: PackEnvDeps = {
+      ...s.deps,
+      projects: { get: async () => undefined, getDefault: async () => undefined },
+    };
+    const a = audit();
+    const { projectId: _named, ...tenantWide } = asked(a.binding, declaration(['ACME_API_KEY']));
+    const read = await served(deps, tenantWide);
+    expect(read.secrets?.ACME_API_KEY?.value).toBe('sk-acme-given-value');
+    expect(a.secretRows()).toHaveLength(1);
+    expect(a.secretRows()[0]).not.toHaveProperty('projectId');
+  });
+
   test('none is read without the ask: such a name is secret-not-yet', async () => {
     const s = stores();
     s.setSecret(projectScope(staging), 'ACME_API_KEY');

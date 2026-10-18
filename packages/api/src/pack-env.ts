@@ -282,7 +282,7 @@ async function valuesWithSecrets(
 ): Promise<PackEnvValues | { readonly kind: 'changed' }> {
   const read = await readPackEnv(deps, { ...input, secretOnly: 'set' });
   if (read.check.problem !== undefined) return { kind: 'ok', check: read.check };
-  const given = await readSecrets(deps, read.secrets, input, ask);
+  const given = await readSecrets(deps, read, input, ask);
   if (given.kind === 'store') return { kind: 'unavailable', cause: 'store' };
   if (given.kind === 'changed') return given;
   if (given.kind === 'unreadable') {
@@ -349,7 +349,10 @@ type ReadFault =
  */
 async function readSecrets(
   deps: PackEnvDeps,
-  found: ReadonlyMap<string, SecretRecord>,
+  found: {
+    readonly secrets: ReadonlyMap<string, SecretRecord>;
+    readonly projectId?: ProjectId;
+  },
   input: PackEnvValuesInput,
   ask: PackEnvSecretsAsk,
 ): Promise<SecretsRead> {
@@ -357,7 +360,7 @@ async function readSecrets(
   const rows: AuditEvent[] = [];
   const unreadable = new Set<string>();
   let changed = false;
-  for (const [name, record] of found) {
+  for (const [name, record] of found.secrets) {
     const read = await readSecret(deps, name, record, input);
     if (read.kind === 'store') return read;
     if (read.kind === 'changed') changed = true;
@@ -365,7 +368,7 @@ async function readSecrets(
     else {
       const revision = secretRevision(name, record);
       secrets[name] = { value: read.value, revision };
-      rows.push(secretRow(name, record, read.versionId, revision, input, ask));
+      rows.push(secretRow(name, record, read.versionId, revision, input, ask, found.projectId));
     }
   }
   if (changed) return { kind: 'changed' };
@@ -446,7 +449,8 @@ function faultOf(code: SecretError['code']): ReadFault {
 /**
  * A secret given out's row: where it was read, at which version and
  * revision, for which deployment, and who asked (the request and the
- * system key), never its value.
+ * system key), never its value. It belongs to the project it was read for
+ * (`servedProject`): a deployment that names none is the Default's.
  */
 function secretRow(
   name: string,
@@ -455,6 +459,7 @@ function secretRow(
   revision: string,
   input: PackEnvValuesInput,
   ask: PackEnvSecretsAsk,
+  projectId: ProjectId | undefined,
 ): AuditEvent {
   return resolveEvent({
     kind: 'secret',
@@ -468,7 +473,7 @@ function secretRow(
     correlationId: ask.requestId,
     systemKeyId: ask.systemKeyId,
     tenantId: input.tenantId,
-    ...(input.projectId !== undefined && { projectId: input.projectId }),
+    ...(projectId !== undefined && { projectId }),
   });
 }
 
@@ -505,15 +510,28 @@ function withUnreadable(check: PackEnvCheck, unreadable: ReadonlySet<string>): P
   };
 }
 
+/**
+ * The project a deployment's names are read for: the one it names, else
+ * the tenant's Default. Absent only when the tenant has no Default.
+ */
+async function servedProject(
+  deps: PackEnvDeps,
+  input: PackEnvCheckInput,
+): Promise<ProjectId | undefined> {
+  return input.projectId ?? (await deps.projects?.getDefault(input.tenantId))?.id ?? undefined;
+}
+
 /** The scopes a deployment's names are looked for at, narrowest first. */
-async function chainFor(deps: PackEnvDeps, input: PackEnvCheckInput): Promise<readonly Scope[]> {
-  const tenant: Scope = { kind: 'tenant', tenantId: input.tenantId };
-  const projectId =
-    input.projectId ?? (await deps.projects?.getDefault(input.tenantId))?.id ?? undefined;
+async function chainFor(
+  deps: PackEnvDeps,
+  tenantId: TenantId,
+  projectId: ProjectId | undefined,
+): Promise<readonly Scope[]> {
+  const tenant: Scope = { kind: 'tenant', tenantId };
   if (projectId === undefined) return [tenant];
-  const project = await deps.projects?.get(input.tenantId, projectId);
+  const project = await deps.projects?.get(tenantId, projectId);
   const orgId: OrgId | undefined = project?.orgId;
-  return secretScopeChain({ kind: 'project', tenantId: input.tenantId, projectId }, orgId);
+  return secretScopeChain({ kind: 'project', tenantId, projectId }, orgId);
 }
 
 async function readPackEnv(
@@ -524,8 +542,11 @@ async function readPackEnv(
   readonly plain: ReadonlyMap<string, EnvRecord>;
   /** With `secretOnly: 'set'`, each name set only as a secret. */
   readonly secrets: ReadonlyMap<string, SecretRecord>;
+  /** The project the names were read for (`servedProject`). */
+  readonly projectId?: ProjectId;
 }> {
-  const chain = await chainFor(deps, input);
+  const projectId = await servedProject(deps, input);
+  const chain = await chainFor(deps, input.tenantId, projectId);
   const names: PackEnvNameStatus[] = [];
   const plain = new Map<string, EnvRecord>();
   const secrets = new Map<string, SecretRecord>();
@@ -556,6 +577,7 @@ async function readPackEnv(
     check: { revision, names, ...(problem !== undefined && { problem }) },
     plain,
     secrets,
+    ...(projectId !== undefined && { projectId }),
   };
 }
 
