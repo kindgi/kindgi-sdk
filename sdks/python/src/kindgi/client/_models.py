@@ -1312,9 +1312,17 @@ class RecordPackEnvBody(BaseModel):
     """
     The `revision` from `GET …/pack-env`. Without `held`: the service now runs its values. With `held`: they weren't given, and the service keeps what it runs.
     """
-    held: Literal["pack-env-ambiguous", "pack-env-secret-not-yet", "pack-env-missing"] | None = None
+    held: (
+        Literal[
+            "pack-env-ambiguous",
+            "pack-env-secret-not-yet",
+            "pack-env-missing",
+            "pack-env-update-failed",
+        ]
+        | None
+    ) = None
     """
-    Why a deployment's pack service can't be given its declared environment, the first in this order: `pack-env-ambiguous` (a name is set both as a secret and as a plain value), `pack-env-secret-not-yet` (a name is set only as a secret), `pack-env-missing` (a required name is set nowhere). A later runtime may add codes, so treat an unknown one as a reason not yet named.
+    Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it, or `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. A later runtime may add codes, so treat an unknown one as a reason not yet named.
     """
     applied_revision: Annotated[
         str | None, Field(alias="appliedRevision", max_length=128, min_length=1)
@@ -8544,16 +8552,21 @@ class DeploymentEndpointProblem(BaseModel):
 
 class PackEnvProblem(BaseModel):
     """
-    `ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say). Gone once they can. `GET /v1/deployments/{deploymentId}/pack-env` names the names. Absent from older servers.
+    `ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say), or didn't start (`pack-env-update-failed`). Gone once they can, or do. `GET /v1/deployments/{deploymentId}/pack-env` names the names. Absent from older servers.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    code: Literal["pack-env-ambiguous", "pack-env-secret-not-yet", "pack-env-missing"]
+    code: Literal[
+        "pack-env-ambiguous",
+        "pack-env-secret-not-yet",
+        "pack-env-missing",
+        "pack-env-update-failed",
+    ]
     """
-    Why a deployment's pack service can't be given its declared environment, the first in this order: `pack-env-ambiguous` (a name is set both as a secret and as a plain value), `pack-env-secret-not-yet` (a name is set only as a secret), `pack-env-missing` (a required name is set nowhere). A later runtime may add codes, so treat an unknown one as a reason not yet named.
+    Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it, or `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. A later runtime may add codes, so treat an unknown one as a reason not yet named.
     """
     since: AwareDatetime
     """
@@ -8586,7 +8599,7 @@ class DeploymentEndpoint(BaseModel):
     """
     pack_env_problem: Annotated[PackEnvProblem | None, Field(alias="packEnvProblem")] = None
     """
-    `ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say). Gone once they can. `GET /v1/deployments/{deploymentId}/pack-env` names the names. Absent from older servers.
+    `ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say), or didn't start (`pack-env-update-failed`). Gone once they can, or do. `GET /v1/deployments/{deploymentId}/pack-env` names the names. Absent from older servers.
     """
 
 

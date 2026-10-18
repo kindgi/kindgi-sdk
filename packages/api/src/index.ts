@@ -82,12 +82,18 @@ export type {
   SystemPackEnvOptions,
   SystemPackEnvServed,
 } from './routes/system-deployments.js';
-export { PACK_ENV_PROBLEM_CODES, packEnvCheck } from './pack-env.js';
+export {
+  PACK_ENV_HELD_CODES,
+  PACK_ENV_PROBLEM_CODES,
+  PACK_ENV_RETRY_MS,
+  packEnvCheck,
+} from './pack-env.js';
 export type {
   PackEnvCheck,
   PackEnvCheckInput,
   PackEnvDeclaration,
   PackEnvDeps,
+  PackEnvHeldCode,
   PackEnvNameStatus,
   PackEnvProblemCode,
   PackEnvScopeRef,

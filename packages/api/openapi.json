@@ -3034,6 +3034,16 @@
         ],
         "description": "Why a deployment's pack service can't be given its declared environment, the first in this order: `pack-env-ambiguous` (a name is set both as a secret and as a plain value), `pack-env-secret-not-yet` (a name is set only as a secret), `pack-env-missing` (a required name is set nowhere). A later runtime may add codes, so treat an unknown one as a reason not yet named."
       },
+      "PackEnvHeldCode": {
+        "type": "string",
+        "enum": [
+          "pack-env-ambiguous",
+          "pack-env-secret-not-yet",
+          "pack-env-missing",
+          "pack-env-update-failed"
+        ],
+        "description": "Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it, or `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. A later runtime may add codes, so treat an unknown one as a reason not yet named."
+      },
       "SystemPackEnv": {
         "type": "object",
         "additionalProperties": false,
@@ -3155,7 +3165,7 @@
             "description": "The `revision` from `GET …/pack-env`. Without `held`: the service now runs its values. With `held`: they weren't given, and the service keeps what it runs."
           },
           "held": {
-            "$ref": "#/components/schemas/PackEnvProblemCode"
+            "$ref": "#/components/schemas/PackEnvHeldCode"
           },
           "appliedRevision": {
             "type": "string",
@@ -18018,10 +18028,10 @@
               "code",
               "since"
             ],
-            "description": "`ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say). Gone once they can. `GET /v1/deployments/{deploymentId}/pack-env` names the names. Absent from older servers.",
+            "description": "`ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say), or didn't start (`pack-env-update-failed`). Gone once they can, or do. `GET /v1/deployments/{deploymentId}/pack-env` names the names. Absent from older servers.",
             "properties": {
               "code": {
-                "$ref": "#/components/schemas/PackEnvProblemCode"
+                "$ref": "#/components/schemas/PackEnvHeldCode"
               },
               "since": {
                 "type": "string",
@@ -27036,7 +27046,7 @@
             }
           }
         },
-        "description": "Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.",
+        "description": "Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision, but for one held as `pack-env-update-failed`, listed for an hour after it was first held so it's tried again). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.",
         "parameters": [
           {
             "name": "cursor",
@@ -27274,7 +27284,7 @@
             }
           }
         },
-        "description": "After giving a `ready` pack service its values: the `revision` it now runs. Or, with `held`, that this revision's values couldn't be given (a required one was removed, say): the service keeps what it runs, and the tenant sees the code on the endpoint (`packEnvProblem`) until a later revision can be given. Compare-and-set: `appliedRevision` is the one the service was found running, and another recorded since is `pack-env-conflict`. A new service's revision goes with its endpoint instead (`packEnvRevision`). Takes `system:pack-env`.",
+        "description": "After giving a `ready` pack service its values: the `revision` it now runs. Or, with `held`, that this revision's values couldn't be given (a required one was removed, say), or were given and its new revision didn't start (`pack-env-update-failed`): the service keeps what it runs, and the tenant sees the code on the endpoint (`packEnvProblem`) until a later revision is given. The same code for the same revision keeps the time it was first recorded. Compare-and-set: `appliedRevision` is the one the service was found running, and another recorded since is `pack-env-conflict`. A new service's revision goes with its endpoint instead (`packEnvRevision`). Takes `system:pack-env`.",
         "parameters": [
           {
             "name": "tenantId",

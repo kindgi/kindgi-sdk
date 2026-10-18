@@ -62,6 +62,21 @@ export const PACK_ENV_PROBLEM_CODES = [
 
 export type PackEnvProblemCode = (typeof PACK_ENV_PROBLEM_CODES)[number];
 
+/**
+ * Why a ready pack service runs on the values it was last given, as its
+ * endpoint shows it (`packEnvProblem`): one of `PACK_ENV_PROBLEM_CODES`, so
+ * the newest can't be given to it, or `pack-env-update-failed`: they were
+ * given, and its revision with them didn't start, so the last ready one
+ * serves. That one is tried again for `PACK_ENV_RETRY_MS` after it's first
+ * recorded; setting the values again is a new revision, which is tried too.
+ */
+export const PACK_ENV_HELD_CODES = [...PACK_ENV_PROBLEM_CODES, 'pack-env-update-failed'] as const;
+
+export type PackEnvHeldCode = (typeof PACK_ENV_HELD_CODES)[number];
+
+/** How long a revision held as `pack-env-update-failed` is listed to be tried again: an hour. */
+export const PACK_ENV_RETRY_MS = 60 * 60_000;
+
 /** One declared name: where it's set, and why it can't be served, if it can't. */
 export interface PackEnvNameStatus {
   readonly name: string;

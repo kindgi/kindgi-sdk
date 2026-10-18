@@ -2088,7 +2088,7 @@ class SystemDeploymentsResource:
     ) -> _models.SystemPackEnvPage:
         """List deployments whose pack service runs on values that changed. `GET /v1/system/pack-env`
 
-        Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.
+        Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision, but for one held as `pack-env-update-failed`, listed for an hour after it was first held so it's tried again). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.
         """
         return self._client._request(
             _OPERATIONS["systemDeployments.listPackEnvChanged"],
@@ -2128,7 +2128,7 @@ class SystemDeploymentsResource:
     ) -> _models.DeploymentEndpoint:
         """Record the env revision a deployment's pack service runs. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
 
-        After giving a `ready` pack service its values: the `revision` it now runs. Or, with `held`, that this revision's values couldn't be given (a required one was removed, say): the service keeps what it runs, and the tenant sees the code on the endpoint (`packEnvProblem`) until a later revision can be given. Compare-and-set: `appliedRevision` is the one the service was found running, and another recorded since is `pack-env-conflict`. A new service's revision goes with its endpoint instead (`packEnvRevision`). Takes `system:pack-env`.
+        After giving a `ready` pack service its values: the `revision` it now runs. Or, with `held`, that this revision's values couldn't be given (a required one was removed, say), or were given and its new revision didn't start (`pack-env-update-failed`): the service keeps what it runs, and the tenant sees the code on the endpoint (`packEnvProblem`) until a later revision is given. The same code for the same revision keeps the time it was first recorded. Compare-and-set: `appliedRevision` is the one the service was found running, and another recorded since is `pack-env-conflict`. A new service's revision goes with its endpoint instead (`packEnvRevision`). Takes `system:pack-env`.
         """
         return self._client._request(
             _OPERATIONS["systemDeployments.recordPackEnv"],
@@ -10445,7 +10445,7 @@ class AsyncSystemDeploymentsResource:
     ) -> _models.SystemPackEnvPage:
         """List deployments whose pack service runs on values that changed. `GET /v1/system/pack-env`
 
-        Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.
+        Across tenants: deployments with a `ready` pack service, whose pack declares an environment, and whose values changed since the revision their service runs (and weren't held back at this revision, but for one held as `pack-env-update-failed`, listed for an hour after it was first held so it's tried again). Read each one's values with `GET …/deployments/{deploymentId}/pack-env`, give them to the service, and record it with `PUT …/pack-env`, sending back the `appliedRevision` it was listed with. Ids, the image and the revision each runs, never a value. Takes `system:pack-env`.
         """
         return await self._client._request(
             _OPERATIONS["systemDeployments.listPackEnvChanged"],
@@ -10485,7 +10485,7 @@ class AsyncSystemDeploymentsResource:
     ) -> _models.DeploymentEndpoint:
         """Record the env revision a deployment's pack service runs. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
 
-        After giving a `ready` pack service its values: the `revision` it now runs. Or, with `held`, that this revision's values couldn't be given (a required one was removed, say): the service keeps what it runs, and the tenant sees the code on the endpoint (`packEnvProblem`) until a later revision can be given. Compare-and-set: `appliedRevision` is the one the service was found running, and another recorded since is `pack-env-conflict`. A new service's revision goes with its endpoint instead (`packEnvRevision`). Takes `system:pack-env`.
+        After giving a `ready` pack service its values: the `revision` it now runs. Or, with `held`, that this revision's values couldn't be given (a required one was removed, say), or were given and its new revision didn't start (`pack-env-update-failed`): the service keeps what it runs, and the tenant sees the code on the endpoint (`packEnvProblem`) until a later revision is given. The same code for the same revision keeps the time it was first recorded. Compare-and-set: `appliedRevision` is the one the service was found running, and another recorded since is `pack-env-conflict`. A new service's revision goes with its endpoint instead (`packEnvRevision`). Takes `system:pack-env`.
         """
         return await self._client._request(
             _OPERATIONS["systemDeployments.recordPackEnv"],

@@ -25,10 +25,11 @@ import {
   withSystemTenantContext,
 } from '../middleware/system.js';
 import {
-  PACK_ENV_PROBLEM_CODES,
+  PACK_ENV_HELD_CODES,
+  PACK_ENV_RETRY_MS,
   type PackEnvDeclaration,
   type PackEnvDeps,
-  type PackEnvProblemCode,
+  type PackEnvHeldCode,
   packEnvCheck,
   packEnvValues,
 } from '../pack-env.js';
@@ -121,7 +122,7 @@ export interface DeploymentRef {
 
 export interface PackEnvRecordInput extends DeploymentRef {
   readonly revision: string;
-  readonly held?: PackEnvProblemCode;
+  readonly held?: PackEnvHeldCode;
   /** The revision the caller found the service running; absent: none. */
   readonly appliedRevision?: string;
 }
@@ -131,8 +132,15 @@ export interface SystemPackEnvServed extends SystemDeploymentEntry {
   readonly packEnv: PackEnvDeclaration;
   /** The revision its service runs: given with its endpoint, or recorded since. */
   readonly appliedRevision?: string;
-  /** The newest revision held back, and why. Its service still runs `appliedRevision`. */
-  readonly held?: { readonly revision: string; readonly code: PackEnvProblemCode };
+  /**
+   * The newest revision held back, why, and since when (ISO-8601). Its
+   * service still runs `appliedRevision`.
+   */
+  readonly held?: {
+    readonly revision: string;
+    readonly code: PackEnvHeldCode;
+    readonly since: string;
+  };
 }
 
 /**
@@ -211,9 +219,11 @@ export interface SystemDeploymentsBinding {
   /**
    * Records what a `ready` deployment's pack service runs: `revision`, once
    * its service was given those values; or, with `held`, the revision it
-   * wasn't given, and why (its endpoint's `packEnvProblem`). Recording a
-   * revision without `held` clears the problem. The same body twice records
-   * it once. Any other endpoint is `not-ready`.
+   * wasn't given, or didn't start, and why (its endpoint's
+   * `packEnvProblem`). Recording a revision without `held` clears the
+   * problem. The same body twice records it once, and the same code for the
+   * same revision keeps the time it was first recorded. Any other endpoint
+   * is `not-ready`.
    *
    * Compare-and-set: `appliedRevision` is the revision the caller found its
    * service running (absent: none). Another one recorded since is
@@ -438,8 +448,9 @@ export function systemDeploymentsRouter(
 
   // ---------- GET /pack-env ----------
   // The deployments whose pack service runs on values that have changed
-  // since (and weren't held back at this revision): ids, and the revision
-  // each runs, for the compare-and-set.
+  // since (and weren't held back at this revision, but for one that didn't
+  // start, tried again for an hour): ids, and the revision each runs, for
+  // the compare-and-set.
   r.get('/pack-env', async (c) => {
     const denied = systemReadAcrossTenants(c, PACK_ENV, authorizer);
     if (denied !== undefined) return denied;
@@ -679,6 +690,7 @@ async function changedPackEnv(
   served: readonly SystemPackEnvServed[],
 ): Promise<SystemPackEnvServed[]> {
   const changed: SystemPackEnvServed[] = [];
+  const now = Date.now();
   for (const entry of served) {
     const { revision } = await packEnvCheck(packEnv.stores, {
       tenantId: entry.tenantId,
@@ -686,7 +698,15 @@ async function changedPackEnv(
       envName: packEnv.envName,
       declaration: entry.packEnv,
     });
-    if (revision !== entry.appliedRevision && revision !== entry.held?.revision) {
+    if (revision === entry.appliedRevision) continue;
+    const held = entry.held;
+    // Values that can't be given wait for a change. Values that were given
+    // and didn't start are tried again for a while, as their cause may pass.
+    if (
+      held === undefined ||
+      held.revision !== revision ||
+      (held.code === 'pack-env-update-failed' && now - Date.parse(held.since) < PACK_ENV_RETRY_MS)
+    ) {
       changed.push(entry);
     }
   }
@@ -763,15 +783,15 @@ function parsePackEnvBody(body: unknown): Parsed<Omit<PackEnvRecordInput, keyof 
   }
   if (
     b.held !== undefined &&
-    (typeof b.held !== 'string' || !(PACK_ENV_PROBLEM_CODES as readonly string[]).includes(b.held))
+    (typeof b.held !== 'string' || !(PACK_ENV_HELD_CODES as readonly string[]).includes(b.held))
   ) {
-    return badInput(`\`held\` must be one of ${PACK_ENV_PROBLEM_CODES.join(', ')}`);
+    return badInput(`\`held\` must be one of ${PACK_ENV_HELD_CODES.join(', ')}`);
   }
   return {
     kind: 'ok',
     value: {
       revision: b.revision,
-      ...(b.held !== undefined && { held: b.held as PackEnvProblemCode }),
+      ...(b.held !== undefined && { held: b.held as PackEnvHeldCode }),
       ...(typeof b.appliedRevision === 'string' && { appliedRevision: b.appliedRevision }),
     },
   };

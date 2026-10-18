@@ -13,7 +13,7 @@ import type {
 import {
   PACK_ENV_PROBLEM_CODES,
   type PackEnvDeclaration,
-  type PackEnvProblemCode,
+  type PackEnvHeldCode,
 } from './pack-env.js';
 
 /**
@@ -207,10 +207,11 @@ export interface DeploymentEndpoint {
   /**
    * `ready` only: the pack service runs on the values it was last given,
    * since the newest ones can't be given to it (a required one was removed,
-   * say). It's gone once they can (from runtime 0.1.8.1).
+   * say), or didn't start (`pack-env-update-failed`). It's gone once they
+   * can, or do (from runtime 0.1.8.1).
    */
   readonly packEnvProblem?: {
-    readonly code: PackEnvProblemCode;
+    readonly code: PackEnvHeldCode;
     /** When it was recorded. ISO-8601. */
     readonly since: string;
   };

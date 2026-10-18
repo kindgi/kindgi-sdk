@@ -403,7 +403,7 @@ describe('GET /v1/system/pack-env', () => {
       .revision as string;
     a.servedList.push(served(fresh), {
       ...served(held, 'pe1-older'),
-      held: { revision: heldRevision, code: 'pack-env-missing' },
+      held: { revision: heldRevision, code: 'pack-env-missing', since: NOW },
     });
     const r = await a.call(PACK_ENV, 'GET', '/v1/system/pack-env');
     expect(r.body.data).toEqual([
@@ -412,6 +412,31 @@ describe('GET /v1/system/pack-env', () => {
     expect((r.body.data as { deploymentId: string }[]).map((e) => e.deploymentId)).toEqual([
       'd-fresh',
     ]);
+  });
+
+  test("one whose revision didn't start is listed again for an hour after it was first held, then waits for a change", async () => {
+    const a = makeApp();
+    const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+    const rows: [string, string, string][] = [
+      ['d-retry', 'pack-env-update-failed', ago(50)],
+      ['d-done', 'pack-env-update-failed', ago(61)],
+      ['d-missing', 'pack-env-missing', ago(1)],
+    ];
+    for (const [id, heldCode, since] of rows) {
+      const d = deployment(id, prod, ready);
+      a.deployments.set(id, d);
+      const revision = (await a.call(PACK_ENV, 'GET', valuesPath(live, id))).body
+        .revision as string;
+      a.servedList.push({
+        ...served(d, 'pe1-older'),
+        held: { revision, code: heldCode as 'pack-env-missing', since },
+      });
+    }
+    const r = await a.call(PACK_ENV, 'GET', '/v1/system/pack-env');
+    expect((r.body.data as { deploymentId: string }[]).map((e) => e.deploymentId)).toEqual([
+      'd-retry',
+    ]);
+    expect(r.body.data).toEqual([expect.objectContaining({ appliedRevision: 'pe1-older' })]);
   });
 
   test('needs system:pack-env', async () => {
@@ -451,6 +476,24 @@ describe('PUT /v1/system/tenants/{t}/deployments/{d}/pack-env', () => {
       packEnvProblem: { code: 'pack-env-missing', since: NOW },
     });
     expect(a.applied.get('d')).toBeUndefined();
+  });
+
+  test("held as didn't start: the endpoint shows it, and its service keeps what it runs", async () => {
+    const a = makeApp();
+    a.deployments.set('d', deployment('d', staging, ready));
+    await a.call(PACK_ENV, 'PUT', valuesPath(live, 'd'), { revision: 'pe1-a' });
+    const r = await a.call(PACK_ENV, 'PUT', valuesPath(live, 'd'), {
+      revision: 'pe1-b',
+      held: 'pack-env-update-failed',
+      appliedRevision: 'pe1-a',
+    });
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({
+      status: 'ready',
+      since: NOW,
+      packEnvProblem: { code: 'pack-env-update-failed', since: NOW },
+    });
+    expect(a.applied.get('d')).toBe('pe1-a');
   });
 
   test('a pending one: 409 endpoint-not-ready; bad bodies: 400', async () => {
