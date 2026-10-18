@@ -792,6 +792,46 @@ export function liveScopeCheck(scope: LiveScope | undefined): ItemCheck {
 }
 
 /**
+ * Whether a change to what's live for an agent at `scope` is refused,
+ * whoever asks: the live routes (a promotion, a rollback, an unpin), and
+ * a deployment's promotion that makes what it moved live. For an agent
+ * more than one project serves, what `liveScopeCheck` names; else
+ * today's check, `promote` on the agent, as the route's middleware asks
+ * it. `undefined` when allowed; else the 403 to answer. It reads no body
+ * and answers nothing itself.
+ */
+export async function liveChangeRefusal(
+  c: Ctx,
+  how: {
+    readonly authorizer: Authorizer;
+    readonly rights: ItemRights | undefined;
+    readonly agentId: string;
+    readonly scope: LiveScope | undefined;
+  },
+): Promise<Response | undefined> {
+  const projects = await how.rights?.multi(c, 'agent', how.agentId);
+  if (how.rights !== undefined && projects !== undefined) {
+    const check = liveScopeCheck(how.scope);
+    return how.rights.enforce(c, 'agent', how.agentId, projects, check, namesNoVersion);
+  }
+  let allowed = false;
+  const refused = await how.authorizer.authorize('promote', () => ref('agent', how.agentId))(
+    c,
+    async () => {
+      allowed = true;
+    },
+  );
+  if (allowed) return undefined;
+  if (refused instanceof Response) return refused;
+  throw new Error('The authorizer neither allowed the change nor refused it');
+}
+
+/** `enforce`'s answer for a version the caller can't see: a live scope's check names no version, so it's never asked. */
+function namesNoVersion(): never {
+  throw new Error("A live change's check names no version");
+}
+
+/**
  * The authorization middleware under one item (`/:id` and `/:id/*`): for
  * an item more than one project serves, what `check` names (`enforce`);
  * else `today`, the item's own check, as before. `today` returning
