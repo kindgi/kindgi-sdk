@@ -866,7 +866,8 @@ and what's different after:
   deployed (`deployment-validation-failed`); one that still reaches a turn is a
   check that can't run, so a `halt` guardrail stops the turn.
 - **A deploy keeps a registered guardrail only if it's the deploy's own:** in
-  the project the deploy registers into, with the same definition. A pack
+  the project the deploy registers into, or in another project of its
+  [environment order](../../environments/), with the same definition. A pack
   whose guardrail changed is refused (`409 guardrail-already-registered`):
   unregister the guardrail, and deploy again. A guardrail with that id in
   another project is refused too (`409 guardrail-project-mismatch`, without

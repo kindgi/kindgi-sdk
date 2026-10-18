@@ -2,7 +2,6 @@
 title: 'Environments: from staging to production'
 description: Put your Kindgi Cloud projects in order as environments, deploy each new build into the first one, and promote that exact build from one environment to the next until it reaches production.
 sidebar:
-  order: 2
   label: Environments
 ---
 
@@ -70,7 +69,7 @@ environment, `prod`'s included.
 ## Before you start
 
 - **A pack deployed to Kindgi Cloud,** as in
-  [Deploy your agent to Kindgi Cloud](../deploy-your-agent/).
+  [Deploy your agent to Kindgi Cloud](../../hosted/deploy-your-agent/).
 - **A tenant admin** of the workspace. Only a tenant admin sets the order of
   environments, or changes it.
 - **A project for each environment.** `kindgi projects create --name=staging-1`
@@ -185,7 +184,7 @@ tool, a guardrail or a data block through the API into a later environment
 is refused the same way: only builds move between environments.
 
 Try the new version in `staging-1`, and make it live there, as in
-[Deploy your agent to Kindgi Cloud](../deploy-your-agent/#try-it).
+[Deploy your agent to Kindgi Cloud](../../hosted/deploy-your-agent/#try-it).
 
 ## Promote to the next environment
 
@@ -219,14 +218,14 @@ kindgi promote --from=staging-2 --to=prod --reason="Compared on the test set"
 ```
 
 The project of `prod` is the one you put in production, with **Go live**
-([Go live](../deploy-your-agent/#go-live)). Only one project of your
+([Go live](../../hosted/deploy-your-agent/#go-live)). Only one project of your
 workspace is in production at a time
-([projects in production](../limits/#projects-in-production)). The other
+([projects in production](../../hosted/limits/#projects-in-production)). The other
 environments aren't, so their runs count as staging.
 
 In `prod`, the promoted version waits while the live one serves. Try it by
 its version, make it live, and roll back if you need to, as in
-[Change your agent once it's live](../deploy-your-agent/#change-your-agent-once-its-live).
+[Change your agent once it's live](../../hosted/deploy-your-agent/#change-your-agent-once-its-live).
 
 ## In the console
 
@@ -263,7 +262,7 @@ its version, make it live, and roll back if you need to, as in
 ## Without environments
 
 Nothing changes for a workspace that doesn't set an order. Its projects
-work as [Deploy your agent to Kindgi Cloud](../deploy-your-agent/) says.
+work as [Deploy your agent to Kindgi Cloud](../../hosted/deploy-your-agent/) says.
 
 To stop using an order, a tenant admin clears it with
 `kindgi environments clear`. Its projects then take builds directly again.

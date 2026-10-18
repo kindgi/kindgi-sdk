@@ -191,7 +191,7 @@ version says which version those runs get.
 
 ## Change your agent once it's live
 
-With [environments](../environments/), you try a new build in staging
+With [environments](../../deploy/environments/), you try a new build in staging
 first, and promote it to `prod` once it's right. Without them, an agent
 stays in the project it was first deployed to. So you try a new version in
 the same project, by its version, before you make it live:
@@ -266,7 +266,7 @@ version and every version that's waiting read the same values:
 
 ## What's next
 
-- [Environments: from staging to production](../environments/): try each
+- [Environments: from staging to production](../../deploy/environments/): try each
   new build in staging, then promote the exact build to `prod`.
 - [Kindgi Cloud's limits](../limits/): the limits every workspace has, and
   how to ask for more.
