@@ -420,10 +420,9 @@ async function authorizeCarried(
  * every project of its environment order: the target is the next
  * environment of the deployment's order. A reach rule that instead refused
  * a later carried agent is answered like a write error, with the pins so
- * far.) An error only the write can give
- * carries the pins already made in its `live`. Returns the pins, or the
- * response to answer instead (a 403, a gate this deployment can't record,
- * or a write error with the pins so far).
+ * far.) Returns the pins, or the response to answer instead (a 403, a gate
+ * this deployment can't record, or a write error carrying the pins so far
+ * in `error.details.live`).
  */
 async function makeCarriedLive(
   c: Context<AppEnv>,
