@@ -45,6 +45,7 @@ final class ModelWriter {
   static final ClassName NULLABLE = ClassName.get("org.jspecify.annotations", "Nullable");
   static final ClassName MODEL = ClassName.get(MODELS, "Model");
   static final ClassName CHECKS = ClassName.get(MODELS, "Checks");
+  static final ClassName OPEN_ENUM = ClassName.get(MODELS, "OpenEnum");
   static final ClassName OPTIONAL_NULLABLE = ClassName.get(MODELS, "OptionalNullable");
   static final String HEADER =
       "SPDX-License-Identifier: Apache-2.0\nCopyright (C) 2026 Kindgi Inc.\n\n"
@@ -136,7 +137,7 @@ final class ModelWriter {
         checks.addStatement("checks.oneOf($S, $N, $L)", f.wire, f.java, stringList(f.tagValues));
       }
       constraintChecks(checks, rb, patterns, f.wire, value, f.type, f.constraints);
-      if (mentionsModel(f.type)) {
+      if (mentionsModelOrEnum(f.type)) {
         checks.addStatement("checks.nested($S, $L)", f.wire, value);
       }
       String fieldDoc = fieldDoc(f);
@@ -338,11 +339,14 @@ final class ModelWriter {
     return null;
   }
 
-  /** Whether a value of this type can hold a generated model (and so needs a nested check). */
-  private boolean mentionsModel(TypeName t) {
+  /**
+   * Whether a value of this type can hold a generated model or enum value (and so needs a nested
+   * check: an enum value is checked against the values this client knows, on send).
+   */
+  private boolean mentionsModelOrEnum(TypeName t) {
     if (t instanceof ParameterizedTypeName) {
       for (TypeName a : ((ParameterizedTypeName) t).typeArguments()) {
-        if (mentionsModel(a)) {
+        if (mentionsModelOrEnum(a)) {
           return true;
         }
       }
@@ -350,7 +354,7 @@ final class ModelWriter {
     }
     if (t instanceof ClassName) {
       Ir.Decl d = planner.index.get(t);
-      return d instanceof Ir.RecordDecl || d instanceof Ir.UnionDecl;
+      return d instanceof Ir.RecordDecl || d instanceof Ir.UnionDecl || d instanceof Ir.EnumDecl;
     }
     return false;
   }
@@ -478,6 +482,7 @@ final class ModelWriter {
     TypeSpec.Builder tb =
         TypeSpec.classBuilder(cn)
             .addModifiers(Modifier.PUBLIC, Modifier.FINAL)
+            .addSuperinterface(OPEN_ENUM)
             .addJavadoc(
                 "$L$L\n",
                 Docs.javadoc(d.description()).isEmpty() ? "" : Docs.javadoc(d.description()) + "\n\n<p>",
@@ -507,6 +512,11 @@ final class ModelWriter {
     ve.addEnumConstant("UNRECOGNIZED");
     TypeName mapType = ParameterizedTypeName.get(ModelPlanner.MAP, ModelPlanner.STRING, cn);
     tb.addField(FieldSpec.builder(mapType, "byValue", Modifier.PRIVATE, Modifier.STATIC, Modifier.FINAL).initializer(known.build()).build());
+    TypeName listType = ParameterizedTypeName.get(ModelPlanner.LIST, ModelPlanner.STRING);
+    tb.addField(
+        FieldSpec.builder(listType, "knownValues", Modifier.PRIVATE, Modifier.STATIC, Modifier.FINAL)
+            .initializer(stringList(d.values()))
+            .build());
     tb.addField(ModelPlanner.STRING, "raw", Modifier.PRIVATE, Modifier.FINAL);
     tb.addField(valueEnum, "value", Modifier.PRIVATE, Modifier.FINAL);
     tb.addMethod(
@@ -530,6 +540,7 @@ final class ModelWriter {
     tb.addMethod(
         MethodSpec.methodBuilder("asString")
             .addJavadoc("The value as the API spells it.\n")
+            .addAnnotation(Override.class)
             .addAnnotation(JSON_VALUE)
             .addModifiers(Modifier.PUBLIC)
             .returns(ModelPlanner.STRING)
@@ -545,9 +556,18 @@ final class ModelWriter {
     tb.addMethod(
         MethodSpec.methodBuilder("isKnown")
             .addJavadoc("Whether this client knows the value.\n")
+            .addAnnotation(Override.class)
             .addModifiers(Modifier.PUBLIC)
             .returns(TypeName.BOOLEAN)
             .addStatement("return value != $T.UNRECOGNIZED", valueEnum)
+            .build());
+    tb.addMethod(
+        MethodSpec.methodBuilder("knownValues")
+            .addJavadoc("The values this client knows, as the API spells them.\n")
+            .addAnnotation(Override.class)
+            .addModifiers(Modifier.PUBLIC)
+            .returns(listType)
+            .addStatement("return knownValues")
             .build());
     tb.addMethod(
         MethodSpec.methodBuilder("equals")
@@ -692,6 +712,20 @@ final class ModelWriter {
     }
     ctor.addParameter(ParameterSpec.builder(props, "properties").addAnnotation(JSON_ANY_SETTER).addAnnotation(JSON_ANY_GETTER).build());
     ctor.addStatement("properties = $T.extras(properties)", CHECKS);
+    // Kept on a read, refused on send: the client can't check what it doesn't know.
+    MethodSpec.Builder validate =
+        MethodSpec.methodBuilder("validate").addAnnotation(Override.class).addModifiers(Modifier.PUBLIC).addParameter(CHECKS, "checks");
+    if (tag != null) {
+      List<String> tags = new ArrayList<>();
+      for (Ir.Variant v : u.variants) {
+        if (v.tags() != null) {
+          tags.addAll(v.tags());
+        }
+      }
+      validate.addStatement("checks.unrecognized($S, $L)", tag, stringList(tags));
+    } else {
+      validate.addStatement("checks.unrecognized()");
+    }
     TypeSpec.Builder rb = TypeSpec.recordBuilder(u.unrecognized);
     return rb
         .addModifiers(modifiers(u.unrecognized))
@@ -704,13 +738,7 @@ final class ModelWriter {
             tag != null ? u.tagJava : "",
             tag != null ? tag : "")
         .recordConstructor(ctor.build())
-        .addMethod(
-            MethodSpec.methodBuilder("validate")
-                .addAnnotation(Override.class)
-                .addModifiers(Modifier.PUBLIC)
-                .addParameter(CHECKS, "checks")
-                .addComment("Nothing to check: the client doesn't know this variant's constraints.")
-                .build())
+        .addMethod(validate.build())
         .build();
   }
 
@@ -727,7 +755,7 @@ final class ModelWriter {
             .addModifiers(Modifier.PUBLIC)
             .addParameter(CHECKS, "checks");
     if (text.allowed() != null) {
-      validate.addStatement("checks.oneOf($S, value, $L)", "", stringList(text.allowed()));
+      validate.addStatement("checks.known($S, value, $L)", "", stringList(text.allowed()));
     }
     return TypeSpec.recordBuilder(text.type())
         .addModifiers(modifiers(text.type()))

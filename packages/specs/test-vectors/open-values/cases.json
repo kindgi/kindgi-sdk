@@ -1,0 +1,73 @@
+[
+  {
+    "name": "enum-at-the-top",
+    "description": "An enum value this client doesn't know, in a request body's own property.",
+    "operation": "tokens.mint",
+    "args": [],
+    "body": {
+      "role": "kindgi-test-unknown"
+    },
+    "at": ["role"],
+    "names": "member"
+  },
+  {
+    "name": "enum-nested",
+    "description": "An enum value this client doesn't know, in an object inside a request body.",
+    "operation": "tokens.mint",
+    "args": [],
+    "body": {
+      "for": {
+        "kind": "kindgi-test-unknown",
+        "id": "acme-admin"
+      }
+    },
+    "at": ["for", "kind"],
+    "names": "service-account"
+  },
+  {
+    "name": "enum-in-a-list",
+    "description": "An enum value this client doesn't know, in a list item of a request body.",
+    "operation": "webhookEndpoints.create",
+    "args": [],
+    "body": {
+      "url": "https://acme.test/hook",
+      "events": ["run.finished", "kindgi-test-unknown"],
+      "secretRef": {
+        "envName": "prod",
+        "name": "HOOK"
+      }
+    },
+    "at": ["events", 1],
+    "names": "run.finished"
+  },
+  {
+    "name": "union-tag",
+    "description": "A union variant this client doesn't know, told apart by its tag.",
+    "operation": "agents.live.unpin",
+    "args": ["acme.triage"],
+    "body": {
+      "scope": {
+        "kind": "kindgi-test-unknown",
+        "galaxyId": "milky-way"
+      }
+    },
+    "at": ["scope"],
+    "tag": "kind",
+    "names": "tenant"
+  },
+  {
+    "name": "union-text",
+    "description": "Text this client doesn't know, in a union of known text and objects.",
+    "operation": "evalRuns.start",
+    "args": ["acme.suite"],
+    "body": {
+      "projectId": "f531e37d-f29f-463c-81d2-ffad65e4d4e9",
+      "agentRef": {
+        "agentId": "acme.triage"
+      },
+      "baseline": "kindgi-test-unknown"
+    },
+    "at": ["baseline"],
+    "names": "recorded"
+  }
+]

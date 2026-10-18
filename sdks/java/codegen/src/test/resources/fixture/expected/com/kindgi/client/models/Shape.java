@@ -56,7 +56,7 @@ public sealed interface Shape extends Model permits Circle, Square, Shape.DotOrP
 
         @Override
         public void validate(Checks checks) {
-            // Nothing to check: the client doesn't know this variant's constraints.
+            checks.unrecognized("kind", List.of("circle", "square", "dot", "point"));
         }
     }
 

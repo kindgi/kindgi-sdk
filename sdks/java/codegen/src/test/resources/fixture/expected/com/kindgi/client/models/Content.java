@@ -43,7 +43,7 @@ public sealed interface Content extends Model permits Content.WithText, Content.
 
         @Override
         public void validate(Checks checks) {
-            // Nothing to check: the client doesn't know this variant's constraints.
+            checks.unrecognized();
         }
     }
 

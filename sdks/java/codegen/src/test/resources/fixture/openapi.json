@@ -658,6 +658,18 @@
             "items": {
               "$ref": "#/components/schemas/Node"
             }
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WidgetState"
+            }
+          },
+          "stateByRegion": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/WidgetState"
+            }
           }
         }
       },
@@ -879,6 +891,16 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Owner"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WidgetState"
               },
               {
                 "type": "null"

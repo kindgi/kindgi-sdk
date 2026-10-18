@@ -46,7 +46,9 @@ public record Widget(@JsonProperty("id") UUID id, @JsonProperty("name") String n
         @JsonProperty("default") @Nullable String default_,
         @JsonProperty("owner") @JsonInclude(value = JsonInclude.Include.CUSTOM, valueFilter = OptionalNullable.AbsentFilter.class) OptionalNullable<Owner> owner,
         @JsonProperty("flow") @Nullable Flow flow,
-        @JsonProperty("nodes") @Nullable List<Node> nodes) implements Model {
+        @JsonProperty("nodes") @Nullable List<Node> nodes,
+        @JsonProperty("history") @Nullable List<WidgetState> history,
+        @JsonProperty("stateByRegion") @Nullable Map<String, WidgetState> stateByRegion) implements Model {
     private static final Pattern PATTERN_0 = Pattern.compile("^[a-z]+$");
 
     public Widget {
@@ -60,12 +62,15 @@ public record Widget(@JsonProperty("id") UUID id, @JsonProperty("name") String n
         shape = Checks.required(shape, "Widget.shape");
         owner = Checks.triState(owner);
         nodes = Checks.list(nodes);
+        history = Checks.list(history);
+        stateByRegion = Checks.map(stateByRegion);
     }
 
     @Override
     public void validate(Checks checks) {
         checks.minLength("name", name, 1);
         checks.maxLength("name", name, 64);
+        checks.nested("state", state);
         checks.maxLength("note", note.orElse(null), 500);
         checks.maxItems("tags", tags, 8);
         checks.uniqueItems("tags", tags);
@@ -87,6 +92,8 @@ public record Widget(@JsonProperty("id") UUID id, @JsonProperty("name") String n
         checks.nested("owner", owner.orElse(null));
         checks.nested("flow", flow);
         checks.nested("nodes", nodes);
+        checks.nested("history", history);
+        checks.nested("stateByRegion", stateByRegion);
     }
 
     /**
@@ -157,6 +164,10 @@ public record Widget(@JsonProperty("id") UUID id, @JsonProperty("name") String n
 
         private @Nullable List<Node> nodes;
 
+        private @Nullable List<WidgetState> history;
+
+        private @Nullable Map<String, WidgetState> stateByRegion;
+
         private Builder() {
         }
 
@@ -184,6 +195,8 @@ public record Widget(@JsonProperty("id") UUID id, @JsonProperty("name") String n
             this.owner = source.owner;
             this.flow = source.flow;
             this.nodes = source.nodes;
+            this.history = source.history;
+            this.stateByRegion = source.stateByRegion;
         }
 
         /**
@@ -341,6 +354,16 @@ public record Widget(@JsonProperty("id") UUID id, @JsonProperty("name") String n
             return this;
         }
 
+        public Builder history(@Nullable List<WidgetState> history) {
+            this.history = history;
+            return this;
+        }
+
+        public Builder stateByRegion(@Nullable Map<String, WidgetState> stateByRegion) {
+            this.stateByRegion = stateByRegion;
+            return this;
+        }
+
         /**
          * The {@link Widget}.
          *
@@ -348,7 +371,7 @@ public record Widget(@JsonProperty("id") UUID id, @JsonProperty("name") String n
          * @throws ValidationException when it breaks the API's constraints (every problem is listed)
          */
         public Widget build() {
-            Widget built = new Widget(id, name, state, label, note, createdAt, tags, labels, size, kind, shape, content, instructions, baseline, score, stamp, restricted, extra, wait_, default_, owner, flow, nodes);
+            Widget built = new Widget(id, name, state, label, note, createdAt, tags, labels, size, kind, shape, content, instructions, baseline, score, stamp, restricted, extra, wait_, default_, owner, flow, nodes, history, stateByRegion);
             built.validate();
             return built;
         }

@@ -76,12 +76,22 @@ public final class Generator {
     return document;
   }
 
-  static Generated sources(Map<String, Object> document) {
+  /** The types and operations an API document plans. */
+  record Plan(ModelPlanner models, OperationPlanner operations) {}
+
+  static Plan plan(Map<String, Object> document) {
     ModelPlanner models = new ModelPlanner(document);
     OperationPlanner operations = new OperationPlanner(document, models);
     models.planComponents();
     operations.plan();
     models.drain();
+    return new Plan(models, operations);
+  }
+
+  static Generated sources(Map<String, Object> document) {
+    Plan plan = plan(document);
+    ModelPlanner models = plan.models();
+    OperationPlanner operations = plan.operations();
     List<JavaFile> files = new ArrayList<>(new ModelWriter(models).files());
     files.addAll(new ResourceWriter(operations, models).files());
     files.addAll(new MixInWriter(models).files());

@@ -7,6 +7,7 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-models`, `kindgi-client`: **a value read from a newer runtime isn't sent back.** A request body is checked against the values this client knows before it's sent (a `ValidationException` if not), so an enum value, a union variant, or text in a union of known text and objects that a newer runtime sent can't be sent back. Before, the client sent it, and the server decided. Reading one keeps it, as before, and so does `build()`, so an answer that carries one can still be copied and changed: `EvalBaseline`'s text is no longer refused by `build()`. Every enum class implements the new `OpenEnum` (`asString()`, `isKnown()`, `knownValues()`). The Python client refuses the same values.
 - `kindgi-models`: **a server's retention limit.** `RetentionScheduledItem`'s `policyId` and `policyVersion` can be `null`: a record that a server's limit decides, in a domain no policy covers, has neither. `limitApplied`, on `RetentionScheduledItem` and `RetentionSweepResult.PerDomainItem`, is `true` when the limit decides; `null` otherwise.
 - `kindgi-pack`, `kindgi-pack-scala`: **a tool can say `needsApprovalWhenUnattended`.** `Tool.define(...).needsApprovalWhenUnattended(true)` (Scala: `.needsApprovalWhenUnattended(true)`) makes each call wait for a person's approval in a run no person started (a webhook, a schedule, an event, or a service account's key). A flow's tool step that calls it is refused there. A run a person starts is unaffected. The pack's index carries it; left out, nothing changes.
 

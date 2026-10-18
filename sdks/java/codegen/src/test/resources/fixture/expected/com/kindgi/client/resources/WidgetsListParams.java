@@ -10,6 +10,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonValue;
 import com.kindgi.client.models.Checks;
 import com.kindgi.client.models.Model;
+import com.kindgi.client.models.OpenEnum;
 import com.kindgi.client.models.ScopeSegment;
 import com.kindgi.client.models.ValidationException;
 import com.kindgi.client.models.WidgetState;
@@ -41,6 +42,8 @@ public record WidgetsListParams(@JsonProperty("cursor") @Nullable String cursor,
     public void validate(Checks checks) {
         checks.minimum("limit", limit, "1");
         checks.maximum("limit", limit, "100");
+        checks.nested("state", state);
+        checks.nested("order", order);
         checks.nested("segment", segments);
     }
 
@@ -150,7 +153,7 @@ public record WidgetsListParams(@JsonProperty("cursor") @Nullable String cursor,
     /**
      * One of the values below, or one this client doesn't know yet: {@link #of} keeps any value, and {@link #value()} is {@code UNRECOGNIZED} for an unknown one. Switch on {@link #value()}.
      */
-    public static final class Order {
+    public static final class Order implements OpenEnum {
         /**
          * <code>asc</code>
          */
@@ -164,6 +167,8 @@ public record WidgetsListParams(@JsonProperty("cursor") @Nullable String cursor,
         private static final Map<String, Order> byValue = Map.ofEntries(
             Map.entry("asc", ASC),
             Map.entry("desc", DESC));
+
+        private static final List<String> knownValues = List.of("asc", "desc");
 
         private final String raw;
 
@@ -186,6 +191,7 @@ public record WidgetsListParams(@JsonProperty("cursor") @Nullable String cursor,
         /**
          * The value as the API spells it.
          */
+        @Override
         @JsonValue
         public String asString() {
             return raw;
@@ -201,8 +207,17 @@ public record WidgetsListParams(@JsonProperty("cursor") @Nullable String cursor,
         /**
          * Whether this client knows the value.
          */
+        @Override
         public boolean isKnown() {
             return value != Value.UNRECOGNIZED;
+        }
+
+        /**
+         * The values this client knows, as the API spells them.
+         */
+        @Override
+        public List<String> knownValues() {
+            return knownValues;
         }
 
         @Override
