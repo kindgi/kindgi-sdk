@@ -47,3 +47,5 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
   pack's service as two container apps, with PostgreSQL Flexible Server and
   Key Vault, from Kindgi's Terraform module.
 - **Kindgi Cloud:** we run it for you. In private preview.
+  [Deploy your first agent](../hosted/deploy-your-first-agent/) there, from
+  sign-up to a project in production.
