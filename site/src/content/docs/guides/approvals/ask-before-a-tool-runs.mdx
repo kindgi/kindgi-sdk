@@ -420,9 +420,36 @@ Approvals are decided by **reviewers**. Under `kindgi dev` you're one already,
 an `admin`. On any other runtime, register yourself once, as the user your API
 token belongs to. It covers any token of yours, a console sign-in too:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+pnpm exec kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--spec` is the reviewer: its `role` and, optionally, a `displayName`.
 It prints the registered reviewer, as JSON.
@@ -434,9 +461,36 @@ It prints the registered reviewer, as JSON.
 Start a turn that asks for the tool. `--agent` is the agent, and `--input`
 its input:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+pnpm exec kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -457,9 +511,36 @@ block until someone decides.
 
 List the pending approvals. `--status=pending` lists only the ones still `pending`:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals list --status=pending
+pnpm exec kindgi approvals list --status=pending
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals list --status=pending
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals list --status=pending
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals list --status=pending
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -500,9 +581,36 @@ The approval names the tool and the exact arguments the model chose, and
 Decide it by the approval's `id`. `--decision=approve` lets the tool run,
 and `--rationale` is kept with the decision:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approve --rationale="Confirmed with the on-call engineer"
+pnpm exec kindgi approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approve --rationale="Confirmed with the on-call engineer"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approve --rationale="Confirmed with the on-call engineer"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approve --rationale="Confirmed with the on-call engineer"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approve --rationale="Confirmed with the on-call engineer"
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -550,9 +658,36 @@ shows it:
 
 Get the run by its id to see the tool's result:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
+pnpm exec kindgi runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -576,9 +711,36 @@ as the tool's result, with your rationale, and finishes its turn. A real
 model can tell the user why nothing was posted. `<approval-id>` is the
 approval's `id`:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals complete <approval-id> --decision=reject --rationale="Not confirmed yet"
+pnpm exec kindgi approvals complete <approval-id> --decision=reject --rationale="Not confirmed yet"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals complete <approval-id> --decision=reject --rationale="Not confirmed yet"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals complete <approval-id> --decision=reject --rationale="Not confirmed yet"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals complete <approval-id> --decision=reject --rationale="Not confirmed yet"
+```
+
+</TabItem>
+</Tabs>
 
 It prints the recorded decision, as approving does. The run's messages then
 hold the rejection as the tool's result:
@@ -603,9 +765,36 @@ When the agent is a step of a flow, the flow waits with it: the flow run is
 `suspended` too, and its journal shows the step waiting. `<flow-run-id>` is
 the flow run's id:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs journal <flow-run-id>
+pnpm exec kindgi runs journal <flow-run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs journal <flow-run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs journal <flow-run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs journal <flow-run-id>
+```
+
+</TabItem>
+</Tabs>
 
 ```json
   {
