@@ -1228,6 +1228,16 @@ describe('authorization on the agent', () => {
     expect(res.body.error.message).toContain('publish');
     expect(h.evalRuns.started).toHaveLength(1);
   });
+
+  test('withdrawing needs publish, as drafting does', async () => {
+    const grants = [`read agent:${AGENT}`, `publish agent:${AGENT}`];
+    const h = await drafted({ grants });
+    grants.pop(); // read only, from here on
+    const res = await h.call('POST', `/v1/proposals/${h.id}/withdraw`, { reason: 'x' });
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toContain('publish');
+    expect((await h.call('GET', `/v1/proposals/${h.id}`)).body.status).toBe('draft');
+  });
 });
 
 describe('a proposal a drafter wrote (not a person)', () => {
@@ -1635,6 +1645,32 @@ describe('an agent an order carries from its project to prod', () => {
     expect(res.body.error.message).toContain(
       `changing a proposal for agent "${AGENT}" needs write on project ${projectId}`,
     );
+  });
+
+  test('rescoring and withdrawing are write where its versions are made, not publish on the agent', async () => {
+    const grants = [...maker];
+    const h = await evaluatedBy(grants);
+    grants.splice(
+      0,
+      grants.length,
+      `read project:${PROD}`,
+      `write project:${PROD}`,
+      `publish agent:${AGENT}`,
+    );
+    for (const [verb, body] of [
+      ['rescore', {}],
+      ['withdraw', { reason: 'x' }],
+    ] as const) {
+      const res = await h.call('POST', `/v1/proposals/${h.id}/${verb}`, body);
+      expect(res.status, JSON.stringify(res.body)).toBe(403);
+      expect(res.body.error.message).toContain(
+        `changing a proposal for agent "${AGENT}" needs write on project ${projectId}`,
+      );
+    }
+    grants.splice(0, grants.length, ...maker);
+    const res = await h.call('POST', `/v1/proposals/${h.id}/withdraw`, { reason: 'x' });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.status).toBe('withdrawn');
   });
 
   test("requesting and rolling back are admin where the proposal's scope is, with no promote on the agent", async () => {
