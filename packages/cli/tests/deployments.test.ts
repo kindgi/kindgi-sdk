@@ -123,6 +123,14 @@ const SECRET_ONLY = {
   missing: false,
   problem: 'secret-not-yet',
 };
+/** Set only as a secret where the server gives a pack service its secrets: nothing in the way. */
+const SECRET_GIVEN = {
+  name: 'ACME_TOKEN',
+  required: true,
+  kind: 'secret',
+  scope: { kind: 'project', id: 'prj-acme' },
+  missing: false,
+};
 const BOTH_WAYS = {
   name: 'SHOP_URL',
   required: false,
@@ -232,7 +240,7 @@ describe('kindgi deployments get', () => {
         ...HEAD,
         HELD_SERVICE,
         '    ! Since 2026-10-18T10:02:00.000Z: a name the pack reads from its env is set only as a secret (pack-env-secret-not-yet).',
-        "      ACME_TOKEN is set only as a secret, which a pack service isn't given in its environment: a tool reads it per call (`ctx.secrets`).",
+        "      ACME_TOKEN is set only as a secret, which this server keeps out of a pack service's environment: a tool reads it per call (`ctx.secrets`).",
       ),
     );
     const bothWays = await run(['deployments', 'get', 'dep-acme-1'], {
@@ -245,6 +253,32 @@ describe('kindgi deployments get', () => {
         HELD_SERVICE,
         '    ! Since 2026-10-18T10:02:00.000Z: a name the pack reads from its env is set both as a secret and as a plain value (pack-env-ambiguous).',
         "      SHOP_URL is set both as a secret (project prj-acme) and as a plain value (tenant): remove one, so it's clear which the pack service gets.",
+      ),
+    );
+  });
+
+  test("newly set only as a secret, or a secret the platform can't read: their words, and no line to run", async () => {
+    const redeploy = await run(['deployments', 'get', 'dep-acme-1'], {
+      get: async () => held('pack-env-secret-redeploy'),
+      packEnv: packEnvAt('prod', SECRET_GIVEN),
+    });
+    expect(redeploy.out.exitCode).toBe(0);
+    expect(redeploy.out.stdout).toBe(
+      lines(
+        ...HEAD,
+        HELD_SERVICE,
+        "    ! Since 2026-10-18T10:02:00.000Z: a name the pack reads from its env is newly set only as a secret, which this pack service can't be given. Build the pack again and deploy that build: the new deployment's pack service can be given it (pack-env-secret-redeploy).",
+      ),
+    );
+    const unreadable = await run(['deployments', 'get', 'dep-acme-1'], {
+      get: async () => held('pack-env-secret-unreadable'),
+      packEnv: packEnvAt('prod', SECRET_GIVEN),
+    });
+    expect(unreadable.out.stdout).toBe(
+      lines(
+        ...HEAD,
+        HELD_SERVICE,
+        "    ! Since 2026-10-18T10:02:00.000Z: a secret the pack reads from its env can't be read just now: the platform's team is told, and it's tried again (pack-env-secret-unreadable).",
       ),
     );
   });

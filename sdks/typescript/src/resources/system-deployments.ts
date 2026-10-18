@@ -24,7 +24,11 @@ export type PackEndpointSpec = SetPackEndpointBody;
 export type DeploymentEndpointProblemSpec = RecordDeploymentProblemBody;
 export type PackSuspensionSpec = SetPackSuspendedBody;
 export type { PackSuspension };
-/** Where each name a deployment's pack declares is set, and the plain values when nothing stands in the way. */
+/**
+ * Where each name a deployment's pack declares is set, and the values when
+ * nothing stands in the way: plain ones in `env`, and when asked for,
+ * secrets in `secrets`.
+ */
 export type { SystemPackEnv };
 export type PackEnvRecordSpec = RecordPackEnvBody;
 
@@ -104,7 +108,9 @@ export interface SystemDeploymentsClient {
    * One page across tenants (`system:pack-env`): deployments with a `ready`
    * pack service whose declared env values changed since the revision it
    * runs, and weren't held back at this revision: ids, and the revision
-   * each runs (`appliedRevision`, sent back with `recordPackEnv`). Never a value.
+   * each runs (`appliedRevision`, sent back with `recordPackEnv`). One held
+   * at its revision for a cause the platform fixes is listed every time,
+   * with its `held`. Never a value.
    *
    * @wire `GET /v1/system/pack-env`
    */
@@ -115,12 +121,18 @@ export interface SystemDeploymentsClient {
   /**
    * What the deployment's pack service is to be given (`system:pack-env`):
    * where each declared name is set, its `revision`, and the plain values
-   * (`env`) unless there's a `problem`. Each value given out is on the audit
-   * record.
+   * (`env`) unless there's a `problem`. With `secrets: 'values'`, each name
+   * set only as a secret too (`secrets`), for a key holding
+   * `system:pack-env` itself. Each value given out is on the audit record,
+   * a secret's before the answer.
    *
    * @wire `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
    */
-  getPackEnv(tenantId: string, deploymentId: string): Promise<SystemPackEnv>;
+  getPackEnv(
+    tenantId: string,
+    deploymentId: string,
+    options?: { readonly secrets?: 'values' },
+  ): Promise<SystemPackEnv>;
   /**
    * Records the revision a `ready` pack service now runs, or, with `held`,
    * that this revision couldn't be given and the service keeps what it
@@ -193,10 +205,11 @@ export function makeSystemDeploymentsClient(transport: Transport): SystemDeploym
         },
       });
     },
-    async getPackEnv(tenantId, deploymentId) {
+    async getPackEnv(tenantId, deploymentId, options) {
       return transport.request<SystemPackEnv>({
         method: 'GET',
         path: `/v1/system/tenants/${seg(tenantId)}/deployments/${seg(deploymentId)}/pack-env`,
+        query: { ...(options?.secrets !== undefined && { secrets: options.secrets }) },
       });
     },
     async recordPackEnv(tenantId, deploymentId, spec, options) {

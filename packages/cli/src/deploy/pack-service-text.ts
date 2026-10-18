@@ -26,6 +26,14 @@ const PACK_SERVICE_PROBLEMS: Readonly<Record<string, string>> = {
   'pack-env-secret-not-yet': 'a name the pack reads from its env is set only as a secret',
   'pack-env-ambiguous':
     'a name the pack reads from its env is set both as a secret and as a plain value',
+  'pack-env-secret-capacity':
+    'a name the pack reads from its env is set as a secret, and there is no room for a pack service that can be given one just now',
+  'pack-env-secret-too-large':
+    'a secret the pack reads from its env is over 32 KiB, the most a pack service can be given',
+  'pack-env-secret-unreadable':
+    "a secret the pack reads from its env can't be read just now: the platform's team is told, and it's tried again",
+  'pack-env-secrets-unaudited':
+    "the platform can't give the pack its secrets just now: its team is told, and it's tried again",
 };
 
 /** Why no pack service is wanted for a cleared deployment now, by its `retired` reason. */
@@ -51,14 +59,19 @@ export function packServiceRetiredText(reason: string): string {
 /**
  * Why a ready pack service runs on the values it was last given, by its
  * `packEnvProblem.code`: a name that keeps the newest from it (the words
- * a pending one has for it), or newest values it was given and didn't
- * start with. That one is tried again for an hour from when it was
- * recorded (`PACK_ENV_RETRY_MS` in `@kindgi/api`). `undefined` for a code
- * a later runtime names: it's said by its code.
+ * a pending one has for it), newest values it was given and didn't start
+ * with, or a name newly set only as a secret, which it can't be given. The
+ * second is tried again for an hour from when it was recorded
+ * (`PACK_ENV_RETRY_MS` in `@kindgi/api`); for the third, build the pack
+ * again and deploy that build, which makes a new deployment. `undefined`
+ * for a code a later runtime names: it's said by its code.
  */
 export function packEnvHeldText(code: string): string | undefined {
   if (code === 'pack-env-update-failed') {
     return "its newest values were given to it, but it didn't start with them. It's tried again for an hour from then";
+  }
+  if (code === 'pack-env-secret-redeploy') {
+    return "a name the pack reads from its env is newly set only as a secret, which this pack service can't be given. Build the pack again and deploy that build: the new deployment's pack service can be given it";
   }
   return code.startsWith('pack-env-') ? PACK_SERVICE_PROBLEMS[code] : undefined;
 }

@@ -98,8 +98,9 @@ export interface SecretBinding {
    * method from `get` — different capability gate, different audit
    * event, different rate profile. Called by the runtime (handler
    * dispatch, deploy-time sync, boot — see `ResolveContext.caller`),
-   * not by the HTTP routes. Emits a `secret-resolved` compliance-evidence
-   * event on every call.
+   * not by the HTTP routes, but for the orchestrator's pack env read.
+   * Emits a `secret-resolved` compliance-evidence event on every call,
+   * but for caller `pack-env`, whose reader writes its own.
    */
   resolve(input: SecretResolveInput): Promise<Result<SecretResolveOutcome, SecretError>>;
 
@@ -386,7 +387,18 @@ export interface ResolveContext {
   readonly runId?: string;
   readonly deploymentId?: string;
   readonly nodeId?: string;
-  readonly caller: 'dispatch' | 'deploy-sync' | 'admin-cli' | 'boot-bridge' | 'webhook-receiver';
+  /**
+   * `pack-env`: the orchestrator's read of a deployment's pack env, which
+   * writes its own row per value it gives out, so a store doesn't emit one
+   * for it.
+   */
+  readonly caller:
+    | 'dispatch'
+    | 'deploy-sync'
+    | 'admin-cli'
+    | 'boot-bridge'
+    | 'webhook-receiver'
+    | 'pack-env';
 }
 
 export interface SecretResolveOutcome {

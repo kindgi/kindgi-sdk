@@ -50,7 +50,11 @@ import type {
   RunBuildResult,
   SyncSecretsBody,
 } from '../deploy/runners.js';
-import { packEnvProblemLines, packEnvSetCommand } from '../env/pack-env-hint.js';
+import {
+  packEnvProblemLines,
+  packEnvSecretSetCommand,
+  packEnvSetCommand,
+} from '../env/pack-env-hint.js';
 import {
   type PackEnvPlan,
   describePackEnvPlan,
@@ -606,10 +610,11 @@ function checkPackEnv(
 
 /**
  * A hosted deploy: Kindgi Cloud gives the pack service the env values set
- * in the workspace (`kindgi env set`), at the deployment's project, then its
- * org, then the tenant. `environments.<env>.env` in kindgi.config isn't
- * read there, so a config that gives any is refused before anything is
- * built or sent, naming each name and how to set it.
+ * in the workspace (`kindgi env set`, a secret with `kindgi secrets set`),
+ * at the deployment's project, then its org, then the tenant.
+ * `environments.<env>.env` in kindgi.config isn't read there, so a config
+ * that gives any is refused before anything is built or sent, naming each
+ * name and how to set it.
  */
 function refuseHostedConfigEnv(
   args: ResolvedDeployArgs,
@@ -619,16 +624,13 @@ function refuseHostedConfigEnv(
   if (!args.hosted || (plan.given.length === 0 && plan.problems.length === 0)) return undefined;
   const block = `environments.${args.envName}.env`;
   const names = plan.given.length === 0 ? '' : ` (${plan.given.join(', ')})`;
-  const command = packEnvSetCommand({
-    envName: args.envName,
-    ...(projectId !== undefined && { projectId }),
-    hasProjectMapping: false,
-  });
+  const target = { envName: args.envName, ...(projectId !== undefined && { projectId }) };
+  const command = packEnvSetCommand({ ...target, hasProjectMapping: false });
   const secrets = plan.entries.some((e) => e.source?.kind === 'secret')
-    ? ' A secret is read per call in a tool (`ctx.secrets`): a pack service on Kindgi Cloud is given plain values only.'
+    ? ` (a secret with \`${packEnvSecretSetCommand(target)}\`)`
     : '';
   return failure(
-    `kindgi deploy: on Kindgi Cloud the pack service gets the env values set in your workspace, not ${block} in kindgi.config${names}. Set each with \`${command}\`, then remove ${block} from kindgi.config and deploy again.${secrets}\n`,
+    `kindgi deploy: on Kindgi Cloud the pack service gets the env values set in your workspace, not ${block} in kindgi.config${names}. Set each with \`${command}\`${secrets}, then remove ${block} from kindgi.config and deploy again.\n`,
   );
 }
 

@@ -21,7 +21,11 @@ export interface PackEnvNameRecord {
   readonly kind: 'env' | 'secret' | null;
   readonly scope: PackEnvScopeRecord | null;
   readonly missing: boolean;
-  /** `ambiguous`, `secret-not-yet` or `missing`; a later runtime may add others. */
+  /**
+   * `ambiguous` or `missing`, or from an older runtime, `secret-not-yet`; a
+   * later runtime may add others. A name set only as a secret is
+   * `kind: 'secret'` with no problem: the orchestrator gives it.
+   */
   readonly problem?: string;
   /** `ambiguous` only: the secret's scope. */
   readonly secretScope?: PackEnvScopeRecord;
@@ -43,6 +47,14 @@ export function packEnvSetCommand(target: PackEnvHintTarget): string {
   return `kindgi env set NAME <value> --scope=${scope} --env=${target.envName}`;
 }
 
+/** The command that sets one of a deployment's names as a secret, `NAME` left to fill in: it asks for the value. */
+export function packEnvSecretSetCommand(
+  target: Omit<PackEnvHintTarget, 'hasProjectMapping'>,
+): string {
+  const scope = target.projectId !== undefined ? `project:${target.projectId}` : 'tenant';
+  return `kindgi secrets set NAME --scope=${scope} --env=${target.envName}`;
+}
+
 /** "API_BASE and SHOP_URL aren't set for staging. Set each with `kindgi env set …`." */
 export function packEnvHint(
   input: PackEnvHintTarget & { readonly names: readonly string[] },
@@ -54,8 +66,9 @@ export function packEnvHint(
 /**
  * What stands in the way of giving a deployment's pack service its env, a
  * sentence per reason: required names set nowhere (with `packEnvHint`),
- * names set only as secrets, names set both ways, and by its code a reason
- * a later runtime names. Empty when nothing does.
+ * names set only as secrets where an older runtime keeps secrets out of a
+ * pack service's environment, names set both ways, and by its code a
+ * reason a later runtime names. Empty when nothing does.
  */
 export function packEnvProblemLines(
   names: readonly PackEnvNameRecord[],
@@ -68,7 +81,7 @@ export function packEnvProblemLines(
   if (secretOnly.length > 0) {
     const one = secretOnly.length === 1;
     lines.push(
-      `${listNames(secretOnly)} ${one ? 'is' : 'are'} set only as ${one ? 'a secret' : 'secrets'}, which a pack service isn't given in its environment: a tool reads ${one ? 'it' : 'them'} per call (\`ctx.secrets\`).`,
+      `${listNames(secretOnly)} ${one ? 'is' : 'are'} set only as ${one ? 'a secret' : 'secrets'}, which this server keeps out of a pack service's environment: a tool reads ${one ? 'it' : 'them'} per call (\`ctx.secrets\`).`,
     );
   }
   for (const n of names.filter((x) => x.problem === 'ambiguous')) {

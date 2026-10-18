@@ -1926,7 +1926,7 @@ export const ERROR_ENTRIES = {
   },
   'system-scope-missing': {
     description:
-      "The system key doesn't hold the scope this request takes, which `scope` names: the route's own, or more for what the request asks (creating a tenant without `firstAdmin`, for one). Every `/v1/system/keys` route takes the full system capability, which a scoped key doesn't hold.",
+      "The system key doesn't hold the scope this request takes, which `scope` names: the route's own, or more for what the request asks (creating a tenant without `firstAdmin`, for one). Every `/v1/system/keys` route takes the full system capability, which a scoped key doesn't hold. A deployment's secret values (`secrets=values` on its pack env) take a key holding `system:pack-env` itself: `kindgi:system` doesn't stand in for it.",
     details: [
       {
         key: 'scope',
@@ -2530,6 +2530,16 @@ export const ERROR_ENTRIES = {
         key: 'imageRef',
         meaning: 'the image reference that was checked',
       },
+      {
+        key: 'cause',
+        meaning:
+          "when a registry read failed, why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't an archive the runtime can read), or `image-limit-exceeded` (the image is past one of the runtime's bounds on reading an image). Absent when the read succeeded and the check after it failed",
+      },
+      {
+        key: 'limit',
+        meaning:
+          "with `image-limit-exceeded`, the bound: `manifest`, `file`, `layer`, `read` or `unpack` are the image's own, so the same image is refused again; `tenant-unpack-hour` is the tenant's image reads in the last hour, and passes: deploy again after the wait the message names",
+      },
     ],
     seeAlso: ['POST /v1/deployments'],
   },
@@ -2676,6 +2686,18 @@ export const ERROR_ENTRIES = {
       "This server doesn't give a deployment's pack service the env its pack declares, so it lists none of its names: its pack services take theirs from how they're run. `kindgi env plan` lists the names a pack reads.",
     details: [],
     seeAlso: ['GET /v1/deployments/{deploymentId}/pack-env'],
+  },
+  'pack-env-unavailable': {
+    description:
+      "A deployment's pack env can't be given just now: its secret store failed or is rate-limited, a secret changed while it was read (twice), or the audit rows for its secrets weren't written. No value is given, and the message says which. Ask again; there's nothing for the pack's owner to do.",
+    details: [],
+    seeAlso: ['GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env'],
+  },
+  'pack-env-secrets-unaudited': {
+    description:
+      "A deployment's secret values were asked for (`secrets=values`) on a server with nowhere to audit them, so none is read or given. The server's operator sets up its audit store. A request without `secrets=values` isn't refused for this. A pack service held for this shows it as its deployment's problem: the platform's to fix, with nothing for the pack's owner to do.",
+    details: [],
+    seeAlso: ['GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env'],
   },
   'compliance-evidence-not-found': {
     description: 'No exportable compliance evidence record with that id exists under the tenant.',
