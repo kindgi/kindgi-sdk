@@ -5795,7 +5795,7 @@ export const ImproveBodySchema: JsonSchema = {
       type: 'string',
       enum: ['as-recorded', 'restricted-only'],
       description:
-        "Which judgments the pass learns from. Omit it for the project's default: everyone (`as-recorded`) until the project names an expert (restricted) judge class, then only trusted judgments (`restricted-only`).",
+        "Which judgments the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the pass's project or the agent improved has a restricted judge class, then only judgments recorded under one (`restricted-only`).",
     },
     objective: {
       type: 'string',
