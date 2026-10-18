@@ -44,6 +44,25 @@ export interface EnvironmentOrderBinding {
    * caller mistake resolves to an outcome, never a throw.
    */
   set(input: EnvironmentOrderSetInput): Promise<EnvironmentOrderSetOutcome>;
+
+  /**
+   * Where a project sits in its order, for the server-side reach and
+   * promotion logic — never the wire: the order it belongs to, that order's
+   * projects in position order, and the project's own position. `undefined`
+   * when the project is in no order. Returned whole, not visibility-filtered
+   * (an internal read). `orderId` is a stable, non-null key for equality
+   * only — `org:<orgId>` for an org order, `tenant:<tenantId>` for the
+   * tenant's — never parsed, never on the wire.
+   */
+  orderOf(input: EnvironmentOrderOfInput): Promise<EnvironmentOrderLocation | undefined>;
+
+  /**
+   * Whether the tenant runs any environment order at all — its own, or one
+   * of its orgs'. A cheap existence check for the paths that must change
+   * once a tenant has an order (e.g. a model call with no run scope open is
+   * refused rather than reading the tenant key). Reads only.
+   */
+  hasEnvironmentOrder(input: HasEnvironmentOrderInput): Promise<boolean>;
 }
 
 /** The tenant itself, or one of its orgs, as an order's parent. */
@@ -117,3 +136,26 @@ export type EnvironmentOrderSetOutcome =
       readonly projectId: ProjectId;
       readonly message: string;
     };
+
+export interface EnvironmentOrderOfInput {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+}
+
+/**
+ * A project's place in its order, for server-side logic. `projects` is the
+ * whole order in position order (0-based, contiguous); `position` indexes the
+ * queried project within it, so `projects[position]` is that project and
+ * `projects[position + 1]` is its next environment.
+ */
+export interface EnvironmentOrderLocation {
+  /** Stable, non-null equality key: `org:<orgId>` or `tenant:<tenantId>`. Never parsed, never on the wire. */
+  readonly orderId: string;
+  readonly parent: EnvironmentOrderParent;
+  readonly projects: readonly ProjectId[];
+  readonly position: number;
+}
+
+export interface HasEnvironmentOrderInput {
+  readonly tenantId: TenantId;
+}

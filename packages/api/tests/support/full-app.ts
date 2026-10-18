@@ -577,6 +577,8 @@ const noopEnvironmentOrderBinding: EnvironmentOrderBinding = {
     before: [],
     after: [],
   }),
+  orderOf: async () => undefined,
+  hasEnvironmentOrder: async () => false,
 };
 
 const noopSecretsBinding: SecretBinding = {

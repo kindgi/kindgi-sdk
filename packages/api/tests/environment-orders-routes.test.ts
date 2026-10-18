@@ -154,6 +154,21 @@ function fakeBinding(opts: FakeOptions): EnvironmentOrderBinding {
         after: [...projectIds],
       };
     },
+    async orderOf({ projectId }) {
+      for (const [key, pids] of orders) {
+        const position = pids.indexOf(projectId);
+        if (position < 0) continue;
+        const parent: EnvironmentOrderParent = key.startsWith('org:')
+          ? { kind: 'org', orgId: key.slice('org:'.length) as unknown as OrgId }
+          : { kind: 'tenant' };
+        return { orderId: key, parent, projects: [...pids], position };
+      }
+      return undefined;
+    },
+    async hasEnvironmentOrder() {
+      for (const pids of orders.values()) if (pids.length > 0) return true;
+      return false;
+    },
   };
 }
 
