@@ -34,6 +34,6 @@ public interface Model {
   default void validate() {
     Checks checks = new Checks();
     validate(checks);
-    checks.throwIfAny(getClass().getSimpleName());
+    checks.throwIfAny(getClass());
   }
 }

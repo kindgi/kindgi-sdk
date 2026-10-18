@@ -109,4 +109,26 @@ class ChecksTest {
         .isInstanceOf(ValidationException.class)
         .hasMessage("Holder is invalid: state: must be one of draft, live; history[0]: must be one of draft, live");
   }
+
+  /** A model with a check that isn't only for sending. */
+  private record Sized(List<String> items) implements Model {
+    @Override
+    public void validate(Checks checks) {
+      checks.maxItems("items", items, 1);
+    }
+  }
+
+  @Test
+  void aNestedModelIsNamedAfterTheClassItsIn() {
+    // As a union's variant is: `StartRunBody.WithAgent is invalid`.
+    assertThatThrownBy(() -> new Sized(List.of("a", "b")).validate())
+        .isInstanceOf(ValidationException.class)
+        .hasMessage("ChecksTest.Sized is invalid: items: must have at most 1 item");
+
+    Checks sending = Checks.sending();
+    new Holder(UNKNOWN, List.of(), Map.of()).validate(sending);
+    assertThatThrownBy(() -> sending.throwIfAny(Holder.class))
+        .isInstanceOf(ValidationException.class)
+        .hasMessage("ChecksTest.Holder is invalid: state: must be one of draft, live");
+  }
 }

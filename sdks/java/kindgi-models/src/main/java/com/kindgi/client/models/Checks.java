@@ -164,6 +164,23 @@ public final class Checks {
     }
   }
 
+  /**
+   * Throws when any check failed, naming the checked value by its class: a union's variant after
+   * its union ({@code StartRunBody.WithAgent}), as the API's other checks name its fields.
+   *
+   * @param type the checked value's class
+   * @throws ValidationException listing every problem
+   */
+  public void throwIfAny(Class<?> type) {
+    if (!violations.isEmpty()) {
+      String subject = type.getSimpleName();
+      for (Class<?> outer = type.getEnclosingClass(); outer != null; outer = outer.getEnclosingClass()) {
+        subject = outer.getSimpleName() + "." + subject;
+      }
+      throw new ValidationException(subject, violations);
+    }
+  }
+
   private String at(String name) {
     StringBuilder sb = new StringBuilder();
     for (String part : path) {

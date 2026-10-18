@@ -546,7 +546,7 @@ public final class Transport {
         // isn't sent back.
         Checks checks = Checks.sending();
         ((Model) r.json).validate(checks);
-        checks.throwIfAny(r.json.getClass().getSimpleName());
+        checks.throwIfAny(r.json.getClass());
       }
       body = mapper.writeValueAsBytes(r.json);
       headers.put("Content-Type", "application/json");

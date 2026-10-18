@@ -113,7 +113,7 @@ class KnownValuesOnSendTest {
     assertThat(body).isInstanceOf(ServiceAccountGrantBody.Unrecognized.class);
     assertThatThrownBy(() -> client.serviceAccounts().grant("acme-bot", body))
         .isInstanceOf(ValidationException.class)
-        .hasMessage("Unrecognized is invalid: kind: must be one of tenant-admin, tenant-member, project");
+        .hasMessage("ServiceAccountGrantBody.Unrecognized is invalid: kind: must be one of tenant-admin, tenant-member, project");
     assertThat(sent).isEmpty();
   }
 
