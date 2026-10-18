@@ -200,23 +200,43 @@ its version, before you make it live.
 2. **Try the new version by its version number.** In the console, choose
    it under **Version** in the **Start run** form. From the CLI, it's
    `kindgi runs start --agent=acme-desk.reply-drafter --agent-version=<new version> --input=…`.
-   This is a real run, in a project in production. It uses the project's
-   keys, and its tools do what they do.
+   This is a real run, in a project in production. It uses your
+   workspace's keys and secrets, and its tools do what they do.
 3. **Compare it on a test set,** if you have one. A comparison replays the
    test set's cases with the new version
    ([Compare a version on a test set](../../guides/evals/compare-an-agent-version/)).
 4. **Make it live:**
    `kindgi agents promote acme-desk.reply-drafter <new version> --project=<project-id> --reason=…`.
-   Runs use it from the next run.
+   Runs get it from the next run, except that a conversation that's
+   already open keeps the version it started with
+   ([Conversations keep their version](../../guides/evals/live-versions-reference/#conversations-keep-their-version)).
 5. **Roll back if you need to:**
    `kindgi agents rollback acme-desk.reply-drafter --project=<project-id> --reason=…`.
    This puts back the version that was live before, at once.
+
+Several new versions can wait at once. Each deploy that changes the code
+registers a version, and you can run any of them by its number. Promoting
+makes one of them live; the others stay, and you can still run them.
 
 [Release an agent version](../../guides/evals/release-an-agent-version/)
 shows each step, a release for some runs only, and a gate that needs a
 reviewer.
 [Live versions reference](../../guides/evals/live-versions-reference/) has
 every rule and refusal.
+
+### Secrets and keys aren't part of a version
+
+A version holds the agent, not its values. Each run reads its secrets and
+model keys when it runs, from your workspace's values on `prod`. So the live
+version and every version that's waiting read the same values:
+
+- A new secret that only the new version reads can go in before you
+  promote.
+- Changing a value that the live version reads changes live runs from the
+  next run, before you promote anything.
+- `kindgi deploy --sync-secrets` writes the pack's `.env.prod` values
+  right after the deploy, into those same values. So it can change what the
+  live version reads, though you haven't promoted the new version.
 
 ## If something goes wrong
 
