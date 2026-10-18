@@ -609,7 +609,9 @@ def test_a_rotations_kind_stays_closed_as_it_tells_the_two_answers_apart() -> No
 
 
 _OPEN_VALUES = json.loads(
-    (Path(__file__).resolve().parents[3] / "packages/specs/test-vectors/open-values/cases.json").read_text()
+    (
+        Path(__file__).resolve().parents[3] / "packages/specs/test-vectors/open-values/cases.json"
+    ).read_text()
 )
 
 
