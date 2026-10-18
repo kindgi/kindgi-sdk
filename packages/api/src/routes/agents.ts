@@ -35,7 +35,7 @@ import {
   type ItemServing,
   itemMiddleware,
   itemPathCheck,
-  liveScopeCheck,
+  liveChangeRefusal,
   readCheck,
   shownLatest,
   underItem,
@@ -163,6 +163,19 @@ export function agentsRouter(
       const mw = authorizer.authorize('read', () => ref('project', scopeProjectId));
       return mw(c, next);
     });
+    // Changing what's live is its own permission (`promote`, granted to the
+    // agent's admins), checked as a deployment's promotion that makes what
+    // it moved live checks it (`liveChangeRefusal`).
+    r.use('/:agentId/*', async (c, next) => {
+      if (!isPromotionWrite(c.req.method, c.req.path)) return next();
+      const refused = await liveChangeRefusal(c, {
+        authorizer,
+        rights: itemRights,
+        agentId: c.req.param('agentId') ?? '',
+        scope: await bodyScope(c),
+      });
+      return refused ?? next();
+    });
     // An agent more than one project serves is checked on those projects
     // instead (`item-rights.ts`, `agentCheck`).
     r.use(
@@ -173,13 +186,13 @@ export function agentsRouter(
         kind: 'agent',
         id: (c) => c.req.param('agentId') ?? '',
         // Deriving a version (POST …/versions) is `publish` on the agent;
-        // changing what's live is its own permission (`promote`, granted to
-        // the agent's admins); unregister and reinstate are `admin`.
+        // unregister and reinstate are `admin`. A change to what's live is
+        // checked above.
         today: (c) =>
           c.req.method === 'GET' || isPromotionCheck(c.req.method, c.req.path)
             ? 'read'
             : isPromotionWrite(c.req.method, c.req.path)
-              ? 'promote'
+              ? undefined
               : c.req.path.endsWith('/versions')
                 ? 'publish'
                 : 'admin',
@@ -205,9 +218,9 @@ export function agentsRouter(
    * What a route under an agent more than one project serves asks
    * (`item-rights.ts`). Reads are rules 1 and 2. A derived version is
    * made in the first environment of the agent's order, so deriving is
-   * `write` there (`deriveAgentVersion`). Changing what's live is `admin`
-   * where the scope is. Unregistering or reinstating a version is `admin`
-   * on each project it can run in; anything else, on each of the agent's.
+   * `write` there (`deriveAgentVersion`). Unregistering or reinstating a
+   * version is `admin` on each project it can run in; anything else, on
+   * each of the agent's. A change to what's live is `liveChangeRefusal`'s.
    */
   async function agentCheck(
     c: Context<AppEnv>,
@@ -216,7 +229,6 @@ export function agentsRouter(
     const under = underItem(c);
     if (c.req.method === 'GET') return readCheck(under);
     if (isPromotionCheck(c.req.method, c.req.path)) return { rule: 'read' };
-    if (isPromotionWrite(c.req.method, c.req.path)) return liveScopeCheck(await bodyScope(c));
     if (under.length === 1 && under[0] === 'versions') {
       const home = projects[0] as ProjectId;
       const tenantId = c.get('tenantId') as TenantId;
