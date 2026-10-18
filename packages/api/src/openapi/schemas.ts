@@ -10298,6 +10298,21 @@ export const DeploymentValueSchema: JsonSchema = {
   },
 };
 
+/** Wire response for `GET /v1/deployments/:deploymentId/values`. */
+export const DeploymentValueListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      description:
+        "Every value the deployment needs in the project: each tool's secrets and env values (in the deployment's order), then each model key by provider, then the pack service's env.",
+      items: { $ref: '#/components/schemas/DeploymentValue' },
+    },
+  },
+};
+
 /**
  * A deployment's pack service, as a tenant sees it (never its URL or
  * token). Present only when the server routes pack calls per deployment.
@@ -13673,6 +13688,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeploymentRecord', DeploymentRecordSchema],
   ['DeploymentValueNeededBy', DeploymentValueNeededBySchema],
   ['DeploymentValue', DeploymentValueSchema],
+  ['DeploymentValueList', DeploymentValueListSchema],
   ['DeploymentRegistrationBody', DeploymentRegistrationBodySchema],
   ['DeploymentCollectionPage', DeploymentCollectionPageSchema],
   ['DeploymentValidationDetails', DeploymentValidationDetailsSchema],

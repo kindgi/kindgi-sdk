@@ -10,6 +10,12 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **`deployments.values.list(deployment_id, project_id=…)` lists
+  what a deployment needs set in a project**, names only
+  (`GET /v1/deployments/{deploymentId}/values`). Each `DeploymentValue` says
+  what needs it, where a run finds it (`found_at`) and why it isn't ready
+  (`problem`), never the value. Without `project_id`, it's the deployment's
+  own project.
 - `kindgi`: **a webhook or schedule trigger can run as a service account.**
   `run_as_service_account_id` on `webhooks.register`,
   `webhooks.take_ownership`, `schedules.register` and

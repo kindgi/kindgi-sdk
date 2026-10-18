@@ -47,7 +47,7 @@ import {
   type DeploymentRegisterOutcome,
   serializeDeployment,
 } from '../deployment-binding.js';
-import type { DeploymentValuesDeps } from '../deployment-values.js';
+import { type DeploymentValuesDeps, deploymentValues } from '../deployment-values.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
@@ -76,10 +76,12 @@ import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
-import { capabilityRefusal } from './denied.js';
+import { capabilityRefusal, deniedBy } from './denied.js';
+import { carriedFor, servingProjectOf, valuesDepsFor } from './deployment-promotions.js';
 import { requireEnvName } from './env.js';
 import type { GuardrailWriteHook } from './guardrails.js';
 import { clampLimit } from './pagination.js';
+import { scopeResourceRef } from './scope-params.js';
 import { tenantResourceAccess } from './tenant-access.js';
 import { parseTimeInput } from './time-input.js';
 import type { ToolWriteHook } from './tools.js';
@@ -255,6 +257,24 @@ export interface DeploymentsRouterBindings {
   readonly auditEvents?: AuditEventBinding;
 }
 
+/**
+ * Whether the caller administers a scope, for a deployment's values in a
+ * project other than its own: there, the one a promotion would take it to,
+ * a tool's secret counts only at a scope the caller administers, as their
+ * promotion would record it, so the list says what that promotion's check
+ * would. (In its own project, every scope counts: the list says where a
+ * run there finds each value.) `undefined` without an authorizer: every
+ * scope.
+ */
+function callerAdministers(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  tenantId: TenantId,
+): ((scope: Scope) => Promise<boolean>) | undefined {
+  if (authorizer === undefined) return undefined;
+  return (scope) => authorizer.can(c, 'admin', scopeResourceRef(scope, tenantId));
+}
+
 export function deploymentsRouter(
   bindings: DeploymentsRouterBindings,
   authorizer?: Authorizer,
@@ -346,6 +366,77 @@ export function deploymentsRouter(
       );
     }
     return c.json(serializeDeployment(record));
+  });
+
+  // ---------- GET /:deploymentId/values ----------
+  // What the deployment needs set in a project before it serves there,
+  // names only (`deployment-values.ts`). It asks what listing secrets in
+  // that project asks, `admin` on it, on top of the tenant `read` above.
+  r.get('/:deploymentId/values', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const deploymentId = c.req.param('deploymentId');
+    const named = c.req.query('projectId');
+    if (named !== undefined && !UUID_RE.test(named)) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: '`projectId` must be a project id (a UUID)' },
+          requestId,
+        ),
+      );
+    }
+    const record = await bindings.deploymentRegistry.get({ tenantId, deploymentId });
+    if (record === null) {
+      c.status(statusFor('deployment-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'deployment-not-found',
+            message: `No deployment with id "${deploymentId}" under this tenant`,
+            deploymentId,
+          },
+          requestId,
+        ),
+      );
+    }
+    const own = await servingProjectOf(bindings, record);
+    const projectId = (named as ProjectId | undefined) ?? own;
+    if (projectId === undefined) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message:
+              "`projectId` is required: this runtime doesn't record the deployment's project",
+          },
+          requestId,
+        ),
+      );
+    }
+    const refused = await deniedBy(authorizer, c, 'admin', ref('project', projectId));
+    if (refused !== undefined) return refused;
+    if (named !== undefined && (await bindings.projectBinding?.get(tenantId, projectId)) === null) {
+      c.status(statusFor('project-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'project-not-found',
+            message: `\`projectId\` "${named}" names no project of this tenant`,
+          },
+          requestId,
+        ),
+      );
+    }
+    const administers = projectId === own ? undefined : callerAdministers(c, authorizer, tenantId);
+    const { carried } = await carriedFor(bindings, record);
+    const data = await deploymentValues(valuesDepsFor(bindings, administers), {
+      deployment: record,
+      carried,
+      projectId,
+    });
+    return c.json({ data });
   });
 
   // ---------- POST / (register a signed deployment) ----------

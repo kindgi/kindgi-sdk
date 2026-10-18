@@ -17889,6 +17889,22 @@
           }
         }
       },
+      "DeploymentValueList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "description": "Every value the deployment needs in the project: each tool's secrets and env values (in the deployment's order), then each model key by provider, then the pack service's env.",
+            "items": {
+              "$ref": "#/components/schemas/DeploymentValue"
+            }
+          }
+        }
+      },
       "DeploymentRegistrationBody": {
         "type": "object",
         "additionalProperties": false,
@@ -46562,6 +46578,95 @@
             },
             "required": true,
             "description": "Deployment id assigned by the ledger at register time."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/deployments/{deploymentId}/values": {
+      "get": {
+        "operationId": "deployments.values.list",
+        "summary": "List the values a deployment needs in a project",
+        "tags": [
+          "deployments"
+        ],
+        "responses": {
+          "200": {
+            "description": "The values, names only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentValueList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A `projectId` that isn't a project id, or none for a deployment whose project this runtime doesn't record (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `admin` on the project, or no `read` on the tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No deployment with that id under this tenant (`deployment-not-found`), or `projectId` names no project of this tenant (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), and `read` on the tenant, as every deployments route does.",
+        "parameters": [
+          {
+            "name": "deploymentId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Deployment id assigned by the ledger at register time."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "The project the values are needed in. Default: the deployment's own project (the tenant's Default project for a tenant-wide deployment)."
           }
         ],
         "security": [

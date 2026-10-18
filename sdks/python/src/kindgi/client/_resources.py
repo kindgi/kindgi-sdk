@@ -753,6 +753,9 @@ OPERATIONS: dict[str, Operation] = {
     "deployments.get": Operation(
         "deployments.get", "GET", "/v1/deployments/{deploymentId}", "json", False
     ),
+    "deployments.values.list": Operation(
+        "deployments.values.list", "GET", "/v1/deployments/{deploymentId}/values", "json", False
+    ),
     "deployments.syncSecrets": Operation(
         "deployments.syncSecrets", "POST", "/v1/deployments/{deploymentId}/secrets", "json", True
     ),
@@ -6862,11 +6865,40 @@ class IdentityResource:
         )
 
 
+class DeploymentsValuesResource:
+    """`client.deployments.values` — the `deployments.values` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        deployment_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.DeploymentValueList:
+        """List the values a deployment needs in a project. `GET /v1/deployments/{deploymentId}/values`
+
+        Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), and `read` on the tenant, as every deployments route does.
+        """
+        return self._client._request(
+            _OPERATIONS["deployments.values.list"],
+            path={"deploymentId": deployment_id},
+            query={"projectId": project_id},
+            headers={},
+            response=_models.DeploymentValueList,
+            timeout=timeout,
+        )
+
+
 class DeploymentsResource:
     """`client.deployments` — the `deployments` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
+        self.values = DeploymentsValuesResource(client)
 
     def list(
         self,
@@ -15268,11 +15300,40 @@ class AsyncIdentityResource:
         )
 
 
+class AsyncDeploymentsValuesResource:
+    """`client.deployments.values` — the `deployments.values` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        deployment_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.DeploymentValueList:
+        """List the values a deployment needs in a project. `GET /v1/deployments/{deploymentId}/values`
+
+        Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), and `read` on the tenant, as every deployments route does.
+        """
+        return await self._client._request(
+            _OPERATIONS["deployments.values.list"],
+            path={"deploymentId": deployment_id},
+            query={"projectId": project_id},
+            headers={},
+            response=_models.DeploymentValueList,
+            timeout=timeout,
+        )
+
+
 class AsyncDeploymentsResource:
     """`client.deployments` — the `deployments` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
+        self.values = AsyncDeploymentsValuesResource(client)
 
     async def list(
         self,

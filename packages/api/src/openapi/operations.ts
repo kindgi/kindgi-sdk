@@ -7069,6 +7069,48 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/deployments/:deploymentId/values',
+    openapiPath: '/v1/deployments/{deploymentId}/values',
+    operationId: 'deployments.values.list',
+    summary: 'List the values a deployment needs in a project',
+    description:
+      "Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), and `read` on the tenant, as every deployments route does.",
+    tags: ['deployments'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'deploymentId',
+        in: 'path',
+        required: true,
+        description: 'Deployment id assigned by the ledger at register time.',
+        schema: { type: 'string', minLength: 1 },
+      },
+      {
+        name: 'projectId',
+        in: 'query',
+        required: false,
+        description:
+          "The project the values are needed in. Default: the deployment's own project (the tenant's Default project for a tenant-wide deployment).",
+        schema: { type: 'string', minLength: 1 },
+      },
+    ],
+    responses: {
+      '200': {
+        description: 'The values, names only.',
+        schema: ref('DeploymentValueList'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "A `projectId` that isn't a project id, or none for a deployment whose project this runtime doesn't record (`bad-input`).",
+      ),
+      '403': ErrorResponse('No `admin` on the project, or no `read` on the tenant.'),
+      '404': ErrorResponse(
+        'No deployment with that id under this tenant (`deployment-not-found`), or `projectId` names no project of this tenant (`project-not-found`).',
+      ),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/deployments/:deploymentId/secrets',
     openapiPath: '/v1/deployments/{deploymentId}/secrets',

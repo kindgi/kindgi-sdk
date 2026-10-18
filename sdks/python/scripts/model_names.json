@@ -146,6 +146,7 @@
   "DeploymentSecretsSyncResponse": ["DeploymentSecretsSyncResponse"],
   "DeploymentValidationDetails": ["DeploymentValidationDetails"],
   "DeploymentValue": ["DeploymentValue"],
+  "DeploymentValueList": ["DeploymentValueList"],
   "DeploymentValueNeededBy": ["DeploymentValueNeededBy"],
   "DeriveAgentVersionBody": ["DeriveAgentVersionBody"],
   "Domain": [
