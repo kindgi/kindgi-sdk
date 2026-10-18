@@ -167,11 +167,14 @@ export async function setScoped(
   const env = ctx.client().env;
   try {
     const existing = await env.get({ scope, envName: envName as EnvName, name: key });
-    if (existing !== null && existing.value === value) {
+    const same = existing !== null && existing.value === value;
+    // With --force, the same value is set again: a new revision, which a
+    // pack service whose new values didn't start tries again.
+    if (same && ctx.options.force !== true) {
       return ok(
         { envName, scope: describeScope(scope), key, changed: false, revision: existing.revision },
         ctx,
-        `\n  ✓ ${key} is already set to that value at ${where}: no change.\n\n`,
+        `\n  ✓ ${key} is already set to that value at ${where}: no change. Re-run with --force to set it again: on Kindgi Cloud, a pack service whose new values didn't start tries them again.\n\n`,
       );
     }
     if (existing !== null && ctx.options.force !== true) {
@@ -197,7 +200,9 @@ export async function setScoped(
     }
     const lines = [
       '',
-      `  ✓ ${existing !== null ? 'Updated' : 'Set'} ${key} at ${where}. A tool that declares it (\`needsSpec.env\`) gets it on its next call.`,
+      same
+        ? `  ✓ Set ${key} again at ${where}, to the same value: a new revision.`
+        : `  ✓ ${existing !== null ? 'Updated' : 'Set'} ${key} at ${where}. A tool that declares it (\`needsSpec.env\`) gets it on its next call.`,
       ...(warning !== undefined ? ['', `  ⚠ ${warning}`] : []),
       '',
       '',

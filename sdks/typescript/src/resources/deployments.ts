@@ -20,6 +20,8 @@ import type {
   DeploymentRegistrationBody,
   DeploymentSecretsSyncRequest,
   DeploymentSecretsSyncResponse,
+  PackEnvNameStatus,
+  PackEnvNames,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 
@@ -28,6 +30,7 @@ export type DeploymentPage = DeploymentCollectionPage;
 export type RegisterDeploymentInput = DeploymentRegistrationBody;
 export type SyncSecretsInput = DeploymentSecretsSyncRequest;
 export type SyncSecretsResult = DeploymentSecretsSyncResponse;
+export type { PackEnvNameStatus, PackEnvNames };
 
 export interface ListDeploymentsFilter {
   readonly limit?: number;
@@ -57,6 +60,15 @@ export interface DeploymentsClient {
     input: SyncSecretsInput,
     options?: { readonly idempotencyKey?: string },
   ): Promise<SyncSecretsResult>;
+  /**
+   * Where each name the deployment's pack declares is set, on a server that
+   * gives each pack service the env its pack declares; never a value. 501
+   * `pack-env-not-served` where pack services take their env from how
+   * they're run.
+   *
+   * @wire GET /v1/deployments/:deploymentId/pack-env
+   */
+  packEnv(deploymentId: string): Promise<PackEnvNames>;
 }
 
 export function makeDeploymentsClient(transport: Transport): DeploymentsClient {
@@ -93,6 +105,12 @@ export function makeDeploymentsClient(transport: Transport): DeploymentsClient {
         path: `/v1/deployments/${encodeURIComponent(deploymentId)}/secrets`,
         body: input,
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+    async packEnv(deploymentId) {
+      return transport.request<PackEnvNames>({
+        method: 'GET',
+        path: `/v1/deployments/${encodeURIComponent(deploymentId)}/pack-env`,
       });
     },
   };

@@ -82,6 +82,12 @@ export const CLI_DEFAULTS = {
     tenant:
       "none (no check); an inline build takes the env block's `tenantId`, else `KINDGI_TENANT_ID`",
   },
+  'deployments list': {
+    cursor: 'none',
+    'image-ref-prefix': 'none',
+    limit: '`25` (at most `100`)',
+    'signer-key-id': 'none',
+  },
   test: {
     path: 'the current directory',
     reporter: "vitest's own reporter",
@@ -236,6 +242,16 @@ export const CLI_DEFAULTS = {
   'projects list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
+  },
+  'projects create': {
+    description: 'none',
+    name: 'required',
+    org: 'none (a project in no org)',
+    slug: 'the name as a slug: lowercase letters and digits, accents dropped, each run of anything else `-`, at most 63 characters (`Support bot` is `support-bot`, `Café` is `cafe`)',
+  },
+  'projects rename': {
+    name: 'unchanged',
+    slug: 'unchanged',
   },
   'runs list': {
     agent: 'none',
@@ -536,9 +552,13 @@ export const CLI_DEFAULTS = {
     label: 'none',
     overlap: '`skip`',
     project: "the tenant's Default project",
+    'run-as': 'none (you own the schedule)',
     segment: 'none',
     'starting-deadline': '`600` (seconds)',
     timezone: '`UTC`',
+  },
+  'schedules take-ownership': {
+    'run-as': 'none (you own the schedule)',
   },
   'schedules update': {
     agent: 'unchanged',
@@ -571,6 +591,7 @@ export const CLI_DEFAULTS = {
     preset: 'none (with no `--signature-header` either: a hex HMAC-SHA256 in `X-Kindgi-Signature`)',
     project: "the tenant's Default project",
     'rate-limit': '`600` a minute',
+    'run-as': 'none (you own the trigger)',
     secret: 'required',
     'signature-encoding': 'required with `--signature-header`',
     'signature-header': 'none',
@@ -598,6 +619,57 @@ export const CLI_DEFAULTS = {
   'webhooks fires': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
+  },
+  'webhooks take-ownership': {
+    'run-as': 'none (you own the trigger)',
+  },
+  'sites register': {
+    'allowed-role': '`administrator` and `shop_manager`',
+    'approvals-url': 'required',
+    name: 'required',
+    'new-people-per-day': '`20`',
+    origin: 'required',
+    'people-cap': '`50`',
+    project: "the tenant's Default project",
+    'reviewer-ceiling': '`standard`',
+    'role-map':
+      'both default roles may ask, and decide as `standard` reviewers; with `--allowed-role` alone, the entries of the roles it allows',
+    vouching: '`on`',
+  },
+  'sites code': {
+    project: "the tenant's Default project",
+  },
+  'sites list': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+    project: "the tenant's Default project",
+  },
+  'sites get': {
+    project: "the tenant's Default project",
+  },
+  'sites update': {
+    'allowed-role': 'unchanged',
+    'approvals-url': 'unchanged',
+    name: 'unchanged',
+    'new-people-per-day': 'unchanged',
+    origin: 'unchanged',
+    'people-cap': 'unchanged',
+    project: "the tenant's Default project",
+    'reviewer-ceiling': 'unchanged',
+    'role-map': 'unchanged; with `--allowed-role` alone, the entries of the roles still allowed',
+    vouching: 'unchanged',
+  },
+  'sites pause': {
+    project: "the tenant's Default project",
+  },
+  'sites resume': {
+    project: "the tenant's Default project",
+  },
+  'sites revoke-key': {
+    project: "the tenant's Default project",
+  },
+  'sites unregister': {
+    project: "the tenant's Default project",
   },
   'approvals list': {
     'assigned-to': 'none (all approvals your role can see)',
@@ -800,6 +872,9 @@ export const CLI_DEFAULTS = {
     email: 'none',
     name: 'required',
   },
+  'sign-in settings': {
+    'require-second-factor': 'unchanged: the settings are read',
+  },
   'people list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
@@ -844,6 +919,19 @@ export const CLI_DEFAULTS = {
     severity: '`medium`',
     title: 'required',
   },
+  'feedback submit': {
+    'access-url': '`https://access.kindgi.com`',
+    path: 'the current directory',
+    yes: 'none: at a terminal it asks; with no terminal, nothing is sent',
+  },
+  'feedback status': {
+    'access-url': '`https://access.kindgi.com`',
+    path: 'the current directory',
+  },
+  'feedback withdraw': {
+    'access-url': '`https://access.kindgi.com`',
+    path: 'the current directory',
+  },
   doctor: {
     path: 'the current directory',
   },
@@ -851,11 +939,13 @@ export const CLI_DEFAULTS = {
 
 /** The global flags' defaults, as `CLI_DEFAULTS`. */
 export const GLOBAL_FLAG_DEFAULTS = {
+  hosted:
+    "off, unless the env the command acts in has `build: 'hosted'` in `kindgi.config.ts` (`--env`, else `staging` for `kindgi build` and `kindgi deploy`)",
   json: 'on when no format flag is given: pretty JSON (commands for people, such as `kindgi dev`, print JSON only when asked)',
   table: 'off; a command with no table prints JSON',
   token:
-    "`KINDGI_API_TOKEN`, then a stored key: `./.kindgirc.json`'s, then `~/.kindgi/config.json`'s, and when those are for different addresses, the one stored with the API URL. A stored key goes only to the address stored with it: a command that would send it elsewhere is refused before it sends anything. None of them set: a command that calls the API fails",
-  url: '`KINDGI_API_URL`, then `./.kindgirc.json`, then `~/.kindgi/config.json`; none of them set: a command that calls the API fails',
+    "`KINDGI_API_TOKEN`, then a stored key: `./.kindgirc.json`'s, then `~/.kindgi/config.json`'s, and when those are for different addresses, the one stored with the API URL. A stored key goes only to the address stored with it: a command that would send it elsewhere is refused before it sends anything. With `--hosted`, a `kindgi dev` runtime's `./.kindgirc.json` isn't read. None of them set: a command that calls the API fails",
+  url: "`KINDGI_API_URL`, then `./.kindgirc.json`, then `~/.kindgi/config.json`; with `--hosted`, a `kindgi dev` runtime's `./.kindgirc.json` isn't read. None of them set: a command that calls the API fails",
 };
 
 /**
@@ -908,6 +998,24 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Print the console URL of a given runtime without opening a browser.',
       line: 'kindgi console --no-open --url=http://127.0.0.1:4000',
+    },
+  ],
+  'deployments get': [
+    {
+      purpose:
+        "See a deployment's pack service now: when it runs on the values it was last given, why, and the command that sets what's missing.",
+      line: 'kindgi deployments get <deployment-id>',
+    },
+    {
+      purpose: 'The deployment as the API answers it, with its pack service in `endpoint`.',
+      line: 'kindgi deployments get <deployment-id> --json',
+    },
+  ],
+  'deployments list': [
+    {
+      purpose:
+        "Find a deployment's id, with each one's pack service: ready, held on its last values (with the code), pending or cleared.",
+      line: 'kindgi deployments list --table',
     },
   ],
   'env unset': [
@@ -1069,6 +1177,26 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Show one project by id.',
       line: 'kindgi projects get <project-id>',
+    },
+  ],
+  'projects create': [
+    {
+      purpose: 'Make a project, with the slug `support-bot`, and print it with its id.',
+      line: 'kindgi projects create --name="Support bot"',
+    },
+    {
+      purpose: 'Make a project in an org, with a slug of your own.',
+      line: 'kindgi projects create --name=Support --slug=support --org=<org-id> --description="Answers the support inbox"',
+    },
+  ],
+  'projects rename': [
+    {
+      purpose: "Change a project's name; its slug stays.",
+      line: 'kindgi projects rename <project-id> --name=Storefront',
+    },
+    {
+      purpose: 'Change its name and its slug.',
+      line: 'kindgi projects rename <project-id> --name=Storefront --slug=storefront',
     },
   ],
   'agents list': [
@@ -1353,6 +1481,70 @@ export const CLI_EXAMPLES = {
       line: 'kindgi webhooks unregister <trigger-id>',
     },
   ],
+  'sites register': [
+    {
+      purpose:
+        'Register a WordPress store on the Default project, with the origin and the approvals URL its Kindgi → Settings page shows; the one-time code is shown once.',
+      line: "kindgi sites register --name='Acme store' --origin=https://acme-store.example --approvals-url='https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}'",
+    },
+    {
+      purpose: 'Let only shop managers sign in, as senior reviewers.',
+      line: `kindgi sites register --name='Acme store' --origin=https://acme-store.example --approvals-url='https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}' --allowed-role=shop_manager --reviewer-ceiling=senior --role-map='{"shop_manager": {"ask": true, "reviewer": "senior"}}'`,
+    },
+  ],
+  'sites code': [
+    {
+      purpose: 'A new one-time code: to connect the site again, or to replace its key.',
+      line: 'kindgi sites code <site-id>',
+    },
+  ],
+  'sites list': [
+    {
+      purpose: "The Default project's sites, with their state and keys.",
+      line: 'kindgi sites list --table',
+    },
+  ],
+  'sites get': [
+    {
+      purpose: "A site's settings, and its keys' thumbprints to compare with the plugin's.",
+      line: 'kindgi sites get <site-id>',
+    },
+  ],
+  'sites update': [
+    {
+      purpose: 'Allow more people from the site.',
+      line: 'kindgi sites update <site-id> --people-cap=100 --new-people-per-day=40',
+    },
+    {
+      purpose:
+        "Stop the site's administrators signing in; shop managers keep what the role map gives them.",
+      line: 'kindgi sites update <site-id> --allowed-role=shop_manager',
+    },
+  ],
+  'sites pause': [
+    {
+      purpose: "Stop a site's sign-ins and end its people's sessions now.",
+      line: 'kindgi sites pause <site-id>',
+    },
+  ],
+  'sites resume': [
+    {
+      purpose: "Let a paused site's people sign in again.",
+      line: 'kindgi sites resume <site-id>',
+    },
+  ],
+  'sites revoke-key': [
+    {
+      purpose: "Refuse what a site's key signs from now on.",
+      line: 'kindgi sites revoke-key <site-id> <kid>',
+    },
+  ],
+  'sites unregister': [
+    {
+      purpose: 'Remove a site; the people it signed in stay, with their records.',
+      line: 'kindgi sites unregister <site-id>',
+    },
+  ],
   'reviewers get': [
     {
       purpose: 'Show one reviewer.',
@@ -1585,10 +1777,54 @@ export const CLI_EXAMPLES = {
       line: 'kindgi service-accounts unregister <service-account-id>',
     },
   ],
+  'people add': [
+    {
+      purpose: 'Add a person and email them their invitation.',
+      line: 'kindgi people add --name="Sam Lee" --email=sam@acme.example',
+    },
+    {
+      purpose: 'Add a person without emailing the invitation: you tell them.',
+      line: 'kindgi people add --name="Sam Lee" --email=sam@acme.example --no-invite',
+    },
+  ],
+  'people invite': [
+    {
+      purpose: "Send a person's invitation again, with a new expiry.",
+      line: 'kindgi people invite <user-id>',
+    },
+  ],
+  'people second-factor': [
+    {
+      purpose:
+        'See whether a person has a second factor set up, and how many recovery codes are left.',
+      line: 'kindgi people second-factor <user-id>',
+    },
+  ],
+  'people reset-second-factor': [
+    {
+      purpose:
+        'Remove the second factor of a person who lost their phone: they set one up again at their next sign-in.',
+      line: 'kindgi people reset-second-factor <user-id>',
+    },
+  ],
+  'sign-in settings': [
+    {
+      purpose: 'See whether signing in takes a second factor.',
+      line: 'kindgi sign-in settings',
+    },
+    {
+      purpose: 'Require a second factor at sign-in (set up your own first).',
+      line: 'kindgi sign-in settings --require-second-factor=on',
+    },
+  ],
   'people list': [
     {
       purpose: 'Find people whose name starts with Sam.',
       line: 'kindgi people list --query=Sam',
+    },
+    {
+      purpose: "List the people invited who haven't signed in yet.",
+      line: 'kindgi people list --pending --table',
     },
     {
       purpose: 'List everyone, removed people too, as a table.',
@@ -1650,8 +1886,43 @@ export const CLI_EXAMPLES = {
   'feedback submit': [
     {
       purpose:
-        'It exits with status `1` and says where the entries are kept: `FEEDBACK.md` at the pack root, to commit or send.',
-      line: 'kindgi feedback submit',
+        'Print exactly what would be sent, after redaction, with its digest. Nothing is sent.',
+      line: 'kindgi feedback submit --preview',
+    },
+    {
+      purpose: 'After the person says yes to that preview, send exactly it.',
+      line: 'kindgi feedback submit --yes=<digest>',
+    },
+    {
+      purpose: 'Preview one entry by its id, to send it (again) on its own.',
+      line: 'kindgi feedback submit 2026-10-15.1 --preview',
+    },
+  ],
+  'feedback status': [
+    {
+      purpose: 'Ask what became of the reports sent: at most once a day each.',
+      line: 'kindgi feedback status',
+    },
+    {
+      purpose: "Ask about one now, by its entry's id or its report id.",
+      line: 'kindgi feedback status 2026-10-15.1',
+    },
+  ],
+  'feedback withdraw': [
+    {
+      purpose: 'Take a report back: the intake clears its text at once.',
+      line: 'kindgi feedback withdraw 2026-10-15.1',
+    },
+  ],
+  egress: [
+    {
+      purpose:
+        "Print the addresses this deployment's calls come from, to admit them on a site that admits only known addresses.",
+      line: 'kindgi egress',
+    },
+    {
+      purpose: "Both lists as JSON, for a script that writes the site's firewall rule.",
+      line: 'kindgi egress --json',
     },
   ],
   health: [
@@ -1672,13 +1943,17 @@ export const CLI_EXAMPLES = {
 export const CLI_GROUP_SEE_ALSO = {
   auth: ['start/install', 'deploy/people-and-keys'],
   upgrade: ['start/quickstart-java', 'start/quickstart-scala'],
-  console: ['deploy/sign-in', 'start/introduction'],
+  console: ['deploy/self-hosted/sign-in', 'start/introduction'],
+  sites: ['deploy/self-hosted/sign-in', 'sites/wordpress'],
+  'sign-in': ['deploy/self-hosted/sign-in', 'deploy/people-and-keys'],
   'mcp-launch': ['guides/tools/mcp-servers'],
+  deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
   flows: ['guides/flows/write-a-flow', 'guides/flows/index'],
   capabilities: ['guides/agents/choose-a-model'],
   adapters: ['guides/models/index', 'guides/models/serve-your-own-model'],
   feedback: ['start/coding-agents'],
-  health: ['deploy/operate'],
+  egress: ['deploy/self-hosted/egress-addresses'],
+  health: ['deploy/self-hosted/operate'],
   version: ['start/install'],
 };

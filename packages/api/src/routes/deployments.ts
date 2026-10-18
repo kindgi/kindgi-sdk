@@ -16,6 +16,7 @@ import {
   createCheckRegistry,
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
+import { resolvePackEnv } from '@kindgi/handler-runtime/pack-env';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
 import { SchemaCompileBudgetError, compileInlineSchema } from '@kindgi/schema';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
@@ -46,15 +47,17 @@ import {
   type DeploymentRegisterOutcome,
   endpointToWire,
 } from '../deployment-binding.js';
-import { statusFor, toWireError } from '../errors.js';
+import type { EnvBinding } from '../env-binding.js';
+import { type WireErrorBody, statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
 import { type FlowPinsLive, publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
 import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
 import { imageRefWithin, parseImagePrefix, parseImageRef } from '../image-ref.js';
-import type { ImageRegistryBinding } from '../image-registry-binding.js';
+import type { ImageRegistryBinding, ImageRegistryError } from '../image-registry-binding.js';
 import type { LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
+import { packEnvCheck } from '../pack-env.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { PublishRefused } from '../publish-refused.js';
 import {
@@ -68,7 +71,7 @@ import {
 } from '../reference-scope.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
 import { secretScopesFor, toolSecretRefs } from '../secret-scope.js';
-import type { SecretBinding } from '../secrets-binding.js';
+import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
@@ -225,6 +228,16 @@ export interface DeploymentsRouterBindings {
   /** The env this deployment serves: where a pack tool's declared secrets are read (`secret-scope.ts`). */
   readonly envName?: EnvName;
   /**
+   * Whether the server gives each deployment's pack service the values of
+   * the env its pack declares, from the env store (`pack-env.ts`): a server
+   * that runs a pack service per deployment. Otherwise a pack service takes
+   * its env from how it's run, and `GET /:deploymentId/pack-env` answers
+   * `501 pack-env-not-served`.
+   */
+  readonly packEnvServed?: boolean;
+  /** Where a pack's declared names are looked for, with `secretsBinding` and `projectBinding`. */
+  readonly envBinding?: EnvBinding;
+  /**
    * Called for each tool and guardrail a new deployment registered, as
    * `POST /v1/tools` and `POST /v1/guardrails` call them, so a runtime
    * that caches the catalogs (its tool and guardrail bridges) sees the
@@ -326,6 +339,65 @@ export function deploymentsRouter(
       );
     }
     return c.json(serializeDeployment(record));
+  });
+
+  // ---------- GET /:deploymentId/pack-env ----------
+  // Where each name its pack declares is set, at the deployment's scopes:
+  // never a value.
+  r.get('/:deploymentId/pack-env', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const deploymentId = c.req.param('deploymentId');
+    const env = bindings.envBinding;
+    const envName = bindings.envName;
+    if (bindings.packEnvServed !== true || env === undefined || envName === undefined) {
+      c.status(statusFor('pack-env-not-served') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'pack-env-not-served',
+            message:
+              "This server doesn't give a deployment's pack service the env its pack declares: its pack services take theirs from how they're run (`kindgi env plan`).",
+          },
+          requestId,
+        ),
+      );
+    }
+    const record = await bindings.deploymentRegistry.get({ tenantId, deploymentId });
+    if (record === null) {
+      c.status(statusFor('deployment-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'deployment-not-found',
+            message: `No deployment with id "${deploymentId}" under this tenant`,
+            deploymentId,
+          },
+          requestId,
+        ),
+      );
+    }
+    const check = await packEnvCheck(
+      {
+        env,
+        ...(bindings.secretsBinding !== undefined && { secrets: bindings.secretsBinding }),
+        ...(bindings.projectBinding !== undefined && { projects: bindings.projectBinding }),
+      },
+      {
+        tenantId,
+        ...(record.projectId !== undefined && { projectId: record.projectId }),
+        envName,
+        declaration: record.packEnv ?? { required: [], optional: [] },
+        // The orchestrator gives a secret, or records why it can't on the
+        // deployment's endpoint: here it's set, with no problem.
+        secretOnly: 'set',
+      },
+    );
+    return c.json({
+      envName,
+      data: check.names,
+      ...(check.problem !== undefined && { problem: check.problem }),
+    });
   });
 
   // ---------- POST / (register a signed deployment) ----------
@@ -475,15 +547,7 @@ export function deploymentsRouter(
     if (head.kind === 'err') {
       c.status(statusFor('image-unverifiable') as never);
       return c.json(
-        toWireError(
-          {
-            code: 'image-unverifiable',
-            message: `Image head probe failed: ${head.error.message}`,
-            imageRef: wire.imageRef,
-            cause: head.error.code,
-          },
-          requestId,
-        ),
+        registryRefusal('Image head probe failed', head.error, wire.imageRef, requestId),
       );
     }
     if (head.value.digest !== imageDigest) {
@@ -508,13 +572,10 @@ export function deploymentsRouter(
     if (indexFile.kind === 'err') {
       c.status(statusFor('image-unverifiable') as never);
       return c.json(
-        toWireError(
-          {
-            code: 'image-unverifiable',
-            message: `Extract /app/index.json failed: ${indexFile.error.message}`,
-            imageRef: wire.imageRef,
-            cause: indexFile.error.code,
-          },
+        registryRefusal(
+          'Extract /app/index.json failed',
+          indexFile.error,
+          wire.imageRef,
           requestId,
         ),
       );
@@ -545,6 +606,22 @@ export function deploymentsRouter(
           {
             code: 'image-unverifiable',
             message: 'Image /app/index.json is not a JSON object',
+            imageRef: wire.imageRef,
+          },
+          requestId,
+        ),
+      );
+    }
+    // The names its pack service reads from its process env, as the build
+    // validated them: a signed index that doesn't is refused, never kept.
+    const declaredEnv = resolvePackEnv(imageIndex.env);
+    if (declaredEnv.kind === 'err') {
+      c.status(statusFor('image-unverifiable') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'image-unverifiable',
+            message: `Image /app/index.json's env is malformed: ${declaredEnv.message}`,
             imageRef: wire.imageRef,
           },
           requestId,
@@ -886,6 +963,7 @@ export function deploymentsRouter(
               message: `${cause.message}; nothing was deployed`,
               primitive: cause.primitive,
               id: cause.id,
+              ...(cause.endpointId !== undefined && { endpointId: cause.endpointId }),
             },
             requestId,
           ),
@@ -932,6 +1010,7 @@ export function deploymentsRouter(
         primitives,
         ...(wire.projectId !== undefined && { projectId: wire.projectId }),
         ...(typeof imageIndex.packId === 'string' && { packId: imageIndex.packId }),
+        ...(declaredEnv.value !== undefined && { packEnv: declaredEnv.value }),
         packChecks: [
           ...new Set(
             validated.guardrails
@@ -1137,6 +1216,29 @@ export function deploymentsRouter(
       } else {
         parsed.push({ kind: 'value', name: e.name, value: e.value as string });
       }
+    }
+
+    // A new inline secret's name is held to the shared grammar before any
+    // write, so a refusal leaves nothing half-written. A name that passes
+    // needs no store read; a name that fails is refused unless it's already
+    // stored (an `add-version` to a name written before this release).
+    for (const entry of parsed) {
+      if (entry.kind !== 'value') continue;
+      const nameRefusal = secretNameGrammarRefusal(entry.name);
+      if (nameRefusal === undefined) continue;
+      const existing = await bindings.secretsBinding.get({ scope, envName, name: entry.name });
+      if (existing !== null) continue;
+      c.status(statusFor(nameRefusal.code) as never);
+      return c.json(
+        toWireError(
+          {
+            code: nameRefusal.code,
+            message: `secrets[${entry.name}]: ${nameRefusal.message}`,
+            name: entry.name,
+          },
+          requestId,
+        ),
+      );
     }
 
     let resolvedCount = 0;
@@ -2283,6 +2385,9 @@ function serializeDeployment(d: Deployment): Record<string, unknown> {
     activatedAt: d.activatedAt,
     ...(d.projectId !== undefined && { projectId: d.projectId as unknown as string }),
     ...(d.endpoint !== undefined && { endpoint: endpointToWire(d.endpoint) }),
+    ...(d.packEnv !== undefined && {
+      packEnv: { required: [...d.packEnv.required], optional: [...d.packEnv.optional] },
+    }),
     primitives: {
       tools: d.primitives.tools,
       guardrails: d.primitives.guardrails,
@@ -2322,6 +2427,32 @@ async function notifyWrites(
       // Advisory, as on `POST /v1/guardrails`.
     }
   }
+}
+
+/**
+ * A registry read that failed, as `image-unverifiable`: `details.cause`
+ * is the binding's code, and `details.limit` the bound that refused the
+ * image, when one did. Built here, not by `toWireError`, which keeps a
+ * domain error's `cause` off the wire.
+ */
+function registryRefusal(
+  step: string,
+  error: ImageRegistryError,
+  imageRef: string,
+  requestId: string,
+): WireErrorBody {
+  return {
+    error: {
+      code: 'image-unverifiable',
+      message: `${step}: ${error.message}`,
+      details: {
+        imageRef,
+        cause: error.code,
+        ...(error.code === 'image-limit-exceeded' && { limit: error.limit }),
+      },
+      requestId,
+    },
+  };
 }
 
 // Formats a sha256 digest in the canonical `sha256:<hex>` shape. Not used

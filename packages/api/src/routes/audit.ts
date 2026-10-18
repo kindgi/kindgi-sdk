@@ -73,6 +73,9 @@ export const SIGN_IN_EVENT_KINDS = [
   'sign-in-link-capped',
   'sessions-revoked',
   'sessions-ended',
+  'second-factor-set-up',
+  'second-factor-removed',
+  'recovery-codes-replaced',
 ] as const;
 type SignInEventKind = (typeof SIGN_IN_EVENT_KINDS)[number];
 

@@ -46,6 +46,8 @@ export const ENV_DEFAULTS = {
     'none (with `KINDGI_AUTH_SECRET` unset): sign-in with identity providers is off',
   KINDGI_AUTH_SECRET:
     'none (with `KINDGI_AUTH_SECRET_PATH` unset): sign-in with identity providers is off',
+  KINDGI_AUTH_PREVIOUS_SECRET_PATH: 'none: no previous secret',
+  KINDGI_AUTH_PREVIOUS_SECRET: 'none: no previous secret',
   KINDGI_AUTH_PRIVATE_IDP_ORIGINS: 'none: none; only public HTTPS identity providers are allowed',
   KINDGI_AUTH_VERIFIED_DOMAINS:
     "none: none; a runtime serving one tenant routes that tenant's domains without it, one serving several routes no domain",
@@ -66,8 +68,11 @@ export const ENV_DEFAULTS = {
     'none (with `KINDGI_AUTH_EMAIL_SMTP_URL_PATH` unset): the emailed sign-in link is off',
   KINDGI_AUTH_EMAIL_SMTP_URL_PATH: 'none: no SMTP URL file',
   KINDGI_REVIEWER_EMAIL: '`off`',
+  KINDGI_SITE_SIGN_IN: '`false`: no site signs anyone in',
   KINDGI_AUTH_EMAIL_FROM: 'none: the emailed sign-in link is off (required with the SMTP URL)',
   KINDGI_AUTH_EMAIL_LINK_DAILY_CAP: '`20` links a day (a whole number from 1 to 1000)',
+  KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP:
+    '`500` invitation emails in 24 hours, all tenants together (a whole number from 1 to 100000)',
   KINDGI_AUTH_TURNSTILE_SECRET:
     'none (with `KINDGI_AUTH_TURNSTILE_SECRET_PATH` unset): no Turnstile check on emailed-link requests',
   KINDGI_AUTH_TURNSTILE_SECRET_PATH: 'none: no Turnstile secret file',
@@ -86,6 +91,10 @@ export const ENV_DEFAULTS = {
   KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS_PATH: 'none: no retired export keys are listed',
   KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS: 'none: no retired export keys are listed',
   KINDGI_CORS_ORIGINS: 'none: no CORS headers on any route',
+  KINDGI_EGRESS_SERVER_ADDRESSES:
+    'none: no server addresses are published (with `KINDGI_EGRESS_DEPLOYMENT_ADDRESSES` unset too, `GET /v1/tenant` has no `egress`)',
+  KINDGI_EGRESS_DEPLOYMENT_ADDRESSES:
+    'none: no deployment addresses are published (with `KINDGI_EGRESS_SERVER_ADDRESSES` unset too, `GET /v1/tenant` has no `egress`)',
   KINDGI_RUN_LEASE_MS: '`300000` (5 minutes); at least `10000`',
   KINDGI_RUN_SWEEP_INTERVAL_MS: '`60000` (1 minute); at least `1000`, shorter than the lease',
   KINDGI_RUN_ENDED_CHECK_MS: '`5000` (5 seconds); at least `1000`',
@@ -96,6 +105,7 @@ export const ENV_DEFAULTS = {
     'none: required when `KINDGI_MEMORY_EMBEDDINGS=openai-compat`, not read otherwise',
   KINDGI_MEMORY_EMBEDDINGS_API_KEY: 'none: requests carry no key',
   KINDGI_RETENTION_SWEEP_INTERVAL_MS: 'none: no automatic purge; at least `60000` when set',
+  KINDGI_RUN_RETENTION_MAX_DAYS: 'none: runs are kept as their retention policy says',
   KINDGI_ERASURE_SHARED_WAIT_MS: '`604800000` (7 days); at least `3600000`',
   KINDGI_ERASURE_LEDGER_KEY_PATH:
     'none (with `KINDGI_ERASURE_LEDGER_KEY` unset): erasures run but cannot be replayed after a restore',
@@ -112,6 +122,9 @@ export const ENV_DEFAULTS = {
   KINDGI_ARTIFACTS: 'none: artifacts are off (no `/v1/artifacts`)',
   KINDGI_TURN_MEMORY_MIB: "none: no limit on every tenant's turns together",
   KINDGI_TURN_MEMORY_PER_TENANT_MIB: 'none: no limit per tenant',
+  KINDGI_TEMPLATE_RENDER_WORKERS:
+    '`1` when `KINDGI_TENANCY=multi`, else `0`: the template renders in the server process',
+  KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB: '`128`; at least `1`',
   KINDGI_ARTIFACT_MAX_BYTES: '`104857600` (100 MiB)',
   KINDGI_LOG_LEVEL: '`info`',
   KINDGI_LOG_LEVELS: 'none: no per-subsystem levels; `KINDGI_LOG_LEVEL` applies everywhere',
@@ -188,6 +201,10 @@ export const ENV_EXAMPLES = {
     value: '<32 random bytes, base64>',
     make: 'openssl rand -base64 32',
   },
+  // The secret it held before the rotation, not a new one.
+  KINDGI_AUTH_PREVIOUS_SECRET: {
+    value: '<the KINDGI_AUTH_SECRET value before the rotation>',
+  },
   KINDGI_AUTH_GOOGLE_CLIENT_ID: {
     value: '<client id of your Google OAuth app>',
   },
@@ -260,15 +277,15 @@ export const ENV_EXAMPLES = {
 
 /** "See also" for each group's variables that no guide names: page slugs. */
 export const ENV_GROUP_SEE_ALSO = {
-  core: ['deploy/self-host', 'deploy/operate'],
-  logging: ['deploy/logs'],
-  secrets: ['deploy/secret-manager', 'guides/secrets/index'],
-  gcp: ['deploy/cloud-run', 'deploy/secret-manager'],
-  aws: ['deploy/secret-manager'],
-  azure: ['deploy/azure-container-apps', 'deploy/secret-manager'],
-  vault: ['deploy/secret-manager'],
-  'local-key': ['deploy/self-host'],
-  'pack-service': ['deploy/self-host', 'concepts/architecture'],
-  'image-registry': ['deploy/self-host', 'concepts/security'],
-  dev: ['guides/secrets/dev-sandbox', 'deploy/self-host'],
+  core: ['deploy/self-hosted/self-host', 'deploy/self-hosted/operate'],
+  logging: ['deploy/self-hosted/logs'],
+  secrets: ['deploy/self-hosted/secret-manager', 'guides/secrets/index'],
+  gcp: ['deploy/self-hosted/cloud-run', 'deploy/self-hosted/secret-manager'],
+  aws: ['deploy/self-hosted/secret-manager'],
+  azure: ['deploy/self-hosted/azure-container-apps', 'deploy/self-hosted/secret-manager'],
+  vault: ['deploy/self-hosted/secret-manager'],
+  'local-key': ['deploy/self-hosted/self-host'],
+  'pack-service': ['deploy/self-hosted/self-host', 'concepts/architecture'],
+  'image-registry': ['deploy/self-hosted/self-host', 'concepts/security'],
+  dev: ['guides/secrets/dev-sandbox', 'deploy/self-hosted/self-host'],
 };
