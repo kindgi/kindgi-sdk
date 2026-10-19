@@ -769,11 +769,15 @@ A new grant can take a minute or two to apply.
   ([Google: X-Forwarded-For header](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
 - **Database timeouts** (they need runtime 0.1.9 or later): the server's
   connections carry their own, 60 s a statement, 30 s waiting for a lock,
-  and 30 s idle in a transaction. `KINDGI_DB_STATEMENT_TIMEOUT_MS`,
-  `KINDGI_DB_LOCK_TIMEOUT_MS` and `KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS`
-  in `server_env` change them; `0` turns one off. A request one ends gets a
-  500, and the log a `db` warning naming the setting, its value and its
-  variable. The instance itself ends any other session left idle in a
+  and 30 s idle in a transaction, and a query waits at most 10 s for
+  one of the server's pooled connections. `KINDGI_DB_STATEMENT_TIMEOUT_MS`,
+  `KINDGI_DB_LOCK_TIMEOUT_MS`, `KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` and
+  `KINDGI_DB_POOL_WAIT_TIMEOUT_MS` in `server_env` change them; `0` turns
+  one off. A GET or HEAD the statement or lock timeout or the pool wait
+  ends answers 503 `database-busy` with `Retry-After: 5` (under `/auth/`, a
+  browser signing in is sent back to the sign-in page instead), any other
+  request 500, and the log has a `db` warning naming the setting, its value
+  and its variable. The instance itself ends any other session left idle in a
   transaction for 10 minutes (`database_idle_in_transaction_timeout_ms`, `0`
   for off). An instance from before that variable gets the flag at the next
   apply, in place: Cloud SQL lists it as needing no restart
