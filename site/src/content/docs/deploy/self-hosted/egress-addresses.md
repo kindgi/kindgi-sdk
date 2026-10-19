@@ -7,7 +7,7 @@ sidebar:
 
 Some sites admit calls only from addresses they know: a shop's API behind a
 firewall, an MCP server with an allowlist, a webhook receiver. A runtime can
-publish the IP addresses its calls to other sites come from (runtime 0.1.8.1
+publish the IP addresses its calls to other sites come from (runtime 0.1.9
 or later), and anyone who belongs to one of its tenants prints them with
 `kindgi egress`. Publishing them changes nothing about where calls go or
 where they come from.
