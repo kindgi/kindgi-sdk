@@ -637,16 +637,7 @@ function validateConversationPolicy(
       message: 'historyLimit must be a positive integer',
     });
   }
-  if (
-    policy.autoCloseAfterInactiveSeconds !== undefined &&
-    (!Number.isInteger(policy.autoCloseAfterInactiveSeconds) ||
-      policy.autoCloseAfterInactiveSeconds <= 0)
-  ) {
-    out.push({
-      path: '/conversationPolicy/autoCloseAfterInactiveSeconds',
-      message: 'autoCloseAfterInactiveSeconds must be a positive integer',
-    });
-  }
+  out.push(...validateAutoClose(policy));
   if (
     policy.hitlAfterTurns !== undefined &&
     (!Number.isInteger(policy.hitlAfterTurns) || policy.hitlAfterTurns <= 0)
@@ -766,6 +757,23 @@ function validateSeparateApprover(value: unknown, toolIds?: ReadonlySet<string>)
     }
   }
   return out;
+}
+
+/**
+ * `autoCloseAfterInactiveSeconds`: refused, whatever its value. It was
+ * accepted and never acted on: a conversation closes only when someone
+ * closes it.
+ */
+function validateAutoClose(policy: ConversationPolicy): Issue[] {
+  const { autoCloseAfterInactiveSeconds } = policy as { autoCloseAfterInactiveSeconds?: unknown };
+  if (autoCloseAfterInactiveSeconds === undefined) return [];
+  return [
+    {
+      path: '/conversationPolicy/autoCloseAfterInactiveSeconds',
+      message:
+        "autoCloseAfterInactiveSeconds isn't supported: a conversation never closes by itself. It closes when someone closes it: Close in the console, kindgi conversations close, or POST /v1/conversations/{id}/close. Leave it out.",
+    },
+  ];
 }
 
 /**

@@ -2496,9 +2496,6 @@ class ConversationPolicy(BaseModel):
         populate_by_name=True,
     )
     history_limit: Annotated[int | None, Field(alias="historyLimit", ge=1)] = None
-    auto_close_after_inactive_seconds: Annotated[
-        int | None, Field(alias="autoCloseAfterInactiveSeconds", ge=1)
-    ] = None
     hitl_after_turns: Annotated[int | None, Field(alias="hitlAfterTurns", ge=1)] = None
 
 

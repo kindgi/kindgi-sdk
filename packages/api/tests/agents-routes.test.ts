@@ -340,6 +340,34 @@ describe('API — agents publish', () => {
     },
   );
 
+  test('autoCloseAfterInactiveSeconds → 400 at its path, saying how a conversation closes, and nothing stored', async () => {
+    const { app } = makeApp();
+    const res = await app.request('/v1/agents', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ...agentSpec(),
+        conversationPolicy: { historyLimit: 5, autoCloseAfterInactiveSeconds: 600 },
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; details?: { issues?: unknown[] } };
+    };
+    expect(body.error.code).toBe('validation-failed');
+    expect(body.error.details?.issues).toEqual([
+      {
+        path: '/conversationPolicy/autoCloseAfterInactiveSeconds',
+        message:
+          "autoCloseAfterInactiveSeconds isn't supported: a conversation never closes by itself. It closes when someone closes it: Close in the console, kindgi conversations close, or POST /v1/conversations/{id}/close. Leave it out.",
+      },
+    ]);
+    const stored = await app.request('/v1/agents/acme.drafting', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(stored.status).toBe(404);
+  });
+
   test('non-JSON body → 400 bad-input', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/agents', {
@@ -516,6 +544,28 @@ describe('API — agents versions', () => {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe('API — an agent stored with autoCloseAfterInactiveSeconds, from before it was taken out', () => {
+  test('every answer leaves it out and keeps the rest of the policy; the stored agent keeps it', async () => {
+    const { app, registry } = makeApp();
+    const d = defineAgent({ ...agentSpec(), conversationPolicy: { historyLimit: 5, hitlAfterTurns: 3 } });
+    if (d.kind === 'err') throw new Error(d.error.message);
+    const policy = { historyLimit: 5, hitlAfterTurns: 3, autoCloseAfterInactiveSeconds: 600 };
+    registry.register({ ...d.value, conversationPolicy: policy });
+    const read = async (path: string) => {
+      const res = await app.request(path, { headers: { authorization: `Bearer ${TOKEN}` } });
+      expect(res.status).toBe(200);
+      return (await res.json()) as { conversationPolicy?: unknown; data?: { conversationPolicy?: unknown }[] };
+    };
+    const answered = { historyLimit: 5, hitlAfterTurns: 3 };
+    expect((await read('/v1/agents/acme.drafting')).conversationPolicy).toEqual(answered);
+    expect((await read('/v1/agents/acme.drafting/versions/1.0.0')).conversationPolicy).toEqual(answered);
+    expect((await read('/v1/agents/acme.drafting/versions')).data?.map((a) => a.conversationPolicy)).toEqual([answered]);
+    expect((await read('/v1/agents')).data?.map((a) => a.conversationPolicy)).toEqual([answered]);
+    const kept = registry.get(d.value.id, '1.0.0');
+    expect(kept.kind === 'ok' ? kept.value.conversationPolicy : undefined).toEqual(policy);
   });
 });
 

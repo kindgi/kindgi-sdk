@@ -2911,7 +2911,6 @@ export const ConversationPolicySchema: JsonSchema = {
   additionalProperties: false,
   properties: {
     historyLimit: { type: 'integer', minimum: 1 },
-    autoCloseAfterInactiveSeconds: { type: 'integer', minimum: 1 },
     hitlAfterTurns: { type: 'integer', minimum: 1 },
   },
 };
