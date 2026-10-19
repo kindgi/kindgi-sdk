@@ -141,8 +141,9 @@ could claim another company's domain and catch its people.
   An entry by id keeps working through a rename (runtime 0.1.8.2 or later).
   While an entry names a workspace by its slug, that slug can't change, and
   no workspace can be renamed to a slug an entry names
-  (`409 tenant-slug-in-config`). To change it, name the workspace by its id
-  in the list, restart the runtime, then rename it.
+  (`409 tenant-slug-in-config`). A rename is checked against the list of the
+  replica that takes it. To change a slug an entry names, name the workspace
+  by its id in the list, restart every replica, then rename it.
 
 The startup output lists what routes:
 
