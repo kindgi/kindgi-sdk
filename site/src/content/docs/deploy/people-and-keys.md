@@ -502,7 +502,7 @@ request with Sam's key:
 That's a `401`. Their record stays, so runs, approvals and the audit trail still
 say who they were. Adding their email again makes a new person, with nothing
 granted. A person a site signs in can be let back in instead, the same
-person (runtime 0.1.8.2 or later):
+person (runtime 0.1.10 or later):
 [`kindgi sites restore-person`](../../sites/wordpress/#pause-re-key-or-remove).
 
 Schedules and webhook triggers they own stop running as them (runtime
