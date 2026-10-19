@@ -203,7 +203,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_DB_STATEMENT_TIMEOUT_MS',
     description:
-      "Used from runtime 0.1.8.1; earlier runtimes ignore it. How long one statement on the server's database connections may run before Postgres ends it (`statement_timeout`), in milliseconds. Default 60000 (60 s); 0 turns it off. A whole number up to 2147483647, longer than `KINDGI_DB_LOCK_TIMEOUT_MS` when both are on; anything else stops the boot, naming the variable. The migrations at boot, an index built `CONCURRENTLY` and the admin commands (`kindgi-runtime tenants …`, `check …`, `erasures …`) run with none. A request a timeout ends gets the usual 500, and the server's log a `db` warning naming the setting, its value and this variable.",
+      "Used from runtime 0.1.9; earlier runtimes ignore it. How long one statement on the server's database connections may run before Postgres ends it (`statement_timeout`), in milliseconds. Default 60000 (60 s); 0 turns it off. A whole number up to 2147483647, longer than `KINDGI_DB_LOCK_TIMEOUT_MS` when both are on; anything else stops the boot, naming the variable. The migrations at boot, an index built `CONCURRENTLY` and the admin commands (`kindgi-runtime tenants …`, `check …`, `erasures …`) run with none. A request a timeout ends gets the usual 500, and the server's log a `db` warning naming the setting, its value and this variable.",
     example: '60000',
     required: false,
     appliesTo: appliesToServer,
@@ -212,7 +212,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_DB_LOCK_TIMEOUT_MS',
     description:
-      "Used from runtime 0.1.8.1; earlier runtimes ignore it. How long a statement on the server's database connections may wait for a lock before Postgres ends it (`lock_timeout`), in milliseconds. Default 30000 (30 s); 0 turns it off. A whole number up to 2147483647, shorter than `KINDGI_DB_STATEMENT_TIMEOUT_MS` when both are on (a lock wait is part of a statement's time); anything else stops the boot, naming the variable. The admin commands keep it; an index built `CONCURRENTLY` waits with none. The migrations wait 5 s a try, tried 6 times, then the boot fails naming the table and the sessions holding it.",
+      "Used from runtime 0.1.9; earlier runtimes ignore it. How long a statement on the server's database connections may wait for a lock before Postgres ends it (`lock_timeout`), in milliseconds. Default 30000 (30 s); 0 turns it off. A whole number up to 2147483647, shorter than `KINDGI_DB_STATEMENT_TIMEOUT_MS` when both are on (a lock wait is part of a statement's time); anything else stops the boot, naming the variable. The admin commands keep it; an index built `CONCURRENTLY` waits with none. The migrations wait 5 s a try, tried 6 times, then the boot fails naming the table and the sessions holding it.",
     example: '30000',
     required: false,
     appliesTo: appliesToServer,
@@ -221,7 +221,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS',
     description:
-      "Used from runtime 0.1.8.1; earlier runtimes ignore it. How long a transaction on the server's database connections may sit idle between statements before Postgres ends its session (`idle_in_transaction_session_timeout`), in milliseconds. Default 120000 (2 min); 0 turns it off. A whole number up to 2147483647; anything else stops the boot, naming the variable. The admin commands keep it.",
+      "Used from runtime 0.1.9; earlier runtimes ignore it. How long a transaction on the server's database connections may sit idle between statements before Postgres ends its session (`idle_in_transaction_session_timeout`), in milliseconds. Default 120000 (2 min); 0 turns it off. A whole number up to 2147483647; anything else stops the boot, naming the variable. The admin commands keep it.",
     example: '120000',
     required: false,
     appliesTo: appliesToServer,
