@@ -79,7 +79,9 @@ A run uses four kinds of values, each kept in its own place.
   `kindgi secrets set <KEY_NAME> --env=<env> --scope=project:<project-id>`,
   or `--scope=org:<org-id>`. Unlike a tool's secrets, where it's read isn't
   recorded: a key set later in the run's project is used from the next
-  call. An older runtime reads the tenant's key only
+  call. A key revoked without `--hard` stops the model calls that read it
+  (`secret-revoked`): they don't fall back to a wider scope's key. An older
+  runtime reads the tenant's key only
   ([Models](../../guides/models/#keys)).
 - **A tool's secrets,** in `ctx.secrets`. Where a tool version reads each
   secret is decided once, when that version is registered, and recorded on
