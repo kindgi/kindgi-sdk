@@ -2186,7 +2186,7 @@ export const ApprovalCollectionPageSchema: JsonSchema = {
       type: 'string',
       enum: ['me'],
       description:
-        '`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.',
+        '`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.9, which ignores `decidedBy` and lists them all.',
     },
   },
 };
@@ -4239,7 +4239,7 @@ export const ConversationCollectionPageSchema: JsonSchema = {
       type: 'string',
       enum: ['me'],
       description:
-        "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.",
+        "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.9, which ignores `openedBy` and lists everyone's.",
     },
   },
 };
@@ -9417,13 +9417,13 @@ const USER_PROPERTIES: Record<string, JsonSchema> = {
   invite: {
     $ref: '#/components/schemas/UserInvite',
     description:
-      "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).",
+      "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9).",
   },
   firstSignedInAt: {
     type: 'string',
     format: 'date-time',
     description:
-      'Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).',
+      'Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).',
   },
   metadata: { type: 'object', additionalProperties: true },
 };
@@ -10934,12 +10934,12 @@ export const DeploymentCollectionPageSchema: JsonSchema = {
     projectId: {
       type: 'string',
       description:
-        "The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `projectId` and lists them all.",
+        "The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `projectId` and lists them all.",
     },
     packId: {
       type: 'string',
       description:
-        "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `packId` and lists them all.",
+        "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `packId` and lists them all.",
     },
   },
 };

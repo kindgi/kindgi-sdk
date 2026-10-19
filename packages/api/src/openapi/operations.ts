@@ -6592,7 +6592,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.settings.get',
     summary: "The workspace's sign-in settings",
     description:
-      "Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+      "Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).",
     tags: ['auth'],
     security: 'bearer',
     responses: {
@@ -6608,7 +6608,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.settings.update',
     summary: 'Require a second factor at sign-in',
     description:
-      "Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+      "Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).",
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6696,7 +6696,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         in: 'query',
         required: false,
         description:
-          "With `true`, only people with an open invitation (`invite`: pending or expired), who haven't signed in yet. An older runtime ignores it and lists everyone (from 0.1.8.1).",
+          "With `true`, only people with an open invitation (`invite`: pending or expired), who haven't signed in yet. An older runtime ignores it and lists everyone (from 0.1.9).",
         schema: { type: 'boolean' },
       },
       {
@@ -6810,7 +6810,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.resendInvite',
     summary: "Renew a person's invitation",
     description:
-      "For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).",
+      "For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.9).",
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -6842,7 +6842,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.secondFactor',
     summary: 'My second factor',
     description:
-      'Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+      'Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.9).',
     tags: ['identity'],
     security: 'bearer',
     responses: {
@@ -6858,7 +6858,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.startSecondFactor',
     summary: 'Start setting up a second factor',
     description:
-      'A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+      'A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6882,7 +6882,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.confirmSecondFactor',
     summary: 'Confirm a new second factor',
     description:
-      'A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+      'A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6910,7 +6910,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.newRecoveryCodes',
     summary: 'New recovery codes',
     description:
-      '10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+      '10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6937,7 +6937,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.removeSecondFactor',
     summary: 'Take my second factor off',
     description:
-      'Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+      'Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6964,7 +6964,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.secondFactor',
     summary: "A person's second factor",
     description:
-      'Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+      'Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -6984,7 +6984,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.removeSecondFactor',
     summary: "Remove a person's second factor",
     description:
-      "For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.8.1).",
+      "For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.9).",
     tags: ['identity'],
     security: 'bearer',
     parameters: [

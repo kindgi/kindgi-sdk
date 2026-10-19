@@ -3527,7 +3527,7 @@ class ConversationCollectionPage(BaseModel):
         Annotated[Literal["me"] | str, _open.OPEN] | None, Field(alias="openedBy")
     ] = None
     """
-    `me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.
+    `me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.9, which ignores `openedBy` and lists everyone's.
     """
 
 
@@ -7466,11 +7466,11 @@ class UserCreated(BaseModel):
     """
     invite: UserInvite | None = None
     """
-    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).
+    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9).
     """
     first_signed_in_at: Annotated[AwareDatetime | None, Field(alias="firstSignedInAt")] = None
     """
-    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).
+    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).
     """
     metadata: dict[str, Any] | None = None
     invite_email: Annotated[InviteEmail | None, Field(alias="inviteEmail")] = None
@@ -12263,7 +12263,7 @@ class ApprovalCollectionPage(BaseModel):
         Annotated[Literal["me"] | str, _open.OPEN] | None, Field(alias="decidedBy")
     ] = None
     """
-    `me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.
+    `me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.9, which ignores `decidedBy` and lists them all.
     """
 
 
@@ -13758,11 +13758,11 @@ class DeploymentCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `projectId` and lists them all.
+    The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `projectId` and lists them all.
     """
     pack_id: Annotated[str | None, Field(alias="packId")] = None
     """
-    The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `packId` and lists them all.
+    The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `packId` and lists them all.
     """
 
 
@@ -15442,11 +15442,11 @@ class UserRecord(BaseModel):
     """
     invite: UserInvite | None = None
     """
-    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).
+    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9).
     """
     first_signed_in_at: Annotated[AwareDatetime | None, Field(alias="firstSignedInAt")] = None
     """
-    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).
+    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).
     """
     metadata: dict[str, Any] | None = None
     grants: PersonGrants | None = None

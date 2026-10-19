@@ -62,7 +62,7 @@ A person approves what waits, in the console or with the CLI
 
 ## Self-hosted: turn site sign-in on
 
-Site sign-in needs a runtime on Kindgi 0.1.8.1 or later, and is off by
+Site sign-in needs a runtime on Kindgi 0.1.9 or later, and is off by
 default. It needs two more settings in the runtime's environment:
 - [authorization enforced](../../deploy/authorization/), which holds a
   site's people to its project;

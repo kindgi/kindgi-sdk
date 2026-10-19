@@ -6448,7 +6448,7 @@ class AuthSettingsResource:
     def get(self, /, *, timeout: float | None = None) -> _models.AuthSettings:
         """The workspace's sign-in settings. `GET /v1/auth/settings`
 
-        Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["auth.settings.get"],
@@ -6470,7 +6470,7 @@ class AuthSettingsResource:
     ) -> _models.AuthSettings:
         """Require a second factor at sign-in. `PATCH /v1/auth/settings`
 
-        Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["auth.settings.update"],
@@ -6728,7 +6728,7 @@ class IdentityUsersResource:
     ) -> _models.InviteRenewed:
         """Renew a person's invitation. `POST /v1/identity/users/{userId}/invite`
 
-        For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).
+        For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["identity.users.resendInvite"],
@@ -6744,7 +6744,7 @@ class IdentityUsersResource:
     ) -> _models.SecondFactorStatus:
         """A person's second factor. `GET /v1/identity/users/{userId}/second-factor`
 
-        Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["identity.users.secondFactor"],
@@ -6765,7 +6765,7 @@ class IdentityUsersResource:
     ) -> _models.SecondFactorRemoved:
         """Remove a person's second factor. `POST /v1/identity/users/{userId}/second-factor/remove`
 
-        For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.8.1).
+        For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["identity.users.removeSecondFactor"],
@@ -6871,7 +6871,7 @@ class IdentityMeResource:
     def second_factor(self, /, *, timeout: float | None = None) -> _models.SecondFactorStatus:
         """My second factor. `GET /v1/identity/me/second-factor`
 
-        Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["identity.me.secondFactor"],
@@ -6893,7 +6893,7 @@ class IdentityMeResource:
     ) -> _models.SecondFactorKey:
         """Start setting up a second factor. `POST /v1/identity/me/second-factor`
 
-        A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["identity.me.startSecondFactor"],
@@ -6916,7 +6916,7 @@ class IdentityMeResource:
     ) -> _models.SecondFactorRecoveryCodes:
         """Confirm a new second factor. `POST /v1/identity/me/second-factor/confirm`
 
-        A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["identity.me.confirmSecondFactor"],
@@ -6939,7 +6939,7 @@ class IdentityMeResource:
     ) -> _models.SecondFactorRecoveryCodes:
         """New recovery codes. `POST /v1/identity/me/second-factor/recovery-codes`
 
-        10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["identity.me.newRecoveryCodes"],
@@ -6962,7 +6962,7 @@ class IdentityMeResource:
     ) -> _models.SecondFactorRemoved:
         """Take my second factor off. `POST /v1/identity/me/second-factor/remove`
 
-        Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["identity.me.removeSecondFactor"],
@@ -15062,7 +15062,7 @@ class AsyncAuthSettingsResource:
     async def get(self, /, *, timeout: float | None = None) -> _models.AuthSettings:
         """The workspace's sign-in settings. `GET /v1/auth/settings`
 
-        Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["auth.settings.get"],
@@ -15084,7 +15084,7 @@ class AsyncAuthSettingsResource:
     ) -> _models.AuthSettings:
         """Require a second factor at sign-in. `PATCH /v1/auth/settings`
 
-        Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["auth.settings.update"],
@@ -15344,7 +15344,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.InviteRenewed:
         """Renew a person's invitation. `POST /v1/identity/users/{userId}/invite`
 
-        For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).
+        For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["identity.users.resendInvite"],
@@ -15360,7 +15360,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.SecondFactorStatus:
         """A person's second factor. `GET /v1/identity/users/{userId}/second-factor`
 
-        Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["identity.users.secondFactor"],
@@ -15381,7 +15381,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.SecondFactorRemoved:
         """Remove a person's second factor. `POST /v1/identity/users/{userId}/second-factor/remove`
 
-        For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.8.1).
+        For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["identity.users.removeSecondFactor"],
@@ -15487,7 +15487,7 @@ class AsyncIdentityMeResource:
     async def second_factor(self, /, *, timeout: float | None = None) -> _models.SecondFactorStatus:
         """My second factor. `GET /v1/identity/me/second-factor`
 
-        Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["identity.me.secondFactor"],
@@ -15509,7 +15509,7 @@ class AsyncIdentityMeResource:
     ) -> _models.SecondFactorKey:
         """Start setting up a second factor. `POST /v1/identity/me/second-factor`
 
-        A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["identity.me.startSecondFactor"],
@@ -15532,7 +15532,7 @@ class AsyncIdentityMeResource:
     ) -> _models.SecondFactorRecoveryCodes:
         """Confirm a new second factor. `POST /v1/identity/me/second-factor/confirm`
 
-        A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["identity.me.confirmSecondFactor"],
@@ -15555,7 +15555,7 @@ class AsyncIdentityMeResource:
     ) -> _models.SecondFactorRecoveryCodes:
         """New recovery codes. `POST /v1/identity/me/second-factor/recovery-codes`
 
-        10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["identity.me.newRecoveryCodes"],
@@ -15578,7 +15578,7 @@ class AsyncIdentityMeResource:
     ) -> _models.SecondFactorRemoved:
         """Take my second factor off. `POST /v1/identity/me/second-factor/remove`
 
-        Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["identity.me.removeSecondFactor"],
