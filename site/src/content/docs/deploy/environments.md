@@ -100,6 +100,12 @@ environment: make it live there, then promote it.
   An order has two or more projects. They all sit directly in the tenant, or
   all in the same org. A project is in one order at most. While it's in
   one, it can't be deleted, or moved into or out of an org.
+- **On your own runtime, its values kept under one env.** Set `KINDGI_ENV`
+  to the env it serves, and `KINDGI_REFUSE_OTHER_ENVS=true`
+  ([`KINDGI_REFUSE_OTHER_ENVS`](../../reference/env-vars/#kindgi_refuse_other_envs)).
+  With it, `--env` names an environment's project when you deploy and when
+  you store a value. Without it, `--env` names only a value set, and a
+  deploy goes into `--project`, or the Default project.
 
 All the environments of an order are projects of one tenant, on one
 runtime.
@@ -156,18 +162,24 @@ environments: {
 In a Python pack, the same keys go in `pyproject.toml`, under
 `[tool.kindgi.environments.<name>]`.
 
-`--env=<name>` then means that environment's project, for every command:
-`deploy`, `promote`, `secrets set`, `env set` and the rest. A `--project`
-that names another project is refused, and the error names both.
+`--env=<name>` then means that environment's project for `kindgi deploy`,
+`kindgi secrets` and `kindgi env --scope`, and `kindgi promote` takes the
+environments' names in `--from` and `--to`. A `kindgi deploy` whose
+`--project` names another project is refused, and the error names both.
+Other commands, such as `kindgi agents` and `kindgi runs`, take `--project`.
 
 On your own runtime, an environment without `project` keeps its usual
 meaning: the runtime its `endpoint` names, its name as the value set, and the
 project from `--project` or the Default project. If you run one runtime per
 environment, nothing changes.
 
+Storing a value under a `--env` that is neither the env the runtime serves
+nor one of the pack's environments with a project is refused
+(`env-not-served`): it would never be read. The refusal lists the
+environments that have a project.
+
 :::note[On Kindgi Cloud]
-Every environment names its project. A `--env` whose environment names no
-project is refused, and so is one that names no environment of the pack.
+Every environment names its project.
 :::
 
 ## Set the order
@@ -231,8 +243,15 @@ pnpm exec kindgi secrets set ORDERS_API_KEY --env=staging-2
 
 With `--env=staging-2`, the secret is stored for `staging-2`'s project, in
 the value set the runtime serves. A tool's per-project values work the same
-way, with `kindgi env set`
-([Give a tool per-project values](../../guides/tools/give-a-tool-env-values/)).
+way, with `kindgi env set` and `--scope=project`, which then means
+`staging-2`'s project
+([Give a tool per-project values](../../guides/tools/give-a-tool-env-values/)):
+
+```sh
+pnpm exec kindgi env set ORDERS_REGION ca-central-1 --env=staging-2 --scope=project
+```
+
+Without `--scope`, `kindgi env set` edits the pack's own env files instead.
 
 Outside a pack, `--env` keeps its usual meaning: the value set. Name the
 project with `--scope=project:<projectId>`, and with `--env` the value set
@@ -295,6 +314,13 @@ in `staging-1`. Then it lists any value the build needs that isn't set in
   `--deployment=<id>`.
 - **`--check`** prints what would move and the values not set in
   `staging-2`, and changes nothing.
+- **`--make-live`** also makes each agent version the promotion carries
+  live in `staging-2`, each through its own gate, as making it live from
+  the agent's page does. It prints each one: live, waiting for an approval,
+  or held by the gate. If you may not make one of them live there, the
+  command answers that refusal, but the build has moved, and none of them
+  is live: make them live from each agent's page. With `--check`, nothing
+  is made live.
 - **Run it in the pack.** `--from` and `--to` are environment names, and it
   reads their projects from `kindgi.config.ts`. Outside a pack, name the two
   projects instead, by slug or id:
@@ -328,6 +354,8 @@ pnpm exec kindgi promote --from=staging-2 --to=prod --reason="Compared on the te
 In `prod`, the promoted version waits while the live one serves. Try it by
 its version, make it live, and roll back if you need to
 ([Release an agent version](../../guides/evals/release-an-agent-version/)).
+With `--make-live`, the promotion makes it live itself, through its gate in
+`prod`.
 
 :::note[On Kindgi Cloud]
 The project of `prod` is the one you put in production, with **Go live**
@@ -339,20 +367,33 @@ The other environments aren't, so their runs count as staging.
 
 ## In the console
 
-- **Environments** has a column for each environment, with each agent's live
-  version and the versions waiting. **Promote to staging-2** runs the same
-  checks first, and **Make live** and **Roll back** work on their own column
-  only.
-- **Values**, for each environment, lists what the build needs: what's set
-  there, what falls back to the tenant's values, and what's missing.
+- **Environments** has a column for each environment, with the builds that
+  serve there: each one's pack and version, the environment it was promoted
+  from, and its agents with their versions. On a build, **Promote … to
+  staging-2** runs the same checks first and shows what moves, what stays,
+  and each value that isn't set in `staging-2`, with the command that sets
+  it. It promotes once every value is set. An admin of `staging-2` sees it.
+- **Values** opens from a value that isn't set. It lists what the build
+  needs in that environment's project: **Not ready**, **Set here**, and
+  **From the workspace**, for a value the project reads from its org or the
+  workspace because it has none of its own. You can set a value there.
+- **Each agent's page** is where you make a version live in that
+  environment, or roll it back. Each agent in a column links to it.
 
 ## If something goes wrong
 
-- **A command with `--env` is refused.** The pack has no environment of that
-  name, or a `--project` names another project than the environment's. On
-  Kindgi Cloud, the environment may name no project: name it in
-  `kindgi.config.ts`, as in
-  [Name each environment's project](#name-each-environments-project).
+- **A command with `--env` is refused.**
+  - **Storing a value (`env-not-served`):** the `--env` is neither the env
+    the runtime serves nor one of the pack's environments with a project.
+    Name the environment's project in `kindgi.config.ts`, as in
+    [Name each environment's project](#name-each-environments-project).
+  - **`kindgi deploy`:** a `--project` names another project than the
+    environment's. Leave `--project` out.
+  - **`kindgi promote`:** `kindgi.config.ts` has no environment of that
+    name, or it names no project. Add `environments.<name>.project`.
+- **A deploy with `--env` goes into `--project` or the Default project, not
+  the environment's.** On your own runtime, `KINDGI_REFUSE_OTHER_ENVS` isn't
+  on: see [Before you start](#before-you-start).
 - **A deploy or a publish into a later environment is refused
   (`environment-takes-promotions`).** Deploy or publish into the first
   environment, then promote.
