@@ -4,7 +4,15 @@
 import { createHash } from 'node:crypto';
 
 import { type AgentId, modelSettingsIssues } from '@kindgi/agents';
-import { REVIEWER_ROLE_RANK, type ReviewerRole, tuplesForCreate } from '@kindgi/authz';
+import {
+  type AuthzCheckBinding,
+  REVIEWER_ROLE_RANK,
+  type ResourceRef,
+  type ReviewerRole,
+  ref,
+  tuplesForCreate,
+  userPrincipal,
+} from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import { canonicalize } from '@kindgi/schema';
 import type {
@@ -93,6 +101,13 @@ export interface ProposalServiceDeps {
    * the legacy rule — any reviewer, the requester included, may approve.
    */
   readonly reviewers?: Pick<ReviewerRegistryBinding, 'list'>;
+  /**
+   * The PDP, to count only reviewers who could actually decide a drafter's
+   * promotion: one who can't read its resource is 404'd by the decide route
+   * (routes/approvals.ts `mayRead`), so they can't separate it (T1044). Absent
+   * (no authorizer): every roster reviewer may read, as `mayRead` allows.
+   */
+  readonly authz?: AuthzCheckBinding;
 }
 
 /** An error with the code the API answers it with (`statusFor`), and its details. */
@@ -153,20 +168,29 @@ export const DRAFTED_PROPOSAL_APPROVAL: GateApproval = {
 };
 
 /**
- * Whether the tenant has a reviewer who could approve a drafter's promotion
- * other than whoever requested it — the test the `separateApprover` flag
- * enforces (the decide call blocks an `approve` by the requester themselves,
- * `user:<id>` against `user:<id>`). Counts active reviewers (not deactivated)
- * ranked at or above the rule's role. A service requester (an improvement
- * pass) is no `user:<id>`, so every eligible reviewer counts; a human
- * requester who is the tenant's only reviewer counts as none, so they may
- * approve their own request rather than being deadlocked.
+ * Whether the tenant has a reviewer who could actually approve a drafter's
+ * promotion other than whoever requested it — the test the `separateApprover`
+ * flag enforces (the decide call blocks an `approve` by the requester
+ * themselves, `user:<id>` against `user:<id>`). A reviewer counts when all of
+ * these hold: active (not deactivated); ranked at or above the rule's role;
+ * not the requester; and, with an authorizer wired, able to read the
+ * approval's `resource` — the decide route 404s a reviewer who can't
+ * (routes/approvals.ts `mayRead`), so a count that ignored it could leave the
+ * promotion stuck (T1044). A service requester (an improvement pass) is no
+ * `user:<id>`, so every eligible reviewer counts; a human requester who is the
+ * only one who counts counts as none, so they may approve their own request
+ * rather than being deadlocked.
+ *
+ * The rank filter is future-proofing: `DRAFTED_PROPOSAL_APPROVAL.role` is
+ * `standard`, the lowest rank, so it never excludes anyone today.
  */
 async function hasOtherEligibleReviewer(
   reviewers: Pick<ReviewerRegistryBinding, 'list'>,
   tenantId: TenantId,
   requiredRole: ReviewerRole,
   requesterUserId: UserId | undefined,
+  resource: ResourceRef,
+  authz: AuthzCheckBinding | undefined,
 ): Promise<boolean> {
   const required = REVIEWER_ROLE_RANK[requiredRole];
   let cursor: Cursor | undefined;
@@ -181,7 +205,14 @@ async function hasOtherEligibleReviewer(
     for (const reviewer of data) {
       if (reviewer.deactivatedAt !== undefined) continue;
       if (REVIEWER_ROLE_RANK[reviewer.role] < required) continue;
-      if (requesterUserId === undefined || reviewer.userId !== requesterUserId) return true;
+      if (requesterUserId !== undefined && reviewer.userId === requesterUserId) continue;
+      if (
+        authz !== undefined &&
+        !(await authz.check(userPrincipal(reviewer.userId, tenantId), 'read', resource)).allowed
+      ) {
+        continue;
+      }
+      return true;
     }
     if (nextCursor === undefined) return false;
     cursor = nextCursor;
@@ -193,17 +224,42 @@ export function createProposalService(deps: ProposalServiceDeps) {
   const err = (error: ProposalServiceError) => ({ kind: 'err' as const, error });
 
   /**
+   * The resource a drafter's promotion's approval resolves to, the way the
+   * decide route's `approvalRef` does (routes/approvals.ts): the proposal's
+   * eval run's project, or the tenant when there is no run. The roster count
+   * checks each reviewer's read against this same resource, so it counts only
+   * reviewers the decide route would let through (T1044).
+   */
+  async function approvalResource(
+    tenantId: TenantId,
+    proposal: StoredProposal,
+  ): Promise<ResourceRef> {
+    const runId = proposal.evaluation?.evalRunId;
+    const run =
+      runId === undefined ? null : await deps.evalRuns.get({ tenantId, runId: runId as RunId });
+    return run?.projectId !== undefined
+      ? ref('project', run.projectId as unknown as string)
+      : ref('tenant', tenantId as unknown as string);
+  }
+
+  /**
    * The approval a drafter's promotion needs (K2), with `separateApprover`
    * decided from the tenant roster (T1044). No reviewer registry wired keeps
    * the legacy rule (any reviewer, the requester included, may approve).
    */
-  async function draftedApproval(tenantId: TenantId, actor: PromotionActor): Promise<GateApproval> {
+  async function draftedApproval(
+    tenantId: TenantId,
+    actor: PromotionActor,
+    proposal: StoredProposal,
+  ): Promise<GateApproval> {
     if (deps.reviewers === undefined) return DRAFTED_PROPOSAL_APPROVAL;
     const second = await hasOtherEligibleReviewer(
       deps.reviewers,
       tenantId,
       DRAFTED_PROPOSAL_APPROVAL.role,
       actor.kind === 'user' ? (actor.id as UserId) : undefined,
+      await approvalResource(tenantId, proposal),
+      deps.authz,
     );
     return { ...DRAFTED_PROPOSAL_APPROVAL, separateApprover: second };
   }
@@ -630,7 +686,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
       const drafterApproval =
         proposal.drafter.kind === 'person'
           ? {}
-          : { requireApproval: await draftedApproval(tenantId, input.actor) };
+          : { requireApproval: await draftedApproval(tenantId, input.actor, proposal) };
       const promotion = await requestPromotion(
         deps.agents,
         deps.releases,

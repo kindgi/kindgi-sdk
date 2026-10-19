@@ -15,10 +15,11 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import { type Agent, createAgentRegistry, pinsDigest } from '@kindgi/agents';
-import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import type { Action, AuthzCheckBinding, Decision, Principal, ResourceRef } from '@kindgi/authz';
 import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import type {
+  Cursor,
   LiveScope,
   ProjectId,
   ReviewerId,
@@ -173,6 +174,9 @@ function evalRunFake(agents: AgentRegistryBinding) {
       runs.set(runId as unknown as string, {
         runId,
         tenantId: input.tenantId,
+        // The pass runs in the agent's project, so the drafted approval resolves
+        // to it (T1044): the roster count checks reviewers' read against it.
+        projectId,
         suiteId: input.suiteId,
         suiteVersion: '1.0.0',
         kind: 'judged',
@@ -1420,9 +1424,44 @@ describe('a proposal a drafter wrote (not a person)', () => {
     };
   }
 
+  /**
+   * An authorizer that allows `read` only for the named user ids, and records
+   * the checks it was asked — so a test can assert the count asked whether each
+   * reviewer may read the approval's resource (T1044).
+   */
+  function authzReads(...readers: readonly string[]): {
+    binding: AuthzCheckBinding;
+    checks: { userId: string; action: Action; resource: ResourceRef }[];
+  } {
+    const checks: { userId: string; action: Action; resource: ResourceRef }[] = [];
+    const decide = (p: Principal, action: Action, resource: ResourceRef): Decision => {
+      checks.push({ userId: p.actor.id, action, resource });
+      const allowed = readers.includes(p.actor.id);
+      return {
+        allowed,
+        reason: allowed ? 'test: reader' : 'test: not a reader',
+        evidence: {
+          action,
+          relation: '',
+          resource: `${resource.type}:${resource.id}`,
+          actorSubject: `user:${p.actor.id}`,
+        },
+      };
+    };
+    return {
+      binding: {
+        check: async (p, action, resource) => decide(p, action, resource),
+        checkBatch: async (p, action, resources) =>
+          resources.map((resource) => decide(p, action, resource)),
+      },
+      checks,
+    };
+  }
+
   async function draftedApprovalFor(
     reviewers: Pick<ReviewerRegistryBinding, 'list'>,
     actor: { kind: 'user' | 'service'; id: string },
+    authz?: AuthzCheckBinding,
   ): Promise<{ role: string; count: number; separateApprover: boolean } | undefined> {
     const h = await harness();
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
@@ -1433,6 +1472,7 @@ describe('a proposal a drafter wrote (not a person)', () => {
       evalRuns: h.evalRuns.binding,
       releases: h.releases.releases,
       reviewers,
+      ...(authz !== undefined && { authz }),
     });
     const drafted = await service.draft({
       tenantId,
@@ -1502,6 +1542,52 @@ describe('a proposal a drafter wrote (not a person)', () => {
       id: 'improvement-pass',
     });
     expect(approval).toMatchObject({ separateApprover: false });
+  });
+
+  test('a reviewer who cannot read the project does not count, so the requester approves alone (T1044)', async () => {
+    const authz = authzReads('u-alice');
+    const approval = await draftedApprovalFor(
+      roster({ userId: 'u-alice' }, { userId: 'u-bob' }),
+      { kind: 'user', id: 'u-alice' },
+      authz.binding,
+    );
+    expect(approval).toMatchObject({ separateApprover: false });
+    // The count asked whether the other reviewer may read the run's project —
+    // the same resource the decide route would 404 them on (T1044).
+    expect(authz.checks).toContainEqual({
+      userId: 'u-bob',
+      action: 'read',
+      resource: { type: 'project', id: projectId as unknown as string },
+    });
+  });
+
+  test('a reviewer who can read the project counts, so a separate approver is required (T1044)', async () => {
+    const authz = authzReads('u-alice', 'u-bob');
+    const approval = await draftedApprovalFor(
+      roster({ userId: 'u-alice' }, { userId: 'u-bob' }),
+      { kind: 'user', id: 'u-alice' },
+      authz.binding,
+    );
+    expect(approval).toMatchObject({ separateApprover: true });
+  });
+
+  test('a second reviewer on a later roster page still counts (T1044)', async () => {
+    const row = (userId: string, i: number) => ({
+      id: `reviewer-${i}` as ReviewerId,
+      tenantId,
+      userId: userId as UserId,
+      role: 'standard' as const,
+      createdAt: '2026-01-01T00:00:00.000Z' as Timestamp,
+    });
+    const paged: Pick<ReviewerRegistryBinding, 'list'> = {
+      async list({ cursor }) {
+        return cursor === undefined
+          ? { data: [row('u-solo', 0)], nextCursor: 'page-2' as Cursor }
+          : { data: [row('u-two', 1)] };
+      },
+    };
+    const approval = await draftedApprovalFor(paged, { kind: 'user', id: 'u-solo' });
+    expect(approval).toMatchObject({ separateApprover: true });
   });
 });
 
