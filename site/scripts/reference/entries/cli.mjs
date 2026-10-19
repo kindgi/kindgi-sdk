@@ -486,7 +486,8 @@ export const CLI_DEFAULTS = {
   },
   'proposals improve': {
     agent: 'required',
-    'class-weights': '`restricted-only`',
+    'class-weights':
+      'none (counts everyone until the test set project, its tenant, or the agent improved there names an expert class, then trusted ones only)',
     drafts: '`3` (`1` to `5`; a prompt pass only)',
     'from-version': 'the version serving the scope',
     'idempotency-key': 'none',

@@ -120,7 +120,7 @@ export interface ImproveInput {
   /** `['settings']` (the default): tunable settings values; `['prompt']`: drafted templates (needs `model`). */
   readonly tiers?: readonly ('settings' | 'prompt')[];
   readonly objective?: ProposalObjective;
-  /** Which judgments it learns from. Default `restricted-only`: trusted ones. */
+  /** Which judgments it learns from. Omit it for the default: everyone's (`as-recorded`) until the test set's project, its tenant, or the agent improved there has a restricted judge class, then only judgments recorded under one (`restricted-only`). */
   readonly classWeights?: 'restricted-only' | 'as-recorded';
   /** For a prompt pass: the tenant's provider and model that drafts the templates. */
   readonly model?: { readonly providerId: string; readonly model: string };
