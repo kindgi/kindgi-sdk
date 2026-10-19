@@ -6,14 +6,15 @@ A Terraform root module that runs Kindgi in one GCP project:
 - Kindgi's own Cloud SQL (Postgres 16) instance;
 - everything they stand on: service accounts, an Artifact Registry repository, a KMS key for the runtime's secrets (unless `secrets_backend = "none"`, below), and Secret Manager containers.
 
-**Two network shapes** (`network_mode`):
+**Three network shapes** (`network_mode`):
 
-| | `direct` (default) | `connector` |
-|---|---|---|
-| For | a project of its own | a project that already has a VPC |
-| Network | a new VPC and subnet, Direct VPC egress (all traffic), Cloud NAT | an existing Serverless VPC Access connector, private-ranges-only egress; nothing created |
-| The pack service | internal ingress, plus IAM | all ingress, plus IAM (a server without VPC egress can't reach an internal service) |
-| Example values | `example.tfvars` | `example-connector.tfvars` |
+| | `direct` (default) | `connector` | `none` |
+|---|---|---|---|
+| For | a project of its own | a project that already has a VPC | a small dev deployment (below) |
+| Network | a new VPC and subnet, Direct VPC egress (all traffic), Cloud NAT | an existing Serverless VPC Access connector, private-ranges-only egress; nothing created | no VPC at all; nothing created |
+| The pack service | internal ingress, plus IAM | all ingress, plus IAM (a server without VPC egress can't reach an internal service) | all ingress, plus IAM |
+| Database | public IP (`/cloudsql`) or private IP | public IP (`/cloudsql`) or private IP | public IP (`/cloudsql`) only |
+| Example values | `example.tfvars` | `example-connector.tfvars` | `example-dev.tfvars` |
 
 In both shapes only the runtime's service account may invoke the pack service. The runtime sends a Google ID token (`KINDGI_PACK_SERVICE_AUTH=google-id-token`), so a public URL on the pack service is still closed to everyone else.
 
@@ -23,6 +24,14 @@ The `direct` shape was deployed end to end on 2026-10-04, with runtime 0.1.1:
 - flows ran through the pack: tool-call hop p50 42 ms, p95 100 ms.
 
 The `connector` shape is the same resources wired to an existing connector.
+
+### A small dev deployment
+
+For a dev environment next to an app, with no project of its own: `network_mode = "none"` (no VPC), the pack service sleeping to zero (`pack_min_instances = 0`), and Kindgi's database on the app's existing Cloud SQL instance (`database_host_instance`). `example-dev.tfvars` is a starting point. Not for production.
+
+- **No VPC.** Both services reach the internet through Cloud Run's own egress; the pack service takes all ingress, closed by IAM to the server's account (`pack_ingress = "INGRESS_TRAFFIC_ALL"`). There is no static egress IP, and the pack's tools reach only public addresses and the instances in `pack_cloud_sql_instances` — not a private-IP database.
+- **A shared database instance.** With `database_host_instance` set, the module makes no instance of its own: it creates Kindgi's `database_name` database on the named instance, and the operator creates Kindgi's user on that instance (step 3, run against the host). The instance must have a public IP and run **Postgres 16 or later** — before 16 a `CREATEROLE` user, which Kindgi's needs, could take any other role, so the two databases wouldn't be walled off. Run **one Kindgi deployment per host instance** (Kindgi's role and `PUBLIC` connect are instance-wide). The app's instance admins can reset Kindgi's database password; only secrets you store through Kindgi's API stay sealed under its key. Backups, point-in-time recovery and deletion protection are the app instance's, not Kindgi's; `database_deletion_protection` instead keeps Kindgi's database object from a Terraform-side drop (`ABANDON`). Choose a host or the module's own instance **at the first apply** — moving later is a dump and restore.
+- **The pack service at zero.** `pack_min_instances = 0` lets the pack service sleep when idle; the first tool call after idle waits for it to start (its startup budget is `pack_timeout`). The server keeps its default of one always-on instance.
 
 ## Before you start
 
@@ -42,7 +51,7 @@ The `connector` shape is the same resources wired to an existing connector.
 ```sh
 gcloud storage buckets create gs://<state bucket> --location=<region> --uniform-bucket-level-access
 gcloud storage buckets update gs://<state bucket> --versioning
-cp example.tfvars dev.tfvars      # or example-connector.tfvars; fill in
+cp example.tfvars dev.tfvars      # or example-connector.tfvars / example-dev.tfvars; fill in
 terraform init -backend-config=bucket=<state bucket> -backend-config=prefix=<this deployment>
 ```
 
@@ -313,7 +322,9 @@ server_secret_env = {
 
 A point-in-time recovery always makes a new instance ([Google: point-in-time recovery](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/pitr)). A backup can go into a new one too ([Google: restoring](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/restoring)); restored into the instance that serves, it overwrites everything on it. `database_instance` moves the server onto the new instance and leaves the module's own as it is. Public-IP mode only: the server reaches whichever instance it serves from through its `/cloudsql` volume.
 
-1. **Restore into a new instance in this project.** `S` is the instance the server serves from: `$N`, or `database_instance.name` after an earlier restore, since writes made since that switch are only there. `R` is the new one's name, such as `$N-r20261023`:
+With `database_host_instance` set there is no instance of the module's own, so a restore drill clones the app's whole instance (all its databases and users): it needs clone rights on that instance, works only if the app turned on backups or point-in-time recovery, and the clone should be deleted when the drill is done.
+
+1. **Restore into a new instance in this project.** `S` is the instance the server serves from: `$N`, or `database_instance.name` after an earlier restore, since writes made since that switch are only there. With `database_host_instance` set there is no `$N` instance of the module's own — set `S` to the host instance's name (or `database_instance.name` after an earlier restore). `R` is the new one's name, such as `$N-r20261023`:
 
    ```sh
    S=$N
@@ -368,7 +379,7 @@ A point-in-time recovery always makes a new instance ([Google: point-in-time rec
      - the module's own instance or its `$N-database-url`;
      - an instance without a public IP;
      - a connection name for `name`, or a path for `url_secret`.
-6. **The module's own instance stays,** with its deletion protection. The `sql_connection_name` output still names it. Writes made since the restore point are on it alone.
+6. **The module's own instance stays,** with its deletion protection. The `sql_connection_name` output still names it. Writes made since the restore point are on it alone. (With `database_host_instance` set there is no instance of the module's own: going back points the server at the host instance again, and `sql_connection_name` names the host.)
 
 **Anything else on the instance** comes back with it: another database there, an OpenFGA store's, say. That moves on your side, in the same window.
 

@@ -14,7 +14,8 @@ mock_provider "google" {
   # database_instance's instance: one a restore made, with a public IP.
   mock_data "google_sql_database_instance" {
     defaults = {
-      connection_name = "acme-app-dev:northamerica-northeast2:kindgi-dev-restored"
+      connection_name  = "acme-app-dev:northamerica-northeast2:kindgi-dev-restored"
+      database_version = "POSTGRES_16"
       settings = [{
         ip_configuration = [{ ipv4_enabled = true }]
       }]
@@ -895,7 +896,7 @@ run "database_instance_moves_the_server_and_keeps_its_own_instance" {
     error_message = "The grant on the module's own instance stays, for the revision that still serves from it."
   }
   assert {
-    condition     = google_sql_database_instance.kindgi.name == "kindgi-dev" && contains(keys(google_secret_manager_secret.server), "database_url")
+    condition     = google_sql_database_instance.kindgi[0].name == "kindgi-dev" && contains(keys(google_secret_manager_secret.server), "database_url")
     error_message = "The module's own instance and its URL secret stay."
   }
   assert {
@@ -980,4 +981,171 @@ run "database_instance_refuses_a_secret_path" {
     }
   }
   expect_failures = [var.database_instance]
+}
+
+
+# ---- database_host_instance: Kindgi's database on the app's instance ---------
+
+run "host_puts_kindgis_database_on_the_app_instance" {
+  command = plan
+  variables {
+    database_host_instance = "acme-app-db"
+  }
+
+  assert {
+    condition     = length(google_sql_database_instance.kindgi) == 0 && length(data.google_sql_database_instance.host) == 1
+    error_message = "database_host_instance makes no instance of our own and reads the host."
+  }
+  assert {
+    condition     = google_sql_database.kindgi.instance == "acme-app-db"
+    error_message = "Kindgi's database is created on the host instance."
+  }
+  assert {
+    condition     = google_sql_database.kindgi.deletion_policy == "ABANDON"
+    error_message = "On a host, with deletion protection on, the database object is abandoned, not dropped."
+  }
+  assert {
+    condition     = google_cloud_run_v2_service.server.template[0].volumes[0].cloud_sql_instance[0].instances == toset(["acme-app-dev:northamerica-northeast2:kindgi-dev-restored"])
+    error_message = "The /cloudsql volume names the host instance's connection name."
+  }
+  assert {
+    condition     = google_project_iam_member.server_sql_client[0].condition[0].expression == "resource.name == \"projects/acme-app-dev/instances/acme-app-db\""
+    error_message = "The server's account may connect to the host instance."
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value_source[0].secret_key_ref[0].secret
+      if e.name == "KINDGI_DATABASE_URL"
+    ]) == "kindgi-dev-database-url"
+    error_message = "KINDGI_DATABASE_URL reuses the module's own database-url secret; the operator points it at the host."
+  }
+}
+
+run "host_deletes_the_database_when_protection_is_off" {
+  command = plan
+  variables {
+    database_host_instance       = "acme-app-db"
+    database_deletion_protection = false
+  }
+  assert {
+    condition     = google_sql_database.kindgi.deletion_policy == "DELETE"
+    error_message = "With deletion protection off, the database object is deleted on a host too."
+  }
+}
+
+run "host_refuses_a_pre_16_instance" {
+  command = plan
+  variables {
+    database_host_instance = "acme-app-db"
+  }
+  override_data {
+    target = data.google_sql_database_instance.host
+    values = {
+      database_version = "POSTGRES_15"
+      settings         = [{ ip_configuration = [{ ipv4_enabled = true }] }]
+    }
+  }
+  expect_failures = [data.google_sql_database_instance.host]
+}
+
+run "host_refuses_an_instance_without_a_public_ip" {
+  command = plan
+  variables {
+    database_host_instance = "acme-app-db"
+  }
+  override_data {
+    target = data.google_sql_database_instance.host
+    values = {
+      database_version = "POSTGRES_16"
+      settings         = [{ ip_configuration = [{ ipv4_enabled = false }] }]
+    }
+  }
+  expect_failures = [data.google_sql_database_instance.host]
+}
+
+run "host_refuses_private_ip_mode" {
+  command = plan
+  variables {
+    database_host_instance   = "acme-app-db"
+    database_private_network = "projects/acme-app-dev/global/networks/acme"
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "host_refuses_the_module_instance_name" {
+  command = plan
+  variables {
+    database_host_instance = "kindgi-dev"
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "host_refuses_serving_from_itself" {
+  command = plan
+  variables {
+    database_host_instance = "acme-app-db"
+    database_instance = {
+      name       = "acme-app-db"
+      url_secret = "acme-app-db-url"
+    }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "host_refuses_a_connection_name" {
+  command = plan
+  variables {
+    database_host_instance = "acme-app-dev:northamerica-northeast2:db"
+  }
+  expect_failures = [var.database_host_instance]
+}
+
+# ---- network_mode = "none": no VPC ------------------------------------------
+
+run "none_creates_no_vpc" {
+  command = plan
+  variables {
+    network_mode = "none"
+    pack_ingress = "INGRESS_TRAFFIC_ALL"
+  }
+  assert {
+    condition     = length(google_compute_network.kindgi) == 0 && length(google_compute_router_nat.nat) == 0
+    error_message = "network_mode = \"none\" creates no VPC and no NAT."
+  }
+  assert {
+    condition     = length(google_cloud_run_v2_service.pack[0].template[0].vpc_access) == 0
+    error_message = "The pack service gets no connector under \"none\"."
+  }
+  assert {
+    condition     = length(google_cloud_run_v2_service.server.template[0].vpc_access) == 0
+    error_message = "The server gets no VPC egress under \"none\"."
+  }
+}
+
+run "none_needs_all_pack_ingress" {
+  command = plan
+  variables {
+    network_mode = "none"
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "none_refuses_private_ip_mode" {
+  command = plan
+  variables {
+    network_mode             = "none"
+    pack_ingress             = "INGRESS_TRAFFIC_ALL"
+    database_private_network = "projects/acme-app-dev/global/networks/acme"
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "none_refuses_a_static_nat_ip" {
+  command = plan
+  variables {
+    network_mode  = "none"
+    pack_ingress  = "INGRESS_TRAFFIC_ALL"
+    nat_static_ip = true
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
 }

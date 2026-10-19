@@ -202,19 +202,19 @@ variable "pack_run_invokers" {
 # ---- the database -------------------------------------------------------------
 
 variable "database_tier" {
-  description = "Cloud SQL machine tier for Kindgi's own database."
+  description = "Cloud SQL machine tier for Kindgi's own database. Ignored when database_host_instance is set (the host instance's own tier applies)."
   type        = string
   default     = "db-custom-1-3840"
 }
 
 variable "database_version" {
-  description = "Cloud SQL's Postgres version. Kindgi is tested on 16."
+  description = "Cloud SQL's Postgres version. Kindgi is tested on 16. Ignored when database_host_instance is set: the host's own version applies, and must be 16 or later (the module checks it)."
   type        = string
   default     = "POSTGRES_16"
 }
 
 variable "database_edition" {
-  description = "Cloud SQL's edition. ENTERPRISE takes the shared-core (db-f1-micro, db-g1-small) and db-custom-* tiers. Postgres 16 instances otherwise default to ENTERPRISE_PLUS, which takes only db-perf-optimized-N-* tiers."
+  description = "Cloud SQL's edition. ENTERPRISE takes the shared-core (db-f1-micro, db-g1-small) and db-custom-* tiers. Postgres 16 instances otherwise default to ENTERPRISE_PLUS, which takes only db-perf-optimized-N-* tiers. Ignored when database_host_instance is set."
   type        = string
   default     = "ENTERPRISE"
   validation {
@@ -239,7 +239,7 @@ variable "database_private_network" {
 }
 
 variable "database_deletion_protection" {
-  description = "Keep Terraform from deleting Kindgi's database instance (Terraform's own deletion_protection). It doesn't stop a delete from the console, gcloud or the Cloud SQL API."
+  description = "Keep Terraform from deleting Kindgi's database instance (Terraform's own deletion_protection). It doesn't stop a delete from the console, gcloud or the Cloud SQL API. With database_host_instance set there is no instance of our own, so this instead sets the deletion_policy of Kindgi's database object on the host instance: true keeps the data (ABANDON on a destroy or a database_name change), false deletes it (DELETE)."
   type        = bool
   default     = true
 }
@@ -266,6 +266,21 @@ variable "database_instance" {
   }
 }
 
+variable "database_host_instance" {
+  description = <<-EOT
+    Null: the module makes its own Cloud SQL instance (the default).
+    Set, Kindgi's database and user live on this existing Cloud SQL instance in this project instead, and the module makes no instance of its own. The name is an instance with a public IP, reached through the /cloudsql volume. The operator makes Kindgi's user and database on it (README, step 3) and fills <prefix>-database-url with the URL, postgres://<user>:<password>@/<db>?host=/cloudsql/<connection name>.
+    The instance runs Postgres 16 or later, a role-isolation rule the module checks: before 16, CREATEROLE — which Kindgi's user needs — could grant itself any other user's role. Run one Kindgi deployment per host instance (Kindgi's role and PUBLIC connect are instance-wide), and expect Kindgi to share the instance's CPU, memory, connections and backups with the app. Choose a host or the module's own at the first apply: moving an existing deployment on or off a host instance is a dump and restore, not an in-place change. Public-IP mode only (database_private_network empty).
+  EOT
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.database_host_instance == null || can(regex("^[a-z][a-z0-9-]*$", var.database_host_instance))
+    error_message = "database_host_instance is an instance name in this project: lower-case letters, digits and hyphens, starting with a letter."
+  }
+}
+
 # ---- network ------------------------------------------------------------------
 
 variable "network_mode" {
@@ -273,12 +288,13 @@ variable "network_mode" {
     How both services reach a VPC.
     "direct": greenfield. A new VPC and subnet, Direct VPC egress with all traffic, Cloud NAT, and an internal pack service.
     "connector": an existing Serverless VPC Access connector (vpc_connector) with private-ranges-only egress. No VPC, router or NAT is created; internet-bound calls (model APIs, the pack service's URL, webhooks) use Cloud Run's own egress.
+    "none": no VPC at all; nothing is created. For a small dev deployment next to an app. The server reaches a public-IP database through /cloudsql and the pack service through its public URL (IAM still guards it); internet-bound calls use Cloud Run's own egress. No private-IP database and no static egress IP.
   EOT
   type        = string
   default     = "direct"
   validation {
-    condition     = contains(["direct", "connector"], var.network_mode)
-    error_message = "network_mode is \"direct\" or \"connector\"."
+    condition     = contains(["direct", "connector", "none"], var.network_mode)
+    error_message = "network_mode is \"direct\", \"connector\" or \"none\"."
   }
 }
 
@@ -322,7 +338,7 @@ variable "pack_ingress" {
   description = <<-EOT
     The pack service's ingress.
     INGRESS_TRAFFIC_INTERNAL_ONLY (direct mode): only the VPC reaches it.
-    INGRESS_TRAFFIC_ALL (connector mode): a private-ranges-only server can't reach an internal service. IAM still guards it: only the server's service account may invoke it, with a Google ID token (KINDGI_PACK_SERVICE_AUTH=google-id-token).
+    INGRESS_TRAFFIC_ALL (connector or none mode): a server without VPC egress can't reach an internal service. IAM still guards it: only the server's service account may invoke it, with a Google ID token (KINDGI_PACK_SERVICE_AUTH=google-id-token).
   EOT
   type        = string
   default     = "INGRESS_TRAFFIC_INTERNAL_ONLY"
