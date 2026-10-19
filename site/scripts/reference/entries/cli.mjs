@@ -956,6 +956,18 @@ export const CLI_DEFAULTS = {
   doctor: {
     path: 'the current directory',
   },
+  usage: {
+    month: 'the current calendar month, in UTC',
+    from: 'none; with `--to` it sets a window instead of a month',
+    to: 'none; the window ends here (exclusive), at most 92 days after `--from`',
+    project: 'none: every project you can read',
+    'group-by': '`project,kind`',
+    kind: 'none: every kind',
+    class: 'none: every run class',
+    state: 'none: every state',
+    limit: '`1000` (`1` to `10000`)',
+    cursor: 'none: the first page',
+  },
 };
 
 /** The global flags' defaults, as `CLI_DEFAULTS`. */
@@ -2009,6 +2021,16 @@ export const CLI_EXAMPLES = {
       line: 'kindgi version',
     },
   ],
+  usage: [
+    {
+      purpose: "This month's usage so far, grouped by project and kind (the default).",
+      line: 'kindgi usage',
+    },
+    {
+      purpose: 'A past month, broken down by agent and kind, as a table.',
+      line: 'kindgi usage --month=2026-09 --group-by=agent,kind --table',
+    },
+  ],
 };
 
 /** "See also" for a command group that no guide runs: page slugs. */
@@ -2030,4 +2052,5 @@ export const CLI_GROUP_SEE_ALSO = {
   egress: ['deploy/self-hosted/egress-addresses'],
   health: ['deploy/self-hosted/operate'],
   version: ['start/install'],
+  usage: ['guides/observability/cost-per-run', 'guides/projects/organize-by-org-and-project'],
 };
