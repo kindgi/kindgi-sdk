@@ -3,6 +3,8 @@
 
 import { describe, expect, test } from 'vitest';
 
+import { TenantBudgetError } from '@kindgi/bounds';
+
 import type { ModelProvider, ModelUsageRecord, TenantPolicy } from '@kindgi/capabilities';
 import { createProviderRegistry } from '@kindgi/capabilities';
 import type { AgentId, GuardrailId, RunId, TenantId, Timestamp, ToolId } from '@kindgi/types';
@@ -202,6 +204,14 @@ describe('evaluateGuardrail — a check that throws', () => {
       abortSignal: controller.signal,
     }).catch((e: unknown) => e);
     expect(thrown).toBe(reason);
+  });
+
+  test("work its tenant's budget refused isn't the check failing: the refusal propagates as it is", async () => {
+    const refusal = new TenantBudgetError('over the budget', 'schema-compile-time', 2_000, 1_500);
+    const thrown = await evaluateGuardrail(crashes, throwing(refusal), baseTrace()).catch(
+      (e: unknown) => e,
+    );
+    expect(thrown).toBe(refusal);
   });
 });
 
@@ -590,6 +600,21 @@ describe('evaluateGuardrail — llm-judge under the tenant policy', () => {
     expect(outcome.kind).toBe('err');
     if (outcome.kind === 'err') expect(outcome.error.code).toBe('judge-routing-failed');
     expect(calls).toEqual([]);
+  });
+
+  test("names a registered provider the registry couldn't set up", async () => {
+    const message = `Provider "eu-judge" can't be set up on this runtime.`;
+    const { registry } = createProviderRegistry([]);
+    const outcome = await evaluateGuardrail(judgeGuardrail(), judgeRegistry(), baseTrace(), {
+      providerRegistry: { ...registry, setupFailures: () => [{ providerId: 'eu-judge', message }] },
+    });
+    if (outcome.kind !== 'err' || outcome.error.code !== 'judge-routing-failed') {
+      throw new Error(JSON.stringify(outcome));
+    }
+    // The guardrail's error keeps the judge's code and message (not its cause), so the message says why.
+    expect(outcome.error.message).toBe(
+      `Judge routing failed: No registered provider satisfies the capability declaration. ${message}`,
+    );
   });
 
   test('an explicit judgeProvider outside the policy is refused', async () => {

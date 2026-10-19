@@ -61,6 +61,32 @@ describe('rule 2: known shapes in strings', () => {
     expect(scrubText('kgi_lk_short')).toBe('kgi_lk_…');
   });
 
+  test("a three-letter kind is masked too: the license renewer's private and public keys", () => {
+    expect(scrubText('renewer kgi_lrk_A1b2C3d4E5f6G7h8I9j0K1l2M3n4WXYZ here')).toBe(
+      'renewer kgi_lrk_…WXYZ here',
+    );
+    expect(scrubText('kgi_lrp_short')).toBe('kgi_lrp_…');
+  });
+
+  test('ordinary text with kgi_ in it is left alone', () => {
+    for (const text of [
+      'the kgi_ prefix',
+      'kgi_config',
+      'kgi_long_word',
+      'kgi_settings',
+      'KGI_TOKEN',
+      'xkgi_ak_notatoken',
+    ]) {
+      expect(scrubText(text), text).toBe(text);
+    }
+  });
+
+  test('a system key (kgi_sy_) is masked like every other kind, its kind being two letters', () => {
+    expect(scrubText('minted kgi_sy_Q2hhbmdlTWUuVGhpc0lzQVN5c3RlbUtleQ9f9 for sign-up')).toBe(
+      'minted kgi_sy_…Q9f9 for sign-up',
+    );
+  });
+
   test('Bearer <anything> becomes Bearer [redacted]', () => {
     expect(scrubText('Authorization: Bearer abc.def.ghi, next')).toBe(
       'Authorization: Bearer [redacted], next',

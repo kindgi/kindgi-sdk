@@ -13,7 +13,7 @@ devDependency and runs the `kindgi` it pins, never a global install.
 ```sh
 npx @kindgi/cli init            # in an existing app, or: init <pack-name>
 pnpm install
-pnpm exec kindgi dev            # npm: npx --no kindgi dev
+pnpm exec kindgi dev            # npm: npx --no -- kindgi dev
 ```
 
 Use the scoped name, `@kindgi/cli`: there is no unscoped `kindgi` package.
@@ -38,7 +38,7 @@ Desktop, or a Docker engine on Linux). A Python pack needs Python and the
 | [`kindgi key`](#kindgi-key) | Ed25519 signing keys: local pairs under `~/.kindgi/keys/`, and the runtime's trust list. |
 | [`kindgi skills`](#kindgi-skills) | Refresh the Claude Code skills in `.claude/skills/`. |
 | [`kindgi mcp`](#kindgi-mcp) | MCP servers for your coding agent, in `.mcp.json`. |
-| [`kindgi feedback`](#kindgi-feedback) | Note framework friction in the pack's `FEEDBACK.md`. |
+| [`kindgi feedback`](#kindgi-feedback) | Note framework friction in the pack's `FEEDBACK.md`, and send it to Kindgi once the person says yes to the preview. |
 
 The rest of the commands talk to a running Kindgi API: see
 [API commands](#api-commands).
@@ -64,7 +64,7 @@ pnpm exec kindgi runs start --flow=my-pack.echo-flow --input='{"name":"Ada"}' --
 ## `kindgi init`
 
 ```sh
-kindgi init [<pack-name>] [--template=minimal|sample|python] [--path=<dir>]
+kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|python] [--path=<dir>]
             [--force] [--link-local] [--new-repo] [--pack-id=<id>]
 ```
 
@@ -115,7 +115,7 @@ devDependency) at the running CLI's own version, or linked from a checkout
 | Flag | Purpose |
 |---|---|
 | `<pack-name>` | The pack id: lowercase kebab-case, optionally dot-namespaced (`my-pack`, `acme.legal-basics`). |
-| `--template=<name>` | `minimal` (the default: the folders, no examples), `sample` (three tools, a guardrail, an agent and a flow), or `python` (the sample as a Python pack). |
+| `--template=<name>` | `minimal` (the default: the folders, no examples), `sample` (three tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store: typed store tools, approvals for large refunds and store changes, and a review of each new order), `drupal` (agents for a Drupal site through its MCP Server: house-style fixes as drafts, each change approved, and a review of each saved article), or `python` (the sample as a Python pack). |
 | `--path=<dir>` | Where to scaffold. Default: `<pack-name>` under the current directory (for a dot-namespaced id, its last segment). |
 | `--force` | Write into a non-empty directory. Default: refuse. |
 | `--link-local` | Link `@kindgi/*` from the checkout the CLI runs from. |
@@ -207,12 +207,18 @@ One command runs the whole loop on your machine:
   Default Credentials file (`GOOGLE_APPLICATION_CREDENTIALS`, else the one
   `gcloud auth application-default login` writes) is mounted read-only.
   Kindgi keeps no key files of its own.
-- **The image:** the runtime image is pulled on first use. It is in
-  private preview: request access at contact@kindgi.com, then log Docker in
-  with the pull credentials you receive:
-  `kindgi auth registry --username <robot name>` (see
+- **The image:** the runtime image is pulled on first use. It needs a pull
+  credential: sign in with GitHub at https://access.kindgi.com for one, then
+  log Docker in with it:
+  `kindgi auth registry --username <your robot name>` (see
   [The runtime image's registry](#the-runtime-images-registry)). `kindgi dev`
   says so when a pull is refused.
+- **Starting:** `kindgi dev` says what the start is doing as it happens,
+  and how long each step took: pulling the image (its size, then how much
+  has come as each layer arrives), starting the container, migrating the
+  database, and waiting for the runtime to serve. A step still going says
+  so every 3 seconds. Migrating shows with a runtime that reports it (0.1.7
+  and later); with an earlier one, that time counts as waiting.
 
 ### Env files
 
@@ -353,7 +359,7 @@ request field; dots nest).
   Console    http://127.0.0.1:4000/console/
   Tenant     c9a4…
   Token      kgi_bt_…
-  Providers  dev-echo (fallback) — …
+  Models     none yet. Agents give placeholder replies until you connect a model: https://docs.kindgi.com/…
   Origins    …
 
   Try it (from another terminal, cd to the pack dir first):
@@ -435,11 +441,15 @@ kindgi test [--watch] [--reporter <name>] [--path <dir>] [-- <vitest-args>...]
 ```
 
 Runs the pack's tests with the pack's own vitest (the CLI bundles none, so the
-pack chooses its vitest version). The templates include a `vitest.config.ts`
-and a first test. `--watch` runs vitest in watch mode; everything after `--`
-goes to vitest as is. The CLI refuses to run without a `vitest.config.*` at
-the pack root, and uses `pnpm exec vitest` in a pnpm project, else
-`npx --no-install vitest`.
+pack chooses its vitest version). A pack from `kindgi init <name>` has a
+`vitest.config.ts` and a first test. In an app Kindgi was added to, `kindgi
+init` writes `vitest.config.mts` (`.ts` in a `"type": "module"` app), which
+runs `kindgi/**/*.test.ts` with the app's tsconfig `paths` as
+`resolve.alias`, and adds `vitest` and `vite`, unless the app runs vitest
+already. `--watch` runs vitest in watch mode; everything after `--` goes to
+vitest as is. The CLI refuses to run without a `vitest.config.*` (`.ts`,
+`.mts`, `.cts`, `.js`, `.mjs` or `.cjs`) at the pack root, and uses
+`pnpm exec vitest` in a pnpm project, else `npx --no-install vitest`.
 
 ## `kindgi build`
 
@@ -621,6 +631,7 @@ and `--published-at`: the same inputs then give the same image.
 | `--push[=<repository>]` | With `--local`: push the image, sign it, and write the envelope. Default repository: the env block's `registry` + `/<packId>`. |
 | `--platform=<os/arch>` | The image's platform. Default: `linux/amd64` when pushing, else this machine's. |
 | `--endpoint=<url>` | The build server. Default: the env block's `build`. |
+| `--out=<dir>` | Where the build writes `dist/`, the `Containerfile`, `context/` and `deploy-envelope.json`. Default: `.kindgi/build`, under the pack. It cannot be the pack root or a directory that contains it; for a TypeScript pack it must stay under the pack root, where the pack's `node_modules` resolves the bundled indexer's imports. |
 | `--tenant=<id>` | The tenant the signature names. Default: the env block's `tenantId`, else `KINDGI_TENANT_ID`. |
 | `--signing-key=<path>` | The Ed25519 private key (PEM). Default: the env block's `signingKey`. |
 | `--skip-integrity-gate` | Sign without re-checking the image's index. Prints a warning. |
@@ -657,7 +668,10 @@ deployment. The envelope is `--from-envelope`, else
   deployment's secrets after it lands. Off by default; without it, a deploy
   with such a file says what it didn't send. With it, secret-shaped names
   (`*_KEY`, `*_TOKEN`, `*_SECRET`, …) get a warning: those belong in
-  `kindgi secrets set`.
+  `kindgi secrets set`. A hosted deploy (`--hosted`, or an env block's
+  `build: 'hosted'`) needs `--env` with it, since a hosted runtime reads
+  a deployment's secrets in the env it serves. Without it the deploy is
+  refused before anything is built or sent.
 - **Errors** carry a hint for the common ones: `signature-invalid`,
   `signer-not-trusted`, `image-unverifiable`,
   `deployment-validation-failed`.
@@ -791,6 +805,18 @@ pack's env files in its environment, so the secret is never written into
 friction to `FEEDBACK.md` at the pack root, where a coding agent can leave
 what it diagnosed for the maintainers.
 
+- `kindgi feedback submit --preview` prints exactly what would be sent to
+  Kindgi's intake (access.kindgi.com), after redaction, with its digest.
+  `--yes=<digest>` then sends exactly that; at a terminal it asks instead.
+  Home directories, paths outside the pack, the pack's env values, keys,
+  tokens, URL query values and email addresses are taken out first.
+  `KINDGI_FEEDBACK_SUBMIT=off` turns sending off.
+- `kindgi feedback status` says what became of the reports sent: received,
+  known, fixed (and in which version), won't fix, or withdrawn.
+- `kindgi feedback withdraw <id>` takes a report back: the intake clears its
+  text at once. The key it needs stays in `~/.kindgi/feedback/keys.json` on
+  the machine that sent it; `FEEDBACK.md` holds only the report id.
+
 ## API commands
 
 These call a running Kindgi API through [`@kindgi/client`](../../sdks/typescript).
@@ -853,16 +879,56 @@ The API URL and token come from, in order:
 pair once with `kindgi auth login --url=<url> --token=<token>`, and check it
 with `kindgi auth whoami`.
 
+**In a folder where `kindgi dev` ran, `--hosted` reaches the other API.**
+There, `.kindgirc.json` points every command at the dev runtime, ahead of
+your `kindgi auth login`. With `--hosted`, a command goes to the CLI's own
+address (`--url`, `KINDGI_API_URL` or the one `kindgi auth login` stored),
+with that address's key, and doesn't read the dev runtime's
+`.kindgirc.json`: `kindgi auth whoami --hosted` checks your sign-in. An env
+with `build: 'hosted'` in `kindgi.config.ts` does the same for a command
+that acts in it (`--env <name>`, or `staging` for `kindgi build` and
+`kindgi deploy`). With no address of its own, a hosted command is refused
+before it sends anything, and the refusal says the file isn't read.
+`kindgi dev --hosted` is refused (exit 2): a dev runtime is never hosted.
+
+A command that goes to the dev runtime while another address is in reach
+says so first, on stderr:
+
+```text
+kindgi auth whoami goes to the kindgi dev runtime at http://127.0.0.1:4000 (…/.kindgirc.json says so). For https://platform.kindgi.com, pass --hosted.
+```
+
+When the key was given with `--token` or `KINDGI_API_TOKEN` and nothing
+else is signed in, the line ends `To send it to the address your key is
+for, pass --url <that address> or export KINDGI_API_URL.` in place of the
+`--hosted` sentence. There's no line when `--url` or `KINDGI_API_URL` named
+the address, or when the dev runtime is the only one in reach.
+
+**A stored key goes only to the address stored with it.** A key in
+`.kindgirc.json` or `~/.kindgi/config.json` is for the `apiUrl` beside it.
+When the two files hold keys for different addresses, the key used is the
+one stored with the API URL the command goes to, so in a `kindgi dev`
+folder `--url <the address you signed in to>` uses your sign-in's key.
+When no key is stored for that address (a `--url`, `KINDGI_API_URL` or
+folder `apiUrl` that names another one, or a key with no `apiUrl` beside
+it), a command that needs the key is refused before it sends anything,
+naming both addresses and the file. A command that sends no key isn't.
+`kindgi auth login --url=<url>` saves a stored key only for its own address:
+for another one, give that server's key with `--token` or `KINDGI_API_TOKEN`.
+A key given with `--token` or `KINDGI_API_TOKEN` goes to whatever address
+the command goes to. `kindgi doctor` says which key the CLI would use, and
+whether it's for the API URL.
+
 ### The runtime image's registry
 
-The Kindgi runtime image `kindgi dev` runs is in private preview: request
-access at contact@kindgi.com. With the pull credentials you receive (a robot
-name and a token), log Docker in once:
+The Kindgi runtime image `kindgi dev` runs needs a pull credential (a robot
+name and a token). Sign in with GitHub at https://access.kindgi.com for one,
+then log Docker in once:
 
 ```sh
-kindgi auth registry --username <robot name>     # prompts for the token, without echoing it
-printf '%s' "$TOKEN" | kindgi auth registry --username <robot name> --password-stdin
-kindgi auth registry --check                      # only check access, no login
+kindgi auth registry --username <your robot name>  # prompts for the token, without echoing it
+printf '%s' "$TOKEN" | kindgi auth registry --username <your robot name> --password-stdin
+kindgi auth registry --check                       # only check access, no login
 ```
 
 It runs `docker login` with the token on its stdin, never in its arguments,
@@ -870,8 +936,8 @@ so the credential lives in Docker's own credential store: Kindgi stores
 nothing. Then it checks that Docker can pull the exact image this CLI runs
 (pinned by digest; with `docker buildx imagetools inspect`, or
 `docker manifest inspect` by digest where buildx isn't installed), and a
-failure says whether it's access (request it at
-contact@kindgi.com) or the image or the network. `--registry <host>` logs in
+failure says whether it's access (a pull credential from
+https://access.kindgi.com) or the image or the network. `--registry <host>` logs in
 to a mirror instead and checks for the same image there.
 
 ## Output and global flags
@@ -883,6 +949,7 @@ to a mirror instead and checks for the same image there.
 | `--table` | A table for list responses (`runs list`, `tools list`, `providers list`; JSON where a list has no columns). |
 | `--quiet` | Nothing on stdout; the exit code only. |
 | `--url=<url>`, `--token=<token>` | The API and its token (see above). |
+| `--hosted` | Go to the CLI's own address, never a `kindgi dev` runtime's `.kindgirc.json` (see above). `kindgi build` and `kindgi deploy` then use the hosted build service. `kindgi dev` refuses it. |
 | `--verbose`, `-v` | Full errors: stack traces and the API's error bodies. |
 | `--version` | The CLI's version. |
 | `--help`, `-h` | Help for the CLI or a command. |

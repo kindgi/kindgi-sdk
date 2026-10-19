@@ -75,12 +75,12 @@ export const initCommand: LeafCommand = {
   description:
     'Scaffold a new Kindgi pack repo, or add Kindgi to an existing app: a Node.js, Python, Maven or sbt project, auto-detected from its `package.json`, `pyproject.toml`, `pom.xml` or `build.sbt` when no pack-name is given.',
   usage:
-    'kindgi init [<pack-name>] [--template=minimal|sample|python|java|scala] [--path=<dir>] [--force] [--link-local] [--new-repo]',
+    'kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|python|java|scala] [--path=<dir>] [--force] [--link-local] [--new-repo]',
   optionSpec: {
     template: {
       type: 'string',
       description:
-        'The starter: `minimal` (default; empty primitive folders), `sample` (tools, a guardrail, an agent and a flow), `python` (a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview).',
+        'The starter: `minimal` (default; empty primitive folders), `sample` (tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store, with approvals), `drupal` (agents for a Drupal site through its MCP Server, with approvals), `python` (a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview).',
     },
     path: {
       type: 'string',
@@ -122,7 +122,15 @@ export const initCommand: LeafCommand = {
 /** Pack ids: lowercase dot-separated segments, e.g. `acme.billing`. */
 export const PACK_ID_REGEX = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*$/;
 
-export const AVAILABLE_TEMPLATES = ['minimal', 'sample', 'python', 'java', 'scala'] as const;
+export const AVAILABLE_TEMPLATES = [
+  'minimal',
+  'sample',
+  'woocommerce',
+  'drupal',
+  'python',
+  'java',
+  'scala',
+] as const;
 export type TemplateName = (typeof AVAILABLE_TEMPLATES)[number];
 
 const DEFAULT_TEMPLATE: TemplateName = 'minimal';
@@ -262,6 +270,20 @@ function augmentTemplate(
   | { readonly kind: 'err'; readonly stderr: string } {
   const name = typeof flag === 'string' && flag !== '' ? flag : DEFAULT_TEMPLATE;
   if (name === 'minimal' || name === 'sample') return { kind: 'ok', name };
+  if (name === 'woocommerce') {
+    return {
+      kind: 'err',
+      stderr:
+        'The woocommerce template makes a pack of its own (its tools share a store client in lib/), so init does not add it to an existing app.\nFor a standalone WooCommerce pack here: kindgi init <pack-name> --template=woocommerce --new-repo\n',
+    };
+  }
+  if (name === 'drupal') {
+    return {
+      kind: 'err',
+      stderr:
+        'The drupal template makes a pack of its own (its agents share the site settings in lib/), so init does not add it to an existing app.\nFor a standalone Drupal pack here: kindgi init <pack-name> --template=drupal --new-repo\n',
+    };
+  }
   if (name === 'python') {
     return {
       kind: 'err',
@@ -332,9 +354,9 @@ async function runInitFresh(
   });
 
   // Copy @kindgi/sdk skills into the scaffolded pack's
-  // `.claude/skills/`. Claude Code auto-loads these based on their
-  // frontmatter `description` — no user action after init.
-  const skillsWritten = await copyClaudeSkills({
+  // `.claude/skills/` and `.agents/skills/`. Coding agents load these
+  // based on their frontmatter `description` — no user action after init.
+  const skillsWritten = await copySkills({
     skillsRoot,
     targetDir: args.targetDir,
     language: 'node',
@@ -514,7 +536,7 @@ async function runInitPython(
       ].join(', '),
     },
   });
-  const skillsWritten = await copyClaudeSkills({
+  const skillsWritten = await copySkills({
     skillsRoot,
     targetDir: args.targetDir,
     language: 'python',
@@ -587,7 +609,7 @@ async function runInitJava(
       KINDGI_CLI_VERSION: CLI_VERSION,
     },
   });
-  const skillsWritten = await copyClaudeSkills({
+  const skillsWritten = await copySkills({
     skillsRoot,
     targetDir: args.targetDir,
     language: 'java',
@@ -705,7 +727,7 @@ async function runInitScala(
     if (wrapper === 'kindgiw') await chmod(dest, 0o755);
     filesWritten.push(dest);
   }
-  for (const s of await copyClaudeSkills({
+  for (const s of await copySkills({
     skillsRoot,
     targetDir: args.targetDir,
     language: 'scala',
@@ -883,7 +905,7 @@ export function defaultTemplatesRoot(): string {
 
 /**
  * Absolute path to the bundled `@kindgi/sdk` skills the CLI copies
- * into the scaffolded pack's `.claude/skills/`. Two candidate
+ * into the scaffolded pack's skills folders. Two candidate
  * locations, checked in order:
  *
  *  1. `../sdk-skills/` relative to this file — the built form, where
@@ -906,14 +928,15 @@ export function defaultSdkSkillsRoot(): string | undefined {
 
 /**
  * Copy every `<skill-name>/SKILL.md` written for packs in `language`
- * from `skillsRoot` into `<targetDir>/.claude/skills/<skill-name>/SKILL.md`. Claude Code
- * auto-loads skills from `.claude/skills/` based on their
- * frontmatter `description` — no user action required after init.
+ * from `skillsRoot` into `<targetDir>/<folder>/<skill-name>/SKILL.md`, for each of
+ * `.claude/skills/` (Claude Code) and `.agents/skills/` (Codex, Gemini CLI and
+ * others). Coding agents load skills based on their frontmatter `description`
+ * — no user action required after init.
  *
  * Silently no-ops when `skillsRoot` is undefined (source-run CLI
  * without a build).
  */
-async function copyClaudeSkills(inputs: {
+async function copySkills(inputs: {
   readonly skillsRoot: string | undefined;
   readonly targetDir: string;
   readonly language: PackLanguage;
@@ -930,5 +953,5 @@ async function copyClaudeSkills(inputs: {
   });
   return report.outcomes
     .filter((o) => o.status === 'added' || o.status === 'updated')
-    .map((o) => join(inputs.targetDir, '.claude', 'skills', o.name, 'SKILL.md'));
+    .map((o) => join(inputs.targetDir, o.folder, o.name, 'SKILL.md'));
 }

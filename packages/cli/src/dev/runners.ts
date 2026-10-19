@@ -14,10 +14,12 @@ import type {
   PackServiceSupervisor,
   PackServiceSupervisorEvent,
 } from '@kindgi/handler-runtime/pack-service';
+import type { DockerReach } from './blocked.js';
 import type { DevLockProcesses } from './dev-lock.js';
 import type { ProjectDatabases } from './project-database.js';
 import type { ProjectOutcome } from './project.js';
 import type { ActiveDevSandbox, SandboxAvailability } from './sandbox/index.js';
+import type { StartPhases } from './start-phases.js';
 
 import type { JvmPackCode, PackCode } from './pack-code.js';
 
@@ -103,8 +105,10 @@ export interface StartApiServerOptions {
   readonly logLevels?: Readonly<Record<string, string>>;
   /** Lines the runtime writes (a container's), with the stream each came on. */
   readonly onLog?: (line: string, stream: 'stdout' | 'stderr') => void;
-  /** Progress while preparing (an image pull). */
+  /** Progress while preparing. */
   readonly onProgress?: (line: string) => void;
+  /** The start's phases (the image pull, the container, migrating, waiting for it to serve), as they happen. */
+  readonly startPhases?: StartPhases;
 }
 
 /**
@@ -298,14 +302,20 @@ export interface StartedServicesHandle {
  * Outcome of `startServices`. `kind: 'ok'` = started (with docker
  * compose, or plain docker without it) AND all containers healthy.
  * `kind: 'unavailable'` = docker itself isn't available (not installed,
- * or the engine doesn't answer); caller falls back to the
- * missing-KINDGI_DATABASE_URL error. `kind: 'error'` = docker was
+ * or the engine doesn't answer, or this process can't reach it); caller
+ * falls back to the missing-KINDGI_DATABASE_URL error, or, for Docker
+ * that's there but out of reach, says that. `kind: 'error'` = docker was
  * available but the boot failed (image pull, port collision, health
  * timeout) — caller surfaces the reason.
  */
 export type StartServicesResult =
   | { readonly kind: 'ok'; readonly handle: StartedServicesHandle }
-  | { readonly kind: 'unavailable'; readonly reason: string }
+  | {
+      readonly kind: 'unavailable';
+      readonly reason: string;
+      /** How Docker failed to answer, when it was asked. */
+      readonly reach?: DockerReach;
+    }
   | { readonly kind: 'error'; readonly message: string };
 
 /**

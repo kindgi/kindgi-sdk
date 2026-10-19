@@ -105,7 +105,10 @@ export function refused(
   return c.json(toWireError(refusalError(refusal), typeof requestId === 'string' ? requestId : ''));
 }
 
-/** Whether the caller's key carries `cap`: fail-closed when `capabilities` is absent. */
+/**
+ * Whether the caller carries `cap` (a key, those it was minted with; a
+ * session, its person's): fail-closed when `capabilities` is absent.
+ */
 export function hasCapability(
   c: { get: (k: 'capabilities') => readonly string[] | undefined },
   cap: string,

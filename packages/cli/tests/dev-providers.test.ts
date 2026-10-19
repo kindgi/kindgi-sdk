@@ -340,7 +340,7 @@ describe('reconcileProviders', () => {
 describe('describeReconcile', () => {
   const inputs = {
     file: 'kindgi.config.ts',
-    kindgi: (...a: string[]) => `npx --no kindgi ${a.join(' ')}`,
+    kindgi: (...a: string[]) => `npx --no -- kindgi ${a.join(' ')}`,
     envFiles: '.env, .env.local',
   };
 
@@ -375,9 +375,9 @@ describe('describeReconcile', () => {
     ).toEqual([
       'Providers from kindgi.config.ts:',
       '  · gemini: unchanged',
-      '  ⚠ anthropic: not registered: ANTHROPIC_API_KEY is not in .env, .env.local. Set it (npx --no kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant), then restart kindgi dev',
-      "  ⚠ local-llm: registered already, not from kindgi.config.ts, with another region or models; left as it is. For the config's: npx --no kindgi providers unregister local-llm, then restart kindgi dev",
-      "  · qwen: registered already, not from kindgi.config.ts, with the same models (its adapter settings and key aren't listed to compare); left as it is. For the config's: npx --no kindgi providers unregister qwen, then restart kindgi dev",
+      '  ⚠ anthropic: not registered: ANTHROPIC_API_KEY is not in .env, .env.local. Set it (npx --no -- kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant), then restart kindgi dev',
+      "  ⚠ local-llm: registered already, not from kindgi.config.ts, with another region or models; left as it is. For the config's: npx --no -- kindgi providers unregister local-llm, then restart kindgi dev",
+      "  · qwen: registered already, not from kindgi.config.ts, with the same models (its adapter settings and key aren't listed to compare); left as it is. For the config's: npx --no -- kindgi providers unregister qwen, then restart kindgi dev",
       '  ✓ old: unregistered (no longer in kindgi.config.ts)',
     ]);
   });

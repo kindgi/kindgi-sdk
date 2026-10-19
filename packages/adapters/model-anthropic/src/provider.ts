@@ -12,12 +12,14 @@ import type {
 } from '@kindgi/capabilities';
 import { samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
-import { nameToolsAsSent } from '@kindgi/capabilities/tool-names';
+import { createClientsByKey } from '@kindgi/capabilities/clients-by-key';
+import { nameToolsAsSent, toolIdsBySentName } from '@kindgi/capabilities/tool-names';
 import { headerValueProblem } from '@kindgi/types';
 
 import { withPromptCache } from './cache.js';
 import { type CostRates, computeCostUsd, toFrameworkUsage } from './cost.js';
 import {
+  decodeToolName,
   encodeToolName,
   fromAnthropicResponse,
   mapStopReason,
@@ -100,6 +102,9 @@ const DEFAULT_MAX_TOKENS = 4096;
  * doesn't expose a streaming seam yet — a streaming adapter is a
  * separate primitive.
  */
+/** Anthropic's API: the SDK's own default, given explicitly so `ANTHROPIC_BASE_URL` can't move it. */
+const ANTHROPIC_API_URL = 'https://api.anthropic.com';
+
 export function createAnthropicProvider(options: AnthropicProviderOptions): ModelProvider {
   const metadata = options.metadata satisfies Omit<ProviderMetadata, 'models'> & {
     readonly models: readonly AnthropicModelInfo[];
@@ -111,21 +116,17 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
     metadata.models.map((m) => [m.name, m] as const),
   );
 
-  // Cache the SDK client keyed by the currently-resolved API key. When
-  // the resolver returns the same value it did last time, reuse the
-  // client instance (SDK internally maintains a fetch agent and TCP
-  // keepalive — throwing it away on every invoke would tank latency).
-  // When the resolver returns a new value (key rotation), rebuild.
-  let cached: { readonly key: string; readonly client: Anthropic } | undefined;
+  // One SDK client per resolved key, reused while that key is, so an invoke
+  // doesn't build one. Connections live in the `fetch` every client sends
+  // with, so they're kept either way. Calls whose keys take turns (a run in
+  // each of two projects with keys of their own) each reuse their own; a
+  // rotated key builds a new one. A dep-injected client is used as is,
+  // whatever the resolver says: callers injecting one opt out of key
+  // rotation.
+  const clients = createClientsByKey<Anthropic>();
   // Counts each call's HTTP attempts, the SDK's own retries included (its
   // retry policy stays the SDK's), through the `fetch` the client sends with.
   const attempts = createAttemptCounter(options.clientOptions?.fetch);
-  if (options.client !== undefined) {
-    // Dep-injected client — pin to sentinel key so resolveClient below
-    // always returns the same instance regardless of what the resolver
-    // says. Callers using dep injection are opting out of key rotation.
-    cached = { key: '<injected>', client: options.client };
-  }
 
   async function resolveApiKey(): Promise<string> {
     const key = typeof options.apiKey === 'function' ? await options.apiKey() : options.apiKey;
@@ -143,15 +144,20 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
   async function resolveClient(): Promise<Anthropic> {
     if (options.client !== undefined) return options.client;
     const key = await resolveApiKey();
-    if (cached !== undefined && cached.key === key) return cached.client;
-    const client = new Anthropic({
-      apiKey: key,
-      ...(options.baseURL !== undefined && { baseURL: options.baseURL }),
-      ...(options.clientOptions ?? {}),
-      fetch: attempts.fetch,
-    });
-    cached = { key, client };
-    return client;
+    return clients.get(
+      key,
+      () =>
+        new Anthropic({
+          apiKey: key,
+          // Never from the server's environment: left out, the SDK reads
+          // ANTHROPIC_AUTH_TOKEN (sent as a bearer beside the provider's own key,
+          // on every provider's calls) and ANTHROPIC_BASE_URL.
+          authToken: null,
+          baseURL: options.baseURL ?? ANTHROPIC_API_URL,
+          ...(options.clientOptions ?? {}),
+          fetch: attempts.fetch,
+        }),
+    );
   }
 
   return {
@@ -171,6 +177,8 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       // The system prompt names the call's tools as they're sent (`acme__lookup_order`):
       // a model told to call `acme.lookup_order` calls a name it wasn't given (T311).
       const toolNames = input.tools?.map((t) => t.name) ?? [];
+      // A call names its tool by the name it was sent: back to the id by lookup.
+      const toolIdOf = toolIdsBySentName(toolNames, encodeToolName, decodeToolName);
       // Cache breakpoints on the tools, the agent's prompt and, when the call
       // can continue, the conversation so far (`withPromptCache`).
       const { system, tools, messages } = withPromptCache({
@@ -211,7 +219,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       const response = counted.value;
 
       const durationMs = Date.now() - startedAt;
-      const message = fromAnthropicResponse(response);
+      const message = fromAnthropicResponse(response, toolIdOf);
       const usage = toFrameworkUsage(response.usage);
       const costUsd = computeCostUsd(response.usage, modelInfo.cost);
 

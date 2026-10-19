@@ -67,9 +67,20 @@ describe('createGeminiProvider with a Gemini API key', () => {
     key = 'key-2';
     await call(provider);
     expect(built.map((o) => o.apiKey)).toEqual(['key-1', 'key-2']);
-    expect(built[0]?.vertexai).toBeUndefined();
+    // Said outright, so the server's GOOGLE_GENAI_USE_VERTEXAI can't move it (tests/server-env.test.ts).
+    expect(built[0]?.vertexai).toBe(false);
     expect(built[0]?.project).toBeUndefined();
     expect(built[0]?.httpOptions?.fetch).toBeTypeOf('function');
+  });
+
+  test('keys taking turns (a run in each of two projects, each with its own key): one client each, reused', async () => {
+    const keys = ['key-a', 'key-b', 'key-a', 'key-b'];
+    const provider = createGeminiProvider({
+      metadata: METADATA,
+      apiKey: () => keys.shift() ?? 'key-x',
+    });
+    for (let i = 0; i < 4; i++) await call(provider);
+    expect(built.map((o) => o.apiKey)).toEqual(['key-a', 'key-b']);
   });
 
   test('an empty key fails the call, naming the provider', async () => {
@@ -93,6 +104,25 @@ describe('createGeminiProvider with a Gemini API key', () => {
   });
 });
 
+describe('createGeminiProvider on Vertex AI with a service-account key', () => {
+  test('keys taking turns: one client each, reused, each with its own key', async () => {
+    const saKey = (email: string) =>
+      JSON.stringify({ type: 'service_account', client_email: email, private_key: 'pk' });
+    const keys = ['a@acme.example', 'b@acme.example', 'a@acme.example', 'b@acme.example'];
+    const provider = createGeminiProvider({
+      metadata: METADATA,
+      vertex: { project: 'acme-dev', location: 'global' },
+      credentials: () => saKey(keys.shift() ?? 'x@acme.example'),
+    });
+    for (let i = 0; i < 4; i++) await call(provider);
+    expect(
+      built.map(
+        (o) => (o.googleAuthOptions?.credentials as { client_email?: string })?.client_email,
+      ),
+    ).toEqual(['a@acme.example', 'b@acme.example']);
+  });
+});
+
 describe('geminiAdapterFactory: adapter_config.api', () => {
   const input = (config: Record<string, unknown> | undefined, withKey: boolean) =>
     ({
@@ -105,7 +135,8 @@ describe('geminiAdapterFactory: adapter_config.api', () => {
     const provider = geminiAdapterFactory(input({ api: 'developer' }, true));
     await call(provider);
     expect(built[0]?.apiKey).toBe('key-from-the-secret');
-    expect(built[0]?.vertexai).toBeUndefined();
+    // Said outright, so the server's GOOGLE_GENAI_USE_VERTEXAI can't move it (tests/server-env.test.ts).
+    expect(built[0]?.vertexai).toBe(false);
   });
 
   test('"developer" without a secret_ref is refused', () => {

@@ -1,5 +1,55 @@
 # @kindgi/policy-contract
 
+## 0.1.8
+
+### Patch Changes
+
+- Updated dependencies [ebf405d]
+  - @kindgi/types@0.1.8
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- Updated dependencies [ebf405d]
+  - @kindgi/types@0.1.8-rc.0
+
+## 0.1.7
+
+### Patch Changes
+
+- b90e2c6: A page cursor a list didn't issue answers `400 bad-input` on the agents, flows, policies and eval-suites `/versions` lists and on an agent's promotions, instead of the first page again.
+  - **The bindings say so:** the agent, flow, policy and eval-suite registries gain an optional `issuedCursor(list: 'versions', cursor)`, and the promotions binding an optional `issuedCursor(list: 'promotions', cursor)`. The route asks before it reads the list, and answers `400 bad-input` ("`cursor` is malformed") when the binding says no. A binding without the method gets any cursor, as before.
+  - **Why:** a binding that reads a cursor it didn't issue as no cursor hands back the first page, so a client paging until done would start over. The cursor stays opaque to the API: only the binding that issued it knows its shape.
+  - **The OpenAPI document** now lists the `400` on these operations, and on the blocks and tools `/versions` lists, which already answered it.
+- Updated dependencies [b90e2c6]
+  - @kindgi/types@0.1.7
+
+## 0.1.7-rc.0
+
+### Patch Changes
+
+- b90e2c6: A page cursor a list didn't issue answers `400 bad-input` on the agents, flows, policies and eval-suites `/versions` lists and on an agent's promotions, instead of the first page again.
+  - **The bindings say so:** the agent, flow, policy and eval-suite registries gain an optional `issuedCursor(list: 'versions', cursor)`, and the promotions binding an optional `issuedCursor(list: 'promotions', cursor)`. The route asks before it reads the list, and answers `400 bad-input` ("`cursor` is malformed") when the binding says no. A binding without the method gets any cursor, as before.
+  - **Why:** a binding that reads a cursor it didn't issue as no cursor hands back the first page, so a client paging until done would start over. The cursor stays opaque to the API: only the binding that issued it knows its shape.
+  - **The OpenAPI document** now lists the `400` on these operations, and on the blocks and tools `/versions` lists, which already answered it.
+- Updated dependencies [b90e2c6]
+  - @kindgi/types@0.1.7-rc.0
+
+## 0.1.6
+
+### Patch Changes
+
+- Updated dependencies [b4bbd95]
+  - @kindgi/types@0.1.6
+
+## 0.1.6-rc.0
+
+### Patch Changes
+
+- Updated dependencies [b4bbd95]
+  - @kindgi/types@0.1.6-rc.0
+
 ## 0.1.5
 
 ### Patch Changes

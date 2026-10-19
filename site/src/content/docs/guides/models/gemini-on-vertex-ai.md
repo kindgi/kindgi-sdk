@@ -5,31 +5,43 @@ sidebar:
   order: 2
 ---
 
+This guide connects Gemini on Vertex AI to your agents, with your Google
+Cloud credentials instead of an API key.
+
 The `gemini` preset registers Gemini 3.8 Flash and Gemini 3.5 Flash Lite on
 Google Cloud's Vertex AI. It takes no API key: calls use your Google Cloud
 credentials, and Vertex AI runs and bills them in a project you name.
 
+## Before you start
+
+- **A pack** with `kindgi dev` running, from Kindgi 0.1's CLI.
+- **The `gcloud` CLI.**
+- **A Google Cloud project** with the Vertex AI API turned on, and an account
+  with access to Vertex AI in it.
+
 ## 1. Log in to Google Cloud
+
+The runtime calls Vertex AI with your credentials. Log in once:
 
 ```sh
 gcloud auth application-default login
 ```
 
-That writes your Application Default Credentials
-(`~/.config/gcloud/application_default_credentials.json`). The account needs
-access to Vertex AI in the project.
+It opens a browser to sign in. That writes your Application Default
+Credentials to `~/.config/gcloud/application_default_credentials.json`. The
+account needs access to Vertex AI in the project.
 
 `kindgi dev` gives the runtime Google credentials only when you say which, with
-`KINDGI_DEV_GOOGLE_CREDENTIALS` in the pack's `.env` (or `.env.local`, for a
-path that's only yours), or in the shell:
+`KINDGI_DEV_GOOGLE_CREDENTIALS`. Set it in the pack's `.env`, in `.env.local`
+for a path that's only yours, or in the shell:
 
 ```sh
 # .env
 KINDGI_DEV_GOOGLE_CREDENTIALS=adc
 ```
 
-`adc` is the login above. An absolute path names another credentials file, such
-as a service-account key, and `off` (the default) gives none. `kindgi dev`
+`adc` is your `gcloud` login. An absolute path names another credentials
+file, such as a service-account key. `off`, the default, gives none. `kindgi dev`
 mounts the file read-only, and names it and whose it is when it starts:
 
 ```text
@@ -48,11 +60,15 @@ A `GOOGLE_APPLICATION_CREDENTIALS` in your shell isn't used unless you name it:
 
 ## 2. Register the preset
 
+Register the preset's models with the runtime:
+
 ```sh
-kindgi providers register --preset=gemini --project=<gcp-project>
+pnpm exec kindgi providers register --preset=gemini --project=<gcp-project>
 ```
 
-`--project` is the Google Cloud project Vertex AI runs and bills in; the preset
+It prints `✓ Registered gemini:` with the models it registered.
+`--preset=gemini` names the preset. `--project` is the Google Cloud project
+Vertex AI runs and bills in, and `<gcp-project>` is its id. The preset
 refuses to register without it:
 
 ```text
@@ -62,17 +78,8 @@ Error: preset "gemini" needs --project=<…> (The Google Cloud project Vertex AI
 `--models` registers only some of the models:
 
 ```sh
-kindgi providers register --preset=gemini --project=<gcp-project> --models=gemini-3.8-flash
+pnpm exec kindgi providers register --preset=gemini --project=<gcp-project> --models=gemini-3.8-flash
 ```
-
-The preset's models answer with up to 65,536 tokens, thinking included.
-`--max-output-tokens=<n>` registers them with another limit.
-
-To have `kindgi dev` register it on every boot, declare it in the pack's config
-instead: `{ preset: 'gemini', project: '<gcp-project>' }` in
-`kindgi.config.ts`'s `providers`, or a `[[tool.kindgi.providers]]` table with
-`preset = "gemini"` and `project = "<gcp-project>"` in `pyproject.toml`. See
-[Declare them in your pack's config](../#declare-them-in-your-packs-config).
 
 ```text
 {
@@ -81,15 +88,30 @@ instead: `{ preset: 'gemini', project: '<gcp-project>' }` in
 ✓ Registered gemini: gemini-3.8-flash (default)
 ```
 
+The preset's models answer with up to 65,536 tokens, thinking included.
+`--max-output-tokens=<n>` registers them with another limit, `<n>` tokens.
+
+To have `kindgi dev` register it on every boot, ask your coding agent to
+declare it in the pack's config instead. Kindgi's skills in your pack tell it
+how ([How it knows Kindgi](../../../start/coding-agents/)). It goes there as
+`{ preset: 'gemini', project: '<gcp-project>' }` in `kindgi.config.ts`'s
+`providers`, or a `[[tool.kindgi.providers]]` table with `preset = "gemini"`
+and `project = "<gcp-project>"` in `pyproject.toml`.
+[Declare them in your pack's config](../#declare-them-in-your-packs-config)
+shows how.
+
 ## What it registers
 
+Get the provider by its id to see what it registered:
+
 ```sh
-kindgi providers get gemini
+pnpm exec kindgi providers get gemini
 ```
 
-The provider's id is `gemini` and its region `global`, where Vertex AI serves
-Gemini 3.8 Flash (it isn't served from `us-central1`). Both models list
-`tool-use`, `structured-output` and `long-context`:
+It prints the provider as JSON. Its id is `gemini` and its region `global`,
+where Vertex AI serves Gemini 3.8 Flash, which isn't served from
+`us-central1`. Both models list `tool-use`, `structured-output` and
+`long-context`:
 
 | Model | Context window | Per 1K input / output tokens |
 | --- | --- | --- |
@@ -106,22 +128,38 @@ Gemini 3.8 Flash (it isn't served from `us-central1`). Both models list
   `totalCostUsd` still uses the price the provider was registered with.
 
 To send an agent to Gemini when other providers are registered too, set
-`preferredProvider: 'gemini'` (`preferred_provider="gemini"` in Python), or
-require it: see [Choose the model an agent uses](../../agents/choose-a-model/).
+`preferredProvider: 'gemini'`, or `preferred_provider="gemini"` in Python.
+Or require it, as
+[Choose the model an agent uses](../../agents/choose-a-model/) shows.
+
+## On a runtime that keeps tenants apart
+
+A runtime with `KINDGI_TENANT_HOST_ACCESS=isolated` doesn't lend its own Google
+credentials to what a tenant registers. There, put a service-account key (its
+JSON) in a secret and name it in the provider's `secret_ref`. Without one, the
+registration is refused, naming `secret_ref`:
+
+```text
+Error [invalid-request]: Provider "gemini" doesn't fit adapter @kindgi/adapter-model-gemini: uses Vertex AI without secret_ref, which signs in with the server's own Google credentials (Application Default Credentials); this deployment doesn't let tenant configuration use them (KINDGI_TENANT_HOST_ACCESS). Name a service-account key in secret_ref.
+  ✗ /secret_ref: uses Vertex AI without secret_ref, which signs in with the server's own Google credentials (Application Default Credentials); this deployment doesn't let tenant configuration use them (KINDGI_TENANT_HOST_ACCESS). Name a service-account key in secret_ref.
+```
 
 ## If you registered Gemini 2.5
 
-Earlier releases' preset registered `gemini-2.5-pro` and `gemini-2.5-flash`.
-Vertex AI retires both on **2026-10-20**; after that, a turn routed to them
-fails. Move to this release's CLI, then:
+An earlier preset registered `gemini-2.5-pro` and `gemini-2.5-flash`.
+Vertex AI retires both on **2026-10-20**. After that, a turn routed to them
+fails. Update the CLI, then:
 
 - **A provider you registered with `kindgi providers register`:** unregister
-  it and register the preset again (a registration can't be edited):
+  it and register the preset again. A registration can't be edited:
 
   ```sh
-  kindgi providers unregister gemini
-  kindgi providers register --preset=gemini --project=<gcp-project>
+  pnpm exec kindgi providers unregister gemini
+  pnpm exec kindgi providers register --preset=gemini --project=<gcp-project>
   ```
+
+  `unregister` prints its answer as JSON, and `register` prints its
+  `✓ Registered gemini:` line.
 
 - **A provider the pack's config declares:** restart `kindgi dev`. It
   registers the preset's new models in place of the old ones:
@@ -146,8 +184,14 @@ requirement matches nothing.
 ## From a deployed runtime
 
 A deployed runtime has no login of yours: it calls Vertex AI as its own
-service account (on Cloud Run, the service's). That account needs
+service account. On Cloud Run, that's the service's account. That account needs
 `roles/aiplatform.user` in the project, and the project needs the Vertex AI
 API turned on. Without the role, every model call fails with
 `Permission 'aiplatform.endpoints.predict' denied`.
-[Deploy on Google Cloud Run](../../../deploy/cloud-run/#use-gemini) sets this up.
+[Deploy on Google Cloud Run](../../../deploy/self-hosted/cloud-run/#use-gemini) sets this up.
+
+## Next
+
+- [Choose the model an agent uses](../../agents/choose-a-model/)
+- [Deploy on Google Cloud Run](../../../deploy/self-hosted/cloud-run/#use-gemini)
+- [Models](../)

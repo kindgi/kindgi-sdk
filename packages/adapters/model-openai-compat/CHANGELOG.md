@@ -1,5 +1,105 @@
 # @kindgi/adapter-model-openai-compat
 
+## 0.1.8
+
+### Patch Changes
+
+- 63a06d6: **The OpenAI-compatible adapter surfaces a refused connection instead of retrying it.** The adapter now owns the retry policy on every call path — chat, responses and embeddings — with the OpenAI SDK's own retries off (`maxRetries: 0`).
+  
+  - A connection the runtime refuses the same way every time — an egress or body-size guard, or a redirect the request won't follow — is tried once, and its own words reach the caller rather than the SDK's generic "Connection error."
+  - A transient failure (408, 409, 429, 5xx, or a dropped connection) is still retried, honouring the vendor's `retry-after` and the vendor's `x-should-retry` override; a caller's `clientOptions.maxRetries` keeps its meaning, the retries after the first attempt (the SDK default is 2, so 3 attempts in all).
+  - A failed call now throws the shared `ModelProviderError` (its `kind` and `status`, the OpenAI SDK's error as `cause`) on every path, as the other adapters do, and an aborted call rejects with the turn's reason — where a failed OpenAI-compatible call used to reject with the `openai` SDK's own `APIError`, and an abort with `APIUserAbortError`. Code that caught `OpenAI.APIError` on this path should catch `ModelProviderError`.
+  - `@kindgi/adapter-model-shared` now exports `refusedConnection` and `isTransport`, the one classifier it and the OpenAI-compatible adapter share.
+- Updated dependencies [76532eb]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+  - @kindgi/capabilities@0.1.8
+  - @kindgi/types@0.1.8
+  - @kindgi/embedding@0.1.8
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- 63a06d6: **The OpenAI-compatible adapter surfaces a refused connection instead of retrying it.** The adapter now owns the retry policy on every call path — chat, responses and embeddings — with the OpenAI SDK's own retries off (`maxRetries: 0`).
+  
+  - A connection the runtime refuses the same way every time — an egress or body-size guard, or a redirect the request won't follow — is tried once, and its own words reach the caller rather than the SDK's generic "Connection error."
+  - A transient failure (408, 409, 429, 5xx, or a dropped connection) is still retried, honouring the vendor's `retry-after` and the vendor's `x-should-retry` override; a caller's `clientOptions.maxRetries` keeps its meaning, the retries after the first attempt (the SDK default is 2, so 3 attempts in all).
+  - A failed call now throws the shared `ModelProviderError` (its `kind` and `status`, the OpenAI SDK's error as `cause`) on every path, as the other adapters do, and an aborted call rejects with the turn's reason — where a failed OpenAI-compatible call used to reject with the `openai` SDK's own `APIError`, and an abort with `APIUserAbortError`. Code that caught `OpenAI.APIError` on this path should catch `ModelProviderError`.
+  - `@kindgi/adapter-model-shared` now exports `refusedConnection` and `isTransport`, the one classifier it and the OpenAI-compatible adapter share.
+- Updated dependencies [76532eb]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+  - @kindgi/capabilities@0.1.8-rc.0
+  - @kindgi/types@0.1.8-rc.0
+  - @kindgi/embedding@0.1.8-rc.0
+
+## 0.1.7
+
+### Patch Changes
+
+- 2b8f19a: **A provider's calls carry nothing from the server's environment.** The model SDKs fill options a caller leaves out from environment variables, and three of those reached the calls of every provider the server runs:
+  - `@kindgi/adapter-model-anthropic`: the Anthropic SDK reads `ANTHROPIC_AUTH_TOKEN`, sent as a bearer beside the provider's own key, and `ANTHROPIC_BASE_URL`. The adapter now sets no bearer and names Anthropic's API itself when no base URL is given.
+  - `@kindgi/adapter-model-openai-compat`: the OpenAI SDK reads `OPENAI_ORG_ID` and `OPENAI_PROJECT_ID`, sent as headers to whatever base URL the provider names, and `OPENAI_ADMIN_KEY`. The chat and the embeddings providers now set none of them.
+  - `@kindgi/adapter-model-gemini`: `@google/genai` moves to Vertex AI, with the environment's project and location, when `GOOGLE_GENAI_USE_VERTEXAI` or `GOOGLE_GENAI_USE_ENTERPRISE` is set. A Developer API provider now stays on the Developer API.
+- f080a20: **A tool whose id holds `__` can be called.** Anthropic, OpenAI-compatible endpoints, Bedrock and Azure OpenAI don't take dots in tool names, so a tool id goes to the model with `.` as `__`. The model's call used to come back with every `__` as `.`, so a tool named by an MCP server with `__` in it (Drupal's MCP Server Tool Bridge names every tool `tool_api__<id>`) came back as a tool nobody has, and the turn failed with `unresolved-tool`. A call's name is now looked up among the request's own tools. Two tools that would go to the model under one name (`acme.a__b` and `acme.a.b`) are refused before the call, naming both. Gemini takes dots, so its tool names were never changed. New in `@kindgi/capabilities`: `toolIdsBySentName()` and `ToolNameCollisionError`.
+- Updated dependencies [7bd61d6]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [f080a20]
+  - @kindgi/capabilities@0.1.7
+  - @kindgi/types@0.1.7
+  - @kindgi/embedding@0.1.7
+
+## 0.1.7-rc.0
+
+### Patch Changes
+
+- 2b8f19a: **A provider's calls carry nothing from the server's environment.** The model SDKs fill options a caller leaves out from environment variables, and three of those reached the calls of every provider the server runs:
+  - `@kindgi/adapter-model-anthropic`: the Anthropic SDK reads `ANTHROPIC_AUTH_TOKEN`, sent as a bearer beside the provider's own key, and `ANTHROPIC_BASE_URL`. The adapter now sets no bearer and names Anthropic's API itself when no base URL is given.
+  - `@kindgi/adapter-model-openai-compat`: the OpenAI SDK reads `OPENAI_ORG_ID` and `OPENAI_PROJECT_ID`, sent as headers to whatever base URL the provider names, and `OPENAI_ADMIN_KEY`. The chat and the embeddings providers now set none of them.
+  - `@kindgi/adapter-model-gemini`: `@google/genai` moves to Vertex AI, with the environment's project and location, when `GOOGLE_GENAI_USE_VERTEXAI` or `GOOGLE_GENAI_USE_ENTERPRISE` is set. A Developer API provider now stays on the Developer API.
+- f080a20: **A tool whose id holds `__` can be called.** Anthropic, OpenAI-compatible endpoints, Bedrock and Azure OpenAI don't take dots in tool names, so a tool id goes to the model with `.` as `__`. The model's call used to come back with every `__` as `.`, so a tool named by an MCP server with `__` in it (Drupal's MCP Server Tool Bridge names every tool `tool_api__<id>`) came back as a tool nobody has, and the turn failed with `unresolved-tool`. A call's name is now looked up among the request's own tools. Two tools that would go to the model under one name (`acme.a__b` and `acme.a.b`) are refused before the call, naming both. Gemini takes dots, so its tool names were never changed. New in `@kindgi/capabilities`: `toolIdsBySentName()` and `ToolNameCollisionError`.
+- Updated dependencies [7bd61d6]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [f080a20]
+  - @kindgi/capabilities@0.1.7-rc.0
+  - @kindgi/types@0.1.7-rc.0
+  - @kindgi/embedding@0.1.7-rc.0
+
+## 0.1.6
+
+### Patch Changes
+
+- b4bbd95: **A secret that can't go in a header is refused by its name, never quoted.** When a header value has a line break or a NUL inside it, fetch refuses it with an error that quotes the whole value (`Headers.append: "<value>" is an invalid header value.`). A secret pasted with its next line ended up, whole, in the error. For a declarative HTTP tool, that error became the tool call's failure message, stored with the run and its journal. For a model adapter, it was the model call's failure, and so in the logs.
+  - **HTTP tools (`spec: { kind: 'http' }`):** the resolved secret (`bearer` or `header`) is checked before the request. A bad one fails the call with `http-tool "<id>": its secret <env>/<name> for the header "<header>" has a line break, which a header can't carry: store the secret without it`. Headers filled from the input are checked the same way, by name.
+  - **Model adapters (Anthropic, OpenAI-compatible for chat, Responses and embeddings, Gemini):** the resolved API key is checked on every call, before a client is built or reused: `<adapter>: provider "<id>": its API key has a line break, which a header can't carry: store the secret without it`.
+  - **What still works:** a trailing line break is fine, since fetch drops it, and so is a tab or a Latin-1 character. Other control characters, which the request refuses anyway, are refused here by name too.
+  - **Checked as it's sent:** `Bearer ` and a secret that starts with a line break make it an inner one, which fetch refuses, so the bearer paths (an HTTP tool's `bearer`, the OpenAI-compatible adapter) check `Bearer <secret>`.
+  - **New in `@kindgi/types`:** `headerValueProblem(value)`, the rule all of these use, and `bearerValueProblem(token)`, the same for `Bearer <token>`.
+  - **Records made before:** a failure message already stored keeps what it recorded. Rotate a secret that was ever pasted with a line break.
+- Updated dependencies [a2b2ae8]
+- Updated dependencies [b4bbd95]
+  - @kindgi/capabilities@0.1.6
+  - @kindgi/types@0.1.6
+  - @kindgi/embedding@0.1.6
+
+## 0.1.6-rc.0
+
+### Patch Changes
+
+- b4bbd95: **A secret that can't go in a header is refused by its name, never quoted.** When a header value has a line break or a NUL inside it, fetch refuses it with an error that quotes the whole value (`Headers.append: "<value>" is an invalid header value.`). A secret pasted with its next line ended up, whole, in the error. For a declarative HTTP tool, that error became the tool call's failure message, stored with the run and its journal. For a model adapter, it was the model call's failure, and so in the logs.
+  - **HTTP tools (`spec: { kind: 'http' }`):** the resolved secret (`bearer` or `header`) is checked before the request. A bad one fails the call with `http-tool "<id>": its secret <env>/<name> for the header "<header>" has a line break, which a header can't carry: store the secret without it`. Headers filled from the input are checked the same way, by name.
+  - **Model adapters (Anthropic, OpenAI-compatible for chat, Responses and embeddings, Gemini):** the resolved API key is checked on every call, before a client is built or reused: `<adapter>: provider "<id>": its API key has a line break, which a header can't carry: store the secret without it`.
+  - **What still works:** a trailing line break is fine, since fetch drops it, and so is a tab or a Latin-1 character. Other control characters, which the request refuses anyway, are refused here by name too.
+  - **Checked as it's sent:** `Bearer ` and a secret that starts with a line break make it an inner one, which fetch refuses, so the bearer paths (an HTTP tool's `bearer`, the OpenAI-compatible adapter) check `Bearer <secret>`.
+  - **New in `@kindgi/types`:** `headerValueProblem(value)`, the rule all of these use, and `bearerValueProblem(token)`, the same for `Bearer <token>`.
+  - **Records made before:** a failure message already stored keeps what it recorded. Rotate a secret that was ever pasted with a line break.
+- Updated dependencies [a2b2ae8]
+- Updated dependencies [b4bbd95]
+  - @kindgi/capabilities@0.1.6-rc.0
+  - @kindgi/types@0.1.6-rc.0
+  - @kindgi/embedding@0.1.6-rc.0
+
 ## 0.1.5
 
 ### Patch Changes

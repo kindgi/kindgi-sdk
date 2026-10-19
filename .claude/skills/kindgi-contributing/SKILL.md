@@ -53,10 +53,18 @@ self-contained packages, routes, specs). For docs:
   Python tabs. Plain words and short sentences.
 - **Every command and output on a page is real.** Run what you show, and
   quote the output you got. Don't invent output.
-- **Code samples are checked.** A whole file starts with its path
-  (`// tools/lookup/index.ts`, `# tools/lookup.py`) and
-  `pnpm run docs:samples` compiles it in a fresh pack. An excerpt starts with
-  `// in <path>` (`# in <path>`) and isn't compiled, so make sure it's right.
+- **Every code block runs as pasted, or isn't offered for copying.** A whole
+  file starts with its path (`// tools/lookup/index.ts`, `# tools/lookup.py`)
+  and `pnpm run docs:samples` compiles it in a fresh pack. If the file
+  imports a library the pack doesn't have, the page shows the reader its
+  install command (`uv add fastapi`, `pnpm add nanoid`), and the page's
+  hidden `<!-- check-samples: … -->` comment (`{/* check-samples: … */}` in
+  MDX) holds the same step as a ```` ```sh ```` block of `uv add` or
+  `pnpm add` lines, so the check adds the library first. A shell command
+  names only commands and flags the CLI has, and JSON parses. Part of a file
+  is an excerpt: its fence says so (```` ```ts excerpt ````) and it starts
+  with `// in <path>` (`# in <path>`). The page shows it without a copy
+  button, and it isn't compiled, so make sure it's right.
 - **Links between pages are relative** (`../start-a-run/`), so they work in
   every version of the site. Link the page that answers the point, not its
   section's overview.
@@ -75,7 +83,7 @@ Set up once: Node 22+, `corepack enable`, `pnpm install`, `pnpm run build`
 |---|---|
 | A docs page | `pnpm run docs:build` (every page; fails on a broken link), and `pnpm run docs:samples` when the page has code |
 | A skill | `pnpm run check:refs`, `pnpm --filter @kindgi/sdk test` |
-| TypeScript code | `pnpm run lint`, `pnpm run check:headers`, `pnpm run check:border`, and the package's tests (`pnpm --filter <package> test`) |
+| TypeScript code | `pnpm run lint`, `pnpm run check:headers`, `pnpm run check:border`, `pnpm run check:constructor-super`, and the package's tests (`pnpm --filter <package> test`) |
 | Python code | in `sdks/python`: `uv run pytest`, `uv run ruff check src tests scripts`, `uv run pyright` |
 | A public contract (a route, a schema, a CLI command) | also `pnpm run check:docs-ship`, which asks for the docs |
 

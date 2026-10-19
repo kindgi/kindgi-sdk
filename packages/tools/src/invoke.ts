@@ -3,7 +3,7 @@
 
 import type { ValidateFunction } from 'ajv';
 
-import { compileJsonSchema, parseWithSchema } from '@kindgi/schema';
+import { holdJsonSchema, parseWithSchema } from '@kindgi/schema';
 import type { CompileJsonSchemaOptions } from '@kindgi/schema';
 import type { Result } from '@kindgi/types';
 
@@ -16,17 +16,6 @@ import type {
 } from './errors.js';
 import { isToolPreconditionError } from './precondition.js';
 import type { JsonSchema, Tool, ToolContext } from './types.js';
-
-/**
- * Cache compiled validators keyed by the schema *object reference*. Tools
- * are defined once and reused, so schema identity is stable — the WeakMap
- * releases entries when the tool is dropped. A pack's tools' validators
- * and an MCP server's are cached apart (`schemaOptions`).
- */
-const caches = {
-  input: { pack: new WeakMap<JsonSchema, ValidateFunction>(), mcp: new WeakMap() },
-  output: { pack: new WeakMap<JsonSchema, ValidateFunction>(), mcp: new WeakMap() },
-} as const;
 
 const PACK_SCHEMAS: CompileJsonSchemaOptions = { dialects: ['2020-12'] };
 const MCP_SCHEMAS: CompileJsonSchemaOptions = { strict: false };
@@ -42,6 +31,16 @@ export function schemaOptions(tool: Pick<Tool, 'transport'>): CompileJsonSchemaO
 }
 
 /**
+ * Each schema's validator, held by schema object (a tool's are defined
+ * once and reused) and by what it's compiled for. A holder keeps a JSON
+ * schema's cache key, not its validator (`holdJsonSchema`), so the cache
+ * is all that keeps the validator: once the cache drops it, the next call
+ * compiles it again, a recompile the tenant's budget counts. A schema
+ * JSON can't carry is held as compiled, not compiled on every call.
+ */
+const held = new WeakMap<object, Map<string, () => ValidateFunction>>();
+
+/**
  * A compiled validator. Input validators fill in each property's JSON
  * Schema `default` (`useDefaults`) — the data they check is a copy of the
  * caller's.
@@ -51,15 +50,21 @@ function compile(
   side: 'input' | 'output',
   tool: Pick<Tool, 'transport'>,
 ): ValidateFunction {
-  const cache = caches[side][tool.transport === 'mcp' ? 'mcp' : 'pack'];
-  const cached = cache.get(schema);
-  if (cached !== undefined) return cached;
-  const validator = compileJsonSchema(schema as Readonly<Record<string, unknown>>, {
-    ...schemaOptions(tool),
-    ...(side === 'input' && { useDefaults: true }),
-  });
-  cache.set(schema, validator);
-  return validator;
+  let holders = held.get(schema);
+  if (holders === undefined) {
+    holders = new Map();
+    held.set(schema, holders);
+  }
+  const purpose = `${side} ${tool.transport === 'mcp' ? 'mcp' : 'pack'}`;
+  let validator = holders.get(purpose);
+  if (validator === undefined) {
+    validator = holdJsonSchema(schema as Readonly<Record<string, unknown>>, {
+      ...schemaOptions(tool),
+      ...(side === 'input' && { useDefaults: true }),
+    });
+    holders.set(purpose, validator);
+  }
+  return validator();
 }
 
 /**
@@ -121,8 +126,8 @@ export interface InvokeToolOptions {
  *   3. Validate the return value against `tool.output` schema (unless the
  *      caller opts out).
  *
- * Validation cost is amortised via a schema-object-keyed cache — the second
- * invocation of the same tool reuses the compiled Ajv validator.
+ * Each schema compiles once and is then taken from the schema cache (see
+ * `held`): a later call compiles it again only once the cache has dropped it.
  */
 export async function invokeTool<TInput = unknown, TOutput = unknown>(
   tool: Tool<TInput, TOutput>,

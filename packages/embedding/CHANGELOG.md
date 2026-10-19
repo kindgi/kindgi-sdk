@@ -1,5 +1,47 @@
 # @kindgi/embedding
 
+## 0.1.8
+
+### Patch Changes
+
+- Updated dependencies [ebf405d]
+  - @kindgi/types@0.1.8
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- Updated dependencies [ebf405d]
+  - @kindgi/types@0.1.8-rc.0
+
+## 0.1.7
+
+### Patch Changes
+
+- Updated dependencies [b90e2c6]
+  - @kindgi/types@0.1.7
+
+## 0.1.7-rc.0
+
+### Patch Changes
+
+- Updated dependencies [b90e2c6]
+  - @kindgi/types@0.1.7-rc.0
+
+## 0.1.6
+
+### Patch Changes
+
+- Updated dependencies [b4bbd95]
+  - @kindgi/types@0.1.6
+
+## 0.1.6-rc.0
+
+### Patch Changes
+
+- Updated dependencies [b4bbd95]
+  - @kindgi/types@0.1.6-rc.0
+
 ## 0.1.5
 
 ### Patch Changes

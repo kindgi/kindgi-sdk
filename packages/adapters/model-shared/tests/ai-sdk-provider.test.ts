@@ -163,6 +163,54 @@ describe('a call', () => {
     });
   });
 
+  test("a tool id holding `__` (an MCP server's own name) comes back as the id", async () => {
+    const seen: LanguageModelV4CallOptions[] = [];
+    const r = await provider(
+      [
+        {
+          content: [
+            {
+              type: 'tool-call',
+              toolCallId: 'c1',
+              toolName: 'drupal__tool_api__list_content',
+              input: '{}',
+            },
+          ],
+        },
+      ],
+      seen,
+    ).invoke({
+      ...ask,
+      tools: [
+        {
+          name: 'drupal.tool_api__list_content',
+          description: 'List content.',
+          inputSchema: { type: 'object' },
+        },
+      ],
+    });
+    expect(seen[0]?.tools?.map((t) => (t as { name: string }).name)).toEqual([
+      'drupal__tool_api__list_content',
+    ]);
+    expect(r.message.toolCalls?.map((c) => c.name)).toEqual(['drupal.tool_api__list_content']);
+  });
+
+  test('two tools sent under one name are refused before the call, naming both', async () => {
+    const seen: LanguageModelV4CallOptions[] = [];
+    await expect(
+      provider([{ content: [] }], seen).invoke({
+        ...ask,
+        tools: [
+          { name: 'acme.lookup__order', description: 'a', inputSchema: { type: 'object' } },
+          { name: 'acme.lookup.order', description: 'b', inputSchema: { type: 'object' } },
+        ],
+      }),
+    ).rejects.toThrow(
+      'tools "acme.lookup__order" and "acme.lookup.order" have the same name for the model',
+    );
+    expect(seen).toEqual([]);
+  });
+
   test('tools go out with dots as `__` and come back as our names; parallel calls; the provider options', async () => {
     const seen: LanguageModelV4CallOptions[] = [];
     const r = await provider(
@@ -690,6 +738,32 @@ describe('errors and retries', () => {
     const refused = Object.assign(
       new Error('egress refused: 169.254.169.254 is link-local, which this deployment forbids'),
       { code: 'EKINDGIEGRESS' },
+    );
+    for (const thrown of [
+      refused,
+      new APICallError({
+        message: `Cannot connect to API: ${refused.message}`,
+        url: 'https://llm.example.invalid/v1/generate',
+        requestBodyValues: {},
+        cause: refused,
+        isRetryable: true,
+      }),
+    ]) {
+      const err = await provider([{ throws: thrown }, ANSWER])
+        .invoke(ask)
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ModelProviderError);
+      expect(err).toMatchObject({ kind: 'network', message: refused.message });
+      expect(attemptsOf(err)).toBe(1);
+    }
+  });
+
+  test('a request refused by the runtime’s body-size rules (a system-style code): network, once', async () => {
+    // The body guard throws `EKINDGIBODY`; refusedConnection's generic rule catches it, as it does
+    // the egress guard's code, so an over-size body isn't retried and its words reach the caller.
+    const refused = Object.assign(
+      new Error('the request body of 12 MiB is over the 8 MiB this deployment allows'),
+      { code: 'EKINDGIBODY' },
     );
     for (const thrown of [
       refused,

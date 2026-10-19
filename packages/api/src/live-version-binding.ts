@@ -146,6 +146,12 @@ export type PromotionErrorCode =
    * its own pin; this guards scopes gated before that rule.)
    */
   | 'gate-policy-descendant-unpinned'
+  /**
+   * Promote: the gate wants an approval, and the tenant's approvals waiting
+   * for a decision are at its limit (the runtime's operator sets it).
+   * Nothing is recorded.
+   */
+  | 'approvals-pending-limit'
   | 'persistence-error';
 
 export interface PromotionError {

@@ -19,17 +19,39 @@ starts with `_`. The config is `[tool.kindgi]` in `pyproject.toml`.
   preset (`preset = "anthropic"`, `"openai"`, `"gemini-api"`, `"groq"` or
   `"openrouter"`) to `pyproject.toml`: `kindgi dev` then registers it
   on every boot, in every worktree. Other providers and per-agent model
-  choice: `.claude/skills/kindgi-authoring-providers/SKILL.md`.
+  choice: the `kindgi-authoring-providers` skill.
 
 ## Skills
 
-`.claude/skills/` holds Kindgi's skills for Python packs: getting started,
-tools, guardrails and agents in Python (`kindgi-python-*`), model providers,
-MCP servers, framework feedback, and guiding the person in using what you
-built (`kindgi-using`). Claude Code loads them on its own; other coding
-agents can read them. `kindgi skills sync` refreshes them.
+`.claude/skills/` and `.agents/skills/` hold the same Kindgi skills for
+Python packs: getting started, tools, guardrails and agents in Python
+(`kindgi-python-*`), model providers, MCP servers, framework feedback, and
+guiding the person in using what you built (`kindgi-using`). Claude Code
+loads `.claude/skills/` on its own; Codex and Gemini CLI look in
+`.agents/skills/`; any other coding agent can read either.
+`kindgi skills sync` refreshes both.
 
 When you diagnose a framework bug (something in Kindgi itself, not in this
 pack's code), append an entry to `FEEDBACK.md` at the pack root via
-`kindgi feedback write` — see
-`.claude/skills/kindgi-framework-feedback/SKILL.md`.
+`kindgi feedback write` — see the `kindgi-framework-feedback` skill.
+Send entries to Kindgi only after the person has seen the preview and said
+yes: `kindgi feedback submit --preview`, then `--yes=<its digest>`.
+
+## Commands for the person's own terminal
+
+Two commands are always the person's to run, in their own terminal, since
+they ask for a secret: `kindgi secrets set` and `kindgi auth registry`.
+Others need what a coding agent's sandbox often blocks: `kindgi dev` and any
+dev server (they keep running), and `kindgi build` or anything else that
+needs Docker. When your sandbox blocks a command (a process it can't start,
+`spawn EPERM`; Docker's socket denied; `localhost` refused; a folder it
+keeps read-only, as Codex's keeps `.agents/`, which `kindgi skills sync`
+writes), don't work around it: don't turn your sandbox off, and don't start
+the command in the background. Give the person the exact command, the folder
+to run it in and what they'll see, then wait for them. Once they say
+`kindgi dev` is running, starting it yourself exits 3 and says where theirs
+runs: use that one.
+
+A tool's own `EPERM` while it runs under `kindgi dev` is something else:
+Kindgi's dev sandbox, which the tools skill covers. Never turn that one off
+either.

@@ -7,7 +7,33 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-models`: **a server's retention limit.** `RetentionScheduledItem`'s `policyId` and `policyVersion` can be `null`: a record that a server's limit decides, in a domain no policy covers, has neither. `limitApplied`, on `RetentionScheduledItem` and `RetentionSweepResult.PerDomainItem`, is `true` when the limit decides; `null` otherwise.
+- `kindgi-pack`, `kindgi-pack-scala`: **a tool can say `needsApprovalWhenUnattended`.** `Tool.define(...).needsApprovalWhenUnattended(true)` (Scala: `.needsApprovalWhenUnattended(true)`) makes each call wait for a person's approval in a run no person started (a webhook, a schedule, an event, or a service account's key). A flow's tool step that calls it is refused there. A run a person starts is unaffected. The pack's index carries it; left out, nothing changes.
+
+## 0.1.8
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.8-rc.0
+
+- `kindgi-client`: **`runs().journal` pages when asked.** `RunsJournalParams` gains `limit` (1 to 100) and `cursor`, `RunJournalPage` gains `nextCursor`, and `journalAll` streams every entry, page after page. Without `limit`, the whole journal is one page, as before; a runtime before 0.1.8 answers it whole either way.
+- `kindgi-client`: **`secrets().list` takes `includeRevoked`.** `SecretsListParams.includeRevoked("true")` lists revoked secrets too, with `revokedAt` and `revokeReason` (metadata only, never a value). A runtime before 0.1.8 ignores it.
+- `kindgi-models`: **where a secret an item names is read**, as the server recorded it when the item was registered: `secretScopes` on a `Tool` and an `MCPEndpoint` (by secret name) and `hmacSecretScope` on a webhook trigger, each a `RecordedSecretScope` (`Tenant`, `Org` or `Project`), `null` when none is usable. `SecretResolveOutcome` gains `scope`. The generator now takes a nullable reference to a tagged union, alone or as a map's values.
+
+## 0.1.7
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.7-rc.0
+
 - `kindgi-client`: **`webhooks()`**, webhook triggers: a signed request from WooCommerce, Drupal's Webhooks module, GitHub, Shopify or a Standard Webhooks sender starts a flow run. `register`, `list`, `get`, `update`, `pause`, `resume`, `unregister`, `fires` and `takeOwnership`. The receive URL itself is the sender's (marked `x-kindgi-sender-only`), so the client has no method for it.
+
+## 0.1.6
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.6-rc.0
+
 - `kindgi-pack`, `kindgi-pack-scala`: **`ToolContext.idempotencyKey()`**, the same every time a
   tool call runs (resumed, retried, or run again after a crash) and different for every other
   call, so a tool that writes can dedupe on it. `null` from a runtime before 0.1.6. The

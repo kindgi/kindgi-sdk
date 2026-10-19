@@ -54,6 +54,13 @@ final class ToolBuilder[I, O] private[scaladsl] (
   /** Whether the tool writes, sends or charges (the default, left unset). */
   def mutating(mutating: Boolean): ToolBuilder[I, O] = step(_.mutating(mutating))
 
+  /**
+   * Each call waits for a person's approval in a run no person started (a webhook, a schedule, an
+   * event, or a service account's key). A flow's tool step that calls it is refused there.
+   */
+  def needsApprovalWhenUnattended(needsApprovalWhenUnattended: Boolean): ToolBuilder[I, O] =
+    step(_.needsApprovalWhenUnattended(needsApprovalWhenUnattended))
+
   /** A side effect the tool has, on a resource. */
   def effect(kind: String, resource: String): ToolBuilder[I, O] = step(_.effect(kind, resource))
 

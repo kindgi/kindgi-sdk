@@ -1,5 +1,249 @@
 # @kindgi/handler-runtime
 
+## 0.1.8
+
+### Patch Changes
+
+- ebf405d: **A pack service can be pinned to one tenant, and the server's settings for routing each call to its own deployment's pack service are declared** (pack protocol 2.7.0).
+  - **`@kindgi/handler-runtime`:**
+    - **`KINDGI_PACK_TENANT_ID`:** the tenant's id, a UUID, checked at startup: anything else, or the id no tenant has (`00000000-0000-4000-8000-000000000000`), stops the service from starting instead of refusing every call. It needs a runtime that sends the header (0.1.8 or later). With it set, the pack service refuses, with **421** and `{"code":"pack-tenant-mismatch"}`, a call to `/v1/invoke` or `/v1/info` whose `kindgi-tenant-id` header is missing or names another tenant, and a tool call whose context names another. It refuses before any pack code runs, and the answer names neither tenant. The health probes stay open. Unset (the default), nothing changes.
+    - **Tenant ids compare without regard to case** (they're UUIDs).
+    - **It's a backstop for a misrouted call to an honest pack.** The boundary is the server's routing.
+    - **`PACK_HEADERS.tenantId`** (`kindgi-tenant-id`): the server sets it on every call to `/v1/invoke` and `/v1/info`, from the deployment it routed the call to.
+    - **`GET /v1/info`** reports `indexHash`: `sha256:` and the hex SHA-256 of the service's index file, byte for byte, which is the hash a deployment signs.
+  - **`@kindgi/env-schema`** (the routing settings are used from runtime 0.1.8; earlier runtimes ignore them):
+    - **`KINDGI_PACK_TENANT_ID`** (the pack service);
+    - **`KINDGI_PACK_ROUTING`:** `single` by default, or `per-deployment`, which needs `KINDGI_TENANCY=multi` (the server refuses it with one tenant). Under `per-deployment`, each endpoint carries its own token and auth, so `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused;
+    - **`KINDGI_PACK_ENDPOINT_HOSTS`:** host names; `*.` and a domain, which matches one more label; or `*-`, a tail and a domain, which matches one more label ending with `-` and the tail. On Cloud Run, the tail form, `*-<project number>.<region>.run.app`, is the one that admits only one project's services. `*.`, or a `*-` tail that isn't a project number, with `run.app` or a domain under it (`*.us-central1.run.app`, `*.a.run.app`, `*-uc.a.run.app`) is refused at startup: Cloud Run's shared domain would admit anyone's service. An endpoint's host must also begin with its deployment's own service name, whatever the allowlist.
+  
+    Their parsers are exported: `parsePackTenantId`, `parsePackRouting`, `parsePackEndpointHosts` and `packEndpointHostAllowed` (it takes a URL's `hostname`, not its `host`).
+  - **`@kindgi/specs`:** the pack protocol schema gains the header, the 421, the optional process setting, and `info.indexHash`.
+- Updated dependencies [ebf405d]
+- Updated dependencies [8bde3fc]
+- Updated dependencies [d92706f]
+- Updated dependencies [cfe5422]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f05d320]
+  - @kindgi/env-schema@0.1.8
+  - @kindgi/log@0.1.8
+  - @kindgi/schema@0.1.8
+  - @kindgi/types@0.1.8
+  - @kindgi/flow@0.1.8
+  - @kindgi/sandbox@0.1.8
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- ebf405d: **A pack service can be pinned to one tenant, and the server's settings for routing each call to its own deployment's pack service are declared** (pack protocol 2.7.0).
+  - **`@kindgi/handler-runtime`:**
+    - **`KINDGI_PACK_TENANT_ID`:** the tenant's id, a UUID, checked at startup: anything else, or the id no tenant has (`00000000-0000-4000-8000-000000000000`), stops the service from starting instead of refusing every call. It needs a runtime that sends the header (0.1.8 or later). With it set, the pack service refuses, with **421** and `{"code":"pack-tenant-mismatch"}`, a call to `/v1/invoke` or `/v1/info` whose `kindgi-tenant-id` header is missing or names another tenant, and a tool call whose context names another. It refuses before any pack code runs, and the answer names neither tenant. The health probes stay open. Unset (the default), nothing changes.
+    - **Tenant ids compare without regard to case** (they're UUIDs).
+    - **It's a backstop for a misrouted call to an honest pack.** The boundary is the server's routing.
+    - **`PACK_HEADERS.tenantId`** (`kindgi-tenant-id`): the server sets it on every call to `/v1/invoke` and `/v1/info`, from the deployment it routed the call to.
+    - **`GET /v1/info`** reports `indexHash`: `sha256:` and the hex SHA-256 of the service's index file, byte for byte, which is the hash a deployment signs.
+  - **`@kindgi/env-schema`** (the routing settings are used from runtime 0.1.8; earlier runtimes ignore them):
+    - **`KINDGI_PACK_TENANT_ID`** (the pack service);
+    - **`KINDGI_PACK_ROUTING`:** `single` by default, or `per-deployment`, which needs `KINDGI_TENANCY=multi` (the server refuses it with one tenant). Under `per-deployment`, each endpoint carries its own token and auth, so `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused;
+    - **`KINDGI_PACK_ENDPOINT_HOSTS`:** host names; `*.` and a domain, which matches one more label; or `*-`, a tail and a domain, which matches one more label ending with `-` and the tail. On Cloud Run, the tail form, `*-<project number>.<region>.run.app`, is the one that admits only one project's services. `*.`, or a `*-` tail that isn't a project number, with `run.app` or a domain under it (`*.us-central1.run.app`, `*.a.run.app`, `*-uc.a.run.app`) is refused at startup: Cloud Run's shared domain would admit anyone's service. An endpoint's host must also begin with its deployment's own service name, whatever the allowlist.
+  
+    Their parsers are exported: `parsePackTenantId`, `parsePackRouting`, `parsePackEndpointHosts` and `packEndpointHostAllowed` (it takes a URL's `hostname`, not its `host`).
+  - **`@kindgi/specs`:** the pack protocol schema gains the header, the 421, the optional process setting, and `info.indexHash`.
+- Updated dependencies [ebf405d]
+- Updated dependencies [8bde3fc]
+- Updated dependencies [d92706f]
+- Updated dependencies [cfe5422]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f05d320]
+  - @kindgi/env-schema@0.1.8-rc.0
+  - @kindgi/log@0.1.8-rc.0
+  - @kindgi/schema@0.1.8-rc.0
+  - @kindgi/types@0.1.8-rc.0
+  - @kindgi/flow@0.1.8-rc.0
+  - @kindgi/sandbox@0.1.8-rc.0
+
+## 0.1.7
+
+### Patch Changes
+
+- bd61d80: **Two presets: `azure-openai` and `bedrock`.** They need a runtime with the Azure OpenAI and Bedrock adapters.
+  - **`azure-openai`:** GPT-6.1 Sol and GPT-6 Luna on your Azure OpenAI deployments, with the key `AZURE_OPENAI_API_KEY`: `kindgi providers register --preset=azure-openai --resource-name=<resource> --deployments=gpt-6.1-sol=<deployment>,…`. To sign in as the runtime's Entra identity instead, register with a spec.
+  - **`bedrock`:** Nova Pro (the default), Claude Sonnet 5.5, Claude Haiku 4.5, GPT-6.1 Sol and GPT-6 Luna on Amazon Bedrock, through their US cross-region inference profiles, as the runtime's AWS identity: `kindgi providers register --preset=bedrock --region=<a US region>`. Claude and GPT need the AWS account's access to their vendor's models on Bedrock (`--models=` picks them).
+  - **Their prices** are the vendors' list prices, checked 2026-10-09 (Claude Haiku 4.5's on 2026-10-10): Azure's Global Standard, and Bedrock's on-demand US profiles.
+  - **Claude Haiku 4.5 asks for up to 16,000 output tokens by default** in the `anthropic` and `bedrock` presets (it was 8,192 in `anthropic`), like their Claude 5.5 models. A model's `maxOutputTokens` is the default cap a call gets when its agent sets none, not the model's own limit; an agent's own `maxOutputTokens` replaces it.
+  
+  **A preset's settings are one table.** The `providers register` flags (`--project`, `--resource-name`, `--deployments`, `--region`), a pack's `providers` declarations (`project`, `resourceName`, `deployments`, `region`), `kindgi providers presets` and doctor's hints all read it. A preset that names a setting the table doesn't have fails to load. Doctor's register hint names a keyed preset's settings (`azure-openai (with --resource-name=<resourceName> --deployments=<deployments>)`).
+  
+  **A preset declaration is typed by its preset.** `KindgiPresetDeclaration` (in `KindgiProviderDeclaration`) is a union on `preset`, built from `PRESET_DECLARATION_SETTINGS` (`@kindgi/handler-runtime`, new):
+  - a preset's own settings are required: `{ preset: 'bedrock', region: 'us-east-2' }`, `{ preset: 'gemini', project: 'acme-gcp' }`;
+  - another preset's are refused, by the type and by `kindgi dev`, which names whose setting it is;
+  - `deployments` is a map, model to deployment: `{ preset: 'azure-openai', resourceName: 'acme-openai', deployments: { 'gpt-6.1-sol': 'gpt-6-1-sol' } }`, a table in `pyproject.toml`. The `--deployments` flag keeps `model=deployment,…`, which is also what the runtime receives. An empty map is refused, and so is a name holding `,` or `=`.
+  - `deployments` names exactly the models the entry registers (the preset's, or its `models`): a typo'd model, or one without a deployment, is refused by the config's key.
+  Also new: `KindgiPresetName`, `KindgiPresetChoices` and `KindgiPresetSettingValues`. **`preset` is now one of the preset names** (`KindgiPresetName`), not any string: a name computed at run time needs `as KindgiPresetName`. A preset whose region comes from `--region` (`bedrock`) carries none of its own.
+- Updated dependencies [b90e2c6]
+- Updated dependencies [b90e2c6]
+  - @kindgi/env-schema@0.1.7
+  - @kindgi/types@0.1.7
+  - @kindgi/flow@0.1.7
+  - @kindgi/schema@0.1.7
+  - @kindgi/sandbox@0.1.7
+  - @kindgi/log@0.1.7
+
+## 0.1.7-rc.0
+
+### Patch Changes
+
+- bd61d80: **Two presets: `azure-openai` and `bedrock`.** They need a runtime with the Azure OpenAI and Bedrock adapters.
+  - **`azure-openai`:** GPT-6.1 Sol and GPT-6 Luna on your Azure OpenAI deployments, with the key `AZURE_OPENAI_API_KEY`: `kindgi providers register --preset=azure-openai --resource-name=<resource> --deployments=gpt-6.1-sol=<deployment>,…`. To sign in as the runtime's Entra identity instead, register with a spec.
+  - **`bedrock`:** Nova Pro (the default), Claude Sonnet 5.5, Claude Haiku 4.5, GPT-6.1 Sol and GPT-6 Luna on Amazon Bedrock, through their US cross-region inference profiles, as the runtime's AWS identity: `kindgi providers register --preset=bedrock --region=<a US region>`. Claude and GPT need the AWS account's access to their vendor's models on Bedrock (`--models=` picks them).
+  - **Their prices** are the vendors' list prices, checked 2026-10-09 (Claude Haiku 4.5's on 2026-10-10): Azure's Global Standard, and Bedrock's on-demand US profiles.
+  - **Claude Haiku 4.5 asks for up to 16,000 output tokens by default** in the `anthropic` and `bedrock` presets (it was 8,192 in `anthropic`), like their Claude 5.5 models. A model's `maxOutputTokens` is the default cap a call gets when its agent sets none, not the model's own limit; an agent's own `maxOutputTokens` replaces it.
+  
+  **A preset's settings are one table.** The `providers register` flags (`--project`, `--resource-name`, `--deployments`, `--region`), a pack's `providers` declarations (`project`, `resourceName`, `deployments`, `region`), `kindgi providers presets` and doctor's hints all read it. A preset that names a setting the table doesn't have fails to load. Doctor's register hint names a keyed preset's settings (`azure-openai (with --resource-name=<resourceName> --deployments=<deployments>)`).
+  
+  **A preset declaration is typed by its preset.** `KindgiPresetDeclaration` (in `KindgiProviderDeclaration`) is a union on `preset`, built from `PRESET_DECLARATION_SETTINGS` (`@kindgi/handler-runtime`, new):
+  - a preset's own settings are required: `{ preset: 'bedrock', region: 'us-east-2' }`, `{ preset: 'gemini', project: 'acme-gcp' }`;
+  - another preset's are refused, by the type and by `kindgi dev`, which names whose setting it is;
+  - `deployments` is a map, model to deployment: `{ preset: 'azure-openai', resourceName: 'acme-openai', deployments: { 'gpt-6.1-sol': 'gpt-6-1-sol' } }`, a table in `pyproject.toml`. The `--deployments` flag keeps `model=deployment,…`, which is also what the runtime receives. An empty map is refused, and so is a name holding `,` or `=`.
+  - `deployments` names exactly the models the entry registers (the preset's, or its `models`): a typo'd model, or one without a deployment, is refused by the config's key.
+  Also new: `KindgiPresetName`, `KindgiPresetChoices` and `KindgiPresetSettingValues`. **`preset` is now one of the preset names** (`KindgiPresetName`), not any string: a name computed at run time needs `as KindgiPresetName`. A preset whose region comes from `--region` (`bedrock`) carries none of its own.
+- Updated dependencies [b90e2c6]
+- Updated dependencies [b90e2c6]
+  - @kindgi/env-schema@0.1.7-rc.0
+  - @kindgi/types@0.1.7-rc.0
+  - @kindgi/flow@0.1.7-rc.0
+  - @kindgi/schema@0.1.7-rc.0
+  - @kindgi/sandbox@0.1.7-rc.0
+  - @kindgi/log@0.1.7-rc.0
+
+## 0.1.6
+
+### Patch Changes
+
+- fdb86ae: **A guardrail that only names a built-in check is marked.** The CLI's indexer sets `checkBuiltIn: true` on a pack index guardrail whose check is a built-in's (`must-cite`, …), and a deployment keeps it on the guardrail (`Guardrail.checkBuiltIn`, in both specs). From runtime 0.1.6, a guardrail that names a built-in, comes with its pack's code, and lacks the mark gets one warning in the runtime's log each time the runtime loads it. Such a pack was built with a CLI from before 0.1.6. One built before 0.1.5 may also ship its own check under the built-in's id, which the built-in replaces. Nothing is refused, and the built-in still runs. Rebuilding with a current CLI silences the warning. An older runtime ignores the mark.
+  
+  `POST /v1/guardrails`' `guardrail-config-invalid` now says it covers the config of any check the guardrail names, a pack check's or a built-in's.
+- 540a3d3: The indexer warns when a pack's check id doesn't start with the pack's id (`<pack id>.`). Packs in one tenant share one space of check names, so the warning says to name the check `<pack id>.checks.<name>`. It's a warning, never a refusal: the pack builds and indexes as before. It covers a TypeScript guardrail's `check` (or any check its module exports) with an `id` and an `evaluate`, a Python `@guardrail`'s check id (`check_id=`, or the guardrail's own id), and a Java or Scala guardrail's (`checkId`, or its own id). A built-in named by its id isn't the pack's check, so it isn't flagged. The indexer report gains `warnings` (`IndexerWarning`, code `check-id-unprefixed`) beside `fileErrors`; `kindgi build` prints them after the index line, and `kindgi dev` at boot, then on a reload only the ones the last load didn't show (any still standing as one line).
+- f0da210: **`kindgi dev` runs your pack's code sandboxed.** The tools' code, often written by a coding agent, runs as you; now it can't read your home folder (SSH keys, cloud credentials, registry tokens, other projects), the secret files in the app (`.env*`, `.kindgi`, `.git`, `kindgi.env`, `pack.env`, `.kindgirc.json`, `.npmrc`, `.pypirc`, `.netrc`), other tools' temp files, or the Docker socket and other UNIX sockets (on Linux, those under the home folder, `/tmp`, `/var/tmp` and `/run`). It can't write outside the app either (on macOS every other folder, where a program it replaced would run later outside the sandbox; on Linux the system is read-only), or write Kindgi's configuration (`kindgi.config.*`, `pyproject.toml`), which `kindgi dev` loads. On macOS the keychain, LaunchServices and Apple Events are closed; on Linux the code gets its own session, away from your terminal. It keeps the network, the app's own files, the runtime and the dependencies, and its own temp folder; a process it starts is inside too, and so is the indexer, which loads every module (and its top-level code) to list the pack.
+  
+  - **macOS:** Seatbelt (`sandbox-exec`). **Linux:** the system's bubblewrap (`bwrap`), which also hides other processes. Where neither can run (Linux without bwrap, Ubuntu 23.10+ without its AppArmor permission, a container, native Windows, or inside another sandbox), `kindgi dev` warns at start and runs your tools without it.
+  - **`KINDGI_DEV_SANDBOX`:** `on` (default), `off`, or `required` (stop rather than run without it). `dev.sandbox: false` turns it off for one project.
+  - **What runs is worked out at every start:** the runtime (Node, a Python interpreter's own paths, a JDK and the classpath), the links its paths go through (a uv-managed Python, SDKMAN's `current`), and a checkout's linked workspace packages; never a folder that holds the home folder.
+  - **With the sandbox on, `kindgi dev` starts only with one Kindgi configuration in the app**, so code can't add another by a name looked up first.
+  - **A path or a socket a tool needs:** `dev.sandbox.allowRead` and `dev.sandbox.allowUnixSockets` in the pack's config (`~/.aws` for the AWS SDK's credential chain, a local Postgres socket); `kindgi dev` names each at every start. A path that would open the whole home folder never is.
+  - **`kindgi doctor`** says whether `kindgi dev` can sandbox your tools here, and what would fix it.
+  - **The pack service supervisor** (`createPackServiceSupervisor`) takes `command` as a function called before every start, and a `cwd`.
+  - **The tools skills** tell an agent to open a path in `dev.sandbox.allowRead`, never to turn the sandbox off.
+- 1703bab: **`runHandler` and `runCheck` load a module from any absolute path.** Their default importers now pass an absolute module path to `import()` as its `file:` URL, as the pack service already does. Before, a `#` in the path (a pack in `~/work/pack #2/`) was read as a URL fragment and the module wasn't found, and a Windows path (`C:\…`) wasn't a URL at all. A URL or a package name is imported as given, and an `importHandler` / `importCheck` you pass is unchanged.
+- 5bdacf1: **Only the names a pack declares reach its code.** Before the pack's code loads, the pack service (TypeScript, Python, Java and Scala) drops from its environment every variable the pack doesn't declare in `env.required` or `env.optional`. A model key or a password in a self-hosted `--env-file`, meant for something else, no longer reaches a tool or a process a tool starts.
+  
+  - **What stays:** the declared names, `KINDGI_*`, and the platform's: the process's basics, the language runtime's settings, `PORT`, proxies and certificates, and Cloud Run's, AWS's and Azure's workload identity and metadata (`PLATFORM_ENV_NAMES`, `PLATFORM_ENV_PREFIXES`). Static credentials such as `AWS_SECRET_ACCESS_KEY` aren't the platform's: a pack that needs one declares it.
+  - **What it says:** one `warn` record at start, `env-dropped`, with the names it dropped, never their values. A Python image always names `GPG_KEY`, which its base image sets.
+  - **The opt-out:** `KINDGI_PACK_ENV_FILTER=off` keeps every variable, as before. `kindgi dev` sets it, since there the pack service gets the app's env files. Any value other than `on` or `off` is a `config-invalid` start.
+  - **Java and Scala:** a JVM can't drop a variable from its own environment, so the launcher (`kindgi-pack-java`) does, keeping the names in `KINDGI_PACK_ENV_DECLARED`, which `kindgi build` now sets in the image from the pack's index. The service won't start while a variable the pack doesn't declare still reaches it, or when `KINDGI_PACK_ENV_DECLARED` isn't the index's `env`.
+  - **The skills** (tools and getting-started, every language) say so: an undeclared name works under `kindgi dev` and is unset once deployed, so declare every name the code reads.
+  - **The conformance suite** checks it for every pack service: an undeclared variable is absent in a tool, the declared ones and the platform's are there, and `off` keeps it.
+- 03151ca: **A union of types compiles.** A schema with `type: ['string', 'number', 'boolean', 'null']`, which is what Zod 4 writes for `z.union([z.string(), z.number(), z.boolean(), z.null()])`, used to be refused ("strict mode: use allowUnionTypes…"), while `.nullable()` compiled. It's standard JSON Schema, and every schema compiler now takes it: tool input and output, an agent's typed output, a guardrail check's config, flow and block schemas, and the pack service's validation. `ALLOW_UNION_TYPES` (`@kindgi/schema`) says so.
+  - A schema that strict mode still refuses (an open tuple, an unknown keyword) says how out: for a field that may hold any JSON value, `z.json()` (or `{}` in JSON Schema) compiles.
+  - The Java pack service validates a union of types too (its CHANGELOG). Python's always did.
+- 8b60576: **A tool call's idempotency key.** A run's step can run more than once: resumed after an approval, retried after a failure, or run again when the runtime restarted while it ran. So a tool that changes something (a refund, an email, a payment) could do it twice, with no key to dedupe on. `ToolContext.idempotencyKey` is the same every time the same call runs, and different for every other call: pass it to the system you write to (an `Idempotency-Key` header, a client reference, a unique column), or look for it there first.
+  
+  - **What it is:** a version 5 UUID (RFC 9562) under a fixed namespace (`TOOL_IDEMPOTENCY_NAMESPACE`), over the run, the step and the tool, plus the model's call id for a call a model asked for (`toolIdempotencyKey`, `@kindgi/tools`). The pack protocol schema says how, so any runtime makes the same key.
+  - **The step:** `NodeContext.stepScope` names a step the same every time it runs (its node, a loop body's step with its iteration, a fanout branch). A model's call id alone isn't enough: it's only unique within one of its answers, so two turns of a loop can share one.
+  - **Every pack language:** the pack protocol's call context carries it (protocol 2.6.0; an older pack service ignores it). Python `ctx.idempotency_key`, Java and Scala `ctx.idempotencyKey()`. The conformance suite checks that each pack service hands it to the tool, and that a 0.1.1 service still answers a call carrying it.
+  - **Absent** outside a run, and from a runtime that can't name its steps (before 0.1.6): the call can't be deduped on it then.
+  - **The docs:** "Make a side effect happen once" in Write a tool, and the tools skills (every language). `requestId` is no longer described as an idempotency key.
+- Updated dependencies [fdb86ae]
+- Updated dependencies [8b9e90d]
+- Updated dependencies [796c790]
+- Updated dependencies [36c31ea]
+- Updated dependencies [5bdacf1]
+- Updated dependencies [26882a9]
+- Updated dependencies [03151ca]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [b4bbd95]
+- Updated dependencies [01958d4]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [bbdccbb]
+  - @kindgi/env-schema@0.1.6
+  - @kindgi/schema@0.1.6
+  - @kindgi/types@0.1.6
+  - @kindgi/flow@0.1.6
+  - @kindgi/sandbox@0.1.6
+  - @kindgi/log@0.1.6
+
+## 0.1.6-rc.0
+
+### Patch Changes
+
+- fdb86ae: **A guardrail that only names a built-in check is marked.** The CLI's indexer sets `checkBuiltIn: true` on a pack index guardrail whose check is a built-in's (`must-cite`, …), and a deployment keeps it on the guardrail (`Guardrail.checkBuiltIn`, in both specs). From runtime 0.1.6, a guardrail that names a built-in, comes with its pack's code, and lacks the mark gets one warning in the runtime's log each time the runtime loads it. Such a pack was built with a CLI from before 0.1.6. One built before 0.1.5 may also ship its own check under the built-in's id, which the built-in replaces. Nothing is refused, and the built-in still runs. Rebuilding with a current CLI silences the warning. An older runtime ignores the mark.
+  
+  `POST /v1/guardrails`' `guardrail-config-invalid` now says it covers the config of any check the guardrail names, a pack check's or a built-in's.
+- 540a3d3: The indexer warns when a pack's check id doesn't start with the pack's id (`<pack id>.`). Packs in one tenant share one space of check names, so the warning says to name the check `<pack id>.checks.<name>`. It's a warning, never a refusal: the pack builds and indexes as before. It covers a TypeScript guardrail's `check` (or any check its module exports) with an `id` and an `evaluate`, a Python `@guardrail`'s check id (`check_id=`, or the guardrail's own id), and a Java or Scala guardrail's (`checkId`, or its own id). A built-in named by its id isn't the pack's check, so it isn't flagged. The indexer report gains `warnings` (`IndexerWarning`, code `check-id-unprefixed`) beside `fileErrors`; `kindgi build` prints them after the index line, and `kindgi dev` at boot, then on a reload only the ones the last load didn't show (any still standing as one line).
+- f0da210: **`kindgi dev` runs your pack's code sandboxed.** The tools' code, often written by a coding agent, runs as you; now it can't read your home folder (SSH keys, cloud credentials, registry tokens, other projects), the secret files in the app (`.env*`, `.kindgi`, `.git`, `kindgi.env`, `pack.env`, `.kindgirc.json`, `.npmrc`, `.pypirc`, `.netrc`), other tools' temp files, or the Docker socket and other UNIX sockets (on Linux, those under the home folder, `/tmp`, `/var/tmp` and `/run`). It can't write outside the app either (on macOS every other folder, where a program it replaced would run later outside the sandbox; on Linux the system is read-only), or write Kindgi's configuration (`kindgi.config.*`, `pyproject.toml`), which `kindgi dev` loads. On macOS the keychain, LaunchServices and Apple Events are closed; on Linux the code gets its own session, away from your terminal. It keeps the network, the app's own files, the runtime and the dependencies, and its own temp folder; a process it starts is inside too, and so is the indexer, which loads every module (and its top-level code) to list the pack.
+  
+  - **macOS:** Seatbelt (`sandbox-exec`). **Linux:** the system's bubblewrap (`bwrap`), which also hides other processes. Where neither can run (Linux without bwrap, Ubuntu 23.10+ without its AppArmor permission, a container, native Windows, or inside another sandbox), `kindgi dev` warns at start and runs your tools without it.
+  - **`KINDGI_DEV_SANDBOX`:** `on` (default), `off`, or `required` (stop rather than run without it). `dev.sandbox: false` turns it off for one project.
+  - **What runs is worked out at every start:** the runtime (Node, a Python interpreter's own paths, a JDK and the classpath), the links its paths go through (a uv-managed Python, SDKMAN's `current`), and a checkout's linked workspace packages; never a folder that holds the home folder.
+  - **With the sandbox on, `kindgi dev` starts only with one Kindgi configuration in the app**, so code can't add another by a name looked up first.
+  - **A path or a socket a tool needs:** `dev.sandbox.allowRead` and `dev.sandbox.allowUnixSockets` in the pack's config (`~/.aws` for the AWS SDK's credential chain, a local Postgres socket); `kindgi dev` names each at every start. A path that would open the whole home folder never is.
+  - **`kindgi doctor`** says whether `kindgi dev` can sandbox your tools here, and what would fix it.
+  - **The pack service supervisor** (`createPackServiceSupervisor`) takes `command` as a function called before every start, and a `cwd`.
+  - **The tools skills** tell an agent to open a path in `dev.sandbox.allowRead`, never to turn the sandbox off.
+- 1703bab: **`runHandler` and `runCheck` load a module from any absolute path.** Their default importers now pass an absolute module path to `import()` as its `file:` URL, as the pack service already does. Before, a `#` in the path (a pack in `~/work/pack #2/`) was read as a URL fragment and the module wasn't found, and a Windows path (`C:\…`) wasn't a URL at all. A URL or a package name is imported as given, and an `importHandler` / `importCheck` you pass is unchanged.
+- 5bdacf1: **Only the names a pack declares reach its code.** Before the pack's code loads, the pack service (TypeScript, Python, Java and Scala) drops from its environment every variable the pack doesn't declare in `env.required` or `env.optional`. A model key or a password in a self-hosted `--env-file`, meant for something else, no longer reaches a tool or a process a tool starts.
+  
+  - **What stays:** the declared names, `KINDGI_*`, and the platform's: the process's basics, the language runtime's settings, `PORT`, proxies and certificates, and Cloud Run's, AWS's and Azure's workload identity and metadata (`PLATFORM_ENV_NAMES`, `PLATFORM_ENV_PREFIXES`). Static credentials such as `AWS_SECRET_ACCESS_KEY` aren't the platform's: a pack that needs one declares it.
+  - **What it says:** one `warn` record at start, `env-dropped`, with the names it dropped, never their values. A Python image always names `GPG_KEY`, which its base image sets.
+  - **The opt-out:** `KINDGI_PACK_ENV_FILTER=off` keeps every variable, as before. `kindgi dev` sets it, since there the pack service gets the app's env files. Any value other than `on` or `off` is a `config-invalid` start.
+  - **Java and Scala:** a JVM can't drop a variable from its own environment, so the launcher (`kindgi-pack-java`) does, keeping the names in `KINDGI_PACK_ENV_DECLARED`, which `kindgi build` now sets in the image from the pack's index. The service won't start while a variable the pack doesn't declare still reaches it, or when `KINDGI_PACK_ENV_DECLARED` isn't the index's `env`.
+  - **The skills** (tools and getting-started, every language) say so: an undeclared name works under `kindgi dev` and is unset once deployed, so declare every name the code reads.
+  - **The conformance suite** checks it for every pack service: an undeclared variable is absent in a tool, the declared ones and the platform's are there, and `off` keeps it.
+- 03151ca: **A union of types compiles.** A schema with `type: ['string', 'number', 'boolean', 'null']`, which is what Zod 4 writes for `z.union([z.string(), z.number(), z.boolean(), z.null()])`, used to be refused ("strict mode: use allowUnionTypes…"), while `.nullable()` compiled. It's standard JSON Schema, and every schema compiler now takes it: tool input and output, an agent's typed output, a guardrail check's config, flow and block schemas, and the pack service's validation. `ALLOW_UNION_TYPES` (`@kindgi/schema`) says so.
+  - A schema that strict mode still refuses (an open tuple, an unknown keyword) says how out: for a field that may hold any JSON value, `z.json()` (or `{}` in JSON Schema) compiles.
+  - The Java pack service validates a union of types too (its CHANGELOG). Python's always did.
+- 8b60576: **A tool call's idempotency key.** A run's step can run more than once: resumed after an approval, retried after a failure, or run again when the runtime restarted while it ran. So a tool that changes something (a refund, an email, a payment) could do it twice, with no key to dedupe on. `ToolContext.idempotencyKey` is the same every time the same call runs, and different for every other call: pass it to the system you write to (an `Idempotency-Key` header, a client reference, a unique column), or look for it there first.
+  
+  - **What it is:** a version 5 UUID (RFC 9562) under a fixed namespace (`TOOL_IDEMPOTENCY_NAMESPACE`), over the run, the step and the tool, plus the model's call id for a call a model asked for (`toolIdempotencyKey`, `@kindgi/tools`). The pack protocol schema says how, so any runtime makes the same key.
+  - **The step:** `NodeContext.stepScope` names a step the same every time it runs (its node, a loop body's step with its iteration, a fanout branch). A model's call id alone isn't enough: it's only unique within one of its answers, so two turns of a loop can share one.
+  - **Every pack language:** the pack protocol's call context carries it (protocol 2.6.0; an older pack service ignores it). Python `ctx.idempotency_key`, Java and Scala `ctx.idempotencyKey()`. The conformance suite checks that each pack service hands it to the tool, and that a 0.1.1 service still answers a call carrying it.
+  - **Absent** outside a run, and from a runtime that can't name its steps (before 0.1.6): the call can't be deduped on it then.
+  - **The docs:** "Make a side effect happen once" in Write a tool, and the tools skills (every language). `requestId` is no longer described as an idempotency key.
+- Updated dependencies [fdb86ae]
+- Updated dependencies [8b9e90d]
+- Updated dependencies [796c790]
+- Updated dependencies [36c31ea]
+- Updated dependencies [5bdacf1]
+- Updated dependencies [26882a9]
+- Updated dependencies [03151ca]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [b4bbd95]
+- Updated dependencies [01958d4]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [bbdccbb]
+  - @kindgi/env-schema@0.1.6-rc.0
+  - @kindgi/schema@0.1.6-rc.0
+  - @kindgi/types@0.1.6-rc.0
+  - @kindgi/flow@0.1.6-rc.0
+  - @kindgi/sandbox@0.1.6-rc.0
+  - @kindgi/log@0.1.6-rc.0
+
 ## 0.1.5
 
 ### Patch Changes

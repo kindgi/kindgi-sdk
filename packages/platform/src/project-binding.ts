@@ -25,7 +25,7 @@
  * rejecting.
  */
 
-import type { Filter, OrgId, Page, ProjectId, TenantId, UserId } from '@kindgi/types';
+import type { Filter, OrgId, Page, ProjectId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
 import type {
   Project,
@@ -87,7 +87,11 @@ export interface ProjectBinding {
    * Partially update a `Project`. `ProjectPatch.orgId` supports
    * `null` to re-assign the project out of any org. Resolves to
    * `project-not-found` when no project has `projectId` in the tenant,
-   * and to `slug-conflict` when `patch.slug` is another project's slug.
+   * to `slug-conflict` when `patch.slug` is another project's slug, and to
+   * `project-in-environment-order` when the patch would change `orgId` for a
+   * project that is a member of an environment order (clear it first). A
+   * patch that leaves `orgId` untouched — a rename, slug or description
+   * change — is never refused on that ground.
    */
   update(
     tenantId: TenantId,
@@ -95,12 +99,37 @@ export interface ProjectBinding {
     patch: ProjectPatch,
   ): Promise<ProjectUpdateOutcome>;
   /**
-   * Delete a `Project`. What happens to content rows that still
-   * reference the project is the storage layer's concern; the
-   * in-memory adapter removes the project's direct memberships and
-   * team grants with it.
+   * Delete a `Project`. Resolves to `project-in-environment-order` when the
+   * project is a member of an environment order — the delete does not happen;
+   * clear it from the order first. Deleting an id that names no project is
+   * `ok` (idempotent). What happens to content rows that still reference a
+   * deleted project is the storage layer's concern; the in-memory adapter
+   * removes the project's direct memberships and team grants with it.
    */
-  delete(tenantId: TenantId, projectId: ProjectId): Promise<void>;
+  delete(tenantId: TenantId, projectId: ProjectId): Promise<ProjectDeleteOutcome>;
+  /**
+   * Put the project in production (`production: true`), or take it out.
+   * Optional: without it, the production route answers 501
+   * `production-unsupported`. Setting what's already set changes nothing:
+   * it answers `changed: false` and keeps the first `productionSince`. A
+   * runtime that meters usage records each change (`project.production`,
+   * `on` or `off`) in the same transaction as the change.
+   *
+   * With the tenant's limit set (`TenantLimits.projectsInProduction`),
+   * putting a project in production reads the limit, counts the tenant's
+   * projects already in production, and answers `limit-reached` without a
+   * change when they're at the limit or past it. The binding reads the
+   * limit itself, where the runtime keeps it, and the read, the count and
+   * the change are one step: two projects put in production at once can't
+   * both pass on the last place, and a limit changed meanwhile is the one
+   * counted against. Taking a project out, and a project already in
+   * production, are never counted.
+   */
+  setProduction?(
+    tenantId: TenantId,
+    projectId: ProjectId,
+    production: boolean,
+  ): Promise<ProjectProductionOutcome>;
 }
 
 /**
@@ -168,6 +197,28 @@ export type ProjectCreateOutcome =
       readonly orgId: OrgId;
     };
 
+/** What `ProjectBinding.setProduction` did. */
+export type ProjectProductionOutcome =
+  | {
+      readonly kind: 'ok';
+      /** When it went into production; `null` now that it isn't in production. */
+      readonly productionSince: Timestamp | null;
+      /** `false` when it was already so, and nothing was written. */
+      readonly changed: boolean;
+    }
+  | {
+      /** No project with this id in the tenant. */
+      readonly kind: 'project-not-found';
+    }
+  | {
+      /** Not put in production: the tenant's projects in production are at its limit, or past it. */
+      readonly kind: 'limit-reached';
+      /** The limit. */
+      readonly projectsInProduction: number;
+      /** The tenant's projects in production now. */
+      readonly inProduction: number;
+    };
+
 /** What `ProjectBinding.update` did. */
 export type ProjectUpdateOutcome =
   | { readonly kind: 'ok' }
@@ -187,6 +238,27 @@ export type ProjectUpdateOutcome =
        */
       readonly kind: 'org-not-found';
       readonly orgId: OrgId;
+    }
+  | {
+      /**
+       * The project is a member of an environment order, so it can't be
+       * moved to another parent. Clear it from the order first. Only a patch
+       * that changes `orgId` is refused; a rename or slug change is not.
+       */
+      readonly kind: 'project-in-environment-order';
+      readonly orderId: string;
+    };
+
+/** What `ProjectBinding.delete` did. */
+export type ProjectDeleteOutcome =
+  | { readonly kind: 'ok' }
+  | {
+      /**
+       * The project is a member of an environment order, so it can't be
+       * deleted. Clear it from the order first.
+       */
+      readonly kind: 'project-in-environment-order';
+      readonly orderId: string;
     };
 
 /** What `ProjectMembershipBinding.add` did (`ok` when already a member, too). */

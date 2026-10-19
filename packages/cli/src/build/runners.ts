@@ -154,6 +154,12 @@ export interface PostBuildOptions {
   readonly tarballSha256: string;
   readonly buildTarget: string;
   readonly registryPushCredsRef?: string;
+  /** `Bearer <API key>`: sent to the hosted build service only, never to a self-hosted one. */
+  readonly authorization?: string;
+  /** The pack's id, which the hosted build service checks the built index against. */
+  readonly packId?: string;
+  /** The project the build is for, by id: a label on the hosted build. */
+  readonly projectId?: string;
   readonly fetchImpl: typeof fetch;
 }
 
@@ -182,9 +188,13 @@ export interface TerminalPayload {
 export interface StreamBuildLogsOptions {
   readonly endpoint: string;
   readonly buildJobId: string;
+  /** As `PostBuildOptions.authorization`. */
+  readonly authorization?: string;
   readonly fetchImpl: typeof fetch;
   readonly onLog: (line: string) => void;
   readonly signal?: AbortSignal;
+  /** The wait before opening a cut stream again. Default: a timer, cut short by `signal`. */
+  readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
 
 export interface PullImageIndexOptions {

@@ -3,10 +3,10 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
-import type { Cursor, TenantId, UserId } from '@kindgi/types';
+import type { Cursor, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -18,9 +18,12 @@ import type {
   EvalRunBinding,
   EvalRunPage,
   EvalRunStatus,
+  EvalRunSubjectInvokeOutcome,
   EvalSubjectInvoker,
   EvalSuite,
   EvalSuiteRegistryBinding,
+  ItemReference,
+  ReferenceScopeBinding,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
@@ -214,6 +217,8 @@ function makeApp(
     subject?: EvalSubjectInvoker;
     /** With authorization on: what the caller holds, as `<action> <type>:<id>`. */
     grants?: readonly string[];
+    projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+    referenceScope?: ReferenceScopeBinding;
   } = {},
 ): AppSetup {
   const registry = makeInMemoryRegistry();
@@ -235,6 +240,8 @@ function makeApp(
     evalSuiteRegistry: registry,
     evalRunBinding: binding,
     ...(options.grants !== undefined && { authz: grantsAuthz(options.grants) }),
+    ...(options.projectSuspended !== undefined && { projectSuspended: options.projectSuspended }),
+    ...(options.referenceScope !== undefined && { referenceScope: options.referenceScope }),
   });
   return { app, registry, binding };
 }
@@ -436,6 +443,310 @@ describe('API — eval-runs start (accuracy happy path)', () => {
     const result = final.result as { passCount: number; totalCount: number };
     expect(result.passCount).toBe(1);
     expect(result.totalCount).toBe(2);
+  });
+});
+
+describe("API — eval-runs start: the version it runs must be the project's to reach", () => {
+  /** Reaches every item but `unreached` (`<kind>:<id>@<version>`, `@` alone for the item by its id); records each question. */
+  const reach = (
+    unreached: readonly string[],
+    asked: ItemReference[] = [],
+  ): ReferenceScopeBinding => ({
+    async reachable({ ref }) {
+      asked.push(ref);
+      return !unreached.includes(`${ref.kind}:${ref.id}@${ref.version ?? ''}`);
+    },
+  });
+  const UNREACHED = [
+    'agent:acme.drafting@1.1.0',
+    'flow:acme.triage@2.0.0',
+    'agent:acme.elsewhere@',
+    'tool:acme.offsite@',
+  ];
+  /** A subject that counts its cases, so a refused start is seen to run none. */
+  const counting = () => {
+    const calls = { n: 0 };
+    const subject: EvalSubjectInvoker = {
+      async invoke({ input }) {
+        calls.n += 1;
+        return { output: (input as { expected: unknown }).expected };
+      },
+    };
+    return { calls, subject };
+  };
+  const start = (app: AppSetup['app'], body: Record<string, unknown>) =>
+    app.request('/v1/eval-suites/acme.reach/runs', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ projectId: TEST_PROJECT_ID, ...body }),
+    });
+  const refusal = async (res: Response) =>
+    (
+      (await res.json()) as {
+        error: {
+          code: string;
+          message: string;
+          details?: { issues?: Record<string, unknown>[] };
+        };
+      }
+    ).error;
+
+  test.each([
+    [
+      'an agent',
+      { agentRef: { agentId: 'acme.drafting', version: '1.0.0' } },
+      'agent',
+      'acme.drafting',
+      '1.0.0',
+    ],
+    [
+      'a flow',
+      { flowRef: { flowId: 'acme.triage', version: '1.0.0' } },
+      'flow',
+      'acme.triage',
+      '1.0.0',
+    ],
+  ] as const)(
+    '%s at a version the project reaches starts: 201, asked at that version',
+    async (_, body, kind, id, version) => {
+      const asked: ItemReference[] = [];
+      const { app, registry } = makeApp({ referenceScope: reach(UNREACHED, asked) });
+      await seedSuite(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
+      const res = await start(app, body);
+      expect(res.status).toBe(201);
+      expect(asked.filter((r) => r.kind === kind)).toStrictEqual([{ kind, id, version }]);
+    },
+  );
+
+  test.each([
+    [
+      'an agent',
+      { agentRef: { agentId: 'acme.drafting', version: '1.1.0' } },
+      '/agentRef/agentId',
+      'agent',
+      'acme.drafting',
+      'agent "acme.drafting" 1.1.0',
+    ],
+    [
+      'a flow',
+      { flowRef: { flowId: 'acme.triage', version: '2.0.0' } },
+      '/flowRef/flowId',
+      'flow',
+      'acme.triage',
+      'flow "acme.triage" 2.0.0',
+    ],
+  ] as const)(
+    "%s at a version the project doesn't reach is refused at the start: 400 reference-out-of-scope, naming the version, and no case runs",
+    async (_, body, path, kind, id, named) => {
+      const { calls, subject } = counting();
+      const { app, registry, binding } = makeApp({ subject, referenceScope: reach(UNREACHED) });
+      await seedSuite(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
+      const res = await start(app, body);
+      expect(res.status).toBe(400);
+      const error = await refusal(res);
+      expect(error.code).toBe('reference-out-of-scope');
+      expect(error.message).toBe(
+        `This project can't reference ${named}: it isn't a version this project runs (not registered in this project, its org or the tenant, nor deployed to it)`,
+      );
+      expect(error.details?.issues).toEqual([
+        {
+          path,
+          kind,
+          id,
+          message: `${named} isn't a version this project runs (not registered in this project, its org or the tenant, nor deployed to it)`,
+        },
+      ]);
+      expect(calls.n).toBe(0);
+      expect((await binding.list({ tenantId, limit: 10 })).data).toEqual([]);
+    },
+  );
+
+  test('with no version, the item is asked about by its id, as before: reached, it starts; not, the refusal names no version', async () => {
+    const asked: ItemReference[] = [];
+    const { app, registry } = makeApp({ referenceScope: reach(UNREACHED, asked) });
+    await seedSuite(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
+    expect((await start(app, { agentRef: { agentId: 'acme.drafting' } })).status).toBe(201);
+    expect(asked.filter((r) => r.kind === 'agent')).toStrictEqual([
+      { kind: 'agent', id: 'acme.drafting' },
+    ]);
+    const error = await refusal(await start(app, { agentRef: { agentId: 'acme.elsewhere' } }));
+    expect(error.code).toBe('reference-out-of-scope');
+    expect(error.message).toBe(
+      `This project can't reference agent "acme.elsewhere": it isn't registered in this project, its org or the tenant`,
+    );
+  });
+
+  describe("a flow candidate's versions", () => {
+    const flowRef = { flowId: 'acme.triage', version: '1.0.0' };
+
+    test("an agent at a version the project doesn't reach is refused at its own path, naming the version, and no case runs", async () => {
+      const { calls, subject } = counting();
+      const { app, registry, binding } = makeApp({ subject, referenceScope: reach(UNREACHED) });
+      await seedSuite(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
+      const res = await start(app, { flowRef, versions: { agents: { 'acme.drafting': '1.1.0' } } });
+      expect(res.status).toBe(400);
+      const error = await refusal(res);
+      expect(error.code).toBe('reference-out-of-scope');
+      expect(error.message).toBe(
+        `This project can't reference agent "acme.drafting" 1.1.0: it isn't a version this project runs (not registered in this project, its org or the tenant, nor deployed to it)`,
+      );
+      expect(error.details?.issues).toEqual([
+        {
+          path: '/versions/agents/acme.drafting',
+          kind: 'agent',
+          id: 'acme.drafting',
+          message: `agent "acme.drafting" 1.1.0 isn't a version this project runs (not registered in this project, its org or the tenant, nor deployed to it)`,
+        },
+      ]);
+      expect(calls.n).toBe(0);
+      expect((await binding.list({ tenantId, limit: 10 })).data).toEqual([]);
+    });
+
+    test('the same agent at a version the project does reach starts: 201, asked at that version', async () => {
+      const asked: ItemReference[] = [];
+      const { app, registry } = makeApp({ referenceScope: reach(UNREACHED, asked) });
+      await seedSuite(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
+      const res = await start(app, { flowRef, versions: { agents: { 'acme.drafting': '1.0.0' } } });
+      expect(res.status).toBe(201);
+      expect(asked.filter((r) => r.kind === 'agent')).toStrictEqual([
+        { kind: 'agent', id: 'acme.drafting', version: '1.0.0' },
+      ]);
+    });
+
+    test('a tool is asked about by its id: reached, it starts; not, it is refused at its own path, with no version named', async () => {
+      const asked: ItemReference[] = [];
+      const { app, registry } = makeApp({ referenceScope: reach(UNREACHED, asked) });
+      await seedSuite(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
+      const res = await start(app, { flowRef, versions: { tools: { 'acme.lookup': '2.0.0' } } });
+      expect(res.status).toBe(201);
+      expect(asked.filter((r) => r.kind === 'tool')).toStrictEqual([
+        { kind: 'tool', id: 'acme.lookup' },
+      ]);
+      const error = await refusal(
+        await start(app, { flowRef, versions: { tools: { 'acme.offsite': '2.0.0' } } }),
+      );
+      expect(error.code).toBe('reference-out-of-scope');
+      expect(error.details?.issues).toEqual([
+        {
+          path: '/versions/tools/acme.offsite',
+          kind: 'tool',
+          id: 'acme.offsite',
+          message: `tool "acme.offsite" isn't registered in this project, its org or the tenant`,
+        },
+      ]);
+    });
+
+    test('each refused entry is named at its own path, beside the flow', async () => {
+      const { app, registry } = makeApp({ referenceScope: reach(UNREACHED) });
+      await seedSuite(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
+      const error = await refusal(
+        await start(app, {
+          flowRef: { flowId: 'acme.triage', version: '2.0.0' },
+          versions: {
+            agents: { 'acme.drafting': '1.1.0', 'acme.desk': '1.0.0' },
+            tools: { 'acme.offsite': '2.0.0', 'acme.lookup': '2.0.0' },
+          },
+        }),
+      );
+      expect(error.code).toBe('reference-out-of-scope');
+      expect(error.message).toBe(
+        `This project can't reference 3 of the items named (flow "acme.triage" 2.0.0, agent "acme.drafting" 1.1.0, tool "acme.offsite"): none is registered in this project, its org or the tenant, and no version named is deployed to it`,
+      );
+      expect(error.details?.issues?.map((i) => i.path)).toEqual([
+        '/flowRef/flowId',
+        '/versions/agents/acme.drafting',
+        '/versions/tools/acme.offsite',
+      ]);
+    });
+  });
+});
+
+describe('API — eval-runs and a suspended project', () => {
+  const threeCases: Readonly<Record<string, unknown>> = {
+    ...accuracySpec,
+    cases: [
+      ...(accuracySpec.cases as unknown[]),
+      { id: 'c3', input: { prompt: 'c', expected: 'C' }, expected: 'C' },
+    ],
+  };
+  const start = (app: AppSetup['app'], suiteId: string) =>
+    app.request(`/v1/eval-suites/${suiteId}/runs`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: TEST_PROJECT_ID,
+        agentRef: { agentId: 'acme.drafting', version: '1.0.0' },
+      }),
+    });
+  /** The second case's start is refused (`refused`), the others answer what they expect. */
+  const refusingSecond = (refused: EvalRunSubjectInvokeOutcome) => {
+    const calls = { n: 0 };
+    const subject: EvalSubjectInvoker = {
+      async invoke({ input }) {
+        calls.n += 1;
+        if (calls.n === 2) return refused;
+        return { output: (input as { expected: unknown }).expected };
+      },
+    };
+    return { calls, subject };
+  };
+
+  test('no run starts in it: 409 project-suspended, and nothing runs; restored, it starts', async () => {
+    let suspended = true;
+    const asked: string[] = [];
+    const { calls, subject } = refusingSecond({ output: 'unused' });
+    const { app, registry } = makeApp({
+      subject,
+      projectSuspended: async (_tenantId, projectId) => {
+        asked.push(projectId as unknown as string);
+        return suspended;
+      },
+    });
+    await seedSuite(registry, { id: 'acme.suspended', kind: 'accuracy', spec: accuracySpec });
+    const refused = await start(app, 'acme.suspended');
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe(
+      'project-suspended',
+    );
+    expect(asked).toEqual([TEST_PROJECT_ID]);
+    expect(calls.n).toBe(0);
+    suspended = false;
+    expect((await start(app, 'acme.suspended')).status).toBe(201);
+  });
+
+  test('a case it refuses to start stops the run there: cancelled, with the reason, and the cases before it', async () => {
+    const { calls, subject } = refusingSecond({
+      halt: { reason: 'project-suspended', message: 'The project is suspended' },
+    });
+    const { app, registry, binding } = makeApp({ subject });
+    await seedSuite(registry, { id: 'acme.halted', kind: 'accuracy', spec: threeCases });
+    const res = await start(app, 'acme.halted');
+    const { runId } = (await res.json()) as { runId: string };
+    const final = await waitForRun(binding, runId, (r) => r.status === 'cancelled');
+    expect(final.cancelReason).toBe('project-suspended');
+    expect(final.error).toBeUndefined();
+    expect(calls.n).toBe(2);
+    expect(final.result).toMatchObject({ passCount: 1, totalCount: 3, cancelled: true });
+    expect((final.result as { perCase: unknown[] }).perCase).toHaveLength(1);
+    const read = await app.request(`/v1/eval-runs/${runId}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(await read.json()).toMatchObject({
+      status: 'cancelled',
+      cancelReason: 'project-suspended',
+    });
+  });
+
+  test("a case's error isn't a halt: the run goes on to the end", async () => {
+    const { calls, subject } = refusingSecond({ error: 'pack-suspended: the pack is suspended' });
+    const { app, registry, binding } = makeApp({ subject });
+    await seedSuite(registry, { id: 'acme.errored', kind: 'accuracy', spec: threeCases });
+    const res = await start(app, 'acme.errored');
+    const { runId } = (await res.json()) as { runId: string };
+    const final = await waitForRun(binding, runId, (r) => r.status === 'completed');
+    expect(final.cancelReason).toBeUndefined();
+    expect(calls.n).toBe(3);
+    expect(final.result).toMatchObject({ passCount: 2, totalCount: 3 });
   });
 });
 
@@ -857,6 +1168,159 @@ describe('API — eval-runs SSE events', () => {
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe('eval-run-not-found');
+  });
+
+  /** A run that stays running, one case in; each read of it counted. */
+  function runningRunApp() {
+    const counted = { reads: 0 };
+    const runId = randomUUID();
+    const running = {
+      runId,
+      tenantId,
+      suiteId: 'acme.sse',
+      suiteVersion: '1.0.0',
+      kind: 'accuracy',
+      status: 'running',
+      dryRun: false,
+      startedAt: '2026-10-16T00:00:00.000Z',
+      result: { perCase: [{ pass: true }] },
+    } as unknown as EvalRun;
+    let hold: { entered: () => void; released: Promise<void> } | undefined;
+    /** Holds each read of the run until `release`; `waiting` resolves once one waits. */
+    const holdReads = () => {
+      let release = (): void => undefined;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const waiting = new Promise<void>((entered) => {
+        hold = { entered, released };
+      });
+      return { waiting, release };
+    };
+    const evalRunBinding = {
+      get: async ({ runId: id }: { runId: string }) => {
+        counted.reads += 1;
+        if (hold !== undefined) {
+          hold.entered();
+          await hold.released;
+        }
+        return id === runId ? running : null;
+      },
+    } as unknown as EvalRunBinding;
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      evalRunBinding,
+    });
+    const call = (
+      method: 'GET' | 'HEAD',
+      { id = runId, signal }: { id?: string; signal?: AbortSignal } = {},
+    ) =>
+      app.request(`/v1/eval-runs/${id}/events`, {
+        method,
+        headers: { authorization: `Bearer ${TOKEN}`, 'x-request-id': 'req-events' },
+        ...(signal !== undefined && { signal }),
+      });
+    return { call, counted, holdReads };
+  }
+
+  test('a reader that cancels: no read of the run and no timer after the cancel', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const { call, counted } = runningRunApp();
+      const res = await call('GET');
+      expect(res.status).toBe(200);
+      const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+      const first = await reader.read();
+      expect(new TextDecoder().decode(first.value)).toContain('event: eval-run.case-completed');
+      await vi.advanceTimersByTimeAsync(1_000);
+      const polled = counted.reads;
+      // It polls while it's read: the route's read, the stream's first, then one every 100 ms.
+      expect(polled).toBeGreaterThan(2);
+      await reader.cancel();
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(counted.reads).toBe(polled);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a HEAD answers the stream's status and headers and starts none of its work", async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const { call, counted } = runningRunApp();
+      const head = await call('HEAD');
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      // The route's one read, to find the run; no poll and no timer: the stream never started.
+      expect(counted.reads).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(head.body).toBeNull();
+      const get = await call('GET');
+      await get.body?.cancel();
+      expect([head.status, get.status]).toEqual([200, 200]);
+      // Each request answers its own span; every other header is the same.
+      const { traceresponse: headSpan, ...headHeaders } = Object.fromEntries(head.headers);
+      const { traceresponse: getSpan, ...getHeaders } = Object.fromEntries(get.headers);
+      expect([headSpan, getSpan]).toEqual([expect.any(String), expect.any(String)]);
+      expect(headHeaders).toEqual(getHeaders);
+      expect(headHeaders['content-type']).toBe('text/event-stream; charset=utf-8');
+      // A run that isn't there: the GET's 404.
+      const absent = randomUUID();
+      const [headMissing, getMissing] = [
+        await call('HEAD', { id: absent }),
+        await call('GET', { id: absent }),
+      ];
+      expect([headMissing.status, getMissing.status, headMissing.body]).toEqual([404, 404, null]);
+      expect(Object.fromEntries(headMissing.headers)).toEqual({
+        ...Object.fromEntries(getMissing.headers),
+        traceresponse: expect.any(String),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a client that leaves during the read check: the stream never starts', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const { call, counted, holdReads } = runningRunApp();
+      const { waiting, release } = holdReads();
+      const client = new AbortController();
+      const answered = call('GET', { signal: client.signal });
+      await waiting;
+      client.abort();
+      release();
+      const res = await answered;
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      // The route's one read, to find the run; no poll and no timer. The body is never touched.
+      expect(counted.reads).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
+      expect([res.status, res.body]).toEqual([200, null]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a client that leaves after the answer, its body never read: the polls stop', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const { call, counted } = runningRunApp();
+      const client = new AbortController();
+      const res = await call('GET', { signal: client.signal });
+      expect(res.status).toBe(200);
+      await vi.advanceTimersByTimeAsync(1_000);
+      const polled = counted.reads;
+      // It polls while the client is there: the route's read, the stream's first, then one every 100 ms.
+      expect(polled).toBeGreaterThan(2);
+      client.abort();
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(counted.reads).toBe(polled);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

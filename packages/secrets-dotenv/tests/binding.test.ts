@@ -239,8 +239,24 @@ describe('SecretBinding.set — add-version', () => {
     });
     expect(resolved).toEqual({
       kind: 'ok',
-      value: { name: 'ANTHROPIC_API_KEY', versionId: 1, value: 'sk-new' },
+      value: { name: 'ANTHROPIC_API_KEY', versionId: 1, value: 'sk-new', scope: SCOPE },
     });
+  });
+
+  test('scope-blind: a read, exact or not, is at the scope it asks for', async () => {
+    await writeKindgiFile('ACME_TOKEN=t-1\n');
+    const binding = createDotenvSecretBinding({ packDir });
+    const project: Scope = { kind: 'project', tenantId: TENANT, projectId: 'p-1' as never };
+    for (const exact of [undefined, true] as const) {
+      const resolved = await binding.resolve({
+        scope: project,
+        envName: ENV,
+        name: 'ACME_TOKEN',
+        resolveContext: RESOLVE_CTX,
+        ...(exact !== undefined && { exact }),
+      });
+      expect(resolved.kind === 'ok' && resolved.value.scope).toEqual(project);
+    }
   });
 
   test('creates the key when absent even under add-version (upsert-like)', async () => {
@@ -428,5 +444,56 @@ describe('SecretBinding — rotate/revoke stay unsupported', () => {
       expect(outcome.error.code).toBe('secret-operation-unsupported');
       expect(outcome.error.message).toContain('.env, .env.local');
     }
+  });
+});
+
+describe('SecretBinding.listEnvNames — local and the .env.<envName> files', () => {
+  test('the envs holding a name list shows, each once, in byte order', async () => {
+    await writeFile(join(packDir, '.env'), 'ACME_KEY=a\n');
+    await writeFile(join(packDir, '.env.staging'), 'ACME_KEY=s\n');
+    await writeFile(join(packDir, '.env.prod-eu'), 'ACME_KEY=p\n');
+    // Kindgi's runtime config only: `list` shows nothing there.
+    await writeFile(join(packDir, '.env.ci'), 'KINDGI_PORT=1\n');
+    // Not an env name (`resolvePackEnvFiles` reads no such env).
+    await writeFile(join(packDir, '.env.production.local'), 'ACME_KEY=x\n');
+    await writeFile(join(packDir, '.env.Upper'), 'ACME_KEY=x\n');
+    await mkdir(join(packDir, '.env.dir'));
+    const binding = createDotenvSecretBinding({ packDir });
+
+    const all = await binding.listEnvNames?.({ tenantId: TENANT, limit: 10 });
+    expect(all).toEqual(['local', 'prod-eu', 'staging']);
+    for (const envName of all ?? []) {
+      const page = await binding.list({ scope: SCOPE, envName, limit: 10 });
+      expect(page.data.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('pages: after and limit', async () => {
+    await writeKindgiFile('ACME_KEY=k\n');
+    for (const env of ['alpha', 'beta', 'gamma']) {
+      await writeFile(join(packDir, `.env.${env}`), 'ACME_KEY=v\n');
+    }
+    const binding = createDotenvSecretBinding({ packDir });
+
+    expect(await binding.listEnvNames?.({ tenantId: TENANT, limit: 2 })).toEqual(['alpha', 'beta']);
+    expect(
+      await binding.listEnvNames?.({ tenantId: TENANT, limit: 2, after: 'beta' as EnvName }),
+    ).toEqual(['gamma', 'local']);
+    expect(
+      await binding.listEnvNames?.({ tenantId: TENANT, limit: 2, after: 'local' as EnvName }),
+    ).toEqual([]);
+  });
+
+  test('local without a file holding a name, and a pack dir that is gone: none', async () => {
+    expect(
+      await createDotenvSecretBinding({ packDir }).listEnvNames?.({ tenantId: TENANT, limit: 10 }),
+    ).toEqual([]);
+    const gone = join(packDir, 'gone');
+    expect(
+      await createDotenvSecretBinding({ packDir: gone }).listEnvNames?.({
+        tenantId: TENANT,
+        limit: 10,
+      }),
+    ).toEqual([]);
   });
 });

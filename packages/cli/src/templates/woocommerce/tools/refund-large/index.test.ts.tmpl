@@ -1,0 +1,53 @@
+// {{PACK_ID}}.woo.refund-large — any amount, once. In a run it waits for a
+// person first; here it's called as the run calls it after the approval
+// (`invokeToolForTest`). The store is `lib/fake-store.ts`.
+
+import { randomUUID } from 'node:crypto';
+
+import { afterEach, describe, expect, test, vi } from 'vitest';
+
+import { invokeToolForTest } from '@kindgi/sdk/define';
+
+import { fakeStore } from '../../lib/fake-store.js';
+import refundLarge from './index.js';
+
+/** What `kindgi env set` and `kindgi secrets set` would give the tool. */
+const settings = {
+  env: { WOO_STORE_URL: 'http://store.test', WOO_USER: 'shop-agent' },
+  secrets: { WOO_APP_PASSWORD: 'not-a-real-password' },
+};
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('{{PACK_ID}}.woo.refund-large', () => {
+  test('refunds 240, past the limit of the refund tool', async () => {
+    const store = fakeStore();
+    const result = await invokeToolForTest(refundLarge, { orderId: 1043, amount: 240, reason: 'Zip broke on day one' }, settings);
+    expect(result).toEqual({ kind: 'ok', value: { refundId: 501, orderId: 1043, amount: '240.00', currency: 'USD' } });
+    expect(store.refunds).toHaveLength(1);
+  });
+
+  test('the step resumed after its approval, or run again after a crash, refunds once', async () => {
+    const store = fakeStore();
+    const call = { ...settings, idempotencyKey: randomUUID() };
+    const first = await invokeToolForTest(refundLarge, { orderId: 1043, amount: 240, reason: 'Zip broke on day one' }, call);
+    const again = await invokeToolForTest(refundLarge, { orderId: 1043, amount: 240, reason: 'Zip broke on day one' }, call);
+    expect(first.kind).toBe('ok');
+    expect(again).toEqual(first);
+    expect(store.refunds).toHaveLength(1);
+  });
+
+  test('a refund the store made but answered 502 for is returned as made', async () => {
+    const store = fakeStore();
+    store.failNextRefundAfterSaving(502);
+    const result = await invokeToolForTest(
+      refundLarge,
+      { orderId: 1043, amount: 240, reason: 'Zip broke on day one' },
+      { ...settings, idempotencyKey: randomUUID() },
+    );
+    expect(result).toEqual({ kind: 'ok', value: { refundId: 501, orderId: 1043, amount: '240.00', currency: 'USD' } });
+    expect(store.refunds).toHaveLength(1);
+  });
+});

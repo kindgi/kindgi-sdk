@@ -12,6 +12,7 @@ import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../c
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
+import { FULL_SYSTEM_CAPABILITY, isSystemCapability } from '../system.js';
 import {
   API_TOKEN_ROLES,
   type ApiTokenRecord,
@@ -23,6 +24,7 @@ import type { AppEnv } from '../types.js';
 import { type Refusal, recordRefusal, refusalError } from './denied.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 import { parseTimeInput } from './time-input.js';
+import { tokenSignInKey } from './token-sign-in.js';
 
 /**
  * API keys: mint, list, read, revoke. A key acts for one principal (a
@@ -41,8 +43,28 @@ import { parseTimeInput } from './time-input.js';
  *   refuses `role-exceeds-principal`). Every capability granted must be
  *   one the minter holds. A minter narrowed to a project mints only keys
  *   narrowed to the same project.
+ * - **How long it lasts:** a key minted by a key that expires may not
+ *   outlive it. Its `expiresAt` must be no later than the minter's, and
+ *   present: a later or absent one is refused, 403
+ *   `token-expiry-exceeds-minter`, naming the latest allowed. A session
+ *   opened by token sign-in mints as the key it was opened with. A minter
+ *   that never expires (the deployment's token, a key without an expiry)
+ *   and a session from any other sign-in cap nothing.
  */
-export function tokensRouter(admin: TokenAdmin, authorizer?: Authorizer): Hono<AppEnv> {
+export interface TokensRouterOptions {
+  /**
+   * How many tenants the runtime serves (default `single`). With `multi`, a
+   * tenant's key is never minted holding `kindgi:system`: on such a runtime
+   * only system keys act for the operator.
+   */
+  readonly tenancy?: 'single' | 'multi';
+}
+
+export function tokensRouter(
+  admin: TokenAdmin,
+  authorizer?: Authorizer,
+  options: TokensRouterOptions = {},
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   r.use('/*', requireOwnerOrAdmin(authorizer));
 
@@ -58,7 +80,10 @@ export function tokensRouter(admin: TokenAdmin, authorizer?: Authorizer): Hono<A
 
     const owner = keyOwner(c);
     const principal = parsed.value.for ?? owner;
-    const refused = await mintRefusal(c, authorizer, owner, principal, parsed.value);
+    const refused =
+      systemCapabilityRefusal(c, authorizer, parsed.value.capabilities, options.tenancy) ??
+      (await mintRefusal(c, authorizer, owner, principal, parsed.value)) ??
+      (await expiryRefusal(c, admin, authorizer, parsed.value.expiresAt));
     if (refused !== undefined) return fail(c, refused, requestId);
 
     const createdBy = callerRef(c);
@@ -186,6 +211,35 @@ function samePrincipal(a: TokenPrincipal, b: TokenPrincipal | undefined): boolea
   return b.kind === 'service-account' && b.serviceAccountId === a.serviceAccountId;
 }
 
+/**
+ * A tenant's key never carries a system scope (`system:*`): those are
+ * system keys' (`/v1/system/keys`). On a runtime serving many tenants it
+ * doesn't carry `kindgi:system` either. Refused `403
+ * capability-not-mintable`, and recorded.
+ */
+function systemCapabilityRefusal(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  capabilities: readonly string[],
+  tenancy: 'single' | 'multi' | undefined,
+): WireError | undefined {
+  // `system:*` never; `kindgi:system` only where the runtime serves one tenant.
+  const notMintable = capabilities.filter(
+    (cap) => isSystemCapability(cap) && (tenancy === 'multi' || cap !== FULL_SYSTEM_CAPABILITY),
+  );
+  if (notMintable.length === 0) return undefined;
+  const refusal: Refusal = {
+    action: 'admin',
+    resource: ref('tenant', c.get('tenantId') as unknown as string),
+    message: `A tenant's key can't carry ${notMintable.join(', ')}: the operator's powers are system keys' (/v1/system/keys)`,
+    failing: 'scope',
+    code: 'capability-not-mintable',
+    details: { capabilities: notMintable },
+  };
+  recordRefusal(c, authorizer, refusal);
+  return refusalError(refusal);
+}
+
 /** Why the route refuses this mint before the store sees it, if it does. */
 async function mintRefusal(
   c: Context<AppEnv>,
@@ -221,6 +275,22 @@ async function mintRefusal(
     });
   }
   const narrowedTo = c.get('tokenProjectId');
+  // A session with a key's limits (a project, a role) mints no keys: a
+  // key would outlive whatever ends the session (its expiry, its
+  // provider's removal). For a session, `tokenRole` comes only from its
+  // own limit.
+  if (
+    c.get('sessionId') !== undefined &&
+    (narrowedTo !== undefined || c.get('tokenRole') !== undefined)
+  ) {
+    return refuse({
+      action: 'admin',
+      resource: tenant,
+      message: `This session is limited (${narrowedTo !== undefined ? `to project ${narrowedTo}` : `to the ${c.get('tokenRole')} role`}), and a limited session mints no keys`,
+      failing: 'scope',
+      code: 'limited-session-cannot-mint',
+    });
+  }
   if (narrowedTo !== undefined && body.projectId !== (narrowedTo as unknown as ProjectId)) {
     return refuse({
       action: 'admin',
@@ -233,6 +303,54 @@ async function mintRefusal(
     });
   }
   return undefined;
+}
+
+/**
+ * Why the new key would outlive the key minting it, if it would. The
+ * minter is the caller's key, or, for a session token sign-in opened, the
+ * key it was opened with: looked up, so one revoked since refuses (its
+ * sessions end with it, where the store can). A minter that never expires,
+ * and a session from any other sign-in, cap nothing.
+ */
+async function expiryRefusal(
+  c: Context<AppEnv>,
+  admin: TokenAdmin,
+  authorizer: Authorizer | undefined,
+  expiresAt: Date | undefined,
+): Promise<WireError | undefined> {
+  let minterExpiresAt: Date | undefined;
+  if (c.get('sessionId') === undefined) {
+    minterExpiresAt = c.get('tokenExpiresAt');
+  } else {
+    const tokenId = tokenSignInKey(c.get('providerId'));
+    if (tokenId === undefined) return undefined;
+    const key = await admin.get({ tenantId: c.get('tenantId') as TenantId, tokenId });
+    if (key === undefined || key.revokedAt !== undefined) {
+      return {
+        code: 'auth-revoked',
+        message: 'The API key this session was opened with is revoked: sign in again',
+      };
+    }
+    minterExpiresAt = key.expiresAt;
+  }
+  if (minterExpiresAt === undefined) return undefined;
+  if (expiresAt !== undefined && expiresAt.getTime() <= minterExpiresAt.getTime()) {
+    return undefined;
+  }
+  const latest = minterExpiresAt.toISOString();
+  const refusal: Refusal = {
+    action: 'admin',
+    resource: ref('tenant', c.get('tenantId') as unknown as string),
+    message:
+      expiresAt === undefined
+        ? `The key minting this one expires at ${latest}: give the new key an \`expiresAt\` no later than that`
+        : `A key can't outlive the key minting it: \`expiresAt\` must be no later than ${latest}`,
+    failing: 'scope',
+    code: 'token-expiry-exceeds-minter',
+    details: { latestExpiresAt: latest },
+  };
+  recordRefusal(c, authorizer, refusal);
+  return refusalError(refusal);
 }
 
 /** A key the caller may see: any, for a tenant admin; otherwise only their own. */

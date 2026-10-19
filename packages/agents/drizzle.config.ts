@@ -4,7 +4,7 @@
 import { defineConfig } from 'drizzle-kit';
 
 // Drizzle-kit is the generator. Migrations are versioned SQL files
-// under packages/agents/migrations/ (exported as AGENTS_MIGRATIONS_DIR)
+// under packages/agents/migrations/ (`AGENTS_MIGRATIONS_DIR`, from `@kindgi/agents/migrations`)
 // and applied at runtime by the host's migration runner.
 //
 // NEVER hand-edit SQL files — always edit src/schema.ts and run

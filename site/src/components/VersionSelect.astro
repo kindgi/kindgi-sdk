@@ -6,13 +6,16 @@
  * them with the exact version each is built from (scripts/build-versions.mjs
  * writes it). Switching keeps the reader on the same page when the other
  * version has it, else opens that version's home. Hidden when there's no
- * `/versions.json` (a single local build).
+ * `/versions.json` (a single local build). It draws Starlight's caret, as the
+ * theme menu next to it does.
  */
+import { Icon } from '@astrojs/starlight/components';
 ---
 
 <label class="kindgi-version" hidden>
   <span class="sr-only">Version</span>
   <select aria-label="Documentation version"></select>
+  <Icon name="down-caret" class="caret" />
 </label>
 
 <script>
@@ -73,13 +76,34 @@
 </script>
 
 <style>
+  .kindgi-version:not([hidden]) {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
   .kindgi-version select {
+    appearance: none;
     background: transparent;
-    border: 1px solid var(--sl-color-gray-5);
-    border-radius: 0.25rem;
+    border: 1px solid var(--kg-line);
+    border-radius: var(--kg-radius-field);
     color: var(--sl-color-gray-1);
+    cursor: pointer;
     font: inherit;
-    font-size: var(--sl-text-sm);
-    padding: 0.2rem 0.4rem;
+    padding-inline: 0.5rem 2rem;
+  }
+  /* The theme menu's text size: body size on a phone, small in the header. */
+  @media (min-width: 50rem) {
+    .kindgi-version select {
+      font-size: var(--sl-text-sm);
+    }
+  }
+  .kindgi-version :global(.caret) {
+    position: absolute;
+    inset-inline-end: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 1.25rem;
+    color: var(--sl-color-gray-2);
+    pointer-events: none;
   }
 </style>

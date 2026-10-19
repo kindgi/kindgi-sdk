@@ -26,6 +26,12 @@ export interface ToolSpecSynthesizerOptions {
    * server's own host). Absent: the global `fetch`.
    */
   readonly fetch?: typeof fetch;
+  /**
+   * The most bytes a synthesized handler reads of a response body,
+   * counted as `fetch` hands them over (after it decodes gzip or br).
+   * Past it the call fails, naming the cap. Absent: 10 MiB.
+   */
+  readonly maxResponseBytes?: number;
 }
 
 export type ToolSpecSynthesizer<TSpec extends ToolSpec = ToolSpec> = (

@@ -281,7 +281,8 @@ export function binCommand(
     case 'pnpm':
       return { command: 'pnpm', args: ['exec', bin, ...args] };
     case 'npm':
-      return { command: 'npx', args: ['--no', bin, ...args] };
+      // `--` ends npx's own options: a `--help` after the bin reaches it, not npm.
+      return { command: 'npx', args: ['--no', '--', bin, ...args] };
     case 'yarn':
       return { command: 'yarn', args: [bin, ...args] };
     case 'bun':

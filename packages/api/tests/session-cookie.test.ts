@@ -145,6 +145,20 @@ describe('session cookie', () => {
     expect((await store.get({ tenantId, sessionId }))?.revokedAt).toBeUndefined();
   });
 
+  test('the refusal names the address to open the console at', async () => {
+    const { app, store } = makeApp();
+    const { cookie } = await signedIn(store);
+    const res = await app.request('/v1/auth/logout', {
+      method: 'POST',
+      headers: { cookie, origin: 'http://localhost:4000' },
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toBe(
+      `A request signed in by the session cookie can't come from http://localhost:4000; open the console at ${CONSOLE}`,
+    );
+  });
+
   test('an unsafe request with no Origin at all is refused', async () => {
     const { app, store } = makeApp();
     const { cookie } = await signedIn(store);

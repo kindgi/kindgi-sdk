@@ -14,6 +14,8 @@ export interface PinnedDefinition {
   readonly derivedFrom?: VersionDerivation;
   /** Set by the registry on a version it reads: where it's stored, not what it is. */
   readonly projectId?: string;
+  /** Set by the registry on a version it reads: where it was made, not what it is. */
+  readonly madeInProjectId?: string;
   /** Set by the registry on an unregistered version it reads. */
   readonly unregisteredAt?: string;
 }
@@ -153,7 +155,8 @@ async function registerNextFree<T extends PinnedDefinition>(
 
 /**
  * A definition: everything but its version and what the runtime sets
- * (pins, where a version came from, and where the registry keeps it).
+ * (pins, where a version came from, and where the registry keeps it and
+ * where it was made).
  */
 export function definitionKey(definition: PinnedDefinition): string {
   const {
@@ -162,6 +165,7 @@ export function definitionKey(definition: PinnedDefinition): string {
     pinsDigest: _d,
     derivedFrom: _f,
     projectId: _project,
+    madeInProjectId: _madeIn,
     unregisteredAt: _u,
     ...rest
   } = definition;

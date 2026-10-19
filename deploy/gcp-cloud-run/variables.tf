@@ -38,11 +38,12 @@ variable "server_image" {
 }
 
 variable "pack_image" {
-  description = "The pack image `kindgi build` produced, by digest, in Artifact Registry."
+  description = "The pack image `kindgi build` produced, by digest, in Artifact Registry: the one pack service the server calls (KINDGI_PACK_SERVICE_URL). Needed with tenancy = \"single\". Unset with \"multi\", where each deployment is a service of its own: then there's no pack service, no pack account and none of its grants, and pack_env, pack_secret_env, pack_cloud_sql_instances, pack_bucket_readers and pack_run_invokers stay unset (the pack service's other settings do nothing)."
   type        = string
+  default     = ""
 
   validation {
-    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.pack_image))
+    condition     = var.pack_image == "" || can(regex("@sha256:[0-9a-f]{64}$", var.pack_image))
     error_message = "Pin the pack image by digest (…@sha256:<64 hex>)."
   }
 }
@@ -110,14 +111,26 @@ variable "openfga_api_url" {
   default     = ""
 }
 
-variable "seed_tenant_id" {
-  description = "KINDGI_TENANT_ID: the tenant the server seeds and reuses. Pin it, or every new revision seeds a new one."
+variable "tenancy" {
+  description = "KINDGI_TENANCY: how many tenants the server serves. \"single\" (the default): one, seed_tenant_id's, with the one pack service (pack_image). \"multi\" (runtime 0.1.8 or later): every tenant created through the system API, taking each request's tenant from its key or session, with each deployment a service of its own. It sets KINDGI_TENANCY = \"multi\" and no tenant or seed user, takes no pack_image, and needs openfga_api_url, secrets_backend = \"postgres\" and settings in server_env and server_secret_env, which the plan names: README."
   type        = string
+  default     = "single"
+  validation {
+    condition     = contains(["single", "multi"], var.tenancy)
+    error_message = "tenancy must be \"single\" or \"multi\"."
+  }
+}
+
+variable "seed_tenant_id" {
+  description = "KINDGI_TENANT_ID: the tenant the server seeds and reuses. Pin it, or every start seeds a new one. Needed with tenancy = \"single\", refused with \"multi\"."
+  type        = string
+  default     = null
 }
 
 variable "seed_user_id" {
-  description = "KINDGI_SEED_USER_ID: pinned so the FGA admin@tenant tuple stays stable across revisions."
+  description = "KINDGI_SEED_USER_ID: pinned so the FGA admin@tenant tuple stays stable across revisions. Needed with tenancy = \"single\", refused with \"multi\"."
   type        = string
+  default     = null
 }
 
 # ---- the pack service ---------------------------------------------------------
@@ -226,9 +239,31 @@ variable "database_private_network" {
 }
 
 variable "database_deletion_protection" {
-  description = "Keep Terraform (and the console) from deleting Kindgi's database instance."
+  description = "Keep Terraform from deleting Kindgi's database instance (Terraform's own deletion_protection). It doesn't stop a delete from the console, gcloud or the Cloud SQL API."
   type        = bool
   default     = true
+}
+
+variable "database_instance" {
+  description = <<-EOT
+    Null: the server uses the module's own Cloud SQL instance and its <prefix>-database-url secret.
+    Set, the server serves from another instance in this project instead, such as one a restore made (README, "Serving from a restored instance"): `name` is the instance, with a public IP, and `url_secret` the id of a Secret Manager secret in this project holding the server's URL to it, postgres://<user>:<password>@/<db>?host=/cloudsql/<connection name>. The server's /cloudsql volume then names that instance alone, and the module lets the server's account connect to it as well as to its own, so the old revision serves until the new one is ready.
+    Reading url_secret is granted by whoever made it, before the apply: two Terraform roots holding the same grant each remove it for the other when they let go of it. The module's own instance stays as it is. Public-IP mode only (database_private_network empty).
+  EOT
+  type = object({
+    name       = string
+    url_secret = string
+  })
+  default = null
+
+  validation {
+    condition     = var.database_instance == null || can(regex("^[a-z][a-z0-9-]*$", var.database_instance.name))
+    error_message = "database_instance.name is an instance name in this project: lower-case letters, digits and hyphens, starting with a letter."
+  }
+  validation {
+    condition     = var.database_instance == null || can(regex("^[A-Za-z0-9_-]+$", var.database_instance.url_secret))
+    error_message = "database_instance.url_secret is a secret id in this project (letters, digits, _ and -), not a path or a value."
+  }
 }
 
 # ---- network ------------------------------------------------------------------
@@ -377,8 +412,8 @@ variable "server_env" {
     error_message = "server_env: a name is upper-case letters, digits and underscores."
   }
   validation {
-    condition     = alltrue([for name in keys(var.server_env) : !can(regex("SECRET|_SMTP_URL$", name))])
-    error_message = "server_env: a secret (a *SECRET* name, or the SMTP URL with its password) goes in server_secret_env, by reference to Secret Manager, so its value isn't in the plan, the state or the service's configuration."
+    condition     = alltrue([for name in keys(var.server_env) : !can(regex("SECRET|_SMTP_URL$|_PRESHARED_KEY$", name))])
+    error_message = "server_env: a secret (a *SECRET* name, a preshared key, or the SMTP URL with its password) goes in server_secret_env, by reference to Secret Manager, so its value isn't in the plan, the state or the service's configuration."
   }
 }
 

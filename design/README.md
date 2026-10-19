@@ -39,12 +39,16 @@ commit.
   Only the website uses the Kindgi surface for whole sections.
 - **Plum is rare.** `action` (plum in light, orchid in dark) is for a primary
   action, a person deciding, the logo, and rare labels such as "Preview".
-  Nothing that repeats on every page wears it: not links, not menus, not
-  rows. The website is the exception and may use it as a brand accent.
+  Nothing that repeats on every page wears it: not link text, not menus,
+  not rows. A link's underline in docs prose is the one such use. The
+  website is the exception and may use it as a brand accent.
 - **Menus stay neutral.** Navigation (headers, footers, the docs sidebar,
   the console's nav) uses `text` and `text-2`. The current item is `text`,
   bold, with a `line` edge and a faint tint of `text`.
-- **Links** are their words and an arrow, no underline: `link`, then
+- **Links** in docs prose are underlined, with no arrow: `text`, with a 1px
+  `action` underline that thickens to 2px on hover. A link card is the
+  whole link, so its words aren't underlined. Links outside docs prose (the
+  website) are their words and an arrow, no underline: `link`, then
   `link-hover` on hover.
 - **Buttons** answer hover with a light shade change: filled buttons take
   `action-hover` (or `accent-hover`); outline buttons take a faint tint of
@@ -71,6 +75,6 @@ commit.
   fontsource's `IBM Plex Sans Variable` (`@fontsource-variable/ibm-plex-sans`),
   or your own `@font-face` that names the variable file `IBM Plex Sans` with
   `font-stretch: 85% 100%`.
-- **Shape** is square (`radius`). Only form fields are slightly rounded
-  (`radius-field`, 3px). Rows default to `row` (38px); a long list may offer
-  `row-compact`.
+- **Shape** is square (`radius`). Buttons are slightly rounded
+  (`radius-button`, 4px), and form fields a little less (`radius-field`, 3px).
+  Rows default to `row` (38px); a long list may offer `row-compact`.
