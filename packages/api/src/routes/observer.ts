@@ -26,10 +26,9 @@ import type { Refusal } from './denied.js';
  * `read`. `read` is what an observer never holds, so a person who is
  * somehow both a member and the observer keeps a member's rights, and a
  * member is asked only the first check. An authorizer that allows every
- * check (a stand-in, a permissive binding) refuses only a key or session
- * limited to a project or a role: its ceiling takes the tenant's `read`
- * and leaves `only_view`, which asks who the principal is. That errs
- * closed. A mint asks such a session's own limit first
+ * check (a stand-in, a permissive binding) refuses only a session limited
+ * to a project: its ceiling takes the tenant's `read` and leaves
+ * `only_view`, which asks who the principal is. That errs closed. A mint asks such a session's own limit first
  * (`limited-session-cannot-mint`); a public run link and an export have no
  * such limit, so they answer this.
  */

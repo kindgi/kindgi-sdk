@@ -231,10 +231,10 @@ the same shape as their own grants read. A runtime without an authorization
 store lists the people without them.
 
 A person a site signs in holds what their site's sign-in gives them, so
-`grant` refuses them every one (`403 site-person-grants-managed`): change
-their role on the site instead.
-Their grants say so with `siteManaged: true`, and the table with a `site`
-row.
+every grant naming them is refused (`403 site-person-grants-managed`):
+change their role on the site instead. Their grants say so with
+`siteManaged: true` (`site_managed` in Python), and the table with a
+`site` row.
 
 Taking tenant admin away is refused in two cases:
 

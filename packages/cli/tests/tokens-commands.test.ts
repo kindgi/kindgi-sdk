@@ -388,7 +388,7 @@ describe('kindgi people', () => {
     for (const permissions of [
       async () => older,
       async () => {
-        throw wireError('not-found', 404);
+        throw wireError('route-not-found', 404);
       },
       async () => {
         throw wireError('permissions-unsupported', 501);
@@ -401,16 +401,21 @@ describe('kindgi people', () => {
         "--observer needs a runtime that holds the tenant's observer: a newer one, which checks access (it runs with an authorization store). No one was added.",
       );
     }
-    // Any other refusal is said as it is, and no one is added either.
-    const { out, calls } = await run(add, {
-      permissions: async () => {
-        throw wireError('database-busy', 503);
-      },
-    });
-    expect(out.exitCode).not.toBe(0);
-    expect(calls).toEqual([['identity.me.permissions']]);
-    expect(out.stderr).toContain('database-busy');
-    expect(out.stderr).not.toContain('No one was added');
+    // Any other refusal is said as it is, another 404 too, and no one is added either.
+    for (const [code, status] of [
+      ['database-busy', 503],
+      ['tenant-not-found', 404],
+    ] as const) {
+      const { out, calls } = await run(add, {
+        permissions: async () => {
+          throw wireError(code, status);
+        },
+      });
+      expect(out.exitCode, code).not.toBe(0);
+      expect(calls).toEqual([['identity.me.permissions']]);
+      expect(out.stderr).toContain(code);
+      expect(out.stderr).not.toContain('No one was added');
+    }
   });
 
   test('add says where the invitation went, and when it expires', async () => {

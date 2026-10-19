@@ -80,16 +80,16 @@ function inviteLine(person: User, email: InviteEmail | undefined): string {
 /**
  * Whether the runtime holds the tenant's observer: it answers
  * `tenant.observer` on `me/permissions`. One from before the observer
- * ignores `tenantRole` and adds a member, and one that checks no one's
- * access (no authorization store, `permissions-unsupported`) can't hold
- * one.
+ * ignores `tenantRole` and adds a member (one from before the route
+ * answers `route-not-found`), and one that checks no one's access (no
+ * authorization store, `permissions-unsupported`) can't hold one.
  */
 async function servesObserver(ctx: CommandContext): Promise<boolean> {
   try {
     return (await ctx.client().identity.me.permissions()).tenant.observer !== undefined;
   } catch (err) {
     const wire = extractKindgiError(err);
-    if (wire?.code === 'not-found') return false;
+    if (wire?.code === 'not-found' && wire.serverCode === 'route-not-found') return false;
     if (wire?.code === 'server' && wire.serverCode === 'permissions-unsupported') return false;
     throw err;
   }
@@ -107,7 +107,7 @@ const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
   description:
-    "Add a person to the tenant; prints their id. They can read the tenant's settings at once; give them a project role to work on its agents and runs, and their first key (`kindgi tokens create --for=user:<id>`). With `--observer`, they're the tenant's observer instead: they read only the projects you give them, and hold no key. A runtime that holds no observer (an older one, or one that checks no one's access) is asked first, and no one is added. Where the runtime invites people, one added with an email is invited, and the invitation emailed unless `--no-invite`; it says whether it was. Tenant admins only.",
+    "Add a person to the tenant; prints their id. They can read the tenant's settings at once; give them a project role to work on its agents and runs, and their first key (`kindgi tokens create --for=user:<id>`). With `--observer`, they're the tenant's observer instead: they read only the projects you give them, and hold no key. It asks the runtime first, and adds no one where it holds no observer (an older one, or one that checks no one's access). Where the runtime invites people, one added with an email is invited, and the invitation emailed unless `--no-invite`; it says whether it was. Tenant admins only.",
   usage: 'kindgi people add --name=<display-name> [--email=<email>] [--observer] [--no-invite]',
   optionSpec: {
     name: { type: 'string', description: 'Their name, as people see it.' },
