@@ -180,9 +180,9 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   `kindgi-runtime tenants repair --tenant <id>` if its create named a first
   admin.
 
-**Rename a tenant** with `PATCH /v1/system/tenants/<tenant id>` and
-`{ "name": …, "slug": … }`, either or both, under `system:tenants`. It
-answers `204`, and its id stays. Its own admins can do the same with
+**Rename a tenant** (runtime 0.1.8.2 or later) with
+`PATCH /v1/system/tenants/<tenant id>` and `{ "name": …, "slug": … }`,
+either or both, under `system:tenants`. It answers `204`, and its id stays. Its own admins can do the same with
 `PATCH /v1/tenant`. The slug follows the create's rules, and a taken one is
 refused with `tenant-slug-taken`. A closing tenant, or one whose setup is
 pending, can't be renamed (`409 tenant-closing`, `409 tenant-setup-pending`).

@@ -160,9 +160,9 @@ const MAX_LIMIT = 100;
 type Problem = string;
 
 /**
- * `/v1/system/tenants`, P1's routes: create, list, read and rename tenants,
- * close and suspend them, set their image prefix, and read their admins'
- * contact addresses for service notices. Each takes its system scope, and acts in
+ * `/v1/system/tenants`: create, list, read and rename tenants, close and
+ * suspend them, set their image prefix, and read their admins' contact
+ * addresses for service notices. Each takes its system scope, and acts in
  * one tenant through `withSystemTenantContext`.
  */
 export function systemTenantsRouter(options: {
