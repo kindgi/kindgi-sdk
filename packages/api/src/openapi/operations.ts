@@ -10529,6 +10529,43 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'post',
+    honoPath: '/v1/projects/:projectId/sites/:siteId/people/:userId/restore',
+    openapiPath: '/v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore',
+    operationId: 'projects.sites.restorePerson',
+    summary: 'Let a person removed in Kindgi back in, through their site',
+    description:
+      "For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the tenant whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the tenant's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.",
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [
+      ProjectIdPathParam,
+      SiteIdPathParam,
+      {
+        name: 'userId',
+        in: 'path',
+        required: true,
+        description: "The person's id.",
+        schema: { type: 'string', minLength: 1 },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': {
+        description: 'The person, in the tenant again.',
+        schema: ref('SitePersonRestoreResult'),
+      },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse(
+        'No site with that id in this project (`site-not-found`), or the site has no link to that person (`site-person-not-found`).',
+      ),
+      '409': ErrorResponse(
+        'Refused, with nothing changed (`site-person-restore-refused`, `details.reason`: `not-removed`, `left` or `linked-elsewhere`), or an idempotency conflict.',
+      ),
+    },
+  },
+  {
+    method: 'post',
     honoPath: '/v1/auth/sites/enroll',
     openapiPath: '/v1/auth/sites/enroll',
     operationId: 'auth.sites.enroll',

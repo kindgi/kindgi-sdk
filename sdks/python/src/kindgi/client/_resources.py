@@ -1151,6 +1151,13 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "projects.sites.restorePerson": Operation(
+        "projects.sites.restorePerson",
+        "POST",
+        "/v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore",
+        "json",
+        True,
+    ),
     "auth.sites.enroll": Operation(
         "auth.sites.enroll", "POST", "/v1/auth/sites/enroll", "json", False
     ),
@@ -8450,6 +8457,29 @@ class ProjectsSitesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.Site,
+            timeout=timeout,
+        )
+
+    def restore_person(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SitePersonRestoreResult:
+        """Let a person removed in Kindgi back in, through their site. `POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`
+
+        For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the tenant whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the tenant's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.restorePerson"],
+            path={"projectId": project_id, "siteId": site_id, "userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SitePersonRestoreResult,
             timeout=timeout,
         )
 
@@ -17064,6 +17094,29 @@ class AsyncProjectsSitesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.Site,
+            timeout=timeout,
+        )
+
+    async def restore_person(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SitePersonRestoreResult:
+        """Let a person removed in Kindgi back in, through their site. `POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`
+
+        For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the tenant whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the tenant's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.restorePerson"],
+            path={"projectId": project_id, "siteId": site_id, "userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SitePersonRestoreResult,
             timeout=timeout,
         )
 
