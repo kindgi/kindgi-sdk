@@ -198,7 +198,7 @@ const READ = 'read tenant';
 describe('the values a deployment needs in a project, names only', () => {
   test('its own project: each where a run finds it, a tenant-held secret too, for a caller who administers only the project', async () => {
     const h = harness({
-      granted: [READ, `admin project:${OWN}`],
+      granted: [READ, `read project:${OWN}`, `admin project:${OWN}`],
       secrets: ['tenant/ACME_TOKEN'],
       env: ['project/ACME_REGION'],
     });
@@ -231,7 +231,10 @@ describe('the values a deployment needs in a project, names only', () => {
   });
 
   test('`?projectId=` naming its own project is the same', async () => {
-    const h = harness({ granted: [READ, `admin project:${OWN}`], secrets: ['tenant/ACME_TOKEN'] });
+    const h = harness({
+      granted: [READ, `read project:${OWN}`, `admin project:${OWN}`],
+      secrets: ['tenant/ACME_TOKEN'],
+    });
     const out = await h.get(`/v1/deployments/d-own/values?projectId=${OWN}`);
     expect(out.status, out.text).toBe(200);
     expect((out.body.data as object[])[0]).toEqual({
@@ -244,7 +247,7 @@ describe('the values a deployment needs in a project, names only', () => {
 
   test("another project: a tool's secret as the caller's promotion would record it", async () => {
     const projectOnly = harness({
-      granted: [READ, `admin project:${TARGET}`],
+      granted: [READ, `read project:${OWN}`, `admin project:${TARGET}`],
       secrets: ['tenant/ACME_TOKEN'],
     });
     const missing = await projectOnly.get(`/v1/deployments/d-own/values?projectId=${TARGET}`);
@@ -256,7 +259,7 @@ describe('the values a deployment needs in a project, names only', () => {
       problem: 'missing',
     });
     const tenantAdmin = harness({
-      granted: [READ, `admin project:${TARGET}`, `admin tenant:${tenantId}`],
+      granted: [READ, `read project:${OWN}`, `admin project:${TARGET}`, `admin tenant:${tenantId}`],
       secrets: ['tenant/ACME_TOKEN'],
     });
     const found = await tenantAdmin.get(`/v1/deployments/d-own/values?projectId=${TARGET}`);
@@ -270,7 +273,7 @@ describe('the values a deployment needs in a project, names only', () => {
 
   test('a tenant-wide deployment: its own project is the Default project', async () => {
     const h = harness({
-      granted: [READ, `admin project:${DEFAULT}`],
+      granted: [READ, `read project:${DEFAULT}`, `admin project:${DEFAULT}`],
       secrets: ['tenant/ACME_TOKEN'],
     });
     const out = await h.get('/v1/deployments/d-wide/values');
@@ -286,7 +289,7 @@ describe('the values a deployment needs in a project, names only', () => {
 
   test("a carried version's model key is listed too", async () => {
     const h = harness({
-      granted: [READ, `admin project:${OWN}`],
+      granted: [READ, `read project:${OWN}`, `admin project:${OWN}`],
       providers: { 'acme-llm': 'ACME_LLM_KEY', 'acme-other': 'ACME_OTHER_KEY' },
       secrets: ['tenant/ACME_OTHER_KEY'],
     });
@@ -302,7 +305,7 @@ describe('the values a deployment needs in a project, names only', () => {
 
   test('never a value: no response carries one, and each entry has only its fields', async () => {
     const h = harness({
-      granted: [READ, `admin project:${OWN}`],
+      granted: [READ, `read project:${OWN}`, `admin project:${OWN}`],
       secrets: ['tenant/ACME_TOKEN', 'tenant/ACME_LLM_KEY'],
       env: ['project/ACME_REGION'],
       providers: { 'acme-llm': 'ACME_LLM_KEY' },
@@ -339,8 +342,28 @@ describe('who may read them', () => {
     expect(h.asked).toEqual([`read tenant:${tenantId}`]);
   });
 
+  test("without `read` on the deployment's own project: as an unknown one, a 404, and nothing is read", async () => {
+    const h = harness({
+      granted: [READ, `admin project:${TARGET}`],
+      secrets: ['tenant/ACME_TOKEN'],
+    });
+    for (const path of [
+      '/v1/deployments/d-own/values',
+      `/v1/deployments/d-own/values?projectId=${TARGET}`,
+    ]) {
+      const out = await h.get(path);
+      expect(out.status, path).toBe(404);
+      expect(out.body.error, path).toMatchObject({
+        code: 'deployment-not-found',
+        message: 'No deployment with id "d-own" under this tenant',
+      });
+    }
+    expect(h.asked).toContain(`read project:${OWN}`);
+    expect(h.reads).toEqual([]);
+  });
+
   test('an unknown deployment, a project of no one, a projectId that is not one', async () => {
-    const h = harness({ granted: [READ, 'admin project'] });
+    const h = harness({ granted: [READ, 'read project', 'admin project'] });
     const none = await h.get('/v1/deployments/d-none/values');
     expect(none.status).toBe(404);
     expect((none.body.error as { code: string }).code).toBe('deployment-not-found');

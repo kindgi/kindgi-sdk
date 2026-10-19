@@ -40,8 +40,10 @@ as `KINDGI_SEED_USER_ID`, are Kindgi's.
   people, make keys for anyone, and change tenant-wide settings: providers,
   policies, signing keys, deployments and identity providers.
 - **A tenant member** reads the tenant's settings, not its projects: its
-  providers, policies, adapters, signing keys and deployments. Everyone you
-  add is one.
+  providers, policies, adapters and signing keys. Everyone you add is one.
+  A deployment is read in the project it serves: a member lists and reads
+  only those in projects they read. One deployed without a project is the
+  Default project's.
 - **A role on a project** gives the work in it: its agents, runs and
   conversations. The roles are `owner`, `admin`, `editor` and `viewer`
   ([Project memberships](../authorization/#project-memberships)).
@@ -490,7 +492,7 @@ Removed Sam Rivera: 1 key(s) and 0 session(s) revoked, 5 role(s) and membership(
 In one step, before it answers, their API keys are revoked, their sessions
 end, and every grant, membership and capability is taken away, with what
 their creates gave them: `owner` on each agent, flow, tool, guardrail and
-eval suite they made, and `admin` on an org they made (runtime 0.1.8.1 or
+eval suite they made, and `admin` on an org they made (runtime 0.1.9 or
 later). What they made stays. The tenant's admins still manage all of it,
 and an org's admins what's in their org; no one becomes its owner. The next
 request with Sam's key:
@@ -504,7 +506,7 @@ say who they were. Adding their email again makes a new person, with nothing
 granted.
 
 Schedules and webhook triggers they own stop running as them (runtime
-0.1.8.1 or later). Each fire is `refused` and counts toward pausing it:
+0.1.9 or later). Each fire is `refused` and counts toward pausing it:
 after 5 in a row that were refused or failed, it
 [pauses itself](../../guides/runs/run-on-a-schedule/#each-time-it-fires).
 The fire's `detail`, in `kindgi schedules fires` or `kindgi webhooks fires`,
