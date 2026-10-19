@@ -4,10 +4,11 @@
 import { createHash } from 'node:crypto';
 
 import { type AgentId, modelSettingsIssues } from '@kindgi/agents';
-import { tuplesForCreate } from '@kindgi/authz';
+import { REVIEWER_ROLE_RANK, type ReviewerRole, tuplesForCreate } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import { canonicalize } from '@kindgi/schema';
 import type {
+  Cursor,
   LiveScope,
   ProjectId,
   RunId,
@@ -45,6 +46,7 @@ import {
   liveScopeOutOfScope,
   referencesOutOfScope,
 } from './reference-scope.js';
+import type { ReviewerRegistryBinding } from './reviewer-binding.js';
 import { type PromotionRequestOutcome, requestPromotion } from './routes/agent-releases.js';
 import { liveScopeToWire } from './routes/live-scope-wire.js';
 import type {
@@ -85,6 +87,12 @@ export interface ProposalServiceDeps {
    * in the agent's project.
    */
   readonly orders?: Pick<EnvironmentOrderBinding, 'orderOf'>;
+  /**
+   * The tenant's reviewer roster, to decide whether a drafter's promotion
+   * needs a separate approver (T1044). Absent: a drafter's promotion keeps
+   * the legacy rule — any reviewer, the requester included, may approve.
+   */
+  readonly reviewers?: Pick<ReviewerRegistryBinding, 'list'>;
 }
 
 /** An error with the code the API answers it with (`statusFor`), and its details. */
@@ -144,8 +152,61 @@ export const DRAFTED_PROPOSAL_APPROVAL: GateApproval = {
   separateApprover: false,
 };
 
+/**
+ * Whether the tenant has a reviewer who could approve a drafter's promotion
+ * other than whoever requested it — the test the `separateApprover` flag
+ * enforces (the decide call blocks an `approve` by the requester themselves,
+ * `user:<id>` against `user:<id>`). Counts active reviewers (not deactivated)
+ * ranked at or above the rule's role. A service requester (an improvement
+ * pass) is no `user:<id>`, so every eligible reviewer counts; a human
+ * requester who is the tenant's only reviewer counts as none, so they may
+ * approve their own request rather than being deadlocked.
+ */
+async function hasOtherEligibleReviewer(
+  reviewers: Pick<ReviewerRegistryBinding, 'list'>,
+  tenantId: TenantId,
+  requiredRole: ReviewerRole,
+  requesterUserId: UserId | undefined,
+): Promise<boolean> {
+  const required = REVIEWER_ROLE_RANK[requiredRole];
+  let cursor: Cursor | undefined;
+  // The roster is small (dozens at most), so a page or two answers it; the
+  // cap bounds a pathologically large one, which surely has a second person.
+  for (let page = 0; page < 50; page += 1) {
+    const { data, nextCursor } = await reviewers.list({
+      tenantId,
+      limit: 100,
+      ...(cursor !== undefined && { cursor }),
+    });
+    for (const reviewer of data) {
+      if (reviewer.deactivatedAt !== undefined) continue;
+      if (REVIEWER_ROLE_RANK[reviewer.role] < required) continue;
+      if (requesterUserId === undefined || reviewer.userId !== requesterUserId) return true;
+    }
+    if (nextCursor === undefined) return false;
+    cursor = nextCursor;
+  }
+  return true;
+}
+
 export function createProposalService(deps: ProposalServiceDeps) {
   const err = (error: ProposalServiceError) => ({ kind: 'err' as const, error });
+
+  /**
+   * The approval a drafter's promotion needs (K2), with `separateApprover`
+   * decided from the tenant roster (T1044). No reviewer registry wired keeps
+   * the legacy rule (any reviewer, the requester included, may approve).
+   */
+  async function draftedApproval(tenantId: TenantId, actor: PromotionActor): Promise<GateApproval> {
+    if (deps.reviewers === undefined) return DRAFTED_PROPOSAL_APPROVAL;
+    const second = await hasOtherEligibleReviewer(
+      deps.reviewers,
+      tenantId,
+      DRAFTED_PROPOSAL_APPROVAL.role,
+      actor.kind === 'user' ? (actor.id as UserId) : undefined,
+    );
+    return { ...DRAFTED_PROPOSAL_APPROVAL, separateApprover: second };
+  }
 
   /** A reader of proposal facts for one call: each agent's pins are read once. */
   function facts(tenantId: TenantId): (p: StoredProposal) => Promise<ProposalFacts> {
@@ -562,6 +623,14 @@ export function createProposalService(deps: ProposalServiceDeps) {
       if (candidate === undefined || evaluation === undefined) {
         throw new Error('an evaluated proposal has a candidate and an evaluation');
       }
+      // A drafter's promotion always waits for a reviewer (K2). Whether that
+      // reviewer must differ from whoever asked is the tenant roster's to say
+      // (T1044): a second eligible reviewer → a separate approver; a lone
+      // reviewer → the requester may approve their own, so they aren't stuck.
+      const drafterApproval =
+        proposal.drafter.kind === 'person'
+          ? {}
+          : { requireApproval: await draftedApproval(tenantId, input.actor) };
       const promotion = await requestPromotion(
         deps.agents,
         deps.releases,
@@ -579,7 +648,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
           reason: input.reason ?? `Improvement proposal ${proposal.id as unknown as string}`,
           evalRunId: evaluation.evalRunId,
         },
-        proposal.drafter.kind === 'person' ? {} : { requireApproval: DRAFTED_PROPOSAL_APPROVAL },
+        drafterApproval,
       );
       if (promotion.kind !== 'ok') return { kind: 'ok', value: { proposal, promotion } };
       const recorded = await record(proposal, {

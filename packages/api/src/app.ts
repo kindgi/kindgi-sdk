@@ -1800,6 +1800,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
           ...(input.environmentOrders !== undefined && { orders: input.environmentOrders }),
+          // A drafter's promotion needs a separate approver when the tenant has
+          // a second person who could approve it (T1044).
+          ...(input.reviewerRegistry !== undefined && { reviewers: input.reviewerRegistry }),
         },
         authorizer,
         (r) => mountImproveRoute(r, improveDeps, authorizer, itemRights),

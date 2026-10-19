@@ -21,6 +21,7 @@ import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import type {
   LiveScope,
   ProjectId,
+  ReviewerId,
   RunId,
   Semver,
   TenantId,
@@ -48,6 +49,7 @@ import type {
   LivePin,
   Promotion,
   ReferenceScopeBinding,
+  ReviewerRegistryBinding,
   RunHandlerBinding,
   StartImprovementPassInput,
   TokenResolver,
@@ -1391,6 +1393,115 @@ describe('a proposal a drafter wrote (not a person)', () => {
       version: '1.0.1' as Semver,
     });
     expect(derived?.derivedFrom).toMatchObject({ by: 'service:improvement-pass' });
+  });
+
+  function roster(
+    ...people: readonly {
+      userId: string;
+      role?: 'standard' | 'senior' | 'admin';
+      deactivated?: boolean;
+    }[]
+  ): Pick<ReviewerRegistryBinding, 'list'> {
+    return {
+      async list() {
+        return {
+          data: people.map((p, i) => ({
+            id: `reviewer-${i}` as ReviewerId,
+            tenantId,
+            userId: p.userId as UserId,
+            role: p.role ?? 'standard',
+            createdAt: '2026-01-01T00:00:00.000Z' as Timestamp,
+            ...(p.deactivated === true && {
+              deactivatedAt: '2026-02-01T00:00:00.000Z' as Timestamp,
+            }),
+          })),
+        };
+      },
+    };
+  }
+
+  async function draftedApprovalFor(
+    reviewers: Pick<ReviewerRegistryBinding, 'list'>,
+    actor: { kind: 'user' | 'service'; id: string },
+  ): Promise<{ role: string; count: number; separateApprover: boolean } | undefined> {
+    const h = await harness();
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const service = createProposalService({
+      store: h.proposals,
+      agents: h.agents,
+      blocks: h.blocks,
+      evalRuns: h.evalRuns.binding,
+      releases: h.releases.releases,
+      reviewers,
+    });
+    const drafted = await service.draft({
+      tenantId,
+      agentId: AGENT,
+      fromVersion: '1.0.0',
+      scope: SEGMENT,
+      tier: 'settings-block',
+      blockId: WEIGHTS,
+      content: { values: { recency: 0.6, fit: 0.4 } },
+      hypothesis: 'The search found these weights',
+      drafter: { kind: 'settings-optimizer', version: '1' },
+    });
+    if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
+    const evaluated = await service.evaluate({
+      tenantId,
+      proposal: drafted.value.proposal,
+      suiteId: 'acme.scoring-judged',
+      objective: 'weightedYesShare',
+      actor,
+    });
+    if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
+    const runId = evaluated.value.evaluation?.evalRunId as string;
+    await h.evalRuns.finish(runId, { delta: 0.2 });
+    const requested = await service.request({ tenantId, proposal: evaluated.value, actor });
+    if (requested.kind !== 'ok') throw new Error(JSON.stringify(requested.error));
+    const request = h.releases.calls.find((c) => c.method === 'request')?.input as {
+      gate: { approval?: { role: string; count: number; separateApprover: boolean } };
+    };
+    return request.gate.approval;
+  }
+
+  test('a drafter must ask a separate approver when a second reviewer could approve (T1044)', async () => {
+    const approval = await draftedApprovalFor(
+      roster({ userId: 'u-alice' }, { userId: 'u-bob', role: 'senior' }),
+      { kind: 'service', id: 'improvement-pass' },
+    );
+    expect(approval).toMatchObject({ role: 'standard', count: 1, separateApprover: true });
+  });
+
+  test('the only reviewer, who asked, may approve their own drafted promotion (T1044)', async () => {
+    const approval = await draftedApprovalFor(roster({ userId: 'u-solo' }), {
+      kind: 'user',
+      id: 'u-solo',
+    });
+    expect(approval).toMatchObject({ separateApprover: false });
+  });
+
+  test('a second reviewer besides the person who asked requires a separate approver (T1044)', async () => {
+    const approval = await draftedApprovalFor(roster({ userId: 'u-solo' }, { userId: 'u-two' }), {
+      kind: 'user',
+      id: 'u-solo',
+    });
+    expect(approval).toMatchObject({ separateApprover: true });
+  });
+
+  test('a deactivated second reviewer does not count, so the lone active one self-approves (T1044)', async () => {
+    const approval = await draftedApprovalFor(
+      roster({ userId: 'u-solo' }, { userId: 'u-gone', deactivated: true }),
+      { kind: 'user', id: 'u-solo' },
+    );
+    expect(approval).toMatchObject({ separateApprover: false });
+  });
+
+  test('an empty roster leaves nothing to separate (T1044)', async () => {
+    const approval = await draftedApprovalFor(roster(), {
+      kind: 'service',
+      id: 'improvement-pass',
+    });
+    expect(approval).toMatchObject({ separateApprover: false });
   });
 });
 
