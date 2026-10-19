@@ -2176,6 +2176,45 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'patch',
+    honoPath: '/v1/system/tenants/:tenantId',
+    openapiPath: '/v1/system/tenants/{tenantId}',
+    operationId: 'systemTenants.update',
+    summary: 'Rename a tenant',
+    description:
+      "Changes its name, its slug, or both, as the tenant's own admins can (`PATCH /v1/tenant`); a field left out stays as it is. Its id stays. The same values again change nothing. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`). A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('TenantPatch') },
+    responses: {
+      '204': { description: 'Renamed, or already so. No body.' },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'A malformed body or a field out of its rules (`bad-input`), or a field other than `name` and `slug` (`unknown-field`).',
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        "Another tenant has the slug (`tenant-slug-taken`); the server's verified sign-in domains name the tenant by its current slug, or name the new one (`tenant-slug-in-config`); the tenant is closing (`tenant-closing`); its setup hasn't finished (`tenant-setup-pending`); or an Idempotency-Key reused with another body.",
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+      ),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/system/tenants/:tenantId/close',
     openapiPath: '/v1/system/tenants/{tenantId}/close',
@@ -9024,6 +9063,31 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Tenant.', schema: ref('Tenant') },
       ...CommonAuthErrors,
       '404': ErrorResponse('The tenant id on the token does not resolve to a stored row.'),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/tenant',
+    openapiPath: '/v1/tenant',
+    operationId: 'tenant.update',
+    summary: "Rename the caller's tenant",
+    description:
+      "Changes its name, its slug, or both; a field left out stays as it is. Its id stays, so whatever names it by its id keeps working. The console's addresses carry the slug: after a new one, links with the old one stop opening the tenant, and another tenant may take the old one. The same values again change nothing. Takes `admin` on the tenant. A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.",
+    tags: ['tenant'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('TenantPatch') },
+    responses: {
+      '204': { description: 'Renamed, or already so. No body.' },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'A malformed body or a field out of its rules (`bad-input`), or a field other than `name` and `slug` (`unknown-field`).',
+      ),
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('The tenant id on the token does not resolve to a stored row.'),
+      '409': ErrorResponse(
+        "Another tenant has the slug (`tenant-slug-taken`); the server's verified sign-in domains name the tenant by its current slug, or name the new one (`tenant-slug-in-config`); the tenant is closing (`tenant-closing`); its setup hasn't finished (`tenant-setup-pending`); or an Idempotency-Key reused with another body.",
+      ),
     },
   },
   {

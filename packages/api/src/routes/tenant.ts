@@ -17,13 +17,14 @@ import type { SecretBinding, SecretRecord } from '../secrets-binding.js';
 import { secretNameGrammarRefusal } from '../secrets-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { readTenantPatch, renameAnswer } from './tenant-rename.js';
 
 /**
  * Tenant resource routes — part of the multi-tenant hierarchy. Config
  * reads and writes route through the two symmetric bindings
  * `EnvBinding` + `SecretBinding` at tenant scope.
  *
- * Three endpoints on `/v1/tenant` — the caller's tenant is always
+ * Four endpoints on `/v1/tenant` — the caller's tenant is always
  * implicit from the bearer token; there is no `/v1/tenants` collection
  * (tenants are the sovereignty boundary, not a listable resource under
  * a tenant).
@@ -36,6 +37,10 @@ import { clampLimit } from './pagination.js';
  *                         when the deployment publishes its addresses.
  *                         Reads the tenant via the tenant-hierarchy
  *                         binding.
+ *   - `PATCH /`         — renames the caller's tenant: its name, its slug,
+ *                         or both (`{ name?, slug? }`). Answers 204; its
+ *                         id stays. A tenant admin's. Mounts only with
+ *                         the binding's `renameTenant`.
  *   - `GET   /config`   — cursor-paginated list of the tenant's config
  *                         entries: the env entries, then the secret
  *                         entries. Merged view over `EnvBinding.list` +
@@ -214,6 +219,8 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
       ref('tenant', c.get('tenantId') as unknown as string),
     );
     r.use('/config', async (c, next) => (c.req.method === 'PATCH' ? admin(c, next) : next()));
+    // Renaming the tenant is a tenant-wide write too.
+    r.use('/', async (c, next) => (c.req.method === 'PATCH' ? admin(c, next) : next()));
   }
 
   // ---------- GET / ----------
@@ -251,6 +258,17 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
       ...(egress !== undefined && { egress }),
     });
   });
+
+  // ---------- PATCH / ----------
+  const renameTenant = tenantHierarchyBinding.renameTenant?.bind(tenantHierarchyBinding);
+  if (renameTenant !== undefined) {
+    r.patch('/', async (c) => {
+      const tenantId = c.get('tenantId') as TenantId;
+      const patch = await readTenantPatch(c);
+      if (patch instanceof Response) return patch;
+      return renameAnswer(c, await renameTenant({ tenantId, ...patch }), tenantId, patch);
+    });
+  }
 
   if (envBinding === undefined && secretsBinding === undefined) {
     return r;

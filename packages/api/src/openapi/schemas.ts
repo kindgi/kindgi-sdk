@@ -11708,6 +11708,23 @@ export const TenantSchema: JsonSchema = {
   },
 };
 
+export const TenantPatchSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A new name, a new slug, or both; a field left out stays as it is. The id stays, so whatever names the tenant by its id keeps working.',
+  properties: {
+    name: { type: 'string', minLength: 1, maxLength: 100 },
+    slug: {
+      type: 'string',
+      maxLength: 63,
+      pattern: '^[a-z0-9](?:-?[a-z0-9])*$',
+      description:
+        "Lowercase letters, digits and single hyphens, unique across tenants. The console's addresses carry it, so links with the old one stop opening the tenant; nothing else is keyed by it.",
+    },
+  },
+};
+
 /**
  * `EgressAddresses` — where a deployment's calls to other sites come
  * from. `GET /v1/tenant`'s `egress`, the deployment's, not the tenant's.
@@ -14252,6 +14269,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateProjectMembershipBody', UpdateProjectMembershipBodySchema],
   ['AddProjectMembershipResult', AddProjectMembershipResultSchema],
   ['Tenant', TenantSchema],
+  ['TenantPatch', TenantPatchSchema],
   ['TenantLimits', TenantLimitsSchema],
   ['EgressAddresses', EgressAddressesSchema],
   ['ProductionAllowedBody', ProductionAllowedBodySchema],
