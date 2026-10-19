@@ -27,6 +27,9 @@ signed it with your secret, against the **raw** body, before you parse it.
 
 The receiver checks each request's signature before it reads the event.
 
+Ask your coding agent: "I want my app to receive Kindgi's webhooks, and act
+only on the ones Kindgi signed." For reference, the receiver looks like this:
+
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
@@ -205,8 +208,10 @@ Each event then changes your app once, however often it arrives.
 
 ## Test the receiver without Kindgi
 
-A request you sign yourself tests the receiver without a run. Sign one with
-the same secret, and one with a wrong one:
+A request you sign yourself tests the receiver without a run. Ask your coding
+agent: "I want to test my webhook receiver without starting a run." For
+reference, this script signs one with the same secret, and one with a wrong
+one:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

@@ -64,7 +64,7 @@ export interface ConversationsClient {
    * @wire `GET /v1/conversations` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1conversations/get`.
    */
-  list(filter?: ConversationFilter): Promise<ListPage<Conversation>>;
+  list(filter?: ConversationFilter): Promise<ConversationPage>;
 
   /**
    * Close a conversation. Idempotent on already-closed threads — the
@@ -113,11 +113,28 @@ export interface ConversationFilter extends Omit<Filter<ConversationStatus>, 'st
   readonly agent?: import('@kindgi/types').AgentId;
   readonly participantId?: string;
   /**
+   * `me`: only the conversations the caller opened. Conversations an older
+   * runtime opened record no opener and aren't listed by it. A runtime
+   * before Kindgi 0.1.9 ignores the filter and lists everyone's; its page
+   * has no `openedBy`.
+   */
+  readonly openedBy?: 'me';
+  /**
    * Replay conversations (a comparison's replays, `metadata.replayOf`):
    * left out by default (`exclude`); `include` lists them with the
    * others, `only` lists just them.
    */
   readonly replays?: 'exclude' | 'include' | 'only';
+}
+
+/** A page of conversations, and the filter it was listed by. */
+export interface ConversationPage extends ListPage<Conversation> {
+  /**
+   * `'me'` on every page of a list asked for with `openedBy: 'me'`: it
+   * holds only the conversations the caller opened. Absent from a runtime
+   * before Kindgi 0.1.9, which ignores the filter and lists everyone's.
+   */
+  readonly openedBy?: 'me';
 }
 
 export interface MessageFilter extends Filter {
@@ -155,7 +172,7 @@ export function makeConversationsClient(transport: Transport): ConversationsClie
 
     async list(filter) {
       const statusParam = singleStatusQuery('conversations.list', filter?.status);
-      const page = await transport.request<WirePage<Conversation>>({
+      const page = await transport.request<WirePage<Conversation> & { readonly openedBy?: 'me' }>({
         method: 'GET',
         path: '/v1/conversations',
         query: {
@@ -164,10 +181,13 @@ export function makeConversationsClient(transport: Transport): ConversationsClie
           ...(statusParam !== undefined && { status: statusParam }),
           ...(filter?.scope !== undefined && scopeToQuery(filter.scope)),
           ...(filter?.agent !== undefined && { agentId: filter.agent as unknown as string }),
+          ...(filter?.openedBy !== undefined && { openedBy: filter.openedBy }),
           ...(filter?.replays !== undefined && { replays: filter.replays }),
         },
       });
-      return listPage(page);
+      return Object.assign(listPage(page), {
+        ...(page.openedBy !== undefined && { openedBy: page.openedBy }),
+      });
     },
 
     async close(id, options) {

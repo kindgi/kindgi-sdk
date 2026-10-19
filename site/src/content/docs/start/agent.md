@@ -38,11 +38,12 @@ URL with `.md`.
   change them, and ask before you change anything else. That includes an
   app's `package.json` name (pass `--pack-id` instead), its `zod` version,
   and its package manager's settings, such as pnpm's `minimumReleaseAge`.
-- **`kindgi` in this page's commands** means, until step 2 makes a project:
-  `npx --yes @kindgi/cli@0.1` if `node --version` works; else, for someone
-  using Python without Node, `uvx --from "kindgi-cli>=0.1,<0.2" kindgi`
-  (the CLI from PyPI; it needs no Node). From step 2 on, from the project's
-  folder:
+- **The commands run the CLI as `npx --yes @kindgi/cli@0.1` until step 2
+  makes a project,** if `node --version` works. For someone using Python
+  without Node, use `uvx --from "kindgi-cli>=0.1,<0.2" kindgi` in its place
+  (the CLI from PyPI; it needs no Node). From step 2 on, they write
+  `pnpm exec kindgi`, run from the project's folder. Use the project's form
+  in its place:
   - a TypeScript project: `pnpm exec kindgi` if `pnpm --version` works,
     else `npx --no -- kindgi`. `--no` keeps npx from downloading anything,
     so it runs the project's own CLI. The `--` passes every flag, `--help`
@@ -67,7 +68,7 @@ clipboard command:
 | Windows | use the fallback (next paragraph) | |
 
 Before you pipe the clipboard, check it isn't empty, without printing it:
-`[ -n "$(pbpaste)" ]` (with this OS's command). If the clipboard command
+`pbpaste | grep -q .` (with this OS's command). If the clipboard command
 fails (on a server, over SSH or in a container there's no clipboard) or the
 clipboard is empty, use the fallback: the person runs the command in their
 own terminal, where it asks for the value without showing it. On Windows,
@@ -76,7 +77,7 @@ always use the fallback.
 Then run doctor:
 
 ```sh
-kindgi doctor --json
+npx --yes @kindgi/cli@0.1 doctor --json
 ```
 
 It prints one JSON object and exits `0` when nothing fails, `1` when a check
@@ -86,7 +87,7 @@ running and no model key yet:
 ```json
 {
   "ok": false,
-  "cliVersion": "0.1.6",
+  "cliVersion": "0.1.8",
   "project": {
     "dir": "…/my-agents",
     "language": "node"
@@ -102,8 +103,8 @@ running and no model key yet:
     {
       "id": "model-key",
       "status": "fail",
-      "message": "No model key in .env or .env.local or .kindgi/secrets.env (looked for ANTHROPIC_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY).",
-      "fix": "With kindgi dev running, set one LLM provider's key: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant, or the same with GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY or OPENROUTER_API_KEY (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat."
+      "message": "No model key in .env or .env.local or .kindgi/secrets.env (looked for ANTHROPIC_API_KEY, AZURE_OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY).",
+      "fix": "With kindgi dev running, set one LLM provider's key: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant, or the same with AZURE_OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY or OPENROUTER_API_KEY (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat."
     },
     {
       "id": "runtime",
@@ -114,7 +115,7 @@ running and no model key yet:
       "id": "provider",
       "status": "fail",
       "message": "Only dev-echo is registered: agents get its canned replies, not a model's.",
-      "fix": "Register the provider whose key you set: pnpm exec kindgi providers register --preset=<preset>, where <preset> is anthropic, gemini-api, groq, openai or openrouter (see Model key)."
+      "fix": "Register the provider whose key you set: pnpm exec kindgi providers register --preset=<preset>, where <preset> is anthropic, azure-openai (with --resource-name=<resourceName> --deployments=<deployments>), gemini-api, groq, openai or openrouter (see Model key)."
     },
     {
       "id": "erasures",
@@ -126,28 +127,39 @@ running and no model key yet:
 ```
 
 The checks come in this order: `node`, `npm`, `python`, `uv`, `java`,
-`maven`, `sbt`, `docker`, `registry`, `dev-sandbox`, `console-sign-in`,
-`project`, `dependencies`, `model-key`, `runtime`, `provider`, `erasures`.
+`maven`, `sbt`, `docker`, `registry`, `dev-sandbox`, `api-key`,
+`console-sign-in`, `license`, `mcp-headers`, `project`, `dependencies`,
+`model-key`, `runtime`, `provider`, `erasures`.
 
 - **`fail`:** run its `fix`, as written: it names the CLI to use in that
   folder. When the fix needs the person (start Docker Desktop, sign in, copy
-  a key), ask them, then run doctor again.
+  a key), ask them, then run doctor again. `api-key` fails when the key
+  stored for the CLI is for another address than the one it points at:
+  every command that needs the key refuses until that's fixed, and the
+  checks that would send it skip.
 - **`warn`:** it works now, but the person should know: tell them its
   `message` and `fix`, and go on. `ok` stays `true` and the exit code `0`.
-  In this release three checks warn. `dev-sandbox`: when `kindgi dev` can't
+  In this release six checks warn. `dev-sandbox`: when `kindgi dev` can't
   run the pack's code sandboxed on this machine (Linux without bubblewrap,
   a container, Windows, or inside another sandbox); the code would then run
-  with the person's own access. `provider`: when an agent that names no
-  model would get a model the preset no longer lists, or one other than the
-  preset's default; or when the runtime can't build a registered provider
-  (each problem is in the check's `details`). When it can build none,
-  `provider` fails instead. `console-sign-in`: when nobody can sign in to the
-  console of the runtime the CLI points at.
+  with the person's own access. `console-sign-in`: when nobody can sign in
+  to the console of the runtime the CLI points at. `license`: when the
+  license key here expires soon, or has expired but the runtime still starts
+  with it, or is signed with a key this CLI doesn't know yet. `mcp-headers`:
+  when an MCP endpoint on that runtime keeps a credential in plaintext
+  `config.headers`, from before that was refused; it still works.
+  `model-key`: when the key is in a file the app loads too, where the app's
+  routes can read it; the fix gives Kindgi its own copy. `provider`: when an
+  agent that names no model would get a model the preset no longer lists, or
+  one other than the preset's default; or when the runtime can't build a
+  registered provider (each problem is in the check's `details`). When it
+  can build none, `provider` fails instead.
 - **`skip`:** not applicable yet. Outside a project, `project` and every
   check after it skip; `runtime` skips while `kindgi dev` isn't running;
-  `dev-sandbox` skips when `KINDGI_DEV_SANDBOX=off`. `erasures` skips with a
-  note when the runtime has no erasure ledger key, as under `kindgi dev`: fine
-  for development.
+  `dev-sandbox` skips when `KINDGI_DEV_SANDBOX=off`. `license` skips when
+  there's no license key here: `kindgi dev` needs none. `erasures` skips
+  with a note when the runtime has no erasure ledger key, as under
+  `kindgi dev`: fine for development.
 
 Fix every `fail` up to and including `docker` before you go on. `registry` is
 step 1.
@@ -166,7 +178,7 @@ runtime: skip this step.
    robot name they gave you:
 
    ```sh
-   <read the clipboard> | kindgi auth registry --username <robot name> --password-stdin
+   <read the clipboard> | npx --yes @kindgi/cli@0.1 auth registry --username <robot name> --password-stdin
    ```
 
    It ends with:
@@ -253,24 +265,27 @@ that uses it, as that page shows. Otherwise:
 3. Run doctor again from the project's folder; `project` and
    `dependencies` should pass.
 
-`init` also gives you Kindgi's skills, in `.claude/skills/`, for the
-project's language (a Java or Scala project gets its own). Read them: they
-are how you write tools and agents for this project.
+`init` also gives you Kindgi's skills, in `.claude/skills/` and
+`.agents/skills/` (the same copy in each), for the project's language (a
+Java or Scala project gets its own). Read them: they are how you write tools
+and agents for this project.
 
 ## Step 3: start Kindgi
 
 Start `kindgi dev` from the project's folder so that it keeps running after
-your turn ends, with its output in `.kindgi/dev.log`. Run
-`mkdir -p .kindgi` first, on its own, so the log's folder exists. Then:
+your turn ends:
 
 - **If your tool runs commands in the background itself** (Claude Code's
-  background tasks do), start it that way: `kindgi dev`, as a background
-  task, with its output in `.kindgi/dev.log`, and no `&` or `nohup`: the
-  task is in the background already. Your tool can stop it.
-- **Otherwise,** start it detached, and note its process id:
+  background tasks do), start it that way: `kindgi dev` (the project's form
+  of the CLI) on its own, as a background task, with no `&`, `nohup` or
+  redirect. The task is in the background already, and your tool keeps its
+  output. Your tool can stop it.
+- **Otherwise,** start it detached, with its output in `.kindgi/dev.log`
+  (`.kindgi/` is git-ignored), and note its process id. Run
+  `mkdir -p .kindgi` first, on its own, so the log's folder exists. Then:
 
   ```sh
-  nohup kindgi dev > .kindgi/dev.log 2>&1 &
+  nohup pnpm exec kindgi dev > .kindgi/dev.log 2>&1 &
   echo $!
   ```
 
@@ -279,18 +294,19 @@ your turn ends, with its output in `.kindgi/dev.log`. Run
   Run the `mkdir` before it, not as `mkdir … && nohup … &`: then `$!` is a
   subshell's id, and stopping it leaves `kindgi dev` running.
 
-Use `kindgi` as the project runs it (`.kindgi/` is git-ignored). It starts
-the runtime in Docker and answers with a stand-in model, `dev-echo`, until
-step 4 adds a real one.
+Use the project's form of the CLI in place of `pnpm exec kindgi`. It
+starts the runtime in Docker and answers with a stand-in model,
+`dev-echo`, until step 4 adds a real one.
 
 Run doctor every few seconds until `runtime` passes. `model-key` and
 `provider` still fail: that's expected until step 4. Then tell the person
 it's running, and how to stop it: `kill <the process id>`, or, if your
 tool started it, how your tool stops it. If your tool's background tasks end
 with your session, tell them `kindgi dev` stops then too. Also tell them
-where the console is: the `Console` line of `.kindgi/dev.log`, its first
-address (`kindgi doctor --json` has it as `consoleUrl`, and `kindgi console`
-opens it in their browser). They sign in there with **Sign in as seeded
+where the console is: the `Console` line of `kindgi dev`'s output (in
+`.kindgi/dev.log` if you started it detached), its first address
+(`kindgi doctor --json` has it as `consoleUrl`, and `kindgi console` opens
+it in their browser). They sign in there with **Sign in as seeded
 user**, which needs no token: don't print the token in the chat.
 
 ## Step 4: the model key
@@ -320,8 +336,8 @@ user**, which needs no token: don't print the token in the chat.
    OpenAI:
 
    ```sh
-   <read the clipboard> | kindgi secrets set OPENAI_API_KEY --env=local --scope=tenant --from-stdin
-   kindgi providers register --preset=openai
+   <read the clipboard> | pnpm exec kindgi secrets set OPENAI_API_KEY --env=local --scope=tenant --from-stdin
+   pnpm exec kindgi providers register --preset=openai
    ```
 
    - `secrets set` writes the key to Kindgi's own `.kindgi/secrets.env`,
@@ -364,12 +380,13 @@ register the provider again or to restart `kindgi dev`.
    don't know, suggest: "Read a customer message and say how urgent it is,
    and why."
 2. Write that agent in the project, following the skills in
-   `.claude/skills/`. `kindgi dev` picks up the file when you save it.
+   `.claude/skills/` or `.agents/skills/`. `kindgi dev` picks up the file
+   when you save it.
 3. Run it with an example the person would recognise, and show them the
    answer:
 
    ```sh
-   kindgi runs start --agent=<pack id>.<agent name> --input='{"userMessage":"…"}'
+   pnpm exec kindgi runs start --agent=<pack id>.<agent name> --input='{"userMessage":"…"}'
    ```
 
    `--agent` names the agent by its id, and `--input` is its input as JSON:

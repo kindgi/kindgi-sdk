@@ -1,5 +1,652 @@
 # @kindgi/cli
 
+## 0.1.8
+
+### Patch Changes
+
+- 527070b: `kindgi dev` runs runtime 0.1.8.
+- fddc8f7: The default artifact upload cap reads 100 MiB, what it has always been (`100 * 1024 * 1024` bytes), instead of 100 MB: in `POST /v1/artifacts`'s description, `kindgi artifacts upload --help`, `@kindgi/api`'s README and TSDoc, and `@kindgi/client`'s `artifacts.upload` TSDoc.
+- 51c94f4: **Five commands' help now says what the code does, and `kindgi adapters prepare --params` reads `@<file>`.**
+  - `kindgi adapters prepare --params` reads its JSON from a file with `@<file>`, as the usage line always said and as every other `<json-or-@file>` flag does. Malformed JSON is a usage error (exit `2`) and sends nothing.
+  - `kindgi dev --tenant`: with the bundled Postgres, the default tenant is the project's own, the same one for every pack and restart of the project. Otherwise it's the previous run's, from `.kindgirc.json`, else a new one.
+  - `kindgi build --signer-key-id`: the default is the env block's `signerKeyId`, else the key file's name. The `<env>-signer` fallback is gone: it was used only when there was no key, and with no key nothing is signed.
+  - `kindgi sso providers start`: `--kind` is optional. Without it, the kind comes from `--idp`, else from the registered provider. Before a provider is registered, one of the two is required.
+  - `kindgi schedules update`: the flag descriptions no longer give `create`'s defaults. A flag left out keeps the schedule's value.
+- 49372f3: **`kindgi deploy` and `kindgi build --hosted` send a stored API key only to the address stored with it.** A stored key is the one `kindgi auth login` keeps in `~/.kindgi/config.json`, or `kindgi dev` in the folder's `.kindgirc.json`, beside the address it's for.
+  - **A change to a released command:** `kindgi deploy` with a stored key is now refused when the deploy would go to an address other than the one stored with the key. That holds wherever the other address is named: `--endpoint`, the env block's `endpoint`, `--url`, `KINDGI_API_URL`, or a folder's `.kindgirc.json`. Before, the deploy went there with the stored key. The refusal names both addresses and the file the key is in. To deploy there, use one of these fixes:
+    - give that server's own key with `--token` or an exported `KINDGI_API_TOKEN`;
+    - point the address at the one stored with the key;
+    - or, for a key from `kindgi auth login`, sign in to the other address with `kindgi auth login --url <url>`.
+    A key given with `--token` or `KINDGI_API_TOKEN` goes where the command says, as before. A stored key with no address stored beside it (only a hand-written file has one) is now refused too.
+  - **`--hosted` (or `build: 'hosted'`) always goes to the CLI's own API address:** `--url`, `KINDGI_API_URL`, or the stored one, and a stored key only when that's its own address. An env block's `endpoint` or `--endpoint` may only repeat that address. Another address is refused, naming both, whichever key is used. Before, an env block's `endpoint` won over the address you signed in to. With no API address set, the hosted command stops and says how to set one.
+  - **In a folder where `kindgi dev` ran, `--hosted` goes to the address you signed in to, with that key.** It doesn't read the folder's `.kindgirc.json` when that file is for a `kindgi dev` runtime: when `kindgi dev` wrote it (also with `--runtime-url`), or its address is `localhost`, `127.0.0.1` or `[::1]`. It reads neither that file's address nor its key. Any other `.kindgirc.json` is read as before.
+  - **How addresses are compared:** after normalizing the URL. The host's case doesn't matter. A scheme's default port (`:443`, `:80`) and a trailing `/` are left out. `localhost`, `127.0.0.1` and `[::1]` are one address.
+  - **A build that signs checks its key before building anything.** It refuses a key file that's missing or isn't a file, naming the path and where it was set (`--signing-key` or `environments.<env>.signingKey`). It also refuses no key at all. The refusals say how to make a key and have it trusted: `kindgi key create <id>`, then `kindgi key trust <id>`. Then they say where the key goes: the env block picked with `--env`, or `--signing-key`.
+  - **`kindgi init`'s TypeScript templates leave `environments` empty:** a commented Kindgi Cloud block (`build: 'hosted'` and a `signingKey`) and a commented block for a runtime of your own. Before, a new pack carried placeholder blocks that a deploy would use. The Python template's commented example follows the same shape.
+  - **`kindgi deploy --project <slug>` with no such project** now points only to `kindgi projects list`. It no longer names a command that doesn't exist.
+- da1d9ae: `kindgi license renew` and `kindgi doctor`'s **License key** check trust Kindgi's production license signing key (`lk-2026-p2`) as well as the self-serve one. Production license keys are signed with a key of their own, so a renewed production key is checked offline and written like any other.
+- ebf405d: `kindgi projects production <project-id> on|off|status` puts a project in production, takes it out, or says whether it's in production. A run in a project in production is a production run; a run anywhere else is staging. `on` and `off` are for tenant admins, and setting what's already set changes nothing. It prints one line, or `{ projectId, productionSince }` with `--json` (`productionSince` is `null` while the project isn't in production). A refusal names its own code: `production-not-allowed`, whose message says how the tenant gets allowed when the runtime names it; `permission-denied` for someone who isn't a tenant admin; or `tenant-not-found`. It exits 1 when refused, and 2 for anything but `on`, `off` or `status`.
+- 27923c5: `kindgi dev` runs runtime 0.1.8-rc.0.
+- ebf405d: `kindgi deploy`, `kindgi flows publish`, `kindgi agents publish` and `kindgi blocks publish` wait out the server's rate limits, which it answers with `429 rate-limit-exceeded`. On a `429` with a `Retry-After`, they wait that long and send the same request again (`kindgi deploy` with the same `Idempotency-Key`), printing one line on stderr per wait, such as `The server's schema-compile-time limit is reached: sending it again in 23s.`. They wait 10 minutes at most in all; past that, or on a 429 without a `Retry-After`, or on any other error, they fail as before.
+- ebf405d: **A deploy can go into a named project, one per client.**
+  - **`POST /v1/deployments` takes an optional `projectId`.** The deployment's agents, flows, tools and guardrails are registered in that project, and the deployment records it (`projectId`), so its secret sync writes there too.
+    - It needs admin on that project. An API key limited to another project is `403 key-project-mismatch`.
+    - An id that isn't a project id is `400`; one of no project of the tenant is `404 project-not-found`.
+    - Without it, a deploy is tenant-wide, into the Default project, as before.
+    - Nothing deploys into a suspended project (the named one, or the Default): `409 project-suspended`, before anything is written, where the app is given `projectSuspended`.
+    - `Deployment.projectId` and `DeploymentRegisterInput.projectId` carry it to a binding.
+  - **A deploy whose ids already live in another project** is `409` (`tool-project-mismatch` and the like) as before. The message now names the fix: one pack per client, a copy made with `kindgi init`, whose ids carry its own pack id.
+  - **Where pack check calls are routed by id** (a runtime that wires `systemDeployments`), a deploy refuses a pack check whose id doesn't start with its pack's id (`<packId>.`), as `400 deployment-validation-failed`, naming the fix. Elsewhere the build's warning stays the only word.
+  - **`kindgi deploy --project <id or slug>`.** A slug is looked up among the tenant's projects; one that names none, or several (two orgs may share a slug), is refused before anything is sent, naming the ids. The `Idempotency-Key` follows the project.
+  - **The WooCommerce template's README** says one project and one pack per client.
+- 52afd06: **`kindgi dev`'s banner says what models your agents have, in plain words.** The `Providers` line is now `Models`:
+  - With a real model, it lists each provider with its models, and leaves out dev's fallback.
+  - With none, it says `none yet`, what agents do meanwhile (placeholder replies under `kindgi dev`; failed turns on a runtime with no fallback), and links the guide to connecting a model.
+  
+  `kindgi init`'s next steps say the same, with the same link. The `providers register` command stays in `kindgi doctor`, which names the preset and the key to set.
+- ac9074a: **`kindgi dev` says what stopped it and what to do when something around it refuses what it needs. A coding agent's sandbox is a common cause, and then the fix is to run it in your own terminal.**
+  - Docker: a `docker` that can't be started (`spawn docker EPERM`), a Docker socket that refuses the connection, and an engine that doesn't answer each get their own message, in `kindgi dev`, `kindgi doctor` and `kindgi auth registry`. `kindgi dev` no longer tries to pull the runtime image when Docker can't be reached, and doesn't suggest installing Docker or another Postgres for a Docker that's there.
+  - When no port on `127.0.0.1` is allowed (`listen EPERM`), it says so instead of reading every port as in use, and the same for a pack service that can't listen.
+  - A file or folder `kindgi dev` can't write (`EROFS`, `EACCES`, `EPERM`) is named, with the code, instead of the system's bare error.
+  - A `docker logs` that can't start while the runtime boots no longer stops `kindgi dev`.
+- ba8d9a1: **A secret name the store can't write is the caller's `400`, saying the store's rule, never a `500`.**
+  - **Under `kindgi dev`,** a secret is a key in your env files, so a name Kindgi writes is capital letters, digits and underscores, not starting with a digit.
+    - Any other name (`acme-woo-orders`) is refused with `400 secret-name-invalid`, and when one can be made from it, the message offers a name that works (`ACME_WOO_ORDERS`). So is a `KINDGI_*` name.
+    - A `kindgi.` name is refused with `400 reserved-name-prefix`.
+    - These used to answer `500 secret-store-error`.
+    - This applies to `POST /v1/secrets`, `PATCH /v1/tenant/config` and `POST /v1/webhooks` with `generateSecret`.
+  - **`POST /v1/webhooks` with `generateSecret` refuses such a name before anything is stored.** No trigger is registered and then taken back.
+  - **A name typed into `.env` by hand still resolves,** even one Kindgi wouldn't write (`acme-woo-orders=…`). A webhook trigger may still name it, and `PATCH /v1/webhooks/{triggerId}` may switch to it.
+  - **`PATCH /v1/tenant/config` answers a refused secret write at its code's status,** as `POST /v1/secrets` does. That's a `400` for a secret the store refuses for its name or its size, or a `429`, `502` or `503` when the store's external provider limits the runtime's requests, refuses its credentials or can't be reached. It answered `500` for every code.
+  - **The API reference lists those `429`, `502` and `503` answers** for both operations.
+  - **`SecretBinding.nameRefusal(name)` is a new optional method.** It's how a store says which names it can't write, and `set` refuses those names with the same code. `observeSecretWrites` and `guardProviderKeys` pass it through.
+  - **`kindgi webhooks register --secret` now says the rule that applies under `kindgi dev`.**
+- 7659df9: **`kindgi build --hosted` and `kindgi deploy --hosted`: build and deploy on Kindgi hosted.**
+  - **`kindgi build --hosted`,** or the env block's `build: 'hosted'`, builds on the hosted build service, at the API's address under `/cloud`.
+    - It sends the CLI's API key, and only there: a self-hosted build server never receives a key.
+    - It sends the pack's id, and with `--project <id>`, the project as a label on the build.
+    - The image goes to your workspace's own repository, so it's checked by its index's hash, not pulled.
+    - With no tenant set, the signature names the key's own tenant.
+    - The API's address is `--url`, else the env block's `endpoint`, else `KINDGI_API_URL` or `kindgi auth login`'s.
+    - `--local`, `--endpoint` and `--registry-push-creds` don't go with it.
+    - A pack over 30 MiB packed isn't sent; the message links what the pack's image needs.
+  - **A build service's refusals** (`{ error: { code, message } }`) print plainly, with their code and the wait they ask. A `429` with `Retry-After` is waited out, and the same build sent again.
+  - **The build's log stream,** cut before its end, is opened again (any build server): the lines it replays are printed once. It waits a `Retry-After`, stops at once on `401`, `403`, `404` or `410`, and gives up after five openings in a row that bring nothing new.
+  - **`kindgi deploy --hosted`** runs a missing inline build hosted. After the deploy, it waits up to 5 minutes for the deployment's pack service to be ready, saying each new state once (`pending`, and why), and fails when it's cleared. `--from-envelope` deploys an envelope built earlier, with no build. `--build-endpoint` doesn't go with it.
+  - **`kindgi deploy --project`** is resolved before an inline build, so a project that isn't there fails before anything is built.
+- 4074324: `kindgi init` for a Java or Scala pack, and the Java and Scala packs' READMEs, say the API may still change "in a later release" instead of "in 0.1.6".
+- ebf405d: **A preview build's own expiry on `GET /v1/license`.** From the 0.1.8 runtime until Kindgi 1.0, a runtime release stops starting 90 days after it was released, in every mode, unless a production key exempts it. Earlier releases don't expire.
+  - **`LicenseStatus.preview`** (optional, schema `LicensePreview`) carries `version`, `releasedAt`, `expiresAt`, `daysLeft` and `standing` (`valid`, `expiring` from 30 days before, `expired`). It's absent when nothing expires: a 1.0 or later release, a build from source, or a production key.
+  - **Both views include it,** the deployment's own token and a sole tenant's admins: it's the build's, not the key's. A runtime that doesn't report it answers as before.
+  - **`kindgi dev` warns** from 30 days before, with the way to a newer runtime: update the CLI (for the runtime it pins), or run a newer image or release (`--runtime-image`, `--runtime-url`).
+  - The Python client gains `LicensePreview`.
+- b22e616: **A non-production key's renewal can carry the deployment's use.**
+  - **`GET /v1/license/usage?since=<time>`** (`@kindgi/api`, additive) answers how much the deployment was used since a time:
+    - the runs started (not dry runs, replays, evals or child runs);
+    - the distinct people who started runs or decided approvals, counted in each tenant and summed;
+    - the projects in production, from a runtime that can put projects in production;
+    - the runtime's version.
+  
+    Counts only: no content, names or ids. Only the deployment's own token, or a system key holding `system:license` (as for `GET /v1/license`, whose refusal now names that key too), reads it; anyone else gets `403 license-operator-only`, recorded, before `since` is read. A `since` up to five minutes ahead of the runtime's clock is taken as now; one that's missing, not a time with a zone, or further ahead is `400 bad-input`. A runtime whose license binding has no `usage` doesn't serve it (404).
+  - **`LicenseStatusBinding.usage?({ since, until })`** is the binding a runtime gives it, and `LicenseUsage` is its answer. `client.license.usage({ since })` (`@kindgi/client`) and `client.license.usage(since=…)` (Python) read it.
+  - **`kindgi license renew --runtime <url> --runtime-token <ref>`** reads the deployment's use since its current key was issued and sends it with the renewal, signed with the rest of the request. It prints `counts: sent (…)`, or `counts: not sent (<why>); this renewal goes without them.` when there are none to send (a production key's renewal, a token that can't be read or sent, or a runtime that couldn't say), and the key still renews then. Only counts, two times and a version, as access.kindgi.com reads them, are sent; any other answer means no counts, and it's never printed. A production key's renewal carries none, and the runtime isn't asked. The runtime's token is checked before it's sent, and a flag that isn't a reference is refused without repeating it. Without the two flags, a renewal carries no counts, as before.
+  - **`kindgi license renew` prints access.kindgi.com's `held-for-review` refusal** like any other: this renewal's counts are above what a non-production key covers, so it got no new key. Kindgi can release the deployment after a review.
+  - **The hints about signing in now say what a sign-in does.** A sign-in leaves a key that a deployment is renewing to that deployment, so:
+    - `renew`'s ⚠ line says to stop this deployment's renewer first;
+    - `kindgi doctor`'s fix says a sign-in shows the key's latest version, and renews it unless a deployment renewed it this week and it hasn't expired, as the runtime's banner does.
+- ebf405d: **An MCP endpoint's credential header goes by reference, never in plaintext `config.headers`.**
+  - **New `auth` scheme, `header`:** headers of the server's own, each with a secret, sent as `<name>: <prefix><secret>`. For example, an API key in `X-Api-Key`, a key and a secret in two headers, or `Authorization: Token …`:
+    ```json
+    "auth": { "scheme": "header", "headers": [{ "name": "X-Api-Key", "secretRef": { "envName": "production", "name": "INVENTORY_KEY" } }] }
+    ```
+    It takes 1 to 4 headers, each name once (case-insensitive), and `prefix` is optional. A header the MCP transport or HTTP sets itself (`Host`, `Content-Type`, `Accept`, `Mcp-Session-Id`, `traceparent`, …) is refused (`invalid-auth`). A name `config.headers` sets too is refused as well (`auth-header-in-config`). Each secret counts for the provider-key guard and for `usersOfSecret`.
+  - **A credential in `config.headers` is refused at registration** (`invalid-mcp-endpoint`, reason `credential-in-headers`). The message names the header, never its value, and shows the `auth` that replaces it.
+    - **Which names count:** `Authorization`, `Proxy-Authorization`, `Cookie`, and any name with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key`. A lone `key` doesn't count: `X-Idempotency-Key` and `X-Cache-Key` stay plain.
+    - **Exported:** the rule is `isCredentialHeaderName()`.
+  - **Endpoints registered before keep working.** `GET /v1/mcp/endpoints[/:id]` answers such a header's value as `"[redacted]"`, its name kept.
+  - **`kindgi doctor` names them:** a new check, MCP endpoint headers, lists each endpoint on the runtime the CLI points at that keeps one, with the fix. It's a warning: the endpoint still works.
+  - **New exports:**
+    - `@kindgi/api`: `MCPHeaderAuth`, `MCPAuthHeader`, `MCP_AUTH_HEADERS_MAX`, `mcpAuthSecretRefs()`, `isCredentialHeaderName()` and `REDACTED_HEADER_VALUE`;
+    - `@kindgi/client`: `McpHeaderAuth` and `McpAuthHeader`. The Python client carries the new models.
+- ebf405d: **A deployment can keep what a project's flows, agents, triggers and runs name within that project's reach.**
+  - **`CreateAppInput.referenceScope?`** (a `ReferenceScopeBinding`, `reachable(tenantId, fromProjectId, ref)`) is asked before each write that makes a reference live:
+    - publishing a flow (its tool, agent and subflow steps) or an agent (its tools, guardrails and data blocks), and reinstating a retired version of either;
+    - registering a deployment (what its agents and flows name, besides what it brings itself);
+    - registering a guardrail with a pack check;
+    - registering a schedule or a webhook trigger, and changing a schedule's target;
+    - starting an eval run (its suite, and its agent or flow), and starting a run filed under a named `projectId`;
+    - opening a conversation (its agent);
+    - promoting an agent into a project or a segment, directly or through an improvement proposal;
+    - drafting an improvement proposal (its scope and block), evaluating one, and starting an improvement pass (its suite and scope).
+  - **The refusal:** an item the project doesn't reach is refused with `reference-out-of-scope` (400), naming each one at its path. An item that doesn't exist gets the same answer. Without the binding, nothing changes.
+  - **A conversation opened without `projectId` is filed under its agent's own project,** as a run is. Before, it went to the tenant's Default project; an agent filed under no project still goes there.
+  - **Tool metadata:** `POST /v1/tools` and deployments refuse a tool `metadata` key under `kindgi.`, which is the runtime's own.
+  - **`ToolRegistry.forProject?`** (`@kindgi/tools`): the tools a run in a project may reach. An agent's turn resolves its tools on it when it's there.
+  - **`BlockReader`'s reads take the turn's `projectId`** (`@kindgi/agents`).
+  - **`InvokeAgentBindings.authorizeToolCall?`** (`@kindgi/agents`) is asked before each of a turn's tool calls, before any approval.
+    - A denied call runs nothing. Its result tells the model (`{ status: 'denied', reason }`), and the turn goes on.
+    - A call approved by a reviewer is asked again right before it runs. Denied then, it runs nothing.
+    - Each decision is recorded with the call, so a resumed turn keeps it. An authorizer that throws fails the step.
+    - A built-in tool is asked only when what it touches reaches beyond the turn's project: `kindgi_remember` for a tenant-wide fact.
+  - **The docs of `NodeContext`'s `authorize`, `can` and `check`, `RunFlowInput.principal` and `authz`, and `InvokeAgentInput.principal` and `authz`** (with the agents and handler READMEs) describe runtime 0.1.8: these checks are decided for every run and turn a person or a key starts.
+- 3a3f233: Request bodies have a size limit and a depth limit, from the tenant input bounds.
+  
+  - A request body over `requestMaxBytes` (2 MiB on hosted, 10 MiB on a self-hosted server) is refused with `413 request-too-large`, with `details.maxBytes`, before more of it is read. Every operation with a body declares that answer, except the two routes that keep a limit of their own: an artifact upload (`413 artifact-too-large`, checked once the caller is known) and the webhook receiver (`413 webhook-body-too-large`).
+  - A JSON body nested more than `requestJsonMaxDepth` levels (128) is refused with `400 bad-input`, with `details.maxDepth`.
+  - A webhook delivery whose JSON nests deeper than that is refused the same way and starts no run. The trigger's fires record it as `body-too-deep`.
+  - `HOSTED_BOUNDS.requestJsonMaxDepth` is 128 (it was 64), the same as self-hosted, so a schema as deep as `schemaMaxDepth` fits inside the body that carries it.
+  - `kindgi deploy` says what to make smaller when a deployment is over the server's limit.
+- 08bf3e5: **`GET /v1/runs/:runId/journal` pages when asked: `limit` and `cursor` now work.**
+  - With `limit` (1 to 100), the answer holds at most that many entries after `cursor` (and `since`), with `hasMore` and a `nextCursor` while more remain. Without `limit`, the whole journal comes in one answer, as before, so a caller that doesn't page sees no change.
+  - A malformed `cursor`, or a `limit` that isn't a whole number of 1 or more, is `400 bad-input`.
+  - `nextCursor` is a new optional field of the page. The Python client's `runs.journal` gains `limit` and `cursor`. The TypeScript client's `runs.journal(runId, { limit, cursor })` and `kindgi runs journal --limit --cursor` already took them, and the server now reads them.
+  - The TypeScript client's `since` doc now says what the server does: only entries with a sequence greater than it.
+- ebf405d: **Where a secret an item names is read is decided when the item is registered, and recorded on it.**
+  - **Which items:** an MCP endpoint (`secretRef`, `auth.secretRef`), a tool (a spec tool's `secretRef`, the secrets a pack tool declares; through `POST /v1/tools` or a deployment), and a webhook trigger's signing secret.
+  - **How it's decided:** the secret is looked for at the item's own scope, then its project's org, then the tenant, at the scopes the person registering it administers. The first that has it is recorded. If none has it yet, the broadest scope they administer is: the tenant for a tenant admin, the project for a project admin. Nothing is refused for it.
+  - **What's recorded:** `secretScopes` (by name) on an MCP endpoint and a tool version, `hmacSecretScope` on a webhook trigger. They're the server's, never a caller's. The runtime reads the secret there only. A secret removed from that scope is missing, never read from a broader one, and one set later at another scope changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+  - **Webhook triggers:** the receiver reads the signing secret at `hmacSecretScope`; a trigger registered before it was recorded reads the tenant's, as before.
+  - **`generateSecret`:** `POST /v1/webhooks` can make the signing secret itself, in the trigger's project, needing only `write` there; the answer carries it once (`signingSecret`). A name the project already has is refused (`409 secret-write-conflict`). `kindgi webhooks register --generate-secret` now uses it, in one call, and no longer takes `--env`.
+  - **Read there only:** `SecretResolveInput.exact` reads at the given scope with no walk to a broader one, and every secrets store must honour it. `SecretResolveOutcome.scope` says where a value was read. `resolveAtScope` reads an item's secret at its recorded scope with `exact`. A value a store reads at another scope anyway, or without saying which, is refused as not set, and the refusal is audited (`secret-resolved`, failed, `secret-scope-mismatch`) without the value. A custom store must honour `exact` and report the scope it read. The dotenv store keeps one set of values for every scope, so it reports the scope it was asked at.
+  - **`emitResolveEvent`** (`@kindgi/compliance`): `projectId` is optional, for a read at the tenant or an org.
+  - **`CreateAppInput.envName`:** the env this deployment serves, where the secrets a tool's code declares are looked for.
+  - **`RecordedSecretScope`** (`@kindgi/types`): the recorded scope's shape.
+- d985473: **`GET /v1/secrets` reads `includeRevoked`, and the `kindgi dev` secrets store pages.**
+  - `?includeRevoked=true` lists revoked secrets too, with `revokedAt` and `revokeReason`. It's metadata only, never a value. The route used to drop it, so `kindgi secrets list --include-revoked` and the TypeScript client's `secrets.list({ includeRevoked })` did nothing; now they reach the store. The operation documents the parameter, and the Python client's `secrets.list` gains `include_revoked`.
+  - `SecretBinding.list`'s contract says what a store returns: name order, at most `limit` records, and a `nextCursor` while more remain. `listVersions`' says the same, oldest first.
+  - `GET /v1/secrets` and `GET /v1/secrets/{name}/versions` answer `400 bad-input` to a `cursor` the store didn't issue, as the agents, flows, policies and eval-suites version lists do, so a client paging until done is never sent back to the first page. A store says which cursors it issued with `SecretBinding.issuedCursor` (optional: a store without it gets any cursor, as before); `@kindgi/secrets-dotenv` has it.
+  - `@kindgi/secrets-dotenv` pages by name: a `nextCursor` while more remain, and the next page starts after the page's last name, so a name added between pages neither repeats nor skips another. Before, it stopped at `limit`, and a 26th secret was out of reach.
+- cb32b0d: **`kindgi init` and `kindgi skills sync` write Kindgi's skills to `.agents/skills/` as well as `.claude/skills/`,** the folder Codex and Gemini CLI look in, by their own docs.
+  - Both folders hold the same copy of each skill, under one manifest (`.claude/skills/.kindgi-manifest.json`, which gains an optional `agentsSkills` field; a manifest without it is still read). `kindgi skills sync` judges each folder's copy on its own: an edited copy is kept unless `--force`, and a folder that was deleted is written again.
+  - Each outcome in `kindgi skills sync`'s JSON names its `folder`. Its summary, one block per folder, now prints on stderr unless `--json` or `--quiet` is given.
+  - `kindgi dev`'s skills warning covers both folders and counts each skill once; a copy that's gone counts as not yet installed.
+  - A project's existing `.prettierignore` gets `.agents/skills/kindgi-*/` beside `.claude/skills/kindgi-*/`, from `kindgi init` adding Kindgi to a TypeScript app and from `kindgi skills sync`. Sync never creates one, leaves it alone on `--dry-run`, and says what it added (in its JSON, `prettierignore`).
+  - The templates' `AGENTS.md` have a `## Skills` section that names both folders (the TypeScript ones were headed for one coding agent), and refer to skills by name. They, and the getting-started skills for TypeScript, Python, Java and Scala, say which commands are the person's to run in their own terminal, and what an agent does when its sandbox blocks a command: give the person the exact command, the folder and what they'll see, and wait.
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [fddc8f7]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ba8d9a1]
+- Updated dependencies [ebf405d]
+- Updated dependencies [8bde3fc]
+- Updated dependencies [ebf405d]
+- Updated dependencies [82eebb6]
+- Updated dependencies [2969337]
+- Updated dependencies [e0ce14b]
+- Updated dependencies [4074324]
+- Updated dependencies [65d97b5]
+- Updated dependencies [ebf405d]
+- Updated dependencies [b22e616]
+- Updated dependencies [d92706f]
+- Updated dependencies [ebf405d]
+- Updated dependencies [cfe5422]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [76532eb]
+- Updated dependencies [08bf3e5]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [14d02c5]
+- Updated dependencies [d985473]
+- Updated dependencies [cb32b0d]
+- Updated dependencies [41d3a91]
+- Updated dependencies [1ee7082]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f526987]
+- Updated dependencies [a2ee44b]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f05d320]
+  - @kindgi/agents@0.1.8
+  - @kindgi/client@0.1.8
+  - @kindgi/secrets-dotenv@0.1.8
+  - @kindgi/env-schema@0.1.8
+  - @kindgi/sdk@0.1.8
+  - @kindgi/log@0.1.8
+  - @kindgi/handler-runtime@0.1.8
+  - @kindgi/platform@0.1.8
+  - @kindgi/types@0.1.8
+  - @kindgi/flow@0.1.8
+  - @kindgi/crypto@0.1.8
+  - @kindgi/dotenv-file@0.1.8
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- fddc8f7: The default artifact upload cap reads 100 MiB, what it has always been (`100 * 1024 * 1024` bytes), instead of 100 MB: in `POST /v1/artifacts`'s description, `kindgi artifacts upload --help`, `@kindgi/api`'s README and TSDoc, and `@kindgi/client`'s `artifacts.upload` TSDoc.
+- 51c94f4: **Five commands' help now says what the code does, and `kindgi adapters prepare --params` reads `@<file>`.**
+  - `kindgi adapters prepare --params` reads its JSON from a file with `@<file>`, as the usage line always said and as every other `<json-or-@file>` flag does. Malformed JSON is a usage error (exit `2`) and sends nothing.
+  - `kindgi dev --tenant`: with the bundled Postgres, the default tenant is the project's own, the same one for every pack and restart of the project. Otherwise it's the previous run's, from `.kindgirc.json`, else a new one.
+  - `kindgi build --signer-key-id`: the default is the env block's `signerKeyId`, else the key file's name. The `<env>-signer` fallback is gone: it was used only when there was no key, and with no key nothing is signed.
+  - `kindgi sso providers start`: `--kind` is optional. Without it, the kind comes from `--idp`, else from the registered provider. Before a provider is registered, one of the two is required.
+  - `kindgi schedules update`: the flag descriptions no longer give `create`'s defaults. A flag left out keeps the schedule's value.
+- 49372f3: **`kindgi deploy` and `kindgi build --hosted` send a stored API key only to the address stored with it.** A stored key is the one `kindgi auth login` keeps in `~/.kindgi/config.json`, or `kindgi dev` in the folder's `.kindgirc.json`, beside the address it's for.
+  - **A change to a released command:** `kindgi deploy` with a stored key is now refused when the deploy would go to an address other than the one stored with the key. That holds wherever the other address is named: `--endpoint`, the env block's `endpoint`, `--url`, `KINDGI_API_URL`, or a folder's `.kindgirc.json`. Before, the deploy went there with the stored key. The refusal names both addresses and the file the key is in. To deploy there, use one of these fixes:
+    - give that server's own key with `--token` or an exported `KINDGI_API_TOKEN`;
+    - point the address at the one stored with the key;
+    - or, for a key from `kindgi auth login`, sign in to the other address with `kindgi auth login --url <url>`.
+    A key given with `--token` or `KINDGI_API_TOKEN` goes where the command says, as before. A stored key with no address stored beside it (only a hand-written file has one) is now refused too.
+  - **`--hosted` (or `build: 'hosted'`) always goes to the CLI's own API address:** `--url`, `KINDGI_API_URL`, or the stored one, and a stored key only when that's its own address. An env block's `endpoint` or `--endpoint` may only repeat that address. Another address is refused, naming both, whichever key is used. Before, an env block's `endpoint` won over the address you signed in to. With no API address set, the hosted command stops and says how to set one.
+  - **In a folder where `kindgi dev` ran, `--hosted` goes to the address you signed in to, with that key.** It doesn't read the folder's `.kindgirc.json` when that file is for a `kindgi dev` runtime: when `kindgi dev` wrote it (also with `--runtime-url`), or its address is `localhost`, `127.0.0.1` or `[::1]`. It reads neither that file's address nor its key. Any other `.kindgirc.json` is read as before.
+  - **How addresses are compared:** after normalizing the URL. The host's case doesn't matter. A scheme's default port (`:443`, `:80`) and a trailing `/` are left out. `localhost`, `127.0.0.1` and `[::1]` are one address.
+  - **A build that signs checks its key before building anything.** It refuses a key file that's missing or isn't a file, naming the path and where it was set (`--signing-key` or `environments.<env>.signingKey`). It also refuses no key at all. The refusals say how to make a key and have it trusted: `kindgi key create <id>`, then `kindgi key trust <id>`. Then they say where the key goes: the env block picked with `--env`, or `--signing-key`.
+  - **`kindgi init`'s TypeScript templates leave `environments` empty:** a commented Kindgi Cloud block (`build: 'hosted'` and a `signingKey`) and a commented block for a runtime of your own. Before, a new pack carried placeholder blocks that a deploy would use. The Python template's commented example follows the same shape.
+  - **`kindgi deploy --project <slug>` with no such project** now points only to `kindgi projects list`. It no longer names a command that doesn't exist.
+- da1d9ae: `kindgi license renew` and `kindgi doctor`'s **License key** check trust Kindgi's production license signing key (`lk-2026-p2`) as well as the self-serve one. Production license keys are signed with a key of their own, so a renewed production key is checked offline and written like any other.
+- ebf405d: `kindgi projects production <project-id> on|off|status` puts a project in production, takes it out, or says whether it's in production. A run in a project in production is a production run; a run anywhere else is staging. `on` and `off` are for tenant admins, and setting what's already set changes nothing. It prints one line, or `{ projectId, productionSince }` with `--json` (`productionSince` is `null` while the project isn't in production). A refusal names its own code: `production-not-allowed`, whose message says how the tenant gets allowed when the runtime names it; `permission-denied` for someone who isn't a tenant admin; or `tenant-not-found`. It exits 1 when refused, and 2 for anything but `on`, `off` or `status`.
+- 27923c5: `kindgi dev` runs runtime 0.1.8-rc.0.
+- ebf405d: `kindgi deploy`, `kindgi flows publish`, `kindgi agents publish` and `kindgi blocks publish` wait out the server's rate limits, which it answers with `429 rate-limit-exceeded`. On a `429` with a `Retry-After`, they wait that long and send the same request again (`kindgi deploy` with the same `Idempotency-Key`), printing one line on stderr per wait, such as `The server's schema-compile-time limit is reached: sending it again in 23s.`. They wait 10 minutes at most in all; past that, or on a 429 without a `Retry-After`, or on any other error, they fail as before.
+- ebf405d: **A deploy can go into a named project, one per client.**
+  - **`POST /v1/deployments` takes an optional `projectId`.** The deployment's agents, flows, tools and guardrails are registered in that project, and the deployment records it (`projectId`), so its secret sync writes there too.
+    - It needs admin on that project. An API key limited to another project is `403 key-project-mismatch`.
+    - An id that isn't a project id is `400`; one of no project of the tenant is `404 project-not-found`.
+    - Without it, a deploy is tenant-wide, into the Default project, as before.
+    - Nothing deploys into a suspended project (the named one, or the Default): `409 project-suspended`, before anything is written, where the app is given `projectSuspended`.
+    - `Deployment.projectId` and `DeploymentRegisterInput.projectId` carry it to a binding.
+  - **A deploy whose ids already live in another project** is `409` (`tool-project-mismatch` and the like) as before. The message now names the fix: one pack per client, a copy made with `kindgi init`, whose ids carry its own pack id.
+  - **Where pack check calls are routed by id** (a runtime that wires `systemDeployments`), a deploy refuses a pack check whose id doesn't start with its pack's id (`<packId>.`), as `400 deployment-validation-failed`, naming the fix. Elsewhere the build's warning stays the only word.
+  - **`kindgi deploy --project <id or slug>`.** A slug is looked up among the tenant's projects; one that names none, or several (two orgs may share a slug), is refused before anything is sent, naming the ids. The `Idempotency-Key` follows the project.
+  - **The WooCommerce template's README** says one project and one pack per client.
+- 52afd06: **`kindgi dev`'s banner says what models your agents have, in plain words.** The `Providers` line is now `Models`:
+  - With a real model, it lists each provider with its models, and leaves out dev's fallback.
+  - With none, it says `none yet`, what agents do meanwhile (placeholder replies under `kindgi dev`; failed turns on a runtime with no fallback), and links the guide to connecting a model.
+  
+  `kindgi init`'s next steps say the same, with the same link. The `providers register` command stays in `kindgi doctor`, which names the preset and the key to set.
+- ac9074a: **`kindgi dev` says what stopped it and what to do when something around it refuses what it needs. A coding agent's sandbox is a common cause, and then the fix is to run it in your own terminal.**
+  - Docker: a `docker` that can't be started (`spawn docker EPERM`), a Docker socket that refuses the connection, and an engine that doesn't answer each get their own message, in `kindgi dev`, `kindgi doctor` and `kindgi auth registry`. `kindgi dev` no longer tries to pull the runtime image when Docker can't be reached, and doesn't suggest installing Docker or another Postgres for a Docker that's there.
+  - When no port on `127.0.0.1` is allowed (`listen EPERM`), it says so instead of reading every port as in use, and the same for a pack service that can't listen.
+  - A file or folder `kindgi dev` can't write (`EROFS`, `EACCES`, `EPERM`) is named, with the code, instead of the system's bare error.
+  - A `docker logs` that can't start while the runtime boots no longer stops `kindgi dev`.
+- ba8d9a1: **A secret name the store can't write is the caller's `400`, saying the store's rule, never a `500`.**
+  - **Under `kindgi dev`,** a secret is a key in your env files, so a name Kindgi writes is capital letters, digits and underscores, not starting with a digit.
+    - Any other name (`acme-woo-orders`) is refused with `400 secret-name-invalid`, and when one can be made from it, the message offers a name that works (`ACME_WOO_ORDERS`). So is a `KINDGI_*` name.
+    - A `kindgi.` name is refused with `400 reserved-name-prefix`.
+    - These used to answer `500 secret-store-error`.
+    - This applies to `POST /v1/secrets`, `PATCH /v1/tenant/config` and `POST /v1/webhooks` with `generateSecret`.
+  - **`POST /v1/webhooks` with `generateSecret` refuses such a name before anything is stored.** No trigger is registered and then taken back.
+  - **A name typed into `.env` by hand still resolves,** even one Kindgi wouldn't write (`acme-woo-orders=…`). A webhook trigger may still name it, and `PATCH /v1/webhooks/{triggerId}` may switch to it.
+  - **`PATCH /v1/tenant/config` answers a refused secret write at its code's status,** as `POST /v1/secrets` does. That's a `400` for a secret the store refuses for its name or its size, or a `429`, `502` or `503` when the store's external provider limits the runtime's requests, refuses its credentials or can't be reached. It answered `500` for every code.
+  - **The API reference lists those `429`, `502` and `503` answers** for both operations.
+  - **`SecretBinding.nameRefusal(name)` is a new optional method.** It's how a store says which names it can't write, and `set` refuses those names with the same code. `observeSecretWrites` and `guardProviderKeys` pass it through.
+  - **`kindgi webhooks register --secret` now says the rule that applies under `kindgi dev`.**
+- 7659df9: **`kindgi build --hosted` and `kindgi deploy --hosted`: build and deploy on Kindgi hosted.**
+  - **`kindgi build --hosted`,** or the env block's `build: 'hosted'`, builds on the hosted build service, at the API's address under `/cloud`.
+    - It sends the CLI's API key, and only there: a self-hosted build server never receives a key.
+    - It sends the pack's id, and with `--project <id>`, the project as a label on the build.
+    - The image goes to your workspace's own repository, so it's checked by its index's hash, not pulled.
+    - With no tenant set, the signature names the key's own tenant.
+    - The API's address is `--url`, else the env block's `endpoint`, else `KINDGI_API_URL` or `kindgi auth login`'s.
+    - `--local`, `--endpoint` and `--registry-push-creds` don't go with it.
+    - A pack over 30 MiB packed isn't sent; the message links what the pack's image needs.
+  - **A build service's refusals** (`{ error: { code, message } }`) print plainly, with their code and the wait they ask. A `429` with `Retry-After` is waited out, and the same build sent again.
+  - **The build's log stream,** cut before its end, is opened again (any build server): the lines it replays are printed once. It waits a `Retry-After`, stops at once on `401`, `403`, `404` or `410`, and gives up after five openings in a row that bring nothing new.
+  - **`kindgi deploy --hosted`** runs a missing inline build hosted. After the deploy, it waits up to 5 minutes for the deployment's pack service to be ready, saying each new state once (`pending`, and why), and fails when it's cleared. `--from-envelope` deploys an envelope built earlier, with no build. `--build-endpoint` doesn't go with it.
+  - **`kindgi deploy --project`** is resolved before an inline build, so a project that isn't there fails before anything is built.
+- 4074324: `kindgi init` for a Java or Scala pack, and the Java and Scala packs' READMEs, say the API may still change "in a later release" instead of "in 0.1.6".
+- ebf405d: **A preview build's own expiry on `GET /v1/license`.** From the 0.1.8 runtime until Kindgi 1.0, a runtime release stops starting 90 days after it was released, in every mode, unless a production key exempts it. Earlier releases don't expire.
+  - **`LicenseStatus.preview`** (optional, schema `LicensePreview`) carries `version`, `releasedAt`, `expiresAt`, `daysLeft` and `standing` (`valid`, `expiring` from 30 days before, `expired`). It's absent when nothing expires: a 1.0 or later release, a build from source, or a production key.
+  - **Both views include it,** the deployment's own token and a sole tenant's admins: it's the build's, not the key's. A runtime that doesn't report it answers as before.
+  - **`kindgi dev` warns** from 30 days before, with the way to a newer runtime: update the CLI (for the runtime it pins), or run a newer image or release (`--runtime-image`, `--runtime-url`).
+  - The Python client gains `LicensePreview`.
+- b22e616: **A non-production key's renewal can carry the deployment's use.**
+  - **`GET /v1/license/usage?since=<time>`** (`@kindgi/api`, additive) answers how much the deployment was used since a time:
+    - the runs started (not dry runs, replays, evals or child runs);
+    - the distinct people who started runs or decided approvals, counted in each tenant and summed;
+    - the projects in production, from a runtime that can put projects in production;
+    - the runtime's version.
+  
+    Counts only: no content, names or ids. Only the deployment's own token, or a system key holding `system:license` (as for `GET /v1/license`, whose refusal now names that key too), reads it; anyone else gets `403 license-operator-only`, recorded, before `since` is read. A `since` up to five minutes ahead of the runtime's clock is taken as now; one that's missing, not a time with a zone, or further ahead is `400 bad-input`. A runtime whose license binding has no `usage` doesn't serve it (404).
+  - **`LicenseStatusBinding.usage?({ since, until })`** is the binding a runtime gives it, and `LicenseUsage` is its answer. `client.license.usage({ since })` (`@kindgi/client`) and `client.license.usage(since=…)` (Python) read it.
+  - **`kindgi license renew --runtime <url> --runtime-token <ref>`** reads the deployment's use since its current key was issued and sends it with the renewal, signed with the rest of the request. It prints `counts: sent (…)`, or `counts: not sent (<why>); this renewal goes without them.` when there are none to send (a production key's renewal, a token that can't be read or sent, or a runtime that couldn't say), and the key still renews then. Only counts, two times and a version, as access.kindgi.com reads them, are sent; any other answer means no counts, and it's never printed. A production key's renewal carries none, and the runtime isn't asked. The runtime's token is checked before it's sent, and a flag that isn't a reference is refused without repeating it. Without the two flags, a renewal carries no counts, as before.
+  - **`kindgi license renew` prints access.kindgi.com's `held-for-review` refusal** like any other: this renewal's counts are above what a non-production key covers, so it got no new key. Kindgi can release the deployment after a review.
+  - **The hints about signing in now say what a sign-in does.** A sign-in leaves a key that a deployment is renewing to that deployment, so:
+    - `renew`'s ⚠ line says to stop this deployment's renewer first;
+    - `kindgi doctor`'s fix says a sign-in shows the key's latest version, and renews it unless a deployment renewed it this week and it hasn't expired, as the runtime's banner does.
+- ebf405d: **An MCP endpoint's credential header goes by reference, never in plaintext `config.headers`.**
+  - **New `auth` scheme, `header`:** headers of the server's own, each with a secret, sent as `<name>: <prefix><secret>`. For example, an API key in `X-Api-Key`, a key and a secret in two headers, or `Authorization: Token …`:
+    ```json
+    "auth": { "scheme": "header", "headers": [{ "name": "X-Api-Key", "secretRef": { "envName": "production", "name": "INVENTORY_KEY" } }] }
+    ```
+    It takes 1 to 4 headers, each name once (case-insensitive), and `prefix` is optional. A header the MCP transport or HTTP sets itself (`Host`, `Content-Type`, `Accept`, `Mcp-Session-Id`, `traceparent`, …) is refused (`invalid-auth`). A name `config.headers` sets too is refused as well (`auth-header-in-config`). Each secret counts for the provider-key guard and for `usersOfSecret`.
+  - **A credential in `config.headers` is refused at registration** (`invalid-mcp-endpoint`, reason `credential-in-headers`). The message names the header, never its value, and shows the `auth` that replaces it.
+    - **Which names count:** `Authorization`, `Proxy-Authorization`, `Cookie`, and any name with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key`. A lone `key` doesn't count: `X-Idempotency-Key` and `X-Cache-Key` stay plain.
+    - **Exported:** the rule is `isCredentialHeaderName()`.
+  - **Endpoints registered before keep working.** `GET /v1/mcp/endpoints[/:id]` answers such a header's value as `"[redacted]"`, its name kept.
+  - **`kindgi doctor` names them:** a new check, MCP endpoint headers, lists each endpoint on the runtime the CLI points at that keeps one, with the fix. It's a warning: the endpoint still works.
+  - **New exports:**
+    - `@kindgi/api`: `MCPHeaderAuth`, `MCPAuthHeader`, `MCP_AUTH_HEADERS_MAX`, `mcpAuthSecretRefs()`, `isCredentialHeaderName()` and `REDACTED_HEADER_VALUE`;
+    - `@kindgi/client`: `McpHeaderAuth` and `McpAuthHeader`. The Python client carries the new models.
+- ebf405d: **A deployment can keep what a project's flows, agents, triggers and runs name within that project's reach.**
+  - **`CreateAppInput.referenceScope?`** (a `ReferenceScopeBinding`, `reachable(tenantId, fromProjectId, ref)`) is asked before each write that makes a reference live:
+    - publishing a flow (its tool, agent and subflow steps) or an agent (its tools, guardrails and data blocks), and reinstating a retired version of either;
+    - registering a deployment (what its agents and flows name, besides what it brings itself);
+    - registering a guardrail with a pack check;
+    - registering a schedule or a webhook trigger, and changing a schedule's target;
+    - starting an eval run (its suite, and its agent or flow), and starting a run filed under a named `projectId`;
+    - opening a conversation (its agent);
+    - promoting an agent into a project or a segment, directly or through an improvement proposal;
+    - drafting an improvement proposal (its scope and block), evaluating one, and starting an improvement pass (its suite and scope).
+  - **The refusal:** an item the project doesn't reach is refused with `reference-out-of-scope` (400), naming each one at its path. An item that doesn't exist gets the same answer. Without the binding, nothing changes.
+  - **A conversation opened without `projectId` is filed under its agent's own project,** as a run is. Before, it went to the tenant's Default project; an agent filed under no project still goes there.
+  - **Tool metadata:** `POST /v1/tools` and deployments refuse a tool `metadata` key under `kindgi.`, which is the runtime's own.
+  - **`ToolRegistry.forProject?`** (`@kindgi/tools`): the tools a run in a project may reach. An agent's turn resolves its tools on it when it's there.
+  - **`BlockReader`'s reads take the turn's `projectId`** (`@kindgi/agents`).
+  - **`InvokeAgentBindings.authorizeToolCall?`** (`@kindgi/agents`) is asked before each of a turn's tool calls, before any approval.
+    - A denied call runs nothing. Its result tells the model (`{ status: 'denied', reason }`), and the turn goes on.
+    - A call approved by a reviewer is asked again right before it runs. Denied then, it runs nothing.
+    - Each decision is recorded with the call, so a resumed turn keeps it. An authorizer that throws fails the step.
+    - A built-in tool is asked only when what it touches reaches beyond the turn's project: `kindgi_remember` for a tenant-wide fact.
+  - **The docs of `NodeContext`'s `authorize`, `can` and `check`, `RunFlowInput.principal` and `authz`, and `InvokeAgentInput.principal` and `authz`** (with the agents and handler READMEs) describe runtime 0.1.8: these checks are decided for every run and turn a person or a key starts.
+- 3a3f233: Request bodies have a size limit and a depth limit, from the tenant input bounds.
+  
+  - A request body over `requestMaxBytes` (2 MiB on hosted, 10 MiB on a self-hosted server) is refused with `413 request-too-large`, with `details.maxBytes`, before more of it is read. Every operation with a body declares that answer, except the two routes that keep a limit of their own: an artifact upload (`413 artifact-too-large`, checked once the caller is known) and the webhook receiver (`413 webhook-body-too-large`).
+  - A JSON body nested more than `requestJsonMaxDepth` levels (128) is refused with `400 bad-input`, with `details.maxDepth`.
+  - A webhook delivery whose JSON nests deeper than that is refused the same way and starts no run. The trigger's fires record it as `body-too-deep`.
+  - `HOSTED_BOUNDS.requestJsonMaxDepth` is 128 (it was 64), the same as self-hosted, so a schema as deep as `schemaMaxDepth` fits inside the body that carries it.
+  - `kindgi deploy` says what to make smaller when a deployment is over the server's limit.
+- 08bf3e5: **`GET /v1/runs/:runId/journal` pages when asked: `limit` and `cursor` now work.**
+  - With `limit` (1 to 100), the answer holds at most that many entries after `cursor` (and `since`), with `hasMore` and a `nextCursor` while more remain. Without `limit`, the whole journal comes in one answer, as before, so a caller that doesn't page sees no change.
+  - A malformed `cursor`, or a `limit` that isn't a whole number of 1 or more, is `400 bad-input`.
+  - `nextCursor` is a new optional field of the page. The Python client's `runs.journal` gains `limit` and `cursor`. The TypeScript client's `runs.journal(runId, { limit, cursor })` and `kindgi runs journal --limit --cursor` already took them, and the server now reads them.
+  - The TypeScript client's `since` doc now says what the server does: only entries with a sequence greater than it.
+- ebf405d: **Where a secret an item names is read is decided when the item is registered, and recorded on it.**
+  - **Which items:** an MCP endpoint (`secretRef`, `auth.secretRef`), a tool (a spec tool's `secretRef`, the secrets a pack tool declares; through `POST /v1/tools` or a deployment), and a webhook trigger's signing secret.
+  - **How it's decided:** the secret is looked for at the item's own scope, then its project's org, then the tenant, at the scopes the person registering it administers. The first that has it is recorded. If none has it yet, the broadest scope they administer is: the tenant for a tenant admin, the project for a project admin. Nothing is refused for it.
+  - **What's recorded:** `secretScopes` (by name) on an MCP endpoint and a tool version, `hmacSecretScope` on a webhook trigger. They're the server's, never a caller's. The runtime reads the secret there only. A secret removed from that scope is missing, never read from a broader one, and one set later at another scope changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+  - **Webhook triggers:** the receiver reads the signing secret at `hmacSecretScope`; a trigger registered before it was recorded reads the tenant's, as before.
+  - **`generateSecret`:** `POST /v1/webhooks` can make the signing secret itself, in the trigger's project, needing only `write` there; the answer carries it once (`signingSecret`). A name the project already has is refused (`409 secret-write-conflict`). `kindgi webhooks register --generate-secret` now uses it, in one call, and no longer takes `--env`.
+  - **Read there only:** `SecretResolveInput.exact` reads at the given scope with no walk to a broader one, and every secrets store must honour it. `SecretResolveOutcome.scope` says where a value was read. `resolveAtScope` reads an item's secret at its recorded scope with `exact`. A value a store reads at another scope anyway, or without saying which, is refused as not set, and the refusal is audited (`secret-resolved`, failed, `secret-scope-mismatch`) without the value. A custom store must honour `exact` and report the scope it read. The dotenv store keeps one set of values for every scope, so it reports the scope it was asked at.
+  - **`emitResolveEvent`** (`@kindgi/compliance`): `projectId` is optional, for a read at the tenant or an org.
+  - **`CreateAppInput.envName`:** the env this deployment serves, where the secrets a tool's code declares are looked for.
+  - **`RecordedSecretScope`** (`@kindgi/types`): the recorded scope's shape.
+- d985473: **`GET /v1/secrets` reads `includeRevoked`, and the `kindgi dev` secrets store pages.**
+  - `?includeRevoked=true` lists revoked secrets too, with `revokedAt` and `revokeReason`. It's metadata only, never a value. The route used to drop it, so `kindgi secrets list --include-revoked` and the TypeScript client's `secrets.list({ includeRevoked })` did nothing; now they reach the store. The operation documents the parameter, and the Python client's `secrets.list` gains `include_revoked`.
+  - `SecretBinding.list`'s contract says what a store returns: name order, at most `limit` records, and a `nextCursor` while more remain. `listVersions`' says the same, oldest first.
+  - `GET /v1/secrets` and `GET /v1/secrets/{name}/versions` answer `400 bad-input` to a `cursor` the store didn't issue, as the agents, flows, policies and eval-suites version lists do, so a client paging until done is never sent back to the first page. A store says which cursors it issued with `SecretBinding.issuedCursor` (optional: a store without it gets any cursor, as before); `@kindgi/secrets-dotenv` has it.
+  - `@kindgi/secrets-dotenv` pages by name: a `nextCursor` while more remain, and the next page starts after the page's last name, so a name added between pages neither repeats nor skips another. Before, it stopped at `limit`, and a 26th secret was out of reach.
+- cb32b0d: **`kindgi init` and `kindgi skills sync` write Kindgi's skills to `.agents/skills/` as well as `.claude/skills/`,** the folder Codex and Gemini CLI look in, by their own docs.
+  - Both folders hold the same copy of each skill, under one manifest (`.claude/skills/.kindgi-manifest.json`, which gains an optional `agentsSkills` field; a manifest without it is still read). `kindgi skills sync` judges each folder's copy on its own: an edited copy is kept unless `--force`, and a folder that was deleted is written again.
+  - Each outcome in `kindgi skills sync`'s JSON names its `folder`. Its summary, one block per folder, now prints on stderr unless `--json` or `--quiet` is given.
+  - `kindgi dev`'s skills warning covers both folders and counts each skill once; a copy that's gone counts as not yet installed.
+  - A project's existing `.prettierignore` gets `.agents/skills/kindgi-*/` beside `.claude/skills/kindgi-*/`, from `kindgi init` adding Kindgi to a TypeScript app and from `kindgi skills sync`. Sync never creates one, leaves it alone on `--dry-run`, and says what it added (in its JSON, `prettierignore`).
+  - The templates' `AGENTS.md` have a `## Skills` section that names both folders (the TypeScript ones were headed for one coding agent), and refer to skills by name. They, and the getting-started skills for TypeScript, Python, Java and Scala, say which commands are the person's to run in their own terminal, and what an agent does when its sandbox blocks a command: give the person the exact command, the folder and what they'll see, and wait.
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [fddc8f7]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ba8d9a1]
+- Updated dependencies [ebf405d]
+- Updated dependencies [8bde3fc]
+- Updated dependencies [ebf405d]
+- Updated dependencies [82eebb6]
+- Updated dependencies [2969337]
+- Updated dependencies [e0ce14b]
+- Updated dependencies [4074324]
+- Updated dependencies [65d97b5]
+- Updated dependencies [ebf405d]
+- Updated dependencies [b22e616]
+- Updated dependencies [d92706f]
+- Updated dependencies [ebf405d]
+- Updated dependencies [cfe5422]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [76532eb]
+- Updated dependencies [08bf3e5]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [14d02c5]
+- Updated dependencies [d985473]
+- Updated dependencies [cb32b0d]
+- Updated dependencies [41d3a91]
+- Updated dependencies [1ee7082]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f526987]
+- Updated dependencies [a2ee44b]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f05d320]
+  - @kindgi/agents@0.1.8-rc.0
+  - @kindgi/client@0.1.8-rc.0
+  - @kindgi/secrets-dotenv@0.1.8-rc.0
+  - @kindgi/env-schema@0.1.8-rc.0
+  - @kindgi/sdk@0.1.8-rc.0
+  - @kindgi/log@0.1.8-rc.0
+  - @kindgi/handler-runtime@0.1.8-rc.0
+  - @kindgi/platform@0.1.8-rc.0
+  - @kindgi/types@0.1.8-rc.0
+  - @kindgi/flow@0.1.8-rc.0
+  - @kindgi/crypto@0.1.8-rc.0
+  - @kindgi/dotenv-file@0.1.8-rc.0
+
+## 0.1.7
+
+### Patch Changes
+
+- f31a232: The runtime image's pull credential comes from signing in with GitHub at https://access.kindgi.com: `kindgi auth registry`, `kindgi dev` and `kindgi doctor` say so wherever access is missing or refused, instead of asking you to write to contact@kindgi.com.
+- 8b37bcd: `kindgi dev` runs runtime 0.1.7.
+- 272f72a: The Java and Scala pack templates' `AGENTS.md` point a coding agent to the `kindgi-using` skill, as the TypeScript and Python templates do: when the person asks how to use what was built, answer from the CLI's read-only commands with the console link beside it, and leave deciding approvals, erasing, adding people and rating answers to the person.
+- 772ca69: `kindgi guardrails list --table` prints a table (id, kind, check, action, severity), as `agents list` and `tools list` do. It printed the page as JSON.
+- b90e2c6: A deployment can renew its own license key, when you run it. `kindgi license enroll --for <your GitHub login> --renewer <where to keep its key>` makes the deployment's renewer key pair once. It keeps the private half where you say, never printing it, and prints a line to add on access.kindgi.com, signed in as that login. After that, `kindgi license renew --key <where the license key is> --renewer <ref>` (or `--env-file kindgi.env`) asks for the key's next version, checks it offline the way the runtime does (Kindgi's signature, the same licensee and use, expiring no earlier), and writes it only when it's new. Run it by hand or from your own scheduler. It prints one line (`renewed`, `unchanged`, or the refusal) and exits 1 when refused or failed. Where keys are kept: `file:<path>`, `env-file:<path>#<NAME>`, `gcp:projects/<project>/secrets/<name>` (Google Secret Manager; a new version), `azure:https://<vault>.vault.azure.net/secrets/<name>` (Azure Key Vault), and `aws:<region>:<name>` or the secret's ARN (AWS Secrets Manager). Each uses the platform's own identity, or that cloud's CLI elsewhere. `kindgi doctor` gains a **License key** check: the key in `KINDGI_LICENSE_KEY` or this folder's `kindgi.env`, checked offline. From 30 days before it expires it warns, with the exact way to the next key (`kindgi license renew …`, or access.kindgi.com, or contact@kindgi.com for a key Kindgi issued). It also warns during the 14-day grace, and fails once the runtime would no longer start with it. With no key it skips (`kindgi dev` needs none). `--json` reports it as the check id `license`. Two new optional runtime settings, `KINDGI_LICENSE_KEY_REF` and `KINDGI_LICENSE_RENEWER_REF`, say where a deployment keeps its key and its renewer key, so the runtime's expiry warnings print the exact `kindgi license renew` command. The deployment modules set them.
+- a54ea36: `kindgi dev` runs runtime 0.1.7-rc.0.
+- 5b437db: **One `kindgi dev` per pack.** A second `kindgi dev` in a pack used to take the first one's runtime container (both use the pack's container name), point `.kindgirc.json` at its own port, and leave the first without a runtime once it stopped. A coding agent starting `kindgi dev` beside yours did exactly that.
+  
+  - **Now a second one refuses** before anything starts, exits with **code 3** ("kindgi dev is already running for this pack"), and says where the running one is: its pid, the console and the API. It says so too when that one's runtime has stopped answering, with how to stop it. With `--json`, it prints the same as `{ "running": { "pid", "since", "apiUrl", "consoleUrl", "answering" } }`.
+  - **How it knows:** the running one holds `.kindgi/dev/dev.lock`, taken with an exclusive create and removed on every way out. A lock whose process is gone (a crash, a `kill -9`) is taken over, with a note. A process counts as the same one only when its start time matches too, so a reused pid doesn't hold a dead one's lock.
+  - **The runtime container** is labeled with the `kindgi dev` that started it, and one another live `kindgi dev` owns is never removed. A `kindgi dev` started from a terminal with another time zone or locale sees the same owner.
+  - `--reset` and `--recreate-services` are refused the same way while one runs.
+  - **The docs:** the getting-started skills (every language) and the coding agents page say so.
+- b212fe1: `kindgi dev` says what the runtime's start is doing, step by step, with how long each took: pulling the image (its size, from the image's manifest, then how much has come as each layer arrives), starting the container, migrating the database (when the runtime reports it), and waiting for it to serve. A step still going says so every 3 seconds, in place of "still starting the runtime (3s elapsed)", and the serving line gives the start's total time.
+- aa08d1f: `kindgi doctor`'s project check names the config file it found (`kindgi.config.mts` in a CommonJS app, not always `kindgi.config.ts`), calls a `.mjs`/`.js`/`.cjs` config's project JavaScript, and, outside a project, lists every config name it looked for.
+- 7f8663f: `kindgi init --template=drupal`: the content agent says a change that waited for a person was done once it was. Its instructions told it that its two writes "wait for a person to approve", and the model never sees the approval itself, so after both were approved it still said they were waiting. They now say what a result from `set_moderation_state` or `update_content` means: a rejection is the reviewer declining, with their reason; a failure is a change that was approved but didn't go through (Drupal refused it), with the error; and any other result is a change a person approved and that was done. It looks the article up again before stating its state. A new pack test keeps the instructions naming every tool the approval policy holds back. The content reviewer now always reads the article as it is now before it writes its note, rather than only sometimes.
+- fc6a6fe: **`kindgi init --template=drupal`: governed agents for a Drupal site.** The pack's agents use the site's own tools, through Drupal's MCP Server, signed in with OAuth client credentials (`scripts/connect-drupal.mjs` registers the endpoint; the client secret is a Kindgi secret).
+  - **`content-agent`** finds articles that break the house style and fixes them as drafts. Reading the site runs on its own; starting a draft and changing it each wait for a person (`default: 'always_ask'`, the read tools `never_ask` by id). The site's own permissions are the second layer: the agent's Drupal user can make drafts and can't publish or change a live article.
+  - **`content-review`**, a flow a Drupal webhook starts (`kindgi webhooks register --preset=drupal-webhooks`): a typed check step keeps the event's fields and house-style findings, not its copy of the text or the editor's account, and a `content-reviewer` that can only read the site writes a note for the editors.
+  - **The writes are chosen so a repeat is harmless** (a patch, a move to a workflow state; nothing created or deleted), since a retried or resumed call reaches the site again. The README says why, and how the Drupal side is set up, module by module.
+- b90e2c6: **Webhook triggers start runs: a signed request from WooCommerce, Drupal's Webhooks module, GitHub, Shopify or any Standard Webhooks sender starts a run of a flow.**
+  
+  - **The receiver, `POST /v1/hooks/{tenantId}/{webhookId}`,** sits outside the bearer chain. The request's signature, made with the trigger's secret over the raw body, is what lets it start the trigger's flow as the trigger's owner; a bearer token, if sent, is never read.
+    - **One answer for any request that doesn't prove its sender:** an unknown tenant or id, a missing, wrong or stale signature, or a secret that can't be read is `401 webhook-refused`. The reason goes only to the trigger's deliveries and, for the sender's own failures, the access audit (actor `webhook-sender`, the address in `evidence.clientAddress`); a secret that can't be read is the deployment's to fix, so it's on the deliveries only.
+    - **Gone and paused:** an unregistered trigger is `410 webhook-gone`, but only to a sender that proved itself. A paused trigger takes the delivery (`202`, a `skipped` fire) and starts nothing: the event is dropped.
+    - **Repeats:** a delivery whose dedupe key an earlier fire holds starts nothing (`200`, `duplicate: true`). The key is the trigger's delivery-id header and the body, because WooCommerce's delivery id is per second, not per event.
+    - **WooCommerce's ping:** its unsigned save-time ping (`webhook_id=<n>`) is answered `200` before any lookup.
+    - **Limits:**
+      - a body past 1 MiB, or past the trigger's `bodyLimitBytes` (default 256 KiB), is `413 webhook-body-too-large`;
+      - deliveries past the trigger's `rateLimitPerMinute` (default 600) are `429`;
+      - past 60 refusals a minute from one address (`webhookReceiver.clientAddress`), that address's further refusals are `429` and not recorded. The limit is checked only after verification: a validly signed delivery is never refused because of anyone's refusals, its own address's included. An unreadable secret never counts against a sender;
+      - a trigger records 20 refusals and skipped deliveries a minute, then only counts them (`suppressedRefusals`).
+    - **The signing key:** the receiver keeps a trigger's key for up to 10 seconds (`WEBHOOK_SIGNING_KEY_TTL_MS`), as a `KeyObject`, never a string, so a flood of bad signatures costs one secret read a trigger. A write through `createApp`'s secrets routes drops it at once; another instance's write is seen within those 10 seconds.
+    - **The event:** the flow's event is the body, parsed as JSON for a JSON content type (else `400 webhook-body-not-json`), or its text otherwise.
+    - **Mounting:** the receiver mounts with `createApp`'s new `webhookReceiver` (`envName`, `clientAddress`, `rateLimitStore`) when the trigger registry implements `findWebhook`, `fireWebhook` and `recordWebhookRefusal`, which replace `fetchActiveByWebhookId` (as `SchedulerBinding.fireByWebhookId` goes).
+  - **Webhook triggers are served again** (`/v1/webhooks` was hidden while no runtime served it), on the schedules model:
+    - **Project and owner:** a trigger has a project (`projectId`; the Default project if none is named) and an owner (the registrant, rechecked at every delivery).
+    - **Access:** it follows the project: `read`, `write`, `admin` to take ownership, plus `execute` on the flow to register, change the version or take ownership.
+    - **The signing scheme:** register and update take `signature` (`hmac-sha256` with a `hex` or `base64` header and an optional prefix, or `standard-webhooks`), `deliveryIdHeader`, `bodyLimitBytes` and `rateLimitPerMinute`. An update also takes `hmacSecretName`; `null` clears the last three.
+    - **Provider keys:** a model provider's key is refused as a trigger's secret (`400 provider-key-refused`); the receiver reads its secret through a guarded binding (`SecretUser` `'a webhook trigger'`), and `provider-key-in-use` names webhook triggers too.
+    - **New routes:** `GET /v1/webhooks?projectId=`, `GET /v1/webhooks/{id}/fires` (the deliveries; a fire keeps the event only until its run starts) and `POST /v1/webhooks/{id}/owner`.
+    - **The receive URL:** records carry `receiveUrl`, made from `createApp`'s new `publicUrl`, never from a request's `Host`. They also carry `owner`, `signature`, `bodyLimitBytes`, `rateLimitPerMinute` and `statusReason`.
+  - **`@kindgi/crypto`'s `verifyInboundSignature`** checks a request in a trigger's scheme, with Standard Webhooks through `verifyWebhook`; it takes the secret, or the `KeyObject` that `inboundSigningKey(scheme, secret)` derives from it (which `JSON.stringify` shows as `{}`). `@kindgi/types` has `WebhookSignatureScheme`.
+  - **The OpenAPI marks the receiver `x-kindgi-sender-only`:** the client generators skip it, because the receive URL is the sender's path, not a client's.
+  - **The TypeScript client** has `webhooks` again (`register`, `list`, `get`, `update`, `pause`, `resume`, `unregister`, `fires`, `takeOwnership`), and `@kindgi/sdk` exports `WebhooksClient`. The Python client has `client.webhooks`.
+  - **The CLI adds `kindgi webhooks`:** `register`, `list`, `get`, `update`, `pause`, `resume`, `fires`, `take-ownership` and `unregister`.
+    - **`register --preset=woocommerce|drupal-webhooks|github|shopify|standard-webhooks`** sets a sender's scheme and delivery-id header.
+    - **`--generate-secret --env=<env>`** makes a new secret (letters and digits; `whsec_…` for Standard Webhooks), stores it once the trigger is registered (a refused register leaves none behind), and shows it once.
+    - **The receive URL:** register and get print it, or why there's none (no `KINDGI_PUBLIC_URL`).
+    - **`pause`** says that a paused trigger drops events.
+- aa08d1f: `kindgi init` in an existing app now sets up the tests `kindgi test` runs: `vitest` and `vite` in `devDependencies` (pinned the way the app pins) and a `vitest.config.mts` (`.ts` in a `"type": "module"` app) that runs `kindgi/**/*.test.ts` with the app's tsconfig `paths` as `resolve.alias`. An app that runs vitest already keeps its own setup, and init says what `kindgi test` needs from it. With `--template=sample`, the sample's test comes along. `kindgi test` finds every config name vitest does (`vitest.config.mts` and `.cts` too), and when it finds none, says what an app Kindgi was added to needs. Fresh packs pin vitest 5 and vite 8.
+- aa08d1f: `kindgi init` adds zod at the version Kindgi is tested with (4.6.5), written exactly when the app pins every dependency exactly or its package manager saves exact versions (`save-exact` / an empty `save-prefix` in `.npmrc`, pnpm's `saveExact`, Yarn's empty `defaultSemverRangePrefix`, Bun's `[install] exact`), and as `^4.6.5` otherwise. The fresh templates take `^4.6.5` too.
+- d70e845: The Java and Scala templates' README names all of the `anthropic` preset's models, as the other templates do: Opus 5.5, Sonnet 5.5 (the default), Haiku 5.5 and Haiku 4.5.
+- 0d941b1: A `kindgi-using` skill, for packs in every language: the coding agent guides the person in using what was built, not only in building it. Each answer gives both, side by side: the read-only answer from the `kindgi` CLI in plain words, and the console page that shows the same thing, as a full link with the clicks. The skill maps the console's pages and their addresses, built from `kindgi console --no-open`, `kindgi auth whoami` and `kindgi projects get-default`. It answers the common questions: the tools and what each may change, what an agent looked up for an answer, the answers it finished, which guardrail stopped an answer, a waiting approval, what Kindgi remembers about a customer, a schedule's next run and its last answer, health, who has access, the answers you rated, and what answers cost. Guiding is read-only: deciding approvals, erasing, adding people, roles, API keys, making a version live and rating stay with the person, and the skill never reads a token file. `kindgi init` installs it, and the templates' `AGENTS.md` point to it.
+- aa08d1f: The commands the CLI prints and runs for an npm project are `npx --no -- kindgi …` (and `npx --no -- prisma …` in an image's build steps): the `--` ends npx's own options, so a `--help` after the command reaches it rather than npm.
+- bd61d80: **Two presets: `azure-openai` and `bedrock`.** They need a runtime with the Azure OpenAI and Bedrock adapters.
+  - **`azure-openai`:** GPT-6.1 Sol and GPT-6 Luna on your Azure OpenAI deployments, with the key `AZURE_OPENAI_API_KEY`: `kindgi providers register --preset=azure-openai --resource-name=<resource> --deployments=gpt-6.1-sol=<deployment>,…`. To sign in as the runtime's Entra identity instead, register with a spec.
+  - **`bedrock`:** Nova Pro (the default), Claude Sonnet 5.5, Claude Haiku 4.5, GPT-6.1 Sol and GPT-6 Luna on Amazon Bedrock, through their US cross-region inference profiles, as the runtime's AWS identity: `kindgi providers register --preset=bedrock --region=<a US region>`. Claude and GPT need the AWS account's access to their vendor's models on Bedrock (`--models=` picks them).
+  - **Their prices** are the vendors' list prices, checked 2026-10-09 (Claude Haiku 4.5's on 2026-10-10): Azure's Global Standard, and Bedrock's on-demand US profiles.
+  - **Claude Haiku 4.5 asks for up to 16,000 output tokens by default** in the `anthropic` and `bedrock` presets (it was 8,192 in `anthropic`), like their Claude 5.5 models. A model's `maxOutputTokens` is the default cap a call gets when its agent sets none, not the model's own limit; an agent's own `maxOutputTokens` replaces it.
+  
+  **A preset's settings are one table.** The `providers register` flags (`--project`, `--resource-name`, `--deployments`, `--region`), a pack's `providers` declarations (`project`, `resourceName`, `deployments`, `region`), `kindgi providers presets` and doctor's hints all read it. A preset that names a setting the table doesn't have fails to load. Doctor's register hint names a keyed preset's settings (`azure-openai (with --resource-name=<resourceName> --deployments=<deployments>)`).
+  
+  **A preset declaration is typed by its preset.** `KindgiPresetDeclaration` (in `KindgiProviderDeclaration`) is a union on `preset`, built from `PRESET_DECLARATION_SETTINGS` (`@kindgi/handler-runtime`, new):
+  - a preset's own settings are required: `{ preset: 'bedrock', region: 'us-east-2' }`, `{ preset: 'gemini', project: 'acme-gcp' }`;
+  - another preset's are refused, by the type and by `kindgi dev`, which names whose setting it is;
+  - `deployments` is a map, model to deployment: `{ preset: 'azure-openai', resourceName: 'acme-openai', deployments: { 'gpt-6.1-sol': 'gpt-6-1-sol' } }`, a table in `pyproject.toml`. The `--deployments` flag keeps `model=deployment,…`, which is also what the runtime receives. An empty map is refused, and so is a name holding `,` or `=`.
+  - `deployments` names exactly the models the entry registers (the preset's, or its `models`): a typo'd model, or one without a deployment, is refused by the config's key.
+  Also new: `KindgiPresetName`, `KindgiPresetChoices` and `KindgiPresetSettingValues`. **`preset` is now one of the preset names** (`KindgiPresetName`), not any string: a name computed at run time needs `as KindgiPresetName`. A preset whose region comes from `--region` (`bedrock`) carries none of its own.
+- 6aadd53: `kindgi init --template=woocommerce`: only single tokens from an order reach the order reviewer's instructions. The order check now requires a status slug and an ISO currency code, and replaces an order number that isn't one token with the order's id. A new test keeps the reviewer's instructions to the order's number, total, currency, status and flags, asking Liquid for every variable they read; the rest of the order stays in the step's input, as data.
+- b24343f: `kindgi init --template=woocommerce`: the store agent says a change that waited for a person was done once it was. Its instructions told it to say `refund-large` "waits for a person", and the model never sees the approval itself, so after an approval it still said the refund waited, or told staff to check that it went through. They now say what a result from `refund-large`, `set-price` or `publish-product` means: a rejection is the reviewer declining, with their reason; a failure is a change that was approved but didn't go through, with the error; and any other result is a change a person approved and that was done. A new pack test keeps the instructions naming every tool the approval policy holds back.
+- 6beca97: `kindgi init --template=woocommerce` pins zod ^4.6.5, vitest 5 and vite 8, like the other fresh templates. The checks that the fresh templates pin the versions Kindgi is tested with now cover every template with a `package.json`, so a template added later can't keep an older pin.
+- c1c5dfd: `kindgi init --template=woocommerce` scaffolds agents for a WooCommerce store. Typed tools call the store's REST API as a dedicated WordPress user with an Application Password, which is kept as a secret. A store agent looks up orders and refunds up to 100 on its own. A larger refund, a price change and publishing a product each wait for a person to approve. Because approval rules name a tool, the limit is two refund tools, enforced by the input schema and by a running total per order. Each refund goes out once: the tools put the call's idempotency key on the refund and look for it before refunding, and again when the store answered with an error, so a step that's resumed, retried or run again returns the refund it made. A flow reviews each new order: a check step keeps only typed fields before any model sees the event, and the agent that reads events can only look orders up.
+- Updated dependencies [597173e]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [5b437db]
+- Updated dependencies [fc6a6fe]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [aa08d1f]
+- Updated dependencies [fdb644c]
+- Updated dependencies [0d941b1]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [dab4296]
+- Updated dependencies [bd61d80]
+- Updated dependencies [049966d]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [2f28697]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [a61f8f3]
+  - @kindgi/agents@0.1.7
+  - @kindgi/sdk@0.1.7
+  - @kindgi/env-schema@0.1.7
+  - @kindgi/crypto@0.1.7
+  - @kindgi/types@0.1.7
+  - @kindgi/client@0.1.7
+  - @kindgi/handler-runtime@0.1.7
+  - @kindgi/platform@0.1.7
+  - @kindgi/secrets-dotenv@0.1.7
+  - @kindgi/flow@0.1.7
+  - @kindgi/dotenv-file@0.1.7
+  - @kindgi/log@0.1.7
+
+## 0.1.7-rc.0
+
+### Patch Changes
+
+- 272f72a: The Java and Scala pack templates' `AGENTS.md` point a coding agent to the `kindgi-using` skill, as the TypeScript and Python templates do: when the person asks how to use what was built, answer from the CLI's read-only commands with the console link beside it, and leave deciding approvals, erasing, adding people and rating answers to the person.
+- 772ca69: `kindgi guardrails list --table` prints a table (id, kind, check, action, severity), as `agents list` and `tools list` do. It printed the page as JSON.
+- b90e2c6: A deployment can renew its own license key, when you run it. `kindgi license enroll --for <your GitHub login> --renewer <where to keep its key>` makes the deployment's renewer key pair once. It keeps the private half where you say, never printing it, and prints a line to add on access.kindgi.com, signed in as that login. After that, `kindgi license renew --key <where the license key is> --renewer <ref>` (or `--env-file kindgi.env`) asks for the key's next version, checks it offline the way the runtime does (Kindgi's signature, the same licensee and use, expiring no earlier), and writes it only when it's new. Run it by hand or from your own scheduler. It prints one line (`renewed`, `unchanged`, or the refusal) and exits 1 when refused or failed. Where keys are kept: `file:<path>`, `env-file:<path>#<NAME>`, `gcp:projects/<project>/secrets/<name>` (Google Secret Manager; a new version), `azure:https://<vault>.vault.azure.net/secrets/<name>` (Azure Key Vault), and `aws:<region>:<name>` or the secret's ARN (AWS Secrets Manager). Each uses the platform's own identity, or that cloud's CLI elsewhere. `kindgi doctor` gains a **License key** check: the key in `KINDGI_LICENSE_KEY` or this folder's `kindgi.env`, checked offline. From 30 days before it expires it warns, with the exact way to the next key (`kindgi license renew …`, or access.kindgi.com, or contact@kindgi.com for a key Kindgi issued). It also warns during the 14-day grace, and fails once the runtime would no longer start with it. With no key it skips (`kindgi dev` needs none). `--json` reports it as the check id `license`. Two new optional runtime settings, `KINDGI_LICENSE_KEY_REF` and `KINDGI_LICENSE_RENEWER_REF`, say where a deployment keeps its key and its renewer key, so the runtime's expiry warnings print the exact `kindgi license renew` command. The deployment modules set them.
+- a54ea36: `kindgi dev` runs runtime 0.1.7-rc.0.
+- 5b437db: **One `kindgi dev` per pack.** A second `kindgi dev` in a pack used to take the first one's runtime container (both use the pack's container name), point `.kindgirc.json` at its own port, and leave the first without a runtime once it stopped. A coding agent starting `kindgi dev` beside yours did exactly that.
+  
+  - **Now a second one refuses** before anything starts, exits with **code 3** ("kindgi dev is already running for this pack"), and says where the running one is: its pid, the console and the API. It says so too when that one's runtime has stopped answering, with how to stop it. With `--json`, it prints the same as `{ "running": { "pid", "since", "apiUrl", "consoleUrl", "answering" } }`.
+  - **How it knows:** the running one holds `.kindgi/dev/dev.lock`, taken with an exclusive create and removed on every way out. A lock whose process is gone (a crash, a `kill -9`) is taken over, with a note. A process counts as the same one only when its start time matches too, so a reused pid doesn't hold a dead one's lock.
+  - **The runtime container** is labeled with the `kindgi dev` that started it, and one another live `kindgi dev` owns is never removed. A `kindgi dev` started from a terminal with another time zone or locale sees the same owner.
+  - `--reset` and `--recreate-services` are refused the same way while one runs.
+  - **The docs:** the getting-started skills (every language) and the coding agents page say so.
+- b212fe1: `kindgi dev` says what the runtime's start is doing, step by step, with how long each took: pulling the image (its size, from the image's manifest, then how much has come as each layer arrives), starting the container, migrating the database (when the runtime reports it), and waiting for it to serve. A step still going says so every 3 seconds, in place of "still starting the runtime (3s elapsed)", and the serving line gives the start's total time.
+- aa08d1f: `kindgi doctor`'s project check names the config file it found (`kindgi.config.mts` in a CommonJS app, not always `kindgi.config.ts`), calls a `.mjs`/`.js`/`.cjs` config's project JavaScript, and, outside a project, lists every config name it looked for.
+- 7f8663f: `kindgi init --template=drupal`: the content agent says a change that waited for a person was done once it was. Its instructions told it that its two writes "wait for a person to approve", and the model never sees the approval itself, so after both were approved it still said they were waiting. They now say what a result from `set_moderation_state` or `update_content` means: a rejection is the reviewer declining, with their reason; a failure is a change that was approved but didn't go through (Drupal refused it), with the error; and any other result is a change a person approved and that was done. It looks the article up again before stating its state. A new pack test keeps the instructions naming every tool the approval policy holds back. The content reviewer now always reads the article as it is now before it writes its note, rather than only sometimes.
+- fc6a6fe: **`kindgi init --template=drupal`: governed agents for a Drupal site.** The pack's agents use the site's own tools, through Drupal's MCP Server, signed in with OAuth client credentials (`scripts/connect-drupal.mjs` registers the endpoint; the client secret is a Kindgi secret).
+  - **`content-agent`** finds articles that break the house style and fixes them as drafts. Reading the site runs on its own; starting a draft and changing it each wait for a person (`default: 'always_ask'`, the read tools `never_ask` by id). The site's own permissions are the second layer: the agent's Drupal user can make drafts and can't publish or change a live article.
+  - **`content-review`**, a flow a Drupal webhook starts (`kindgi webhooks register --preset=drupal-webhooks`): a typed check step keeps the event's fields and house-style findings, not its copy of the text or the editor's account, and a `content-reviewer` that can only read the site writes a note for the editors.
+  - **The writes are chosen so a repeat is harmless** (a patch, a move to a workflow state; nothing created or deleted), since a retried or resumed call reaches the site again. The README says why, and how the Drupal side is set up, module by module.
+- b90e2c6: **Webhook triggers start runs: a signed request from WooCommerce, Drupal's Webhooks module, GitHub, Shopify or any Standard Webhooks sender starts a run of a flow.**
+  
+  - **The receiver, `POST /v1/hooks/{tenantId}/{webhookId}`,** sits outside the bearer chain. The request's signature, made with the trigger's secret over the raw body, is what lets it start the trigger's flow as the trigger's owner; a bearer token, if sent, is never read.
+    - **One answer for any request that doesn't prove its sender:** an unknown tenant or id, a missing, wrong or stale signature, or a secret that can't be read is `401 webhook-refused`. The reason goes only to the trigger's deliveries and, for the sender's own failures, the access audit (actor `webhook-sender`, the address in `evidence.clientAddress`); a secret that can't be read is the deployment's to fix, so it's on the deliveries only.
+    - **Gone and paused:** an unregistered trigger is `410 webhook-gone`, but only to a sender that proved itself. A paused trigger takes the delivery (`202`, a `skipped` fire) and starts nothing: the event is dropped.
+    - **Repeats:** a delivery whose dedupe key an earlier fire holds starts nothing (`200`, `duplicate: true`). The key is the trigger's delivery-id header and the body, because WooCommerce's delivery id is per second, not per event.
+    - **WooCommerce's ping:** its unsigned save-time ping (`webhook_id=<n>`) is answered `200` before any lookup.
+    - **Limits:**
+      - a body past 1 MiB, or past the trigger's `bodyLimitBytes` (default 256 KiB), is `413 webhook-body-too-large`;
+      - deliveries past the trigger's `rateLimitPerMinute` (default 600) are `429`;
+      - past 60 refusals a minute from one address (`webhookReceiver.clientAddress`), that address's further refusals are `429` and not recorded. The limit is checked only after verification: a validly signed delivery is never refused because of anyone's refusals, its own address's included. An unreadable secret never counts against a sender;
+      - a trigger records 20 refusals and skipped deliveries a minute, then only counts them (`suppressedRefusals`).
+    - **The signing key:** the receiver keeps a trigger's key for up to 10 seconds (`WEBHOOK_SIGNING_KEY_TTL_MS`), as a `KeyObject`, never a string, so a flood of bad signatures costs one secret read a trigger. A write through `createApp`'s secrets routes drops it at once; another instance's write is seen within those 10 seconds.
+    - **The event:** the flow's event is the body, parsed as JSON for a JSON content type (else `400 webhook-body-not-json`), or its text otherwise.
+    - **Mounting:** the receiver mounts with `createApp`'s new `webhookReceiver` (`envName`, `clientAddress`, `rateLimitStore`) when the trigger registry implements `findWebhook`, `fireWebhook` and `recordWebhookRefusal`, which replace `fetchActiveByWebhookId` (as `SchedulerBinding.fireByWebhookId` goes).
+  - **Webhook triggers are served again** (`/v1/webhooks` was hidden while no runtime served it), on the schedules model:
+    - **Project and owner:** a trigger has a project (`projectId`; the Default project if none is named) and an owner (the registrant, rechecked at every delivery).
+    - **Access:** it follows the project: `read`, `write`, `admin` to take ownership, plus `execute` on the flow to register, change the version or take ownership.
+    - **The signing scheme:** register and update take `signature` (`hmac-sha256` with a `hex` or `base64` header and an optional prefix, or `standard-webhooks`), `deliveryIdHeader`, `bodyLimitBytes` and `rateLimitPerMinute`. An update also takes `hmacSecretName`; `null` clears the last three.
+    - **Provider keys:** a model provider's key is refused as a trigger's secret (`400 provider-key-refused`); the receiver reads its secret through a guarded binding (`SecretUser` `'a webhook trigger'`), and `provider-key-in-use` names webhook triggers too.
+    - **New routes:** `GET /v1/webhooks?projectId=`, `GET /v1/webhooks/{id}/fires` (the deliveries; a fire keeps the event only until its run starts) and `POST /v1/webhooks/{id}/owner`.
+    - **The receive URL:** records carry `receiveUrl`, made from `createApp`'s new `publicUrl`, never from a request's `Host`. They also carry `owner`, `signature`, `bodyLimitBytes`, `rateLimitPerMinute` and `statusReason`.
+  - **`@kindgi/crypto`'s `verifyInboundSignature`** checks a request in a trigger's scheme, with Standard Webhooks through `verifyWebhook`; it takes the secret, or the `KeyObject` that `inboundSigningKey(scheme, secret)` derives from it (which `JSON.stringify` shows as `{}`). `@kindgi/types` has `WebhookSignatureScheme`.
+  - **The OpenAPI marks the receiver `x-kindgi-sender-only`:** the client generators skip it, because the receive URL is the sender's path, not a client's.
+  - **The TypeScript client** has `webhooks` again (`register`, `list`, `get`, `update`, `pause`, `resume`, `unregister`, `fires`, `takeOwnership`), and `@kindgi/sdk` exports `WebhooksClient`. The Python client has `client.webhooks`.
+  - **The CLI adds `kindgi webhooks`:** `register`, `list`, `get`, `update`, `pause`, `resume`, `fires`, `take-ownership` and `unregister`.
+    - **`register --preset=woocommerce|drupal-webhooks|github|shopify|standard-webhooks`** sets a sender's scheme and delivery-id header.
+    - **`--generate-secret --env=<env>`** makes a new secret (letters and digits; `whsec_…` for Standard Webhooks), stores it once the trigger is registered (a refused register leaves none behind), and shows it once.
+    - **The receive URL:** register and get print it, or why there's none (no `KINDGI_PUBLIC_URL`).
+    - **`pause`** says that a paused trigger drops events.
+- aa08d1f: `kindgi init` in an existing app now sets up the tests `kindgi test` runs: `vitest` and `vite` in `devDependencies` (pinned the way the app pins) and a `vitest.config.mts` (`.ts` in a `"type": "module"` app) that runs `kindgi/**/*.test.ts` with the app's tsconfig `paths` as `resolve.alias`. An app that runs vitest already keeps its own setup, and init says what `kindgi test` needs from it. With `--template=sample`, the sample's test comes along. `kindgi test` finds every config name vitest does (`vitest.config.mts` and `.cts` too), and when it finds none, says what an app Kindgi was added to needs. Fresh packs pin vitest 5 and vite 8.
+- aa08d1f: `kindgi init` adds zod at the version Kindgi is tested with (4.6.5), written exactly when the app pins every dependency exactly or its package manager saves exact versions (`save-exact` / an empty `save-prefix` in `.npmrc`, pnpm's `saveExact`, Yarn's empty `defaultSemverRangePrefix`, Bun's `[install] exact`), and as `^4.6.5` otherwise. The fresh templates take `^4.6.5` too.
+- d70e845: The Java and Scala templates' README names all of the `anthropic` preset's models, as the other templates do: Opus 5.5, Sonnet 5.5 (the default), Haiku 5.5 and Haiku 4.5.
+- 0d941b1: A `kindgi-using` skill, for packs in every language: the coding agent guides the person in using what was built, not only in building it. Each answer gives both, side by side: the read-only answer from the `kindgi` CLI in plain words, and the console page that shows the same thing, as a full link with the clicks. The skill maps the console's pages and their addresses, built from `kindgi console --no-open`, `kindgi auth whoami` and `kindgi projects get-default`. It answers the common questions: the tools and what each may change, what an agent looked up for an answer, the answers it finished, which guardrail stopped an answer, a waiting approval, what Kindgi remembers about a customer, a schedule's next run and its last answer, health, who has access, the answers you rated, and what answers cost. Guiding is read-only: deciding approvals, erasing, adding people, roles, API keys, making a version live and rating stay with the person, and the skill never reads a token file. `kindgi init` installs it, and the templates' `AGENTS.md` point to it.
+- aa08d1f: The commands the CLI prints and runs for an npm project are `npx --no -- kindgi …` (and `npx --no -- prisma …` in an image's build steps): the `--` ends npx's own options, so a `--help` after the command reaches it rather than npm.
+- bd61d80: **Two presets: `azure-openai` and `bedrock`.** They need a runtime with the Azure OpenAI and Bedrock adapters.
+  - **`azure-openai`:** GPT-6.1 Sol and GPT-6 Luna on your Azure OpenAI deployments, with the key `AZURE_OPENAI_API_KEY`: `kindgi providers register --preset=azure-openai --resource-name=<resource> --deployments=gpt-6.1-sol=<deployment>,…`. To sign in as the runtime's Entra identity instead, register with a spec.
+  - **`bedrock`:** Nova Pro (the default), Claude Sonnet 5.5, Claude Haiku 4.5, GPT-6.1 Sol and GPT-6 Luna on Amazon Bedrock, through their US cross-region inference profiles, as the runtime's AWS identity: `kindgi providers register --preset=bedrock --region=<a US region>`. Claude and GPT need the AWS account's access to their vendor's models on Bedrock (`--models=` picks them).
+  - **Their prices** are the vendors' list prices, checked 2026-10-09 (Claude Haiku 4.5's on 2026-10-10): Azure's Global Standard, and Bedrock's on-demand US profiles.
+  - **Claude Haiku 4.5 asks for up to 16,000 output tokens by default** in the `anthropic` and `bedrock` presets (it was 8,192 in `anthropic`), like their Claude 5.5 models. A model's `maxOutputTokens` is the default cap a call gets when its agent sets none, not the model's own limit; an agent's own `maxOutputTokens` replaces it.
+  
+  **A preset's settings are one table.** The `providers register` flags (`--project`, `--resource-name`, `--deployments`, `--region`), a pack's `providers` declarations (`project`, `resourceName`, `deployments`, `region`), `kindgi providers presets` and doctor's hints all read it. A preset that names a setting the table doesn't have fails to load. Doctor's register hint names a keyed preset's settings (`azure-openai (with --resource-name=<resourceName> --deployments=<deployments>)`).
+  
+  **A preset declaration is typed by its preset.** `KindgiPresetDeclaration` (in `KindgiProviderDeclaration`) is a union on `preset`, built from `PRESET_DECLARATION_SETTINGS` (`@kindgi/handler-runtime`, new):
+  - a preset's own settings are required: `{ preset: 'bedrock', region: 'us-east-2' }`, `{ preset: 'gemini', project: 'acme-gcp' }`;
+  - another preset's are refused, by the type and by `kindgi dev`, which names whose setting it is;
+  - `deployments` is a map, model to deployment: `{ preset: 'azure-openai', resourceName: 'acme-openai', deployments: { 'gpt-6.1-sol': 'gpt-6-1-sol' } }`, a table in `pyproject.toml`. The `--deployments` flag keeps `model=deployment,…`, which is also what the runtime receives. An empty map is refused, and so is a name holding `,` or `=`.
+  - `deployments` names exactly the models the entry registers (the preset's, or its `models`): a typo'd model, or one without a deployment, is refused by the config's key.
+  Also new: `KindgiPresetName`, `KindgiPresetChoices` and `KindgiPresetSettingValues`. **`preset` is now one of the preset names** (`KindgiPresetName`), not any string: a name computed at run time needs `as KindgiPresetName`. A preset whose region comes from `--region` (`bedrock`) carries none of its own.
+- 6aadd53: `kindgi init --template=woocommerce`: only single tokens from an order reach the order reviewer's instructions. The order check now requires a status slug and an ISO currency code, and replaces an order number that isn't one token with the order's id. A new test keeps the reviewer's instructions to the order's number, total, currency, status and flags, asking Liquid for every variable they read; the rest of the order stays in the step's input, as data.
+- b24343f: `kindgi init --template=woocommerce`: the store agent says a change that waited for a person was done once it was. Its instructions told it to say `refund-large` "waits for a person", and the model never sees the approval itself, so after an approval it still said the refund waited, or told staff to check that it went through. They now say what a result from `refund-large`, `set-price` or `publish-product` means: a rejection is the reviewer declining, with their reason; a failure is a change that was approved but didn't go through, with the error; and any other result is a change a person approved and that was done. A new pack test keeps the instructions naming every tool the approval policy holds back.
+- 6beca97: `kindgi init --template=woocommerce` pins zod ^4.6.5, vitest 5 and vite 8, like the other fresh templates. The checks that the fresh templates pin the versions Kindgi is tested with now cover every template with a `package.json`, so a template added later can't keep an older pin.
+- c1c5dfd: `kindgi init --template=woocommerce` scaffolds agents for a WooCommerce store. Typed tools call the store's REST API as a dedicated WordPress user with an Application Password, which is kept as a secret. A store agent looks up orders and refunds up to 100 on its own. A larger refund, a price change and publishing a product each wait for a person to approve. Because approval rules name a tool, the limit is two refund tools, enforced by the input schema and by a running total per order. Each refund goes out once: the tools put the call's idempotency key on the refund and look for it before refunding, and again when the store answered with an error, so a step that's resumed, retried or run again returns the refund it made. A flow reviews each new order: a check step keeps only typed fields before any model sees the event, and the agent that reads events can only look orders up.
+- Updated dependencies [597173e]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [5b437db]
+- Updated dependencies [fc6a6fe]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [aa08d1f]
+- Updated dependencies [fdb644c]
+- Updated dependencies [0d941b1]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [dab4296]
+- Updated dependencies [bd61d80]
+- Updated dependencies [049966d]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [2f28697]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [a61f8f3]
+  - @kindgi/agents@0.1.7-rc.0
+  - @kindgi/sdk@0.1.7-rc.0
+  - @kindgi/env-schema@0.1.7-rc.0
+  - @kindgi/crypto@0.1.7-rc.0
+  - @kindgi/types@0.1.7-rc.0
+  - @kindgi/client@0.1.7-rc.0
+  - @kindgi/handler-runtime@0.1.7-rc.0
+  - @kindgi/platform@0.1.7-rc.0
+  - @kindgi/secrets-dotenv@0.1.7-rc.0
+  - @kindgi/flow@0.1.7-rc.0
+  - @kindgi/dotenv-file@0.1.7-rc.0
+  - @kindgi/log@0.1.7-rc.0
+
 ## 0.1.6
 
 ### Patch Changes

@@ -83,6 +83,9 @@ describe('kindgi init in an sbt app', () => {
     expect(JSON.parse(out.stdout).created).toContain(
       join(app, '.claude', 'skills', 'kindgi-scala-getting-started', 'SKILL.md'),
     );
+    expect(JSON.parse(out.stdout).created).toContain(
+      join(app, '.agents', 'skills', 'kindgi-scala-getting-started', 'SKILL.md'),
+    );
   });
 
   test('a second run refuses; --force writes it again; another template is refused', async () => {

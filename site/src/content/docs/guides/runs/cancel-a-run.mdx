@@ -15,16 +15,44 @@ inside it.
 - **A run that's running or waiting,** and its id. `kindgi runs list` lists
   runs, as [List runs](../list-runs/) shows.
 - **`kindgi dev` running** in your pack's directory, with Kindgi 0.1's CLI.
-- **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
-  Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
+  Java 17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
 
 ## Cancel it
 
 A cancel stops the run wherever it is, and ends it as `cancelled`.
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs cancel <run-id>
+pnpm exec kindgi runs cancel <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs cancel <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs cancel <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs cancel <run-id>
+```
+
+</TabItem>
+</Tabs>
 
 `<run-id>` is the run's id. It prints:
 
@@ -110,7 +138,8 @@ ran, answers the waiting start with:
 
 ## From your app
 
-Your app cancels a run with `runs.cancel`. This code starts a run in the
+Your app cancels a run with `runs.cancel`. Ask your coding agent: "I want my
+app to cancel a run it started." For reference, this code starts a run in the
 background, then cancels it:
 
 <Tabs syncKey="lang">
@@ -149,6 +178,67 @@ run = kindgi.runs.start(
 )
 cancelled = kindgi.runs.cancel(run.id)
 print(cancelled.status)
+```
+
+```text
+cancelled
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/CancelRun.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.Run;
+import com.kindgi.client.models.StartRunBody;
+import java.util.Map;
+
+public final class CancelRun {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+    Run run = kindgi.runs().start(StartRunBody.WithFlow.builder()
+        .flow("acme.reserve-order")
+        .input(Map.of("orderId", "A-500"))
+        .options(StartRunBody.WithFlow.Options.builder().wait_(false).build())
+        .build());
+    Run cancelled = kindgi.runs().cancel(run.id());
+    System.out.println(cancelled.status());
+  }
+}
+```
+
+```text
+cancelled
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/CancelRun.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.StartRunBody
+import scala.jdk.CollectionConverters._
+
+object CancelRun {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
+
+    val run = kindgi.runs().start(StartRunBody.WithFlow.builder()
+      .flow("acme.reserve-order")
+      .input(Map("orderId" -> "A-500").asJava)
+      .options(StartRunBody.WithFlow.Options.builder().wait_(false).build())
+      .build())
+    val cancelled = kindgi.runs().cancel(run.id)
+    println(cancelled.status)
+  }
+}
 ```
 
 ```text

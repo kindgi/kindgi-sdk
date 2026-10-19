@@ -22,10 +22,12 @@ import type {
 } from '@kindgi/capabilities';
 import { adapterConfigError, samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
+import { createClientsByKey } from '@kindgi/capabilities/clients-by-key';
 import { nameToolsAsSent, toolIdsBySentName } from '@kindgi/capabilities/tool-names';
 import { bearerValueProblem } from '@kindgi/types';
 
 import { EXTRA_BODY_RESERVED_RESPONSES, invokeResponses, requestOptions } from './responses.js';
+import { retryAttempts, sendWithRetries } from './retry.js';
 import { SERVER_ENV_NEVER, computeCost, decodeToolName, encodeToolName } from './wire.js';
 
 /**
@@ -153,12 +155,19 @@ export function createOpenAICompatModelProvider(
   }
   const extraBody = options.extraBody ?? {};
   const modelsByName = new Map<string, ModelInfo>(metadata.models.map((m) => [m.name, m] as const));
-  // One client per key: reused while the resolver returns the same key
-  // (the SDK keeps its connection pool), rebuilt when it rotates.
-  let cached: { readonly key: string; readonly client: OpenAI } | undefined;
-  // Counts each call's HTTP attempts, the SDK's own retries included (its
-  // retry policy stays the SDK's), through the `fetch` the client sends with.
+  // One client per key, reused while the resolver returns that key, so a call
+  // doesn't build one (connections live in the `fetch` every client sends
+  // with, so they're kept either way): calls whose keys take turns (a run in
+  // each of two projects with keys of their own) each reuse their own; a
+  // rotated key builds a new one.
+  const clients = createClientsByKey<OpenAI>();
+  // Counts each call's HTTP attempts, the adapter's own retries included
+  // (`sendWithRetries`), through the `fetch` the client sends with.
   const attempts = createAttemptCounter(options.clientOptions?.fetch);
+  // The adapter owns the retries (the client is built with `maxRetries: 0`), so a
+  // connection the runtime refuses isn't tried again and its words reach the run.
+  // The caller's `maxRetries` keeps its meaning as the attempts in all.
+  const maxAttempts = retryAttempts(options.clientOptions?.maxRetries);
   async function clientForCall(): Promise<OpenAI> {
     const key = typeof options.apiKey === 'function' ? await options.apiKey() : options.apiKey;
     // Checked as the SDK sends it (`Authorization: Bearer <key>`): fetch's own
@@ -170,16 +179,20 @@ export function createOpenAICompatModelProvider(
         `${OPENAI_COMPAT_ADAPTER_ID}: provider "${metadata.id}": its API key has ${problem}, which a header can't carry: store the secret without it`,
       );
     }
-    if (cached !== undefined && cached.key === key) return cached.client;
-    const client = new OpenAI({
-      apiKey: key,
-      baseURL: options.baseURL,
-      ...SERVER_ENV_NEVER,
-      ...(options.clientOptions ?? {}),
-      fetch: attempts.fetch,
-    });
-    cached = { key, client };
-    return client;
+    return clients.get(
+      key,
+      () =>
+        new OpenAI({
+          apiKey: key,
+          baseURL: options.baseURL,
+          ...SERVER_ENV_NEVER,
+          ...(options.clientOptions ?? {}),
+          // The adapter retries (`sendWithRetries`); the SDK must not, or a refused
+          // connection would be tried again before the adapter could classify it.
+          maxRetries: 0,
+          fetch: attempts.fetch,
+        }),
+    );
   }
 
   return {
@@ -214,6 +227,7 @@ export function createOpenAICompatModelProvider(
         return invokeResponses({
           client: openai,
           attempts,
+          maxAttempts,
           input: { ...input, messages: sent },
           modelInfo,
           providerId: metadata.id,
@@ -242,23 +256,30 @@ export function createOpenAICompatModelProvider(
         : undefined;
 
       const counted = await attempts.count(() =>
-        openai.chat.completions.create(
+        sendWithRetries(
+          () =>
+            openai.chat.completions.create(
+              {
+                ...extraBody,
+                model: input.model,
+                messages,
+                ...(tools !== undefined && tools.length > 0 && { tools }),
+                ...(responseFormat !== undefined && { response_format: responseFormat }),
+                ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
+                ...(lowestThinking !== undefined && {
+                  reasoning_effort: lowestThinking as NonNullable<
+                    OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming['reasoning_effort']
+                  >,
+                }),
+                ...(input.maxOutputTokens !== undefined && { max_tokens: input.maxOutputTokens }),
+                stream: false,
+              },
+              requestOptions(input),
+            ),
           {
-            ...extraBody,
-            model: input.model,
-            messages,
-            ...(tools !== undefined && tools.length > 0 && { tools }),
-            ...(responseFormat !== undefined && { response_format: responseFormat }),
-            ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
-            ...(lowestThinking !== undefined && {
-              reasoning_effort: lowestThinking as NonNullable<
-                OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming['reasoning_effort']
-              >,
-            }),
-            ...(input.maxOutputTokens !== undefined && { max_tokens: input.maxOutputTokens }),
-            stream: false,
+            attempts: maxAttempts,
+            ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
           },
-          requestOptions(input),
         ),
       );
       const completion = counted.value;

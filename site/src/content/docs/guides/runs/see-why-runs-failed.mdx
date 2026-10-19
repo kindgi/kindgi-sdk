@@ -13,17 +13,44 @@ cause and by version, so a version that fails in a new way stands out.
 ## Before you start
 
 - **Failed runs,** on a runtime such as `kindgi dev`, with Kindgi 0.1's CLI.
-- **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
-  Kindgi 0.1's client, `KINDGI_API_URL` and `KINDGI_API_TOKEN` set, and
-  `read` on the project.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
+  Java 17 or later, with Kindgi 0.1's client, `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set, and `read` on the project.
 
 ## Why one run failed
 
 A failed run says why in its `failure`. Read the run:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs get <run-id>
+pnpm exec kindgi runs get <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs get <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs get <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs get <run-id>
+```
+
+</TabItem>
+</Tabs>
 
 `<run-id>` is the failed run's id. In the clients, it's `runs.get`, and over
 HTTP `GET /v1/runs/{runId}`. Here a guardrail halted an agent's turn:
@@ -80,8 +107,10 @@ meant for the runtime.
 ## A project's failed runs, by cause and version
 
 Counting a window's failed runs by cause and version shows a version that
-fails in a new way as a line of its own. This function prints a project's
-failed runs of the last week:
+fails in a new way as a line of its own. Ask your coding agent: "I want my
+app to count a project's failed runs from the last week, by cause and
+version." For reference, this function prints a project's failed runs of the
+last week:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -141,6 +170,94 @@ guardrail-violation acme.refunds 1.1.0 3
 capability-routing-failed acme.vision 1.0.0 1
 hitl-rejected acme.desk 1.0.0 1
 unrecorded acme.refunds 1.0.0 2
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/Failures.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.FailureGroup;
+import com.kindgi.client.models.RunFailureGroups;
+import com.kindgi.client.resources.RunsFailuresParams;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+
+public final class Failures {
+  private static final Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+  /** Prints a project's failed runs of the last week, by cause and version. */
+  public static void printFailures(String projectId) {
+    OffsetDateTime to = OffsetDateTime.now(ZoneOffset.UTC);
+    OffsetDateTime from = to.minusDays(7); // the last week
+    RunFailureGroups failures = kindgi.runs().failures(
+        RunsFailuresParams.builder().projectId(projectId).from(from).to(to).build());
+    for (FailureGroup g : failures.groups()) {
+      System.out.println(g.code() + " " + g.subject().id() + " " + g.version() + " " + g.count());
+    }
+    for (FailureGroup g : failures.outcomes()) {
+      System.out.println(g.code() + " " + g.subject().id() + " " + g.version() + " " + g.count());
+    }
+    for (FailureGroup g : failures.unrecorded()) {
+      System.out.println("unrecorded " + g.subject().id() + " " + g.version() + " " + g.count());
+    }
+  }
+
+  private Failures() {}
+}
+```
+
+On a project where two turns of `acme.echo-agent` were refused in a closed
+conversation and two runs of `acme.review-order` failed, it prints:
+
+```text
+conversation-closed acme.echo-agent 0.1.0 2
+run-failed acme.review-order 0.1.0 2
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/Failures.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.resources.RunsFailuresParams
+import java.time.{OffsetDateTime, ZoneOffset}
+import scala.jdk.CollectionConverters._
+
+object Failures {
+  private val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
+
+  /** Prints a project's failed runs of the last week, by cause and version. */
+  def printFailures(projectId: String): Unit = {
+    val to = OffsetDateTime.now(ZoneOffset.UTC)
+    val from = to.minusDays(7) // the last week
+    val failures = kindgi.runs().failures(
+      RunsFailuresParams.builder().projectId(projectId).from(from).to(to).build())
+    for (g <- failures.groups.asScala) {
+      println(s"${g.code} ${g.subject.id} ${g.version} ${g.count}")
+    }
+    for (g <- failures.outcomes.asScala) {
+      println(s"${g.code} ${g.subject.id} ${g.version} ${g.count}")
+    }
+    for (g <- failures.unrecorded.asScala) {
+      println(s"unrecorded ${g.subject.id} ${g.version} ${g.count}")
+    }
+  }
+}
+```
+
+On a project where two turns of `acme.echo-agent` were refused in a closed
+conversation and two runs of `acme.review-order` failed, it prints:
+
+```text
+conversation-closed acme.echo-agent 0.1.0 2
+run-failed acme.review-order 0.1.0 2
 ```
 
 </TabItem>

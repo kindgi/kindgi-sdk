@@ -8,7 +8,7 @@ import type { Cursor, ProjectId, TenantId, ToolId } from '@kindgi/types';
 
 import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.js';
 import type { BlockRegistryBinding } from './block-binding.js';
-import { resolveBlockPins } from './block-pins.js';
+import { type BlockPins, resolveBlockPins } from './block-pins.js';
 import { type DeployedVersionOutcome, deployVersion } from './deploy-versions.js';
 import { PublishRefused } from './publish-refused.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
@@ -37,12 +37,17 @@ const VERSIONS_PAGE = 200;
  * matches nothing (the tool isn't published, or no version is in range)
  * makes the agent unpinnable: the caller refuses the publish, naming
  * each such tool, rather than store a partly pinned version.
+ *
+ * Its data blocks pin by `resolveBlockPins`, unless the caller resolved
+ * them already (`blockPins`): a deploy does, before it writes anything,
+ * since checking model settings compiles a schema.
  */
 export async function resolveAgentPins(
   tools: ToolRegistryBinding,
   tenantId: TenantId,
   agent: Agent,
   blocks?: BlockRegistryBinding,
+  blockPins?: BlockPins,
 ): Promise<AgentPinsOutcome> {
   const pinned: Record<string, string> = {};
   const issues: UnpinnableRef[] = [];
@@ -67,12 +72,12 @@ export async function resolveAgentPins(
     });
   }
   // The data blocks it references, by the same rule (`resolveBlockPins`).
-  const blockPins = await resolveBlockPins(blocks, tenantId, agent);
-  issues.push(...blockPins.issues);
+  const blocksPinned = blockPins ?? (await resolveBlockPins(blocks, tenantId, agent));
+  issues.push(...blocksPinned.issues);
   if (issues.length > 0) return { kind: 'unpinnable', issues };
   return {
     kind: 'ok',
-    pins: { tools: pinned, prompts: blockPins.prompts, settings: blockPins.settings },
+    pins: { tools: pinned, prompts: blocksPinned.prompts, settings: blocksPinned.settings },
   };
 }
 

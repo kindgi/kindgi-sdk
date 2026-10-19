@@ -21,8 +21,9 @@ same key returns the run the first one started.
   your own flow's id. [Write a flow](../../flows/write-a-flow/) shows how to
   write and register one.
 - **A runtime to start it on,** such as `kindgi dev`, and Kindgi 0.1's CLI.
-- **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
-  Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
+  Java 17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
 
 ## Pick a key that names the work
 
@@ -40,9 +41,36 @@ Starting the same run twice shows what a repeat gets.
 
 Run this twice:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.review-order --input='{"orderId":"A-100"}' --idempotency-key=order-A-100-review
+pnpm exec kindgi runs start --flow=acme.review-order --input='{"orderId":"A-100"}' --idempotency-key=order-A-100-review
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.review-order --input='{"orderId":"A-100"}' --idempotency-key=order-A-100-review
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.review-order --input='{"orderId":"A-100"}' --idempotency-key=order-A-100-review
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.review-order --input='{"orderId":"A-100"}' --idempotency-key=order-A-100-review
+```
+
+</TabItem>
+</Tabs>
 
 - `--flow=acme.review-order` is the id of the flow to start.
 - `--input='{"orderId":"A-100"}'` is the run's input, as JSON.
@@ -54,9 +82,10 @@ Both print the same run, with the same `id` and `createdAt`.
 
 Your app sends the key with each start, so its own retries are safe.
 
-Pass `idempotencyKey` to `runs.start`, or `idempotency_key` in Python. This
-code starts the same run twice, then sends the same key with a different
-input:
+Pass `idempotencyKey` to `runs.start`, or `idempotency_key` in Python. Ask
+your coding agent: "I want my app to retry starting a run without starting it
+twice." For reference, this code starts the same run twice, then sends the
+same key with a different input:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -132,6 +161,90 @@ It prints:
 True completed
 Idempotency-Key was reused with a different request body. Use a fresh key or the original body.
 ```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/RetryStart.java
+package com.acme.app;
+
+import com.kindgi.client.ConflictException;
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.Run;
+import com.kindgi.client.models.StartRunBody;
+import com.kindgi.client.resources.RunsStartParams;
+import java.util.Map;
+
+public final class RetryStart {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
+    RunsStartParams key = RunsStartParams.builder().idempotencyKey("review-A-200").build();
+
+    Run first = kindgi.runs().start(reviewOrder("A-200"), key);
+    Run retry = kindgi.runs().start(reviewOrder("A-200"), key); // the same start again, after the first answered
+    System.out.println(first.id().equals(retry.id()) + " " + retry.status());
+
+    try {
+      kindgi.runs().start(reviewOrder("A-100"), key); // a different request, same key
+    } catch (ConflictException e) {
+      System.out.println(e.code() + " " + e.getMessage());
+    }
+  }
+
+  static StartRunBody reviewOrder(String orderId) {
+    return StartRunBody.WithFlow.builder()
+        .flow("acme.review-order")
+        .input(Map.of("orderId", orderId))
+        .build();
+  }
+}
+```
+
+```text
+true completed
+conflict Idempotency-Key was reused with a different request body. Use a fresh key or the original body.
+```
+
+`RunsStartParams` carries the key. Without one, the client adds a key of
+its own, so a retry it sends after a dropped connection is safe too.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/RetryStart.scala
+package acme.app
+
+import com.kindgi.client.{ConflictException, Kindgi}
+import com.kindgi.client.models.StartRunBody
+import com.kindgi.client.resources.RunsStartParams
+import scala.jdk.CollectionConverters._
+
+object RetryStart {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
+    val key = RunsStartParams.builder().idempotencyKey("review-A-200").build()
+    def reviewOrder(orderId: String) =
+      StartRunBody.WithFlow.builder().flow("acme.review-order").input(Map("orderId" -> orderId).asJava).build()
+
+    val first = kindgi.runs().start(reviewOrder("A-200"), key)
+    val retry = kindgi.runs().start(reviewOrder("A-200"), key) // the same start again, after the first answered
+    println(s"${first.id == retry.id} ${retry.status}")
+
+    try kindgi.runs().start(reviewOrder("A-100"), key) // a different request, same key
+    catch { case e: ConflictException => println(s"${e.code} ${e.getMessage}") }
+  }
+}
+```
+
+```text
+true completed
+conflict Idempotency-Key was reused with a different request body. Use a fresh key or the original body.
+```
+
+`RunsStartParams` carries the key. Without one, the client adds a key of
+its own, so a retry it sends after a dropped connection is safe too.
 
 </TabItem>
 </Tabs>

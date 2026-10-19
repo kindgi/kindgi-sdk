@@ -6,8 +6,9 @@ tenant's input can't stall the server for the others:
 - **patterns:** their length, the engine they run on (V8's, or RE2's,
   which runs in linear time, so no pattern can take exponential time), and
   how many citations a `must-cite` guardrail may ask for;
-- **schemas:** their size and nesting depth before they're compiled, and how
-  many compiled ones are kept;
+- **schemas:** their size and nesting depth before they're compiled, how
+  many compiled ones are kept and how much JSON they add up to, and how
+  long a tenant's schemas may spend compiling in any 60 seconds;
 - **templates:** liquidjs's parse, render-time and memory limits;
 - **bodies** read from endpoints a tenant names: their size, decompressed,
   and the idle time between chunks (per event for `text/event-stream`);
@@ -27,6 +28,39 @@ tenantInputBounds().schemaMaxBytes;          // what the helpers read
 
 Tests run with other bounds through `@kindgi/bounds/testing`'s
 `overrideTenantInputBounds`, which returns the function that puts them back.
+
+## Whose work it is
+
+A budget kept per tenant (`schemaCompileBudgetMs`) charges the tenant
+whose work is running. The server runs each request and each run inside
+`runAsTenant(tenantId, fn)`; `currentTenant()` reads it. The scope follows
+`fn`'s own awaits and callbacks (an `AsyncLocalStorage` context), never
+another request's. Outside any scope, at boot or in Kindgi's own work,
+nothing is charged.
+
+Which compiles count is the scope's `compiles`:
+
+- `recompiles`, the default: a schema compiled again after the cache
+  dropped it. The first compile of a schema the tenant published doesn't
+  count, so a restarted server compiles each tenant's schemas freely.
+  Once a tenant has compiled 4,096 different schemas in the process, every
+  compile counts.
+- `all`: every compile, the first included. A request that publishes,
+  deploys or registers schemas runs this way, since that's where new
+  schemas come from.
+
+```ts
+import { runAsTenant } from '@kindgi/bounds';
+
+await runAsTenant(tenantId, () => handle(request));
+await runAsTenant(tenantId, () => publish(request), { compiles: 'all' });
+```
+
+Work that runs on another thread, such as a template rendered in a worker,
+is charged with `TenantTimeBudget.admit(tenantId)`. It checks the budget
+when the work is asked for, refusing a tenant past it, and returns a
+`TenantWork` whose `start()` and `end()` charge the time between them.
+Time the work spends waiting for a thread isn't charged.
 
 ## Patterns
 

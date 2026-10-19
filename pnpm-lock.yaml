@@ -453,6 +453,9 @@ importers:
       '@kindgi/guardrails':
         specifier: workspace:*
         version: link:../guardrails
+      '@kindgi/handler-runtime':
+        specifier: workspace:*
+        version: link:../handler-runtime
       '@kindgi/log':
         specifier: workspace:*
         version: link:../log
@@ -484,7 +487,7 @@ importers:
         specifier: ^0.12.2
         version: 0.12.2(hono@4.13.8)
       hono:
-        specifier: ^4.6.14
+        specifier: ^4.13.8
         version: 4.13.8
     devDependencies:
       '@kindgi/audit-events-inmemory':
@@ -689,6 +692,9 @@ importers:
       '@kindgi/audit-events':
         specifier: workspace:*
         version: link:../audit-events
+      '@kindgi/log':
+        specifier: workspace:*
+        version: link:../log
       '@kindgi/platform':
         specifier: workspace:*
         version: link:../platform
@@ -792,6 +798,9 @@ importers:
       '@kindgi/compliance':
         specifier: workspace:*
         version: link:../compliance
+      '@kindgi/log':
+        specifier: workspace:*
+        version: link:../log
       '@kindgi/platform':
         specifier: workspace:*
         version: link:../platform
@@ -1107,6 +1116,9 @@ importers:
 
   packages/schema:
     dependencies:
+      '@kindgi/bounds':
+        specifier: workspace:*
+        version: link:../bounds
       '@kindgi/types':
         specifier: workspace:*
         version: link:../types
@@ -1268,6 +1280,9 @@ importers:
         specifier: ^7.6.3
         version: 7.8.5
     devDependencies:
+      '@kindgi/bounds':
+        specifier: workspace:*
+        version: link:../bounds
       '@kindgi/specs':
         specifier: workspace:*
         version: link:../specs

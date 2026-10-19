@@ -5,22 +5,32 @@ import type { ModelMessage, ModelToolCall } from '@kindgi/capabilities';
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
 import { WaitpointCancelledError } from '@kindgi/handler';
 import { stricterToolHitlRule } from '@kindgi/policy-contract';
-import { invokeTool, toolCallRecordKey, toolIdempotencyKey } from '@kindgi/tools';
+import { runIsAttended } from '@kindgi/runtime';
+import {
+  BUILT_IN_TOOL_PREFIX,
+  invokeTool,
+  toolCallRecordKey,
+  toolIdempotencyKey,
+} from '@kindgi/tools';
 import type { Tool, ToolContext } from '@kindgi/tools';
 
+import { REMEMBER_TOOL_ID, rememberStaysInProject } from '../remember.js';
 import { emitTurnEvent } from '../streaming.js';
 import type { ConversationMessage, ToolHitlMode, ToolHitlRule } from '../types.js';
 
-import type { EffectiveHitlPolicy } from '../hitl-policy.js';
+import { type EffectiveHitlPolicy, separateApproverFor } from '../hitl-policy.js';
 
 import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import {
   type ToolInvocationError,
   type UnresolvedToolError,
+  approvalsPendingLimitOf,
   throwAgentTurnFailure,
 } from './errors.js';
 import { TOOL_CALL_GATE_SUBJECT, readGateDecision, withdrawnGateFailure } from './gate-decision.js';
+import type { ToolCallAuthorization } from './public-types.js';
 import { decideReplayTool } from './replay.js';
+import { requestedBy } from './requested-by.js';
 import {
   effectiveToolErrorPolicy,
   toolErrorKindOf,
@@ -34,17 +44,26 @@ import { addStepToolNodes } from './turn-provenance.js';
  * Resolves the effective HITL mode + reviewer role for a specific
  * tool from the pre-resolved effective policy. Mirrors the standalone
  * `resolveToolHitl(agent, tool)` in tool-hitl.ts but consumes the
- * resolver's output.
+ * resolver's output, and adds the floors that sit above the agent's
+ * rules: the tenant's, and in a run no person started, the tool's own
+ * `needsApprovalWhenUnattended`.
  */
-function resolveEffectiveToolHitl(
+export function resolveEffectiveToolHitl(
   effective: EffectiveHitlPolicy,
   tool: Tool,
+  attended: boolean,
 ): { readonly mode: ToolHitlMode; readonly requiredRole: 'standard' | 'senior' | 'admin' } {
   const gate = agentToolHitl(effective, tool);
   // The tenant's floor for this tool, when it names one: the stricter wins.
   const floor = effective.toolFloors?.get(tool.id as unknown as string);
-  if (floor === undefined) return gate;
-  const stricter = stricterToolHitlRule(gate, floor);
+  const floored = floor === undefined ? gate : stricterToolHitlRule(gate, floor);
+  // In a run no person started, a tool that declares it needs a person's
+  // yes waits for one on every call. Agents are reused, so their rules
+  // can't lift it, the same as the tenant's floor.
+  const stricter =
+    !attended && tool.needsApprovalWhenUnattended === true
+      ? stricterToolHitlRule(floored, { mode: 'always_ask' })
+      : floored;
   return { mode: stricter.mode, requiredRole: stricter.requiredRole ?? gate.requiredRole };
 }
 
@@ -91,6 +110,8 @@ interface ToolGateRecord {
   readonly waitTokenId: string;
   readonly requiredRole: 'standard' | 'senior' | 'admin';
   readonly timeoutMs: number;
+  /** Four eyes for this call. Absent from a record made before it was kept: `false`. */
+  readonly separateApprover?: boolean;
 }
 
 /**
@@ -114,8 +135,12 @@ async function decideToolGate(
       cause: null,
     });
   }
+  // Whether a person started the turn's run: as the run recorded it when it
+  // started (a resumed turn's comes from its record, never from whoever
+  // resumed it), so an approval doesn't make the rest of the run attended.
+  const attended = runIsAttended(ctx.input.startedBy);
   return kctx.record(`${TOOL_GATE_RECORD_PREFIX}${call.id}`, (): ToolGateRecord | undefined => {
-    const resolved = resolveEffectiveToolHitl(effectiveHitl, tool);
+    const resolved = resolveEffectiveToolHitl(effectiveHitl, tool, attended);
     if (resolved.mode === 'never_ask') return undefined;
     const argsHash = hashToolArgs(call.arguments);
     return {
@@ -127,6 +152,7 @@ async function decideToolGate(
       }),
       requiredRole: resolved.requiredRole,
       timeoutMs: effectiveHitl.timeoutMs,
+      separateApprover: separateApproverFor(effectiveHitl, tool.id as unknown as string),
     };
   });
 }
@@ -229,6 +255,19 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
       }
       const { tool, resolvedVersion, requestedRange } = binding;
 
+      // The turn's principal may call this tool, or the call runs nothing
+      // and asks no reviewer (`authorizeToolCall`): its result tells the
+      // model. Recorded with the call, so a resumed turn keeps the answer.
+      const allowed = await authorizeCall(ctx, kctx, call.id, tool, 'call');
+      if (allowed !== undefined && !allowed.allowed) {
+        nextMessages = await appendDenied(ctx, partial.step, call, binding, allowed.reason, {
+          toolId: tool.id as unknown as string,
+          nextMessages,
+          iterationAppended,
+        });
+        continue;
+      }
+
       // Tool-level HITL gate. Resolves the effective mode
       // for this (agent, tool) pair via the effective-policy
       // resolver (framework defaults → agent → tenant cap), then parks +
@@ -292,6 +331,7 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
       let toolRejectionPayload: { readonly rationale?: string } | null = null;
       if (gate !== undefined) {
         const { argsHash, waitTokenId, timeoutMs } = gate;
+        const asker = requestedBy(ctx.input.principal);
         const expiresAt = new Date(Date.now() + timeoutMs).toISOString();
 
         if (ctx.bindings.hitl?.enqueue !== undefined) {
@@ -311,14 +351,21 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
                 arguments: call.arguments as never,
               },
               requiredRole: gate.requiredRole,
+              // Who asked: the person the turn runs for, whoever resumes it.
+              ...(asker !== undefined && { requestedBy: asker }),
+              separateApprover: gate.separateApprover === true,
               title: `HITL review: ${call.name}`,
               description: `Tool call ${call.name} awaiting reviewer approval before dispatch.`,
               waitTokenId,
               provenanceRef: { runId: kctx.runId },
               expiresAt: expiresAt as never,
             });
-          } catch {
-            // Enqueue failure is soft — waitForToken parks either way.
+          } catch (cause) {
+            // Past the tenant's limit on approvals waiting, the step fails
+            // naming it: no approval was opened, so nobody would decide.
+            const limit = approvalsPendingLimitOf(cause);
+            if (limit !== undefined) throwAgentTurnFailure(limit);
+            // Any other enqueue failure is soft: waitForToken parks either way.
           }
         }
 
@@ -344,6 +391,24 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
             );
           }
           throw cause;
+        }
+      }
+
+      // Approved: asked again right before it runs, since access can change
+      // while a call waits for its reviewer (days, at times). A denial runs
+      // nothing; the reviewer's decision stays as it was decided.
+      if (gate !== undefined && toolRejectionPayload === null) {
+        const still = await authorizeCall(ctx, kctx, call.id, tool, 'approved');
+        if (still !== undefined && !still.allowed) {
+          nextMessages = await appendDenied(
+            ctx,
+            partial.step,
+            call,
+            binding,
+            `Access changed while this call waited for its approval. ${still.reason}`,
+            { toolId: tool.id as unknown as string, nextMessages, iterationAppended },
+          );
+          continue;
         }
       }
 
@@ -576,6 +641,87 @@ async function retryOrFail(
   if (!policy.retryOn.has(kind)) throwAgentTurnFailure(error);
   if (used >= policy.maxRetries) throwAgentTurnFailure({ ...error, toolRetries: used });
   return appendToolResult(ctx, call, toolErrorResult(kind, error.message, issues), target);
+}
+
+/**
+ * The turn's `authorizeToolCall` answer for a call, recorded with the call
+ * (`when`: before any approval, or once it's approved); `undefined` when
+ * there's nothing to ask. Each check is recorded under its own key, outside
+ * the tool's own `ToolContext.record` keys (`toolCallRecordKey`). A throw
+ * records nothing and fails the step: no answer never runs a call.
+ */
+async function authorizeCall(
+  ctx: TurnContext,
+  kctx: NodeContext,
+  callId: string,
+  tool: Tool,
+  when: 'call' | 'approved',
+): Promise<ToolCallAuthorization | undefined> {
+  const authorize = ctx.bindings.authorizeToolCall;
+  const toolId = tool.id as unknown as string;
+  if (authorize === undefined || !asksAuthorization(ctx, toolId)) return undefined;
+  return kctx.record(
+    `${TOOL_AUTHORIZE_RECORD_PREFIX}${callId}:${toolId}${when === 'approved' ? ':approved' : ''}`,
+    () =>
+      authorize({
+        tenantId: ctx.input.tenantId,
+        projectId: ctx.input.projectId,
+        ...(ctx.input.principal !== undefined && { principal: ctx.input.principal }),
+        toolId,
+      }),
+  );
+}
+
+/** The record key prefix of a call's authorization decisions (`authorizeCall`). */
+const TOOL_AUTHORIZE_RECORD_PREFIX = 'tool-authorize:';
+
+/**
+ * Whether a call is asked of `authorizeToolCall`: a registered tool's,
+ * always; a built-in's (`kindgi_<verb>`), only when what it touches
+ * reaches beyond the run's project (the rule is in `remember.ts`). A
+ * built-in with no rule here is asked.
+ */
+function asksAuthorization(ctx: TurnContext, toolId: string): boolean {
+  if (!toolId.startsWith(BUILT_IN_TOOL_PREFIX)) return true;
+  const remember = ctx.input.agent.memory?.remember;
+  if (toolId === REMEMBER_TOOL_ID && remember !== undefined) {
+    return !rememberStaysInProject(remember);
+  }
+  return true;
+}
+
+/** A denied call's result, `{ status: 'denied', reason }`, stored and told to the model like any other. */
+async function appendDenied(
+  ctx: TurnContext,
+  step: number,
+  call: ModelToolCall,
+  binding: { readonly resolvedVersion: string; readonly requestedRange: string },
+  reason: string,
+  target: ToolResultTarget,
+): Promise<ModelMessage[]> {
+  const started = Date.now();
+  const denied = { status: 'denied' as const, reason };
+  await emitTurnEvent(ctx.bindings.onEvent, {
+    kind: 'tool.started',
+    step,
+    toolId: call.name,
+    toolVersion: binding.resolvedVersion,
+    toolVersionRange: binding.requestedRange,
+    invocationId: call.id,
+    arguments: call.arguments,
+  });
+  const nextMessages = await appendToolResult(ctx, call, denied, target);
+  await emitTurnEvent(ctx.bindings.onEvent, {
+    kind: 'tool.completed',
+    step,
+    toolId: call.name,
+    toolVersion: binding.resolvedVersion,
+    toolVersionRange: binding.requestedRange,
+    invocationId: call.id,
+    output: denied as never,
+    durationMs: Date.now() - started,
+  });
+  return nextMessages;
 }
 
 async function dispatchOne(

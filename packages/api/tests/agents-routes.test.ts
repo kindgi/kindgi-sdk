@@ -7,12 +7,15 @@ import { describe, expect, test } from 'vitest';
 
 import type { AgentRegistry } from '@kindgi/agents';
 import { createAgentRegistry, defineAgent } from '@kindgi/agents';
+import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
+import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { AgentRegistryBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';
+import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { inMemoryMemory } from './support/in-memory-memory.js';
 
 /**
@@ -309,6 +312,34 @@ describe('API — agents publish', () => {
     expect(stored.status).toBe(404);
   });
 
+  test.each([
+    ['null', null],
+    ['a string', 'json'],
+    ['an array', [{ type: 'object' }]],
+  ])(
+    "an output that isn't an object (%s) → 400 at /output, and nothing stored",
+    async (_what, output) => {
+      const { app } = makeApp();
+      const res = await app.request('/v1/agents', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ ...agentSpec(), output }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as {
+        error: { code: string; details?: { issues?: unknown[] } };
+      };
+      expect(body.error.code).toBe('validation-failed');
+      expect(body.error.details?.issues).toEqual([
+        { path: '/output', message: 'output must be an object { schema, name?, maxRepairs? }' },
+      ]);
+      const stored = await app.request('/v1/agents/acme.drafting', {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(stored.status).toBe(404);
+    },
+  );
+
   test('non-JSON body → 400 bad-input', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/agents', {
@@ -402,6 +433,37 @@ describe('API — agents publish', () => {
     const body = (await second.json()) as { agentId: string; version: string };
     expect(body.agentId).toBe('acme.drafting');
     expect(body.version).toBe('1.0.0');
+  });
+
+  test("its output schema's compile counts against the tenant's budget, the first one included: refused, nothing is stored", async () => {
+    const { app } = makeApp();
+    const publish = () =>
+      app.request('/v1/agents', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ...agentSpec(),
+          output: {
+            schema: {
+              type: 'object',
+              properties: { draft: { type: 'string' } },
+              required: ['draft'],
+            },
+          },
+        }),
+      });
+    const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
+    try {
+      const refused = await publish();
+      await expectCompileBudgetRefused(refused);
+      const listed = await app.request('/v1/agents', {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(((await listed.json()) as { data: unknown[] }).data).toEqual([]);
+    } finally {
+      restore();
+    }
+    expect((await publish()).status).toBe(201);
   });
 });
 

@@ -26,6 +26,8 @@ import {
   toValue,
 } from 'liquidjs';
 
+import { chargeRender } from './render-budget.js';
+
 /** What a template that uses a partial is told, at a publish and at a render alike. */
 export const NO_PARTIALS = "templates can't use include, render or layout";
 
@@ -194,10 +196,12 @@ export function tenantLiquid(): Liquid {
 /**
  * A template rendered under the bounds' limits: what its filters and
  * ranges make, and what it writes (its output and its captures), count
- * toward `memoryLimit` as they're made.
+ * toward `memoryLimit` as they're made. As a tenant's work, its time
+ * counts toward the tenant's `templateRenderBudgetMs`, and a tenant past
+ * that is refused with `TemplateRenderBudgetError`.
  */
 export function renderTenantTemplate(template: string, scope: object): string {
-  return tenantLiquid().parseAndRenderSync(template, scope);
+  return chargeRender(() => tenantLiquid().parseAndRenderSync(template, scope));
 }
 
 /**
@@ -230,7 +234,7 @@ export function liquidProblem(cause: unknown): string | undefined {
     // A string past the longest V8 makes, under bounds with no memory limit.
     if (error instanceof RangeError && error.message === 'Invalid string length') {
       return Number.isFinite(memoryLimit)
-        ? `the render went over its memory limit of ${memoryLimit}`
+        ? memoryLimitProblem(memoryLimit)
         : 'the render made a string longer than JavaScript allows';
     }
     // liquidjs's own messages for its three limits.
@@ -238,13 +242,23 @@ export function liquidProblem(cause: unknown): string | undefined {
       return `the template is over the limit of ${parseLimit} characters`;
     }
     if (error.message === 'template render limit exceeded') {
-      return `the render took over the limit of ${renderLimitMs} ms`;
+      return renderLimitProblem(renderLimitMs);
     }
     if (error.message === MEMORY_LIMIT_EXCEEDED) {
-      return `the render went over its memory limit of ${memoryLimit}`;
+      return memoryLimitProblem(memoryLimit);
     }
   }
   return undefined;
+}
+
+/** What a render over `renderLimitMs` is told: liquidjs's check, or a worker stopped at the limit. */
+export function renderLimitProblem(renderLimitMs: number): string {
+  return `the render took over the limit of ${renderLimitMs} ms`;
+}
+
+/** What a render over `memoryLimit` is told: liquidjs's count, or a worker past its heap. */
+export function memoryLimitProblem(memoryLimit: number): string {
+  return `the render went over its memory limit of ${memoryLimit}`;
 }
 
 function originalOf(error: Error): unknown {

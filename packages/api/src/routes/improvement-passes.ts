@@ -5,7 +5,7 @@ import { type Context, Hono } from 'hono';
 
 import { type AgentId, tunableKeys } from '@kindgi/agents';
 import { type Action, ref } from '@kindgi/authz';
-import type { Cursor, Semver, TenantId } from '@kindgi/types';
+import type { Cursor, ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
@@ -21,8 +21,15 @@ import {
   type ImprovementPassBinding,
   type ImprovementTier,
 } from '../improvement-pass-binding.js';
+import { type ItemRights, writeWhereMade } from '../item-rights.js';
 import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import {
+  type ReferenceScopeBinding,
+  liveScopeOutOfScope,
+  outOfScopeResponse,
+  referencesOutOfScope,
+} from '../reference-scope.js';
 import type { ProposalObjective } from '../supervisor-binding.js';
 import type { AppEnv } from '../types.js';
 import { actorOf, coordinatesOf } from './agent-releases.js';
@@ -37,6 +44,10 @@ export interface ImproveDeps {
   readonly agents: AgentRegistryBinding;
   readonly blocks: BlockRegistryBinding;
   readonly releases: AgentReleaseBindings;
+  /** What the agent's project may reach (`reference-scope.ts`); absent → as named. */
+  readonly referenceScope?: ReferenceScopeBinding;
+  /** Whether a project is suspended: no pass starts for an agent in one. Absent: no check. */
+  readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
 }
 
 export const DEFAULT_BUDGET: ImprovementBudget = { maxCostUsd: 5, maxCandidates: 30 };
@@ -52,16 +63,23 @@ const OBJECTIVES: readonly ProposalObjective[] = ['weightedYesShare', 'weightedP
  * Checked first, as evaluating its proposal would be: the version must be
  * active and pinned, it must pin a settings block with tunable keys, the
  * agent registry must take writes, and the agent must have a live version
- * for the whole tenant. Needs `publish` on the agent.
+ * for the whole tenant. Needs `publish` on the agent; for an agent more
+ * than one project serves, `write` where its new versions are made
+ * (`item-rights.ts`).
  */
-export function mountImproveRoute(r: Hono<AppEnv>, deps: ImproveDeps, authorizer?: Authorizer) {
+export function mountImproveRoute(
+  r: Hono<AppEnv>,
+  deps: ImproveDeps,
+  authorizer?: Authorizer,
+  itemRights?: ItemRights,
+) {
   r.post('/improve', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const body = await readBody(c);
     if (body === undefined) return badInput(c, 'Request body must be a JSON object');
     const parsed = parseImproveBody(body);
     if (typeof parsed === 'string') return badInput(c, parsed);
-    const denied = await deny(c, authorizer, 'publish', parsed.agentId);
+    const denied = await deny(c, authorizer, 'publish', parsed.agentId, itemRights);
     if (denied !== undefined) return denied;
     if (deps.passes === undefined) return unsupported(c);
     if (deps.agents.readOnly !== undefined) {
@@ -84,6 +102,27 @@ export function mountImproveRoute(r: Hono<AppEnv>, deps: ImproveDeps, authorizer
       return fail(c, 'agent-version-not-found', {
         code: 'agent-version-not-found',
         message: `${parsed.agentId} has no active version ${fromVersion ?? '(none is registered)'}`,
+      });
+    }
+    // The suite must be the agent's project's to reach, and the scope must
+    // reach the agent (`reference-scope.ts`).
+    const outOfScope =
+      (from.projectId === undefined
+        ? undefined
+        : await referencesOutOfScope(deps.referenceScope, tenantId, from.projectId, [
+            { path: '/suiteId', kind: 'suite', id: parsed.suiteId },
+          ])) ??
+      (await liveScopeOutOfScope(deps.referenceScope, tenantId, parsed.agentId, parsed.scope));
+    if (outOfScope !== undefined) return outOfScopeResponse(c, c.get('requestId'), outOfScope);
+    if (
+      from.projectId !== undefined &&
+      deps.projectSuspended !== undefined &&
+      (await deps.projectSuspended(tenantId, from.projectId))
+    ) {
+      return fail(c, 'project-suspended', {
+        code: 'project-suspended',
+        message:
+          "The agent's project is suspended, so nothing new runs in it until it's restored; the pass wasn't started",
       });
     }
     const nothing = await nothingToTune(deps.blocks, tenantId, from, parsed.tiers[0]);
@@ -128,11 +167,14 @@ export function mountImproveRoute(r: Hono<AppEnv>, deps: ImproveDeps, authorizer
  *   POST /:passId/cancel stop a running pass (it writes no proposal)
  *
  * Authorized on the pass's agent: `read`, and `publish` to cancel. A pass
- * the caller can't read answers 404.
+ * the caller can't read answers 404. For an agent more than one project
+ * serves (`item-rights.ts`): `read` on the agent or any of its projects,
+ * and `write` where its new versions are made to cancel.
  */
 export function improvementPassesRouter(
   passes: ImprovementPassBinding | undefined,
   authorizer?: Authorizer,
+  itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -140,10 +182,7 @@ export function improvementPassesRouter(
     if (passes === undefined) return unsupported(c);
     const passId = c.req.param('passId') ?? '';
     const pass = await passes.get({ tenantId: c.get('tenantId') as TenantId, passId });
-    const hidden =
-      pass !== null &&
-      authorizer !== undefined &&
-      !(await authorizer.can(c, 'read', ref('agent', pass.agentId)));
+    const hidden = pass !== null && !(await readable(c, pass.agentId));
     if (pass === null || hidden) {
       return fail(c, 'improvement-pass-not-found', {
         code: 'improvement-pass-not-found',
@@ -152,6 +191,15 @@ export function improvementPassesRouter(
       });
     }
     return pass;
+  }
+
+  /** Whether the caller reads the agent: `read` on it, or for one more than one project serves, on any of them. */
+  async function readable(c: Ctx, agentId: string): Promise<boolean> {
+    if (authorizer === undefined) return true;
+    const projects = await itemRights?.multi(c, 'agent', agentId);
+    return itemRights !== undefined && projects !== undefined
+      ? (await itemRights.read(c, 'agent', agentId, projects)) === undefined
+      : authorizer.can(c, 'read', ref('agent', agentId));
   }
 
   r.get('/', async (c) => {
@@ -164,12 +212,17 @@ export function improvementPassesRouter(
       ...(agentId !== undefined && agentId !== '' && { agentId }),
       ...(cursor !== undefined && cursor !== '' && { cursor: cursor as Cursor }),
     });
-    const readable =
+    const shown =
       authorizer === undefined
         ? page.data
-        : await authorizer.filterByCan(c, 'read', page.data, (p) => ref('agent', p.agentId));
+        : itemRights === undefined
+          ? await authorizer.filterByCan(c, 'read', page.data, (p) => ref('agent', p.agentId))
+          : await itemRights.filterItems(c, 'agent', page.data, {
+              idOf: (p) => p.agentId,
+              todayRef: (p) => ref('agent', p.agentId),
+            });
     return c.json({
-      data: readable.map(serializePass),
+      data: shown.map(serializePass),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -184,7 +237,7 @@ export function improvementPassesRouter(
   r.post('/:passId/cancel', async (c) => {
     const pass = await load(c);
     if (pass instanceof Response) return pass;
-    const denied = await deny(c, authorizer, 'publish', pass.agentId);
+    const denied = await deny(c, authorizer, 'publish', pass.agentId, itemRights);
     if (denied !== undefined) return denied;
     const actor = actorOf(c);
     const outcome = await (passes as ImprovementPassBinding).cancel({
@@ -269,6 +322,8 @@ export function serializePass(p: ImprovementPass): Record<string, unknown> {
     candidatesEvaluated: p.candidatesEvaluated,
     costUsd: p.costUsd,
     ...(p.outcome !== undefined && { outcome: p.outcome }),
+    ...(p.status === 'cancelled' &&
+      p.cancelReason !== undefined && { cancelReason: p.cancelReason }),
     ...(p.comparisons !== undefined && { comparisons: p.comparisons }),
     ...(p.trigger !== undefined && { trigger: p.trigger }),
     createdAt: p.createdAt,
@@ -510,8 +565,28 @@ async function readBody(c: Ctx): Promise<Record<string, unknown> | undefined> {
 
 // ---------- helpers ----------
 
-async function deny(c: Ctx, authorizer: Authorizer | undefined, action: Action, agentId: string) {
+/**
+ * `undefined` when allowed; else the 403. For an agent more than one
+ * project serves, `publish` is `write` where its new versions are made.
+ */
+async function deny(
+  c: Ctx,
+  authorizer: Authorizer | undefined,
+  action: Action,
+  agentId: string,
+  itemRights?: ItemRights,
+) {
   if (authorizer === undefined) return undefined;
+  const projects = await itemRights?.multi(c, 'agent', agentId);
+  if (itemRights !== undefined && projects !== undefined) {
+    return writeWhereMade(
+      c,
+      itemRights,
+      { kind: 'agent', id: agentId },
+      projects,
+      `improving agent "${agentId}"`,
+    );
+  }
   const decision = await authorizer.check(c, action, ref('agent', agentId));
   if (decision.allowed) return undefined;
   return fail(c, 'permission-denied', {

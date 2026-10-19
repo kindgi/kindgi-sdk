@@ -1,5 +1,335 @@
 # @kindgi/sdk
 
+## 0.1.8
+
+### Patch Changes
+
+- e0ce14b: The Java and Scala flow skills say that a fanout branch gets the whole step output, so a branch tool's input that takes only some of it ignores the rest (`@JsonIgnoreProperties(ignoreUnknown = true)`).
+- 4074324: The Java and Scala skills' preview note no longer names a release: the API may still change in a later release without the usual deprecation period. That's the two getting-started skills and the eight authoring skills (agents, flows, guardrails and tools, in each language).
+- 65d97b5: The Java and Scala tool skills say what `ctx.env` holds: the env values a tool declares, resolved for the call.
+- cb32b0d: **`kindgi init` and `kindgi skills sync` write Kindgi's skills to `.agents/skills/` as well as `.claude/skills/`,** the folder Codex and Gemini CLI look in, by their own docs.
+  - Both folders hold the same copy of each skill, under one manifest (`.claude/skills/.kindgi-manifest.json`, which gains an optional `agentsSkills` field; a manifest without it is still read). `kindgi skills sync` judges each folder's copy on its own: an edited copy is kept unless `--force`, and a folder that was deleted is written again.
+  - Each outcome in `kindgi skills sync`'s JSON names its `folder`. Its summary, one block per folder, now prints on stderr unless `--json` or `--quiet` is given.
+  - `kindgi dev`'s skills warning covers both folders and counts each skill once; a copy that's gone counts as not yet installed.
+  - A project's existing `.prettierignore` gets `.agents/skills/kindgi-*/` beside `.claude/skills/kindgi-*/`, from `kindgi init` adding Kindgi to a TypeScript app and from `kindgi skills sync`. Sync never creates one, leaves it alone on `--dry-run`, and says what it added (in its JSON, `prettierignore`).
+  - The templates' `AGENTS.md` have a `## Skills` section that names both folders (the TypeScript ones were headed for one coding agent), and refer to skills by name. They, and the getting-started skills for TypeScript, Python, Java and Scala, say which commands are the person's to run in their own terminal, and what an agent does when its sandbox blocks a command: give the person the exact command, the folder and what they'll see, and wait.
+- 41d3a91: **The tools skills say what bounds an HTTP tool's call.** The TypeScript and Python tools skills say that `timeoutMs` (`timeout_ms`) and a run's cancel cover reading the response, and that a response body over 10 MiB, counted after it's decompressed, fails the call. So they point a tool at an endpoint that pages or filters.
+- 1ee7082: **The providers skill covers Amazon Bedrock, and a Bedrock API key on a runtime that keeps tenants apart.** It registers the `bedrock` preset, which signs in as the runtime's AWS identity. On a runtime with `KINDGI_TENANT_HOST_ACCESS=isolated`, which refuses that, it registers Bedrock from a spec with `adapter_config.auth` set to `api-key` and `secret_ref` naming a long-term Bedrock API key. One key works in one Region, and the skill tells the person that AWS recommends long-term keys for exploration only, with AWS's page. It also names the same rule for Gemini on Vertex AI and Azure OpenAI, and lists the Azure OpenAI and Bedrock adapters among the model adapters.
+- ebf405d: **`KINDGI_TENANT_HOST_ACCESS=isolated`, for a server whose tenants don't trust one another.** It refuses all that `deployed` does, plus private networks wherever tenant configuration names a host, and any sign-in as the server.
+  - **`@kindgi/api`:**
+    - `TENANT_HOST_ACCESS_LEVELS` gains `isolated`, so the `TenantHostAccess` union widens. A caller's exhaustive `switch` over it needs the new case.
+    - `HostReach` gains `'private-network'` (RFC 1918, CGNAT 100.64.0.0/10, IPv6 unique-local and site-local) and `'server-credentials'` (signing in as the server: with credentials its environment holds, or as its own cloud identities). Only `isolated` denies them.
+    - **`stdioRefusal(endpointId, level)`** now takes the level, and names it: "KINDGI_TENANT_HOST_ACCESS=isolated refuses that". Under `isolated`, registering a `stdio` MCP endpoint answers `403 host-access-denied`, as it does under `deployed`.
+  - **`@kindgi/capabilities`:**
+    - `AdapterFactoryInput.serverCredentials?` and `AdapterConfigCheckInput.serverCredentials?` (optional) say whether a registration may sign in as the server. Absent means allowed, as before.
+    - `createAdapterFactoryRegistry(seed, { serverCredentials: false })` tells every factory and every `checkConfig`, and withholds the runtime's `identities` from them, so each check learns there are none. An input can't turn either back on.
+  - **The adapters, with `serverCredentials: false`:** each refuses the registration in its check and its factory, with the same message, naming the alternative:
+    - `@kindgi/adapter-model-gemini`: Vertex AI without `secret_ref`, which would sign in with Application Default Credentials;
+    - `@kindgi/adapter-model-bedrock`: `auth: aws-identity`, the default (use `api-key`);
+    - `@kindgi/adapter-model-azure-openai`: `auth: entra` (use the resource's API key).
+  
+    A registration with its own key is unchanged.
+  - **`@kindgi/env-schema`:** `KINDGI_TENANT_HOST_ACCESS` takes `isolated`, and its description says what the level refuses. The server won't start with `isolated` together with `KINDGI_DEV`, `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow` or `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`; those descriptions, and `KINDGI_AWS_IDENTITY`'s, say so.
+  - **`@kindgi/sdk`:** the providers skill says that a runtime with `isolated` needs a Gemini service-account key in `secret_ref`.
+- ebf405d: **An agent turn whose work its tenant's budget refuses fails with `rate-limit-exceeded`, not `model-invocation-failed`,** on a server with budgets kept per tenant (Kindgi Cloud). The error names the budget in `details.limit` (`template-render-time` or `schema-compile-time`), with `details.budgetMs`, and says when the tenant is under it again. `POST /v1/runs` answers it as `429`, with `Retry-After` and `details.runId`, and the run reads as failed with that code. The OpenAPI document lists the 429 on `POST /v1/runs`.
+  - New: the tenant input bounds' `templateRenderBudgetMs`, the time a tenant's instructions templates may spend rendering in any 60 seconds. Once a tenant has spent it, its next render is refused before it starts. A self-hosted server has none.
+  - `TenantBudgetError` (`@kindgi/bounds`) is what each budget's refusal is: `SchemaCompileBudgetError` and the new `TemplateRenderBudgetError` (`@kindgi/agents`) extend it, with `limit`, `budgetMs` and `retryAfterMs`. The API answers any of them thrown from a route as `429 rate-limit-exceeded`.
+  - A guardrail check, or a tenant's approval policy, whose schema compile the budget refuses no longer fails as `check-failed` or `tenant-policy-unavailable`: the turn fails as above.
+  - A failed run's `failure` has `details` for a code that has them. For `rate-limit-exceeded` that's `limit` and `budgetMs`, never the wait, which is stale once read back. The `run.finished` webhook's run can carry `failure` beside `failureMessage`. It's absent from a runtime that doesn't send it yet. `parseEvent` (`@kindgi/sdk/webhooks`) reads it, and reads a failure's `cause` as any JSON value.
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [fddc8f7]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [82eebb6]
+- Updated dependencies [cd84814]
+- Updated dependencies [57a7b2e]
+- Updated dependencies [2969337]
+- Updated dependencies [ebf405d]
+- Updated dependencies [b22e616]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [76532eb]
+- Updated dependencies [08bf3e5]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [d985473]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f526987]
+- Updated dependencies [a2ee44b]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f05d320]
+  - @kindgi/agents@0.1.8
+  - @kindgi/client@0.1.8
+  - @kindgi/guardrails@0.1.8
+  - @kindgi/tools@0.1.8
+  - @kindgi/handler-runtime@0.1.8
+  - @kindgi/schema@0.1.8
+  - @kindgi/types@0.1.8
+  - @kindgi/flow@0.1.8
+  - @kindgi/crypto@0.1.8
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- e0ce14b: The Java and Scala flow skills say that a fanout branch gets the whole step output, so a branch tool's input that takes only some of it ignores the rest (`@JsonIgnoreProperties(ignoreUnknown = true)`).
+- 4074324: The Java and Scala skills' preview note no longer names a release: the API may still change in a later release without the usual deprecation period. That's the two getting-started skills and the eight authoring skills (agents, flows, guardrails and tools, in each language).
+- 65d97b5: The Java and Scala tool skills say what `ctx.env` holds: the env values a tool declares, resolved for the call.
+- cb32b0d: **`kindgi init` and `kindgi skills sync` write Kindgi's skills to `.agents/skills/` as well as `.claude/skills/`,** the folder Codex and Gemini CLI look in, by their own docs.
+  - Both folders hold the same copy of each skill, under one manifest (`.claude/skills/.kindgi-manifest.json`, which gains an optional `agentsSkills` field; a manifest without it is still read). `kindgi skills sync` judges each folder's copy on its own: an edited copy is kept unless `--force`, and a folder that was deleted is written again.
+  - Each outcome in `kindgi skills sync`'s JSON names its `folder`. Its summary, one block per folder, now prints on stderr unless `--json` or `--quiet` is given.
+  - `kindgi dev`'s skills warning covers both folders and counts each skill once; a copy that's gone counts as not yet installed.
+  - A project's existing `.prettierignore` gets `.agents/skills/kindgi-*/` beside `.claude/skills/kindgi-*/`, from `kindgi init` adding Kindgi to a TypeScript app and from `kindgi skills sync`. Sync never creates one, leaves it alone on `--dry-run`, and says what it added (in its JSON, `prettierignore`).
+  - The templates' `AGENTS.md` have a `## Skills` section that names both folders (the TypeScript ones were headed for one coding agent), and refer to skills by name. They, and the getting-started skills for TypeScript, Python, Java and Scala, say which commands are the person's to run in their own terminal, and what an agent does when its sandbox blocks a command: give the person the exact command, the folder and what they'll see, and wait.
+- 41d3a91: **The tools skills say what bounds an HTTP tool's call.** The TypeScript and Python tools skills say that `timeoutMs` (`timeout_ms`) and a run's cancel cover reading the response, and that a response body over 10 MiB, counted after it's decompressed, fails the call. So they point a tool at an endpoint that pages or filters.
+- 1ee7082: **The providers skill covers Amazon Bedrock, and a Bedrock API key on a runtime that keeps tenants apart.** It registers the `bedrock` preset, which signs in as the runtime's AWS identity. On a runtime with `KINDGI_TENANT_HOST_ACCESS=isolated`, which refuses that, it registers Bedrock from a spec with `adapter_config.auth` set to `api-key` and `secret_ref` naming a long-term Bedrock API key. One key works in one Region, and the skill tells the person that AWS recommends long-term keys for exploration only, with AWS's page. It also names the same rule for Gemini on Vertex AI and Azure OpenAI, and lists the Azure OpenAI and Bedrock adapters among the model adapters.
+- ebf405d: **`KINDGI_TENANT_HOST_ACCESS=isolated`, for a server whose tenants don't trust one another.** It refuses all that `deployed` does, plus private networks wherever tenant configuration names a host, and any sign-in as the server.
+  - **`@kindgi/api`:**
+    - `TENANT_HOST_ACCESS_LEVELS` gains `isolated`, so the `TenantHostAccess` union widens. A caller's exhaustive `switch` over it needs the new case.
+    - `HostReach` gains `'private-network'` (RFC 1918, CGNAT 100.64.0.0/10, IPv6 unique-local and site-local) and `'server-credentials'` (signing in as the server: with credentials its environment holds, or as its own cloud identities). Only `isolated` denies them.
+    - **`stdioRefusal(endpointId, level)`** now takes the level, and names it: "KINDGI_TENANT_HOST_ACCESS=isolated refuses that". Under `isolated`, registering a `stdio` MCP endpoint answers `403 host-access-denied`, as it does under `deployed`.
+  - **`@kindgi/capabilities`:**
+    - `AdapterFactoryInput.serverCredentials?` and `AdapterConfigCheckInput.serverCredentials?` (optional) say whether a registration may sign in as the server. Absent means allowed, as before.
+    - `createAdapterFactoryRegistry(seed, { serverCredentials: false })` tells every factory and every `checkConfig`, and withholds the runtime's `identities` from them, so each check learns there are none. An input can't turn either back on.
+  - **The adapters, with `serverCredentials: false`:** each refuses the registration in its check and its factory, with the same message, naming the alternative:
+    - `@kindgi/adapter-model-gemini`: Vertex AI without `secret_ref`, which would sign in with Application Default Credentials;
+    - `@kindgi/adapter-model-bedrock`: `auth: aws-identity`, the default (use `api-key`);
+    - `@kindgi/adapter-model-azure-openai`: `auth: entra` (use the resource's API key).
+  
+    A registration with its own key is unchanged.
+  - **`@kindgi/env-schema`:** `KINDGI_TENANT_HOST_ACCESS` takes `isolated`, and its description says what the level refuses. The server won't start with `isolated` together with `KINDGI_DEV`, `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow` or `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`; those descriptions, and `KINDGI_AWS_IDENTITY`'s, say so.
+  - **`@kindgi/sdk`:** the providers skill says that a runtime with `isolated` needs a Gemini service-account key in `secret_ref`.
+- ebf405d: **An agent turn whose work its tenant's budget refuses fails with `rate-limit-exceeded`, not `model-invocation-failed`,** on a server with budgets kept per tenant (Kindgi Cloud). The error names the budget in `details.limit` (`template-render-time` or `schema-compile-time`), with `details.budgetMs`, and says when the tenant is under it again. `POST /v1/runs` answers it as `429`, with `Retry-After` and `details.runId`, and the run reads as failed with that code. The OpenAPI document lists the 429 on `POST /v1/runs`.
+  - New: the tenant input bounds' `templateRenderBudgetMs`, the time a tenant's instructions templates may spend rendering in any 60 seconds. Once a tenant has spent it, its next render is refused before it starts. A self-hosted server has none.
+  - `TenantBudgetError` (`@kindgi/bounds`) is what each budget's refusal is: `SchemaCompileBudgetError` and the new `TemplateRenderBudgetError` (`@kindgi/agents`) extend it, with `limit`, `budgetMs` and `retryAfterMs`. The API answers any of them thrown from a route as `429 rate-limit-exceeded`.
+  - A guardrail check, or a tenant's approval policy, whose schema compile the budget refuses no longer fails as `check-failed` or `tenant-policy-unavailable`: the turn fails as above.
+  - A failed run's `failure` has `details` for a code that has them. For `rate-limit-exceeded` that's `limit` and `budgetMs`, never the wait, which is stale once read back. The `run.finished` webhook's run can carry `failure` beside `failureMessage`. It's absent from a runtime that doesn't send it yet. `parseEvent` (`@kindgi/sdk/webhooks`) reads it, and reads a failure's `cause` as any JSON value.
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [fddc8f7]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [82eebb6]
+- Updated dependencies [cd84814]
+- Updated dependencies [57a7b2e]
+- Updated dependencies [2969337]
+- Updated dependencies [ebf405d]
+- Updated dependencies [b22e616]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [76532eb]
+- Updated dependencies [08bf3e5]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [d985473]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f526987]
+- Updated dependencies [a2ee44b]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f05d320]
+  - @kindgi/agents@0.1.8-rc.0
+  - @kindgi/client@0.1.8-rc.0
+  - @kindgi/guardrails@0.1.8-rc.0
+  - @kindgi/tools@0.1.8-rc.0
+  - @kindgi/handler-runtime@0.1.8-rc.0
+  - @kindgi/schema@0.1.8-rc.0
+  - @kindgi/types@0.1.8-rc.0
+  - @kindgi/flow@0.1.8-rc.0
+  - @kindgi/crypto@0.1.8-rc.0
+
+## 0.1.7
+
+### Patch Changes
+
+- 597173e: `@kindgi/sdk/define` bundles in an app: Next.js (Turbopack) failed to build a route that imported an agent file's exported schema, on `@kindgi/agents`' `new URL('../migrations/', import.meta.url)`. `AGENTS_MIGRATIONS_DIR` moved to a runtime-only subpath, `@kindgi/agents/migrations`, and is no longer exported from `@kindgi/agents`' main entry. A test bundles `@kindgi/sdk/define` and fails if any module it reaches resolves a file from its own URL. The `serverExternalPackages` workaround is no longer needed.
+- 5b437db: **One `kindgi dev` per pack.** A second `kindgi dev` in a pack used to take the first one's runtime container (both use the pack's container name), point `.kindgirc.json` at its own port, and leave the first without a runtime once it stopped. A coding agent starting `kindgi dev` beside yours did exactly that.
+  
+  - **Now a second one refuses** before anything starts, exits with **code 3** ("kindgi dev is already running for this pack"), and says where the running one is: its pid, the console and the API. It says so too when that one's runtime has stopped answering, with how to stop it. With `--json`, it prints the same as `{ "running": { "pid", "since", "apiUrl", "consoleUrl", "answering" } }`.
+  - **How it knows:** the running one holds `.kindgi/dev/dev.lock`, taken with an exclusive create and removed on every way out. A lock whose process is gone (a crash, a `kill -9`) is taken over, with a note. A process counts as the same one only when its start time matches too, so a reused pid doesn't hold a dead one's lock.
+  - **The runtime container** is labeled with the `kindgi dev` that started it, and one another live `kindgi dev` owns is never removed. A `kindgi dev` started from a terminal with another time zone or locale sees the same owner.
+  - `--reset` and `--recreate-services` are refused the same way while one runs.
+  - **The docs:** the getting-started skills (every language) and the coding agents page say so.
+- fc6a6fe: **`kindgi init --template=drupal`: governed agents for a Drupal site.** The pack's agents use the site's own tools, through Drupal's MCP Server, signed in with OAuth client credentials (`scripts/connect-drupal.mjs` registers the endpoint; the client secret is a Kindgi secret).
+  - **`content-agent`** finds articles that break the house style and fixes them as drafts. Reading the site runs on its own; starting a draft and changing it each wait for a person (`default: 'always_ask'`, the read tools `never_ask` by id). The site's own permissions are the second layer: the agent's Drupal user can make drafts and can't publish or change a live article.
+  - **`content-review`**, a flow a Drupal webhook starts (`kindgi webhooks register --preset=drupal-webhooks`): a typed check step keeps the event's fields and house-style findings, not its copy of the text or the editor's account, and a `content-reviewer` that can only read the site writes a note for the editors.
+  - **The writes are chosen so a repeat is harmless** (a patch, a move to a workflow state; nothing created or deleted), since a retried or resumed call reaches the site again. The README says why, and how the Drupal side is set up, module by module.
+- b90e2c6: **Webhook triggers start runs: a signed request from WooCommerce, Drupal's Webhooks module, GitHub, Shopify or any Standard Webhooks sender starts a run of a flow.**
+  
+  - **The receiver, `POST /v1/hooks/{tenantId}/{webhookId}`,** sits outside the bearer chain. The request's signature, made with the trigger's secret over the raw body, is what lets it start the trigger's flow as the trigger's owner; a bearer token, if sent, is never read.
+    - **One answer for any request that doesn't prove its sender:** an unknown tenant or id, a missing, wrong or stale signature, or a secret that can't be read is `401 webhook-refused`. The reason goes only to the trigger's deliveries and, for the sender's own failures, the access audit (actor `webhook-sender`, the address in `evidence.clientAddress`); a secret that can't be read is the deployment's to fix, so it's on the deliveries only.
+    - **Gone and paused:** an unregistered trigger is `410 webhook-gone`, but only to a sender that proved itself. A paused trigger takes the delivery (`202`, a `skipped` fire) and starts nothing: the event is dropped.
+    - **Repeats:** a delivery whose dedupe key an earlier fire holds starts nothing (`200`, `duplicate: true`). The key is the trigger's delivery-id header and the body, because WooCommerce's delivery id is per second, not per event.
+    - **WooCommerce's ping:** its unsigned save-time ping (`webhook_id=<n>`) is answered `200` before any lookup.
+    - **Limits:**
+      - a body past 1 MiB, or past the trigger's `bodyLimitBytes` (default 256 KiB), is `413 webhook-body-too-large`;
+      - deliveries past the trigger's `rateLimitPerMinute` (default 600) are `429`;
+      - past 60 refusals a minute from one address (`webhookReceiver.clientAddress`), that address's further refusals are `429` and not recorded. The limit is checked only after verification: a validly signed delivery is never refused because of anyone's refusals, its own address's included. An unreadable secret never counts against a sender;
+      - a trigger records 20 refusals and skipped deliveries a minute, then only counts them (`suppressedRefusals`).
+    - **The signing key:** the receiver keeps a trigger's key for up to 10 seconds (`WEBHOOK_SIGNING_KEY_TTL_MS`), as a `KeyObject`, never a string, so a flood of bad signatures costs one secret read a trigger. A write through `createApp`'s secrets routes drops it at once; another instance's write is seen within those 10 seconds.
+    - **The event:** the flow's event is the body, parsed as JSON for a JSON content type (else `400 webhook-body-not-json`), or its text otherwise.
+    - **Mounting:** the receiver mounts with `createApp`'s new `webhookReceiver` (`envName`, `clientAddress`, `rateLimitStore`) when the trigger registry implements `findWebhook`, `fireWebhook` and `recordWebhookRefusal`, which replace `fetchActiveByWebhookId` (as `SchedulerBinding.fireByWebhookId` goes).
+  - **Webhook triggers are served again** (`/v1/webhooks` was hidden while no runtime served it), on the schedules model:
+    - **Project and owner:** a trigger has a project (`projectId`; the Default project if none is named) and an owner (the registrant, rechecked at every delivery).
+    - **Access:** it follows the project: `read`, `write`, `admin` to take ownership, plus `execute` on the flow to register, change the version or take ownership.
+    - **The signing scheme:** register and update take `signature` (`hmac-sha256` with a `hex` or `base64` header and an optional prefix, or `standard-webhooks`), `deliveryIdHeader`, `bodyLimitBytes` and `rateLimitPerMinute`. An update also takes `hmacSecretName`; `null` clears the last three.
+    - **Provider keys:** a model provider's key is refused as a trigger's secret (`400 provider-key-refused`); the receiver reads its secret through a guarded binding (`SecretUser` `'a webhook trigger'`), and `provider-key-in-use` names webhook triggers too.
+    - **New routes:** `GET /v1/webhooks?projectId=`, `GET /v1/webhooks/{id}/fires` (the deliveries; a fire keeps the event only until its run starts) and `POST /v1/webhooks/{id}/owner`.
+    - **The receive URL:** records carry `receiveUrl`, made from `createApp`'s new `publicUrl`, never from a request's `Host`. They also carry `owner`, `signature`, `bodyLimitBytes`, `rateLimitPerMinute` and `statusReason`.
+  - **`@kindgi/crypto`'s `verifyInboundSignature`** checks a request in a trigger's scheme, with Standard Webhooks through `verifyWebhook`; it takes the secret, or the `KeyObject` that `inboundSigningKey(scheme, secret)` derives from it (which `JSON.stringify` shows as `{}`). `@kindgi/types` has `WebhookSignatureScheme`.
+  - **The OpenAPI marks the receiver `x-kindgi-sender-only`:** the client generators skip it, because the receive URL is the sender's path, not a client's.
+  - **The TypeScript client** has `webhooks` again (`register`, `list`, `get`, `update`, `pause`, `resume`, `unregister`, `fires`, `takeOwnership`), and `@kindgi/sdk` exports `WebhooksClient`. The Python client has `client.webhooks`.
+  - **The CLI adds `kindgi webhooks`:** `register`, `list`, `get`, `update`, `pause`, `resume`, `fires`, `take-ownership` and `unregister`.
+    - **`register --preset=woocommerce|drupal-webhooks|github|shopify|standard-webhooks`** sets a sender's scheme and delivery-id header.
+    - **`--generate-secret --env=<env>`** makes a new secret (letters and digits; `whsec_…` for Standard Webhooks), stores it once the trigger is registered (a refused register leaves none behind), and shows it once.
+    - **The receive URL:** register and get print it, or why there's none (no `KINDGI_PUBLIC_URL`).
+    - **`pause`** says that a paused trigger drops events.
+- aa08d1f: `kindgi init` in an existing app now sets up the tests `kindgi test` runs: `vitest` and `vite` in `devDependencies` (pinned the way the app pins) and a `vitest.config.mts` (`.ts` in a `"type": "module"` app) that runs `kindgi/**/*.test.ts` with the app's tsconfig `paths` as `resolve.alias`. An app that runs vitest already keeps its own setup, and init says what `kindgi test` needs from it. With `--template=sample`, the sample's test comes along. `kindgi test` finds every config name vitest does (`vitest.config.mts` and `.cts` too), and when it finds none, says what an app Kindgi was added to needs. Fresh packs pin vitest 5 and vite 8.
+- fdb644c: **Test a tool with its env values decided as a run decides them.** A unit test reached a tool's `needsSpec.env` only as it passed it, so a handler had to repeat each default in code.
+  - **`invokeToolForTest(tool, input, context?)`** (`@kindgi/tools`, `@kindgi/sdk/define`) calls the tool through `invokeTool`, deciding its env values the way the runtime decides a pack tool's:
+    - each declared name takes the context's `env` value, else its schema's `default`;
+    - each value is checked against its schema;
+    - the handler's `ctx.env` holds the declared names only.
+  
+    A name with neither, or a value its schema refuses, is `precondition-failed` (`env-value-missing`, then `env-value-invalid`), and the handler doesn't run. As in a run, the input is checked first.
+  - **`toolContextForTest(overrides?)`**: a context for a unit test, the TypeScript counterpart of Python's `ToolContext.for_test`. It holds tenant `tenant-test`, run `run-test` and an abort signal, with what you pass over them.
+  - **`invokeTool` is unchanged.** It passes `ctx.env` as given, because in a run the runtime's tool resolves its own env.
+- 0d941b1: A `kindgi-using` skill, for packs in every language: the coding agent guides the person in using what was built, not only in building it. Each answer gives both, side by side: the read-only answer from the `kindgi` CLI in plain words, and the console page that shows the same thing, as a full link with the clicks. The skill maps the console's pages and their addresses, built from `kindgi console --no-open`, `kindgi auth whoami` and `kindgi projects get-default`. It answers the common questions: the tools and what each may change, what an agent looked up for an answer, the answers it finished, which guardrail stopped an answer, a waiting approval, what Kindgi remembers about a customer, a schedule's next run and its last answer, health, who has access, the answers you rated, and what answers cost. Guiding is read-only: deciding approvals, erasing, adding people, roles, API keys, making a version live and rating stay with the person, and the skill never reads a token file. `kindgi init` installs it, and the templates' `AGENTS.md` point to it.
+- 2f28697: **The skills' npm form passes every flag to Kindgi.** Run the CLI in an npm project as `npx --no -- kindgi …`: without the `--`, `npx` takes `--help` for itself and prints npm's help. The skills, the README and the install and coding-agent pages say so. The guardrails skill now says one thing about a check's config: a `defineCheck` check's `evaluate` gets the config its schema resolves, with the schema's defaults applied, and a pack's guardrail `config` is checked against the schema when the pack is indexed. The getting-started skill tells an agent never to guess a console URL: give the address `kindgi dev` prints; an approval's own link is `/console/approvals/<approval id>`; every other page's address starts with the tenant and the project, both from the CLI's answers.
+- a61f8f3: **A webhook's event, typed.** `parseEvent(body)` in `@kindgi/sdk/webhooks` reads the event in a verified request's body, as Python's `webhooks.parse_event` does. It answers `{ kind: 'ok', event }`, or `{ kind: 'err', reason, message }` with `reason`:
+  - `not-json`;
+  - `unknown-type`: an event a newer runtime sends that this version doesn't know (answer it with a 2xx and leave it);
+  - `invalid-event`: a field missing or of the wrong type, named in `message`.
+  
+  It checks what the API's schema says, at every depth, as Python's generated models do: types, required fields, enums, `uuid` and `date-time` formats, bounds, patterns, array items and the discriminated unions. A field the schema doesn't name is kept, so a newer runtime's additions don't break a receiver. It needs no other package: its shapes are generated from the API schema.
+  - `WebhookEvent` covers every event the API sends: `run.finished`, `improvement-pass.finished`, `approval.requested` and `webhook.test`. New in `@kindgi/client`, and in `@kindgi/sdk/webhooks` with the others: `FinishedRun`, `ImprovementPassFinishedEvent`, `RequestedApproval` and `ApprovalRequestedEvent`.
+  - `data.run.id` is a `RunId` and `data.approval.approvalId` an `ApprovalId`, so `client.runs.get(…)` and `client.approvals.get(…)` take them as they are. Code that builds one of these events from plain strings casts those ids, as it does for a `Run`.
+- Updated dependencies [597173e]
+- Updated dependencies [72f3582]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [fdb644c]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [dab4296]
+- Updated dependencies [bd61d80]
+- Updated dependencies [049966d]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [a61f8f3]
+  - @kindgi/agents@0.1.7
+  - @kindgi/tools@0.1.7
+  - @kindgi/crypto@0.1.7
+  - @kindgi/types@0.1.7
+  - @kindgi/client@0.1.7
+  - @kindgi/handler-runtime@0.1.7
+  - @kindgi/guardrails@0.1.7
+  - @kindgi/flow@0.1.7
+  - @kindgi/schema@0.1.7
+
+## 0.1.7-rc.0
+
+### Patch Changes
+
+- 597173e: `@kindgi/sdk/define` bundles in an app: Next.js (Turbopack) failed to build a route that imported an agent file's exported schema, on `@kindgi/agents`' `new URL('../migrations/', import.meta.url)`. `AGENTS_MIGRATIONS_DIR` moved to a runtime-only subpath, `@kindgi/agents/migrations`, and is no longer exported from `@kindgi/agents`' main entry. A test bundles `@kindgi/sdk/define` and fails if any module it reaches resolves a file from its own URL. The `serverExternalPackages` workaround is no longer needed.
+- 5b437db: **One `kindgi dev` per pack.** A second `kindgi dev` in a pack used to take the first one's runtime container (both use the pack's container name), point `.kindgirc.json` at its own port, and leave the first without a runtime once it stopped. A coding agent starting `kindgi dev` beside yours did exactly that.
+  
+  - **Now a second one refuses** before anything starts, exits with **code 3** ("kindgi dev is already running for this pack"), and says where the running one is: its pid, the console and the API. It says so too when that one's runtime has stopped answering, with how to stop it. With `--json`, it prints the same as `{ "running": { "pid", "since", "apiUrl", "consoleUrl", "answering" } }`.
+  - **How it knows:** the running one holds `.kindgi/dev/dev.lock`, taken with an exclusive create and removed on every way out. A lock whose process is gone (a crash, a `kill -9`) is taken over, with a note. A process counts as the same one only when its start time matches too, so a reused pid doesn't hold a dead one's lock.
+  - **The runtime container** is labeled with the `kindgi dev` that started it, and one another live `kindgi dev` owns is never removed. A `kindgi dev` started from a terminal with another time zone or locale sees the same owner.
+  - `--reset` and `--recreate-services` are refused the same way while one runs.
+  - **The docs:** the getting-started skills (every language) and the coding agents page say so.
+- fc6a6fe: **`kindgi init --template=drupal`: governed agents for a Drupal site.** The pack's agents use the site's own tools, through Drupal's MCP Server, signed in with OAuth client credentials (`scripts/connect-drupal.mjs` registers the endpoint; the client secret is a Kindgi secret).
+  - **`content-agent`** finds articles that break the house style and fixes them as drafts. Reading the site runs on its own; starting a draft and changing it each wait for a person (`default: 'always_ask'`, the read tools `never_ask` by id). The site's own permissions are the second layer: the agent's Drupal user can make drafts and can't publish or change a live article.
+  - **`content-review`**, a flow a Drupal webhook starts (`kindgi webhooks register --preset=drupal-webhooks`): a typed check step keeps the event's fields and house-style findings, not its copy of the text or the editor's account, and a `content-reviewer` that can only read the site writes a note for the editors.
+  - **The writes are chosen so a repeat is harmless** (a patch, a move to a workflow state; nothing created or deleted), since a retried or resumed call reaches the site again. The README says why, and how the Drupal side is set up, module by module.
+- b90e2c6: **Webhook triggers start runs: a signed request from WooCommerce, Drupal's Webhooks module, GitHub, Shopify or any Standard Webhooks sender starts a run of a flow.**
+  
+  - **The receiver, `POST /v1/hooks/{tenantId}/{webhookId}`,** sits outside the bearer chain. The request's signature, made with the trigger's secret over the raw body, is what lets it start the trigger's flow as the trigger's owner; a bearer token, if sent, is never read.
+    - **One answer for any request that doesn't prove its sender:** an unknown tenant or id, a missing, wrong or stale signature, or a secret that can't be read is `401 webhook-refused`. The reason goes only to the trigger's deliveries and, for the sender's own failures, the access audit (actor `webhook-sender`, the address in `evidence.clientAddress`); a secret that can't be read is the deployment's to fix, so it's on the deliveries only.
+    - **Gone and paused:** an unregistered trigger is `410 webhook-gone`, but only to a sender that proved itself. A paused trigger takes the delivery (`202`, a `skipped` fire) and starts nothing: the event is dropped.
+    - **Repeats:** a delivery whose dedupe key an earlier fire holds starts nothing (`200`, `duplicate: true`). The key is the trigger's delivery-id header and the body, because WooCommerce's delivery id is per second, not per event.
+    - **WooCommerce's ping:** its unsigned save-time ping (`webhook_id=<n>`) is answered `200` before any lookup.
+    - **Limits:**
+      - a body past 1 MiB, or past the trigger's `bodyLimitBytes` (default 256 KiB), is `413 webhook-body-too-large`;
+      - deliveries past the trigger's `rateLimitPerMinute` (default 600) are `429`;
+      - past 60 refusals a minute from one address (`webhookReceiver.clientAddress`), that address's further refusals are `429` and not recorded. The limit is checked only after verification: a validly signed delivery is never refused because of anyone's refusals, its own address's included. An unreadable secret never counts against a sender;
+      - a trigger records 20 refusals and skipped deliveries a minute, then only counts them (`suppressedRefusals`).
+    - **The signing key:** the receiver keeps a trigger's key for up to 10 seconds (`WEBHOOK_SIGNING_KEY_TTL_MS`), as a `KeyObject`, never a string, so a flood of bad signatures costs one secret read a trigger. A write through `createApp`'s secrets routes drops it at once; another instance's write is seen within those 10 seconds.
+    - **The event:** the flow's event is the body, parsed as JSON for a JSON content type (else `400 webhook-body-not-json`), or its text otherwise.
+    - **Mounting:** the receiver mounts with `createApp`'s new `webhookReceiver` (`envName`, `clientAddress`, `rateLimitStore`) when the trigger registry implements `findWebhook`, `fireWebhook` and `recordWebhookRefusal`, which replace `fetchActiveByWebhookId` (as `SchedulerBinding.fireByWebhookId` goes).
+  - **Webhook triggers are served again** (`/v1/webhooks` was hidden while no runtime served it), on the schedules model:
+    - **Project and owner:** a trigger has a project (`projectId`; the Default project if none is named) and an owner (the registrant, rechecked at every delivery).
+    - **Access:** it follows the project: `read`, `write`, `admin` to take ownership, plus `execute` on the flow to register, change the version or take ownership.
+    - **The signing scheme:** register and update take `signature` (`hmac-sha256` with a `hex` or `base64` header and an optional prefix, or `standard-webhooks`), `deliveryIdHeader`, `bodyLimitBytes` and `rateLimitPerMinute`. An update also takes `hmacSecretName`; `null` clears the last three.
+    - **Provider keys:** a model provider's key is refused as a trigger's secret (`400 provider-key-refused`); the receiver reads its secret through a guarded binding (`SecretUser` `'a webhook trigger'`), and `provider-key-in-use` names webhook triggers too.
+    - **New routes:** `GET /v1/webhooks?projectId=`, `GET /v1/webhooks/{id}/fires` (the deliveries; a fire keeps the event only until its run starts) and `POST /v1/webhooks/{id}/owner`.
+    - **The receive URL:** records carry `receiveUrl`, made from `createApp`'s new `publicUrl`, never from a request's `Host`. They also carry `owner`, `signature`, `bodyLimitBytes`, `rateLimitPerMinute` and `statusReason`.
+  - **`@kindgi/crypto`'s `verifyInboundSignature`** checks a request in a trigger's scheme, with Standard Webhooks through `verifyWebhook`; it takes the secret, or the `KeyObject` that `inboundSigningKey(scheme, secret)` derives from it (which `JSON.stringify` shows as `{}`). `@kindgi/types` has `WebhookSignatureScheme`.
+  - **The OpenAPI marks the receiver `x-kindgi-sender-only`:** the client generators skip it, because the receive URL is the sender's path, not a client's.
+  - **The TypeScript client** has `webhooks` again (`register`, `list`, `get`, `update`, `pause`, `resume`, `unregister`, `fires`, `takeOwnership`), and `@kindgi/sdk` exports `WebhooksClient`. The Python client has `client.webhooks`.
+  - **The CLI adds `kindgi webhooks`:** `register`, `list`, `get`, `update`, `pause`, `resume`, `fires`, `take-ownership` and `unregister`.
+    - **`register --preset=woocommerce|drupal-webhooks|github|shopify|standard-webhooks`** sets a sender's scheme and delivery-id header.
+    - **`--generate-secret --env=<env>`** makes a new secret (letters and digits; `whsec_…` for Standard Webhooks), stores it once the trigger is registered (a refused register leaves none behind), and shows it once.
+    - **The receive URL:** register and get print it, or why there's none (no `KINDGI_PUBLIC_URL`).
+    - **`pause`** says that a paused trigger drops events.
+- aa08d1f: `kindgi init` in an existing app now sets up the tests `kindgi test` runs: `vitest` and `vite` in `devDependencies` (pinned the way the app pins) and a `vitest.config.mts` (`.ts` in a `"type": "module"` app) that runs `kindgi/**/*.test.ts` with the app's tsconfig `paths` as `resolve.alias`. An app that runs vitest already keeps its own setup, and init says what `kindgi test` needs from it. With `--template=sample`, the sample's test comes along. `kindgi test` finds every config name vitest does (`vitest.config.mts` and `.cts` too), and when it finds none, says what an app Kindgi was added to needs. Fresh packs pin vitest 5 and vite 8.
+- fdb644c: **Test a tool with its env values decided as a run decides them.** A unit test reached a tool's `needsSpec.env` only as it passed it, so a handler had to repeat each default in code.
+  - **`invokeToolForTest(tool, input, context?)`** (`@kindgi/tools`, `@kindgi/sdk/define`) calls the tool through `invokeTool`, deciding its env values the way the runtime decides a pack tool's:
+    - each declared name takes the context's `env` value, else its schema's `default`;
+    - each value is checked against its schema;
+    - the handler's `ctx.env` holds the declared names only.
+  
+    A name with neither, or a value its schema refuses, is `precondition-failed` (`env-value-missing`, then `env-value-invalid`), and the handler doesn't run. As in a run, the input is checked first.
+  - **`toolContextForTest(overrides?)`**: a context for a unit test, the TypeScript counterpart of Python's `ToolContext.for_test`. It holds tenant `tenant-test`, run `run-test` and an abort signal, with what you pass over them.
+  - **`invokeTool` is unchanged.** It passes `ctx.env` as given, because in a run the runtime's tool resolves its own env.
+- 0d941b1: A `kindgi-using` skill, for packs in every language: the coding agent guides the person in using what was built, not only in building it. Each answer gives both, side by side: the read-only answer from the `kindgi` CLI in plain words, and the console page that shows the same thing, as a full link with the clicks. The skill maps the console's pages and their addresses, built from `kindgi console --no-open`, `kindgi auth whoami` and `kindgi projects get-default`. It answers the common questions: the tools and what each may change, what an agent looked up for an answer, the answers it finished, which guardrail stopped an answer, a waiting approval, what Kindgi remembers about a customer, a schedule's next run and its last answer, health, who has access, the answers you rated, and what answers cost. Guiding is read-only: deciding approvals, erasing, adding people, roles, API keys, making a version live and rating stay with the person, and the skill never reads a token file. `kindgi init` installs it, and the templates' `AGENTS.md` point to it.
+- 2f28697: **The skills' npm form passes every flag to Kindgi.** Run the CLI in an npm project as `npx --no -- kindgi …`: without the `--`, `npx` takes `--help` for itself and prints npm's help. The skills, the README and the install and coding-agent pages say so. The guardrails skill now says one thing about a check's config: a `defineCheck` check's `evaluate` gets the config its schema resolves, with the schema's defaults applied, and a pack's guardrail `config` is checked against the schema when the pack is indexed. The getting-started skill tells an agent never to guess a console URL: give the address `kindgi dev` prints; an approval's own link is `/console/approvals/<approval id>`; every other page's address starts with the tenant and the project, both from the CLI's answers.
+- a61f8f3: **A webhook's event, typed.** `parseEvent(body)` in `@kindgi/sdk/webhooks` reads the event in a verified request's body, as Python's `webhooks.parse_event` does. It answers `{ kind: 'ok', event }`, or `{ kind: 'err', reason, message }` with `reason`:
+  - `not-json`;
+  - `unknown-type`: an event a newer runtime sends that this version doesn't know (answer it with a 2xx and leave it);
+  - `invalid-event`: a field missing or of the wrong type, named in `message`.
+  
+  It checks what the API's schema says, at every depth, as Python's generated models do: types, required fields, enums, `uuid` and `date-time` formats, bounds, patterns, array items and the discriminated unions. A field the schema doesn't name is kept, so a newer runtime's additions don't break a receiver. It needs no other package: its shapes are generated from the API schema.
+  - `WebhookEvent` covers every event the API sends: `run.finished`, `improvement-pass.finished`, `approval.requested` and `webhook.test`. New in `@kindgi/client`, and in `@kindgi/sdk/webhooks` with the others: `FinishedRun`, `ImprovementPassFinishedEvent`, `RequestedApproval` and `ApprovalRequestedEvent`.
+  - `data.run.id` is a `RunId` and `data.approval.approvalId` an `ApprovalId`, so `client.runs.get(…)` and `client.approvals.get(…)` take them as they are. Code that builds one of these events from plain strings casts those ids, as it does for a `Run`.
+- Updated dependencies [597173e]
+- Updated dependencies [72f3582]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [fdb644c]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [dab4296]
+- Updated dependencies [bd61d80]
+- Updated dependencies [049966d]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [a61f8f3]
+  - @kindgi/agents@0.1.7-rc.0
+  - @kindgi/tools@0.1.7-rc.0
+  - @kindgi/crypto@0.1.7-rc.0
+  - @kindgi/types@0.1.7-rc.0
+  - @kindgi/client@0.1.7-rc.0
+  - @kindgi/handler-runtime@0.1.7-rc.0
+  - @kindgi/guardrails@0.1.7-rc.0
+  - @kindgi/flow@0.1.7-rc.0
+  - @kindgi/schema@0.1.7-rc.0
+
 ## 0.1.6
 
 ### Patch Changes

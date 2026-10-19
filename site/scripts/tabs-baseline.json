@@ -1,41 +1,5 @@
 {
-  "guides/agents/agent-and-tool-versions": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/agents/budgets": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/agents/choose-a-model": {
-    "Java": 4,
-    "Scala": 4
-  },
   "guides/agents/conversations": {
-    "Java": 3,
-    "Scala": 3
-  },
-  "guides/agents/give-an-agent-input": {
-    "Java": 4,
-    "Scala": 4
-  },
-  "guides/agents/give-an-agent-memory": {
-    "Java": 3,
-    "Scala": 3
-  },
-  "guides/agents/typed-answer": {
-    "Java": 3,
-    "Scala": 3
-  },
-  "guides/approvals/ask-after-n-turns": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/approvals/ask-before-a-tool-runs": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/approvals/decide-an-approval": {
     "Java": 1,
     "Scala": 1
   },
@@ -44,158 +8,14 @@
     "Scala": 1
   },
   "guides/evals/change-a-prompt-or-setting": {
-    "Java": 4,
-    "Scala": 4
+    "Java": 1,
+    "Scala": 1
   },
   "guides/evals/compare-an-agent-version": {
     "Java": 1,
     "Scala": 1
   },
-  "guides/evals/judge-a-runs-output": {
-    "Java": 3,
-    "Scala": 3
-  },
   "guides/evals/release-an-agent-version": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/flows/branch-a-flow": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/flows/dry-run-a-flow": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/flows/join-branches": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/flows/loop": {
-    "Java": 3,
-    "Scala": 3
-  },
-  "guides/flows/pass-data-between-steps": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/flows/retry-a-step": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/flows/run-steps-in-parallel": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/flows/wait-for-an-approval": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/guardrails/configure-a-guardrail": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/guardrails/halt-or-record": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/guardrails/write-a-guardrail": {
-    "Java": 4,
-    "Scala": 4
-  },
-  "guides/models/index": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/observability/cost-per-run": {
-    "Java": 3,
-    "Scala": 3
-  },
-  "guides/observability/trace-an-answer": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/projects/organize-by-org-and-project": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/runs/cancel-a-run": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/runs/follow-from-the-browser": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/runs/list-runs": {
-    "Java": 4,
-    "Scala": 4
-  },
-  "guides/runs/read-the-journal": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/runs/retry-a-start-safely": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/runs/see-why-runs-failed": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/runs/show-runs-in-your-app": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/secrets/dev-sandbox": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/secrets/env-files": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/secrets/pack-env": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/secrets/per-environment-values": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/secrets/store-a-secret": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/tools/give-a-tool-a-secret": {
-    "Java": 4,
-    "Scala": 4
-  },
-  "guides/tools/give-a-tool-env-values": {
-    "Java": 3,
-    "Scala": 3
-  },
-  "guides/tools/http-tools": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/tools/mcp-servers": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/tools/read-only-tools": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/webhooks/receive-run-finished": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/webhooks/start-runs-from-webhooks": {
-    "Java": 1,
-    "Scala": 1
-  },
-  "guides/webhooks/test-and-replay": {
     "Java": 2,
     "Scala": 2
   }

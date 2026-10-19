@@ -1,5 +1,265 @@
 # @kindgi/agents
 
+## 0.1.8
+
+### Patch Changes
+
+- ebf405d: **A request that publishes schemas compiles them all before it writes anything,** and on the hosted bounds each compile counts against its tenant's compile budget.
+  - Every authenticated `/v1` request runs as its tenant's work (`runAsTenant`): a schema it compiles again, after the cache dropped it, counts against the tenant's budget.
+  - `POST` of flows, blocks, agents (and `/v1/agents/{agentId}/versions`), tools, guardrails, MCP endpoints and deployments, and `POST /v1/proposals/{proposalId}/evaluate`, run as their tenant's work with every compile counted (`runAsTenant`, `{ compiles: 'all' }`). A deployment's compiles past its first write, a registry's own compiles of schemas checked before it, don't count, so the budget can't refuse a deployment half-written.
+  - `POST /v1/deployments` pins its agents' data blocks before it registers any tool, so a model-settings check can no longer fail after a write.
+  - Evaluating a proposal checks a model-settings block's new values before it publishes the block version; values that aren't model settings are refused with `400 validation-failed`, and nothing is stored.
+  - `modelSettingsIssues(values)` (`@kindgi/agents`) checks model settings against `MODEL_SETTINGS_SCHEMA`, compiled once in a process, outside any tenant's scope: it never counts against a tenant's budget.
+- ebf405d: **A gate past the tenant's limit on approvals waiting fails its step, naming the limit.**
+  - **The contract:** a HITL binding's `enqueue` refuses an approval past the tenant's limit by throwing an error with `code: 'approvals-pending-limit'` (and `approvalsPending`, the limit).
+  - **In a turn:** the tool gate and the session gate then fail the turn with `ApprovalsPendingLimitError`, never waiting for an approval nobody can see. Any other `enqueue` failure stays soft, as before.
+  - **Over the API:**
+    - `approvals-pending-limit` answers `429` when the call waits for its run; with `options.wait: false` the call answers `202`, and the run then fails with that code;
+    - a promotion whose gate wants an approval past the limit is refused with it (`PromotionErrorCode`);
+    - `POST /v1/runs` documents its `429`s: that one, and `rate-limit-exceeded` with `details.limit: 'runs-pending'` past the tenant's limit on runs waiting to start.
+- 82eebb6: - Fixed: a guardrail scoped to flows (`scope.flows`) applies to the agent turns of those flows' steps. Before, a turn's trace never named its flow, so the guardrail was skipped on every turn, and nothing said so.
+  - The guardrail gate gives the trace the flow whose step started the turn: the flow of the turn's parent run, read from the turn's own run once it has resumed. A turn outside any flow names none, and a guardrail scoped to flows skips it, as before.
+  - A replay of a past turn (`replay.of`) gets the flow of the turn it replays, through a replay of a replay too, so a guardrail scoped to flows applies to it as it did to the original turn.
+  - A turn reads runs only when one of its guardrails is scoped to flows, so a turn without one never fails on a run it can't read. When one is and the turn's runs can't be read, the turn fails its step with `persistence-error`, so the guardrail is never passed over unseen. So does a replay whose replayed run is gone, or whose chain of replays loops or goes on past 10.
+- 2969337: **Checks inside a run are documented as not enforced in 0.1.7.** The docs of `InvokeAgentInput.principal`, `RunFlowInput.principal` and `authz`, and `NodeContext`'s `authorize`, `can` and `check` (and the agents and handler READMEs) now say that the runtime doesn't yet decide authorization checks inside a run in 0.1.7; route-level permissions apply. This is planned for 0.1.8. The agents README and `InvokeAgentInput.principal` no longer claim that an agent's tool calls are checked against its principal.
+- ebf405d: **A deployment can keep what a project's flows, agents, triggers and runs name within that project's reach.**
+  - **`CreateAppInput.referenceScope?`** (a `ReferenceScopeBinding`, `reachable(tenantId, fromProjectId, ref)`) is asked before each write that makes a reference live:
+    - publishing a flow (its tool, agent and subflow steps) or an agent (its tools, guardrails and data blocks), and reinstating a retired version of either;
+    - registering a deployment (what its agents and flows name, besides what it brings itself);
+    - registering a guardrail with a pack check;
+    - registering a schedule or a webhook trigger, and changing a schedule's target;
+    - starting an eval run (its suite, and its agent or flow), and starting a run filed under a named `projectId`;
+    - opening a conversation (its agent);
+    - promoting an agent into a project or a segment, directly or through an improvement proposal;
+    - drafting an improvement proposal (its scope and block), evaluating one, and starting an improvement pass (its suite and scope).
+  - **The refusal:** an item the project doesn't reach is refused with `reference-out-of-scope` (400), naming each one at its path. An item that doesn't exist gets the same answer. Without the binding, nothing changes.
+  - **A conversation opened without `projectId` is filed under its agent's own project,** as a run is. Before, it went to the tenant's Default project; an agent filed under no project still goes there.
+  - **Tool metadata:** `POST /v1/tools` and deployments refuse a tool `metadata` key under `kindgi.`, which is the runtime's own.
+  - **`ToolRegistry.forProject?`** (`@kindgi/tools`): the tools a run in a project may reach. An agent's turn resolves its tools on it when it's there.
+  - **`BlockReader`'s reads take the turn's `projectId`** (`@kindgi/agents`).
+  - **`InvokeAgentBindings.authorizeToolCall?`** (`@kindgi/agents`) is asked before each of a turn's tool calls, before any approval.
+    - A denied call runs nothing. Its result tells the model (`{ status: 'denied', reason }`), and the turn goes on.
+    - A call approved by a reviewer is asked again right before it runs. Denied then, it runs nothing.
+    - Each decision is recorded with the call, so a resumed turn keeps it. An authorizer that throws fails the step.
+    - A built-in tool is asked only when what it touches reaches beyond the turn's project: `kindgi_remember` for a tenant-wide fact.
+  - **The docs of `NodeContext`'s `authorize`, `can` and `check`, `RunFlowInput.principal` and `authz`, and `InvokeAgentInput.principal` and `authz`** (with the agents and handler READMEs) describe runtime 0.1.8: these checks are decided for every run and turn a person or a key starts.
+- 76532eb: **A turn that can't route names the registered providers its registry couldn't set up, and why.** Before, a tenant whose only provider failed to build (its settings no longer allowed on the deployment, say) got `capability-routing-failed` with `reasons: []`, and the cause was only in the server's log.
+  - `ProviderRegistry.setupFailures(tenantId)` (optional): the tenant's registered providers its last `hydrate` couldn't set up, each a `ProviderSetupFailure` (`providerId`, `message`). `list` still leaves them out.
+  - `RouteInput.setupFailures` (optional): when nothing routes, `capability-unsatisfiable` names each under the requirement `provider set up`, by its provider id alone, with the new rejection code `provider-setup-failed`. The error's message gives the first one's why and counts the rest. A route another provider satisfies is unchanged.
+  - An agent turn and an `llm-judge` guardrail pass the registry's setup failures to the router. A registry without `setupFailures` routes as before.
+- f526987: Prompt templates resolve no partials: `{% include %}`, `{% render %}` and `{% layout %}` fail the render, whatever the name, and a drafted template that uses one is refused.
+- a2ee44b: Templates pass one check wherever they come in, and render with one Liquid engine under the tenant input bounds.
+  
+  - New in `@kindgi/agents`: `templateProblem(template)`, the check. The renderer and the check share one Liquid engine.
+  - An agent's instructions are now checked when the agent is defined (`defineAgent`, `POST /v1/agents`) and deployed (`POST /v1/deployments`), as a prompt block's template already was when published. A deployment with one such agent is refused whole. The check refuses a template:
+    - longer than `liquid.parseLimit`;
+    - that uses `{% include %}`, `{% render %}` or `{% layout %}`, with "templates can't use include, render or layout";
+    - that is Liquid the renderer won't parse, an unknown filter included.
+  
+    Before, such instructions were accepted and then failed at every render. A template already stored with one still fails when it's rendered, and nothing stored is changed. To write `{{` or `{%` as text, put it in `{% raw %}…{% endraw %}`.
+  - A prompt block whose template uses an unknown filter is refused when it's published. The renderer always refused it.
+  - Rendering runs under the bounds' `liquid` limits: `parseLimit`, `renderLimitMs` and `memoryLimit`. On a self-hosted server only `memoryLimit` applies, at 16,777,216; `parseLimit` and `renderLimitMs` don't. `memoryLimit` counts what a render's filters and ranges make and what it writes, its captures included, as each is made. An array counts its items, each at least 1, nested arrays included; each distinct array is walked once, and counted every time it's held. A render past a limit fails, saying which.
+  - A drafted template longer than it may be is refused on its length alone, before it's parsed.
+- ebf405d: **An agent turn whose work its tenant's budget refuses fails with `rate-limit-exceeded`, not `model-invocation-failed`,** on a server with budgets kept per tenant (Kindgi Cloud). The error names the budget in `details.limit` (`template-render-time` or `schema-compile-time`), with `details.budgetMs`, and says when the tenant is under it again. `POST /v1/runs` answers it as `429`, with `Retry-After` and `details.runId`, and the run reads as failed with that code. The OpenAPI document lists the 429 on `POST /v1/runs`.
+  - New: the tenant input bounds' `templateRenderBudgetMs`, the time a tenant's instructions templates may spend rendering in any 60 seconds. Once a tenant has spent it, its next render is refused before it starts. A self-hosted server has none.
+  - `TenantBudgetError` (`@kindgi/bounds`) is what each budget's refusal is: `SchemaCompileBudgetError` and the new `TemplateRenderBudgetError` (`@kindgi/agents`) extend it, with `limit`, `budgetMs` and `retryAfterMs`. The API answers any of them thrown from a route as `429 rate-limit-exceeded`.
+  - A guardrail check, or a tenant's approval policy, whose schema compile the budget refuses no longer fails as `check-failed` or `tenant-policy-unavailable`: the turn fails as above.
+  - A failed run's `failure` has `details` for a code that has them. For `rate-limit-exceeded` that's `limit` and `budgetMs`, never the wait, which is stale once read back. The `run.finished` webhook's run can carry `failure` beside `failureMessage`. It's absent from a runtime that doesn't send it yet. `parseEvent` (`@kindgi/sdk/webhooks`) reads it, and reads a failure's `cause` as any JSON value.
+- f05d320: **An agent turn's memory, charged by size, for a runtime that limits it.**
+  - **`InvokeAgentBindings.turnMemory`,** optional: `charge(bytes, { runId })` (the turn's own run) answers `{ ok: true }`, or `{ ok: false, limit: 'tenant' | 'server', heldBytes, limitBytes }`. A runtime binds one per turn (one `invokeAgent` call), so two turns of one run are charged apart, and releases the turn's charge when it settles. Without it, nothing is charged.
+  - **The charge** is taken before each model call: (4 + the iterations done) × the conversation as sent, in UTF-8 bytes, replacing the turn's last charge. The first is taken once the first messages are built. Each later one comes after the last tool results have joined the conversation and been journaled. A dry run is never charged.
+  - **Refused,** the turn fails with `turn-memory-limit-reached` before the model is called, naming the limit, what it holds and its size. Every tool call the turn finished is already in the conversation, so a new turn there doesn't call it again.
+  - **The API's error map** gains `429 turn-memory-limit-reached`, with no `Retry-After`. The clients read it as rate-limited, with the code in `serverCode`.
+  - **Two runtime settings,** off unless set: `KINDGI_TURN_MEMORY_MIB` (every tenant's turns together) and `KINDGI_TURN_MEMORY_PER_TENANT_MIB` (one tenant's). Used from runtime 0.1.8.
+- Updated dependencies [cd84814]
+- Updated dependencies [ebf405d]
+- Updated dependencies [059c2c2]
+- Updated dependencies [cd84814]
+- Updated dependencies [57a7b2e]
+- Updated dependencies [2969337]
+- Updated dependencies [ebf405d]
+- Updated dependencies [3a3f233]
+- Updated dependencies [76532eb]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [3a3f233]
+- Updated dependencies [036605f]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+  - @kindgi/bounds@0.1.8
+  - @kindgi/runtime@0.1.8
+  - @kindgi/guardrails@0.1.8
+  - @kindgi/tools@0.1.8
+  - @kindgi/handler@0.1.8
+  - @kindgi/capabilities@0.1.8
+  - @kindgi/schema@0.1.8
+  - @kindgi/types@0.1.8
+  - @kindgi/compliance@0.1.8
+  - @kindgi/flow@0.1.8
+  - @kindgi/provenance@0.1.8
+  - @kindgi/authz@0.1.8
+  - @kindgi/embedding@0.1.8
+  - @kindgi/memory@0.1.8
+  - @kindgi/policy-contract@0.1.8
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- ebf405d: **A request that publishes schemas compiles them all before it writes anything,** and on the hosted bounds each compile counts against its tenant's compile budget.
+  - Every authenticated `/v1` request runs as its tenant's work (`runAsTenant`): a schema it compiles again, after the cache dropped it, counts against the tenant's budget.
+  - `POST` of flows, blocks, agents (and `/v1/agents/{agentId}/versions`), tools, guardrails, MCP endpoints and deployments, and `POST /v1/proposals/{proposalId}/evaluate`, run as their tenant's work with every compile counted (`runAsTenant`, `{ compiles: 'all' }`). A deployment's compiles past its first write, a registry's own compiles of schemas checked before it, don't count, so the budget can't refuse a deployment half-written.
+  - `POST /v1/deployments` pins its agents' data blocks before it registers any tool, so a model-settings check can no longer fail after a write.
+  - Evaluating a proposal checks a model-settings block's new values before it publishes the block version; values that aren't model settings are refused with `400 validation-failed`, and nothing is stored.
+  - `modelSettingsIssues(values)` (`@kindgi/agents`) checks model settings against `MODEL_SETTINGS_SCHEMA`, compiled once in a process, outside any tenant's scope: it never counts against a tenant's budget.
+- ebf405d: **A gate past the tenant's limit on approvals waiting fails its step, naming the limit.**
+  - **The contract:** a HITL binding's `enqueue` refuses an approval past the tenant's limit by throwing an error with `code: 'approvals-pending-limit'` (and `approvalsPending`, the limit).
+  - **In a turn:** the tool gate and the session gate then fail the turn with `ApprovalsPendingLimitError`, never waiting for an approval nobody can see. Any other `enqueue` failure stays soft, as before.
+  - **Over the API:**
+    - `approvals-pending-limit` answers `429` when the call waits for its run; with `options.wait: false` the call answers `202`, and the run then fails with that code;
+    - a promotion whose gate wants an approval past the limit is refused with it (`PromotionErrorCode`);
+    - `POST /v1/runs` documents its `429`s: that one, and `rate-limit-exceeded` with `details.limit: 'runs-pending'` past the tenant's limit on runs waiting to start.
+- 82eebb6: - Fixed: a guardrail scoped to flows (`scope.flows`) applies to the agent turns of those flows' steps. Before, a turn's trace never named its flow, so the guardrail was skipped on every turn, and nothing said so.
+  - The guardrail gate gives the trace the flow whose step started the turn: the flow of the turn's parent run, read from the turn's own run once it has resumed. A turn outside any flow names none, and a guardrail scoped to flows skips it, as before.
+  - A replay of a past turn (`replay.of`) gets the flow of the turn it replays, through a replay of a replay too, so a guardrail scoped to flows applies to it as it did to the original turn.
+  - A turn reads runs only when one of its guardrails is scoped to flows, so a turn without one never fails on a run it can't read. When one is and the turn's runs can't be read, the turn fails its step with `persistence-error`, so the guardrail is never passed over unseen. So does a replay whose replayed run is gone, or whose chain of replays loops or goes on past 10.
+- 2969337: **Checks inside a run are documented as not enforced in 0.1.7.** The docs of `InvokeAgentInput.principal`, `RunFlowInput.principal` and `authz`, and `NodeContext`'s `authorize`, `can` and `check` (and the agents and handler READMEs) now say that the runtime doesn't yet decide authorization checks inside a run in 0.1.7; route-level permissions apply. This is planned for 0.1.8. The agents README and `InvokeAgentInput.principal` no longer claim that an agent's tool calls are checked against its principal.
+- ebf405d: **A deployment can keep what a project's flows, agents, triggers and runs name within that project's reach.**
+  - **`CreateAppInput.referenceScope?`** (a `ReferenceScopeBinding`, `reachable(tenantId, fromProjectId, ref)`) is asked before each write that makes a reference live:
+    - publishing a flow (its tool, agent and subflow steps) or an agent (its tools, guardrails and data blocks), and reinstating a retired version of either;
+    - registering a deployment (what its agents and flows name, besides what it brings itself);
+    - registering a guardrail with a pack check;
+    - registering a schedule or a webhook trigger, and changing a schedule's target;
+    - starting an eval run (its suite, and its agent or flow), and starting a run filed under a named `projectId`;
+    - opening a conversation (its agent);
+    - promoting an agent into a project or a segment, directly or through an improvement proposal;
+    - drafting an improvement proposal (its scope and block), evaluating one, and starting an improvement pass (its suite and scope).
+  - **The refusal:** an item the project doesn't reach is refused with `reference-out-of-scope` (400), naming each one at its path. An item that doesn't exist gets the same answer. Without the binding, nothing changes.
+  - **A conversation opened without `projectId` is filed under its agent's own project,** as a run is. Before, it went to the tenant's Default project; an agent filed under no project still goes there.
+  - **Tool metadata:** `POST /v1/tools` and deployments refuse a tool `metadata` key under `kindgi.`, which is the runtime's own.
+  - **`ToolRegistry.forProject?`** (`@kindgi/tools`): the tools a run in a project may reach. An agent's turn resolves its tools on it when it's there.
+  - **`BlockReader`'s reads take the turn's `projectId`** (`@kindgi/agents`).
+  - **`InvokeAgentBindings.authorizeToolCall?`** (`@kindgi/agents`) is asked before each of a turn's tool calls, before any approval.
+    - A denied call runs nothing. Its result tells the model (`{ status: 'denied', reason }`), and the turn goes on.
+    - A call approved by a reviewer is asked again right before it runs. Denied then, it runs nothing.
+    - Each decision is recorded with the call, so a resumed turn keeps it. An authorizer that throws fails the step.
+    - A built-in tool is asked only when what it touches reaches beyond the turn's project: `kindgi_remember` for a tenant-wide fact.
+  - **The docs of `NodeContext`'s `authorize`, `can` and `check`, `RunFlowInput.principal` and `authz`, and `InvokeAgentInput.principal` and `authz`** (with the agents and handler READMEs) describe runtime 0.1.8: these checks are decided for every run and turn a person or a key starts.
+- 76532eb: **A turn that can't route names the registered providers its registry couldn't set up, and why.** Before, a tenant whose only provider failed to build (its settings no longer allowed on the deployment, say) got `capability-routing-failed` with `reasons: []`, and the cause was only in the server's log.
+  - `ProviderRegistry.setupFailures(tenantId)` (optional): the tenant's registered providers its last `hydrate` couldn't set up, each a `ProviderSetupFailure` (`providerId`, `message`). `list` still leaves them out.
+  - `RouteInput.setupFailures` (optional): when nothing routes, `capability-unsatisfiable` names each under the requirement `provider set up`, by its provider id alone, with the new rejection code `provider-setup-failed`. The error's message gives the first one's why and counts the rest. A route another provider satisfies is unchanged.
+  - An agent turn and an `llm-judge` guardrail pass the registry's setup failures to the router. A registry without `setupFailures` routes as before.
+- f526987: Prompt templates resolve no partials: `{% include %}`, `{% render %}` and `{% layout %}` fail the render, whatever the name, and a drafted template that uses one is refused.
+- a2ee44b: Templates pass one check wherever they come in, and render with one Liquid engine under the tenant input bounds.
+  
+  - New in `@kindgi/agents`: `templateProblem(template)`, the check. The renderer and the check share one Liquid engine.
+  - An agent's instructions are now checked when the agent is defined (`defineAgent`, `POST /v1/agents`) and deployed (`POST /v1/deployments`), as a prompt block's template already was when published. A deployment with one such agent is refused whole. The check refuses a template:
+    - longer than `liquid.parseLimit`;
+    - that uses `{% include %}`, `{% render %}` or `{% layout %}`, with "templates can't use include, render or layout";
+    - that is Liquid the renderer won't parse, an unknown filter included.
+  
+    Before, such instructions were accepted and then failed at every render. A template already stored with one still fails when it's rendered, and nothing stored is changed. To write `{{` or `{%` as text, put it in `{% raw %}…{% endraw %}`.
+  - A prompt block whose template uses an unknown filter is refused when it's published. The renderer always refused it.
+  - Rendering runs under the bounds' `liquid` limits: `parseLimit`, `renderLimitMs` and `memoryLimit`. On a self-hosted server only `memoryLimit` applies, at 16,777,216; `parseLimit` and `renderLimitMs` don't. `memoryLimit` counts what a render's filters and ranges make and what it writes, its captures included, as each is made. An array counts its items, each at least 1, nested arrays included; each distinct array is walked once, and counted every time it's held. A render past a limit fails, saying which.
+  - A drafted template longer than it may be is refused on its length alone, before it's parsed.
+- ebf405d: **An agent turn whose work its tenant's budget refuses fails with `rate-limit-exceeded`, not `model-invocation-failed`,** on a server with budgets kept per tenant (Kindgi Cloud). The error names the budget in `details.limit` (`template-render-time` or `schema-compile-time`), with `details.budgetMs`, and says when the tenant is under it again. `POST /v1/runs` answers it as `429`, with `Retry-After` and `details.runId`, and the run reads as failed with that code. The OpenAPI document lists the 429 on `POST /v1/runs`.
+  - New: the tenant input bounds' `templateRenderBudgetMs`, the time a tenant's instructions templates may spend rendering in any 60 seconds. Once a tenant has spent it, its next render is refused before it starts. A self-hosted server has none.
+  - `TenantBudgetError` (`@kindgi/bounds`) is what each budget's refusal is: `SchemaCompileBudgetError` and the new `TemplateRenderBudgetError` (`@kindgi/agents`) extend it, with `limit`, `budgetMs` and `retryAfterMs`. The API answers any of them thrown from a route as `429 rate-limit-exceeded`.
+  - A guardrail check, or a tenant's approval policy, whose schema compile the budget refuses no longer fails as `check-failed` or `tenant-policy-unavailable`: the turn fails as above.
+  - A failed run's `failure` has `details` for a code that has them. For `rate-limit-exceeded` that's `limit` and `budgetMs`, never the wait, which is stale once read back. The `run.finished` webhook's run can carry `failure` beside `failureMessage`. It's absent from a runtime that doesn't send it yet. `parseEvent` (`@kindgi/sdk/webhooks`) reads it, and reads a failure's `cause` as any JSON value.
+- f05d320: **An agent turn's memory, charged by size, for a runtime that limits it.**
+  - **`InvokeAgentBindings.turnMemory`,** optional: `charge(bytes, { runId })` (the turn's own run) answers `{ ok: true }`, or `{ ok: false, limit: 'tenant' | 'server', heldBytes, limitBytes }`. A runtime binds one per turn (one `invokeAgent` call), so two turns of one run are charged apart, and releases the turn's charge when it settles. Without it, nothing is charged.
+  - **The charge** is taken before each model call: (4 + the iterations done) × the conversation as sent, in UTF-8 bytes, replacing the turn's last charge. The first is taken once the first messages are built. Each later one comes after the last tool results have joined the conversation and been journaled. A dry run is never charged.
+  - **Refused,** the turn fails with `turn-memory-limit-reached` before the model is called, naming the limit, what it holds and its size. Every tool call the turn finished is already in the conversation, so a new turn there doesn't call it again.
+  - **The API's error map** gains `429 turn-memory-limit-reached`, with no `Retry-After`. The clients read it as rate-limited, with the code in `serverCode`.
+  - **Two runtime settings,** off unless set: `KINDGI_TURN_MEMORY_MIB` (every tenant's turns together) and `KINDGI_TURN_MEMORY_PER_TENANT_MIB` (one tenant's). Used from runtime 0.1.8.
+- Updated dependencies [cd84814]
+- Updated dependencies [ebf405d]
+- Updated dependencies [059c2c2]
+- Updated dependencies [cd84814]
+- Updated dependencies [57a7b2e]
+- Updated dependencies [2969337]
+- Updated dependencies [ebf405d]
+- Updated dependencies [3a3f233]
+- Updated dependencies [76532eb]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [3a3f233]
+- Updated dependencies [036605f]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+  - @kindgi/bounds@0.1.8-rc.0
+  - @kindgi/runtime@0.1.8-rc.0
+  - @kindgi/guardrails@0.1.8-rc.0
+  - @kindgi/tools@0.1.8-rc.0
+  - @kindgi/handler@0.1.8-rc.0
+  - @kindgi/capabilities@0.1.8-rc.0
+  - @kindgi/schema@0.1.8-rc.0
+  - @kindgi/types@0.1.8-rc.0
+  - @kindgi/compliance@0.1.8-rc.0
+  - @kindgi/flow@0.1.8-rc.0
+  - @kindgi/provenance@0.1.8-rc.0
+  - @kindgi/authz@0.1.8-rc.0
+  - @kindgi/embedding@0.1.8-rc.0
+  - @kindgi/memory@0.1.8-rc.0
+  - @kindgi/policy-contract@0.1.8-rc.0
+
+## 0.1.7
+
+### Patch Changes
+
+- 597173e: `@kindgi/sdk/define` bundles in an app: Next.js (Turbopack) failed to build a route that imported an agent file's exported schema, on `@kindgi/agents`' `new URL('../migrations/', import.meta.url)`. `AGENTS_MIGRATIONS_DIR` moved to a runtime-only subpath, `@kindgi/agents/migrations`, and is no longer exported from `@kindgi/agents`' main entry. A test bundles `@kindgi/sdk/define` and fails if any module it reaches resolves a file from its own URL. The `serverExternalPackages` workaround is no longer needed.
+- dab4296: A typed agent is told its `output` from the turn's first model call: the system message ends with the output's name and JSON Schema (descriptions included), in the words a repair repeats, and tells the model to call the tools it needs first. The first answer can fit, so a repair is the fallback, not most turns' second model call.
+- 049966d: A parameter named `input` is refused when an agent or a prompt block is defined, as `today`, `now`, `agent`, `conversation` and `settings` already were: `"input" is a reserved auto-injected variable — do not declare it as a parameter`. Before, it was accepted, and the turn's structured input silently replaced its value whenever a turn carried one. The reserved names now come from `AUTO_INJECTED_VARS` itself, so a new auto-injected variable is reserved as soon as it's added.
+- Updated dependencies [7bd61d6]
+- Updated dependencies [72f3582]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [fdb644c]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [f080a20]
+  - @kindgi/capabilities@0.1.7
+  - @kindgi/tools@0.1.7
+  - @kindgi/runtime@0.1.7
+  - @kindgi/types@0.1.7
+  - @kindgi/compliance@0.1.7
+  - @kindgi/policy-contract@0.1.7
+  - @kindgi/guardrails@0.1.7
+  - @kindgi/flow@0.1.7
+  - @kindgi/provenance@0.1.7
+  - @kindgi/schema@0.1.7
+  - @kindgi/authz@0.1.7
+  - @kindgi/embedding@0.1.7
+  - @kindgi/handler@0.1.7
+  - @kindgi/memory@0.1.7
+
+## 0.1.7-rc.0
+
+### Patch Changes
+
+- 597173e: `@kindgi/sdk/define` bundles in an app: Next.js (Turbopack) failed to build a route that imported an agent file's exported schema, on `@kindgi/agents`' `new URL('../migrations/', import.meta.url)`. `AGENTS_MIGRATIONS_DIR` moved to a runtime-only subpath, `@kindgi/agents/migrations`, and is no longer exported from `@kindgi/agents`' main entry. A test bundles `@kindgi/sdk/define` and fails if any module it reaches resolves a file from its own URL. The `serverExternalPackages` workaround is no longer needed.
+- dab4296: A typed agent is told its `output` from the turn's first model call: the system message ends with the output's name and JSON Schema (descriptions included), in the words a repair repeats, and tells the model to call the tools it needs first. The first answer can fit, so a repair is the fallback, not most turns' second model call.
+- 049966d: A parameter named `input` is refused when an agent or a prompt block is defined, as `today`, `now`, `agent`, `conversation` and `settings` already were: `"input" is a reserved auto-injected variable — do not declare it as a parameter`. Before, it was accepted, and the turn's structured input silently replaced its value whenever a turn carried one. The reserved names now come from `AUTO_INJECTED_VARS` itself, so a new auto-injected variable is reserved as soon as it's added.
+- Updated dependencies [7bd61d6]
+- Updated dependencies [72f3582]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [fdb644c]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [f080a20]
+  - @kindgi/capabilities@0.1.7-rc.0
+  - @kindgi/tools@0.1.7-rc.0
+  - @kindgi/runtime@0.1.7-rc.0
+  - @kindgi/types@0.1.7-rc.0
+  - @kindgi/compliance@0.1.7-rc.0
+  - @kindgi/policy-contract@0.1.7-rc.0
+  - @kindgi/guardrails@0.1.7-rc.0
+  - @kindgi/flow@0.1.7-rc.0
+  - @kindgi/provenance@0.1.7-rc.0
+  - @kindgi/schema@0.1.7-rc.0
+  - @kindgi/authz@0.1.7-rc.0
+  - @kindgi/embedding@0.1.7-rc.0
+  - @kindgi/handler@0.1.7-rc.0
+  - @kindgi/memory@0.1.7-rc.0
+
 ## 0.1.6
 
 ### Patch Changes

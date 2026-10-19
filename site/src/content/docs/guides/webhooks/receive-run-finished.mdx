@@ -23,8 +23,9 @@ from another system start a run, see
 - **`kindgi dev` running** in your pack's directory, with Kindgi 0.1's CLI.
 - **A flow to watch,** registered on that runtime. This guide filters on
   `acme.check-order-stock`; use your own flow's id.
-- **Your app's server,** on Node 22.12 or later or Python 3.11 or later,
-  with Kindgi 0.1's client and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+- **Your app's server,** on Node 22.12 or later, Python 3.11 or later, or
+  Java 17 or later, with Kindgi 0.1's client and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
 - **A route in your app that receives the request,** such as
   `http://localhost:8787/hooks/kindgi`.
   [Verify a webhook](../verify-a-webhook/) has receivers to start from.
@@ -58,6 +59,50 @@ print(webhooks.generate_secret())
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/NewWebhookSecret.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+
+public final class NewWebhookSecret {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    System.out.println(kindgi.webhookEndpoints().generateSecret().secret());
+  }
+}
+```
+
+The Java client asks the runtime for the secret (`POST
+/v1/webhook-endpoints/generate-secret`), so this needs `KINDGI_API_URL` and
+`KINDGI_API_TOKEN`, or the running `kindgi dev`.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/NewWebhookSecret.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+
+object NewWebhookSecret {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    println(kindgi.webhookEndpoints().generateSecret().secret)
+  }
+}
+```
+
+The Java client asks the runtime for the secret (`POST
+/v1/webhook-endpoints/generate-secret`), so this needs `KINDGI_API_URL` and
+`KINDGI_API_TOKEN`, or the running `kindgi dev`.
+
+</TabItem>
 </Tabs>
 
 It prints a new secret on one line: `whsec_` and the base64 of 32 random
@@ -66,9 +111,36 @@ bytes.
 Store it as a secret, under a name. The CLI asks for the value and doesn't
 echo it:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
+pnpm exec kindgi secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
+```
+
+</TabItem>
+</Tabs>
 
 - `ACME_WEBHOOK_SECRET` is the secret's name. The endpoint refers to it by
   this name.
@@ -97,7 +169,9 @@ Your receiver needs the same value, from its own configuration.
 The endpoint tells Kindgi where to send the request, and with which secret.
 
 There's no CLI command for webhook endpoints. Register one with the client,
-from your app or a script:
+from your app or a script. Ask your coding agent: "I want Kindgi to send my
+app a webhook when a run of my flow finishes." For reference, the code looks
+like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -148,6 +222,74 @@ It prints the endpoint's id and URL:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/RegisterWebhook.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.CreateWebhookEndpointBody;
+import com.kindgi.client.models.WebhookEndpoint;
+import com.kindgi.client.models.WebhookEndpointFilter;
+import com.kindgi.client.models.WebhookEventType;
+import com.kindgi.client.models.WebhookSecretRef;
+import java.util.List;
+
+public final class RegisterWebhook {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    WebhookEndpoint endpoint = kindgi.webhookEndpoints().create(CreateWebhookEndpointBody.builder()
+        .url("http://localhost:8787/hooks/kindgi")
+        .events(List.of(WebhookEventType.RUN_FINISHED))
+        .secretRef(WebhookSecretRef.builder().envName("local").name("ACME_WEBHOOK_SECRET").build())
+        .filter(WebhookEndpointFilter.builder().flowIds(List.of("acme.check-order-stock")).build()) // optional
+        .build());
+    System.out.println(endpoint.endpointId() + " " + endpoint.url());
+  }
+}
+```
+
+It prints the endpoint's id and URL:
+
+```text
+b755d953-6dbf-4ec6-bd5a-3b55b0a87fc2 http://localhost:8787/hooks/kindgi
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/RegisterWebhook.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{CreateWebhookEndpointBody, WebhookEndpointFilter, WebhookEventType, WebhookSecretRef}
+import scala.jdk.CollectionConverters._
+
+object RegisterWebhook {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    val endpoint = kindgi.webhookEndpoints().create(CreateWebhookEndpointBody.builder()
+      .url("http://localhost:8787/hooks/kindgi")
+      .events(List(WebhookEventType.RUN_FINISHED).asJava)
+      .secretRef(WebhookSecretRef.builder().envName("local").name("ACME_WEBHOOK_SECRET").build())
+      .filter(WebhookEndpointFilter.builder().flowIds(List("acme.check-order-stock").asJava).build()) // optional
+      .build())
+    println(s"${endpoint.endpointId} ${endpoint.url}")
+  }
+}
+```
+
+It prints the endpoint's id and URL:
+
+```text
+331103fc-6f6d-408f-904b-2a9299f9a2db http://localhost:8787/hooks/kindgi
+```
+
+</TabItem>
 </Tabs>
 
 - **`url`** is your receiver. Use https in production; plain http is for
@@ -155,11 +297,12 @@ It prints the endpoint's id and URL:
   runtime's container. Outside development, the receiver must be on a public
   address. A self-hosted runtime whose receiver is on its own private
   network, such as the same VPC or compose network, sets
-  `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`. That opens RFC 1918, CGNAT and
-  IPv6 unique-local addresses, still over https only. Loopback and the cloud
-  metadata addresses stay refused. A URL the deployment refuses gets
-  `400 webhook-url-refused`, with the reason: `The deployment refuses this
-  URL: private network addresses are not allowed`.
+  `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`. That opens RFC 1918, CGNAT, and
+  IPv6 unique-local and site-local addresses, still over https only.
+  Loopback and the cloud metadata addresses stay refused. A URL the
+  deployment refuses gets `400 webhook-url-refused` with a reason. For a
+  private address, it's `The deployment refuses this URL: private network
+  addresses are not allowed`.
 - **`events`** lists the events to send: `run.finished` here.
   `improvement-pass.finished` and `approval.requested` are the others, as
   [Webhook events and deliveries](../webhook-events/) describes.

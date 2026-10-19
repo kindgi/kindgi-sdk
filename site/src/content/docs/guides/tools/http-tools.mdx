@@ -24,7 +24,12 @@ sends a credential with it.
 
 A tool that is a single HTTP request needs no handler. You declare the
 request. Kindgi makes it on every call, fills the URL from the tool's input
-and adds the credential:
+and adds the credential.
+
+Ask your coding agent: "I want a tool that adds a note to an order with one
+HTTP request, no code." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+tool looks like this. This guide calls it `my-pack.add-order-note`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -105,12 +110,16 @@ add_order_note = http_tool(
 </TabItem>
 <TabItem label="Java">
 
-Not in the Java SDK: an HTTP tool without code is declared in TypeScript or Python. In a Java pack, write a tool whose handler makes the request ([When to write a handler instead](#when-to-write-a-handler-instead)).
+Not in the Java SDK: an HTTP tool without code is declared in TypeScript or
+Python. In a Java pack, write a tool whose handler makes the request ([When
+to write a handler instead](#when-to-write-a-handler-instead)).
 
 </TabItem>
 <TabItem label="Scala">
 
-Not in the Scala SDK: an HTTP tool without code is declared in TypeScript or Python. In a Scala pack, write a tool whose handler makes the request ([When to write a handler instead](#when-to-write-a-handler-instead)).
+Not in the Scala SDK: an HTTP tool without code is declared in TypeScript or
+Python. In a Scala pack, write a tool whose handler makes the request ([When
+to write a handler instead](#when-to-write-a-handler-instead)).
 
 </TabItem>
 </Tabs>
@@ -151,6 +160,22 @@ pnpm exec kindgi runs start --flow=my-pack.note-order --input='{"orderId":"ord_1
 ```sh
 uv run kindgi runs start --flow=my-pack.note-order --input='{"orderId":"ord_1001","text":"Customer called"}'
 ```
+
+</TabItem>
+<TabItem label="Java">
+
+Not in the Java SDK: the HTTP tool above is declared in TypeScript or
+Python. A handler tool you write in a Java pack instead runs from its flow
+the same way, with `./kindgiw runs start` ([When to write a handler
+instead](#when-to-write-a-handler-instead)).
+
+</TabItem>
+<TabItem label="Scala">
+
+Not in the Scala SDK: the HTTP tool above is declared in TypeScript or
+Python. A handler tool you write in a Scala pack instead runs from its flow
+the same way, with `./kindgiw runs start` ([When to write a handler
+instead](#when-to-write-a-handler-instead)).
 
 </TabItem>
 </Tabs>
@@ -194,6 +219,10 @@ counted after it's decompressed, fails the call:
 
 `authorization` names a secret. Kindgi resolves it on every call and sends
 it as a header. Your code never holds the value.
+
+Ask your coding agent: "I want a tool that checks the API accepts my token."
+For reference, the tool looks like this. It sends the secret
+`HTTPBIN_TOKEN`, which you store below:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -255,12 +284,16 @@ check_token = http_tool(
 </TabItem>
 <TabItem label="Java">
 
-Not in the Java SDK: an HTTP tool without code is declared in TypeScript or Python. In a Java pack, write a tool whose handler makes the request ([When to write a handler instead](#when-to-write-a-handler-instead)).
+Not in the Java SDK: an HTTP tool without code is declared in TypeScript or
+Python. In a Java pack, write a tool whose handler makes the request ([When
+to write a handler instead](#when-to-write-a-handler-instead)).
 
 </TabItem>
 <TabItem label="Scala">
 
-Not in the Scala SDK: an HTTP tool without code is declared in TypeScript or Python. In a Scala pack, write a tool whose handler makes the request ([When to write a handler instead](#when-to-write-a-handler-instead)).
+Not in the Scala SDK: an HTTP tool without code is declared in TypeScript or
+Python. In a Scala pack, write a tool whose handler makes the request ([When
+to write a handler instead](#when-to-write-a-handler-instead)).
 
 </TabItem>
 </Tabs>
@@ -306,6 +339,22 @@ pnpm exec kindgi runs start --flow=my-pack.try-token --input='{}'
 printf 'demo-token-123' | uv run kindgi secrets set HTTPBIN_TOKEN --env=local --scope=tenant --from-stdin
 uv run kindgi runs start --flow=my-pack.try-token --input='{}'
 ```
+
+</TabItem>
+<TabItem label="Java">
+
+Not in the Java SDK: the HTTP tool above is declared in TypeScript or
+Python. A Java pack stores the secret the same way, with `./kindgiw secrets
+set`, and a handler tool reads it ([Give a tool a
+secret](../give-a-tool-a-secret/)).
+
+</TabItem>
+<TabItem label="Scala">
+
+Not in the Scala SDK: the HTTP tool above is declared in TypeScript or
+Python. A Scala pack stores the secret the same way, with `./kindgiw secrets
+set`, and a handler tool reads it ([Give a tool a
+secret](../give-a-tool-a-secret/)).
 
 </TabItem>
 </Tabs>

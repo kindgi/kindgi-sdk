@@ -32,7 +32,10 @@ recorded runs.
 
 A comparison replays the version on the test set's cases. Version 0.1.0 of
 `acme-ops.article-picker` answered with three articles each time, and people
-said no to most of them. Version 0.2.0 changes its instructions:
+said no to most of them. Version 0.2.0 changes its instructions. Ask your
+coding agent: "Make a new version of my agent that answers with only
+the articles that answer the question." For reference, 0.2.0's instructions
+look like this:
 
 ```ts excerpt
 instructions:
@@ -41,9 +44,36 @@ instructions:
 
 The test set keeps its copies of the 0.1.0 runs. Compare 0.2.0 on it:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+pnpm exec kindgi eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+```
+
+</TabItem>
+</Tabs>
 
 - `acme.article-picks` is the test set.
 - `--project=<project-id>` is the project the replay runs land in.
@@ -81,7 +111,9 @@ It prints the comparison, with its metrics:
 Without `--wait`, the command returns the run's id at once, and
 `kindgi eval-runs show <run-id>` reads it later.
 
-From your code, with the project's id as the script's argument:
+From your code, ask your coding agent: "I want a script that compares my
+new agent version on my test set, and shows me the scores." For reference,
+the script looks like this, with the project's id as its argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -273,6 +305,15 @@ tool with the same arguments.
   per end user, `same-user`, is offered the same tools as the past turn,
   `kindgi_remember` included, which stores nothing in a replay. A replay's
   conversation is never recalled later as an earlier conversation.
+- **A replay of a run a webhook or an event started reads its message as
+  data** (it needs runtime 0.1.9 or later). Its model reads the turn's
+  message, or a flow's agent step's, as an
+  [`<event>` block](../../webhooks/start-runs-from-webhooks/#what-its-agents-read),
+  data and not instructions, even when the past run was on an earlier runtime
+  and read it as it came: its answer can differ for that alone. The replay's
+  own run records no `startedBy`, as no replay does. A delivery earlier in the
+  conversation reads that way too, unless an earlier runtime kept it: that one
+  reads as it came.
 
 **The replay runs** are ordinary runs, marked with `replayOf`, the past run,
 and `evalRunId`. Lists of runs leave them out. `kindgi runs list
@@ -300,9 +341,36 @@ new flow version, add `--with=<id>@<version>` once for each. Here the flow
 `acme-ops.suggest-articles` 0.1.0 runs its `acme-ops.find-articles` tool at
 0.2.0, which matches only the articles a question asks about:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
+pnpm exec kindgi eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
+```
+
+</TabItem>
+</Tabs>
 
 `--flow` and `--flow-version` are the flow version to compare, and
 `--reads=live` runs read-only tools live. Its summary names the swapped

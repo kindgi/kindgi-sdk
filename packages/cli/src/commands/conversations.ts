@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { UsageError } from '../errors.js';
-import { integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
+import { filterIgnored, integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 const STATUSES = ['open', 'closed'] as const;
@@ -26,11 +26,15 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List conversations, newest first.',
   usage:
-    'kindgi conversations list [--status=open|closed] [--replays=exclude|include|only] [--limit=<n>] [--cursor=<c>]',
+    'kindgi conversations list [--status=open|closed] [--opened-by=me] [--replays=exclude|include|only] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     status: {
       type: 'string',
       description: 'Only the conversations with this status: `open` or `closed`.',
+    },
+    'opened-by': {
+      type: 'string',
+      description: '`me`: only the conversations you opened.',
     },
     replays: {
       type: 'string',
@@ -47,14 +51,20 @@ const list: LeafCommand = {
     runSdk(ctx, 'conversations list', async () => {
       const status = oneOf('status', stringFlag(ctx, 'status'), STATUSES);
       const replays = oneOf('replays', stringFlag(ctx, 'replays'), REPLAYS);
+      const openedBy = oneOf('opened-by', stringFlag(ctx, 'opened-by'), ['me'] as const);
       const limit = integerFlag(ctx, 'limit');
       const cursor = stringFlag(ctx, 'cursor');
-      return await ctx.client().conversations.list({
+      const page = await ctx.client().conversations.list({
         ...(status !== undefined && { status }),
         ...(replays !== undefined && { replays }),
+        ...(openedBy !== undefined && { openedBy }),
         ...(limit !== undefined && { limit }),
         ...(cursor !== undefined && { cursor: cursor as never }),
       });
+      if (openedBy !== undefined && page.openedBy !== 'me') {
+        throw filterIgnored('opened-by', '0.1.9');
+      }
+      return page;
     }),
 };
 
@@ -85,7 +95,7 @@ const open: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "The project the conversation is in (`kindgi projects list`). Default: the tenant's Default project.",
+        "The project the conversation is in (`kindgi projects list`). Default: the agent's own project.",
     },
     participant: {
       type: 'string',

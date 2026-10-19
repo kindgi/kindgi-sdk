@@ -25,6 +25,17 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'reference-out-of-scope': {
+    description:
+      "A request names an item its project can't reach: a tool, agent, flow, guardrail, data block, check or eval suite that isn't registered in the project, its org or the tenant, or a version of an agent, flow or eval suite that the project doesn't run, such as one made in an earlier environment and not yet promoted. Nothing is written. Register the item where the project reaches it, use it from the project that has it, or promote the version first.",
+    details: [
+      {
+        key: 'issues',
+        meaning:
+          'list of the references refused, each with the `path` it was named at, its `kind` and `id`, and a message',
+      },
+    ],
+  },
   'kind-not-applied': {
     description:
       "You publish a policy of a kind this runtime doesn't enforce, so publishing it would change nothing. Publish one of the kinds listed in `details.appliedKinds`.",
@@ -124,7 +135,7 @@ export const ERROR_ENTRIES = {
   },
   'permission-denied': {
     description:
-      "Your key or session isn't allowed to do this on this resource, or lacks a capability the route needs. Ask an admin for the permission or use a key that has it.",
+      "Your key or session isn't allowed to do this on this resource, or lacks a capability the route needs, which the message names. For a permission, ask an admin for it. A key carries only the capabilities it was made with, and only ones the person who made it holds: use a key made with that capability.",
     details: [
       {
         key: 'action',
@@ -137,6 +148,26 @@ export const ERROR_ENTRIES = {
       {
         key: 'reason',
         meaning: 'why the check refused it',
+      },
+    ],
+  },
+  'participant-not-allowed': {
+    description:
+      "A turn would run as a participant, and you may not read that participant's memory. A turn reads and keeps its participant's memory, so running as one takes what the memory API takes: you're the participant yourself (that user, with their session or their own API key, never a service account's key), or you hold `write` on the turn's project. When the turn's project isn't known, only the participant may. It's checked wherever a turn gets a participant: `input.participantId` on `POST /v1/runs`, `participantId` on `POST /v1/conversations`, and a conversation's own participant when you post a turn into it, whatever the body names. Nothing was started or opened. Use a key or role with `write` on the turn's project, or have the participant run it.",
+    details: [
+      {
+        key: 'action',
+        meaning: 'the action that was refused: `write`',
+      },
+      {
+        key: 'resource',
+        meaning:
+          "what it was refused on, as type:id: `conversation:<id>` when you posted into a conversation (never its participant or project), else `project:<id>`, the turn's project, or `tenant:<id>` when that isn't known",
+      },
+      {
+        key: 'reason',
+        meaning:
+          "why it was refused; when you posted into a conversation, it names neither the conversation's participant nor its project",
       },
     ],
   },
@@ -180,6 +211,61 @@ export const ERROR_ENTRIES = {
         meaning: 'why the check refused it',
       },
     ],
+  },
+  'second-factor-required': {
+    description:
+      "The workspace requires a second factor at sign-in. Signing in to the console with an API token is refused, since a token can't give one: sign in another way, with your second factor. Taking your own second factor off is refused too: replace it (`POST /v1/identity/me/second-factor` with a code), or ask a tenant admin to remove it.",
+    details: [
+      {
+        key: 'action',
+        meaning: 'the action that was refused (token sign-in only)',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on, as type:id (token sign-in only)',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the check refused it (token sign-in only)',
+      },
+    ],
+    seeAlso: ['deploy/self-hosted/sign-in'],
+  },
+  'second-factor-invalid': {
+    description:
+      "The code from the authenticator app, or the recovery code, isn't right: try the code the app shows now. Replacing a second factor that's set up takes a code from it. Too many wrong codes lock it for a while (`second-factor-locked`).",
+    details: [],
+    seeAlso: ['deploy/self-hosted/sign-in'],
+  },
+  'second-factor-locked': {
+    description:
+      'Too many wrong codes lately for this person: no code is checked until the `Retry-After` header says. Nothing changed.',
+    details: [],
+    seeAlso: ['deploy/self-hosted/sign-in'],
+  },
+  'second-factor-unusable': {
+    description:
+      "The person's authenticator key can't be opened any more: the deployment's sign-in secret changed, and the previous one isn't configured. A recovery code still works, and so does setting the second factor up again with one; otherwise a tenant admin removes it.",
+    details: [],
+    seeAlso: ['deploy/self-hosted/sign-in'],
+  },
+  'second-factor-enroll-first': {
+    description:
+      'Requiring a second factor from a session made without one would end that session at its next request. Set up your own second factor and sign in again with it, then require one. An API key may change the setting.',
+    details: [],
+    seeAlso: ['deploy/self-hosted/sign-in'],
+  },
+  'second-factor-not-set-up': {
+    description:
+      'The person has no second factor set up: there are no recovery codes to replace, and nothing to take off. Set one up with `POST /v1/identity/me/second-factor`.',
+    details: [],
+    seeAlso: ['deploy/self-hosted/sign-in'],
+  },
+  'second-factor-not-started': {
+    description:
+      'There is no new key to confirm, or the one given is over an hour old. Start again with `POST /v1/identity/me/second-factor`, and confirm with a code from the new key.',
+    details: [],
+    seeAlso: ['deploy/self-hosted/sign-in'],
   },
   'token-sign-in-not-allowed': {
     description:
@@ -228,7 +314,8 @@ export const ERROR_ENTRIES = {
     ],
   },
   'conversation-not-found': {
-    description: "The conversation doesn't exist in your tenant. Check the conversation id.",
+    description:
+      "The conversation doesn't exist in your tenant, or a turn names one in a project your key can't read. Check the conversation id.",
     details: [
       {
         key: 'conversationId',
@@ -542,6 +629,32 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'tool-kind-mismatch': {
+    description:
+      "A tool's active versions are all one kind: an MCP endpoint's tool, which the runtime registers from the endpoint's listing, or tools published here. This version is the other kind, so nothing was written. Publish or deploy it under another id, or unregister the endpoint (or the other kind's versions) first.",
+    details: [
+      {
+        key: 'toolId',
+        meaning: "the tool's id (single publish or reinstate)",
+      },
+      {
+        key: 'version',
+        meaning: 'the version refused (single publish or reinstate)',
+      },
+      {
+        key: 'endpointId',
+        meaning: "when the id is an MCP endpoint's tool: that endpoint's id",
+      },
+      {
+        key: 'primitive',
+        meaning: 'on a deployment: the kind of item refused (`tool`)',
+      },
+      {
+        key: 'id',
+        meaning: 'on a deployment: the refused item, as `id@version`',
+      },
+    ],
+  },
   'guardrail-already-registered': {
     description:
       'A guardrail with this id is already registered. On a deployment, the existing one has a different definition, so unregister it first and deploy again.',
@@ -575,6 +688,79 @@ export const ERROR_ENTRIES = {
       },
     ],
     seeAlso: ['POST /v1/deployments/{deploymentId}/secrets'],
+  },
+  'environment-takes-promotions': {
+    description:
+      "The project you named (or the Default project, when you named none) is a later environment of an environment order, and a later environment takes builds only by promotion from the one before it. Deploy into the order's first environment and promote the build from there. A publish through the API into a later environment is refused the same way, and so is an edited version of an agent that names one: new versions are made in the first environment. Nothing is written.",
+    details: [
+      {
+        key: 'firstProjectId',
+        meaning:
+          "the order's first environment, where builds and new versions go; present when you can read that project",
+      },
+      {
+        key: 'position',
+        meaning: "the project's place in the order, from 0 (the first)",
+      },
+    ],
+  },
+  'promotion-not-next-environment': {
+    description:
+      "A deployment is promoted only to the next environment of its environment order, one environment at a time. The project named isn't that one, or the deployment is in the order's last environment, or in no order. `kindgi environments list` shows the order. Nothing is written.",
+    details: [
+      {
+        key: 'position',
+        meaning:
+          "the next environment's place in the order, from 0 (the first); absent when there's none",
+      },
+      {
+        key: 'nextProjectId',
+        meaning: "the next environment's project; present when you can read it",
+      },
+    ],
+    seeAlso: ['POST /v1/deployments/{deploymentId}/promotions'],
+  },
+  'promotion-values-not-ready': {
+    description:
+      "Values the build needs in the target environment aren't ready there: a secret, env value or model key set nowhere a run there looks; one revoked where a run reads it; a pack env name set only as a secret, or both as a secret and as a plain value; or no model provider registered for an agent that runs on any provider. Each one is in `details.values`: set them in the target, then promote again. The promotion check lists the same, writing nothing. Nothing is written.",
+    details: [
+      {
+        key: 'values',
+        meaning:
+          'each value not ready: its `name`, `kind`, what needs it (`neededBy`), where a run finds it (`foundAt`, when it is set) and why it is not ready (`problem`); never a value',
+      },
+    ],
+    seeAlso: [
+      'POST /v1/deployments/{deploymentId}/promotions',
+      'POST /v1/deployments/{deploymentId}/promotions/check',
+    ],
+  },
+  'deployment-superseded': {
+    description:
+      'A deployment is promoted only while it serves. With `details.environment` `source`: newer deployments in its environment serve every tool version it ships, so it no longer serves there; promote the newer one. With `target`: the target environment has this build already, superseded there; promote the newer build from the environment before it. Nothing is written.',
+    details: [
+      {
+        key: 'environment',
+        meaning: '`source` (the deployment promoted) or `target` (the environment it goes to)',
+      },
+      {
+        key: 'newerDeploymentId',
+        meaning:
+          'the newest deployment there that serves every tool version this one ships; present when there is one',
+      },
+    ],
+    seeAlso: ['POST /v1/deployments/{deploymentId}/promotions'],
+  },
+  'promotions-unsupported': {
+    description:
+      "This runtime can't promote deployments: it has nowhere to write a promotion. The promotion check still answers. Nothing is written.",
+    details: [],
+    seeAlso: ['POST /v1/deployments/{deploymentId}/promotions'],
+  },
+  'live-scope-spans-environments': {
+    description:
+      "An agent with a project in an environment order is made live one project at a time, whether one project serves it or several. A live change for the whole tenant or an organization would reach every environment of the order at once, so it's refused. Name a project in the change's scope, or a segment of it. To take a build from one environment to the next and make it live there, promote it (`kindgi promote --make-live`). Nothing is changed.",
+    details: [],
   },
   'guardrail-config-invalid': {
     description:
@@ -632,6 +818,25 @@ export const ERROR_ENTRIES = {
       },
     ],
     seeAlso: ['guides/agents/conversations'],
+  },
+  'conversation-project-mismatch': {
+    description:
+      "The run names a project other than the conversation's. A conversation belongs to one project, and its turns run there. Name its project, or omit `projectId` to continue it in its own.",
+    details: [
+      {
+        key: 'conversationId',
+        meaning: 'the conversation the turn was posted into',
+      },
+      {
+        key: 'projectId',
+        meaning: 'the project the run named',
+      },
+      {
+        key: 'conversationProjectId',
+        meaning: "the conversation's own project",
+      },
+    ],
+    seeAlso: ['POST /v1/runs', 'guides/agents/conversations'],
   },
   'invalid-agent': {
     description:
@@ -831,7 +1036,7 @@ export const ERROR_ENTRIES = {
   },
   'capability-routing-failed': {
     description:
-      "No model provider could take the agent's call: the agent declares no capabilities, or no provider meets them under your policy, or the pinned route is no longer allowed.",
+      "No model provider could take the agent's call: the agent declares no capabilities, or no provider meets them under your policy, or the pinned route is no longer allowed, or a provider registered for the tenant can't be set up on this runtime (the message says why; `GET /v1/providers/{providerId}/check` gives the adapter's words).",
     details: [
       {
         key: 'runId',
@@ -882,14 +1087,84 @@ export const ERROR_ENTRIES = {
   },
   'rate-limit-exceeded': {
     description:
-      'You sent too many requests: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, or too many sign-in lookups came from one source. Retry after the `Retry-After` header.',
-    details: [],
+      "You sent too many requests, or a tenant reached one of its limits: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, too many sign-in lookups came from one source, or the tenant reached its limit on API requests or webhook deliveries a minute, or on runs waiting to start. A tenant's API requests to `/v1` and `/s3` count together; on `/s3`, its limit answers as S3 does, with `503 SlowDown` and `Retry-After`, not with this code. On a server with budgets kept per tenant (Kindgi Cloud), it's also the answer when the tenant's schemas took their budget compiling, or its instructions templates rendering, in the last 60 seconds; an agent's turn refused this way fails its run with this code. Retry after the `Retry-After` header; a refusal by the limit on runs waiting to start has none: retry once some have started.",
+    details: [
+      {
+        key: 'limit',
+        meaning:
+          "the tenant's limit that was reached: `api-requests`, `webhook-receives`, `runs-pending`, or a budget, `schema-compile-time` or `template-render-time`. Absent when the limit isn't the tenant's",
+      },
+      {
+        key: 'runsPending',
+        meaning:
+          "the tenant's limit on runs waiting to start, on a `runs-pending` refusal; absent when the server doesn't name it",
+      },
+      {
+        key: 'budgetMs',
+        meaning:
+          "for a budget, the milliseconds the tenant's work of that kind may take in 60 seconds",
+      },
+      {
+        key: 'runId',
+        meaning: "when a budget refused an agent's turn, the run the turn belongs to",
+      },
+    ],
+  },
+  'approvals-pending-limit': {
+    description:
+      "A gate asked for an approval while the tenant's approvals waiting for a decision were at its limit (set by whoever runs the server). Nothing waits for an approval nobody can see: the step fails, naming the limit. `POST /v1/runs` answers `429` when the call waits for its run; with `options.wait: false` it answers `202`, and the run fails with this code. A promotion whose gate wants an approval is refused with it. Once some of the approvals waiting are decided, try again.",
+    details: [
+      {
+        key: 'approvalsPending',
+        meaning:
+          "the tenant's limit on approvals waiting for a decision; absent when the server doesn't name it",
+      },
+    ],
+  },
+  'invite-capped': {
+    description:
+      "Too many invitations sent: to this person, from the tenant, or from the whole deployment. The limits are the server's. Nothing changed and nothing was sent. Try again after the `Retry-After` header, or, if their invitation hasn't expired, tell them to sign in.",
+    details: [
+      {
+        key: 'userId',
+        meaning: 'the person whose invitation was to be sent again',
+      },
+    ],
+  },
+  'turn-memory-limit-reached': {
+    description:
+      "The runtime's agent turns hold more memory than its limit leaves this turn: the tenant's share (`KINDGI_TURN_MEMORY_PER_TENANT_MIB`) or the runtime's whole (`KINDGI_TURN_MEMORY_MIB`). The turn's run fails, and every tool call it finished is in the conversation, so a new turn there doesn't call it again. Retry later, or use a smaller conversation.",
+    details: [
+      {
+        key: 'limit',
+        meaning: '`tenant` or `server`: which limit refused the turn',
+      },
+      {
+        key: 'heldBytes',
+        meaning: "what that limit's turns held, in bytes",
+      },
+      {
+        key: 'limitBytes',
+        meaning: 'the limit, in bytes',
+      },
+      {
+        key: 'runId',
+        meaning: 'the run that failed',
+      },
+    ],
+    seeAlso: ['GET /v1/runs/{runId}', 'reference/env-vars'],
   },
   'internal-server-error': {
     description:
       'The server hit an unexpected error while handling the request. Retry; if it persists, contact support with the `requestId`.',
     details: [],
     seeAlso: ['GET /v1/deployments'],
+  },
+  'database-busy': {
+    description:
+      "The database was too busy to answer the read in time: a lock held by other work or a query past the database's time limit ended it, or no database connection came free within the server's wait. Only a `GET` or `HEAD` answers it. Retry after the `Retry-After` header. A request with any other method that the database was too busy for answers a 500 (`internal-server-error`, or the code of what failed, such as `persistence-error`), since it may have saved part of its work: check what it changed before you send it again.",
+    details: [],
+    seeAlso: ['GET /v1/runs'],
   },
   'journal-error': {
     description:
@@ -1014,7 +1289,7 @@ export const ERROR_ENTRIES = {
   },
   'export-key-error': {
     description:
-      "Signing the export with the deployment's export key failed. The message carries the reason.",
+      "Signing the export with the deployment's export key failed. The reason is in the runtime's log, not the message.",
     details: [],
     seeAlso: ['POST /v1/approvals/{approvalId}/audit-bundle', 'POST /v1/provenance/{runId}/export'],
   },
@@ -1347,6 +1622,33 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'retention-over-limit': {
+    description:
+      "The retention policy keeps its domain's records longer than this server's limit for that domain, or holds them (`graceSeconds: -1`). Publish it with a `graceSeconds` at or under the limit. A version over the limit stays retired: reinstating it is refused the same way. A `*` policy isn't refused: in a limited domain, the server keeps records no longer than the limit.",
+    details: [
+      {
+        key: 'domain',
+        meaning: "the policy's retention domain",
+      },
+      {
+        key: 'graceSeconds',
+        meaning: "the policy's grace, in seconds (`-1`: a hold)",
+      },
+      {
+        key: 'limitSeconds',
+        meaning: "this server's limit for the domain, in seconds",
+      },
+      {
+        key: 'policyId',
+        meaning: 'the policy id (on a reinstate)',
+      },
+      {
+        key: 'version',
+        meaning: 'the version (on a reinstate)',
+      },
+    ],
+    seeAlso: ['deploy/retention'],
+  },
   'block-not-found': {
     description:
       "No block exists with that id (or that version), or it's in a project your key can't read.",
@@ -1609,7 +1911,7 @@ export const ERROR_ENTRIES = {
   },
   'key-project-mismatch': {
     description:
-      'Your key is limited to one project, and the request names another project, or asks to mint a key not limited to your project. Use the project the key is limited to.',
+      "Your key is limited to one project, and the request names another project, or asks to mint a key not limited to your project. Use the project the key is limited to. A promotion reads one project and writes another, so a key or session limited to a project can't promote, or check a promotion.",
     details: [
       {
         key: 'keyProjectId',
@@ -1654,6 +1956,165 @@ export const ERROR_ENTRIES = {
         meaning: 'why the caller was refused',
       },
     ],
+  },
+  'capability-not-mintable': {
+    description:
+      "A tenant's key can't carry a system capability (`system:*`, or `kindgi:system` on a runtime serving many tenants): those are system keys' alone. Mint the key without them, or mint a system key with `POST /v1/system/keys`.",
+    details: [
+      {
+        key: 'capabilities',
+        meaning: "the capabilities asked for that a tenant's key can't carry",
+      },
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+    seeAlso: ['POST /v1/tokens', 'POST /v1/system/keys'],
+  },
+  'system-key-on-tenant-route': {
+    description:
+      "A system key was sent to a route it can't use. A system key acts in no tenant, so it reaches `/v1/system/*`, `GET /v1/license` and `GET /v1/license/usage` only: use one of the tenant's keys.",
+    details: [
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+    seeAlso: ['GET /v1/system/whoami'],
+  },
+  'system-principal-required': {
+    description:
+      "The route is a system route (`/v1/system/*`), and it was called with a tenant's key or a session. Call it with a system key (`kgi_sy_…`).",
+    details: [
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+  },
+  'system-scope-missing': {
+    description:
+      "The system key doesn't hold the scope this request takes, which `scope` names: the route's own, or more for what the request asks (creating a tenant without `firstAdmin`, for one). Every `/v1/system/keys` route takes the full system capability, which a scoped key doesn't hold. A deployment's secret values (`secrets=values` on its pack env) take a key holding `system:pack-env` itself: `kindgi:system` doesn't stand in for it.",
+    details: [
+      {
+        key: 'scope',
+        meaning: 'the scope the request takes',
+      },
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+  },
+  'system-key-not-found': {
+    description: 'No system key has that id.',
+    details: [],
+  },
+  'system-key-expiry-required': {
+    description:
+      "A full system key minted by another system key must expire: set `expiresAt`. Only the deployment's own token mints one that never expires.",
+    details: [],
+  },
+  'access-record-unavailable': {
+    description:
+      "The record of the operator's requests couldn't be written, so a system key's request did nothing. Retry after the `Retry-After` header.",
+    details: [],
+  },
+  'tenant-closing': {
+    description:
+      "The tenant is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers that proves its sender is refused the same way, and nothing is recorded for it. A schedule's or webhook trigger's fire whose run starts as the tenant starts closing is recorded `skipped`, with `tenant-closing` in its `detail`, and doesn't count toward a schedule's auto-pause. An eval run or an improvement pass going as it starts closing stops at its next case: it ends `cancelled`, with `tenant-closing` in its `cancelReason`. The system routes that change its settings, limits, image prefix, a suspension or a deployment's endpoint refuse a closing tenant; clearing its deployments' endpoints, which retires its pack services, still works. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+    details: [
+      {
+        key: 'state',
+        meaning: '`closing`',
+      },
+      {
+        key: 'tenantId',
+        meaning: 'the tenant; from a system route only',
+      },
+    ],
+  },
+  'tenant-suspended': {
+    description:
+      "The tenant is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: tenant-suspended`, and nothing is recorded or kept for it. A sender that can redeliver by hand can resend it once the tenant is restored, and a restore is seen within 5 seconds. Its schedules don't fire while it's suspended, and nothing is caught up: at the restore, a schedule's or webhook trigger's fire whose run or pass hadn't started is recorded `skipped`, with `tenant-suspended` in its `detail`, and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. An eval run or an improvement pass going as it's suspended stops at its next case: it ends `cancelled`, with `tenant-suspended` in its `cancelReason`. A fire whose run was starting as the tenant was suspended is recorded `skipped` right away, with `tenant-suspended` in its `detail`. None of it counts toward a schedule's auto-pause. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+    details: [
+      {
+        key: 'state',
+        meaning: '`suspended`',
+      },
+      {
+        key: 'tenantId',
+        meaning: 'the tenant; from a system route only',
+      },
+    ],
+  },
+  'tenant-slug-taken': {
+    description: 'Another tenant has that slug. Choose another.',
+    details: [
+      {
+        key: 'slug',
+        meaning: 'the slug that is taken',
+      },
+    ],
+  },
+  'image-not-allowed': {
+    description:
+      "The deployment's image is outside the tenant's image repository: a tenant deploys only images at or under its image prefix.",
+    details: [
+      {
+        key: 'imagePrefix',
+        meaning: "the tenant's image prefix; from `POST /v1/deployments` only",
+      },
+    ],
+  },
+  'image-prefix-unset': {
+    description:
+      "The tenant has no image repository set, so it can't register a deployment yet. Its operator sets one with `PUT /v1/system/tenants/{tenantId}/image-prefix`.",
+    details: [],
+  },
+  'image-prefix-taken': {
+    description:
+      "The image prefix equals, holds or sits inside another tenant's. Each tenant's repository is its own: choose a prefix that doesn't overlap another tenant's.",
+    details: [],
+  },
+  'tenant-state-unavailable': {
+    description:
+      "The tenant's state couldn't be read, so the request changed nothing. Retry after the `Retry-After` header. On the S3-compatible surface, the same answer is S3's `503 ServiceUnavailable`.",
+    details: [],
+    seeAlso: ['GET /v1/tenant'],
   },
   'service-account-not-found': {
     description: 'No service account with that id exists in this tenant.',
@@ -1712,6 +2173,16 @@ export const ERROR_ENTRIES = {
   'identity-user-unregistered': {
     description: "The person was removed from the tenant, so they can't be granted anything.",
     details: [],
+  },
+  'identity-user-not-invited': {
+    description:
+      'The person has no invitation to send again: they have signed in already, were added before invitations, or have no email. Nothing changed.',
+    details: [
+      {
+        key: 'userId',
+        meaning: 'the person',
+      },
+    ],
   },
   'person-grants-unsupported': {
     description:
@@ -1855,12 +2326,12 @@ export const ERROR_ENTRIES = {
   },
   'invalid-mcp-endpoint': {
     description:
-      "The body of `POST /v1/mcp/endpoints` isn't a valid MCP endpoint registration: an unknown field, a missing or empty id or name, an unknown transport, or a config that doesn't match its transport.",
+      "The body of `POST /v1/mcp/endpoints` isn't a valid MCP endpoint registration: an unknown field, a missing or empty id or name, an id with a `.`, an unknown transport, or a config that doesn't match its transport.",
     details: [
       {
         key: 'reason',
         meaning:
-          'short machine-readable reason, such as `unknown-field`, `empty-endpoint-id`, `unknown-transport`, `missing-config`, `config-transport-mismatch` or `invalid-secret-ref`',
+          'short machine-readable reason, such as `unknown-field`, `empty-endpoint-id`, `dot-in-endpoint-id`, `unknown-transport`, `missing-config`, `config-transport-mismatch` or `invalid-secret-ref`',
       },
     ],
   },
@@ -1997,7 +2468,7 @@ export const ERROR_ENTRIES = {
   },
   'license-operator-only': {
     description:
-      "`GET /v1/license` is for the deployment's own token, or for an admin of the tenant when the deployment serves a single tenant. Other callers are refused.",
+      "`GET /v1/license` and `GET /v1/license/usage` are for the deployment's own token, or a system key holding `system:license`. Where the deployment is set up to serve one tenant (without `KINDGI_TENANCY=multi`) and its database holds only that one, that tenant's admins also read the license's countdown, never its use. Other callers are refused, and the refusal recorded.",
     details: [],
   },
   'invalid-provider-config': {
@@ -2017,6 +2488,75 @@ export const ERROR_ENTRIES = {
       "`POST /v1/auth/refresh` was called with a browser (cookie) session. These sessions aren't refreshed; sign in again when the session ends.",
     details: [],
     seeAlso: ['guides/sso/sessions'],
+  },
+  'limited-session-not-refreshable': {
+    description:
+      "`POST /v1/auth/refresh` was called with a session limited to a project or a role. Such a session isn't refreshed, so no copy of it can come back without its limits. Get a new one where you got this one.",
+    details: [],
+  },
+  'limited-session-cannot-mint': {
+    description:
+      "`POST /v1/tokens` was called by a session limited to a project or a role. A limited session mints no keys: a key would outlive whatever ends the session. Mint the key with an API key, or with a session that isn't limited.",
+    details: [
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+  },
+  'site-not-found': {
+    description:
+      "No site with that id in the project the path names, or, revoking a key, no key with that id on the site. `GET /v1/projects/{projectId}/sites` lists the project's sites.",
+    details: [],
+  },
+  'site-invalid': {
+    description:
+      "A site's settings were refused. Registering one needs a `displayName`, an `origin` and an `approvalsUrl`, and a setting the API doesn't know is refused. An `origin` is `https://` with no path, query, fragment or credentials (`http://` only on a loopback host); an `approvalsUrl` is on that origin, with `{approvalId}` in it; `allowedRoles` holds 1 to 20 role names of up to 64 characters (a-z, 0-9, `_` and `-`); a `roleMap` names only roles in `allowedRoles`, and its reviewer roles are `standard` or `senior`, never above `reviewerCeiling`; a `displayName` is 1 to 100 characters, with no control, format or invisible characters; `peopleCap` is a whole number from 1 to 10,000, and `newPeoplePerDay` from 1 to 1,000. The message says the rule that was broken.",
+    details: [
+      {
+        key: 'field',
+        meaning: 'the setting that was refused',
+      },
+    ],
+  },
+  'site-enrollment-refused': {
+    description:
+      '`POST /v1/auth/sites/enroll` was refused: the enrollment code is wrong, used or expired, or its site is paused or unregistered. Each of these gets the same answer. Ask a tenant admin for a new enrollment code.',
+    details: [],
+  },
+  'site-key-invalid': {
+    description:
+      "The key a site posts to `POST /v1/auth/sites/enroll` isn't an Ed25519 public JWK: `kty` `OKP`, `crv` `Ed25519`, `x` the 32-byte public key in base64url, and a `kid` of 1 to 64 letters, digits, `.`, `_` and `-`. A JWK with a private part (`d`) is refused too: post the public half only. The message says which part is wrong.",
+    details: [],
+  },
+  'site-sign-in-refused': {
+    description:
+      "`POST /v1/auth/site-sign-in` refused the site's statement about a person. Until the statement's signature checks out, every refusal has the reason `not-verified`, so a caller learns nothing about the site. After it, the reason is the check that refused it: `site-paused`, `site-not-vouching`, `wrong-audience`, `expired`, `issued-in-the-future`, `too-long-lived`, `replayed`, `role-not-allowed`, `person-removed` or `people-cap`.",
+    details: [
+      {
+        key: 'reason',
+        meaning:
+          "why: `not-verified` until the statement's signature checks out, then the check that refused it",
+      },
+    ],
+  },
+  'site-request-too-large': {
+    description:
+      'A body sent to `POST /v1/auth/sites/enroll` or `POST /v1/auth/site-sign-in` is over 4096 bytes. Those routes take a few small fields: send only those.',
+    details: [],
+  },
+  'site-person-grants-managed': {
+    description:
+      "The request would change what a person a site signs in may do: give them or take away a grant, a tenant role, a project or team membership or its role, or a reviewer role, or mint them a key. Such a person holds only what their site's sign-in writes: their next sign-in would undo a change, and a key would outlive a paused or unregistered site. Change their role on the site, remove the person, or pause the site instead.",
+    details: [],
   },
   'token-sign-in-needs-an-api-token': {
     description:
@@ -2062,12 +2602,12 @@ export const ERROR_ENTRIES = {
   },
   'signature-invalid': {
     description:
-      "The deployment's signature isn't valid: it isn't base64, can't be verified, or doesn't match the signed envelope of image digest, version, index hash, tenant and publish time.",
+      "The deployment's signature isn't valid: it isn't base64, can't be verified, or doesn't match the signed envelope of image digest, version, index hash, tenant and publish time. A promotion checks the signature again, over the fields the deployment keeps, and is refused the same way.",
     details: [],
   },
   'signer-not-trusted': {
     description:
-      "The key that signed the deployment isn't on the tenant's trust list. Trust the key, then deploy again.",
+      "The key that signed the deployment isn't on the tenant's trust list. Trust the key, then deploy again. A promotion is refused the same way when the key that signed the build is no longer trusted: the build isn't promoted.",
     details: [
       {
         key: 'signerKeyId',
@@ -2083,6 +2623,16 @@ export const ERROR_ENTRIES = {
         key: 'imageRef',
         meaning: 'the image reference that was checked',
       },
+      {
+        key: 'cause',
+        meaning:
+          "when a registry read failed, why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't an archive the runtime can read), or `image-limit-exceeded` (the image is past one of the runtime's bounds on reading an image). Absent when the read succeeded and the check after it failed",
+      },
+      {
+        key: 'limit',
+        meaning:
+          "with `image-limit-exceeded`, the bound: `manifest`, `file`, `layer`, `read` or `unpack` are the image's own, so the same image is refused again; `tenant-unpack-hour` is the tenant's image reads in the last hour, and passes: deploy again after the wait the message names",
+      },
     ],
     seeAlso: ['POST /v1/deployments'],
   },
@@ -2097,14 +2647,170 @@ export const ERROR_ENTRIES = {
     ],
   },
   'deployment-not-found': {
-    description: 'No deployment with that id exists under the tenant.',
+    description:
+      "No deployment with that id exists under the tenant. A promotion of a deployment in a project you can't read is answered the same way.",
     details: [
       {
         key: 'deploymentId',
         meaning: "the deployment id that wasn't found",
       },
     ],
-    seeAlso: ['GET /v1/deployments/{deploymentId}', 'POST /v1/deployments/{deploymentId}/secrets'],
+    seeAlso: [
+      'GET /v1/deployments/{deploymentId}',
+      'POST /v1/deployments/{deploymentId}/secrets',
+      'POST /v1/deployments/{deploymentId}/promotions',
+      'POST /v1/deployments/{deploymentId}/promotions/check',
+    ],
+  },
+  'project-suspended': {
+    description:
+      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an eval run started in it, an improvement pass for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. An eval run or a pass already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or pass: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which.",
+    details: [
+      {
+        key: 'environment',
+        meaning:
+          'from a promotion: `source` (the deployment promoted) or `target` (the environment it goes to)',
+      },
+    ],
+    seeAlso: [
+      'POST /v1/deployments',
+      'POST /v1/eval-suites/{suiteId}/runs',
+      'POST /v1/proposals/improve',
+      'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
+      'POST /v1/deployments/{deploymentId}/promotions',
+    ],
+  },
+  'pack-suspended': {
+    description:
+      "The operator suspended this deployment's pack, so its pack service can't be set. Lift the suspension first. A promotion of its builds from or into an environment where it's suspended is refused too: `details.environment` says which.",
+    details: [
+      {
+        key: 'environment',
+        meaning:
+          'from a promotion: `source` (the deployment promoted) or `target` (the environment it goes to)',
+      },
+    ],
+    seeAlso: [
+      'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended',
+      'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
+      'POST /v1/deployments/{deploymentId}/promotions',
+    ],
+  },
+  'endpoint-url-invalid': {
+    description:
+      "The pack service URL the operator set for a deployment isn't `https://<host>`: it isn't https, or it has user info, a path, a query or a fragment. The message says which. Send the service's origin only. The refusal is recorded as the deployment's `endpoint.problem`.",
+    details: [],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint'],
+  },
+  'endpoint-host-not-allowed': {
+    description:
+      "The pack service's host isn't on the operator's allowlist of pack hosts (`KINDGI_PACK_ENDPOINT_HOSTS`). Use a host the allowlist covers. The refusal is recorded as the deployment's `endpoint.problem`.",
+    details: [],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint'],
+  },
+  'endpoint-name-mismatch': {
+    description:
+      "The pack service's host doesn't name this deployment's own service. Each deployment's pack service runs under its own name, `packServiceName` in `@kindgi/api`. The refusal is recorded as the deployment's `endpoint.problem`.",
+    details: [
+      {
+        key: 'expected',
+        meaning: "the deployment's pack service name, which the host must carry",
+      },
+    ],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint'],
+  },
+  'endpoint-unreachable': {
+    description:
+      "The pack service didn't answer `GET /v1/info` as this deployment's service. Check that it runs and that the runtime can reach it, then set it again. The refusal is recorded as the deployment's `endpoint.problem`.",
+    details: [],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint'],
+  },
+  'endpoint-info-mismatch': {
+    description:
+      "The pack service answered `GET /v1/info` as another pack or version, so it doesn't serve this deployment's image. The refusal is recorded as the deployment's `endpoint.problem`.",
+    details: [
+      {
+        key: 'differs',
+        meaning:
+          "the names of the `/v1/info` fields that differed from the deployment's, never their values",
+      },
+    ],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint'],
+  },
+  'endpoint-not-pending': {
+    description:
+      "A problem was sent for a deployment that isn't waiting for a pack service. A problem goes with a `pending` one, or a `cleared` one listed as needing a pack service again (`waiting`, once a suspension is lifted).",
+    details: [
+      {
+        key: 'status',
+        meaning: "the deployment's endpoint status now: `ready`, or `cleared` and not `waiting`",
+      },
+    ],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem'],
+  },
+  'endpoint-not-ready': {
+    description:
+      "What a deployment's pack service runs was recorded for a service that isn't `ready`. A new service's revision goes with its endpoint (`packEnvRevision`); record one for a `ready` service only.",
+    details: [
+      {
+        key: 'status',
+        meaning: "the deployment's endpoint status now: `pending` or `cleared`",
+      },
+    ],
+    seeAlso: [
+      'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env',
+      'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
+    ],
+  },
+  'endpoint-retired': {
+    description:
+      "The env of a deployment whose pack service was retired was asked for: it isn't given out. A retired deployment's service is listed to go (`GET /v1/system/deployments?endpoint=retire`).",
+    details: [
+      {
+        key: 'retired',
+        meaning: 'why its pack service was retired, as the retire list gives it',
+      },
+    ],
+    seeAlso: ['GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env'],
+  },
+  'pack-env-conflict': {
+    description:
+      "What a pack service runs was recorded against a revision that's no longer the one recorded: another record came first. Read the deployment's pack env again, and record against what's there now.",
+    details: [
+      {
+        key: 'appliedRevision',
+        meaning: 'the revision the service is recorded as running now, when there is one',
+      },
+    ],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env'],
+  },
+  'pack-env-unsupported': {
+    description:
+      "This server doesn't give a pack service its declared env: its pack services take theirs from how they're run. The system pack env routes answer this on a server that doesn't run a pack service per deployment.",
+    details: [],
+    seeAlso: [
+      'GET /v1/system/pack-env',
+      'GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env',
+      'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env',
+    ],
+  },
+  'pack-env-not-served': {
+    description:
+      "This server doesn't give a deployment's pack service the env its pack declares, so it lists none of its names: its pack services take theirs from how they're run. `kindgi env plan` lists the names a pack reads.",
+    details: [],
+    seeAlso: ['GET /v1/deployments/{deploymentId}/pack-env'],
+  },
+  'pack-env-unavailable': {
+    description:
+      "A deployment's pack env can't be given just now: its secret store failed or is rate-limited, a secret changed while it was read (twice), or the audit rows for its secrets weren't written. No value is given, and the message says which. Ask again; there's nothing for the pack's owner to do.",
+    details: [],
+    seeAlso: ['GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env'],
+  },
+  'pack-env-secrets-unaudited': {
+    description:
+      "A deployment's secret values were asked for (`secrets=values`) on a server with nowhere to audit them, so none is read or given. The server's operator sets up its audit store. A request without `secrets=values` isn't refused for this. A pack service held for this shows it as its deployment's problem: the platform's to fix, with nothing for the pack's owner to do.",
+    details: [],
+    seeAlso: ['GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env'],
   },
   'compliance-evidence-not-found': {
     description: 'No exportable compliance evidence record with that id exists under the tenant.',
@@ -2121,6 +2827,16 @@ export const ERROR_ENTRIES = {
       'Signing the compliance evidence export failed on the server. Retry; if it persists, contact the operator.',
     details: [],
     seeAlso: ['POST /v1/compliance/evidence/export'],
+  },
+  'org-has-environment-order': {
+    description:
+      "An org can't be deleted while it's the parent of an environment order, because deleting it would orphan the order. A tenant admin clears the order first (PUT /v1/environment-orders/orgs/{orgId} with []), then deletes the org.",
+    details: [
+      {
+        key: 'orderId',
+        meaning: 'the environment order the org is the parent of',
+      },
+    ],
   },
   'org-not-found': {
     description:
@@ -2151,6 +2867,54 @@ export const ERROR_ENTRIES = {
         meaning: "the project id that wasn't found; absent for the missing Default project",
       },
     ],
+  },
+  'production-not-allowed': {
+    description:
+      "You put a project in production while the tenant isn't allowed to: the server gates production (`KINDGI_PRODUCTION_GATE=on`), and the tenant's `productionAllowed` is `false`. Projects already in production stay so, and staging keeps working. Go where `details.next` says, when the server names a place, or ask whoever runs it; then put the project in production again.",
+    details: [
+      {
+        key: 'projectId',
+        meaning: "the project that wasn't put in production",
+      },
+      {
+        key: 'next',
+        meaning:
+          'where to go to be allowed, for example a billing page (`KINDGI_PRODUCTION_NEXT_URL`); absent when the server names none',
+      },
+    ],
+  },
+  'production-limit-reached': {
+    description:
+      "You put a project in production while the tenant already had as many projects in production as its limit allows, or more (`projectsInProduction`, set by whoever runs the server). Nothing changed. A project already in production isn't counted again, and taking one out is never refused. Take a project out of production, or go where `details.next` says when the server names a place, or ask whoever runs it to raise the limit; then put the project in production again.",
+    details: [
+      {
+        key: 'projectId',
+        meaning: "the project that wasn't put in production",
+      },
+      {
+        key: 'limit',
+        meaning: 'which limit: `projects-in-production`',
+      },
+      {
+        key: 'projectsInProduction',
+        meaning: "the tenant's limit on projects in production",
+      },
+      {
+        key: 'inProduction',
+        meaning:
+          "how many of the tenant's projects are in production; over the limit when the limit was lowered below it",
+      },
+      {
+        key: 'next',
+        meaning:
+          'where to go for a higher limit, for example a billing page (`KINDGI_PRODUCTION_NEXT_URL`); absent when the server names none',
+      },
+    ],
+  },
+  'production-unsupported': {
+    description:
+      "This server's projects can't be put in production: its project store has no production setting. Every run there is a staging run.",
+    details: [],
   },
   'team-membership-not-found': {
     description: "The user isn't a member of the team.",
@@ -2208,6 +2972,31 @@ export const ERROR_ENTRIES = {
     description:
       "The runtime has no authorization store, so it can't say who has access to the project.",
     details: [],
+  },
+  'environments-unsupported': {
+    description:
+      "The runtime's env store or secrets store can't list the env names it holds, so the tenant's environments can't be listed whole. The message names the store.",
+    details: [],
+  },
+  'project-in-another-order': {
+    description:
+      'A project in the request already belongs to another environment order. A project is in at most one order: set the other order without it, or clear that order, first.',
+    details: [
+      {
+        key: 'projectId',
+        meaning: 'the project already in another order',
+      },
+    ],
+  },
+  'project-in-environment-order': {
+    description:
+      "A project can't be deleted, or moved to another parent, while it's a member of an environment order. Clear it from the order first, then delete or move it.",
+    details: [
+      {
+        key: 'orderId',
+        meaning: 'the environment order the project belongs to',
+      },
+    ],
   },
   'provider-key-refused': {
     description:
@@ -2270,7 +3059,7 @@ export const ERROR_ENTRIES = {
   'tenant-config-not-found': {
     description: "The API doesn't send this code.",
     details: [],
-    seeAlso: ['deploy/operate'],
+    seeAlso: ['deploy/self-hosted/operate'],
   },
   'tenant-config-revision-conflict': {
     description:
@@ -2299,10 +3088,10 @@ export const ERROR_ENTRIES = {
     details: [
       {
         key: 'policyKind',
-        meaning: 'the kind of policy that failed, for example `hitl`',
+        meaning: 'the kind of policy that failed: `hitl`, `model-routing` or `tool-errors`',
       },
     ],
-    seeAlso: ['deploy/operate'],
+    seeAlso: ['deploy/self-hosted/operate'],
   },
   'env-not-found': {
     description:
@@ -2372,6 +3161,21 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['POST /v1/secrets/{name}/rotate', 'PUT /v1/env/{name}'],
   },
+  'env-not-served': {
+    description:
+      'This runtime keeps every value under the one env it serves (`KINDGI_REFUSE_OTHER_ENVS`), and the request would store a value under another, where it would never be read: a secret or env value written under another env, or a model provider, MCP endpoint or webhook endpoint naming its secret under another. Nothing is stored. Use the env the runtime serves; `GET /v1/identity/whoami` names it (`servedEnv`). Reads and deletes under any env still work.',
+    details: [
+      {
+        key: 'envName',
+        meaning: 'the env the request named',
+      },
+      {
+        key: 'servedEnv',
+        meaning: 'the env this runtime serves, to use instead',
+      },
+    ],
+    seeAlso: ['POST /v1/secrets', 'PUT /v1/env/{name}', 'POST /v1/providers'],
+  },
   'env-cross-scope': {
     description: "The API doesn't send this code.",
     details: [],
@@ -2383,8 +3187,20 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/secrets/store-a-secret'],
   },
+  'secret-name-invalid': {
+    description:
+      "The name isn't one a new secret can have. A new secret's name is 1 to 255 ASCII letters, digits, `.`, `-` and `_`, starting with a letter, digit or `_`, not ending with `.` and with no two `.` in a row, and a secrets store can narrow that. Under `kindgi dev`, a secret is a key in your env files, so its name is capital letters, digits and underscores, not starting with a digit (`ACME_WOO_ORDERS`, not `acme-woo-orders`), and never `KINDGI_*`, the runtime's own configuration. The message says the rule, and under `kindgi dev` a name that works.",
+    details: [],
+    seeAlso: ['guides/secrets/store-a-secret'],
+  },
   'secret-value-too-large': {
     description: 'The secret value is larger than the size limit the secrets store accepts.',
+    details: [],
+    seeAlso: ['guides/secrets/store-a-secret'],
+  },
+  'secret-value-invalid': {
+    description:
+      "The secrets store can't hold this value as given. Under `kindgi dev`, a secret is a key in your env files, and no env-file quoting holds a value that has a double quote, or a backslash followed by `n` or `r`, together with a carriage return or with both a single quote and a backtick. Store the value encoded (base64, say), or without one of those characters. The message says why, and never repeats the value.",
     details: [],
     seeAlso: ['guides/secrets/store-a-secret'],
   },
@@ -2413,13 +3229,13 @@ export const ERROR_ENTRIES = {
     description:
       "The runtime couldn't encrypt the secret value (the key service refused to produce a data key), so nothing was stored.",
     details: [],
-    seeAlso: ['guides/secrets/store-a-secret', 'deploy/secret-manager'],
+    seeAlso: ['guides/secrets/store-a-secret', 'deploy/self-hosted/secret-manager'],
   },
   'secret-decryption-failed': {
     description:
       "The runtime couldn't decrypt a stored secret value (the key service failed to unwrap its key).",
     details: [],
-    seeAlso: ['guides/secrets/store-a-secret', 'deploy/secret-manager'],
+    seeAlso: ['guides/secrets/store-a-secret', 'deploy/self-hosted/secret-manager'],
   },
   'secret-provider-unavailable': {
     description:
@@ -2430,7 +3246,7 @@ export const ERROR_ENTRIES = {
     description:
       "The external secret provider rejected the runtime's credentials, so the secret can't be read or written. Ask an admin to fix the provider access.",
     details: [],
-    seeAlso: ['deploy/secret-manager'],
+    seeAlso: ['deploy/self-hosted/secret-manager'],
   },
   'secret-provider-rate-limited': {
     description: 'The external secret provider is rate limiting the runtime. Wait and retry.',
@@ -2441,7 +3257,7 @@ export const ERROR_ENTRIES = {
           'how long the provider asked to wait, in milliseconds, when it said (in binding results)',
       },
     ],
-    seeAlso: ['deploy/secret-manager'],
+    seeAlso: ['deploy/self-hosted/secret-manager'],
   },
   'secret-store-error': {
     description:
@@ -2672,8 +3488,8 @@ export const OUTSIDE_THE_MAP = [
     code: 'sign-in-unavailable',
     status: 500,
     description:
-      "Signing in failed on the server, for example because its database didn't answer. Nothing about the cause is sent to the browser; a sign-in page shows the code instead of JSON. Try again.",
-    seeAlso: ['deploy/sign-in'],
+      "Signing in failed on the server, for example because its database didn't answer. Nothing about the cause is sent to the browser; a sign-in page shows the code instead of JSON. The runtime's log says why, as an `sso` warning: `sign-in request failed: <reason>`. Try again.",
+    seeAlso: ['deploy/self-hosted/sign-in'],
   },
 ];
 
@@ -2687,73 +3503,80 @@ export const ACCESS_ERRORS = {
       status: 400,
       description:
         "The body isn't a renewal request. A body over the size limit is answered the same way, with status `413`.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'unauthorized',
       status: 401,
       description:
         "No renewer has this deployment's key, or the request's signature doesn't verify. Enroll the deployment with `kindgi license enroll`, then add it at access.kindgi.com.",
-      seeAlso: ['deploy/renew-the-license-key', 'reference/cli/license'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key', 'reference/cli/license'],
     },
     {
       error: 'stale-request',
       status: 401,
       description:
         "The request's time is more than 5 minutes off. Check the clock of the machine that sent it.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'replayed',
       status: 401,
       description: 'This exact request was used before. Send a new one.',
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'rate-limited',
       status: 429,
       description: 'Too many renewals for this key. The next one can go an hour later.',
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'renewer-stopped',
       status: 403,
       description:
         "This deployment's renewal was stopped. Enroll it again with `kindgi license enroll`, or sign in at access.kindgi.com for a key.",
-      seeAlso: ['deploy/renew-the-license-key', 'reference/cli/license'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key', 'reference/cli/license'],
     },
     {
       error: 'denied',
       status: 403,
       description: "Dev access isn't available for this account. Write to contact@kindgi.com.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'key-revoked',
       status: 403,
       description: "The account's license key was revoked. Write to contact@kindgi.com.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'not-entitled',
       status: 403,
       description:
         "The license has no contract term on record, so access.kindgi.com doesn't renew it. Write to contact@kindgi.com.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'term-ended',
       status: 403,
       description:
         "The license's contract term has ended, so it isn't renewed. The key you have runs until its own date. Write to contact@kindgi.com to extend the term.",
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
+    },
+    {
+      error: 'held-for-review',
+      status: 403,
+      description:
+        "This renewal's counts (`kindgi license renew --runtime`) are above what a non-production key covers, so it got no new key: write to contact@kindgi.com about a production license. Kindgi can release the deployment after a review, and its renewals then aren't held until a date. The key you have runs until its own date. A renewal before the key is due gets the same key back.",
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
     {
       error: 'unavailable',
       status: 503,
       description:
         'No key could be issued: the service failed to store or sign it. Try again later.',
-      seeAlso: ['deploy/renew-the-license-key'],
+      seeAlso: ['deploy/self-hosted/renew-the-license-key'],
     },
   ],
 };

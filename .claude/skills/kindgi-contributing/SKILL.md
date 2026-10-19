@@ -83,7 +83,7 @@ Set up once: Node 22+, `corepack enable`, `pnpm install`, `pnpm run build`
 |---|---|
 | A docs page | `pnpm run docs:build` (every page; fails on a broken link), and `pnpm run docs:samples` when the page has code |
 | A skill | `pnpm run check:refs`, `pnpm --filter @kindgi/sdk test` |
-| TypeScript code | `pnpm run lint`, `pnpm run check:headers`, `pnpm run check:border`, and the package's tests (`pnpm --filter <package> test`) |
+| TypeScript code | `pnpm run lint`, `pnpm run check:headers`, `pnpm run check:border`, `pnpm run check:constructor-super`, and the package's tests (`pnpm --filter <package> test`) |
 | Python code | in `sdks/python`: `uv run pytest`, `uv run ruff check src tests scripts`, `uv run pyright` |
 | A public contract (a route, a schema, a CLI command) | also `pnpm run check:docs-ship`, which asks for the docs |
 
