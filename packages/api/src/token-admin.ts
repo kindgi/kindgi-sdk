@@ -70,12 +70,15 @@ export interface TokenMintInput {
 
 /**
  * A mint the store refused: the principal doesn't exist (or is
- * unregistered), or an `admin` key for a principal that isn't a tenant
- * admin.
+ * unregistered), an `admin` key for a principal that isn't a tenant
+ * admin, or a key for a person a site signs in, whose access is only the
+ * sessions their site's sign-in gives (a key would outlive a paused or
+ * unregistered site).
  */
 export type TokenMintRefusal =
   | { readonly kind: 'principal-not-found'; readonly message: string }
-  | { readonly kind: 'role-exceeds-principal'; readonly message: string };
+  | { readonly kind: 'role-exceeds-principal'; readonly message: string }
+  | { readonly kind: 'site-person-grants-managed'; readonly message: string };
 
 export interface TokenMintOutput {
   /** The new key, as `list` and `get` will show it. */

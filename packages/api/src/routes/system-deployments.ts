@@ -4,10 +4,13 @@
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 
-import type { TenantId } from '@kindgi/types';
+import type { AuditEventBinding } from '@kindgi/audit-events';
+import type { Logger } from '@kindgi/log';
+import type { EnvName, ProjectId, TenantId } from '@kindgi/types';
 
 import {
   DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
+  type DeploymentBinding,
   type DeploymentEndpoint,
   type DeploymentEndpointProblemCode,
   type SystemDeploymentRetireReason,
@@ -21,6 +24,15 @@ import {
   systemReadAcrossTenants,
   withSystemTenantContext,
 } from '../middleware/system.js';
+import {
+  PACK_ENV_HELD_CODES,
+  PACK_ENV_RETRY_MS,
+  type PackEnvDeclaration,
+  type PackEnvDeps,
+  type PackEnvHeldCode,
+  packEnvCheck,
+  packEnvValues,
+} from '../pack-env.js';
 import { hostNamesPackService, packServiceName } from '../pack-service-name.js';
 import type { SystemScope } from '../system.js';
 import type { AppEnv } from '../types.js';
@@ -80,6 +92,12 @@ export interface SetPackEndpointInput {
   readonly auth: PackEndpointAuth;
   /** The pack service's token. Stored wrapped; never returned, logged or recorded. */
   readonly token: string;
+  /**
+   * The revision of the pack env values the service was made with, from
+   * `GET …/pack-env`, when its pack declares an environment. Kept as the one
+   * it runs (`SystemPackEnvServed.appliedRevision`).
+   */
+  readonly packEnvRevision?: string;
 }
 
 /** The checks the binding runs: what the server needs the pack service, or the tenant's record, for. */
@@ -100,6 +118,29 @@ export type SetPackEndpointOutcome =
 export interface DeploymentRef {
   readonly tenantId: TenantId;
   readonly deploymentId: string;
+}
+
+export interface PackEnvRecordInput extends DeploymentRef {
+  readonly revision: string;
+  readonly held?: PackEnvHeldCode;
+  /** The revision the caller found the service running; absent: none. */
+  readonly appliedRevision?: string;
+}
+
+/** A deployment with a `ready` pack service, whose pack declares an environment. */
+export interface SystemPackEnvServed extends SystemDeploymentEntry {
+  readonly packEnv: PackEnvDeclaration;
+  /** The revision its service runs: given with its endpoint, or recorded since. */
+  readonly appliedRevision?: string;
+  /**
+   * The newest revision held back, why, and since when (ISO-8601). Its
+   * service still runs `appliedRevision`.
+   */
+  readonly held?: {
+    readonly revision: string;
+    readonly code: PackEnvHeldCode;
+    readonly since: string;
+  };
 }
 
 /**
@@ -164,6 +205,53 @@ export interface SystemDeploymentsBinding {
     | { readonly kind: 'ok'; readonly suspended: boolean; readonly since: string }
     | { readonly kind: 'not-found' }
   >;
+  /**
+   * Across tenants, oldest `activatedAt` first: deployments with a `ready`
+   * pack service whose pack declares an environment, each with what its
+   * service runs. Nothing about them is closing or suspended. A binding
+   * without it doesn't keep what a pack service runs, and the pack env
+   * routes answer `501 pack-env-unsupported`.
+   */
+  listServingPackEnv?(input: {
+    readonly cursor?: string;
+    readonly limit: number;
+  }): Promise<SystemDeploymentPage<SystemPackEnvServed>>;
+  /**
+   * Records what a `ready` deployment's pack service runs: `revision`, once
+   * its service was given those values; or, with `held`, the revision it
+   * wasn't given, or didn't start, and why (its endpoint's
+   * `packEnvProblem`). Recording a revision without `held` clears the
+   * problem. The same body twice records it once, and the same code for the
+   * same revision keeps the time it was first recorded. Any other endpoint
+   * is `not-ready`.
+   *
+   * Compare-and-set: `appliedRevision` is the revision the caller found its
+   * service running (absent: none). Another one recorded since is
+   * `conflict`, and nothing is written, so a late round never records over
+   * a newer one.
+   */
+  recordPackEnv?(
+    input: PackEnvRecordInput,
+  ): Promise<
+    | { readonly kind: 'ok'; readonly endpoint: DeploymentEndpoint }
+    | { readonly kind: 'not-found' }
+    | { readonly kind: 'not-ready'; readonly endpoint: DeploymentEndpoint }
+    | { readonly kind: 'conflict'; readonly appliedRevision?: string }
+  >;
+}
+
+/**
+ * What the pack env routes read: the deployments, the stores a pack's
+ * declared names are looked for in (`pack-env.ts`), and the env the server
+ * serves.
+ */
+export interface SystemPackEnvOptions {
+  readonly deployments: Pick<DeploymentBinding, 'get'>;
+  readonly stores: PackEnvDeps;
+  readonly envName: EnvName;
+  /** Where each value given out is audited (`env-resolved`). */
+  readonly auditEvents?: AuditEventBinding;
+  readonly log?: Logger;
 }
 
 export interface SystemDeploymentsOptions {
@@ -182,7 +270,9 @@ const MAX_ID_LENGTH = 128;
 const MIN_TOKEN_LENGTH = 16;
 const MAX_TOKEN_LENGTH = 512;
 const MAX_REASON_LENGTH = 500;
+const MAX_REVISION_LENGTH = 128;
 const DEPLOYMENTS: SystemScope = 'system:deployments';
+const PACK_ENV: SystemScope = 'system:pack-env';
 const SUSPEND: SystemScope = 'system:suspend';
 
 type WireError = { readonly code: string; readonly message: string } & Readonly<
@@ -196,16 +286,21 @@ type WireError = { readonly code: string; readonly message: string } & Readonly<
  * runs. Mounted only on a runtime serving many tenants, under
  * `system:deployments`, except the pack suspend route, which takes
  * `system:suspend`, so the orchestrator's key can't suspend or restore a
- * pack. No tenant input ever names a pack's URL.
+ * pack, and the pack env routes (`/v1/system/pack-env` and
+ * `…/deployments/{id}/pack-env`), which take `system:pack-env`, so the
+ * deployments key can't read a value. No tenant input ever names a pack's
+ * URL.
  */
 export function systemDeploymentsRouter(
   options: SystemDeploymentsOptions & {
     /** The tenants a system route can name, and their states (`systemTenantDirectory`). */
     readonly directory: SystemTenantDirectory;
     readonly authorizer?: Authorizer;
+    /** Absent: the pack env routes answer `501 pack-env-unsupported`. */
+    readonly packEnv?: SystemPackEnvOptions;
   },
 ): Hono<AppEnv> {
-  const { binding, directory: tenants, authorizer } = options;
+  const { binding, directory: tenants, authorizer, packEnv } = options;
   const r = new Hono<AppEnv>();
 
   // ---------- GET /deployments?endpoint=missing|retire ----------
@@ -266,9 +361,8 @@ export function systemDeploymentsRouter(
         }
         const outcome = await binding.setEndpoint({
           ...target,
+          ...parsed.value,
           url: checked.value.origin,
-          auth: parsed.value.auth,
-          token: parsed.value.token,
         });
         switch (outcome.kind) {
           case 'ok':
@@ -351,6 +445,129 @@ export function systemDeploymentsRouter(
       );
     },
   );
+
+  // ---------- GET /pack-env ----------
+  // The deployments whose pack service runs on values that have changed
+  // since (and weren't held back at this revision, but for one that didn't
+  // start, tried again for an hour): ids, and the revision each runs, for
+  // the compare-and-set.
+  r.get('/pack-env', async (c) => {
+    const denied = systemReadAcrossTenants(c, PACK_ENV, authorizer);
+    if (denied !== undefined) return denied;
+    if (packEnv === undefined || binding.listServingPackEnv === undefined) {
+      return packEnvUnsupported(c);
+    }
+    const limit = parseLimit(c.req.query('limit'));
+    if (limit.kind === 'err') return fail(c, limit.error);
+    const cursor = c.req.query('cursor');
+    const result = await binding.listServingPackEnv({
+      ...(cursor !== undefined && cursor !== '' && { cursor }),
+      limit: limit.value,
+    });
+    if (result.kind === 'cursor-unreadable') {
+      return fail(c, badInput('`cursor` is not one this route gave: start again without it').error);
+    }
+    return c.json({
+      data: (await changedPackEnv(packEnv, result.data)).map((entry) => ({
+        ...entryToWire(entry),
+        ...(entry.appliedRevision !== undefined && { appliedRevision: entry.appliedRevision }),
+      })),
+      ...(result.nextCursor !== undefined && { nextCursor: result.nextCursor }),
+      hasMore: result.nextCursor !== undefined,
+    });
+  });
+
+  // ---------- GET …/pack-env ----------
+  // The values, for the deployment's pack service only: none while there's a
+  // problem, and none for a retired deployment.
+  r.get(`${onDeployment}/pack-env`, requireSystemScope(PACK_ENV, authorizer), async (c) => {
+    const ref = deploymentRef(c);
+    if (ref.kind === 'err') return fail(c, ref.error);
+    if (packEnv === undefined || binding.recordPackEnv === undefined) {
+      return packEnvUnsupported(c);
+    }
+    return withSystemTenantContext(
+      c,
+      tenants,
+      ref.value.tenantId,
+      { scope: PACK_ENV, refuse: ['closing', 'suspended'], ...(authorizer && { authorizer }) },
+      async (tenant) => {
+        const deployment = await packEnv.deployments.get({
+          tenantId: tenant.id,
+          deploymentId: ref.value.deploymentId,
+        });
+        if (deployment === null) return deploymentNotFound(c, ref.value.deploymentId);
+        const endpoint = deployment.endpoint;
+        if (endpoint?.status === 'cleared' && endpoint.waiting !== true) {
+          return fail(c, {
+            code: 'endpoint-retired',
+            message: `Deployment ${ref.value.deploymentId}'s pack service was retired: its env isn't given out.`,
+            ...(endpoint.retired !== undefined && { retired: endpoint.retired }),
+          });
+        }
+        const { check, values } = await packEnvValues(packEnv.stores, {
+          tenantId: tenant.id,
+          ...(deployment.projectId !== undefined && { projectId: deployment.projectId }),
+          envName: packEnv.envName,
+          declaration: deployment.packEnv ?? { required: [], optional: [] },
+          deploymentId: deployment.deploymentId,
+          ...(packEnv.auditEvents !== undefined && { auditEvents: packEnv.auditEvents }),
+          ...(packEnv.log !== undefined && { log: packEnv.log }),
+        });
+        return c.json({
+          revision: check.revision,
+          names: check.names,
+          ...(check.problem !== undefined && { problem: check.problem }),
+          ...(values !== undefined && { env: values }),
+        });
+      },
+    );
+  });
+
+  // ---------- PUT …/pack-env ----------
+  r.put(`${onDeployment}/pack-env`, requireSystemScope(PACK_ENV, authorizer), async (c) => {
+    const ref = deploymentRef(c);
+    if (ref.kind === 'err') return fail(c, ref.error);
+    const record = binding.recordPackEnv;
+    if (packEnv === undefined || record === undefined) return packEnvUnsupported(c);
+    const body = await readJsonBody(c);
+    if (body.kind === 'err') return fail(c, body.error);
+    const parsed = parsePackEnvBody(body.value);
+    if (parsed.kind === 'err') return fail(c, parsed.error);
+    return withSystemTenantContext(
+      c,
+      tenants,
+      ref.value.tenantId,
+      { scope: PACK_ENV, refuse: ['closing'], ...(authorizer && { authorizer }) },
+      async (tenant) => {
+        const recorded = await record.call(binding, {
+          tenantId: tenant.id,
+          deploymentId: ref.value.deploymentId,
+          ...parsed.value,
+        });
+        switch (recorded.kind) {
+          case 'ok':
+            return c.json(endpointToWire(recorded.endpoint));
+          case 'not-found':
+            return deploymentNotFound(c, ref.value.deploymentId);
+          case 'conflict':
+            return fail(c, {
+              code: 'pack-env-conflict',
+              message: `Deployment ${ref.value.deploymentId}'s pack service was recorded as running another revision since: read it again.`,
+              ...(recorded.appliedRevision !== undefined && {
+                appliedRevision: recorded.appliedRevision,
+              }),
+            });
+          case 'not-ready':
+            return fail(c, {
+              code: 'endpoint-not-ready',
+              message: `Deployment ${ref.value.deploymentId}'s endpoint is ${recorded.endpoint.status}: what a pack service runs is recorded for a ready one (a new one's goes with its endpoint, \`packEnvRevision\`).`,
+              status: recorded.endpoint.status,
+            });
+        }
+      },
+    );
+  });
 
   // ---------- PUT …/suspended (the pack) ----------
   r.put(`${onDeployment}/suspended`, requireSystemScope(SUSPEND, authorizer), async (c) => {
@@ -467,11 +684,41 @@ function parseLimit(raw: string | undefined): Parsed<number> {
   return { kind: 'ok', value: n };
 }
 
+/** The entries whose pack service runs on values that changed since, and weren't held back at this revision. */
+async function changedPackEnv(
+  packEnv: SystemPackEnvOptions,
+  served: readonly SystemPackEnvServed[],
+): Promise<SystemPackEnvServed[]> {
+  const changed: SystemPackEnvServed[] = [];
+  const now = Date.now();
+  for (const entry of served) {
+    const { revision } = await packEnvCheck(packEnv.stores, {
+      tenantId: entry.tenantId,
+      ...(entry.projectId !== undefined && { projectId: entry.projectId as ProjectId }),
+      envName: packEnv.envName,
+      declaration: entry.packEnv,
+    });
+    if (revision === entry.appliedRevision) continue;
+    const held = entry.held;
+    // Values that can't be given wait for a change. Values that were given
+    // and didn't start are tried again for a while, as their cause may pass.
+    if (
+      held === undefined ||
+      held.revision !== revision ||
+      (held.code === 'pack-env-update-failed' && now - Date.parse(held.since) < PACK_ENV_RETRY_MS)
+    ) {
+      changed.push(entry);
+    }
+  }
+  return changed;
+}
+
 interface ParsedEndpointBody {
   /** As sent: checks 1 to 3 run in the tenant's context, so a refusal is on record. */
   readonly url: string;
   readonly auth: PackEndpointAuth;
   readonly token: string;
+  readonly packEnvRevision?: string;
 }
 
 function parseEndpoint(body: unknown): Parsed<ParsedEndpointBody> {
@@ -494,7 +741,68 @@ function parseEndpoint(body: unknown): Parsed<ParsedEndpointBody> {
       `\`token\` must be ${MIN_TOKEN_LENGTH} to ${MAX_TOKEN_LENGTH} printable ASCII characters without spaces (it travels in a header)`,
     );
   }
-  return { kind: 'ok', value: { url: b.url, auth: b.auth as PackEndpointAuth, token } };
+  if (b.packEnvRevision !== undefined && !isRevision(b.packEnvRevision)) {
+    return badInput(
+      `\`packEnvRevision\` must be 1 to ${MAX_REVISION_LENGTH} printable ASCII characters, as \`GET …/pack-env\` gave it`,
+    );
+  }
+  return {
+    kind: 'ok',
+    value: {
+      url: b.url,
+      auth: b.auth as PackEndpointAuth,
+      token,
+      ...(typeof b.packEnvRevision === 'string' && { packEnvRevision: b.packEnvRevision }),
+    },
+  };
+}
+
+function isRevision(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length >= 1 &&
+    value.length <= MAX_REVISION_LENGTH &&
+    /^[\x21-\x7e]+$/.test(value)
+  );
+}
+
+function parsePackEnvBody(body: unknown): Parsed<Omit<PackEnvRecordInput, keyof DeploymentRef>> {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return badInput('Request body must be an object');
+  }
+  const b = body as Record<string, unknown>;
+  if (!isRevision(b.revision)) {
+    return badInput(
+      `\`revision\` must be 1 to ${MAX_REVISION_LENGTH} printable ASCII characters, as \`GET …/pack-env\` gave it`,
+    );
+  }
+  if (b.appliedRevision !== undefined && !isRevision(b.appliedRevision)) {
+    return badInput(
+      `\`appliedRevision\` must be 1 to ${MAX_REVISION_LENGTH} printable ASCII characters: the revision the service was found running`,
+    );
+  }
+  if (
+    b.held !== undefined &&
+    (typeof b.held !== 'string' || !(PACK_ENV_HELD_CODES as readonly string[]).includes(b.held))
+  ) {
+    return badInput(`\`held\` must be one of ${PACK_ENV_HELD_CODES.join(', ')}`);
+  }
+  return {
+    kind: 'ok',
+    value: {
+      revision: b.revision,
+      ...(b.held !== undefined && { held: b.held as PackEnvHeldCode }),
+      ...(typeof b.appliedRevision === 'string' && { appliedRevision: b.appliedRevision }),
+    },
+  };
+}
+
+function packEnvUnsupported(c: Context<AppEnv>): Response {
+  return fail(c, {
+    code: 'pack-env-unsupported',
+    message:
+      "This server doesn't give a pack service its declared env: its pack services take theirs from how they're run.",
+  });
 }
 
 /**

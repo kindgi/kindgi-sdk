@@ -21,6 +21,7 @@ import type { DevRunners } from './dev/runners.js';
 import type { EnvRunners } from './env/runners.js';
 import { formatThrown } from './errors.js';
 import type { ExportsSeam } from './exports/create.js';
+import type { FeedbackSeam } from './feedback/run.js';
 import { commandHelpText, rootHelpText, unknownSubcommandText } from './help.js';
 import type { KeyRunners } from './key/runners.js';
 import type { LicenseCommandDeps } from './license/renew.js';
@@ -101,6 +102,8 @@ export interface RunCliInputs {
   readonly keyRunners?: KeyRunners;
   /** Injectable seams for `kindgi license renew` (its clock, its fetch): tests only. */
   readonly licenseDeps?: LicenseCommandDeps;
+  /** Injectable seams for `kindgi feedback` (its clock, the doctor, the platform, the prompt): tests only. */
+  readonly feedbackSeam?: FeedbackSeam;
   /**
    * Injectable value-input seams for `kindgi secrets set` /
    * `rotate`. Tests substitute stubs so the TTY / stdin / file paths
@@ -273,6 +276,7 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ...(envRunners !== undefined ? { envRunners } : {}),
     ...(keyRunners !== undefined ? { keyRunners } : {}),
     ...(inputs.licenseDeps !== undefined ? { licenseDeps: inputs.licenseDeps } : {}),
+    ...(inputs.feedbackSeam !== undefined ? { feedbackSeam: inputs.feedbackSeam } : {}),
     ...(inputs.secretsInputSeam !== undefined ? { secretsInputSeam: inputs.secretsInputSeam } : {}),
     ...(inputs.envInitInputSeam !== undefined ? { envInitInputSeam: inputs.envInitInputSeam } : {}),
     ...(inputs.registryAuthSeam !== undefined ? { registryAuthSeam: inputs.registryAuthSeam } : {}),

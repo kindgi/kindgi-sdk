@@ -45,9 +45,12 @@ const resolveToken: TokenResolver = async (token) =>
 function memoryBlobs(): BlobStorageBinding & {
   readonly rows: Map<string, BlobMeta>;
   readonly bytes: Map<string, Uint8Array>;
+  /** Each blob `get` opened, by id. */
+  readonly opened: string[];
 } {
   const rows = new Map<string, BlobMeta>();
   const bytes = new Map<string, Uint8Array>();
+  const opened: string[] = [];
   const read = async (b: ReadableStream<Uint8Array> | Uint8Array) =>
     b instanceof Uint8Array ? b : new Uint8Array(await new Response(b).arrayBuffer());
   const binding: Pick<BlobStorageBinding, 'put' | 'get' | 'head' | 'list' | 'delete'> = {
@@ -79,6 +82,7 @@ function memoryBlobs(): BlobStorageBinding & {
       if (meta === undefined) {
         return { kind: 'err', error: { code: 'blob-not-found', message: 'none', blobId: id } };
       }
+      opened.push(id);
       return { kind: 'ok', value: { meta, stream: new Response(bytes.get(id)).body! } };
     },
     async list(_t, filter) {
@@ -93,7 +97,7 @@ function memoryBlobs(): BlobStorageBinding & {
       return { kind: 'ok', value: { deleted: rows.delete(id) } };
     },
   };
-  return Object.assign(binding as BlobStorageBinding, { rows, bytes });
+  return Object.assign(binding as BlobStorageBinding, { rows, bytes, opened });
 }
 
 function decision(user: string, action: Action, resource: ResourceRef): Decision {
@@ -145,10 +149,23 @@ function harness(options: { authz?: boolean; maxBytes?: number; defaultProject?:
     });
     return { status: res.status, body: (await res.json()) as Record<string, any> };
   };
-  const call = async (as: string, method: string, path: string) => {
-    const res = await app.request(path, { method, headers: { authorization: `Bearer ${as}` } });
+  const call = async (
+    as: string,
+    method: string,
+    path: string,
+    headers: Record<string, string> = {},
+  ) => {
+    const res = await app.request(path, {
+      method,
+      headers: { authorization: `Bearer ${as}`, ...headers },
+    });
     const text = await res.text();
-    return { status: res.status, text, json: () => JSON.parse(text) as Record<string, any> };
+    return {
+      status: res.status,
+      headers: Object.fromEntries(res.headers.entries()),
+      text,
+      json: () => JSON.parse(text) as Record<string, any>,
+    };
   };
   /** A multipart body sent as the same bytes each time, as a client's retry sends it. */
   const sendBytes = async (as: string, sent: Request, headers: Record<string, string> = {}) => {
@@ -224,6 +241,34 @@ describe('reading and deleting', () => {
     expect([bob.status, bob.json().error.code]).toEqual([404, 'blob-not-found']);
     expect((await h.call('bob', 'HEAD', `/v1/artifacts/${inP1}`)).status).toBe(404);
     expect((await h.call('alice', 'HEAD', `/v1/artifacts/${inP1}`)).status).toBe(200);
+  });
+
+  test("a HEAD answers a GET's status and headers from the metadata, and never opens the blob", async () => {
+    const h = harness();
+    const blobId = (await h.upload('alice', { projectId: P1 }, 'the bytes')).body.blobId as string;
+    const absent = '00000000-0000-4000-8000-0000000000ee';
+    for (const [as, id, status] of [
+      ['alice', blobId, 200],
+      ['bob', blobId, 404],
+      ['alice', absent, 404],
+    ] as const) {
+      const path = `/v1/artifacts/${id}`;
+      const sent = { 'x-request-id': `req-${as}-${status}-${id}` };
+      const head = await h.call(as, 'HEAD', path, sent);
+      expect(h.blobs.opened, `HEAD ${as} ${id}`).toEqual([]);
+      const get = await h.call(as, 'GET', path, sent);
+      expect(h.blobs.opened, `GET ${as} ${id}`).toEqual(status === 200 ? [id] : []);
+      // The one GET that opens the blob hands it out as the body.
+      if (status === 200) expect(get.text).toBe('the bytes');
+      expect([head.status, get.status]).toEqual([status, status]);
+      // Each request answers its own span; every other header is the same.
+      const { traceresponse: headSpan, ...headHeaders } = head.headers;
+      const { traceresponse: getSpan, ...getHeaders } = get.headers;
+      expect([headSpan, getSpan]).toEqual([expect.any(String), expect.any(String)]);
+      expect(headHeaders, `${as} ${id}`).toEqual(getHeaders);
+      expect(head.text).toBe('');
+      h.blobs.opened.length = 0;
+    }
   });
 
   test('delete needs write: read-only is 403, no read is 404', async () => {

@@ -11,7 +11,16 @@ the Kindgi CLI and SDK.
 ## What you need
 
 - **For a TypeScript pack: Node 22.12 or later.** The `kindgi` CLI and the SDK
-  run on Node.
+  run on Node. On an older Node, `kindgi` stops before it does anything and
+  exits `1`, with this line:
+
+  ```text
+  Kindgi needs Node 22.12.0 or later; this is Node 20.11.0. Install or switch to it (nvm install 22, or https://nodejs.org), then run the command again.
+  ```
+
+  Through `npx`, npm may warn `EBADENGINE` first, once for each package that
+  needs the newer Node.
+
 - **Docker** (Docker Desktop, or the Docker engine on Linux). `kindgi dev`
   runs the Kindgi runtime as a container, and a Postgres container for it:
   with `docker compose` when it's there, with plain `docker` otherwise. With

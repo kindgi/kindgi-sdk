@@ -63,8 +63,9 @@ scope.
 
 ## From your app
 
-Your app lists runs with `runs.list`. This code lists the newest runs your
-app started, then gets the next page:
+Your app lists runs with `runs.list`. Ask your coding agent: "I want my app
+to list the runs it started, newest first, a page at a time." For reference,
+this code lists the newest runs your app started, then gets the next page:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -228,8 +229,9 @@ version without its id is refused with `400 bad-input`, naming it:
 { "error": { "code": "bad-input", "message": "`agentVersion` needs `agentId`", … } }
 ```
 
-The filters combine. The runs created in the last day that failed or were
-cancelled, leaving out the runs inside them:
+The filters combine. Ask your coding agent, for example: "I want my app to
+list the runs from the last day that failed or were cancelled." For
+reference, this code lists them, leaving out the runs inside them:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -354,7 +356,9 @@ b0896582-86d7-4e7d-8387-931550da93a3 failed null
 
 A flow's run starts a run for each agent step. `parentRunId`
 (`parent_run_id`) lists the runs a run started, each with the step it belongs
-to:
+to. Ask your coding agent: "I want my app to list the agent turns inside a
+flow's run." For reference, this code starts a flow's run, then lists the
+runs inside it:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -480,7 +484,9 @@ ID                                    STATUS     FLOW / AGENT          CREATED
 95674147-b935-4a63-a74c-cbffc0fb103a  completed  acme.chat-desk@0.1.0  2026-10-11T07:55:39.011Z
 ```
 
-In the clients, it's `agentId`, or `agent_id` in Python:
+In the clients, it's `agentId`, or `agent_id` in Python. Ask your coding
+agent: "I want my app to list one agent's turns." For reference, the code
+looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

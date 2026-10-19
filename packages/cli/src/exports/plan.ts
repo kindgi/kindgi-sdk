@@ -97,6 +97,15 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     parent: { kind: 'projects', params: { projectId: 'id' } },
   },
   {
+    name: 'sites',
+    route: '/v1/projects/{projectId}/sites',
+    paging: cursor,
+    parent: { kind: 'projects', params: { projectId: 'id' } },
+    query: { includeUnregistered: 'true' },
+    covers: ['/v1/projects/{projectId}/sites/{siteId}'],
+    admin: true,
+  },
+  {
     name: 'users',
     route: '/v1/identity/users',
     paging: cursor,
@@ -108,6 +117,13 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     name: 'user-sessions',
     route: '/v1/identity/users/{userId}/sessions',
     paging: whole,
+    parent: { kind: 'users', params: { userId: 'userId' } },
+    admin: true,
+  },
+  {
+    name: 'user-second-factors',
+    route: '/v1/identity/users/{userId}/second-factor',
+    paging: 'one',
     parent: { kind: 'users', params: { userId: 'userId' } },
     admin: true,
   },
@@ -145,6 +161,7 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     paging: whole,
     covers: ['/v1/auth/providers/{providerId}'],
   },
+  { name: 'sign-in-settings', route: '/v1/auth/settings', paging: 'one', admin: true },
 
   // Settings.
   { name: 'environments', route: '/v1/environments', paging: cursor, admin: true },
@@ -509,9 +526,13 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/system/tenants/{tenantId}/limits': "the server's operator routes",
   '/v1/system/whoami': "the server's operator routes",
   '/v1/system/deployments': "the server's operator routes",
+  '/v1/system/pack-env': "the server's operator routes",
+  '/v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env':
+    "the server's operator routes",
   // The caller, not the workspace.
   '/v1/identity/whoami': 'the caller, not the workspace',
   '/v1/identity/me/permissions': 'the caller, not the workspace',
+  '/v1/identity/me/second-factor': 'the caller, not the workspace',
   '/v1/auth/sign-in-options': 'the caller, not the workspace',
   '/v1/auth/providers/{providerId}/sign-in': 'the caller, not the workspace',
   // Live views of records exported elsewhere.
@@ -534,6 +555,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/projects/{projectId}/team-grants': 'the same records as team-project-grants',
   '/v1/providers/{providerId}/check': "a live check of a provider's settings",
   '/v1/retention/scheduled': 'computed from the retention policies and the records',
+  '/v1/deployments/{deploymentId}/pack-env': 'computed from deployments, env and secrets',
   // Not listed by any route.
   '/v1/secrets/{name}/rotations/{rotationId}':
     "read by the id its rotation's request answered; no route lists rotations, and each rotation's versions are in secret-versions",

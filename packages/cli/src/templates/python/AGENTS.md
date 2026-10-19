@@ -34,6 +34,8 @@ loads `.claude/skills/` on its own; Codex and Gemini CLI look in
 When you diagnose a framework bug (something in Kindgi itself, not in this
 pack's code), append an entry to `FEEDBACK.md` at the pack root via
 `kindgi feedback write` — see the `kindgi-framework-feedback` skill.
+Send entries to Kindgi only after the person has seen the preview and said
+yes: `kindgi feedback submit --preview`, then `--yes=<its digest>`.
 
 ## Commands for the person's own terminal
 
