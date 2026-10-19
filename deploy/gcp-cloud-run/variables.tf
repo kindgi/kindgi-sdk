@@ -245,7 +245,7 @@ variable "database_deletion_protection" {
 }
 
 variable "database_idle_in_transaction_timeout_ms" {
-  description = "The instance's idle_in_transaction_session_timeout, in milliseconds: a backstop that ends any session left idle in a transaction this long, whoever opened it (a psql session left open, say). 0 turns it off. The server's own connections set a shorter one (KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS, 2 minutes by default), which wins over this. Only on the module's own instance, not on one database_instance names."
+  description = "The instance's idle_in_transaction_session_timeout, in milliseconds: a backstop that ends any session left idle in a transaction this long, whoever opened it (a psql session left open, say). 0 turns it off. The server's own connections set a shorter one (KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS, 30 seconds by default), which wins over this. Only on the module's own instance, not on one database_instance names."
   type        = number
   default     = 600000
 

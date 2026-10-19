@@ -19,7 +19,7 @@ export const ENV_DEFAULTS = {
     '`60000` (60 seconds); `0` turns it off; longer than the lock timeout when both are on',
   KINDGI_DB_LOCK_TIMEOUT_MS:
     '`30000` (30 seconds); `0` turns it off; shorter than the statement timeout when both are on',
-  KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: '`120000` (2 minutes); `0` turns it off',
+  KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: '`30000` (30 seconds); `0` turns it off',
   KINDGI_OPENFGA_API_URL: 'none: authorization is not enforced',
   KINDGI_OPENFGA_PRESHARED_KEY: 'none: calls to OpenFGA carry no key',
   KINDGI_OPENFGA_AUTH: '`none`',

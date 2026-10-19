@@ -769,7 +769,7 @@ A new grant can take a minute or two to apply.
   ([Google: X-Forwarded-For header](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
 - **Database timeouts** (they need runtime 0.1.9 or later): the server's
   connections carry their own, 60 s a statement, 30 s waiting for a lock,
-  and 2 minutes idle in a transaction. `KINDGI_DB_STATEMENT_TIMEOUT_MS`,
+  and 30 s idle in a transaction. `KINDGI_DB_STATEMENT_TIMEOUT_MS`,
   `KINDGI_DB_LOCK_TIMEOUT_MS` and `KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS`
   in `server_env` change them; `0` turns one off. A request one ends gets a
   500, and the log a `db` warning naming the setting, its value and its
