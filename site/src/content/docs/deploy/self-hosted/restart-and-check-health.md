@@ -218,15 +218,20 @@ Each repair is a line in its log:
   Can't connect to the database at kindgi-db:5432/kindgi: host not found (getaddrinfo ENOTFOUND kindgi-db). Check KINDGI_DATABASE_URL, and that Postgres is up and reachable from here.
   ```
 
-  **With several hosts in `KINDGI_DATABASE_URL`** (runtime 0.1.8.2 or
-  later), such as `postgres://…@db1:5432,db2:5432/kindgi`, the line names
-  each host. When none of them answers, the runtime waits the connect
-  timeout for each host, then exits with code 1. With two hosts and the
-  default timeout, the reason is `no host answered within 60 s`. The
-  connect timeout is the URL's `connect_timeout`, else `PGCONNECT_TIMEOUT`,
-  else 30 seconds. The `kindgi-runtime check` and `kindgi-runtime tenants`
-  commands say the same, with `(or --db)` after `KINDGI_DATABASE_URL`, and
-  exit with code 2.
+  **A database that never answers** (runtime 0.1.8.2 or later), such as
+  one behind a firewall that drops its packets: the runtime waits its
+  connect timeout, then exits with code 1, and the reason is
+  `no host answered within 30 s`. With several hosts in
+  `KINDGI_DATABASE_URL`, such as `postgres://…@db1:5432,db2:5432/kindgi`,
+  the line names each host, and the runtime waits the connect timeout for
+  each one: `no host answered within 60 s` for two. The connect timeout is
+  the URL's `connect_timeout`, else `PGCONNECT_TIMEOUT`, else 30 seconds.
+  The `kindgi-runtime check` and `kindgi-runtime tenants` commands say the
+  same, with `(or --db)` after `KINDGI_DATABASE_URL`, and exit with code 2.
+
+  **A password with a raw `/`, `?` or `#`** has to be percent-encoded in
+  `KINDGI_DATABASE_URL`: `%2F`, `%3F` and `%23`. Otherwise the runtime
+  misreads the URL, and can't connect.
 
 - **Another failure while starting:** it exits with code 1, and the log's
   first line starts with `kindgi-runtime: fatal:` and ends with the cause.
