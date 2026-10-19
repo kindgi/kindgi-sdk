@@ -385,15 +385,18 @@ run start via `semver.maxSatisfying`. No implicit `:latest`.
 
 12. **Importing a Next.js module that has `import 'server-only'`.** Outside
     Next.js that line stops the module from loading, so the tool fails
-    `kindgi test`, `kindgi dev` and `kindgi build`: `Could not resolve
-    "server-only"` when the app doesn't install the package (Next.js doesn't
-    need it), or the package's own "This module cannot be imported from a
-    Client Component module" when it does. Don't remove the line, and don't
-    alias `server-only` away in the vitest config: the build still fails.
-    Move the code the tool needs, as it is, to a module without the line
-    (`lib/orders-core.ts`). The guarded module keeps the line and re-exports
-    it (`import 'server-only'; export * from './orders-core';`), so the app's
-    own imports don't change, and the tool imports the new module.
+    `kindgi test`, `kindgi dev` and `kindgi build`. When the app doesn't
+    install the package (Next.js doesn't need it), `kindgi test` fails with
+    `Cannot find package 'server-only'`, and `kindgi dev` and `kindgi build`
+    with `Could not resolve "server-only"`. When it does, all three fail
+    with the package's own "This module cannot be imported from a Client
+    Component module". Don't remove the line, and don't alias `server-only`
+    away in the vitest config: the build still fails. Move the code the tool
+    needs, as it is, to a module without the line (`lib/orders-core.ts`).
+    The guarded module keeps the line and re-exports it
+    (`import 'server-only'; export * from './orders-core';`), so the app's
+    own imports don't change, and the tool imports the new module. Nothing
+    guards it, so only the app's server code and the pack should import it.
 
 ## References
 
