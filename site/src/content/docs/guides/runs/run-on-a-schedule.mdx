@@ -87,7 +87,7 @@ each time still fires once.
 After 5 fires in a row that were refused or failed, the schedule pauses
 itself, with the reason in its `statusReason`. Skipped fires don't count.
 Nor does a fire refused for a limit, its note starting `rate-limited:`,
-or one the database was too busy to start (runtime 0.1.8.1 or later), its
+or one the database was too busy to start (runtime 0.1.9 or later), its
 note starting `database-busy:`. Neither starts the count over.
 `kindgi schedules resume <schedule-id>` clears the pause.
 
