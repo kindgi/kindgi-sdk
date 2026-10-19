@@ -135,8 +135,14 @@ could claim another company's domain and catch its people.
 
   Each entry is a domain and the workspace it belongs to, by the
   workspace's id or its slug. The runtime checks the list when it starts.
-  An entry it can't read, a domain listed twice, or a workspace it doesn't
-  serve stops it, naming the entry.
+  An entry it can't read, or a domain listed twice, stops it, naming the
+  entry. An entry for a workspace it doesn't serve (no workspace has that
+  id or slug, it was purged, or its setup hasn't finished) doesn't: the
+  runtime warns, naming the domain and the workspace, and treats that
+  domain as one not listed until it next starts with the workspace set up.
+
+  Each replica reads its own list, as does any other runtime on the same
+  database: give them all the same one.
 
 The startup output lists what routes:
 
