@@ -143,7 +143,8 @@ could claim another company's domain and catch its people.
   no workspace can be renamed to a slug an entry names
   (`409 tenant-slug-in-config`). A rename is checked against the list of the
   replica that takes it. To change a slug an entry names, name the workspace
-  by its id in the list, restart every replica, then rename it.
+  by its id in the list, restart every replica and any other runtime on that
+  database, then rename it.
 
 The startup output lists what routes:
 
