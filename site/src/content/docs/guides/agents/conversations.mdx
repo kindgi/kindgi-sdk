@@ -573,7 +573,10 @@ conversations once they've been idle for 30 minutes." For reference, it adds
   conversation (`conversationId` in its input) holds it only from when its
   agent step's turn starts. If its earlier steps outlast the window, the
   conversation can close first, and that turn then fails with
-  `conversation-closed`.
+  `conversation-closed`. Only a turn made on runtime 0.1.3 or later holds
+  it: if one made earlier is still waiting, the conversation can close once
+  it's past its window, and the turn fails with `conversation-closed` when
+  it resumes.
 - **A turn into one past its window,** with no turn in progress or waiting
   in it, closes it, and is refused as a turn into a closed conversation is, with
   `409 conversation-closed` before a run is made.
