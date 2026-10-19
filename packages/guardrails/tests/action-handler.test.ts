@@ -96,6 +96,30 @@ describe('registered action handlers', () => {
     }
   });
 
+  test('the built-in retry handler takes a retry left out (the default attempts apply), not maxAttempts 0', async () => {
+    const actions = createActionHandlerRegistry(BUILT_IN_ACTION_HANDLERS);
+    const handlerError = async (action: Guardrail['action']): Promise<unknown> => {
+      const outcome = await evaluateGuardrail(
+        { ...makeMustCite(), action },
+        createCheckRegistry(),
+        TRACE_FAIL,
+        { actions },
+      );
+      if (outcome.kind !== 'ok') throw new Error(`expected a judged outcome, got ${outcome.kind}`);
+      expect(outcome.value.action).toBe('retry');
+      return outcome.value.result.attributes?.actionHandlerError;
+    };
+    expect(await handlerError({ 'on-violation': 'retry' })).toBeUndefined();
+    expect(
+      await handlerError({ 'on-violation': 'retry', retry: { maxAttempts: 3 } }),
+    ).toBeUndefined();
+    expect(
+      await handlerError({ 'on-violation': 'retry', retry: { maxAttempts: 0 } }),
+    ).toMatchObject({
+      code: 'invalid-action-config',
+    });
+  });
+
   test('no action handler registry → engine records action but does not invoke', async () => {
     const guardrail = makeMustCite();
     const outcome = await evaluateGuardrail(guardrail, createCheckRegistry(), TRACE_FAIL, {});

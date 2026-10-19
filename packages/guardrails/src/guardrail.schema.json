@@ -3,7 +3,7 @@
   "$id": "https://kindgi.com/schemas/v1/guardrail.schema.json",
   "$comment": "schema-version: 1.1.0",
   "title": "Guardrail",
-  "description": "An assertion about agent behavior. Checked at runtime, where in 0.1 only `halt` stops the turn and every other action is recorded, AND in CI (blocks builds). Same definition, two enforcement paths — no drift between what tests check and what prod enforces. Zero-LLM checks are default (fast, deterministic); LLM-judge scorers are an opt-in class with explicit cost declaration. Schema-version 1.1.0 matches the `Guardrail` type: `check` is required, a `retry` object, when given, needs `maxAttempts`, `kind` and `on-violation` accept any non-empty string (the built-ins are listed as `examples`), and `sandbox` / `limits` / `network` / `needsSpec` are allowed.",
+  "description": "An assertion about agent behavior. Checked at runtime, where `halt` stops the turn, `retry` asks the model for a new answer, and every other action is recorded, AND in CI (blocks builds). Same definition, two enforcement paths — no drift between what tests check and what prod enforces. Zero-LLM checks are default (fast, deterministic); LLM-judge scorers are an opt-in class with explicit cost declaration. Schema-version 1.1.0 matches the `Guardrail` type: `check` is required, a `retry` object, when given, needs `maxAttempts`, `kind` and `on-violation` accept any non-empty string (the built-ins are listed as `examples`), and `sandbox` / `limits` / `network` / `needsSpec` are allowed.",
   "type": "object",
   "required": ["id", "kind", "check", "action"],
   "additionalProperties": false,
@@ -209,12 +209,12 @@
           "type": "string",
           "minLength": 1,
           "examples": ["halt", "retry", "escalate", "log-only", "compensate"],
-          "description": "What a failed check does to the agent turn. Open string: any non-empty name is accepted here. In 0.1 the runtime acts only on 'halt': the turn fails with `guardrail-violation` and its response is not stored. Any other name is recorded as a violation, as 'log-only' is, and the turn completes. Built-in actions: 'halt' = fail the turn. 'log-only' = record, don't block. 'retry', 'escalate' and 'compensate' are recorded like 'log-only' in 0.1: nothing runs the turn again, escalates or calls a compensating tool."
+          "description": "What a failed check does to the agent turn. Open string: any non-empty name is accepted here. The runtime acts on 'halt': the turn fails with `guardrail-violation` and its response is not stored. It acts on 'retry' too: the answer goes back to the model with the check's reason, for a new one, until `retry.maxAttempts` run out, and then the turn fails the same way. Any other name is recorded as a violation, as 'log-only' is, and the turn completes. Built-in actions: 'halt' = fail the turn. 'retry' = ask for a new answer. 'log-only' = record, don't block. 'escalate' and 'compensate' are recorded like 'log-only' in 0.1: nothing escalates or calls a compensating tool."
         },
         "retry": {
           "type": "object",
           "additionalProperties": false,
-          "description": "For on-violation = 'retry': the attempts it asks for. In 0.1 nothing acts on it: there's no second attempt.",
+          "description": "For on-violation = 'retry': counts the answers this guardrail fails in a turn, the first one included (with maxAttempts 3 it sends a failed answer back up to twice, and the third answer it fails ends the turn). Left out, 2. The turn's maxSteps, and the agent loop's 32 model calls, bound it too.",
           "required": ["maxAttempts"],
           "properties": {
             "maxAttempts": {

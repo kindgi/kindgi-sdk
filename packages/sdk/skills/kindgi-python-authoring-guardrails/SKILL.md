@@ -5,17 +5,18 @@ description: >
   pack in Python (the `kindgi` package): the `@guardrail` decorator over a
   `(config, trace)` check, `RunTrace` and `CheckResult`, config models,
   actions, severity and scope, unit tests, and wiring a guardrail onto an
-  agent. In 0.1 only the halt action acts (retry / escalate / compensate are
-  only recorded: nothing runs the turn again), and a check sees only the
-  current turn: its user message and tool results, not earlier turns'. Load
-  this whenever you are authoring or editing code inside a Python pack's
-  guardrails/ directory (a pack whose config is `[tool.kindgi]` in
-  pyproject.toml), defining a check, or wiring a guardrail onto an agent.
-  Python agents are covered by kindgi-python-authoring-agents, Python tools
-  by kindgi-python-authoring-tools.
+  agent. halt fails the turn and retry sends the answer back to the model
+  for a new one (escalate / compensate are only recorded in 0.1), and a
+  check sees only the current turn: its user message and tool results, not
+  earlier turns'. Load this whenever you are authoring or editing code
+  inside a Python pack's guardrails/ directory (a pack whose config is
+  `[tool.kindgi]` in pyproject.toml), defining a check, or wiring a
+  guardrail onto an agent. Python agents are covered by
+  kindgi-python-authoring-agents, Python tools by
+  kindgi-python-authoring-tools.
 type: core
 library: "kindgi (Python)"
-version: "0.1.5"
+version: "0.1.6"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -47,14 +48,20 @@ Ask what the rule should catch before writing one; the sample
 Read this before you plan a guardrail. Three limits decide what can be
 built:
 
-- **Only `halt` acts.** A failed `halt` guardrail fails the turn with
-  `guardrail-violation`, and the answer is not stored. `retry`, `escalate`
-  and `compensate` are recorded on the turn's violations, as `log-only`
-  is, and the turn completes: nothing runs the turn again, escalates or
-  calls a compensating tool. So "block the reply and make the agent try
-  again" can't be a guardrail. Use `halt`: the error names the guardrail
-  and the check's reason, and the message is sent again (by the person, or
-  by your app when it gets `guardrail-violation`).
+- **`halt` and `retry` act.** A failed `halt` guardrail fails the turn with
+  `guardrail-violation`, and the answer is not stored. A failed `retry`
+  guardrail sends the answer back to the model, with the check's reason in a
+  user message, for a new one; the failed answer isn't stored. When it has
+  failed `retry.maxAttempts` answers (the first one included; 2 when left
+  out), the turn fails with `guardrail-violation` and
+  `details.attempts`. Each new answer is a model call that the agent's
+  `budget.maxSteps` counts. The `halt` and `retry` guardrails judge each
+  answer, a judge's calls included, which `budget.maxCostUsd` doesn't count;
+  the others judge only the answer that's sent. A new answer can call tools
+  again, side-effecting ones included, with approvals as usual. `escalate`
+  and `compensate` are recorded on the turn's violations, as `log-only` is,
+  and the turn completes: nothing escalates or calls a compensating tool. So
+  "block the reply and make the agent try again" is a `retry` guardrail.
 - **A check sees one turn.** The trace holds the current turn only: its
   user message (`trace.user_input`), its tool calls and their results
   (`trace.tool_calls`, `trace.tool_results`) and its answer
@@ -136,17 +143,16 @@ def no_fabricated_quotes(config: Config, trace: RunTrace) -> CheckResult:
 - **`id`** — `<pack-id>.<guardrail-name>`, kebab-case. Name the rule as
   a positive assertion: `no-fabricated-quotes`, `response-not-empty`.
 - **`on_violation`** — the action: `"halt"`, `"retry"`, `"escalate"`,
-  `"log-only"`, `"compensate"`. For one that needs settings pass the
-  whole object with `action=` instead (exactly one of the two):
+  `"log-only"`, `"compensate"`. For one that needs settings pass the whole
+  object with `action=` instead (exactly one of the two):
   `action={"on-violation": "retry", "retry": {"maxAttempts": 2}}`,
-  `{"on-violation": "escalate", "escalateTo": …}`,
-  `{"on-violation": "compensate", "compensateWith": "<tool id>"}`.
-  In an agent turn a failed `halt` guardrail fails the turn
-  (`guardrail-violation`) and the answer is not stored; any other action
-  reports the failure in the turn result's `violations` and the turn
-  completes. In 0.1 the runtime acts only on `halt`: `retry`, `escalate`
-  and `compensate` are recorded on the violation, with no second attempt,
-  escalation or compensating call.
+  `{"on-violation": "escalate", "escalateTo": …}`, `{"on-violation":
+  "compensate", "compensateWith": "<tool id>"}`. In an agent turn a failed
+  `halt` guardrail fails the turn (`guardrail-violation`) and the answer is
+  not stored; a failed `retry` one sends the answer back for a new one
+  (above); any other action reports the failure in the turn result's
+  `violations` and the turn completes. `escalate` and `compensate` are
+  recorded on the violation, with no escalation or compensating call in 0.1.
 - **`severity`** — `"info"`, `"warn"`, `"error"` (default), `"critical"`.
   Independent of the action: dashboards group by severity, execution
   follows the action.
@@ -206,8 +212,9 @@ references guardrails not in the registry: <id>`).
 2. **Snake_case keys in `config=`.** It is keyed like the wire — the
    model's aliases (`{"minLookups": 2}`), not the field names.
 3. **Both `on_violation=` and `action=`, or neither** — `DefinitionError`.
-4. **Expecting another attempt.** `halt` stops the turn, and in 0.1
-   `retry` doesn't run the turn again: it's only recorded.
+4. **Expecting `halt` to try again.** `halt` stops the turn; `retry` asks
+   the model for a new answer, and fails the turn once its `maxAttempts`
+   answers have failed.
 5. **Calling a model from the check.** Not available; keep checks pure.
 6. **Raising for a broken rule.** Return `CheckResult(passed=False,
    reason=…)`; an exception is an evaluation error, not a violation.

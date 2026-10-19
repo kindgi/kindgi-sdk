@@ -48,9 +48,12 @@ final class GuardrailBuilder[C] private[scaladsl] (
   def kind(kind: String): GuardrailBuilder[C] = step(_.kind(kind))
 
   /**
-   * What a violation does (`halt`, `log-only`, …). In 0.1 the runtime acts only on `halt`: the
-   * turn fails with `guardrail-violation`. Any other action is recorded on the turn's violations
-   * and the turn completes; nothing runs it again, escalates or calls a compensating tool.
+   * What a violation does (`halt`, `retry`, `log-only`, …). The runtime acts on `halt`: the turn
+   * fails with `guardrail-violation`. It acts on `retry` too: the answer goes back to the model
+   * with the check's reason, for a new one, until the guardrail has failed two answers (`action`
+   * with `"retry" -> Map("maxAttempts" -> n)` sets another count), and then the turn fails the
+   * same way. Any other action is recorded on the turn's violations and the turn completes; in 0.1
+   * nothing escalates or calls a compensating tool.
    */
   def onViolation(action: String): GuardrailBuilder[C] = step(_.onViolation(action))
 

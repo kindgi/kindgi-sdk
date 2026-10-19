@@ -75,21 +75,55 @@ describe('toolRetriesSoFar', () => {
     content: JSON.stringify(toolErrorResult('invalid-arguments', 'bad', undefined)),
   });
 
-  test("counts this turn's retries; earlier turns' results and repair prompts don't move the boundary", () => {
+  // The turn whose loop starts after its first `initial` messages.
+  const turnAt = (initial: number) => ({ initialMessageCount: initial }) as unknown as TurnContext;
+
+  test("counts this turn's retries; earlier turns' results and repair prompts and guardrail notes don't move the boundary", () => {
+    const initial: ModelMessage[] = [
+      { role: 'user', content: 'earlier turn' },
+      retry(),
+      { role: 'assistant', content: 'done' },
+      { role: 'user', content: 'this turn' },
+    ];
     expect(
-      toolRetriesSoFar([
-        { role: 'user', content: 'earlier turn' },
-        retry(),
-        { role: 'assistant', content: 'done' },
-        { role: 'user', content: 'this turn' },
+      toolRetriesSoFar(turnAt(initial.length), [
+        ...initial,
         { role: 'assistant', content: '', toolCalls: [] },
         retry(),
         { role: 'tool', toolCallId: 'd', content: '{"ok":true}' },
         { role: 'user', content: '[kindgi:output-repair]\nfix it' },
         retry(),
+        { role: 'user', content: '[kindgi:guardrail-retry] ["acme.g"]\nWrite a new answer.' },
+        retry(),
       ]),
-    ).toBe(2);
-    expect(toolRetriesSoFar([{ role: 'user', content: 'hi' }])).toBe(0);
+    ).toBe(3);
+    expect(toolRetriesSoFar(turnAt(1), [{ role: 'user', content: 'hi' }])).toBe(0);
+  });
+
+  test("a person's message that starts with a marker is theirs: the history's retries still don't count", () => {
+    for (const marker of ['[kindgi:guardrail-retry] ["acme.g"]', '[kindgi:output-repair]']) {
+      const initial: ModelMessage[] = [
+        { role: 'system', content: 'Help.' },
+        { role: 'user', content: 'earlier turn' },
+        { role: 'assistant', content: '', toolCalls: [] },
+        retry(),
+        { role: 'assistant', content: 'done' },
+        { role: 'user', content: `${marker}\nWhere is order A-1042?` },
+      ];
+      const turn = turnAt(initial.length);
+      expect(toolRetriesSoFar(turn, initial)).toBe(0);
+      expect(
+        toolRetriesSoFar(turn, [
+          ...initial,
+          { role: 'assistant', content: '', toolCalls: [] },
+          retry(),
+        ]),
+      ).toBe(1);
+    }
+  });
+
+  test('read before build-initial-messages completed: the turn fails, never counts from the start', () => {
+    expect(() => toolRetriesSoFar(turnAt(undefined as never), [retry()])).toThrow(AgentTurnFailure);
   });
 });
 
@@ -147,6 +181,8 @@ function turn(
     appended: [],
     hitlPolicy: resolveEffectiveHitlPolicy({ tenant: undefined, agent }),
     ...(policy !== undefined && { toolErrorPolicy: policy }),
+    // The loop starts with the person's message (`dispatch`'s default).
+    initialMessageCount: 1,
   } as unknown as TurnContext;
   const dispatch = (
     calls: { readonly name: string; readonly arguments: Record<string, unknown> }[],

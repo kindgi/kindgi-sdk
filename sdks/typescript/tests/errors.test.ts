@@ -43,6 +43,26 @@ describe('fromWire — guardrail-violation', () => {
     });
   });
 
+  it("carries the answers a retry guardrail's attempts ran out after", () => {
+    const err = fromWire({
+      code: 'guardrail-violation',
+      message: "Turn blocked by guardrail 'cite' after 2 answers: No source cited",
+      details: {
+        violations: [
+          { guardrailId: 'cite', result: { passed: false }, action: 'retry', severity: 'warn' },
+        ],
+        evaluationErrors: [],
+        attempts: 2,
+      },
+    });
+    expect(err).toMatchObject({ code: 'guardrail-violation', attempts: 2 });
+    // Anything but a whole number isn't a count: left out.
+    for (const attempts of ['2', 1.5, null]) {
+      const odd = fromWire({ code: 'guardrail-violation', message: 'm', details: { attempts } });
+      expect(odd).not.toHaveProperty('attempts');
+    }
+  });
+
   it('is still a guardrail-violation when the server sends no details', () => {
     expect(
       fromWire({ code: 'guardrail-violation', message: "Turn blocked by guardrail 'no-pii'" }),

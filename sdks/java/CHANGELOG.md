@@ -7,6 +7,7 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-client`, `kindgi-pack`, `kindgi-pack-scala`: **a `retry` guardrail sends a failed answer back to the model, for a new one**, until it has failed `maxAttempts` answers (2 when left out), and then the turn fails with `guardrail-violation`. `GuardrailViolationException.attempts()` says how many answers the turn had (`null` when a `halt` guardrail stopped it). `onViolation`'s docs say what `retry` does.
 - `kindgi-models`: **a server's retention limit.** `RetentionScheduledItem`'s `policyId` and `policyVersion` can be `null`: a record that a server's limit decides, in a domain no policy covers, has neither. `limitApplied`, on `RetentionScheduledItem` and `RetentionSweepResult.PerDomainItem`, is `true` when the limit decides; `null` otherwise.
 - `kindgi-pack`, `kindgi-pack-scala`: **a tool can say `needsApprovalWhenUnattended`.** `Tool.define(...).needsApprovalWhenUnattended(true)` (Scala: `.needsApprovalWhenUnattended(true)`) makes each call wait for a person's approval in a run no person started (a webhook, a schedule, an event, or a service account's key). A flow's tool step that calls it is refused there. A run a person starts is unaffected. The pack's index carries it; left out, nothing changes.
 

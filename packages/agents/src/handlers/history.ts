@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { ModelMessage } from '@kindgi/capabilities';
+
 import type { AppendMessageInput } from '../conversation-binding.js';
 import { runUserId } from '../remember.js';
 import type { ConversationMessage } from '../types.js';
@@ -41,6 +43,31 @@ export async function historyStart(ctx: TurnContext): Promise<number | undefined
   if (ctx.input.agent.conversationPolicy?.historyLimit === undefined) return undefined;
   const history = await readHistory(ctx);
   return history[0]?.sequence ?? ctx.userMessage?.sequence;
+}
+
+/**
+ * What the turn's loop added to `messages`, the messages a step of the
+ * loop sent: those after its initial ones (`ctx.initialMessageCount`, the
+ * system message, the history, the memory and the person's message). A
+ * message before them is the person's, this turn's or an earlier turn's,
+ * so a marker it starts with counts for nothing here. `reading` names
+ * what's read, for the failure when it's read before
+ * `build-initial-messages` completed.
+ */
+export function loopMessages(
+  ctx: TurnContext,
+  messages: readonly ModelMessage[],
+  reading: string,
+): readonly ModelMessage[] {
+  const start = ctx.initialMessageCount;
+  if (start === undefined) {
+    throwAgentTurnFailure({
+      code: 'model-invocation-failed',
+      message: `${reading} were read before build-initial-messages completed`,
+      cause: null,
+    });
+  }
+  return messages.slice(start);
 }
 
 /**

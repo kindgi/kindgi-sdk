@@ -248,12 +248,14 @@ export interface GuardrailEvaluationError {
 
 /**
  * Sort evaluation outcomes by the failed guardrail's action. `halt` is
- * blocking — the turn fails with `guardrail-violation`. `log-only` and
- * `noop` are warnings; every other action (`retry`, `escalate`,
- * `compensate`, or a custom action — actions are open strings) lands in
- * `other`. Warnings and `other` are attached to the successful turn
- * result under `result.violations`; the turn does not carry out those
- * actions. Evaluation errors (a check that could not run) are collected
+ * blocking — the turn fails with `guardrail-violation`. `retry` is in
+ * `retry`: the agent loop sends the answer back to the model while the
+ * guardrail's attempts last (`budget-check`). `log-only` and `noop` are
+ * warnings; every other action (`escalate`, `compensate`, or a custom
+ * action — actions are open strings) lands in `other`. Warnings and
+ * `other` are attached to the successful turn result under
+ * `result.violations`; the turn does not carry out those actions.
+ * Evaluation errors (a check that could not run) are collected
  * in `errors`; those of a `halt` guardrail are also in `blockingErrors`,
  * which fail the turn as a violation would (a guardrail that can't check
  * fails closed). `guardrails` is the list the outcomes came from, one
@@ -262,7 +264,7 @@ export interface GuardrailEvaluationError {
  *
  * `checks` is what each guardrail's check came to, in order, for the
  * outcome ledger (`GuardrailOutcomeSink`): `blocked` (in `blocking`),
- * `violated` (in `warnings` or `other`), `errored` (in `errors`), or
+ * `violated` (in `warnings`, `retry` or `other`), `errored` (in `errors`), or
  * `passed`. A guardrail whose scope didn't match wasn't checked and has no
  * entry.
  */
@@ -272,6 +274,7 @@ export function categorizeOutcomes(
 ): {
   readonly blocking: readonly EvaluationResult[];
   readonly warnings: readonly EvaluationResult[];
+  readonly retry: readonly EvaluationResult[];
   readonly other: readonly EvaluationResult[];
   readonly errors: readonly GuardrailEvaluationError[];
   readonly blockingErrors: readonly GuardrailEvaluationError[];
@@ -279,6 +282,7 @@ export function categorizeOutcomes(
 } {
   const blocking: EvaluationResult[] = [];
   const warnings: EvaluationResult[] = [];
+  const retry: EvaluationResult[] = [];
   const other: EvaluationResult[] = [];
   const errors: GuardrailEvaluationError[] = [];
   const blockingErrors: GuardrailEvaluationError[] = [];
@@ -328,23 +332,29 @@ export function categorizeOutcomes(
     }
     if (evalResult.action === 'log-only' || evalResult.action === 'noop') {
       warnings.push(evalResult);
-    } else other.push(evalResult);
+    } else if (evalResult.action === 'retry') retry.push(evalResult);
+    else other.push(evalResult);
     checks.push({ ...check, outcome: 'violated' });
   });
-  return { blocking, warnings, other, errors, blockingErrors, checks };
+  return { blocking, warnings, retry, other, errors, blockingErrors, checks };
 }
 
 /**
  * Message for a turn stopped by blocking violations — names each
- * guardrail that fired, with its check's reason when it gave one:
+ * guardrail that fired, with its check's reason when it gave one, and,
+ * for `retry` guardrails out of attempts, the answers the turn wrote:
  *
  *   Turn blocked by guardrail 'no-pii': Response contains an email address
  *   Turn blocked by 2 guardrails: 'no-pii' (Response contains …); 'max-length'
+ *   Turn blocked by guardrail 'cite' after 2 answers: No source cited
  */
 export function describeBlockingViolations(
   blocking: readonly EvaluationResult[],
   blockingErrors: readonly GuardrailEvaluationError[] = [],
+  attempts?: number,
 ): string {
+  const after =
+    attempts === undefined ? '' : ` after ${attempts} answer${attempts === 1 ? '' : 's'}`;
   const reasonOf = (v: EvaluationResult): string | undefined => {
     const reason = v.result.reason?.trim();
     return reason === undefined || reason === '' ? undefined : reason;
@@ -355,7 +365,7 @@ export function describeBlockingViolations(
   const [onlyError] = blockingErrors;
   if (blocking.length === 1 && only !== undefined && blockingErrors.length === 0) {
     const reason = reasonOf(only);
-    return `Turn blocked by guardrail '${only.guardrailId}'${reason !== undefined ? `: ${reason}` : ''}`;
+    return `Turn blocked by guardrail '${only.guardrailId}'${after}${reason !== undefined ? `: ${reason}` : ''}`;
   }
   if (blocking.length === 0 && blockingErrors.length === 1 && onlyError !== undefined) {
     return `Turn blocked: guardrail ${couldNotRun(onlyError)}`;
@@ -367,7 +377,7 @@ export function describeBlockingViolations(
     }),
     ...blockingErrors.map(couldNotRun),
   ];
-  return `Turn blocked by ${named.length} guardrails: ${named.join('; ')}`;
+  return `Turn blocked by ${named.length} guardrails${after}: ${named.join('; ')}`;
 }
 
 /**
@@ -421,6 +431,11 @@ export interface GuardrailViolationError {
    * guardrail's error blocks the turn on its own, so `violations` can be empty.
    */
   readonly evaluationErrors: readonly GuardrailEvaluationError[];
+  /**
+   * For `retry` guardrails out of attempts: the answers the turn wrote,
+   * the first one included. Absent when a `halt` guardrail blocked it.
+   */
+  readonly attempts?: number;
 }
 
 /**

@@ -10,6 +10,12 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **a `retry` guardrail sends a failed answer back to the model,
+  for a new one**, until it has failed `maxAttempts` answers (2 when left
+  out), and then the turn fails with `guardrail-violation`.
+  `GuardrailViolationError.attempts` says how many answers the turn had
+  (`None` when a `halt` guardrail stopped it). The `@guardrail` docstring
+  says what `retry` does.
 - `kindgi`: **`deployments.pack_env` shows where each name a deployment's
   pack declares is set** (`project`, `org` or `tenant`) and why it can't be
   given to its pack service, if it can't, on a server that runs a pack
