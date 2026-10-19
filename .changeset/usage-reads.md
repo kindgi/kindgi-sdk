@@ -3,6 +3,7 @@
 "@kindgi/client": patch
 "@kindgi/cli": patch
 "@kindgi/sdk": patch
+"@kindgi/env-schema": patch
 ---
 
 **Usage reads: a tenant reads its own usage, aggregated, and the operator reads usage across tenants.**
