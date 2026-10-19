@@ -326,16 +326,27 @@ describe.each(LIVE_CHANGES)(
       async (s) => {
         const { call, changed } = harness();
         const path = `/v1/agents/${SERVED}/${change.path}`;
+        // A pin or a rollback (not an unpin) wider than one project would
+        // span the order's environments: `409`, after the authorization,
+        // so the handler is never reached.
+        const spans =
+          change.method !== 'unpin' && (s.scope.kind === 'tenant' || s.scope.kind === 'org');
         const ok = await call(s.allowed, 'POST', path, { ...change.body, scope: s.scope });
-        expect(ok.status, ok.text).not.toBe(403);
-        expect(changed).toEqual([change.method]);
-        // Rule 3: the project's right replaces the agent's, it doesn't add to it.
+        // Rule 3/4: the project's right replaces the agent's; the authorization
+        // runs (every project) whether or not the width check then refuses.
         expect(ok.asked).toEqual(s.on.map((p) => `${s.allowed} admin project:${p}`));
+        if (spans) {
+          expect(ok.status, ok.text).toBe(409);
+          expect(ok.body.error.code).toBe('live-scope-spans-environments');
+        } else {
+          expect(ok.status, ok.text).not.toBe(403);
+        }
+        expect(changed).toEqual(spans ? [] : [change.method]);
 
         const no = await call(s.refused, 'POST', path, { ...change.body, scope: s.scope });
         expect(no.status, no.text).toBe(403);
         expect(no.body.error.message).toContain('needs admin on each project it changes');
-        expect(changed).toEqual([change.method]);
+        expect(changed).toEqual(spans ? [] : [change.method]);
       },
     );
   },
@@ -569,14 +580,14 @@ describe("liveChangeRefusal: the one check a change to what's live asks", () => 
     who: string,
     agentId: string,
     scope: LiveScope | undefined,
-    opts: { served?: boolean } = {},
+    opts: { served?: boolean; setsLive?: boolean; orders?: ProjectId[][] } = {},
   ) {
     const authz = grantsAuthz(PEOPLE);
     const authorizer = createAuthorizer(authz.authz.authzCheckBinding);
     const rights = itemRightsOf(
       authorizer,
       opts.served === false ? undefined : itemProjects(rows()),
-      environmentOrders([[STAGING, PROD]]),
+      environmentOrders(opts.orders ?? [[STAGING, PROD]]),
     );
     let bodyRead: boolean | undefined;
     const r = new Hono<AppEnv>();
@@ -584,7 +595,13 @@ describe("liveChangeRefusal: the one check a change to what's live asks", () => 
       c.set('tenantId' as never, tenantId as never);
       c.set('requestId' as never, 'req-live-change' as never);
       c.set('principal' as never, userPrincipal(who as UserId, tenantId) as never);
-      const refused = await liveChangeRefusal(c, { authorizer, rights, agentId, scope });
+      const refused = await liveChangeRefusal(c, {
+        authorizer,
+        rights,
+        agentId,
+        scope,
+        ...(opts.setsLive !== undefined && { setsLive: opts.setsLive }),
+      });
       bodyRead = Object.keys(c.req.bodyCache).length > 0;
       return refused ?? c.json({ allowed: true });
     });
@@ -633,6 +650,85 @@ describe("liveChangeRefusal: the one check a change to what's live asks", () => 
       expect(no.bodyRead).toBe(false);
     },
   );
+
+  test.each(LIVE_SCOPES.filter((s) => s.scope.kind === 'tenant' || s.scope.kind === 'org'))(
+    '$name set-live for an agent an order carries: `409` after the authorization passes',
+    async (s) => {
+      const res = await refusal(s.allowed, SERVED, s.scope as unknown as LiveScope, {
+        setsLive: true,
+      });
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('live-scope-spans-environments');
+      // The authorization ran first, on every project, so an unauthorized wide pin is the 403.
+      expect(res.asked).toEqual(s.on.map((p) => `${s.allowed} admin project:${p}`));
+      expect(res.bodyRead).toBe(false);
+    },
+  );
+
+  test.each(LIVE_SCOPES.filter((s) => s.scope.kind === 'project' || s.scope.kind === 'segment'))(
+    '$name set-live within one project: allowed, no width refusal',
+    async (s) => {
+      const res = await refusal(s.allowed, SERVED, s.scope as unknown as LiveScope, {
+        setsLive: true,
+      });
+      expect(res.body).toEqual({ allowed: true });
+    },
+  );
+
+  test('a tenant-wide unpin (not a set-live) for an agent an order carries: allowed', async () => {
+    const res = await refusal('both', SERVED, { kind: 'tenant' }, { setsLive: false });
+    expect(res.body).toEqual({ allowed: true });
+    expect(res.asked).toEqual([`both admin project:${STAGING}`, `both admin project:${PROD}`]);
+  });
+
+  test('a one-project agent set-live tenant-wide: today’s promote check, never a width refusal', async () => {
+    const res = await refusal('solo', SOLO, { kind: 'tenant' }, { setsLive: true });
+    expect(res.body).toEqual({ allowed: true });
+    expect(res.asked).toEqual([`solo promote agent:${SOLO}`]);
+  });
+
+  // M1: the width refusal is keyed on order membership, not on project count.
+  // One project serves this agent, and that project is an order's first
+  // environment, so a tenant- or org-wide set-live still spans the order.
+  test.each([
+    { name: 'tenant-wide', scope: { kind: 'tenant' } as const },
+    { name: 'org-wide', scope: { kind: 'org', orgId: ORG } as const },
+  ])(
+    'a one-project agent whose project is in an order: a $name set-live spans it (409), after today’s promote check',
+    async ({ scope }) => {
+      const res = await refusal('solo', SOLO, scope as unknown as LiveScope, {
+        setsLive: true,
+        orders: [[OTHER, PROD]],
+      });
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('live-scope-spans-environments');
+      // S1/N5: the message names the scope asked for and the order it spans,
+      // so a reword that drops either regresses here.
+      expect(res.body.error.message).toContain(
+        scope.kind === 'org' ? 'org-wide pin' : 'tenant-wide pin',
+      );
+      expect(res.body.error.message).toContain('environment order at once');
+      // The authorization still ran first (today’s promote on the agent).
+      expect(res.asked).toEqual([`solo promote agent:${SOLO}`]);
+      expect(res.bodyRead).toBe(false);
+    },
+  );
+
+  // The inverse: more than one project serves the agent, but none is in any
+  // order, so a wide set-live is today’s multi-project admin check, not a 409.
+  test('a multi-project agent in no order set-live tenant-wide: today’s admin check, never a width refusal', async () => {
+    const res = await refusal(
+      'both',
+      SERVED,
+      { kind: 'tenant' },
+      {
+        setsLive: true,
+        orders: [[OTHER]],
+      },
+    );
+    expect(res.body).toEqual({ allowed: true });
+    expect(res.asked).toEqual([`both admin project:${STAGING}`, `both admin project:${PROD}`]);
+  });
 
   test('an authorizer that neither allows the change nor answers: an error, never allowed', async () => {
     const silent: Authorizer = {

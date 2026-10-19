@@ -226,9 +226,11 @@ interface ResolvedDeployArgs {
    */
   readonly syncSecrets: boolean;
   readonly envBlock: EnvironmentConfig | undefined;
-  /** Each environment of the pack config that names its project, to name the environments a refusal into a later one points at. */
-  readonly envProjects: readonly { readonly name: string; readonly ref: string }[];
-  /** The pack's environments, each with the project it names, if any. */
+  /**
+   * The pack's environments, each with the project it names, if any: for the
+   * value target, and to name the environments a refusal into a later one
+   * points at.
+   */
   readonly environments: PackEnvironments;
   /** The pack service's process env in this environment (`env` + `environments.<env>.env`). */
   readonly packEnv: PackEnvPlan;
@@ -1284,7 +1286,6 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       dryRun,
       syncSecrets,
       envBlock,
-      envProjects: envProjectRefs(cfg),
       environments: environmentsOf(cfg),
       packEnv: packEnv.plan,
       allowMissingEnv: ctx.options['allow-missing-env'] === true,
@@ -1330,7 +1331,7 @@ async function promotionPathOf(
     position,
     orders: orders.orders,
     projects: projects.projects,
-    environments: args.envProjects,
+    environments: envProjectRefs(args.environments),
   });
 }
 

@@ -50,7 +50,10 @@ export interface SystemDeploymentEntry {
   readonly deploymentId: string;
   /** The pack it deploys (the image index's `packId`). */
   readonly packId: string;
-  /** The project the deploy was scoped to; absent for a tenant-wide one. */
+  /**
+   * The deployment's project: the one it named, else the tenant's Default;
+   * absent only when the tenant has none.
+   */
   readonly projectId?: string;
   /** Digest-pinned, as registered: the service is created from exactly this. */
   readonly imageRef: string;

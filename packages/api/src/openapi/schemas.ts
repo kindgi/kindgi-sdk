@@ -1534,7 +1534,8 @@ const SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES: Record<string, JsonSchema> = {
   },
   projectId: {
     type: 'string',
-    description: 'The project the deploy was scoped to. Absent for a tenant-wide deploy.',
+    description:
+      "The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.",
   },
   imageRef: {
     type: 'string',
@@ -9114,6 +9115,16 @@ export const SignInOptionsSchema: JsonSchema = {
         },
       },
     },
+    legal: {
+      type: 'object',
+      additionalProperties: false,
+      description:
+        "The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.",
+      properties: {
+        termsUrl: { type: 'string', format: 'uri', description: 'Its terms.' },
+        privacyUrl: { type: 'string', format: 'uri', description: 'Its privacy policy.' },
+      },
+    },
   },
 };
 
@@ -10571,6 +10582,11 @@ export const DeploymentPromotionBodySchema: JsonSchema = {
       maxLength: 1000,
       description: 'Why, kept in the `deployment-promoted` audit record.',
     },
+    makeLive: {
+      type: 'boolean',
+      description:
+        "Make every agent version the promotion carries live in the target project, each through its scope's gate. The answer's `live` reports each. An error answered after some carried agents were already pinned lists those in `error.details.live`, in `live`'s shape.",
+    },
   },
 };
 
@@ -10637,6 +10653,43 @@ export const LeftBehindVersionSchema: JsonSchema = {
   },
 };
 
+/** The gate's say on a carried version's pin, there when it isn't live yet or ran checks. */
+export const DeploymentLivePinGateSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['status', 'promotionId'],
+  properties: {
+    status: {
+      type: 'string',
+      enum: ['promoted', 'pending-approval', 'refused', 'superseded', 'rejected', 'expired'],
+    },
+    promotionId: { type: 'string', format: 'uuid' },
+    policy: {
+      oneOf: [{ $ref: '#/components/schemas/GatePolicyRef' }, { type: 'null' }],
+      description: 'The gate policy that applied; null when none did.',
+    },
+    approvalId: { type: 'string', description: 'The approval a `pending-approval` pin waits on.' },
+    checks: { type: 'array', items: { $ref: '#/components/schemas/GateCheck' } },
+  },
+};
+
+/** A carried agent version a make-live pinned, or tried to, in the target project. */
+export const DeploymentLivePinSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version', 'pinned'],
+  properties: {
+    id: { type: 'string' },
+    version: { type: 'string' },
+    pinned: {
+      type: 'boolean',
+      description:
+        'Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).',
+    },
+    gate: { $ref: '#/components/schemas/DeploymentLivePinGate' },
+  },
+};
+
 /** A promotion's answer. */
 export const DeploymentPromotionSchema: JsonSchema = {
   type: 'object',
@@ -10654,6 +10707,12 @@ export const DeploymentPromotionSchema: JsonSchema = {
       type: 'array',
       items: { $ref: '#/components/schemas/LeftBehindVersion' },
       description: "Edits of the build's agents and flows that stay behind; absent when none.",
+    },
+    live: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/DeploymentLivePin' },
+      description:
+        'Each carried agent pinned live in the target; present only when `makeLive` was asked.',
     },
   },
 };
@@ -14129,6 +14188,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PromotionMovedVersion', PromotionMovedVersionSchema],
   ['PromotionMoves', PromotionMovesSchema],
   ['LeftBehindVersion', LeftBehindVersionSchema],
+  ['DeploymentLivePinGate', DeploymentLivePinGateSchema],
+  ['DeploymentLivePin', DeploymentLivePinSchema],
   ['DeploymentPromotion', DeploymentPromotionSchema],
   ['PromotionNextEnvironment', PromotionNextEnvironmentSchema],
   ['DeploymentPromotionCheck', DeploymentPromotionCheckSchema],

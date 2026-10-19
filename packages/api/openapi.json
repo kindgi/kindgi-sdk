@@ -260,6 +260,7 @@
           "agent-already-registered": 409,
           "agent-project-mismatch": 409,
           "registry-read-only": 409,
+          "live-scope-spans-environments": 409,
           "agent-gone": 410,
           "run-erased": 410,
           "flow-gone": 410,
@@ -2844,7 +2845,7 @@
           },
           "projectId": {
             "type": "string",
-            "description": "The project the deploy was scoped to. Absent for a tenant-wide deploy."
+            "description": "The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project."
           },
           "imageRef": {
             "type": "string",
@@ -3152,7 +3153,7 @@
           },
           "projectId": {
             "type": "string",
-            "description": "The project the deploy was scoped to. Absent for a tenant-wide deploy."
+            "description": "The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project."
           },
           "imageRef": {
             "type": "string",
@@ -15660,6 +15661,23 @@
                 }
               }
             }
+          },
+          "legal": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.",
+            "properties": {
+              "termsUrl": {
+                "type": "string",
+                "format": "uri",
+                "description": "Its terms."
+              },
+              "privacyUrl": {
+                "type": "string",
+                "format": "uri",
+                "description": "Its privacy policy."
+              }
+            }
           }
         }
       },
@@ -18321,6 +18339,10 @@
             "type": "string",
             "maxLength": 1000,
             "description": "Why, kept in the `deployment-promoted` audit record."
+          },
+          "makeLive": {
+            "type": "boolean",
+            "description": "Make every agent version the promotion carries live in the target project, each through its scope's gate. The answer's `live` reports each. An error answered after some carried agents were already pinned lists those in `error.details.live`, in `live`'s shape."
           }
         }
       },
@@ -18454,6 +18476,76 @@
           }
         }
       },
+      "DeploymentLivePinGate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "promotionId"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "promoted",
+              "pending-approval",
+              "refused",
+              "superseded",
+              "rejected",
+              "expired"
+            ]
+          },
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "policy": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/GatePolicyRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The gate policy that applied; null when none did."
+          },
+          "approvalId": {
+            "type": "string",
+            "description": "The approval a `pending-approval` pin waits on."
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GateCheck"
+            }
+          }
+        }
+      },
+      "DeploymentLivePin": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "pinned"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "pinned": {
+            "type": "boolean",
+            "description": "Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`)."
+          },
+          "gate": {
+            "$ref": "#/components/schemas/DeploymentLivePinGate"
+          }
+        }
+      },
       "DeploymentPromotion": {
         "type": "object",
         "additionalProperties": false,
@@ -18479,6 +18571,13 @@
               "$ref": "#/components/schemas/LeftBehindVersion"
             },
             "description": "Edits of the build's agents and flows that stay behind; absent when none."
+          },
+          "live": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeploymentLivePin"
+            },
+            "description": "Each carried agent pinned live in the target; present only when `makeLive` was asked."
           }
         }
       },
@@ -30857,7 +30956,7 @@
             }
           },
           "409": {
-            "description": "`promotion-superseded`: the scope's live version changed while the gate ran; check again. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first.",
+            "description": "`promotion-superseded`: the scope's live version changed while the gate ran; check again. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -31960,7 +32059,7 @@
             }
           },
           "409": {
-            "description": "`not-pinned`: the scope has no pin of its own. `nothing-to-roll-back`: no earlier version to go back to. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first.",
+            "description": "`not-pinned`: the scope has no pin of its own. `nothing-to-roll-back`: no earlier version to go back to. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide rollback would act in every environment of the order at once; roll back a project (or a segment of it) instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36771,7 +36870,7 @@
             }
           },
           "409": {
-            "description": "The proposal's status doesn't allow it.",
+            "description": "The proposal's status doesn't allow it. Or `live-scope-spans-environments`: the agent has a project in an environment order, and the proposal's tenant- or org-wide scope would act in every environment of the order at once; a proposal for a project (or a segment of it) can be requested.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36900,7 +36999,7 @@
             }
           },
           "409": {
-            "description": "It isn't promoted, or its version doesn't serve the scope anymore.",
+            "description": "It isn't promoted, or its version doesn't serve the scope anymore. Or `live-scope-spans-environments`: the agent has a project in an environment order, and the proposal's tenant- or org-wide scope would act in every environment of the order at once.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47595,6 +47694,16 @@
               }
             }
           },
+          "403": {
+            "description": "No `read` on the tenant, or a `projectId` naming a project the caller doesn't read, or one that isn't there (the tenant admin too, so it tells no one what exists).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "List failed inside the caller-plugged binding.",
             "content": {
@@ -47606,7 +47715,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.",
+        "description": "Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Only the deployments in projects the caller reads are listed (a deployment naming no project is the Default project's), so a page can hold fewer than `limit` with `hasMore` true: page by `nextCursor`, not by count. Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.",
         "parameters": [
           {
             "name": "limit",
@@ -47654,7 +47763,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Filter to one environment's deployments. The tenant's Default project also finds those that name no project."
+            "description": "Filter to one environment's deployments. The tenant's Default project also finds those that name no project. Needs `read` on that project."
           },
           {
             "name": "packId",
@@ -47702,7 +47811,7 @@
             }
           },
           "404": {
-            "description": "No deployment with that id under this tenant.",
+            "description": "No deployment with that id under this tenant, or one in a project the caller doesn't read (`deployment-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -47760,7 +47869,7 @@
             }
           },
           "404": {
-            "description": "No deployment with that id under this tenant (`deployment-not-found`).",
+            "description": "No deployment with that id under this tenant, or one in a project the caller doesn't read (`deployment-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -47839,7 +47948,7 @@
             }
           },
           "403": {
-            "description": "Bearer token missing `secrets:write` capability.",
+            "description": "Bearer token missing `secrets:write` capability, or no `admin` on the scope it writes: the deployment's project, else the tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47849,7 +47958,7 @@
             }
           },
           "404": {
-            "description": "No deployment with that id, or referenced secret does not exist.",
+            "description": "No deployment with that id, or one in a project the caller doesn't read, or referenced secret does not exist.",
             "content": {
               "application/json": {
                 "schema": {
@@ -48008,7 +48117,7 @@
             }
           },
           "404": {
-            "description": "No deployment with that id under this tenant (`deployment-not-found`), or `projectId` names no project of this tenant (`project-not-found`).",
+            "description": "No deployment with that id under this tenant, or one in a project the caller doesn't read (`deployment-not-found`), or `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -48018,7 +48127,7 @@
             }
           }
         },
-        "description": "Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), and `read` on the tenant, as every deployments route does.",
+        "description": "Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), `read` on the project the deployment serves, and `read` on the tenant, as every deployments route does.",
         "parameters": [
           {
             "name": "deploymentId",
