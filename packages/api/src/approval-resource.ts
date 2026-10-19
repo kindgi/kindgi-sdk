@@ -10,7 +10,7 @@ import type { LiveScope, ProjectId, RunId, TenantId } from '@kindgi/types';
  * stored approval (its `projectId` and `provenanceRef.runId`); the proposal
  * service resolves the SAME ref for the approval a drafter's promotion WILL
  * open, so its separate-approver count admits exactly the reviewers the
- * decide route would let through (T1044). `getRun` is only consulted when a
+ * decide route would let through. `getRun` is only consulted when a
  * run id is present and no project is set, so the proposal service — which
  * passes a project (or none) and never a run — may omit it.
  */
@@ -32,12 +32,11 @@ export async function approvalResourceRef(
 }
 
 /**
- * A live scope's project, mirroring the runtime's `projectOf`, which opens a
- * promotion's approval with exactly this project and no provenance run
- * (promotions-postgres `bindings.ts` `projectOf`): a project or segment
- * scope names one; a tenant or org scope names none. The proposal service
- * feeds the result to {@link approvalResourceRef} so its count resolves the
- * resource the opened approval will carry — not the eval run's project.
+ * A live scope's project: the project a promotion's approval is opened with
+ * (a project or segment scope names one; a tenant or org scope names none),
+ * and no provenance run. The proposal service feeds the result to
+ * {@link approvalResourceRef} so its count resolves the resource the opened
+ * approval will carry — not the eval run's project.
  */
 export function projectOfScope(scope: LiveScope): ProjectId | undefined {
   return scope.kind === 'project' || scope.kind === 'segment' ? scope.projectId : undefined;

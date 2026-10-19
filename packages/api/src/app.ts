@@ -1814,7 +1814,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
           ...(input.environmentOrders !== undefined && { orders: input.environmentOrders }),
           // A drafter's promotion needs a separate approver when the tenant has
-          // a second person who could approve it (T1044) — one who can read the
+          // a second person who could approve it — one who can read the
           // approval's resource, so the count matches who the decide route lets in.
           ...(input.reviewerRegistry !== undefined && { reviewers: input.reviewerRegistry }),
           ...(input.authz !== undefined && { authz: input.authz.authzCheckBinding }),

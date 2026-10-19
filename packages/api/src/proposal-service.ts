@@ -97,14 +97,14 @@ export interface ProposalServiceDeps {
   readonly orders?: Pick<EnvironmentOrderBinding, 'orderOf'>;
   /**
    * The tenant's reviewer roster, to decide whether a drafter's promotion
-   * needs a separate approver (T1044). Absent: a drafter's promotion keeps
+   * needs a separate approver. Absent: a drafter's promotion keeps
    * the legacy rule — any reviewer, the requester included, may approve.
    */
   readonly reviewers?: Pick<ReviewerRegistryBinding, 'list'>;
   /**
    * The PDP, to count only reviewers who could actually decide a drafter's
    * promotion: one who can't read its resource is 404'd by the decide route
-   * (routes/approvals.ts `mayRead`), so they can't separate it (T1044). Absent
+   * (routes/approvals.ts `mayRead`), so they can't separate it. Absent
    * (no authorizer): every roster reviewer may read, as `mayRead` allows.
    */
   readonly authz?: AuthzCheckBinding;
@@ -176,7 +176,7 @@ export const DRAFTED_PROPOSAL_APPROVAL: GateApproval = {
  * not the requester; and, with an authorizer wired, able to read the
  * approval's `resource` — the decide route 404s a reviewer who can't
  * (routes/approvals.ts `mayRead`), so a count that ignored it could leave the
- * promotion stuck (T1044). A service requester (an improvement pass) is no
+ * promotion stuck. A service requester (an improvement pass) is no
  * `user:<id>`, so every eligible reviewer counts; a human requester who is the
  * only one who counts counts as none, so they may approve their own request
  * rather than being deadlocked.
@@ -225,24 +225,36 @@ export function createProposalService(deps: ProposalServiceDeps) {
 
   /**
    * The approval a drafter's promotion needs (K2), with `separateApprover`
-   * decided from the tenant roster (T1044). No reviewer registry wired keeps
-   * the legacy rule (any reviewer, the requester included, may approve).
+   * decided from the tenant roster. No reviewer registry wired keeps the
+   * legacy rule (any reviewer, the requester included, may approve).
+   *
+   * Returns both the approval (its `separateApprover` settled at the drafter's
+   * own `standard` rank, which is what a promotion with no scope policy waits
+   * for) and `eligibleAtRole`, the same roster test at an arbitrary role: a
+   * scope policy that sets `separateApprover: false` asks it again at the
+   * policy's (higher) role, so a lower-ranked reviewer doesn't deadlock a
+   * requester the policy would let decide alone.
    */
   async function draftedApproval(
     tenantId: TenantId,
     actor: PromotionActor,
     proposal: StoredProposal,
-  ): Promise<GateApproval> {
-    if (deps.reviewers === undefined) return DRAFTED_PROPOSAL_APPROVAL;
-    const second = await hasOtherEligibleReviewer(
-      deps.reviewers,
-      tenantId,
-      DRAFTED_PROPOSAL_APPROVAL.role,
-      actor.kind === 'user' ? (actor.id as UserId) : undefined,
-      await approvalResourceRef(tenantId, { projectId: projectOfScope(proposal.scope) }),
-      deps.authz,
-    );
-    return { ...DRAFTED_PROPOSAL_APPROVAL, separateApprover: second };
+  ): Promise<{
+    readonly approval: GateApproval;
+    readonly eligibleAtRole: (role: ReviewerRole) => Promise<boolean>;
+  }> {
+    if (deps.reviewers === undefined) {
+      return { approval: DRAFTED_PROPOSAL_APPROVAL, eligibleAtRole: () => Promise.resolve(false) };
+    }
+    const reviewers = deps.reviewers;
+    const requesterUserId = actor.kind === 'user' ? (actor.id as UserId) : undefined;
+    const resource = await approvalResourceRef(tenantId, {
+      projectId: projectOfScope(proposal.scope),
+    });
+    const eligibleAtRole = (role: ReviewerRole): Promise<boolean> =>
+      hasOtherEligibleReviewer(reviewers, tenantId, role, requesterUserId, resource, deps.authz);
+    const second = await eligibleAtRole(DRAFTED_PROPOSAL_APPROVAL.role);
+    return { approval: { ...DRAFTED_PROPOSAL_APPROVAL, separateApprover: second }, eligibleAtRole };
   }
 
   /** A reader of proposal facts for one call: each agent's pins are read once. */
@@ -661,13 +673,18 @@ export function createProposalService(deps: ProposalServiceDeps) {
         throw new Error('an evaluated proposal has a candidate and an evaluation');
       }
       // A drafter's promotion always waits for a reviewer (K2). Whether that
-      // reviewer must differ from whoever asked is the tenant roster's to say
-      // (T1044): a second eligible reviewer → a separate approver; a lone
-      // reviewer → the requester may approve their own, so they aren't stuck.
-      const drafterApproval =
+      // reviewer must differ from whoever asked is the tenant roster's to say:
+      // a second eligible reviewer → a separate approver; a lone reviewer →
+      // the requester may approve their own, so they aren't stuck. A scope
+      // policy's approval is the floor; the drafter's rule only tightens it.
+      const drafted =
         proposal.drafter.kind === 'person'
+          ? undefined
+          : await draftedApproval(tenantId, input.actor, proposal);
+      const drafterApproval =
+        drafted === undefined
           ? {}
-          : { requireApproval: await draftedApproval(tenantId, input.actor, proposal) };
+          : { requireApproval: drafted.approval, draftedEligibleAtRole: drafted.eligibleAtRole };
       const promotion = await requestPromotion(
         deps.agents,
         deps.releases,
