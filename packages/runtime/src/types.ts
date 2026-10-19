@@ -392,8 +392,8 @@ export interface JournalEntryFacts {
    * A fixed word: `step.failed`'s attribution (`timeout`, `cancelled`),
    * `fanout.branch-failed`'s and `fanout.cancelled-siblings`' reason, or
    * `run.cancelled`'s or `wait.cancelled`'s (such as `timeout`,
-   * `conversation-closed`), when it's one the kernel knows. More words
-   * may come.
+   * `conversation-closed`, `approval-withdrawn`), when it's one the
+   * kernel knows. More words may come.
    */
   readonly reason?: string;
   /** `step.failed` on a timeout. */
