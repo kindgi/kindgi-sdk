@@ -473,7 +473,7 @@ const improve: LeafCommand = {
     'class-weights': {
       type: 'string',
       description:
-        'Which judgments the pass learns from: `as-recorded` (all classes) or `restricted-only` (restricted judge classes only). Omitted, it counts everyone until the test set project, its tenant, or the agent improved there names an expert class, then trusted ones only.',
+        "Which judgments the pass learns from: `as-recorded` (all classes) or `restricted-only` (restricted judge classes only). Omitted, it counts everyone until the test set's project, its tenant, or the agent improved there has a restricted judge class, then only those.",
     },
     provider: {
       type: 'string',
