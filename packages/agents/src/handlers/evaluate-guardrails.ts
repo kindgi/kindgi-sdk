@@ -66,19 +66,7 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
     const final = finalIteration(input, 'evaluate-guardrails');
     const evaluatedAt = new Date().toISOString() as Timestamp;
 
-    if (ctx.provenance !== undefined) {
-      ctx.provenance.addNode({
-        id: `model-output:${ctx.usage.steps}`,
-        kind: 'model-output',
-        timestamp: evaluatedAt,
-        modelVersion: `${final.provider.id}/${final.provider.model}`,
-      });
-      ctx.provenance.addEdge({
-        from: `model-output:${ctx.usage.steps}`,
-        to: `model-call:${ctx.usage.steps}`,
-        kind: 'produced',
-      });
-    }
+    addModelOutputNode(ctx, final.provider, evaluatedAt);
 
     // The loop judged this very answer on the `halt` and `retry` guardrails
     // (`budget-check`, in a turn with a `retry` guardrail), so the rest are
@@ -169,12 +157,36 @@ function inGuardrailOrder(
 }
 
 /**
+ * The final answer's `model-output` node in provenance, `produced` by its
+ * model call: what its guardrail checks link to (`addCheckNodes`).
+ */
+export function addModelOutputNode(
+  ctx: TurnContext,
+  provider: AgentTurnIterationOutput['provider'],
+  at: Timestamp,
+): void {
+  const provenance = ctx.provenance;
+  if (provenance === undefined) return;
+  const output = `model-output:${ctx.usage.steps}`;
+  provenance.addNode({
+    id: output,
+    kind: 'model-output',
+    timestamp: at,
+    modelVersion: `${provider.id}/${provider.model}`,
+  });
+  provenance.addEdge({ from: output, to: `model-call:${ctx.usage.steps}`, kind: 'produced' });
+}
+
+/**
  * The final answer's guardrail checks in provenance, each `influenced-by`
  * its `model-output` node: a node per failed check, one per check that
  * couldn't run (`evaluated: false`), and one per guardrail that sent an
  * earlier answer back (`notes`): its note was in what the model read.
+ * Added, with the answer's node (`addModelOutputNode`), by the step that
+ * judges the final answer: this node, or `budget-check` when it fails
+ * the turn.
  */
-function addCheckNodes(
+export function addCheckNodes(
   ctx: TurnContext,
   violations: readonly EvaluationResult[],
   errors: readonly GuardrailEvaluationError[],
@@ -220,7 +232,7 @@ function addCheckNodes(
 }
 
 /** Every failed check, in the order the gate reports them. */
-function violationsOf(categorized: Categorized): readonly EvaluationResult[] {
+export function violationsOf(categorized: Categorized): readonly EvaluationResult[] {
   return [
     ...categorized.blocking,
     ...categorized.warnings,

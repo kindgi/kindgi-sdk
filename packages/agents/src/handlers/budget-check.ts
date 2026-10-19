@@ -12,10 +12,13 @@ import { DEFAULT_MAX_STEPS } from './constants.js';
 import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
 import {
+  addCheckNodes,
+  addModelOutputNode,
   emitGateEvents,
   failTurn,
   judgeAnswer,
   recordOutcomes,
+  violationsOf,
   withBlocked,
 } from './evaluate-guardrails.js';
 import {
@@ -130,7 +133,7 @@ export function buildBudgetCheckHandler(ctx: TurnContext): NodeHandler {
     }
 
     if (finishedTurn && !kctx.dryRun && ctx.guardrails?.some(isRetryGuardrail) === true) {
-      const sentBack = await judgeInLoop(ctx, kctx, partial.message, nextMessages, maxSteps);
+      const sentBack = await judgeInLoop(ctx, kctx, partial, nextMessages, maxSteps);
       if (sentBack !== undefined) {
         finishedTurn = false;
         nextMessages = sentBack;
@@ -150,6 +153,9 @@ export function buildBudgetCheckHandler(ctx: TurnContext): NodeHandler {
   };
 }
 
+/** An answer the loop judges: the model's message, and who wrote it. */
+type Answer = Pick<AgentTurnIterationOutput, 'message' | 'provider'>;
+
 /**
  * Judge the answer that would finish the turn on its `halt` and `retry`
  * guardrails (`guardrailRetry`). Returns the messages that send it back,
@@ -160,7 +166,7 @@ export function buildBudgetCheckHandler(ctx: TurnContext): NodeHandler {
 async function judgeInLoop(
   ctx: TurnContext,
   kctx: NodeContext,
-  answer: ModelMessage,
+  answer: Answer,
   sent: readonly ModelMessage[],
   maxSteps: number,
 ): Promise<readonly ModelMessage[] | undefined> {
@@ -174,7 +180,7 @@ async function judgeInLoop(
   if (judged.kind === 'sent-back') return judged.messages;
   ctx.answerJudgedInLoop = {
     iteration,
-    message: JSON.stringify(answer),
+    message: JSON.stringify(answer.message),
     errors: judged.errors,
   };
   return undefined;
@@ -198,8 +204,10 @@ function loopIteration(kctx: NodeContext, ctx: TurnContext): number {
  * messages (the answer, then a note with the guardrails' reasons) while
  * each such guardrail has attempts left (`retry.maxAttempts`, answers in
  * all, the first one included) and the turn has steps left; otherwise the
- * turn fails with `guardrail-violation`, with the answers it wrote.
- * `passed`: the answer passed them, with the checks that couldn't run.
+ * turn fails with `guardrail-violation`, with the answers it wrote; the
+ * answer that fails it has its checks in provenance, as the outer gate's
+ * final answer does. `passed`: the answer passed them, with the checks
+ * that couldn't run.
  * Each answer's outcomes go to the ledger under this step and its
  * iteration (`budget-check@2`), so one answer's never replace another's.
  */
@@ -207,7 +215,7 @@ async function guardrailRetry(
   ctx: TurnContext,
   kctx: NodeContext,
   iteration: number,
-  answer: ModelMessage,
+  answer: Answer,
   sent: readonly ModelMessage[],
   budget: { readonly stepsLeft: boolean },
 ): Promise<
@@ -216,7 +224,7 @@ async function guardrailRetry(
 > {
   const guardrails = (ctx.guardrails ?? []).filter(judgedInLoop);
   const evaluatedAt = new Date().toISOString() as Timestamp;
-  const categorized = await judgeAnswer(ctx, kctx, answer, guardrails, evaluatedAt);
+  const categorized = await judgeAnswer(ctx, kctx, answer.message, guardrails, evaluatedAt);
   const halted = categorized.blocking.length > 0 || categorized.blockingErrors.length > 0;
   const notes = turnRetryNotes(ctx, sent);
   const sentBack = sentBackSoFar(notes);
@@ -239,14 +247,17 @@ async function guardrailRetry(
     stepId,
   );
   await emitGateEvents(ctx, categorized);
-  if (halted) {
-    return failTurn(ctx, categorized.blocking, categorized.blockingErrors, categorized.errors);
-  }
-  if (outOfAttempts.length > 0) {
-    return failTurn(ctx, outOfAttempts, [], categorized.errors, notes.length + 1);
+  if (halted || outOfAttempts.length > 0) {
+    // The answer that fails the turn is its final one: it and its checks
+    // go in provenance, as the outer gate's do.
+    addModelOutputNode(ctx, answer.provider, evaluatedAt);
+    addCheckNodes(ctx, violationsOf(categorized), categorized.errors, notes, evaluatedAt);
+    return halted
+      ? failTurn(ctx, categorized.blocking, categorized.blockingErrors, categorized.errors)
+      : failTurn(ctx, outOfAttempts, [], categorized.errors, notes.length + 1);
   }
   if (categorized.retry.length === 0) return { kind: 'passed', errors: categorized.errors };
-  return { kind: 'sent-back', messages: [...sent, answer, retryNote(categorized.retry)] };
+  return { kind: 'sent-back', messages: [...sent, answer.message, retryNote(categorized.retry)] };
 }
 
 /**

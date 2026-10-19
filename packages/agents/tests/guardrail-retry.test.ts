@@ -387,6 +387,47 @@ describe('budget-check with a retry guardrail', () => {
     ]);
   });
 
+  test("a turn it fails has the failing answer's checks in provenance, as a turn failed after the loop has", async () => {
+    const ids = (seen: Seen) => seen.nodes.map((n) => n.id);
+    // The same halt in a turn without a retry guardrail: the outer gate adds its node.
+    const outer = turn([HALT('acme.polite', 'acme.no-rude')]);
+    const last = await check(outer.ctx, 0, 'You rude one.');
+    await failureOf(() =>
+      buildEvaluateGuardrailsHandler(outer.ctx)(loopOutput(last, 1), outerStep()),
+    );
+    expect(ids(outer.seen)).toEqual(['model-output:1', 'guardrail-check:acme.polite']);
+    // With a retry guardrail, budget-check fails the turn on it, and adds the same nodes.
+    const halted = turn([
+      RETRY('acme.discreet', 'acme.no-secret', 3),
+      HALT('acme.polite', 'acme.no-rude'),
+    ]);
+    await failureOf(() => check(halted.ctx, 0, 'You rude one.'));
+    expect(ids(halted.seen)).toEqual(ids(outer.seen));
+    // A halt check that can't run: its node says so.
+    const errored = turn([
+      RETRY('acme.discreet', 'acme.no-secret', 3),
+      HALT('acme.polite', 'acme.not-registered'),
+    ]);
+    await failureOf(() => check(errored.ctx, 0, 'It shipped.'));
+    expect(errored.seen.nodes).toEqual([
+      expect.objectContaining({ id: 'model-output:1' }),
+      expect.objectContaining({
+        id: 'guardrail-check:acme.polite',
+        attributes: expect.objectContaining({ evaluated: false }),
+      }),
+    ]);
+    // Out of attempts: the failed check, and the answer it sent back before.
+    const retried = turn([RETRY('acme.discreet', 'acme.no-secret', 2)]);
+    const first = await check(retried.ctx, 0, 'The secret is 42.');
+    expect(ids(retried.seen)).toEqual([]);
+    await failureOf(() => check(retried.ctx, 1, 'Still secret.', first.nextMessages));
+    expect(ids(retried.seen)).toEqual([
+      'model-output:2',
+      'guardrail-check:acme.discreet',
+      'guardrail-check:acme.discreet:sent-back:1',
+    ]);
+  });
+
   test("attempts are each guardrail's: one that fixes the first and breaks the second sends it back again", async () => {
     const { ctx } = turn([
       RETRY('acme.discreet', 'acme.no-secret', 2),

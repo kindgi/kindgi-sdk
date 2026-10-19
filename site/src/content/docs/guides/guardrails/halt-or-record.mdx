@@ -333,10 +333,10 @@ the guardrail's node, with `evaluated: false`. The run journal's
 
 In a turn with a `retry` guardrail, its `halt` and `retry` guardrails check
 each answer in the agent loop's `budget-check` step. A `halt` error there
-fails that step, and the journal has it there. An error on an answer that's
-sent back is in the guardrail's
-[outcomes](#how-a-guardrail-is-doing), as `errored`, but not in provenance
-or under `errors`: those show the answer that's sent.
+fails that step: provenance has the guardrail's node, as above, and the
+journal has the error on that step. An error on an answer that's sent back
+is in the guardrail's [outcomes](#how-a-guardrail-is-doing), as `errored`,
+but not in provenance or under `errors`: those show the answer that's sent.
 
 ## Severity
 

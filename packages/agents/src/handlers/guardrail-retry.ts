@@ -5,7 +5,7 @@ import type { ModelMessage } from '@kindgi/capabilities';
 import type { EvaluationResult, Guardrail } from '@kindgi/guardrails';
 
 import type { TurnContext } from './context.js';
-import { throwAgentTurnFailure } from './errors.js';
+import { loopMessages } from './history.js';
 
 /**
  * A `retry` guardrail's attempts when it gives none (`action.retry`
@@ -64,9 +64,7 @@ export function retryNotes(messages: readonly ModelMessage[]): readonly (readonl
 
 /**
  * The notes this turn's loop added to `messages`, the messages a step
- * of the loop sent: those after the loop's initial ones
- * (`ctx.initialMessageCount`, the system message, the history, the
- * memory and the person's message). A message of the person's, this
+ * of the loop sent (`loopMessages`). A message of the person's, this
  * turn's or one in the history, that starts with the marker is theirs,
  * and counts for nothing. What the loop's attempts, the outer node's
  * sent-back provenance and a failure's `attempts` all count.
@@ -75,15 +73,7 @@ export function turnRetryNotes(
   ctx: TurnContext,
   messages: readonly ModelMessage[],
 ): readonly (readonly string[])[] {
-  const start = ctx.initialMessageCount;
-  if (start === undefined) {
-    throwAgentTurnFailure({
-      code: 'model-invocation-failed',
-      message: "a guardrail's notes were read before build-initial-messages completed",
-      cause: null,
-    });
-  }
-  return retryNotes(messages.slice(start));
+  return retryNotes(loopMessages(ctx, messages, "a guardrail's notes"));
 }
 
 function idsOf(line: string): string[] {
